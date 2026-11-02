@@ -373,7 +373,7 @@ pub(crate) fn is_fn_role_slot(ty: &str) -> bool {
 pub(crate) const UNWIND_PROFILE_HEADER: &str = "// LOGOS Rust runtime: unwind-v1\n";
 
 /// The panic strategy of a generated program's release build: `unwind` for one that opens with
-/// [`UNWIND_PROFILE_HEADER`], `abort` for every other, whose failure hook reports and ends it. Every project writer
+/// `UNWIND_PROFILE_HEADER`, `abort` for every other, whose failure hook reports and ends it. Every project writer
 /// takes it from here.
 pub fn release_panic_strategy(rust_code: &str) -> &'static str {
     if rust_code.starts_with(UNWIND_PROFILE_HEADER) {

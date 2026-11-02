@@ -1104,7 +1104,7 @@ pub fn from_scale(
     )
 }
 
-/// `y = C·tanh(x/C)` — each element soft-capped ([`capped`]'s form: one exponential and one reciprocal).
+/// `y = C·tanh(x/C)` — each element soft-capped (`capped`'s form: one exponential and one reciprocal).
 pub fn from_softcap(
     spec: &SoftcapSpec,
     names: &StageNames,
@@ -9282,7 +9282,7 @@ fn moe_gated(act: crate::tensor_recognize::qwen::MoeAct, gate: Box<TensorBody>, 
 /// and weights the unchosen ones by zero (a mask the VM can run); a chip that did the same would stream all
 /// `ne` experts' weights to use `k` of them. Expert `b`'s gate row `o` lives at `(b·dff + o)·d + t` — the
 /// affine `o·d + t` past its run's first element `b·(dff·d)` — so each round loads the whole tiles around its
-/// expert's run of each table and reads the run at its offset in the page ([`ExpertTable`]): `k` runs move,
+/// expert's run of each table and reads the run at its offset in the page (`ExpertTable`): `k` runs move,
 /// and an expert index past the table faults. A table no more tiles than its `k` windows loads once, and the
 /// rounds read their runs out of it through an [`IndirectTerm`] of stride the run and extent `ne`.
 ///

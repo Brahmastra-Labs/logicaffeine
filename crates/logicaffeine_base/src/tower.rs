@@ -230,7 +230,7 @@ pub enum HyperForm {
     Multi(Multi),
     /// An infinite integer of several infinitesimals — `⌊1/dt + 1/dx⌋`, a step count of `⌈1/(dt·dx)⌉`: a
     /// value of several that is a polynomial in their reciprocals with rational coefficients and an
-    /// integer on every class the facts its scales carry admit ([`Multi::is_integral`]), as a polynomial
+    /// integer on every class the facts its scales carry admit (`Multi::is_integral`), as a polynomial
     /// in one infinitesimal's reciprocal that is one is an infinite integer of it. It computes and
     /// compares as the value it is, and prints as an infinite integer does.
     Integer(Multi),

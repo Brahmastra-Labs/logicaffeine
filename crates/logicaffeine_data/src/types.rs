@@ -813,7 +813,7 @@ impl LogosBits {
     /// Store `value` at the `count` offsets `first`, `first + step`, `first + 2 * step`, ….
     ///
     /// A step of a word or more puts each offset in a word of its own, and a handful of offsets cost no more one at a
-    /// time; both store in place. Otherwise [`Self::fill_stride_words`] writes each word the progression crosses once,
+    /// time; both store in place. Otherwise `Self::fill_stride_words` writes each word the progression crosses once,
     /// out of line, so a loop that fills now and then keeps none of the walk's state in its own registers.
     ///
     /// # Safety

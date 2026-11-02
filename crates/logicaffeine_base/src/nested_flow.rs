@@ -9,7 +9,7 @@
 //! part relative to the larger infinitesimals is `e^{T·A_q}·x₀`, the inner limit. Without commuting
 //! terms, the orders below the first nonzero `C_j` are known, and the rest refused by name.
 //!
-//! **The exponential of a matrix of non-standard rates** ([`matrix_exp`]) is read one infinitesimal at a
+//! **The exponential of a matrix of non-standard rates** (`matrix_exp`) is read one infinitesimal at a
 //! time: with `A(ε) = Σ ε^j·B_j` in the smallest infinitesimal its entries hold, the block upper-
 //! triangular Toeplitz matrix of `B_0, …, B_m` has as exponential the Toeplitz matrix of the first
 //! `m + 1` coefficients of `e^{T·A(ε)}` (Van Loan), so each coefficient is the corner block of the

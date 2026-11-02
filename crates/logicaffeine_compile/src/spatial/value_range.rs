@@ -492,7 +492,7 @@ fn stage_effect(p: &SpatialProgram, si: usize, ins: &[Option<Interval>]) -> (Opt
 /// its precision holds, since its contents may come from outside the program; an activation or a result empty, as a
 /// run starts it — a section reading it before its producer stored it faults. Every stage then carries
 /// its inputs' intervals to its outputs: a load reads its tensor, a receive its sender's page, a store joins its page
-/// into its tensor, and a compute stage writes what [`stage_effect`] proves. The walk repeats until no interval widens; a
+/// into its tensor, and a compute stage writes what `stage_effect` proves. The walk repeats until no interval widens; a
 /// buffer still widening after every walk holds every value of i64. A tensor with a declared range keeps the narrower of
 /// it and what its stores prove — both hold every value it takes — and holds it as its precision stores it: an interval
 /// past the precision wraps to every value the precision holds. A load whose tensor ends inside a tile holds the tile's

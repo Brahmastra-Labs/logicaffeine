@@ -7,7 +7,7 @@
 //! sequence's numbers never depend on what else rides the batch.
 //!
 //! The matrices run as the array runs them: a block-format row's exact sums against its activations quantized as the
-//! knob names, per 32 elements or per the matrix's own block ([`numerics::dot`]), an f32 matrix's dot in the vector
+//! knob names, per 32 elements or per the matrix's own block (`numerics::dot`), an f32 matrix's dot in the vector
 //! units' lanes.
 //!
 //! A step is the checkpoint's program at the model's knob point ([`super::program::lower`]: the model's one program,

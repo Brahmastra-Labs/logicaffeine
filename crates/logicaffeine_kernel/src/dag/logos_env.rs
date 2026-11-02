@@ -620,7 +620,7 @@ fn judge_axiom(
 }
 
 /// The definition a door of `ctx` puts to the core: its terms as `ctx` stores them
-/// ([`Context::stored_term`]) and the telescope the door gives it, the stated one or the level
+/// (`Context::stored_term`) and the telescope the door gives it, the stated one or the level
 /// variables of the stored type and then of the body (`term`'s rules 1 and 4).
 pub fn candidate_definition(
     ctx: &Context,

@@ -331,7 +331,7 @@ module logos_attend_int8 #(parameter HD = 64, VD = 64, P_MAX = 64)
 endmodule
 "#;
 
-/// `logos_attend_int8_p`, [`ATTEND_INT8_VERILOG`]'s unit for the user clock, with the units it is built from.
+/// `logos_attend_int8_p`, `ATTEND_INT8_VERILOG`'s unit for the user clock, with the units it is built from.
 pub fn attend_int8_p_verilog() -> String {
     use super::fp32::{FADD_LATENCY, FMUL_LATENCY, TREE16_LATENCY};
     use super::vector::{EXP_LATENCY, RECIP_LATENCY};

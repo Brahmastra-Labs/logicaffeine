@@ -205,7 +205,7 @@ fn shape_digest(src: &str, stored: &BTreeSet<String>) -> [u8; 32] {
 }
 
 /// The renaming that turns program `from` into program `to`, bound name by bound name, when they share a
-/// [`shape_digest`]: the tokens aligned position by position, every word but a bound name kept exactly. `None` when they
+/// `shape_digest`: the tokens aligned position by position, every word but a bound name kept exactly. `None` when they
 /// are not one program up to the names they bind.
 pub fn renaming(from: &str, to: &str) -> Option<std::collections::BTreeMap<String, String>> {
     let (a, b) = (tokens(from), tokens(to));
@@ -233,7 +233,7 @@ pub fn renaming(from: &str, to: &str) -> Option<std::collections::BTreeMap<Strin
 
 /// The model's layer kinds, in the order their first layer appears: each kind's name and its layers. Two layers are of
 /// one kind when their authored programs (`source_of`: the text, and the weights it reads as stored Q8_0) are one
-/// program up to the names they give — the same [`shape_digest`] — so one lowered program serves both, bound to each
+/// program up to the names they give — the same `shape_digest` — so one lowered program serves both, bound to each
 /// layer's own tensors by the [`renaming`] between their programs.
 pub fn layer_kinds(spec: &ModelSpec, source_of: &dyn Fn(usize) -> (String, BTreeSet<String>)) -> Vec<(String, Vec<usize>)> {
     let mut kinds: Vec<([u8; 32], Vec<usize>)> = Vec::new();

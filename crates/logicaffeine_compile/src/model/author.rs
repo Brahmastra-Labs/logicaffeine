@@ -1265,7 +1265,7 @@ pub type TpAuthored = (
     TpManifest,
 );
 
-/// Can `spec` be split over `tp` chips? At any width of at least one chip ([`share`]), when every attention is
+/// Can `spec` be split over `tp` chips? At any width of at least one chip (`share`), when every attention is
 /// unbiased and sinkless and every FFN is dense (its columns split; an expert mixture would split by experts).
 pub fn check_tp(spec: &ModelSpec, tp: usize) -> Result<(), NotYet> {
     check(spec)?;

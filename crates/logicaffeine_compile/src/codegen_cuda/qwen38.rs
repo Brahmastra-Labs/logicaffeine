@@ -187,7 +187,7 @@ impl Qwen38Cfg {
         (0..self.layers).filter(|&l| self.is_attn(l)).count()
     }
 
-    /// The model this configuration describes, as a [`ModelSpec`]: every `full_attn_every`-th layer gated attention
+    /// The model this configuration describes, as a `ModelSpec`: every `full_attn_every`-th layer gated attention
     /// (partial NEOX rotation, QK-norm, a sigmoid output gate), the rest Gated DeltaNet, each with a dense SiLU FFN.
     pub fn spec(&self) -> crate::model::spec::ModelSpec {
         self.spec_of(self.layers)

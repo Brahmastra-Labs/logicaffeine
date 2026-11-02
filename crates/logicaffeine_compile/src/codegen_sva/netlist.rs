@@ -4,7 +4,7 @@
 //! [`synthesize`] elaborates one top module with its parameters set ([`script`]), flattens it, maps memories to
 //! flip-flops, and writes two views: the word-level netlist as yosys JSON, read here for its clock domains, and the
 //! bit-level circuit as ASCII AIGER, read by [`Aig::parse`]. Nothing in the script rewrites logic: no `opt_expr`, no
-//! `abc`; every multiplier is lowered by one fixed map ([`CANONICAL_MUL`]), so a product is the same circuit in every
+//! `abc`; every multiplier is lowered by one fixed map (`CANONICAL_MUL`), so a product is the same circuit in every
 //! design that computes it; cells computing one thing from the same signals are merged first (`opt_merge`), once
 //! every undefined bit is a cell of its own, so a design computing a product many times lowers it once. An undefined
 //! bit (`'x`, an unassigned branch) becomes a free input (`setundef -anyseq`), so a proof holds
@@ -729,7 +729,7 @@ pub fn synthesize_reading(verilog: &str, top: &str, params: &[(&str, &str)], und
 }
 
 /// An instance of a unit cut out of a design ([`synthesize_cut`]): its flattened name, its module, the parameters it
-/// gives its module (by name, each value in one spelling, [`rtlil_value`]; every one it leaves is the module's
+/// gives its module (by name, each value in one spelling, `rtlil_value`; every one it leaves is the module's
 /// default), and its input and output ports with their widths, in the order the netlist lists them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnitInstance {

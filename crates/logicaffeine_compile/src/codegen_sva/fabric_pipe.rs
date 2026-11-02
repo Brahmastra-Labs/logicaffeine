@@ -453,7 +453,7 @@ pub const DECISION_CELLS_BUDGET: f64 = 30.0;
 
 /// A decision fabric ([`decision_fabric_from_source`](super::fabric_rtl::decision_fabric_from_source): arithmetic
 /// cells and compare-selects) as a residual in the pipeline's op vocabulary, and the index of its result. A compare
-/// becomes the mask of its outcome, all ones or zero ([`compare_mask`]); a select is `e ^ ((t ^ e) & mask)`. Every op is
+/// becomes the mask of its outcome, all ones or zero (`compare_mask`); a select is `e ^ ((t ^ e) & mask)`. Every op is
 /// emitted once, so a predicate many selects test has one mask. A fabric with any other cell (a functional unit, a
 /// memory or heap tile) has no combinational form and is refused.
 pub fn decision_ops(df: &DecisionFabric) -> Result<(Vec<FabricOp>, usize), String> {

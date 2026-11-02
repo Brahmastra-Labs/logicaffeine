@@ -156,7 +156,7 @@ impl TensorTable {
         TensorTable::from_rows(blocks.saturating_sub(h.meta_u64("nextn_predict_layers").unwrap_or(0)), rows)
     }
 
-    /// The order a pass reads the tensors: the embedding table, each of the step's blocks as [`BLOCK_READS`] lists
+    /// The order a pass reads the tensors: the embedding table, each of the step's blocks as `BLOCK_READS` lists
     /// it, the output norm and the head (a head tied to the embedding table reads the table already placed), then
     /// every tensor the step does not read, in the table's order.
     pub fn read_order(&self) -> Vec<usize> {

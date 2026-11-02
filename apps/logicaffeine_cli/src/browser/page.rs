@@ -1476,7 +1476,7 @@ impl Page {
     ///
     /// Chrome reports the budget spent as its clock reaches the end and pauses the clock there,
     /// fencing the page's timer queues, so work that falls due at that instant can be left behind
-    /// the fence. The advance ends in [`Page::run_held_tasks`], whose clock moves only once nothing
+    /// the fence. The advance ends in `run_held_tasks`, whose clock moves only once nothing
     /// is left to run: every task due by the end has run when this returns. A zero advance is that
     /// alone, since Chrome reports no budget spent that it was never given.
     pub fn advance(&self, ms: u64) -> Result<(), BrowserError> {

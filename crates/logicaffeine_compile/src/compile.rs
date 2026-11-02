@@ -13555,7 +13555,7 @@ pub extern "C" fn logos_pe_free(ptr: *mut u8, len: usize) {
 "#;
 
 /// The PE cdylib's `lib.rs`: [`pe_cdylib_source`] through the Rust emitter, under the reference
-/// collection semantics, followed by [`PE_CDYLIB_SHIM`].
+/// collection semantics, followed by `PE_CDYLIB_SHIM`.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn native_pe_cdylib_lib_rs() -> Result<String, String> {
     let generated = with_reference_semantics(|| compile_program_full_with_wire(&pe_cdylib_source()))

@@ -445,39 +445,39 @@ pub const REGISTERS: [Register; 18] = [
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Op {
     Nop,
-    /// Every channel in mask ARG0 writes ARG2[31:0] lines from line ARG1, line L the pattern seeded ARG2[63:32].
+    /// Every channel in mask ARG0 writes ARG2\[31:0\] lines from line ARG1, line L the pattern seeded ARG2\[63:32\].
     Fill,
     /// Every channel in the mask reads those lines back; RESULT0 the lines that differ.
     Check,
-    /// ARG2[31:0] host lines from host line ARG0 into channel ARG1[63:56] at line ARG1[26:0], zero-extended.
+    /// ARG2\[31:0\] host lines from host line ARG0 into channel ARG1\[63:56\] at line ARG1\[26:0\], zero-extended.
     HostToMem,
     /// The reverse, a channel line truncated to a host line; complete when every host write burst is acknowledged.
     MemToHost,
-    /// ARG2[31:0] channel lines of the channel's full width into channel ARG1[63:56] at line ARG1[26:0], read packed end
+    /// ARG2\[31:0\] channel lines of the channel's full width into channel ARG1\[63:56\] at line ARG1\[26:0\], read packed end
     /// to end from host line ARG0 on: ceil(lines × line bits / 512) host lines, the bytes past the last channel line
     /// unused.
     HostToMemPacked,
     /// The reverse: the channel lines packed end to end into host lines from ARG0, the last host line zero past them;
     /// complete when every host write burst is acknowledged.
     MemToHostPacked,
-    /// On SECDED lines: the next ARG2[31:0] lines written to each channel in mask ARG0 have bus bits ARG1[9:0] and
-    /// ARG1[25:16] flipped after they are coded, one bit when the two are equal; complete at once.
+    /// On SECDED lines: the next ARG2\[31:0\] lines written to each channel in mask ARG0 have bus bits ARG1\[9:0\] and
+    /// ARG1\[25:16\] flipped after they are coded, one bit when the two are equal; complete at once.
     Inject,
-    /// On SECDED lines: RESULT0 = {words found uncorrectable, words corrected} of channel ARG0[7:0] since reset, each
+    /// On SECDED lines: RESULT0 = {words found uncorrectable, words corrected} of channel ARG0\[7:0\] since reset, each
     /// counted modulo 2^32, so a host's difference of two reads is exact; complete at once.
     EccCounts,
-    /// With the engine: its configuration a program keeps — ARG0[15:0] the token-rows of a step, ARG0[19:16] {per-block
-    /// scaling, two words, an int8 cache, an f16 state} — and the card port's map: ARG1[31:0] the granule space's first
-    /// logical line, ARG2[26:0] the channel line it starts at, ARG2[60:56] log2 of a granule's lines; complete at once.
+    /// With the engine: its configuration a program keeps — ARG0\[15:0\] the token-rows of a step, ARG0\[19:16\] {per-block
+    /// scaling, two words, an int8 cache, an f16 state} — and the card port's map: ARG1\[31:0\] the granule space's first
+    /// logical line, ARG2\[26:0\] the channel line it starts at, ARG2\[60:56\] log2 of a granule's lines; complete at once.
     EngineConfig,
-    /// With the engine: ARG2[31:0] host lines from host line ARG0 into the engine's table ARG1[34:32] from entry
-    /// ARG1[31:0] on, one entry a line ([`crate::spatial::decode_engine::rtl::engine::Tables`]; table 6 the store).
+    /// With the engine: ARG2\[31:0\] host lines from host line ARG0 into the engine's table ARG1\[34:32\] from entry
+    /// ARG1\[31:0\] on, one entry a line ([`crate::spatial::decode_engine::rtl::engine::Tables`]; table 6 the store).
     EngineTable,
-    /// With the engine: a step, the jobs from word ARG0[31:0] to word ARG1[31:0], the card port holding the channels;
-    /// complete when the engine is idle again, RESULT0 = {the word the sequencer reached [63:32], the card port's fault
-    /// [1], the engine's fault [0]}.
+    /// With the engine: a step, the jobs from word ARG0\[31:0\] to word ARG1\[31:0\], the card port holding the channels;
+    /// complete when the engine is idle again, RESULT0 = {the word the sequencer reached \[63:32\], the card port's fault
+    /// \[1\], the engine's fault \[0\]}.
     EngineRun,
-    /// With the engine: ARG2[31:0] beats of its store from beat ARG1[31:0] into host lines from ARG0; complete when every
+    /// With the engine: ARG2\[31:0\] beats of its store from beat ARG1\[31:0\] into host lines from ARG0; complete when every
     /// host write burst is acknowledged.
     StoreRead,
 }

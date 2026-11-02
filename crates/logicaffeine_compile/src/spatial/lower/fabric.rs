@@ -4,23 +4,23 @@
 //! module holding its tensor memories, its page FIFOs, its semaphores and its engines; an engine is a module printed
 //! once per engine-program class and instantiated per site with the site's work as parameters; a multicast group is one
 //! bus at the top; a tile matmul is the proven loadable weight-stationary PE array shaped to the block, and a matmul of
-//! one row — a matrix-vector product — multiplies each operand element as it lands instead ([`Ctx::matvec`]). The
+//! one row — a matrix-vector product — multiplies each operand element as it lands instead (`Ctx::matvec`). The
 //! discrete-event twin (`fabric_cycle_model`) walks the same micro-programs with the same durations and stall rules, so
 //! its count IS the RTL's count.
 //!
 //! A FIFO is its control — counts, reservations, the slot it reads — and its pages live in one of its site's pools: the
 //! buffers of one phase take pools 0, 1, 2, …, so a site has as many page memories as its busiest phase has buffers
-//! ([`site_pools`]).
+//! (`site_pools`).
 //!
 //! A site's memories interleave their elements over [`SpatialProgram::mem_banks`] banks, and a page starts on a word. A
 //! run of `w` elements from a multiple of `w` — a tile row, a page's span, an accumulator row's columns — moves in one
 //! cycle, each bank at the one row every bank of the port shares. A walk moves the widest run every row it starts is
-//! aligned to in each memory it touches ([`Ctx::run`]), and each port carries only the run widths its ops move
-//! ([`port_widths`]), so no port rotates a lane past its own word.
+//! aligned to in each memory it touches (`Ctx::run`), and each port carries only the run widths its ops move
+//! (`port_widths`), so no port rotates a lane past its own word.
 //!
 //! The Generic unit is a vector unit as wide as those runs: an op takes a run of one axis's coordinates a point, a lane a
 //! coordinate, where its slots read that axis as runs or as one element, and a slot that gathers reads, in each lane, the
-//! element its own index names through a read port of its own ([`lanes_of`], [`gather_lanes`]). A reduced lane axis folds its
+//! element its own index names through a read port of its own (`lanes_of`, `gather_lanes`). A reduced lane axis folds its
 //! lanes through a tree into the op's own fold; a parallel one keeps a fold per lane and writes a run of columns. A site
 //! of one bank prints the scalar unit, byte for byte.
 //!
@@ -1929,7 +1929,7 @@ fn cycle_floor(ctx: &Ctx, plans: &[EnginePlan]) -> u64 {
 // ── Element layout ────────────────────────────────────────────────────────────────────────────────────────
 
 /// The word of a site's image of `t` that holds element `(i, j)` — tiles in row-major order, a row of tiles at the
-/// tensor's pitch ([`tensor_pitch`]), each tile's elements row-major within it — and so the address a host writes or
+/// tensor's pitch (`tensor_pitch`), each tile's elements row-major within it — and so the address a host writes or
 /// reads that element at.
 pub fn host_word(p: &SpatialProgram, t: &TensorDecl, i: usize, j: usize) -> usize {
     word_at(p, tensor_pitch(p, t), i, j)
@@ -2790,7 +2790,7 @@ fn ring_wrap(v: &str, depth: usize, hi: usize) -> String {
 
 /// A page FIFO's control, module `name`: `depth` pages, and the reservations, pushes, waits and pops that are the IR's
 /// ops — `free`, `count`, the slot the next fill takes and the slot the next read takes. Its pages live in the pool
-/// memory its phase colors it into ([`site_pools`]).
+/// memory its phase colors it into (`site_pools`).
 pub fn fifo_control_verilog(name: &str, depth: usize) -> String {
     let (sw, cw) = (bits_for(depth), bits_for(depth + 1));
     // The read slot plus a count or a pop: below twice the depth.

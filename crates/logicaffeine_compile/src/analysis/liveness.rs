@@ -16,7 +16,7 @@ use crate::optimize::Mentions;
 /// if a variable is not live after the statement, the old value is never read again and ownership can be
 /// transferred. A move on a variable wrongly thought dead breaks the program, so the analysis errs toward "live": a
 /// statement kind it has no case for uses every name it touches (the optimizer's one exhaustive walk,
-/// [`crate::optimize::Mentions`]), foreign code uses every name, and a loop body's end sees what the next iteration
+/// `crate::optimize::Mentions`), foreign code uses every name, and a loop body's end sees what the next iteration
 /// needs.
 pub struct LivenessResult {
     functions: HashMap<Symbol, FunctionLiveness>,

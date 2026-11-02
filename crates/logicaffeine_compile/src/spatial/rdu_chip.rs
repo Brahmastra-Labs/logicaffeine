@@ -284,8 +284,8 @@ pub struct RduChipFacts {
 }
 
 /// How every capacity is read: as the vendor counts it, in powers of two. SambaNova states 1040 PMUs of 512 KB and 520 MB
-/// of SRAM [DIAYN26], which agree only when a MB is 1024 KB; the SN40L paper writes the same figures as MiB, GiB and TiB
-/// in its prose and as MB, GB and TB in its table [SN40L24]; an HBM2E stack holds 16 GiB.
+/// of SRAM \[DIAYN26\], which agree only when a MB is 1024 KB; the SN40L paper writes the same figures as MiB, GiB and TiB
+/// in its prose and as MB, GB and TB in its table \[SN40L24\]; an HBM2E stack holds 16 GiB.
 pub const BINARY: &str = "read in powers of two, as the vendor counts (1040 PMUs × 512 KB = 520 MB [DIAYN26])";
 
 const WITNESSED: &[Precision] = &[Precision::Int8, Precision::Bf16];

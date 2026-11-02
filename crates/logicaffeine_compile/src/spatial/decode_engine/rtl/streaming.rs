@@ -263,7 +263,7 @@ pub fn streaming_verilog(sets: &[ColumnSet], layout: &ImageLayout) -> String {
 }
 
 /// [`streaming_verilog`] with each unit folding a job's sums into its output slot over `folds` fold lanes, 1, 2, 4, 8
-/// or 16 ([`fold_unit`]); 0 a unit that writes each sum as it is, [`streaming_verilog`]'s.
+/// or 16 (`fold_unit`); 0 a unit that writes each sum as it is, [`streaming_verilog`]'s.
 pub fn streaming_verilog_folding(sets: &[ColumnSet], layout: &ImageLayout, folds: usize) -> String {
     assert!(folds == 0 || [1, 2, 4, 8, 16].contains(&folds), "a fold over 1, 2, 4, 8 or 16 lanes, not {folds}");
     let mut v = format!(

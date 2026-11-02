@@ -27,7 +27,7 @@ pub use runtime::RISCV_RUNTIME_C;
 pub(crate) const VALUE_RUNTIME_SYMBOL: &str = "logos_links_value_runtime";
 
 /// Whether the RV64GC assembly `asm` links the exact extension's value runtime: it defines
-/// [`VALUE_RUNTIME_SYMBOL`].
+/// `VALUE_RUNTIME_SYMBOL`.
 pub fn links_value_runtime(asm: &str) -> bool {
     asm.lines().any(|line| line.strip_suffix(':') == Some(VALUE_RUNTIME_SYMBOL))
 }

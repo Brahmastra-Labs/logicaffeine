@@ -2620,7 +2620,7 @@ impl OracleFacts {
     }
 
     /// Whether `index` names an item of `collection` on EVERY run: a construct of
-    /// the compile proved it ([`super::facts::Fact::InBounds`]), or
+    /// the compile proved it (`super::facts::Fact::InBounds`), or
     /// [`Self::index_provably_in_bounds`] holds with no precondition. The one
     /// question an access that nothing checks rests on.
     pub fn index_always_in_bounds(&self, collection: &Expr, index: &Expr) -> bool {

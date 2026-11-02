@@ -616,7 +616,7 @@ impl Multi {
     /// polynomial with its coefficients as they are, `(1/2)·dt + dx`, and any other value as a fraction
     /// of polynomials with coprime integer coefficients where every coefficient is rational,
     /// `dx/(2·dt)`. An infinite integer prints as one of one infinitesimal does, a sum of reciprocals
-    /// ([`Multi::render_reciprocals`]), wherever it is printed — alone, under a radical, as a
+    /// (`Multi::render_reciprocals`), wherever it is printed — alone, under a radical, as a
     /// coefficient.
     pub fn render(&self) -> String {
         if let Multi::Alg(a) = self {

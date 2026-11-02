@@ -2190,7 +2190,7 @@ enum Exit<V> {
 
 /// How many passes `While <guard>:` makes when each pass adds `step` to its counter, from `t0`: the
 /// first natural `k` at which the guard fails at `t0 + k·step`. The guard compares terms linear in
-/// the counter (the formula [`Guard::read`] takes), so its truth can change only where one of them
+/// the counter (the formula `Guard::read` takes), so its truth can change only where one of them
 /// crosses zero and otherwise repeats with the period of its remainders; its first failure lies at
 /// a crossing or within one period after one, and is found by evaluating the guard there alone.
 /// Where those points depend on the residue of the generator — `⌊1/(2·dt)⌋` — each class is read on

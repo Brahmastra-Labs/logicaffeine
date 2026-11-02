@@ -1339,7 +1339,7 @@ fn references_as_filter(source: &str, name: &str) -> bool {
 ///
 /// Reachability is seeded from the entry sections of `spliced` (the prelude-spliced source) and from
 /// every function a post-parse lowering calls — a `## Route` dispatcher's `pathOf`, a derived codec's
-/// `jsonQuote` — which [`synthesized_prelude_roots`] reads off `user_source`, the author's own text.
+/// `jsonQuote` — which `synthesized_prelude_roots` reads off `user_source`, the author's own text.
 /// Those calls are written by the compiler, so no scan of the source can see them; a pruner that
 /// dropped them would leave the lowering calling a function that is gone, which the bytecode compiler
 /// turns into an `Unknown function` failure at run time.
