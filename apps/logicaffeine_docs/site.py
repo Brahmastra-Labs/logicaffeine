@@ -69,6 +69,7 @@ KIND_LABELS = {
     "foreigntype": "extern type",
 }
 MARKDOWN_LINK = re.compile(r"\]\(([^)\s]+)\)")
+CODE_SPAN = re.compile(r"`[^`\n]*`")
 
 STYLE = """\
         body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; color: #222; }
@@ -731,8 +732,9 @@ def dangling(site):
 
 
 def check_map_links(origin, site, texts):
+    """Every link a map makes is a page the site ships. A link written as inline code is text, not a link."""
     for name, text in texts.items():
-        for url in MARKDOWN_LINK.findall(text):
+        for url in MARKDOWN_LINK.findall(CODE_SPAN.sub("", text)):
             if not url.startswith(origin + "/") or not served(site, unquote(url[len(origin):])):
                 raise Refused(f"{name} links {url}, a page the site does not ship")
 

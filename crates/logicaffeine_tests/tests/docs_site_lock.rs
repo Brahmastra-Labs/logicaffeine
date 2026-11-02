@@ -1539,3 +1539,15 @@ fn the_deploy_build_is_site_py_build_over_the_curated_crates() {
     );
     assert!(!code.contains("cp "), "rustdoc's output ships whole through site.py, never hand-picked");
 }
+
+/// A link written as inline code — `` `[Alias](URI)` ``, as a module documenting a syntax shows one — is text, not a link:
+/// the agent maps carry it as the docs wrote it, and the check that every map link is a page the site ships leaves it be.
+#[test]
+fn a_link_written_as_code_in_the_docs_is_not_a_link_the_site_must_ship() {
+    let fixture = Fixture::new();
+    fixture.write(
+        "crates/beta/src/lib.rs",
+        &format!("{BETA_LIB}\n/// Reads the `[Alias](URI)` lines of a file's first paragraph.\npub fn reads_links() {{}}\n"),
+    );
+    succeeded(&fixture.build(&["alpha", "beta"]));
+}
