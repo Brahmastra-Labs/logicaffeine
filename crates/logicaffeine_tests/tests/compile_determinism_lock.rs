@@ -25,7 +25,7 @@ mod program_corpus;
 use std::collections::BTreeMap;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::io::Write;
 
 use logicaffeine_compile::compile::compile_to_program_optimized;
 use logicaffeine_compile::vm::CompiledProgram;
@@ -85,8 +85,10 @@ fn compiled(source: &str) -> String {
     }
 }
 
-/// The child: compile every program in `LOGOS_DETERMINISM_IN` twice and write both renderings to
-/// `LOGOS_DETERMINISM_OUT`. Without those variables it is not a child and does nothing.
+/// The child: compile every program in `LOGOS_DETERMINISM_IN` twice and write both renderings, program by program,
+/// into the directory `LOGOS_DETERMINISM_OUT` — file `<n>` for the n-th program, its two renderings split by `\u{1f}\n`.
+/// Each rendering leaves the process as soon as it is made, so the child holds at most one program per thread, never the
+/// corpus. Without those variables it is not a child and does nothing.
 #[test]
 #[ignore]
 fn determinism_child() {
@@ -94,36 +96,31 @@ fn determinism_child() {
         return;
     };
     let text = std::fs::read_to_string(&input).expect("the program list");
-    let programs: Vec<(String, String)> = text
+    let programs: Vec<&str> = text
         .split("\n\u{1e}\n")
         .filter(|chunk| !chunk.is_empty())
-        .map(|chunk| {
-            let (id, source) = chunk.split_once('\n').expect("an id line");
-            (id.to_string(), source.to_string())
-        })
+        .map(|chunk| chunk.split_once('\n').expect("an id line").1)
         .collect();
+    let output = std::path::PathBuf::from(output);
+    std::fs::create_dir_all(&output).expect("the renderings directory");
     let twice = std::env::var("LOGOS_DETERMINISM_TWICE").as_deref() != Ok("0");
     std::panic::set_hook(Box::new(|_| {}));
     let next = AtomicUsize::new(0);
-    let results = Mutex::new(Vec::new());
     std::thread::scope(|s| {
         for _ in 0..threads() {
             s.spawn(|| loop {
                 let i = next.fetch_add(1, Ordering::SeqCst);
-                let Some((id, source)) = programs.get(i) else { break };
+                let Some(source) = programs.get(i) else { break };
                 let first = compiled(source);
-                let second = if twice { compiled(source) } else { first.clone() };
-                results.lock().unwrap().push((id.clone(), first, second));
+                let second = if twice { compiled(source) } else { String::new() };
+                let mut file = std::io::BufWriter::new(std::fs::File::create(output.join(i.to_string())).expect("a rendering file"));
+                file.write_all(first.as_bytes()).expect("write a rendering");
+                file.write_all("\u{1f}\n".as_bytes()).expect("write a rendering");
+                file.write_all(if twice { second.as_bytes() } else { first.as_bytes() }).expect("write a rendering");
+                file.flush().expect("write a rendering");
             });
         }
     });
-    let mut results = results.into_inner().unwrap();
-    results.sort_by(|a, b| a.0.cmp(&b.0));
-    let mut out = String::new();
-    for (id, first, second) in results {
-        out.push_str(&format!("\u{1e}{id}\n{first}\u{1f}\n{second}"));
-    }
-    std::fs::write(output, out).expect("write the renderings");
 }
 
 /// The program list the children read.
@@ -135,9 +132,9 @@ fn write_programs(programs: &[Program], dir: &std::path::Path) {
     std::fs::write(dir.join("programs"), list).expect("write the program list");
 }
 
-/// Run the child over the program list in a fresh process; its renderings by id, two per program (the
-/// second a recompile when `twice`, else the first again).
-fn child(dir: &std::path::Path, tag: &str, twice: bool) -> BTreeMap<String, (String, String)> {
+/// Run the child over the program list in a fresh process; the directory its renderings are in (see
+/// `determinism_child`), two per program: the second a recompile when `twice`, else the first again.
+fn child(dir: &std::path::Path, tag: &str, twice: bool) -> std::path::PathBuf {
     let input = dir.join("programs");
     let output = dir.join(format!("renderings-{tag}"));
     let status = Command::new(std::env::current_exe().expect("this test binary"))
@@ -150,15 +147,14 @@ fn child(dir: &std::path::Path, tag: &str, twice: bool) -> BTreeMap<String, (Str
         .status()
         .expect("the child starts");
     assert!(status.success(), "the child process {tag} finished");
-    let text = std::fs::read_to_string(&output).expect("the child's renderings");
-    text.split('\u{1e}')
-        .filter(|chunk| !chunk.is_empty())
-        .map(|chunk| {
-            let (id, rest) = chunk.split_once('\n').expect("an id line");
-            let (first, second) = rest.split_once("\u{1f}\n").expect("two renderings");
-            (id.to_string(), (first.to_string(), second.to_string()))
-        })
-        .collect()
+    output
+}
+
+/// The n-th program's two renderings in a child's directory, if the child wrote them.
+fn renderings(dir: &std::path::Path, n: usize) -> Option<(String, String)> {
+    let text = std::fs::read_to_string(dir.join(n.to_string())).ok()?;
+    let (first, second) = text.split_once("\u{1f}\n").expect("two renderings");
+    Some((first.to_string(), second.to_string()))
 }
 
 /// A rendering cut into its sections: the ops, the two maps, and each top-level field of the rest.
@@ -214,15 +210,15 @@ fn assert_deterministic(programs: Vec<Program>, name: &str, twice: bool) {
     let mut bad = Vec::new();
     let mut by_section: BTreeMap<String, Vec<String>> = BTreeMap::new();
     let mut compiled_count = 0;
-    for p in &programs {
-        let (Some((a1, a2)), Some((b1, b2))) = (a.get(&p.id), b.get(&p.id)) else {
+    for (n, p) in programs.iter().enumerate() {
+        let (Some((a1, a2)), Some((b1, b2))) = (renderings(&a, n), renderings(&b, n)) else {
             bad.push(format!("{} ({}): a child wrote no rendering", p.id, origin[p.id.as_str()]));
             continue;
         };
         if !a1.starts_with("does not compile") {
             compiled_count += 1;
         }
-        for (what, x, y) in [("within process a", a1, a2), ("within process b", b1, b2), ("across processes", a1, b1)] {
+        for (what, x, y) in [("within process a", &a1, &a2), ("within process b", &b1, &b2), ("across processes", &a1, &b1)] {
             let diffs = differences(x, y);
             if !diffs.is_empty() {
                 for (section, first) in &diffs {
