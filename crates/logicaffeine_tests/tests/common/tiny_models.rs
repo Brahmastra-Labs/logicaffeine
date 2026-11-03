@@ -685,11 +685,20 @@ pub fn checkpoint_meta(spec: &ModelSpec) -> Vec<(String, MetaValue)> {
 /// multiples of its scale 2⁻⁷ (exact in `f32`); a block of another quantized format holds seeded bytes with its scales
 /// set small and finite, so its values are the model's whatever the bits — the reference decodes the same bytes.
 pub fn write_checkpoint_as(spec: &ModelSpec, path: &Path, format_of: &dyn Fn(&str) -> GgmlType) {
+    write_tensors(spec, path, &checkpoint_meta(spec), format_of);
+}
+
+/// The checkpoint of `spec` with its tensors and no metadata at all — what a converter that writes no keys leaves, a
+/// file the spec reader cannot describe.
+pub fn write_bare_checkpoint(spec: &ModelSpec, path: &Path) {
+    write_tensors(spec, path, &[], &|name| if quantized(name) { GgmlType::Q8_0 } else { GgmlType::F32 });
+}
+
+fn write_tensors(spec: &ModelSpec, path: &Path, meta: &[(String, MetaValue)], format_of: &dyn Fn(&str) -> GgmlType) {
     let list = tensors(spec);
     let outs: Vec<TensorOut> =
         list.iter().map(|(name, dims)| TensorOut { name: name.clone(), dims: dims.clone(), ty: format_of(name) }).collect();
-    let meta = checkpoint_meta(spec);
-    gguf::write(path, &meta, &outs, |k| {
+    gguf::write(path, meta, &outs, |k| {
         let (name, dims) = &list[k];
         let n = dims.iter().product::<u64>() as usize;
         Ok(match outs[k].ty {

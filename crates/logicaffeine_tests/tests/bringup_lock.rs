@@ -101,8 +101,7 @@ fn a_chip_that_does_not_run_a_model_refuses_it_by_name_and_the_others_bring_it_u
     assert!(verdict("cuda").is_ok(), "the lane compiles an expert mixture: {:?}", verdict("cuda").err());
     let d5005 = verdict("d5005").unwrap_err();
     assert!(d5005.0.contains("experts"), "the engine names what it has no unit for: {d5005}");
-    let sn50 = verdict("sn50").unwrap_err();
-    assert!(sn50.0.contains("Qwen3.5/3.8"), "the spatial lowering names what it is written for: {sn50}");
+    assert!(verdict("sn50").is_ok(), "the SN50 deploys an expert mixture: {:?}", verdict("sn50").err());
 }
 
 #[test]
@@ -160,7 +159,8 @@ fn a_refusal_names_each_gap_once_with_the_layers_it_stands_in() {
 #[test]
 fn an_undescribed_checkpoint_is_refused_in_the_spec_readers_words() {
     let dir = tempfile::tempdir().unwrap();
-    let ckpt = checkpoint(&hybrid(), dir.path(), "bare");
+    let ckpt = dir.path().join("bare.gguf");
+    tiny_models::write_bare_checkpoint(&hybrid(), &ckpt);
     let why = ModelSpec::from_gguf(&Gguf::open(&ckpt).unwrap()).expect_err("a checkpoint without metadata describes no model");
     let e = bring_up(&ckpt, 32, &dir.path().join("out"), &[]).err().expect("the bring-up stops at the spec");
     assert_eq!(e.0, format!("{}: {why}", ckpt.display()));

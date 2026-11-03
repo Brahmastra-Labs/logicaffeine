@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `size_budget_lock::the_web_bundle_builds_for_size_and_its_budget_fits_the_host`: `[profile.wasm-release]` builds at opt-level `s`, and the `[web]` wasm budget stays under Cloudflare Pages' 25 MiB per-file limit.
 
 ### Fixed
+- `bringup_lock` follows the chips it tests: the SN50 brings up an expert mixture (it deploys SambaNova's published families), the D5005 refuses it naming "experts"; the undescribed checkpoint is written with no metadata (`tiny_models::write_bare_checkpoint`), since every tiny checkpoint now carries its keys.
 - `compile_determinism_lock`'s children write each program's renderings to their own file as they make them, and the parent compares the two processes a program at a time: the whole-corpus row held every rendering of the corpus in each child and both children's in the parent (about 45 GB a process, OOM-killing the release gate); a process-dependent rendering is still caught (275 of 303 in the sample row).
 
 ## [0.11.0] - 2026-11-02
