@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The release workflow publishes notes longer than a GitHub release holds, and releases a tag pushed before it was
+  fixed.** The 0.11.0 section of the changelog is 506,000 characters and GitHub refuses a release body over 125,000,
+  so the release step failed after every binary had built. A section that long now ships every heading, each
+  heading's first entries whole up to one cap (the largest under which the notes fit), and in place of the rest a
+  link to the full section in the tag's CHANGELOG.md. A re-run of a tag's run executes the workflow file of that tag,
+  so `release.yml` takes the tag to release on dispatch: `gh workflow run release.yml --ref main -f tag=vX.Y.Z`
+  builds, publishes and install-tests the tag with the workflow of `main`, and publishes a draft already made for the
+  tag rather than leaving it a draft. Locked by `release_assets_lock`.
+
 ## [0.11.0] - 2026-11-02
 
 ### Highlights

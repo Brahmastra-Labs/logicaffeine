@@ -7,6 +7,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
+- `release_assets_lock` runs `release.yml`'s release-notes step as the runner runs it, against every released section of the changelog and a synthetic one: each is a body GitHub accepts (125,000 characters), a section that fits ships whole, and a longer one keeps every heading, each heading's first entries verbatim and a pointer to the full notes for the rest (0.11.0 keeps Highlights, Breaking changes, Removed and Security whole). `a_dispatch_releases_an_existing_tag_with_the_dispatched_workflow`: a dispatch names the tag, every checkout checks it out, nothing reads the ref's own name, and the release names the tag and publishes it.
 - `docs_site_lock::a_link_written_as_code_in_the_docs_is_not_a_link_the_site_must_ship`: an item summary that shows a link as inline code (`` `[Alias](URI)` ``) builds; `site.py`'s map-link check reads no link inside a code span.
 - `size_budget_lock::the_web_bundle_builds_for_size_and_its_budget_fits_the_host`: `[profile.wasm-release]` builds at opt-level `s`, and the `[web]` wasm budget stays under Cloudflare Pages' 25 MiB per-file limit.
 

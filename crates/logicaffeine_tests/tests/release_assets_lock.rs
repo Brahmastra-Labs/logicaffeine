@@ -9,6 +9,16 @@
 //! by a step with no `if:`; and the release and test workflows carry no marketing (Tristen, 2026-09-26: the
 //! brochures do not ship on GitHub releases).
 //!
+//! The release body is the tag's CHANGELOG section, and GitHub refuses a body over 125,000 characters: the
+//! 0.11.0 section is four times that, so a release step that published it whole would fail after every build
+//! had passed. Invariant: the notes step, run as the runner runs it, writes every released section within the
+//! limit; a section that fits ships whole, and a longer one keeps every heading, each heading's first entries
+//! verbatim, and a link to the full notes in the tag's CHANGELOG.md in place of the rest.
+//!
+//! A re-run of a tag's workflow runs the workflow file of that tag, so a release workflow fixed after the tag
+//! could never release it. Invariant: a dispatch names the tag to release, every job checks that tag out, and
+//! the release names it and publishes it, drafts included.
+//!
 //! Run: `cargo nextest run -p logicaffeine-tests --test release_assets_lock`
 
 #![cfg(not(target_arch = "wasm32"))]
@@ -248,5 +258,310 @@ fn the_parsers_read_the_shapes_they_guard() {
         glob_matches("tool-*", "tool-a")
             && !glob_matches("vsix-*", "tool-a")
             && glob_matches("extra", "extra")
+    );
+}
+
+/// GitHub's ceiling on a release body, in characters.
+const BODY_LIMIT: usize = 125_000;
+
+const REPO: &str = "Brahmastra-Labs/logicaffeine";
+
+/// A step's `run: |` block as the runner executes it: the lines under `run: |`, the block's indentation removed.
+fn run_block(step: &str) -> String {
+    let mut lines = step.lines().skip_while(|l| l.trim() != "run: |").skip(1).peekable();
+    let indent = lines
+        .peek()
+        .map(|l| l.len() - l.trim_start().len())
+        .expect("the step's run block has a body");
+    let mut out = String::new();
+    for line in lines {
+        if line.trim().is_empty() {
+            out.push('\n');
+            continue;
+        }
+        if line.len() - line.trim_start().len() < indent {
+            break;
+        }
+        out.push_str(&line[indent..]);
+        out.push('\n');
+    }
+    out
+}
+
+/// What the release-notes step of `release.yml` writes to `release-notes.md` for `tag`, run under the runner's
+/// shell in a directory holding `changelog` as `CHANGELOG.md`.
+fn release_notes(changelog: &str, tag: &str) -> String {
+    let jobs = jobs(&workflow("release.yml"));
+    let step = steps(&jobs["github-release"])
+        .into_iter()
+        .find(|s| s.contains("name: Extract release notes from CHANGELOG"))
+        .expect("github-release has an `Extract release notes from CHANGELOG` step");
+    let dir = tempfile::tempdir().expect("a scratch directory");
+    std::fs::write(dir.path().join("CHANGELOG.md"), changelog).expect("write CHANGELOG.md");
+    let out = std::process::Command::new("bash")
+        .args(["--noprofile", "--norc", "-eo", "pipefail", "-c", &run_block(&step)])
+        .current_dir(dir.path())
+        .env_remove("GITHUB_REF_NAME")
+        .env("RELEASE_TAG", tag)
+        .env("GITHUB_REPOSITORY", REPO)
+        .output()
+        .expect("run the release-notes step under bash");
+    assert!(
+        out.status.success(),
+        "the release-notes step failed for {tag}:\n{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    std::fs::read_to_string(dir.path().join("release-notes.md")).expect("the step writes release-notes.md")
+}
+
+/// The versions `changelog` has released, newest first.
+fn released_versions(changelog: &str) -> Vec<String> {
+    changelog
+        .lines()
+        .filter_map(|l| l.strip_prefix("## ["))
+        .filter_map(|l| l.split_once(']'))
+        .map(|(v, _)| v.to_string())
+        .filter(|v| v != "Unreleased")
+        .collect()
+}
+
+/// The `## [version]` header line and the section under it, its surrounding blank lines removed.
+fn section<'a>(changelog: &'a str, version: &str) -> (&'a str, &'a str) {
+    let header = format!("## [{version}]");
+    let start = changelog
+        .find(&format!("\n{header}"))
+        .map(|i| i + 1)
+        .unwrap_or_else(|| panic!("no {header} section"));
+    let line_end = start + changelog[start..].find('\n').unwrap_or(changelog.len() - start);
+    let body = &changelog[line_end..];
+    let end = body.find("\n## [").map(|i| i + 1).unwrap_or(body.len());
+    (&changelog[start..line_end], body[..end].trim_matches('\n'))
+}
+
+/// A section's `### ` headings, each with the text before its first entry and its top-level `- ` entries.
+fn headings(section: &str) -> Vec<(String, String, Vec<String>)> {
+    let mut out: Vec<(String, String, Vec<String>)> = Vec::new();
+    for line in section.split_inclusive('\n') {
+        if line.starts_with("### ") {
+            out.push((line.trim_end().to_string(), String::new(), Vec::new()));
+        } else if let Some((_, intro, entries)) = out.last_mut() {
+            if line.starts_with("- ") {
+                entries.push(line.to_string());
+            } else if let Some(entry) = entries.last_mut() {
+                entry.push_str(line);
+            } else {
+                intro.push_str(line);
+            }
+        }
+    }
+    out
+}
+
+/// GitHub's anchor for a Markdown heading: lowercased, punctuation but `-` and `_` dropped, spaces to hyphens.
+fn github_anchor(heading: &str) -> String {
+    heading
+        .trim_start_matches('#')
+        .trim()
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | ' '))
+        .map(|c| if c == ' ' { '-' } else { c })
+        .collect()
+}
+
+/// The line that stands in for a heading's `omitted` entries left out of the notes for `tag`.
+fn pointer(omitted: usize, tag: &str, header: &str) -> String {
+    format!(
+        "- *…and {omitted} more, in the [full notes](https://github.com/{REPO}/blob/{tag}/CHANGELOG.md#{}).*",
+        github_anchor(header)
+    )
+}
+
+/// The notes the release publishes for `version` of `changelog` are a body GitHub accepts and say what the
+/// section says: the section itself when it fits, otherwise every heading, each heading's first entries
+/// verbatim, and a pointer to the full notes for each heading cut. Returns, per heading, how many entries it kept.
+fn assert_notes(changelog: &str, version: &str) -> Vec<(String, usize, usize)> {
+    let tag = format!("v{version}");
+    let notes = release_notes(changelog, &tag);
+    let (header, section) = section(changelog, version);
+    let chars = notes.chars().count();
+    assert!(!notes.trim().is_empty(), "the {tag} notes are empty");
+    assert!(chars <= BODY_LIMIT, "the {tag} notes are {chars} characters; GitHub refuses a release body over {BODY_LIMIT}");
+    if section.chars().count() < BODY_LIMIT {
+        assert_eq!(notes.trim_matches('\n'), section, "the {tag} section fits a release body, and its notes are not the section");
+        return headings(section).into_iter().map(|(h, _, e)| (h, e.len(), e.len())).collect();
+    }
+    let want = headings(section);
+    let got = headings(&notes);
+    assert_eq!(
+        got.iter().map(|(h, ..)| h).collect::<Vec<_>>(),
+        want.iter().map(|(h, ..)| h).collect::<Vec<_>>(),
+        "the cut {tag} notes do not keep every heading of the section, in order"
+    );
+    let mut kept = Vec::new();
+    for ((heading, intro, entries), (_, got_intro, got_entries)) in want.iter().zip(&got) {
+        assert_eq!(got_intro.trim(), intro.trim(), "{tag} {heading}: the text before its entries changed");
+        let cut = got_entries.last().is_some_and(|e| e.starts_with("- *…and "));
+        let shown = &got_entries[..got_entries.len() - usize::from(cut)];
+        for (i, (g, w)) in shown.iter().zip(entries).enumerate() {
+            assert_eq!(g.trim_end(), w.trim_end(), "{tag} {heading}: entry {i} is not the section's entry {i} verbatim");
+        }
+        assert!(shown.len() <= entries.len(), "{tag} {heading}: the notes show entries the section does not have");
+        if shown.len() < entries.len() {
+            assert!(cut, "{tag} {heading}: {} of {} entries are left out with no pointer to the rest", entries.len() - shown.len(), entries.len());
+            assert_eq!(
+                got_entries.last().unwrap().trim_end(),
+                pointer(entries.len() - shown.len(), &tag, header),
+                "{tag} {heading}: the pointer to the left-out entries"
+            );
+        } else {
+            assert!(!cut, "{tag} {heading}: every entry is shown, and the notes still point to more");
+        }
+        kept.push((heading.clone(), shown.len(), entries.len()));
+    }
+    assert!(
+        chars >= BODY_LIMIT * 9 / 10,
+        "the cut {tag} notes use {chars} of the {BODY_LIMIT} characters a release body holds; the cut leaves out entries that fit"
+    );
+    kept
+}
+
+#[test]
+fn the_release_notes_of_every_released_version_are_a_body_github_accepts() {
+    let changelog = std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../CHANGELOG.md"))
+        .expect("read the root CHANGELOG.md");
+    let versions = released_versions(&changelog);
+    assert!(versions.iter().any(|v| v == "0.11.0") && versions.len() > 10, "released versions: {versions:?}");
+    for version in &versions {
+        let kept = assert_notes(&changelog, version);
+        if version == "0.11.0" {
+            for (heading, shown, total) in &kept {
+                if ["### Highlights", "### Breaking changes", "### Removed", "### Security"].contains(&heading.as_str()) {
+                    assert_eq!(shown, total, "the 0.11.0 release page cuts {heading}: {shown} of {total} entries");
+                }
+            }
+            assert!(kept.iter().any(|(_, s, t)| s < t), "the 0.11.0 section is over the limit, and no heading was cut");
+        }
+    }
+}
+
+/// A synthetic changelog drives the cut through the shapes the real one has not reached yet: a heading whose first
+/// entry alone outgrows the body, multi-line entries, text between a heading and its entries, and a neighbouring
+/// release the cut must not reach into.
+#[test]
+fn the_cut_keeps_whole_entries_under_every_heading_and_points_to_the_rest() {
+    let entry = |tag: &str, i: usize, len: usize| {
+        let mut e = format!("- **{tag} {i}.** ");
+        while e.len() < len {
+            e.push_str("A sentence the changelog says about it,\n  continued on an indented line. ");
+        }
+        e.push('\n');
+        e
+    };
+    let mut changelog = String::from("# Changelog\n\n## [Unreleased]\n\n## [9.9.9] - 2030-01-01\n\n### Highlights\n\n");
+    changelog.push_str("- one highlight\n- another highlight\n\n### Added\n\nWhat this release adds.\n\n");
+    for i in 0..300 {
+        changelog.push_str(&entry("added", i, 900));
+    }
+    changelog.push_str("\n### Changed\n\n");
+    changelog.push_str(&entry("changed", 0, 2 * BODY_LIMIT));
+    changelog.push_str(&entry("changed", 1, 200));
+    changelog.push_str("\n### Fixed\n\n");
+    for i in 0..120 {
+        changelog.push_str(&entry("fixed", i, 2_400));
+    }
+    changelog.push_str("\n### Security\n\n- a security fix\n\n## [9.9.8] - 2029-01-01\n\n### Fixed\n\n- an older fix\n");
+
+    let kept = assert_notes(&changelog, "9.9.9");
+    let by = |h: &str| kept.iter().find(|(k, ..)| k == h).map(|(_, s, t)| (*s, *t)).unwrap();
+    assert_eq!(by("### Highlights"), (2, 2));
+    assert_eq!(by("### Security"), (1, 1));
+    assert_eq!(by("### Changed").0, 0, "an entry longer than the whole body is never shown cut mid-entry");
+    assert!(by("### Added").0 > 0 && by("### Added").0 < 300, "Added: {:?}", by("### Added"));
+    assert!(by("### Fixed").0 > 0 && by("### Fixed").0 < 120, "Fixed: {:?}", by("### Fixed"));
+    assert!(!release_notes(&changelog, "v9.9.9").contains("an older fix"), "the 9.9.9 notes reach into 9.9.8");
+    assert_eq!(assert_notes(&changelog, "9.9.8"), vec![("### Fixed".to_string(), 1, 1)]);
+    assert_eq!(
+        release_notes(&changelog, "v1.2.3").trim_end(),
+        format!("See the [changelog](https://github.com/{REPO}/blob/main/CHANGELOG.md)."),
+        "a tag with no section of its own links the changelog"
+    );
+}
+
+/// Every line of `text` outside comments.
+fn code_lines(text: &str) -> impl Iterator<Item = &str> {
+    text.lines().filter(|l| !l.trim_start().starts_with('#'))
+}
+
+#[test]
+fn a_dispatch_releases_an_existing_tag_with_the_dispatched_workflow() {
+    let text = workflow("release.yml");
+    let head = &text[..text.find("\njobs:\n").expect("a jobs: table")];
+    let dispatch = &head[head.find("workflow_dispatch:").expect("release.yml can be dispatched")..];
+    assert!(
+        dispatch.contains("inputs:") && dispatch.lines().any(|l| l.trim() == "tag:"),
+        "a dispatch of release.yml takes the tag to release:\n{dispatch}"
+    );
+    let definition = code_lines(head)
+        .find(|l| l.trim_start().starts_with("RELEASE_TAG:"))
+        .expect("release.yml defines RELEASE_TAG for every job");
+    assert!(
+        definition.contains("inputs.tag") && definition.contains("github.ref_name"),
+        "RELEASE_TAG is the dispatched tag, else the pushed one: {definition}"
+    );
+    for line in code_lines(&text) {
+        if line.contains("GITHUB_REF_NAME") || line.contains("github.ref_name") {
+            assert_eq!(line, definition, "release.yml reads the ref's own name past RELEASE_TAG: {line}");
+        }
+    }
+    let jobs = jobs(&text);
+    let mut checkouts = 0;
+    for (name, job) in &jobs {
+        for step in steps(job) {
+            if code_lines(&step).any(|l| l.trim_start().trim_start_matches("- ").starts_with("uses: actions/checkout")) {
+                checkouts += 1;
+                assert!(
+                    code_lines(&step).any(|l| l.trim() == "ref: ${{ env.RELEASE_TAG }}"),
+                    "{name} checks out the dispatched ref, not the tag it releases:\n{step}"
+                );
+            }
+        }
+    }
+    assert!(checkouts >= 7, "release.yml has {checkouts} checkouts; the check reads nothing");
+    for name in ["github-release", "e2e-install", "e2e-install-windows"] {
+        let job = jobs.get(name).unwrap_or_else(|| panic!("release.yml has a {name} job"));
+        let gate = code_lines(job)
+            .find(|l| l.starts_with("    if:"))
+            .unwrap_or_else(|| panic!("{name} runs for tags only"));
+        assert!(
+            gate.contains("refs/tags/v") && gate.contains("inputs.tag"),
+            "{name} does not run for a dispatched tag: {gate}"
+        );
+    }
+    let create = steps(&jobs["github-release"])
+        .into_iter()
+        .find(|s| s.contains("softprops/action-gh-release"))
+        .expect("github-release creates the release");
+    for want in ["tag_name: ${{ env.RELEASE_TAG }}", "draft: false"] {
+        assert!(
+            code_lines(&create).any(|l| l.trim() == want),
+            "the release step does not say `{want}`:\n{create}"
+        );
+    }
+}
+
+#[test]
+fn the_run_block_reader_reads_the_shape_it_guards() {
+    let step = "      - name: Notes\n        run: |\n          first\n            nested\n\n          last\n        env:\n          X: y\n";
+    assert_eq!(run_block(step), "first\n  nested\n\nlast\n");
+    assert_eq!(github_anchor("## [0.11.0] - 2026-11-02"), "0110---2026-11-02");
+    let (header, body) = section("# C\n\n## [1.0.0] - 2030-01-01\n\n### Fixed\n- a\n\n## [0.9.0]\n- b\n", "1.0.0");
+    assert_eq!((header, body), ("## [1.0.0] - 2030-01-01", "### Fixed\n- a"));
+    assert_eq!(
+        headings("### A\nintro\n- x\n  more\n- y\n### B\n- z\n"),
+        vec![
+            ("### A".to_string(), "intro\n".to_string(), vec!["- x\n  more\n".to_string(), "- y\n".to_string()]),
+            ("### B".to_string(), String::new(), vec!["- z\n".to_string()]),
+        ]
     );
 }

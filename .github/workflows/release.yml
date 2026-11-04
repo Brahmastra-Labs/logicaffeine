@@ -4,9 +4,18 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'A pushed vX.Y.Z tag to build and publish with this ref''s workflow (empty: build the ref, publish nothing)'
+        required: false
+        default: ''
 
+# The tag this run releases: the one a dispatch names, else the pushed (or dispatched-on) tag. A re-run of a
+# tag's run executes that tag's workflow file, so a release workflow fixed after the tag reaches it only by a
+# dispatch from the fixed ref naming the tag; every job checks the tag out, so the release is built from it.
 env:
   CARGO_TERM_COLOR: always
+  RELEASE_TAG: ${{ inputs.tag || (github.ref_type == 'tag' && github.ref_name || '') }}
 
 jobs:
   build-lsp:
@@ -38,6 +47,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -105,6 +116,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -263,6 +276,8 @@ jobs:
           - { target: universal,    artifact: "",                            file: "",                   staged: "" }
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -324,6 +339,8 @@ jobs:
           - { os: windows-latest, target: win32-x64 }
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -425,12 +442,14 @@ jobs:
     name: Create GitHub Release
     needs: [build-lsp, package-vscode, e2e-vsix, build-cli]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(inputs.tag, 'v')
     permissions:
       contents: write
     steps:
       - name: Check out (for CHANGELOG.md → release notes)
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -456,26 +475,77 @@ jobs:
       # Curated notes from the CHANGELOG — NOT GitHub's auto-generator, which
       # lists raw PR titles + authors and a "New Contributors" section (that
       # mislabeled authorship on the v0.10.0 release). The changelog is the
-      # single professional source of truth for what shipped.
+      # single professional source of truth for what shipped: the tag's section,
+      # everything under "## [X.Y.Z]" up to the next "## [" (the version header
+      # is already the release title). GitHub refuses a body over 125,000
+      # characters, so a longer section keeps every heading and the text before
+      # its entries, and each heading shows its first entries, whole, up to one
+      # cap: the largest under which the notes fit. A heading cut short ends in a
+      # pointer to the full section in the tag's CHANGELOG.md. A tag with no
+      # section of its own links the changelog, so the body is never empty.
       - name: Extract release notes from CHANGELOG
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          # This tag's section: everything under "## [X.Y.Z]" up to the next
-          # "## [" (the version header is already the release title).
-          awk -v ver="$VERSION" '
-            $0 ~ ("^## \\[" ver "\\]") {found=1; next}
-            found && /^## \[/ {exit}
-            found {print}
-          ' CHANGELOG.md | sed '/./,$!d' > release-notes.md
-          # Never publish an empty body — fall back to a changelog link.
-          if [ ! -s release-notes.md ]; then
-            printf 'See the [changelog](https://github.com/%s/blob/main/CHANGELOG.md).\n' "$GITHUB_REPOSITORY" > release-notes.md
-          fi
+          python3 - "$RELEASE_TAG" "$GITHUB_REPOSITORY" > release-notes.md <<'NOTES'
+          import re, sys
+
+          tag, repo = sys.argv[1], sys.argv[2]
+          version = tag[1:] if tag.startswith("v") else tag
+          limit = 125_000
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          header = re.search(r"^## \[" + re.escape(version) + r"\].*$", text, re.M)
+          if header is None:
+              print(f"See the [changelog](https://github.com/{repo}/blob/main/CHANGELOG.md).")
+              sys.exit()
+          rest = text[header.end():]
+          end = re.search(r"^## \[", rest, re.M)
+          section = (rest[: end.start()] if end else rest).strip("\n") + "\n"
+          if len(section) <= limit:
+              sys.stdout.write(section)
+              sys.exit()
+
+          anchor = re.sub(r"[^\w\- ]", "", header.group(0).lstrip("#").strip().lower()).replace(" ", "-")
+          url = f"https://github.com/{repo}/blob/{tag}/CHANGELOG.md#{anchor}"
+          pointer = lambda omitted: f"- *…and {omitted} more, in the [full notes]({url}).*\n\n"
+          head, *blocks = re.split(r"(?m)^(?=### )", section)
+          headings = [(title, entries) for title, *entries in (re.split(r"(?m)^(?=- )", b) for b in blocks)]
+          budget = limit - len(head) - sum(len(title) + len(pointer(len(entries))) for title, entries in headings)
+
+          def shown(entries, cap):
+              used = count = 0
+              for entry in entries:
+                  if used + len(entry) > cap:
+                      break
+                  used, count = used + len(entry), count + 1
+              return count, used
+
+          low, high = 0, max(budget, 0)
+          while low < high:
+              mid = (low + high + 1) // 2
+              if sum(shown(entries, mid)[1] for _, entries in headings) <= budget:
+                  low = mid
+              else:
+                  high = mid - 1
+          notes = [head]
+          for title, entries in headings:
+              count, _ = shown(entries, low)
+              notes.append(title)
+              if count == len(entries):
+                  notes.extend(entries)
+              else:
+                  kept = "".join(entries[:count]).rstrip("\n")
+                  notes.append((kept + "\n" if kept else "") + pointer(len(entries) - count))
+          body = "".join(notes).rstrip("\n") + "\n"
+          assert len(body) <= limit, f"the {tag} notes are {len(body)} characters, over GitHub's {limit}"
+          sys.stdout.write(body)
+          NOTES
           echo "----- release notes -----"; cat release-notes.md
 
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          # An existing draft for the tag is published, never left a draft.
+          draft: false
           body_path: release-notes.md
           files: release/*
 
@@ -484,7 +554,7 @@ jobs:
   e2e-install:
     name: e2e install (${{ matrix.name }})
     needs: github-release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(inputs.tag, 'v')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -502,12 +572,14 @@ jobs:
           - { name: macos-full,  os: macos-latest,     args: "--full" }
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - name: Install via install.sh (pinned to this tag)
         run: |
-          sh apps/logicaffeine_web/public/install.sh --version "${GITHUB_REF_NAME}" ${{ matrix.args }}
+          sh apps/logicaffeine_web/public/install.sh --version "${RELEASE_TAG}" ${{ matrix.args }}
           "$HOME/.local/bin/largo" --version
           VERSION_OUT="$("$HOME/.local/bin/largo" --version)"
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG_VERSION="${RELEASE_TAG#v}"
           case "$VERSION_OUT" in
             *"$TAG_VERSION"*) echo "version matches: $VERSION_OUT" ;;
             *) echo "installed version '$VERSION_OUT' does not match tag '$TAG_VERSION'"; exit 1 ;;
@@ -516,16 +588,18 @@ jobs:
   e2e-install-windows:
     name: e2e install (windows-ps1)
     needs: github-release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || startsWith(inputs.tag, 'v')
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
       - name: Install via install.ps1 (pinned to this tag)
         shell: pwsh
         run: |
-          & ([scriptblock]::Create((Get-Content -Raw apps/logicaffeine_web/public/install.ps1))) -Version $env:GITHUB_REF_NAME
+          & ([scriptblock]::Create((Get-Content -Raw apps/logicaffeine_web/public/install.ps1))) -Version $env:RELEASE_TAG
           $out = & (Join-Path $env:LOCALAPPDATA "Programs\largo\largo.exe") --version
-          $tagVersion = $env:GITHUB_REF_NAME.TrimStart('v')
+          $tagVersion = $env:RELEASE_TAG.TrimStart('v')
           if ($out -notmatch [regex]::Escape($tagVersion)) {
             throw "installed version '$out' does not match tag '$tagVersion'"
           }

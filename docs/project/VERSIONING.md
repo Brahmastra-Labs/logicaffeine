@@ -259,6 +259,12 @@ Before the first tag with CLI binaries, and after any `release.yml` change, run
 jobs. The windows-full and darwin-x64-full jobs are the slow, risky ones: Z3 builds
 from vendored source, 30–60 min uncached.
 
+A re-run of a tag's run executes the `release.yml` the tag carries. To release a
+tag with a workflow fixed after it, dispatch the fixed ref and name the tag:
+`gh workflow run release.yml --ref main -f tag=vX.Y.Z`. Every job checks out the
+tag, the release is created under it (a draft already made for it is published),
+and the `e2e-install` jobs install it.
+
 ### 8. Watch and Verify
 
 `publish.yml` derives the publish set and dependency order from `cargo metadata`
