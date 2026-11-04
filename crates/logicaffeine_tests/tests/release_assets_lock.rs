@@ -652,3 +652,45 @@ fn the_size_check_reads_its_own_trees_budgets_and_the_callers_binaries() {
         String::from_utf8_lossy(&over.stdout)
     );
 }
+
+/// The scripts a workflow line runs by its path (`./scripts/x.sh …`), each as a path in this tree: a script run from the
+/// release-policy checkout is the same tree's file.
+fn scripts_run_by_path(workflow: &str) -> Vec<String> {
+    code_lines(workflow)
+        .map(|l| l.trim().trim_start_matches("- ").trim_start_matches("run:").trim_start())
+        .filter_map(|l| l.strip_prefix("./"))
+        .map(|l| l.split_whitespace().next().unwrap_or_default())
+        .map(|p| p.strip_prefix("release-policy/").unwrap_or(p).to_string())
+        .collect()
+}
+
+/// A runner executes a script named by its path only when the checkout marks it executable, and the checkout takes the
+/// mode from the tree: a script committed without its exec bit fails its step with "Permission denied" and nothing
+/// before the release ever runs it.
+#[test]
+fn every_script_a_workflow_runs_by_its_path_is_executable() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut seen = 0;
+    for entry in std::fs::read_dir(root.join(".github/workflows")).expect("read .github/workflows") {
+        let path = entry.expect("a workflow").path();
+        if path.extension().is_none_or(|e| e != "yml") {
+            continue;
+        }
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        for script in scripts_run_by_path(&std::fs::read_to_string(&path).expect("read a workflow")) {
+            let file = root.join(&script);
+            let mode = std::fs::metadata(&file)
+                .unwrap_or_else(|e| panic!("{name} runs ./{script}, which is not in the tree: {e}"))
+                .permissions()
+                .mode();
+            assert!(mode & 0o100 != 0, "{name} runs ./{script}, which the tree does not mark executable ({mode:o})");
+            seen += 1;
+        }
+    }
+    assert!(seen >= 10, "the workflows run {seen} scripts by path; the check reads nothing");
+    assert_eq!(
+        scripts_run_by_path("    steps:\n      - run: ./release-policy/scripts/a.sh --x\n        run: |\n          ./scripts/b.sh\n          sh c.sh\n      # run: ./d.sh\n"),
+        vec!["scripts/a.sh".to_string(), "scripts/b.sh".to_string()]
+    );
+}
