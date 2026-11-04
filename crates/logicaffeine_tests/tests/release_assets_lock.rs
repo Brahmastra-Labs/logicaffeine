@@ -519,6 +519,9 @@ fn a_dispatch_releases_an_existing_tag_with_the_dispatched_workflow() {
     for (name, job) in &jobs {
         for step in steps(job) {
             if code_lines(&step).any(|l| l.trim_start().trim_start_matches("- ").starts_with("uses: actions/checkout")) {
+                if code_lines(&step).any(|l| l.trim() == "path: release-policy") {
+                    continue;
+                }
                 checkouts += 1;
                 assert!(
                     code_lines(&step).any(|l| l.trim() == "ref: ${{ env.RELEASE_TAG }}"),
@@ -563,5 +566,89 @@ fn the_run_block_reader_reads_the_shape_it_guards() {
             ("### A".to_string(), "intro\n".to_string(), vec!["- x\n  more\n".to_string(), "- y\n".to_string()]),
             ("### B".to_string(), String::new(), vec!["- z\n".to_string()]),
         ]
+    );
+}
+
+/// `line` is a `run:` that calls the size check.
+fn runs_the_size_check(line: &str) -> bool {
+    line.trim_start().starts_with("run:") && line.contains("check-binary-sizes.sh")
+}
+
+/// The steps of `job` that run the size check, and the release-policy checkouts before each.
+fn budget_steps(job: &str) -> Vec<(String, Option<String>)> {
+    let mut policy: Option<String> = None;
+    let mut out = Vec::new();
+    for step in steps(job) {
+        if code_lines(&step).any(|l| l.trim() == "path: release-policy") {
+            policy = Some(step.clone());
+        }
+        if code_lines(&step).any(runs_the_size_check) {
+            out.push((step.clone(), policy.clone()));
+        }
+    }
+    out
+}
+
+/// A release builds the tag's code and holds it to the release policy of the workflow that dispatched it: the size
+/// budgets come from the workflow's own commit, so a budget raised (or lowered) after the tag applies to its binaries.
+#[test]
+fn a_release_holds_the_tags_binaries_to_the_dispatching_workflows_size_budgets() {
+    let jobs = jobs(&workflow("release.yml"));
+    let mut checked = Vec::new();
+    for (name, job) in &jobs {
+        for (step, policy) in budget_steps(job) {
+            let run = code_lines(&step).find(|l| runs_the_size_check(l)).unwrap().trim().to_string();
+            assert!(
+                run.starts_with("run: ./release-policy/scripts/check-binary-sizes.sh --bin-dir target/"),
+                "{name} checks sizes with the tag's script and budgets, not the workflow's: {run}"
+            );
+            let policy = policy.unwrap_or_else(|| panic!("{name} checks sizes with no release-policy checkout before it"));
+            for want in ["uses: actions/checkout@v4", "ref: ${{ github.sha }}", "path: release-policy"] {
+                assert!(
+                    code_lines(&policy).any(|l| l.trim().trim_start_matches("- ") == want),
+                    "{name}'s release-policy checkout does not say `{want}`:\n{policy}"
+                );
+            }
+            for file in [".config/size-budgets.toml", "scripts/check-binary-sizes.sh"] {
+                assert!(
+                    code_lines(&policy).any(|l| l.trim() == file),
+                    "{name}'s release-policy checkout leaves out {file}:\n{policy}"
+                );
+            }
+            checked.push(run);
+        }
+    }
+    assert_eq!(checked.len(), 2, "release.yml checks the LSP and largo sizes, each once: {checked:?}");
+}
+
+/// `check-binary-sizes.sh` reads the budgets of the tree it sits in and the binaries of the directory it is pointed
+/// at, a relative `--bin-dir` read from where it is called: a copy of the release policy checks the tag's build.
+#[test]
+fn the_size_check_reads_its_own_trees_budgets_and_the_callers_binaries() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let dir = tempfile::tempdir().expect("a scratch directory");
+    let policy = dir.path().join("policy");
+    std::fs::create_dir_all(policy.join("scripts")).unwrap();
+    std::fs::create_dir_all(policy.join(".config")).unwrap();
+    std::fs::copy(root.join("scripts/check-binary-sizes.sh"), policy.join("scripts/check-binary-sizes.sh")).unwrap();
+    std::fs::write(policy.join(".config/size-budgets.toml"), "[binaries]\nlargo = 1000\nlogicaffeine-lsp = 1000\n").unwrap();
+    let caller = dir.path().join("caller");
+    std::fs::create_dir_all(caller.join("target/dist")).unwrap();
+    let check = |bytes: usize| {
+        std::fs::write(caller.join("target/dist/largo"), vec![0u8; bytes]).unwrap();
+        std::process::Command::new("bash")
+            .args(["../policy/scripts/check-binary-sizes.sh", "--bin-dir", "target/dist", "--only", "largo"])
+            .current_dir(&caller)
+            .output()
+            .expect("run check-binary-sizes.sh")
+    };
+    let at = check(1000);
+    assert!(at.status.success(), "a binary at its budget fails the check:\n{}", String::from_utf8_lossy(&at.stdout));
+    let over = check(1001);
+    assert!(!over.status.success(), "a binary one byte over its budget passes the check:\n{}", String::from_utf8_lossy(&over.stdout));
+    assert!(
+        String::from_utf8_lossy(&over.stdout).contains("largo is 1001 bytes, over its 1000 budget"),
+        "the check does not name the binary over its budget:\n{}",
+        String::from_utf8_lossy(&over.stdout)
     );
 }

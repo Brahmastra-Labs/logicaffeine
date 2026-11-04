@@ -25,6 +25,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   so `release.yml` takes the tag to release on dispatch: `gh workflow run release.yml --ref main -f tag=vX.Y.Z`
   builds, publishes and install-tests the tag with the workflow of `main`, and publishes a draft already made for the
   tag rather than leaving it a draft. Locked by `release_assets_lock`.
+- **A release holds the tag's binaries to the size budgets of the commit that dispatches it.** `release.yml` checks
+  the `largo` and `logicaffeine-lsp` dist builds against `.config/size-budgets.toml` read from the workflow's own
+  commit (a sparse checkout beside the tag's), so a budget changed after the tag applies to the tag's binaries, and
+  `check-binary-sizes.sh --bin-dir` reads a relative directory from where it is called. The `[binaries]` budgets rise
+  to v0.11.0's builds plus 3% (`largo` 55,599,919 B, `logicaffeine-lsp` 22,980,289 B): both had grown 17.5% past the
+  2026-10-04 budgets, which only the release checked. Locked by `release_assets_lock`.
 
 ## [0.11.0] - 2026-11-02
 

@@ -16,9 +16,6 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-cd "$REPO_ROOT"
-command -v cargo >/dev/null 2>&1 || source "$HOME/.cargo/env"
-BUDGETS=".config/size-budgets.toml"
 
 BIN_DIR=""
 WEB=0
@@ -32,6 +29,13 @@ while [ $# -gt 0 ]; do
   esac
   shift
 done
+# A relative --bin-dir is the caller's: release.yml runs a copy of this script from the dispatching commit
+# against the binaries the tag built in the workspace.
+case "$BIN_DIR" in ""|/*) ;; *) BIN_DIR="$PWD/$BIN_DIR" ;; esac
+
+cd "$REPO_ROOT"
+command -v cargo >/dev/null 2>&1 || source "$HOME/.cargo/env"
+BUDGETS=".config/size-budgets.toml"
 
 budget() { # $1 = table, $2 = key → the integer, or 0 when absent (the budgets file is flat TOML)
   awk -v t="[$1]" -v k="$2" '

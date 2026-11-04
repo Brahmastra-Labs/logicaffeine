@@ -77,10 +77,23 @@ jobs:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
         run: cargo build -p logicaffeine-lsp --profile dist --target ${{ matrix.target }}
 
+      # The size budgets are release policy, so they come from the workflow's own commit while the
+      # binary is the tag's build: a budget changed after the tag applies to the tag's binaries.
+      - name: Check out the release policy
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: release-policy
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .config/size-budgets.toml
+            scripts/check-binary-sizes.sh
+
       # The size budgets (.config/size-budgets.toml) are x86_64 Linux measurements.
       - name: LSP size budget
         if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: ./scripts/check-binary-sizes.sh --bin-dir target/${{ matrix.target }}/dist --only logicaffeine-lsp
+        run: ./release-policy/scripts/check-binary-sizes.sh --bin-dir target/${{ matrix.target }}/dist --only logicaffeine-lsp
 
       - name: Upload LSP binary
         uses: actions/upload-artifact@v4
@@ -159,10 +172,23 @@ jobs:
           RUSTFLAGS: ${{ runner.os == 'Windows' && '-C target-feature=+crt-static' || '' }}
         run: cargo build -p logicaffeine-cli --profile dist --target ${{ matrix.target }}
 
+      # The size budgets are release policy, so they come from the workflow's own commit while the
+      # binary is the tag's build: a budget changed after the tag applies to the tag's binaries.
+      - name: Check out the release policy
+        if: matrix.flavor == 'lean' && matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: release-policy
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            .config/size-budgets.toml
+            scripts/check-binary-sizes.sh
+
       # The size budgets (.config/size-budgets.toml) are x86_64 Linux measurements of the lean build.
       - name: largo size budget
         if: matrix.flavor == 'lean' && matrix.target == 'x86_64-unknown-linux-gnu'
-        run: ./scripts/check-binary-sizes.sh --bin-dir target/${{ matrix.target }}/dist --only largo
+        run: ./release-policy/scripts/check-binary-sizes.sh --bin-dir target/${{ matrix.target }}/dist --only largo
 
       - name: Build largo (full, Z3 static)
         if: matrix.flavor == 'full'

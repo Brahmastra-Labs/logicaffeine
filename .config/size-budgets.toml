@@ -104,9 +104,13 @@ logicaffeine-verify = 77284
 # logicaffeine_kernel +469,489 (LOGOS's calculus on the dag core, observational equality, the tactics), std +284,954,
 # logicaffeine_jit +78,720, logicaffeine_cli +66,627; logicaffeine-lsp — logicaffeine_kernel +294,041,
 # logicaffeine_compile +158,029, std +42,136. Report: logs/cpe/binsize/report.md.
+# Raised 2026-11-04 (Tristen's approval) to the v0.11.0 tag's dist builds as release.yml builds them, plus 3%:
+# largo 53,980,504 B (lean, x86_64-unknown-linux-gnu, ubuntu-22.04) and logicaffeine-lsp 22,310,960 B, 17.5% and 17.7%
+# over the 2026-10-04 budgets. release.yml holds a tag's binaries to the budgets of the commit that dispatches it.
+# By crate, 38af68a03 -> 9dd79e62b (the tree v0.11.0 was cut from): logs/cpe/binsize-1104/report.md.
 [binaries]
-largo = 45926284
-logicaffeine-lsp = 18963297
+largo = 55599919
+logicaffeine-lsp = 22980289
 
 # The WASM the frontend deploys (deploy-frontend.yml: `dx build -p logicaffeine-web --release --ssg --fullstack`,
 # wasm-split off): `wasm` is the eager bundle every visitor downloads before anything is interactive, `wasm_total`
