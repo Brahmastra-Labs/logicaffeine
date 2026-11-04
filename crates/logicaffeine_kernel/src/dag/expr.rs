@@ -19,6 +19,7 @@
 use super::level::{LevelId, Levels, LevelsId};
 use super::name::{NameId, Names};
 use super::nat::Nat;
+use super::slot;
 use rustc_hash::FxHashMap as FxMap;
 use std::rc::Rc;
 
@@ -27,6 +28,9 @@ pub struct ExprId(pub u32);
 
 /// The arguments of an application spine; most spines fit inline.
 pub type Args = smallvec::SmallVec<[ExprId; 8]>;
+
+/// The longest spine [`Store::short_app_args`] collects into a caller's buffer.
+pub const SHORT_SPINE: usize = 16;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 pub struct NatId(pub u32);
@@ -152,12 +156,12 @@ impl Table {
         let mask = self.slots.len() - 1;
         let mut i = (h >> self.shift) as usize;
         loop {
-            let s = self.slots[i];
+            let s = *slot::at(&self.slots, i);
             if !self.is_live(s) {
                 return Err(i);
             }
             let id = s as u32 - 1;
-            if entries[id as usize].node == *node {
+            if slot::at(entries, id as usize).node == *node {
                 return Ok(ExprId(id));
             }
             i = (i + 1) & mask;
@@ -169,7 +173,7 @@ impl Table {
     fn insert_at(&mut self, entries: &[Entry], slot: Option<usize>, id: ExprId, h: u64) {
         match slot {
             Some(i) if (self.len + 1) * 2 <= self.slots.len() => {
-                self.slots[i] = (self.generation << 32) | (id.0 as u64 + 1);
+                *slot::at_mut(&mut self.slots, i) = (self.generation << 32) | (id.0 as u64 + 1);
                 self.len += 1;
             }
             _ => self.insert(entries, id, h),
@@ -188,10 +192,10 @@ impl Table {
     fn place(&mut self, id: u32, h: u64) {
         let mask = self.slots.len() - 1;
         let mut i = (h >> self.shift) as usize;
-        while self.is_live(self.slots[i]) {
+        while self.is_live(*slot::at(&self.slots, i)) {
             i = (i + 1) & mask;
         }
-        self.slots[i] = (self.generation << 32) | (id as u64 + 1);
+        *slot::at_mut(&mut self.slots, i) = (self.generation << 32) | (id as u64 + 1);
     }
 
     fn grow(&mut self, entries: &[Entry]) {
@@ -237,9 +241,11 @@ impl PermTable {
         }
     }
 
+    /// Room for `n` entries in all: one rehash, straight to the capacity that holds them.
     fn reserve(&mut self, entries: &[Entry], n: usize) {
-        while (n + 1) * 2 > self.slots.len() {
-            self.grow(entries);
+        let cap = ((n + 1) * 2).next_power_of_two();
+        if cap > self.slots.len() {
+            self.rehash(entries, cap);
         }
     }
 
@@ -248,11 +254,11 @@ impl PermTable {
         let mask = self.slots.len() - 1;
         let mut i = (h >> self.shift) as usize;
         loop {
-            let s = self.slots[i];
+            let s = *slot::at(&self.slots, i);
             if s == 0 {
                 return Err(i);
             }
-            if entries[(s - 1) as usize].node == *node {
+            if slot::at(entries, (s - 1) as usize).node == *node {
                 return Ok(ExprId(s - 1));
             }
             i = (i + 1) & mask;
@@ -262,7 +268,9 @@ impl PermTable {
     #[inline]
     fn insert_at(&mut self, entries: &[Entry], slot: Option<usize>, id: ExprId, h: u64) {
         match slot {
-            Some(i) if (self.len + 1) * 2 <= self.slots.len() => self.slots[i] = id.0 + 1,
+            Some(i) if (self.len + 1) * 2 <= self.slots.len() => {
+                *slot::at_mut(&mut self.slots, i) = id.0 + 1
+            }
             _ => {
                 if (self.len + 1) * 2 > self.slots.len() {
                     self.grow(entries);
@@ -277,14 +285,17 @@ impl PermTable {
     fn place(&mut self, id: u32, h: u64) {
         let mask = self.slots.len() - 1;
         let mut i = (h >> self.shift) as usize;
-        while self.slots[i] != 0 {
+        while *slot::at(&self.slots, i) != 0 {
             i = (i + 1) & mask;
         }
-        self.slots[i] = id + 1;
+        *slot::at_mut(&mut self.slots, i) = id + 1;
     }
 
     fn grow(&mut self, entries: &[Entry]) {
-        let cap = (self.slots.len() * 2).max(16);
+        self.rehash(entries, (self.slots.len() * 2).max(16));
+    }
+
+    fn rehash(&mut self, entries: &[Entry], cap: usize) {
         self.shift = 64 - cap.trailing_zeros();
         let old = std::mem::replace(&mut self.slots, vec![0; cap]);
         for s in old {
@@ -645,9 +656,9 @@ impl Store {
     #[inline]
     fn entry(&self, e: ExprId) -> &Entry {
         if e.0 & SCRATCH != 0 {
-            &self.temp.entries[(e.0 & !SCRATCH) as usize]
+            slot::at(&self.temp.entries, (e.0 & !SCRATCH) as usize)
         } else {
-            &self.perm.entries[e.0 as usize]
+            slot::at(&self.perm.entries, e.0 as usize)
         }
     }
 
@@ -993,6 +1004,30 @@ impl Store {
             cur = f;
         }
         (cur, args)
+    }
+
+    /// Head and argument count of a spine of at most [`SHORT_SPINE`] applications, its arguments
+    /// filled last to first into `out`: no allocation and no copy out. `None` for a longer spine,
+    /// whose arguments [`Store::app_args`] collects.
+    #[inline]
+    pub fn short_app_args(
+        &self,
+        e: ExprId,
+        out: &mut [ExprId; SHORT_SPINE],
+    ) -> Option<(ExprId, usize)> {
+        let n = self.entry(e).spine as usize;
+        if n > SHORT_SPINE {
+            return None;
+        }
+        let mut cur = e;
+        for slot in out[..n].iter_mut().rev() {
+            let Node::App(f, a) = self.node(cur) else {
+                unreachable!("a recorded spine is made of applications")
+            };
+            *slot = a;
+            cur = f;
+        }
+        Some((cur, n))
     }
 
     /// [`Store::app_args`] for a spine too long to record.

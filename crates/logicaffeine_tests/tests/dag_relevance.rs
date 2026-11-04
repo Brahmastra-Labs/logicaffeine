@@ -7,6 +7,7 @@
 
 use logicaffeine_kernel::dag::env::{Kind, Safety};
 use logicaffeine_kernel::dag::export::Reader;
+use logicaffeine_kernel::dag::expr::{ExprId, Node};
 use logicaffeine_kernel::dag::name::NameId;
 use logicaffeine_kernel::dag::Kernel;
 use std::io::BufReader;
@@ -147,6 +148,95 @@ fn both_engines_find_the_same_ignorable_arguments_for_every_definition() {
             ignorable >= 20,
             "some definitions do have ignorable arguments ({ignorable})"
         );
+    })
+}
+
+/// The loose de Bruijn indices of `e` below 64, relative to `depth`, found by walking it: the
+/// reference the analysis is held to, which reads none of the masks the store keeps.
+fn walked_mask(
+    k: &Kernel,
+    e: ExprId,
+    depth: u32,
+    memo: &mut std::collections::HashMap<(ExprId, u32), u64>,
+) -> u64 {
+    if let Some(&m) = memo.get(&(e, depth)) {
+        return m;
+    }
+    let m = match k.s.node(e) {
+        Node::BVar(i) if i >= depth && i - depth < 64 => 1 << (i - depth),
+        Node::App(a, b) => walked_mask(k, a, depth, memo) | walked_mask(k, b, depth, memo),
+        Node::Lam(a, b) | Node::Pi(a, b) => {
+            walked_mask(k, a, depth, memo) | walked_mask(k, b, depth + 1, memo)
+        }
+        Node::Let(a, b, c) => {
+            walked_mask(k, a, depth, memo)
+                | walked_mask(k, b, depth, memo)
+                | walked_mask(k, c, depth + 1, memo)
+        }
+        Node::Proj(_, _, a) => walked_mask(k, a, depth, memo),
+        _ => 0,
+    };
+    memo.insert((e, depth), m);
+    m
+}
+
+/// The absent parameters of a definition by the rule: the positions its value's body (under at
+/// most 64 λs) never mentions and the rest of its type does not depend on.
+fn walked_absent(k: &Kernel, ty: ExprId, value: ExprId) -> u64 {
+    let mut body = value;
+    let mut arity = 0;
+    while let Node::Lam(_, b) = k.s.node(body) {
+        if arity == 64 {
+            break;
+        }
+        body = b;
+        arity += 1;
+    }
+    let used = walked_mask(k, body, 0, &mut Default::default());
+    let mut absent = 0;
+    let mut rest = ty;
+    for i in 0..arity {
+        let Node::Pi(_, cod) = k.s.node(rest) else {
+            break;
+        };
+        let unused = (used >> (arity - 1 - i)) & 1 == 0;
+        let independent = walked_mask(k, cod, 0, &mut Default::default()) & 1 == 0;
+        if unused && independent {
+            absent |= 1 << i;
+        }
+        rest = cod;
+    }
+    absent
+}
+
+#[test]
+fn every_absent_mask_is_the_one_a_walk_of_the_definition_finds() {
+    run(|| {
+        let mut k = load("good/init-prelude.ndjson");
+        let defs: Vec<NameId> = (0..k.s.names.len() as u32)
+            .map(NameId)
+            .filter(|n| matches!(k.env.get(*n).map(|c| &c.kind), Some(Kind::Defn { .. })))
+            .collect();
+        let (mut checked, mut absent, mut differ) = (0, 0, Vec::new());
+        for n in defs {
+            let c = k.env.get(n).unwrap().clone();
+            let ls = k.const_levels_of(&c.lparams);
+            let Some(mask) = k.absent_mask(n, ls) else {
+                continue;
+            };
+            let want = walked_absent(&k, c.ty, c.delta_value().unwrap());
+            checked += 1;
+            absent += (want != 0) as usize;
+            if mask != want {
+                differ.push(format!(
+                    "{}: {mask:#b}, walked {want:#b}",
+                    k.s.names.display(n)
+                ));
+            }
+        }
+        assert!(differ.is_empty(), "masks differ:\n{}", differ.join("\n"));
+        assert!(checked >= 300, "{checked} definitions checked");
+        assert!(absent >= 10, "some definitions drop a parameter ({absent})");
     })
 }
 

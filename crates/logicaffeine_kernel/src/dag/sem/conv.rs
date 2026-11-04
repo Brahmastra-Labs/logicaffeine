@@ -53,10 +53,17 @@ fn key(a: V, b: V) -> (u32, u32) {
 
 impl Sem<'_> {
     /// `t ≡ s`.
+    #[inline]
     pub fn is_def_eq(&mut self, t: V, s: V) -> KResult<bool> {
         if t == s {
             return Ok(true);
         }
+        self.decide_def_eq(t, s)
+    }
+
+    /// `t ≡ s` for two distinct values, decided and, when proven, remembered.
+    #[inline(never)]
+    fn decide_def_eq(&mut self, t: V, s: V) -> KResult<bool> {
         self.enter()?;
         let r = self.is_def_eq_core(t, s);
         self.leave();
@@ -186,17 +193,21 @@ impl Sem<'_> {
         }
     }
 
-    fn spines_equiv(&mut self, mut s1: Sp, mut s2: Sp) -> bool {
-        if self.st.arena.spine_len(s1) != self.st.arena.spine_len(s2) {
+    fn spines_equiv(&mut self, s1: Sp, s2: Sp) -> bool {
+        if s1 == s2 {
+            return true;
+        }
+        if s1.len() != s2.len() {
             return false;
         }
-        while s1 != s2 {
-            let (n1, n2) = (self.st.arena.spine_node(s1), self.st.arena.spine_node(s2));
-            if !self.eqv_is_equiv(n1.arg, n2.arg) {
+        for i in (0..s1.len()).rev() {
+            let (a, b) = (
+                self.st.arena.spine_arg(s1, i),
+                self.st.arena.spine_arg(s2, i),
+            );
+            if !self.eqv_is_equiv(a, b) {
                 return false;
             }
-            s1 = n1.prev;
-            s2 = n2.prev;
         }
         true
     }
@@ -281,21 +292,19 @@ impl Sem<'_> {
         }
         let mask = self.ignorable_args(c, ls)?;
         let steps = self.k.probe_steps;
-        let (mut x, mut y) = (ts, ss);
-        let mut i = n;
-        while x != Sp::NIL {
-            i -= 1;
-            let (nx, ny) = (self.st.arena.spine_node(x), self.st.arena.spine_node(y));
+        for i in (0..n).rev() {
             let ignorable = i < crate::dag::relevance::MAX_TRACKED && (mask >> i) & 1 == 1;
             if !ignorable {
-                match self.is_def_eq_within(nx.arg, ny.arg, steps)? {
+                let (a, b) = (
+                    self.st.arena.spine_arg(ts, i),
+                    self.st.arena.spine_arg(ss, i),
+                );
+                match self.is_def_eq_within(a, b, steps)? {
                     Some(true) => {}
                     Some(false) => return Ok(Some(false)),
                     None => return Ok(None),
                 }
             }
-            x = nx.prev;
-            y = ny.prev;
         }
         Ok(Some(true))
     }
@@ -337,17 +346,17 @@ impl Sem<'_> {
             return Ok(false);
         }
         let mask = self.ignorable_args(c, ls)?;
-        let (mut x, mut y) = (ts, ss);
-        let mut i = n;
-        while x != Sp::NIL {
-            i -= 1;
-            let (nx, ny) = (self.st.arena.spine_node(x), self.st.arena.spine_node(y));
+        for i in (0..n).rev() {
             let ignorable = i < crate::dag::relevance::MAX_TRACKED && (mask >> i) & 1 == 1;
-            if !ignorable && !self.is_def_eq(nx.arg, ny.arg)? {
-                return Ok(false);
+            if !ignorable {
+                let (a, b) = (
+                    self.st.arena.spine_arg(ts, i),
+                    self.st.arena.spine_arg(ss, i),
+                );
+                if !self.is_def_eq(a, b)? {
+                    return Ok(false);
+                }
             }
-            x = nx.prev;
-            y = ny.prev;
         }
         Ok(true)
     }
@@ -635,7 +644,7 @@ impl Sem<'_> {
                 Some((n, _, _, sp))
                     if n == self.k.wk.nat_succ && self.st.arena.spine_len(sp) == 1 =>
                 {
-                    Some(self.st.arena.spine_node(sp).arg)
+                    Some(self.st.arena.spine_arg(sp, 0))
                 }
                 _ => None,
             },

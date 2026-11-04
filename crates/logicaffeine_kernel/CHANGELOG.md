@@ -6,6 +6,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **The value engine checks Mathlib in 29% fewer instructions.** `logos_kernel --check sem`, built as the Lean Kernel Arena entry builds it, checks the Arena's whole Mathlib export in 409.15 G instructions, from 577.15 G (its first 2 GB in 118.60 G, from 163.86 G); the heavy `perf` cases fall by more than a quarter too (`magma-list-pair-n21` 25.92 → 18.98 G, `magma-list-deep-n36` 27.54 → 20.56 G), every verdict unchanged.
+  - The Arena entries train their profile on the Arena's `init` and `init-prelude`, `init-prelude` merged at sixty times its weight, so that the declarations a small test spends its time on stay as hot as Mathlib's checking; `snapshot.sh` trains alike.
+  - The new `unchecked-access` feature reads the `dag` core's stores — expression entries, value records, environments, spines, frames and hash-table slots — through `dag::slot`, which drops the bounds check: every id the core reads with was handed out by the store it reads, and stores only grow within the scope their ids live in. The Arena entries, `snapshot.sh` and `instr.sh` build with it; every other build and every test keep the checks, and debug builds assert the bound either way. `arena_entry_lock` holds the entries' and the measured snapshot's builds to the feature.
+  - A variable's value and type are read in place; the value or type remembered for anything else is found in the caller's frame (`Sem::eval`, `Sem::infer`, `whnf`, `whnf_core`, `type_of`, `is_proof`, `is_def_eq`), and computing one is an outlined call. A call that only prunes an environment and probes the caches returns to its caller before the computation recurses, the probes are forced inline only in optimized builds, and refusals are formatted out of line, so an unoptimized build's recursion stays within a thread's default stack.
+  - A neutral's arguments lie contiguously in the arena and a neutral is interned by its head and argument list: applying a head to all its arguments is one probe, with no intermediate partial applications (`Arena::neutral_apply`), and `Arena::spine`/`spine_arg`/`arg` read arguments in place.
+  - An application's spine is read into a stack buffer (`Store::short_app_args`), an inference miss reads its expression's entry once, and an argument whose type is already its domain skips the `eagerReduce` test.
+  - An environment remembers its last extension (`EnvNode::xval`/`xres`, forgotten with the session), so extending it by the same value again needs no table probe; a neutral's openness is computed only when it is created.
+  - An environment remembers its two latest prunings (`EnvNode::pmask`/`pres`), which replace the pruning cache; a pruning picks its values straight into the frame store's tail, in one walk, and keeps them only when no frame holds them yet (`Arena::prune`). A neutral built from a closure's arguments takes them from a stack buffer.
+  - A universe substitution is shared rather than copied when it is applied, and two level lists are compared in place (`Levels::subst`, `Levels::equiv_lists`).
+  - The absent-parameter analysis reads a definition's loose variables from the masks the store keeps, walking the term only when an index of 64 or more makes the mask inexact (`relevance::absent_mask`), and reserving room in the persistent expression table rehashes once, straight to the capacity that holds it (`Store::reserve_persistent`).
+
 ## [0.11.0] - 2026-11-02
 
 ### Added

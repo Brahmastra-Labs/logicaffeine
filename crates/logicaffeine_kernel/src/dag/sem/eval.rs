@@ -16,11 +16,11 @@
 //! nothing is instantiated in advance. A term that mentions no universe parameter is read under
 //! the identity, so its value is shared by every instantiation.
 
-use super::value::{EnvId, Head, Kind, Val, V};
+use super::value::{EnvId, Head, Kind, Val, DEAD, V};
 use super::{reject, Sem};
 use crate::dag::env::Kind as CKind;
 use crate::dag::error::KResult;
-use crate::dag::expr::{ExprId, Node};
+use crate::dag::expr::{ExprId, Node, SHORT_SPINE};
 use crate::dag::level::{LevelId, LevelsId, SubstId};
 use crate::dag::name::NameId;
 
@@ -31,7 +31,20 @@ impl Sem<'_> {
     /// substitution (re-rooting its entries under the identity costs more than it shares).
     #[inline]
     pub(crate) fn env_for(&mut self, env: EnvId, e: ExprId) -> EnvId {
-        let (n, mask, lparams) = self.k.s.scope_of(e);
+        let scope = self.k.s.scope_of(e);
+        self.env_in_scope(env, e, scope)
+    }
+
+    /// [`Sem::env_for`] given `e`'s scope as [`Store::scope_of`] reads it.
+    ///
+    /// [`Store::scope_of`]: crate::dag::expr::Store::scope_of
+    #[inline]
+    pub(crate) fn env_in_scope(
+        &mut self,
+        env: EnvId,
+        e: ExprId,
+        (n, mask, lparams): (u32, Option<u64>, bool),
+    ) -> EnvId {
         let node = self.st.arena.env(env);
         if n == 0 {
             return self.st.arena.lsub_base(if lparams {
@@ -50,27 +63,33 @@ impl Sem<'_> {
         if let Some(r) = self.st.arena.last_prune(env, mask) {
             return r;
         }
-        self.prune(env, n, mask)
+        self.st.arena.prune(env, n, mask)
     }
 
-    /// The pruning `env_for` could not answer from the environment itself.
-    #[cold]
-    #[inline(never)]
-    fn prune(&mut self, env: EnvId, n: u32, mask: u64) -> EnvId {
-        debug_assert!(n <= 64 && mask != 0 && 64 - mask.leading_zeros() == n);
-        let r = match self.st.prune_cache.get(&(env.0, mask)) {
-            Some(e) => EnvId(e),
-            None => {
-                let mut vals: smallvec::SmallVec<[V; 16]> = smallvec::SmallVec::new();
-                self.st.arena.select(env, mask, &mut vals);
-                let lsub = self.st.arena.lsub_of(env);
-                let r = self.st.arena.frame(n, mask, &vals, lsub);
-                self.st.prune_cache.insert((env.0, mask), r.0);
-                r
-            }
-        };
-        self.st.arena.note_prune(env, mask, r);
-        r
+    /// [`Sem::env_in_scope`] where the environment itself answers, with nothing to build and no
+    /// table to fill: the base of a closed term's substitution, the environment when the term
+    /// sees all of it, or one of its two latest prunings when that was to the term's mask. `None`
+    /// otherwise.
+    #[cfg_attr(debug_assertions, inline)]
+    #[cfg_attr(not(debug_assertions), inline(always))]
+    pub(crate) fn known_env(
+        &self,
+        env: EnvId,
+        (n, mask, lparams): (u32, Option<u64>, bool),
+    ) -> Option<EnvId> {
+        let node = self.st.arena.env(env);
+        if n == 0 {
+            return self.st.arena.find_lsub_base(if lparams {
+                node.lsub
+            } else {
+                SubstId::IDENTITY
+            });
+        }
+        let mask = mask?;
+        if n == node.len && node.live == mask {
+            return Some(env);
+        }
+        self.st.arena.last_prune(env, mask)
     }
 
     /// `env` pruned for an expression whose loose variables are not all below 64 (or whose mask
@@ -242,56 +261,108 @@ impl Sem<'_> {
         }
     }
 
-    /// Evaluates `e` in `env`.
+    /// Evaluates `e` in `env`. A variable is read in place; a value remembered for anything
+    /// else — an atom's under its substitution, a compound's in an environment
+    /// [`Sem::known_env`] prunes — is found in the caller's frame. Computing one, pruning an
+    /// environment first, or building a closure is a call, and a call that only finds where to
+    /// compute returns before the computation recurses.
+    #[cfg_attr(debug_assertions, inline)]
+    #[cfg_attr(not(debug_assertions), inline(always))]
     pub fn eval(&mut self, env: EnvId, e: ExprId) -> KResult<V> {
-        match self.k.s.node(e) {
-            Node::BVar(i) => self
-                .st
-                .arena
-                .lookup(env, i)
-                .ok_or_else(|| reject("evaluation met a loose bound variable")),
-            Node::Sort(l) => {
+        let node = self.k.s.node(e);
+        match node {
+            Node::BVar(i) => match self.st.arena.lookup(env, i) {
+                Some(v) => Ok(v),
+                None => Err(loose_bound_variable()),
+            },
+            Node::Sort(_) | Node::Const(..) => {
                 let s = self.atom_subst(env, e);
-                if let Some(v) = self.st.atom_memo(e, s) {
-                    return Ok(v);
+                match self.st.atom_memo(e, s) {
+                    Some(v) => Ok(v),
+                    None => self.eval_atom(e, s),
                 }
-                let l = self.k.s.levels.subst(l, s);
-                let v = self.st.arena.sort(l);
-                self.st.note_atom(e, s, v);
-                Ok(v)
             }
-            Node::Const(n, ls) => {
-                let s = self.atom_subst(env, e);
-                if let Some(v) = self.st.atom_memo(e, s) {
-                    return Ok(v);
+            Node::Lam(..) | Node::NatLit(_) | Node::StrLit(_) | Node::FVar(_) => {
+                self.eval_leaf(env, e, node)
+            }
+            _ => {
+                let known = if e.is_scratch() {
+                    None
+                } else {
+                    self.known_env(env, self.k.s.scope_of(e))
+                };
+                let (env, found) = match known {
+                    Some(pruned) => (pruned, self.remembered_value(pruned, e)),
+                    None => self.pruned_value(env, e),
+                };
+                match found {
+                    Some(v) => Ok(v),
+                    None => self.eval_miss(env, e),
                 }
-                let ls = self.k.s.levels.subst_list(ls, s);
-                let v = self.const_value(n, ls)?;
-                self.st.note_atom(e, s, v);
-                Ok(v)
             }
-            Node::NatLit(n) => Ok(self.st.arena.nat(n)),
-            Node::StrLit(s) => Ok(self.st.arena.str(s)),
-            Node::FVar(_) => Err(reject("the value engine met a free variable")),
+        }
+    }
+
+    /// A lambda's closure, a literal, or a free variable's refusal.
+    #[inline(never)]
+    fn eval_leaf(&mut self, env: EnvId, e: ExprId, node: Node) -> KResult<V> {
+        match node {
             Node::Lam(dom, body) => {
                 self.note_expr(e);
                 let env = self.env_for(env, e);
                 Ok(self.st.arena.lam(dom, env, body))
             }
-            _ => {
-                self.note_expr(e);
-                let env = self.env_for(env, e);
-                if let Some(v) = self.st.eval_cache.get(&(env.0, e.0)) {
-                    return Ok(V(v));
-                }
-                self.enter()?;
-                let r = self.eval_node(env, e);
-                self.leave();
-                let v = r?;
-                self.st.eval_cache.insert((env.0, e.0), v.0);
-                Ok(v)
-            }
+            Node::NatLit(n) => Ok(self.st.arena.nat(n)),
+            Node::StrLit(s) => Ok(self.st.arena.str(s)),
+            Node::FVar(_) => Err(reject("the value engine met a free variable")),
+            _ => unreachable!("only lambdas, literals and free variables are leaves"),
         }
+    }
+
+    /// The environment the compound `e` is evaluated in, pruned from `env`, and the value
+    /// remembered for it there: for a term [`Sem::eval`] could not place with no call — one of
+    /// the scratch region (which the session must not outlive) or one whose environment must be
+    /// pruned first.
+    #[inline(never)]
+    fn pruned_value(&mut self, env: EnvId, e: ExprId) -> (EnvId, Option<V>) {
+        self.note_expr(e);
+        let env = self.env_for(env, e);
+        (env, self.remembered_value(env, e))
+    }
+
+    /// A sort or constant read under the substitution `s`, remembered for the next read.
+    #[inline(never)]
+    fn eval_atom(&mut self, e: ExprId, s: SubstId) -> KResult<V> {
+        let v = match self.k.s.node(e) {
+            Node::Sort(l) => {
+                let l = self.k.s.levels.subst(l, s);
+                self.st.arena.sort(l)
+            }
+            Node::Const(n, ls) => {
+                let ls = self.k.s.levels.subst_list(ls, s);
+                self.const_value(n, ls)?
+            }
+            _ => unreachable!("only sorts and constants are atoms"),
+        };
+        self.st.note_atom(e, s, v);
+        Ok(v)
+    }
+
+    /// The value remembered for the compound `e` in its pruned `env`.
+    #[inline]
+    fn remembered_value(&self, env: EnvId, e: ExprId) -> Option<V> {
+        self.st.eval_cache.get(&(env.0, e.0)).map(V)
+    }
+
+    /// The value of the compound `e` in its pruned environment, computed and remembered.
+    #[inline(never)]
+    fn eval_miss(&mut self, env: EnvId, e: ExprId) -> KResult<V> {
+        self.enter()?;
+        let r = self.eval_node(env, e);
+        self.leave();
+        let v = r?;
+        self.st.eval_cache.insert((env.0, e.0), v.0);
+        Ok(v)
     }
 
     /// The substitution a sort or constant `e` is read under in `env`: the identity unless it
@@ -318,35 +389,14 @@ impl Sem<'_> {
     fn eval_node(&mut self, env: EnvId, e: ExprId) -> KResult<V> {
         match self.k.s.node(e) {
             Node::App(..) => {
-                let (f, args) = self.k.s.app_args(e);
-                let mut fv = self.eval(env, f)?;
-                let mut i = 0;
-                while i < args.len() {
-                    if let Val::Lam {
-                        env: cenv, body, ..
-                    } = self.st.arena.get(fv)
-                    {
-                        let a = self.eval(env, args[i])?;
-                        let mut benv = self.st.arena.extend(cenv, a);
-                        let mut b = body;
-                        i += 1;
-                        while i < args.len() {
-                            let Node::Lam(_, inner) = self.k.s.node(b) else {
-                                break;
-                            };
-                            let a = self.eval(env, args[i])?;
-                            benv = self.st.arena.extend(benv, a);
-                            b = inner;
-                            i += 1;
-                        }
-                        fv = self.eval(benv, b)?;
-                    } else {
-                        let a = self.eval(env, args[i])?;
-                        fv = self.apply(fv, a)?;
-                        i += 1;
+                let mut short = [ExprId(0); SHORT_SPINE];
+                match self.k.s.short_app_args(e, &mut short) {
+                    Some((f, n)) => self.eval_app(env, f, &short[..n]),
+                    None => {
+                        let (f, args) = self.k.s.app_args(e);
+                        self.eval_app(env, f, &args)
                     }
                 }
-                Ok(fv)
             }
             Node::Pi(dom, body) => {
                 let d = self.eval(env, dom)?;
@@ -365,6 +415,56 @@ impl Sem<'_> {
         }
     }
 
+    /// The application of `f` to `args`, each read in `env`: β by extending a closure's
+    /// environment with every argument its nested lambdas take at once.
+    #[inline]
+    fn eval_app(&mut self, env: EnvId, f: ExprId, args: &[ExprId]) -> KResult<V> {
+        let mut fv = self.eval(env, f)?;
+        let mut i = 0;
+        while i < args.len() {
+            if let Val::Lam {
+                env: cenv, body, ..
+            } = self.st.arena.get(fv)
+            {
+                let a = self.eval(env, args[i])?;
+                let mut benv = self.st.arena.extend(cenv, a);
+                let mut b = body;
+                i += 1;
+                while i < args.len() {
+                    let Node::Lam(_, inner) = self.k.s.node(b) else {
+                        break;
+                    };
+                    let a = self.eval(env, args[i])?;
+                    benv = self.st.arena.extend(benv, a);
+                    b = inner;
+                    i += 1;
+                }
+                fv = self.eval(benv, b)?;
+            } else {
+                let a = self.eval(env, args[i])?;
+                if !matches!(self.st.arena.get(fv), Val::Neu { .. }) {
+                    return Err(not_a_function());
+                }
+                let n = args.len() - i;
+                if n <= SHORT_SPINE {
+                    let mut rest = [DEAD; SHORT_SPINE];
+                    rest[0] = a;
+                    for (r, &arg) in rest[1..n].iter_mut().zip(&args[i + 1..]) {
+                        *r = self.eval(env, arg)?;
+                    }
+                    return Ok(self.st.arena.neutral_apply(fv, &rest[..n]));
+                }
+                let mut rest = Vec::with_capacity(n);
+                rest.push(a);
+                for &arg in &args[i + 1..] {
+                    rest.push(self.eval(env, arg)?);
+                }
+                return Ok(self.st.arena.neutral_apply(fv, &rest));
+            }
+        }
+        Ok(fv)
+    }
+
     /// `f a`.
     pub fn apply(&mut self, f: V, a: V) -> KResult<V> {
         match self.st.arena.get(f) {
@@ -373,7 +473,7 @@ impl Sem<'_> {
                 self.eval(env2, body)
             }
             Val::Neu { .. } => Ok(self.st.arena.neutral_app(f, a)),
-            _ => Err(reject("application of a value that is not a function")),
+            _ => Err(not_a_function()),
         }
     }
 
@@ -393,9 +493,10 @@ impl Sem<'_> {
                     i += 1;
                 }
                 f = self.eval(benv, b)?;
+            } else if matches!(self.st.arena.get(f), Val::Neu { .. }) {
+                return Ok(self.st.arena.neutral_apply(f, &args[i..]));
             } else {
-                f = self.apply(f, args[i])?;
-                i += 1;
+                return Err(not_a_function());
             }
         }
         Ok(f)
@@ -437,6 +538,16 @@ impl Sem<'_> {
             _ => Err(reject("expected a function or function type")),
         }
     }
+}
+
+#[cold]
+fn loose_bound_variable() -> crate::dag::error::KernelFailure {
+    reject("evaluation met a loose bound variable")
+}
+
+#[cold]
+fn not_a_function() -> crate::dag::error::KernelFailure {
+    reject("application of a value that is not a function")
 }
 
 /// `a ∪ { i - shift | i ∈ b, i ≥ shift }`, both sets ascending, in one walk. A union that adds

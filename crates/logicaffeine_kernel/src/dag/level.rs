@@ -10,6 +10,7 @@
 
 use super::name::NameId;
 use rustc_hash::FxHashMap as FxMap;
+use std::rc::Rc;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 pub struct LevelId(pub u32);
@@ -49,10 +50,11 @@ impl SubstId {
     pub const IDENTITY: SubstId = SubstId(0);
 }
 
+/// A substitution of levels for parameters, shared: applying it takes a handle, not a copy.
 #[derive(Clone)]
 struct Subst {
-    ps: Box<[NameId]>,
-    us: Box<[LevelId]>,
+    ps: Rc<[NameId]>,
+    us: Rc<[LevelId]>,
 }
 
 #[derive(Clone)]
@@ -87,8 +89,8 @@ impl Levels {
             list_index: FxMap::default(),
             leq_memo: FxMap::default(),
             substs: vec![Subst {
-                ps: Box::new([]),
-                us: Box::new([]),
+                ps: Rc::from([]),
+                us: Rc::from([]),
             }],
             subst_index: FxMap::default(),
             subst_memo: FxMap::default(),
@@ -423,8 +425,14 @@ impl Levels {
         if a == b {
             return true;
         }
-        let (xs, ys) = (self.get_list(a).to_vec(), self.get_list(b).to_vec());
-        xs.len() == ys.len() && xs.iter().zip(&ys).all(|(x, y)| self.equiv(*x, *y))
+        let n = self.get_list(a).len();
+        if n != self.get_list(b).len() {
+            return false;
+        }
+        (0..n).all(|i| {
+            let (x, y) = (self.get_list(a)[i], self.get_list(b)[i]);
+            self.equiv(x, y)
+        })
     }
 
     /// `l` is zero under every assignment of its parameters. Exact, and structural: a successor

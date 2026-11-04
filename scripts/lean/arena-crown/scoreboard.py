@@ -23,7 +23,7 @@ the vendored corpus manifest. A test we cannot find is reported MISSING, never s
 import argparse, concurrent.futures, json, os, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-DEFAULT_LIVE = os.path.join(ROOT, "reference-kernels/lean-arena-live-87512b60")
+DEFAULT_LIVE = os.path.join(ROOT, "reference-kernels/lean-arena-live-8139f284")
 CORPUS_MANIFEST = os.path.join(ROOT, "crates/logicaffeine_tests/tests/fixtures/arena_corpus/manifest.json")
 DIR_OF = {"accept": "good", "reject": "bad", "either": "either"}
 LEADERS = ["mathgraph", "sokonanoda", "nanoclo", "official"]

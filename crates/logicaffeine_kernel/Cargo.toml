@@ -38,6 +38,9 @@ nbe = []
 # Shadow mode: the dag core re-decides every declaration the `Term` kernel's checked doors decide, and a
 # disagreement panics with both verdicts.
 shadow = []
+# The dag core reads its stores by the ids they hand out without bounds checks (`dag::slot`): the Lean
+# Kernel Arena entries build with it, ranked on instructions executed. Every other build keeps the checks.
+unchecked-access = []
 
 # serde_json enters the library only through the opt-in `serde`/`lean` features; with default
 # features the trusted kernel has no serialization dependency at all.

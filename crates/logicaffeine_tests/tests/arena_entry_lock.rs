@@ -9,7 +9,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 /// The lean-kernel-arena revision the vendored schema, the rehearsal and the README were read at.
-const ARENA_REVISION: &str = "87512b60eb2483562967ebc93a5fb42eaa135389";
+const ARENA_REVISION: &str = "8139f284045e9f3a9bcf5f86119270b854057aeb";
 const SCHEMA_SHA256: &str = "839814a02b2c4a0f217bf52abee7b4ee4b37b0ed961eb7aa34f94291e337378b";
 /// Each entry and the example binary it builds.
 const ENTRIES: [(&str, &str); 2] = [
@@ -381,6 +381,13 @@ fn every_build_produces_the_binary_its_run_line_executes() {
         workspace_manifest.contains("\n[profile.arena]\n"),
         "the entries build with [profile.arena]"
     );
+    let kernel_manifest = read(kernel_dir().join("Cargo.toml"));
+    assert!(
+        kernel_manifest
+            .lines()
+            .any(|l| l == "unchecked-access = []"),
+        "the kernel declares the feature the entries build with"
+    );
     for e in entries() {
         let build = e.req("build");
         assert!(
@@ -391,7 +398,7 @@ fn every_build_produces_the_binary_its_run_line_executes() {
             e.name
         );
         let cargo = format!(
-            "cargo build --locked --profile arena -p logicaffeine-kernel --example {}",
+            "cargo build --locked --profile arena -p logicaffeine-kernel --features unchecked-access --example {}",
             e.example
         );
         assert_eq!(
@@ -423,52 +430,219 @@ fn every_build_produces_the_binary_its_run_line_executes() {
     }
 }
 
+/// One training run of a recipe: the corpus case it runs on and the weight its profile carries in the merge
+/// the profile-guided build reads.
+#[derive(Debug, PartialEq)]
+struct Training {
+    case: String,
+    weight: u64,
+}
+
+/// What a merge line combines: the profile directory the instrumented build writes (`<dir>`, each profile in it
+/// once) and, after it, each weighted raw profile (`--weighted-input=<w>,<file>`) by file. `None` unless the
+/// line merges the directory first.
+fn merge_inputs(merge: &str, dir: &str) -> Option<Vec<(String, u64)>> {
+    let mut words = merge.split_whitespace();
+    if words.next()? != format!("\"{dir}\"") {
+        return None;
+    }
+    words
+        .map(|w| {
+            let (n, f) = w.strip_prefix("--weighted-input=")?.split_once(',')?;
+            Some((f.to_string(), n.parse().ok()?))
+        })
+        .collect()
+}
+
+/// The training runs of an entry's build, in order. Each trains on an Arena test the recipe exports with the
+/// Arena's own `lka.py` (`"$ROOT/lka.py" build-test <name>`, from the Arena's root four directories above the
+/// checker's `src/`) and names by the file `lka.py` writes (`VAR="$ROOT/_build/tests/<name>.ndjson"`), through
+/// the entry's run line. A run left to the instrumented binary's own profile directory weighs one, like every
+/// profile the build writes there; a run whose profile is written apart (`LLVM_PROFILE_FILE="<file>" <run>`)
+/// weighs what the merge gives that file.
+fn trainings(e: &Entry) -> Vec<Training> {
+    let build = e.req("build");
+    let lines: Vec<&str> = build.lines().collect();
+    let root = lines
+        .iter()
+        .position(|l| *l == "ROOT=$(cd ../../../.. && pwd)")
+        .unwrap_or_else(|| panic!("{}: the build finds the Arena's root", e.name));
+    let weighted = lines
+        .iter()
+        .find_map(|l| l.strip_prefix("llvm-profdata merge -o \"$PWD/pgo/merged.profdata\" "))
+        .and_then(|m| merge_inputs(m, "$PWD/pgo"))
+        .unwrap_or_else(|| {
+            panic!("{}: the profile directory, and any profile written apart, are merged for the profile-guided build", e.name)
+        });
+    let mut runs = Vec::new();
+    let mut apart = Vec::new();
+    for (at, line) in lines.iter().enumerate() {
+        let Some((var, value)) = line.split_once("=\"$ROOT/_build/tests/") else {
+            continue;
+        };
+        let name = value
+            .strip_suffix(".ndjson\"")
+            .unwrap_or_else(|| panic!("{}: {line} names an export of lka.py", e.name));
+        let export = lines
+            .iter()
+            .position(|l| *l == format!("\"$ROOT/lka.py\" build-test {name}"))
+            .unwrap_or_else(|| {
+                panic!(
+                    "{}: the build exports {name} with the Arena's lka.py",
+                    e.name
+                )
+            });
+        assert!(
+            root < export && export < at,
+            "{}: the build finds the Arena's root, exports {name}, then names it",
+            e.name
+        );
+        let run = e.run_line().replace("\"$IN\"", &format!("\"${var}\""));
+        let weight = if lines.contains(&run.as_str()) {
+            1
+        } else {
+            let file = lines
+                .iter()
+                .find_map(|l| {
+                    l.strip_prefix("LLVM_PROFILE_FILE=")
+                        .and_then(|r| r.split_once(' '))
+                        .filter(|(_, rest)| *rest == run)
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "{}: {name} is trained on the run line itself: {run}",
+                        e.name
+                    )
+                })
+                .0;
+            assert!(
+                !file.starts_with("\"$PWD/pgo/"),
+                "{}: a profile written apart lies outside the directory merged at weight one: {file}",
+                e.name
+            );
+            apart.push(file.to_string());
+            weighted
+                .iter()
+                .find(|(f, _)| *f == file)
+                .unwrap_or_else(|| panic!("{}: the merge weighs {file}", e.name))
+                .1
+        };
+        runs.push(Training {
+            case: name.to_string(),
+            weight,
+        });
+    }
+    assert!(!runs.is_empty(), "{}: the build trains its profile", e.name);
+    let merged: Vec<&String> = weighted.iter().map(|(f, _)| f).collect();
+    assert_eq!(
+        merged,
+        apart.iter().collect::<Vec<_>>(),
+        "{}: the merge weighs exactly the profiles written apart, once each",
+        e.name
+    );
+    runs
+}
+
 #[test]
-fn every_build_trains_its_profile_on_the_run_line_over_a_vendored_accept_case() {
+fn every_build_trains_its_profile_on_the_run_line_over_accept_cases() {
     let manifest: serde_json::Value =
         serde_json::from_str(&read(workspace_root().join(CORPUS).join("manifest.json"))).unwrap();
+    let cases = manifest["cases"].as_array().unwrap();
     for e in entries() {
-        let build = e.req("build");
-        let train = build
-            .lines()
-            .find_map(|l| l.strip_prefix("TRAIN="))
-            .unwrap_or_else(|| panic!("{}: the build names its training input as TRAIN=", e.name));
-        let relative = train.strip_prefix(CORPUS).unwrap_or_else(|| {
-            panic!(
-                "{}: the training input is in the vendored corpus: {train}",
-                e.name
-            )
-        });
-        let case = manifest["cases"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|c| c["path"] == relative && c["location"] == "vendored")
-            .unwrap_or_else(|| panic!("{}: {relative} is a vendored corpus case", e.name));
+        for t in trainings(&e) {
+            let case = cases
+                .iter()
+                .find(|c| c["name"] == t.case.as_str())
+                .unwrap_or_else(|| {
+                    panic!("{}: {} is a case of the corpus manifest", e.name, t.case)
+                });
+            assert_eq!(
+                case["outcome"], "accept",
+                "{}: under `set -e` the training run on {} must be accepted",
+                e.name, t.case
+            );
+            assert!(t.weight >= 1, "{}: {} carries weight", e.name, t.case);
+        }
+    }
+}
+
+/// Both entries train alike: the profile weighs the same tests the same way whichever engine checks them.
+#[test]
+fn the_entries_train_on_the_same_tests_with_the_same_weights() {
+    let all = entries();
+    let first = trainings(&all[0]);
+    for e in &all[1..] {
         assert_eq!(
-            case["outcome"], "accept",
-            "{}: under `set -e` the training run must be accepted",
-            e.name
-        );
-        assert!(
-            workspace_root().join(train).is_file(),
-            "{}: {train} exists",
-            e.name
-        );
-        let training = e.run_line().replace("\"$IN\"", "\"$TRAIN\"");
-        assert!(
-            build.lines().any(|l| l == training),
-            "{}: the profile is trained on the run line itself: {training}",
-            e.name
-        );
-        assert!(
-            build
-                .lines()
-                .any(|l| l == "llvm-profdata merge -o \"$PWD/pgo/merged.profdata\" \"$PWD/pgo\""),
-            "{}: the training profile is merged for the profile-guided build",
-            e.name
+            trainings(e),
+            first,
+            "{} trains as {} does",
+            e.name,
+            all[0].name
         );
     }
+}
+
+/// The training runs of `snapshot.sh`: each variable it defaults to the input the corpus manifest records for a
+/// case (`"$CASE"`, which selects the case by name), run through the entry's run line, into the profile directory
+/// or apart with the weight its merge gives.
+fn snapshot_trainings(snapshot: &str) -> Vec<Training> {
+    let lines: Vec<&str> = snapshot.lines().collect();
+    let weighted = lines
+        .iter()
+        .find_map(|l| l.strip_prefix("\"$PROFDATA\" merge -o \"$PGO/merged.profdata\" "))
+        .and_then(|m| merge_inputs(m, "$PGO"))
+        .expect("snapshot.sh merges its profile directory, and any profile written apart");
+    assert!(
+        snapshot.contains(r#"c["name"] == sys.argv[2]"#),
+        "snapshot.sh selects a corpus case by name"
+    );
+    let mut runs = Vec::new();
+    for line in &lines {
+        let Some((var, rest)) = line.split_once("=\"${") else {
+            continue;
+        };
+        let Some(selected) = rest.strip_prefix(&format!(
+            "{var}:-$ROOT/$(python3 -c \"$CASE\" \"$CORPUS/manifest.json\" "
+        )) else {
+            continue;
+        };
+        let name = selected
+            .strip_suffix(")}\"")
+            .unwrap_or_else(|| panic!("snapshot.sh's {var} names the corpus case it defaults to"));
+        let run = format!("\"$TGT/arena/examples/logos_kernel\" --check sem \"${var}\"");
+        let line = lines
+            .iter()
+            .find(|l| l.contains(&run))
+            .unwrap_or_else(|| panic!("snapshot.sh trains on ${var}"));
+        let weight = match line
+            .strip_prefix("LLVM_PROFILE_FILE=")
+            .and_then(|r| r.split_once(' '))
+        {
+            None => 1,
+            Some((file, _)) => {
+                weighted
+                    .iter()
+                    .find(|(f, _)| f == file)
+                    .unwrap_or_else(|| panic!("snapshot.sh's merge weighs {file}"))
+                    .1
+            }
+        };
+        runs.push(Training {
+            case: name.to_string(),
+            weight,
+        });
+    }
+    runs
+}
+
+/// The measured snapshot trains its profile as the logos-kernel entry does: on the exports the corpus manifest
+/// records for the entry's training tests, selected by name, each with the weight the entry gives it.
+#[test]
+fn the_measured_snapshot_trains_as_the_entry_trains() {
+    let entries = entries();
+    let kernel = entries.iter().find(|e| e.name == "logos-kernel").unwrap();
+    let snapshot = read(workspace_root().join("scripts/lean/arena-crown/snapshot.sh"));
+    assert_eq!(snapshot_trainings(&snapshot), trainings(kernel));
 }
 
 /// The `RUSTFLAGS` of each `cargo build` a recipe runs, in order, with its profile directory written `$PGO`.
@@ -495,7 +669,12 @@ fn every_entry_links_its_checker_position_dependent() {
     for e in entries() {
         let build = e.req("build");
         let flags = build_flags(build, "$PWD/pgo");
-        assert_eq!(flags.len(), 2, "{}: an instrumented and a profile-guided build", e.name);
+        assert_eq!(
+            flags.len(),
+            2,
+            "{}: an instrumented and a profile-guided build",
+            e.name
+        );
         for f in &flags {
             assert!(
                 !f.contains("link-arg") && !f.contains("relocation-model"),
@@ -503,7 +682,11 @@ fn every_entry_links_its_checker_position_dependent() {
                 e.name
             );
         }
-        assert!(!build.contains("--target"), "{}: built for the host, as the profile was measured", e.name);
+        assert!(
+            !build.contains("--target"),
+            "{}: built for the host, as the profile was measured",
+            e.name
+        );
     }
     let script = read(kernel_dir().join("build.rs"));
     assert!(
@@ -520,8 +703,22 @@ fn every_entry_links_its_checker_position_dependent() {
     );
 }
 
+/// The arguments of each `cargo build` a recipe runs, in order, from `build` to the end of the command: the toolchain
+/// a measurement pins (`cargo +<version>`) and the output a script redirects are not part of what is built.
+fn cargo_builds(recipe: &str) -> Vec<String> {
+    recipe
+        .lines()
+        .filter_map(|l| {
+            let cargo = l.find("cargo ")?;
+            let at = l[cargo..].find(" build ")? + cargo + 1;
+            let end = l[at..].find(['>', ')']).map_or(l.len(), |i| at + i);
+            Some(l[at..end].trim().to_string())
+        })
+        .collect()
+}
+
 /// The binary every measurement runs (`scripts/lean/arena-crown/snapshot.sh`) is built with the logos-kernel entry's
-/// own flags, build for build, so what is measured is what the Arena builds.
+/// own flags and features, build for build, so what is measured is what the Arena builds.
 #[test]
 fn the_measured_snapshot_is_built_as_the_entry_builds() {
     let entries = entries();
@@ -531,6 +728,17 @@ fn the_measured_snapshot_is_built_as_the_entry_builds() {
         build_flags(&snapshot, "$PGO"),
         build_flags(kernel.req("build"), "$PWD/pgo"),
         "snapshot.sh's builds carry the entry's RUSTFLAGS"
+    );
+    let entry_builds = cargo_builds(kernel.req("build"));
+    assert_eq!(
+        entry_builds.len(),
+        2,
+        "an instrumented and a profile-guided build"
+    );
+    assert_eq!(
+        cargo_builds(&snapshot),
+        entry_builds,
+        "snapshot.sh's builds build what the entry builds, with its features"
     );
 }
 

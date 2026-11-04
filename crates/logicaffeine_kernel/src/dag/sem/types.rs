@@ -11,10 +11,17 @@ use crate::dag::relevance::{Signature, MAX_TRACKED};
 
 impl Sem<'_> {
     /// The type of `v`.
+    #[inline]
     pub fn type_of(&mut self, v: V) -> KResult<V> {
-        if let Some(t) = self.st.arena.type_memo(v) {
-            return Ok(t);
+        match self.st.arena.type_memo(v) {
+            Some(t) => Ok(t),
+            None => self.type_of_miss(v),
         }
+    }
+
+    /// The type of `v`, inferred and remembered on it.
+    #[inline(never)]
+    fn type_of_miss(&mut self, v: V) -> KResult<V> {
         self.enter()?;
         let r = self.type_of_uncached(v);
         self.leave();
@@ -80,10 +87,17 @@ impl Sem<'_> {
     /// Whether `v` is a proof (its type is a proposition): decided by its shape or its head's
     /// [`Signature`] where they decide it, by inferring its type otherwise, and remembered on the
     /// value.
+    #[inline]
     pub(crate) fn is_proof(&mut self, v: V) -> KResult<bool> {
-        if let Some(p) = self.st.arena.proof_memo(v) {
-            return Ok(p);
+        match self.st.arena.proof_memo(v) {
+            Some(p) => Ok(p),
+            None => self.decide_proof(v),
         }
+    }
+
+    /// Whether `v` is a proof, decided and remembered on it.
+    #[inline(never)]
+    fn decide_proof(&mut self, v: V) -> KResult<bool> {
         let p = match self.static_proof(v)? {
             Some(p) => p,
             None => {

@@ -40,6 +40,7 @@ pub mod primitive;
 pub mod primitive_wf;
 pub mod relevance;
 pub mod sem;
+pub(crate) mod slot;
 pub mod tc;
 pub mod wellknown;
 

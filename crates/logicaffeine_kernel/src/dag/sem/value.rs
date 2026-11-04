@@ -4,17 +4,21 @@
 //! function or a Π, a neutral (a head and the arguments applied to it) for anything whose head
 //! cannot reduce further by β, a sort, or a literal. Nothing in a value is ever substituted.
 //!
-//! Every value is interned. A neutral application `f a` is built once per pair of ids, a
-//! variable once per (level, type), a constant once per universe instantiation, an environment
-//! once per (parent, value): so two values built the same way from the same parts are the same
-//! id, and a result remembered for an id — its weak-head normal form, its type, a conversion
-//! answer — serves every place that builds it again. The per-value memos are plain arrays indexed
-//! by id, not hash maps.
+//! Every value is interned. A neutral is built once per head and argument list, a variable once
+//! per (level, type), a constant once per universe instantiation, an environment once per
+//! (parent, value): so two values built the same way from the same parts are the same id, and a
+//! result remembered for an id — its weak-head normal form, its type, a conversion answer —
+//! serves every place that builds it again. The per-value memos are plain arrays indexed by id,
+//! not hash maps.
+//!
+//! A neutral's arguments lie contiguously in the arena's spine slots: an application of a head to
+//! all its arguments is built and found with one probe, and the `i`-th argument is read in place.
 
 use super::table::Table;
 use crate::dag::expr::{ExprId, NatId, StrId};
 use crate::dag::level::{LevelId, LevelsId, SubstId};
 use crate::dag::name::NameId;
+use crate::dag::slot;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
 pub struct V(pub u32);
@@ -35,12 +39,26 @@ impl CtxId {
     pub const EMPTY: CtxId = CtxId(0);
 }
 
-/// The arguments applied to a neutral head, as a snoc list.
+/// The arguments applied to a neutral head: `len` values stored contiguously from `start` in the
+/// arena's spine slots. Every empty spine is [`Sp::NIL`].
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-pub struct Sp(pub u32);
+pub struct Sp {
+    pub start: u32,
+    pub len: u32,
+}
 
 impl Sp {
-    pub const NIL: Sp = Sp(0);
+    pub const NIL: Sp = Sp { start: 0, len: 0 };
+
+    #[inline]
+    pub fn len(self) -> usize {
+        self.len as usize
+    }
+
+    #[inline]
+    pub fn is_empty(self) -> bool {
+        self.len == 0
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -108,13 +126,6 @@ const PROOF: u8 = 4;
 
 const NONE: u32 = u32::MAX;
 
-#[derive(Copy, Clone)]
-pub struct SpNode {
-    pub prev: Sp,
-    pub arg: V,
-    pub len: u32,
-}
-
 /// An environment node: either one entry consed onto a parent environment, or a *frame* — a
 /// pruned environment of `len` entries holding only the entries an expression can see, stored
 /// contiguously from `val` (an index into the frame slots). A narrow frame (every live index
@@ -136,9 +147,13 @@ pub struct EnvNode {
     pub live: u64,
     /// No entry at all is [`DEAD`].
     pub dense: bool,
-    /// The last pruning of this environment: the mask asked for and the result.
-    pub pmask: u64,
-    pub pres: u32,
+    /// The two latest prunings of this environment, the latest first: the masks asked for (0
+    /// for none: a pruning's mask is never empty) and the results.
+    pub pmask: [u64; 2],
+    pub pres: [u32; 2],
+    /// The last extension of this environment: the value it was extended by and the result.
+    pub xval: V,
+    pub xres: EnvId,
     /// For a wide frame, where its index list starts in the wide-index table (count first).
     pub wide: u32,
     /// The universe substitution this environment's terms are read under.
@@ -175,14 +190,14 @@ struct Rec {
 pub struct Arena {
     recs: Vec<Rec>,
     heads: Vec<Head>,
-    spines: Vec<SpNode>,
+    spine_slots: Vec<V>,
     envs: Vec<EnvNode>,
     frame_slots: Vec<V>,
-    frame_index: FrameTable,
+    frame_index: ContentTable,
     wide_idx: Vec<u32>,
     base_index: Table<(u32, u32)>,
     ctxs: Vec<CtxNode>,
-    app_index: Table<(u32, u32)>,
+    neutral_index: ContentTable,
     head_index: Table<(u32, u32, u32, u32)>,
     env_index: Table<(u32, u32)>,
     ctx_index: Table<(u32, u32)>,
@@ -212,21 +227,38 @@ fn frame_hash(len: u32, mask: u64, vals: &[V]) -> u64 {
     h.wrapping_mul(k)
 }
 
-/// Frames interned by content: open addressing over environment ids, probed by a caller's
+/// What a universe substitution adds to a frame's hash.
+#[inline]
+fn lsub_hash(lsub: SubstId) -> u64 {
+    (lsub.0 as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93)
+}
+
+/// The hash of a neutral: its head and its arguments.
+#[inline]
+fn neutral_hash(head: HeadId, args: &[V]) -> u64 {
+    let k = 0x9E37_79B9_7F4A_7C15u64;
+    let mut h = ((head.0 as u64) ^ ((args.len() as u64) << 40)).wrapping_mul(k);
+    for v in args {
+        h = (h ^ v.0 as u64).wrapping_mul(k).rotate_left(29);
+    }
+    h.wrapping_mul(k)
+}
+
+/// Ids interned by content (frames, neutrals): open addressing over ids, probed by a caller's
 /// equality test (the content lives in the arena, not the table).
 #[derive(Clone)]
-struct FrameTable {
+struct ContentTable {
     slots: Vec<(u64, u32)>,
     shift: u32,
     len: usize,
 }
 
-impl FrameTable {
+impl ContentTable {
     /// A vacant slot: every bit set, so that emptying the table is one byte fill.
     const VACANT: (u64, u32) = (u64::MAX, NONE);
 
-    fn new() -> FrameTable {
-        FrameTable {
+    fn new() -> ContentTable {
+        ContentTable {
             slots: vec![Self::VACANT; 1 << 10],
             shift: 64 - 10,
             len: 0,
@@ -245,7 +277,7 @@ impl FrameTable {
         let mask = self.slots.len() - 1;
         let mut i = (h >> self.shift) as usize;
         loop {
-            let (sh, e) = self.slots[i];
+            let (sh, e) = *slot::at(&self.slots, i);
             if e == NONE {
                 return None;
             }
@@ -274,11 +306,21 @@ impl FrameTable {
     fn place(&mut self, h: u64, e: u32) {
         let mask = self.slots.len() - 1;
         let mut i = (h >> self.shift) as usize;
-        while self.slots[i].1 != NONE {
+        while slot::at(&self.slots, i).1 != NONE {
             i = (i + 1) & mask;
         }
-        self.slots[i] = (h, e);
+        *slot::at_mut(&mut self.slots, i) = (h, e);
     }
+
+    fn bytes(&self) -> usize {
+        self.slots.capacity() * std::mem::size_of::<(u64, u32)>()
+    }
+}
+
+/// The arguments of `s` among the spine slots.
+#[inline]
+fn spine_of(slots: &[V], s: Sp) -> &[V] {
+    slot::run(slots, s.start as usize, s.len())
 }
 
 const ATOM_SORT: u32 = 0;
@@ -296,11 +338,7 @@ impl Arena {
         let mut a = Arena {
             recs: Vec::new(),
             heads: Vec::new(),
-            spines: vec![SpNode {
-                prev: Sp::NIL,
-                arg: V(NONE),
-                len: 0,
-            }],
+            spine_slots: Vec::new(),
             envs: vec![EnvNode {
                 parent: EnvId::EMPTY,
                 val: V(NONE),
@@ -309,13 +347,15 @@ impl Arena {
                 frame: false,
                 live: 0,
                 dense: true,
-                pmask: 0,
-                pres: NONE,
+                pmask: [0; 2],
+                pres: [NONE; 2],
+                xval: V(NONE),
+                xres: EnvId::EMPTY,
                 wide: NONE,
                 lsub: SubstId::IDENTITY,
             }],
             frame_slots: Vec::new(),
-            frame_index: FrameTable::new(),
+            frame_index: ContentTable::new(),
             wide_idx: Vec::new(),
             base_index: Table::new(),
             ctxs: vec![CtxNode {
@@ -323,7 +363,7 @@ impl Arena {
                 ty: V(NONE),
                 open: false,
             }],
-            app_index: Table::new(),
+            neutral_index: ContentTable::new(),
             head_index: Table::new(),
             env_index: Table::new(),
             ctx_index: Table::new(),
@@ -351,14 +391,17 @@ impl Arena {
     pub fn reset(&mut self) {
         self.recs.clear();
         self.heads.clear();
-        self.spines.truncate(1);
+        self.spine_slots.clear();
         self.envs.truncate(1);
+        let root = slot::at_mut(&mut self.envs, 0);
+        root.xval = V(NONE);
+        root.xres = EnvId::EMPTY;
         self.frame_slots.clear();
         self.frame_index.clear();
         self.wide_idx.clear();
         self.base_index.clear();
         self.ctxs.truncate(1);
-        self.app_index.clear();
+        self.neutral_index.clear();
         self.head_index.clear();
         self.env_index.clear();
         self.ctx_index.clear();
@@ -393,17 +436,17 @@ impl Arena {
 
     #[inline]
     pub fn get(&self, v: V) -> Val {
-        self.recs[v.0 as usize].val
+        slot::at(&self.recs, v.0 as usize).val
     }
 
     #[inline]
     pub fn is_open(&self, v: V) -> bool {
-        self.recs[v.0 as usize].flags & OPEN != 0
+        slot::at(&self.recs, v.0 as usize).flags & OPEN != 0
     }
 
     #[inline]
     pub fn head(&self, h: HeadId) -> Head {
-        self.heads[h.0 as usize]
+        *slot::at(&self.heads, h.0 as usize)
     }
 
     // ---- memos ----
@@ -415,54 +458,55 @@ impl Arena {
 
     #[inline]
     pub fn whnf_memo(&self, v: V) -> Option<V> {
-        Self::memo(self.recs[v.0 as usize].whnf)
+        Self::memo(slot::at(&self.recs, v.0 as usize).whnf)
     }
     #[inline]
     pub fn set_whnf_memo(&mut self, v: V, r: V) {
-        self.recs[v.0 as usize].whnf = r.0;
+        slot::at_mut(&mut self.recs, v.0 as usize).whnf = r.0;
     }
     #[inline]
     pub fn whnf_core_memo(&self, v: V) -> Option<V> {
-        Self::memo(self.recs[v.0 as usize].whnf_core)
+        Self::memo(slot::at(&self.recs, v.0 as usize).whnf_core)
     }
     #[inline]
     pub fn set_whnf_core_memo(&mut self, v: V, r: V) {
-        self.recs[v.0 as usize].whnf_core = r.0;
+        slot::at_mut(&mut self.recs, v.0 as usize).whnf_core = r.0;
     }
     #[inline]
     pub fn delta_memo(&self, v: V) -> Option<V> {
-        Self::memo(self.recs[v.0 as usize].delta)
+        Self::memo(slot::at(&self.recs, v.0 as usize).delta)
     }
     #[inline]
     pub fn set_delta_memo(&mut self, v: V, r: V) {
-        self.recs[v.0 as usize].delta = r.0;
+        slot::at_mut(&mut self.recs, v.0 as usize).delta = r.0;
     }
     #[inline]
     pub fn type_memo(&self, v: V) -> Option<V> {
-        Self::memo(self.recs[v.0 as usize].ty)
+        Self::memo(slot::at(&self.recs, v.0 as usize).ty)
     }
     #[inline]
     pub fn set_type_memo(&mut self, v: V, r: V) {
-        self.recs[v.0 as usize].ty = r.0;
+        slot::at_mut(&mut self.recs, v.0 as usize).ty = r.0;
     }
     /// Whether the value is a proof, once decided.
     #[inline]
     pub fn proof_memo(&self, v: V) -> Option<bool> {
-        let f = self.recs[v.0 as usize].flags;
+        let f = slot::at(&self.recs, v.0 as usize).flags;
         (f & PROOF_KNOWN != 0).then_some(f & PROOF != 0)
     }
     #[inline]
     pub fn set_proof_memo(&mut self, v: V, proof: bool) {
-        self.recs[v.0 as usize].flags |= PROOF_KNOWN | if proof { PROOF } else { 0 };
+        slot::at_mut(&mut self.recs, v.0 as usize).flags |=
+            PROOF_KNOWN | if proof { PROOF } else { 0 };
     }
     /// A lambda's evaluated domain.
     #[inline]
     pub fn dom_memo(&self, v: V) -> Option<V> {
-        Self::memo(self.recs[v.0 as usize].dom)
+        Self::memo(slot::at(&self.recs, v.0 as usize).dom)
     }
     #[inline]
     pub fn set_dom_memo(&mut self, v: V, r: V) {
-        self.recs[v.0 as usize].dom = r.0;
+        slot::at_mut(&mut self.recs, v.0 as usize).dom = r.0;
     }
 
     // ---- construction ----
@@ -480,7 +524,7 @@ impl Arena {
         let flags = match h {
             Head::Local { .. } => OPEN,
             Head::Const { .. } => 0,
-            Head::Proj { x, .. } => self.recs[x.0 as usize].flags & OPEN,
+            Head::Proj { x, .. } => slot::at(&self.recs, x.0 as usize).flags & OPEN,
         };
         let hid = HeadId(self.heads.len() as u32);
         self.heads.push(h);
@@ -497,30 +541,58 @@ impl Arena {
     }
 
     /// The neutral `f a` for a neutral `f`.
+    #[inline]
     pub fn neutral_app(&mut self, f: V, a: V) -> V {
-        if let Some(v) = self.app_index.get(&(f.0, a.0)) {
+        self.neutral_apply(f, &[a])
+    }
+
+    /// The neutral `f a₁ … aₙ` for a neutral `f`: its arguments followed by `args`, one probe.
+    pub fn neutral_apply(&mut self, f: V, args: &[V]) -> V {
+        let Val::Neu { kind, head, spine } = self.get(f) else {
+            unreachable!("neutral_apply of a non-neutral")
+        };
+        if args.is_empty() {
+            return f;
+        }
+        let flags = slot::at(&self.recs, f.0 as usize).flags;
+        if spine.is_empty() {
+            return self.neutral(kind, head, flags, args);
+        }
+        let mut all: smallvec::SmallVec<[V; 16]> = smallvec::SmallVec::new();
+        all.extend_from_slice(self.spine(spine));
+        all.extend_from_slice(args);
+        self.neutral(kind, head, flags, &all)
+    }
+
+    /// The neutral of `kind` headed by `head` and applied to the non-empty `args`, interned by
+    /// content. A new one is open when the head's `flags` or an argument say so; an interned one
+    /// already knows.
+    fn neutral(&mut self, kind: Kind, head: HeadId, flags: u8, args: &[V]) -> V {
+        let h = neutral_hash(head, args);
+        let (recs, slots) = (&self.recs, &self.spine_slots);
+        let found = self
+            .neutral_index
+            .find(h, |v| match slot::at(recs, v as usize).val {
+                Val::Neu {
+                    head: h2, spine, ..
+                } => h2 == head && spine.len() == args.len() && spine_of(slots, spine) == args,
+                _ => false,
+            });
+        if let Some(v) = found {
             return V(v);
         }
-        let Val::Neu { kind, head, spine } = self.get(f) else {
-            unreachable!("neutral_app of a non-neutral")
+        let flags = args
+            .iter()
+            .fold(flags, |fl, a| fl | slot::at(&self.recs, a.0 as usize).flags)
+            & OPEN;
+        let start = self.spine_slots.len() as u32;
+        self.spine_slots.extend_from_slice(args);
+        let spine = Sp {
+            start,
+            len: args.len() as u32,
         };
-        let len = self.spines[spine.0 as usize].len + 1;
-        let sp = Sp(self.spines.len() as u32);
-        self.spines.push(SpNode {
-            prev: spine,
-            arg: a,
-            len,
-        });
-        let flags = (self.recs[f.0 as usize].flags | self.recs[a.0 as usize].flags) & OPEN;
-        let v = self.push(
-            Val::Neu {
-                kind,
-                head,
-                spine: sp,
-            },
-            flags,
-        );
-        self.app_index.insert((f.0, a.0), v.0);
+        let v = self.push(Val::Neu { kind, head, spine }, flags);
+        self.neutral_index.insert(h, v.0);
         v
     }
 
@@ -597,73 +669,75 @@ impl Arena {
     // ---- spines ----
 
     #[inline]
-    pub fn spine_node(&self, s: Sp) -> SpNode {
-        self.spines[s.0 as usize]
+    pub fn spine_len(&self, s: Sp) -> usize {
+        s.len()
     }
 
+    /// The arguments of a spine, first to last, in place.
     #[inline]
-    pub fn spine_len(&self, s: Sp) -> usize {
-        self.spines[s.0 as usize].len as usize
+    pub fn spine(&self, s: Sp) -> &[V] {
+        spine_of(&self.spine_slots, s)
     }
 
     /// The arguments of a spine, first to last.
-    pub fn args(&self, mut s: Sp) -> smallvec::SmallVec<[V; 8]> {
-        let n = self.spine_len(s);
-        let mut out: smallvec::SmallVec<[V; 8]> = smallvec::SmallVec::with_capacity(n);
-        out.resize(n, V(NONE));
-        let mut i = n;
-        while s != Sp::NIL {
-            let node = self.spines[s.0 as usize];
-            i -= 1;
-            out[i] = node.arg;
-            s = node.prev;
-        }
-        out
+    #[inline]
+    pub fn args(&self, s: Sp) -> smallvec::SmallVec<[V; 8]> {
+        smallvec::SmallVec::from_slice(self.spine(s))
+    }
+
+    /// The `i`-th argument (0-based, first to last) of a spine of more than `i` arguments.
+    #[inline]
+    pub fn spine_arg(&self, s: Sp, i: usize) -> V {
+        debug_assert!(i < s.len());
+        *slot::at(&self.spine_slots, s.start as usize + i)
     }
 
     /// The `i`-th argument (0-based, first to last) of a spine.
+    #[inline]
     pub fn arg(&self, s: Sp, i: usize) -> Option<V> {
-        let n = self.spine_len(s);
-        if i >= n {
-            return None;
-        }
-        let mut cur = s;
-        for _ in 0..(n - 1 - i) {
-            cur = self.spines[cur.0 as usize].prev;
-        }
-        Some(self.spines[cur.0 as usize].arg)
+        (i < s.len()).then(|| *slot::at(&self.spine_slots, s.start as usize + i))
     }
 
     // ---- environments and contexts ----
 
     #[inline]
     pub fn env(&self, e: EnvId) -> EnvNode {
-        self.envs[e.0 as usize]
+        *slot::at(&self.envs, e.0 as usize)
     }
 
-    /// The environment `e` was last pruned to with `mask`, if that was the last pruning asked of it.
+    /// The environment `e` was pruned to with the non-empty `mask`, if that was one of the two
+    /// latest prunings asked of it.
     #[inline]
     pub fn last_prune(&self, e: EnvId, mask: u64) -> Option<EnvId> {
-        let n = &self.envs[e.0 as usize];
-        (n.pres != NONE && n.pmask == mask).then_some(EnvId(n.pres))
-    }
-
-    #[inline]
-    pub fn note_prune(&mut self, e: EnvId, mask: u64, r: EnvId) {
-        let n = &mut self.envs[e.0 as usize];
-        n.pmask = mask;
-        n.pres = r.0;
+        debug_assert!(mask != 0);
+        let n = slot::at(&self.envs, e.0 as usize);
+        if n.pmask[0] == mask {
+            Some(EnvId(n.pres[0]))
+        } else if n.pmask[1] == mask {
+            Some(EnvId(n.pres[1]))
+        } else {
+            None
+        }
     }
 
     #[inline]
     pub fn env_open(&self, e: EnvId) -> bool {
-        self.envs[e.0 as usize].open
+        slot::at(&self.envs, e.0 as usize).open
     }
 
     /// The universe substitution `e`'s terms are read under.
     #[inline]
     pub fn lsub_of(&self, e: EnvId) -> SubstId {
-        self.envs[e.0 as usize].lsub
+        slot::at(&self.envs, e.0 as usize).lsub
+    }
+
+    /// The empty environment of the substitution `s`, if there is one yet.
+    #[inline]
+    pub fn find_lsub_base(&self, s: SubstId) -> Option<EnvId> {
+        if s == SubstId::IDENTITY {
+            return Some(EnvId::EMPTY);
+        }
+        self.base_index.get(&(s.0, 0)).map(EnvId)
     }
 
     /// The empty environment of the substitution `s` (for `s` the identity, [`EnvId::EMPTY`]).
@@ -683,8 +757,10 @@ impl Arena {
             frame: false,
             live: 0,
             dense: true,
-            pmask: 0,
-            pres: NONE,
+            pmask: [0; 2],
+            pres: [NONE; 2],
+            xval: V(NONE),
+            xres: EnvId::EMPTY,
             wide: NONE,
             lsub: s,
         });
@@ -696,15 +772,31 @@ impl Arena {
     /// besides their entries.
     #[inline]
     pub fn same_shape(&self, a: EnvId, b: EnvId) -> bool {
-        let (x, y) = (&self.envs[a.0 as usize], &self.envs[b.0 as usize]);
+        let (x, y) = (
+            slot::at(&self.envs, a.0 as usize),
+            slot::at(&self.envs, b.0 as usize),
+        );
         x.len == y.len && x.lsub == y.lsub
     }
 
     pub fn extend(&mut self, parent: EnvId, val: V) -> EnvId {
+        let last = slot::at(&self.envs, parent.0 as usize);
+        if last.xval == val {
+            return last.xres;
+        }
+        let e = self.extension(parent, val);
+        let p = slot::at_mut(&mut self.envs, parent.0 as usize);
+        p.xval = val;
+        p.xres = e;
+        e
+    }
+
+    /// [`Arena::extend`] past the parent's last extension: interned by (parent, value).
+    fn extension(&mut self, parent: EnvId, val: V) -> EnvId {
         if let Some(e) = self.env_index.get(&(parent.0, val.0)) {
             return EnvId(e);
         }
-        let p = self.envs[parent.0 as usize];
+        let p = *slot::at(&self.envs, parent.0 as usize);
         let id = EnvId(self.envs.len() as u32);
         let open = p.open || self.is_open(val);
         let live = (p.live << 1) | (val != DEAD) as u64;
@@ -717,8 +809,10 @@ impl Arena {
             frame: false,
             live,
             dense,
-            pmask: 0,
-            pres: NONE,
+            pmask: [0; 2],
+            pres: [NONE; 2],
+            xval: V(NONE),
+            xres: EnvId::EMPTY,
             wide: NONE,
             lsub: p.lsub,
         });
@@ -731,11 +825,16 @@ impl Arena {
         self.frame_slots.len()
     }
 
+    /// Arguments stored in neutral spines so far this session.
+    pub fn spine_slot_count(&self) -> usize {
+        self.spine_slots.len()
+    }
+
     /// The value of de Bruijn index `i`.
     #[inline]
     pub fn lookup(&self, mut e: EnvId, mut i: u32) -> Option<V> {
         loop {
-            let n = &self.envs[e.0 as usize];
+            let n = slot::at(&self.envs, e.0 as usize);
             if i >= n.len {
                 return None;
             }
@@ -755,8 +854,8 @@ impl Arena {
     pub fn entries(&self, e: EnvId) -> impl Iterator<Item = V> + '_ {
         let mut cur = e;
         let mut offset = 0u32;
-        (0..self.envs[e.0 as usize].len).map(move |i| {
-            let n = self.envs[cur.0 as usize];
+        (0..slot::at(&self.envs, e.0 as usize).len).map(move |i| {
+            let n = *slot::at(&self.envs, cur.0 as usize);
             if n.frame {
                 self.frame_entry(&n, i - offset)
             } else {
@@ -775,10 +874,17 @@ impl Arena {
                 return DEAD;
             }
             let rank = (n.live & ((1u64 << i) - 1)).count_ones();
-            return self.frame_slots[(n.val.0 + rank) as usize];
+            return *slot::at(&self.frame_slots, (n.val.0 + rank) as usize);
         }
+        self.wide_frame_entry(n, i)
+    }
+
+    /// [`Arena::frame_entry`] of a wide frame, found by searching its index list.
+    #[cold]
+    #[inline(never)]
+    fn wide_frame_entry(&self, n: &EnvNode, i: u32) -> V {
         match self.wide_indices(n).binary_search(&i) {
-            Ok(rank) => self.frame_slots[n.val.0 as usize + rank],
+            Ok(rank) => *slot::at(&self.frame_slots, n.val.0 as usize + rank),
             Err(_) => DEAD,
         }
     }
@@ -786,31 +892,61 @@ impl Arena {
     #[inline]
     fn wide_indices(&self, n: &EnvNode) -> &[u32] {
         let start = n.wide as usize;
-        let count = self.wide_idx[start] as usize;
+        let count = *slot::at(&self.wide_idx, start) as usize;
         &self.wide_idx[start + 1..start + 1 + count]
     }
 
-    /// The values at the positions `mask` marks (innermost first), in one walk.
-    pub fn select(&self, mut e: EnvId, mask: u64, out: &mut smallvec::SmallVec<[V; 16]>) {
+    /// `e` pruned to the entries `mask` marks, the highest of them entry `len - 1`: the frame of
+    /// their values (innermost first), read under `e`'s substitution, interned by content, and
+    /// remembered as `e`'s latest pruning.
+    #[cold]
+    #[inline(never)]
+    pub fn prune(&mut self, e: EnvId, len: u32, mask: u64) -> EnvId {
+        let r = self.picked_frame(e, len, mask);
+        let n = slot::at_mut(&mut self.envs, e.0 as usize);
+        n.pmask = [mask, n.pmask[0]];
+        n.pres = [r.0, n.pres[0]];
+        r
+    }
+
+    /// The frame of [`Arena::prune`]. The values are picked straight into the frame store's
+    /// tail, in one walk, and left there only if no frame holds them yet.
+    #[cfg_attr(debug_assertions, inline)]
+    #[cfg_attr(not(debug_assertions), inline(always))]
+    fn picked_frame(&mut self, mut e: EnvId, len: u32, mask: u64) -> EnvId {
+        debug_assert!(mask != 0 && 64 - mask.leading_zeros() == len);
+        let lsub = slot::at(&self.envs, e.0 as usize).lsub;
+        let start = self.frame_slots.len();
+        let count = mask.count_ones() as usize;
+        self.frame_slots.reserve(count);
         // `m` is relative to the node reached: bit 0 is that node's entry.
         let mut m = mask;
         while m != 0 {
-            let n = &self.envs[e.0 as usize];
+            let n = slot::at(&self.envs, e.0 as usize);
             debug_assert!(n.len > 0, "a referenced entry is in range");
             if n.frame {
                 let mut r = m;
                 while r != 0 {
-                    out.push(self.frame_entry(n, r.trailing_zeros()));
+                    let v = self.frame_entry(n, r.trailing_zeros());
+                    self.frame_slots.push(v);
                     r &= r - 1;
                 }
-                return;
+                break;
             }
             if m & 1 == 1 {
-                out.push(n.val);
+                self.frame_slots.push(n.val);
             }
             m >>= 1;
             e = n.parent;
         }
+        debug_assert_eq!(self.frame_slots.len(), start + count);
+        let vals = slot::run(&self.frame_slots, start, count);
+        let h = frame_hash(len, mask, vals) ^ lsub_hash(lsub);
+        if let Some(f) = self.find_frame(h, len, mask, lsub, vals) {
+            self.frame_slots.truncate(start);
+            return EnvId(f);
+        }
+        self.seal_frame(h, len, mask, NONE, start, lsub)
     }
 
     /// The values at `indices` (ascending, innermost first), in one walk.
@@ -823,7 +959,7 @@ impl Arena {
         let mut pos = 0u32;
         let mut k = 0;
         while k < indices.len() {
-            let n = &self.envs[e.0 as usize];
+            let n = slot::at(&self.envs, e.0 as usize);
             debug_assert!(n.len > 0, "a referenced entry is in range");
             if n.frame {
                 if n.wide == NONE {
@@ -840,7 +976,7 @@ impl Arena {
                         }
                         let hit = r < wide.len() && wide[r] == want;
                         out.push(if hit {
-                            self.frame_slots[n.val.0 as usize + r]
+                            *slot::at(&self.frame_slots, n.val.0 as usize + r)
                         } else {
                             DEAD
                         });
@@ -861,18 +997,28 @@ impl Arena {
     /// (innermost first), read under the substitution `lsub`, interned by content.
     pub fn frame(&mut self, len: u32, mask: u64, vals: &[V], lsub: SubstId) -> EnvId {
         debug_assert_eq!(mask.count_ones() as usize, vals.len());
-        let h = frame_hash(len, mask, vals) ^ (lsub.0 as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93);
-        if let Some(e) = self.frame_index.find(h, |e| {
-            let n = &self.envs[e as usize];
+        let h = frame_hash(len, mask, vals) ^ lsub_hash(lsub);
+        if let Some(f) = self.find_frame(h, len, mask, lsub, vals) {
+            return EnvId(f);
+        }
+        let start = self.frame_slots.len();
+        self.frame_slots.extend_from_slice(vals);
+        self.seal_frame(h, len, mask, NONE, start, lsub)
+    }
+
+    /// The narrow frame of `len` entries holding `vals` at the positions `mask` marks, under
+    /// `lsub`, if there is one; `h` is its hash.
+    #[inline]
+    fn find_frame(&self, h: u64, len: u32, mask: u64, lsub: SubstId, vals: &[V]) -> Option<u32> {
+        let (envs, slots) = (&self.envs, &self.frame_slots);
+        self.frame_index.find(h, |f| {
+            let n = slot::at(envs, f as usize);
             n.wide == NONE
                 && n.len == len
                 && n.live == mask
                 && n.lsub == lsub
-                && &self.frame_slots[n.val.0 as usize..n.val.0 as usize + vals.len()] == vals
-        }) {
-            return EnvId(e);
-        }
-        self.push_frame(h, len, mask, NONE, vals, lsub)
+                && slot::run(slots, n.val.0 as usize, vals.len()) == vals
+        })
     }
 
     /// The frame of `len` entries whose live entries are `vals` at `indices` (ascending, some of
@@ -885,9 +1031,9 @@ impl Arena {
             .fold(0u64, |m, &i| m | (1 << i));
         let h = indices.iter().fold(frame_hash(len, mask, vals), |h, &i| {
             (h ^ i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)
-        }) ^ (lsub.0 as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93);
+        }) ^ lsub_hash(lsub);
         if let Some(e) = self.frame_index.find(h, |e| {
-            let n = &self.envs[e as usize];
+            let n = slot::at(&self.envs, e as usize);
             n.wide != NONE
                 && n.len == len
                 && n.lsub == lsub
@@ -899,33 +1045,38 @@ impl Arena {
         let wide = self.wide_idx.len() as u32;
         self.wide_idx.push(indices.len() as u32);
         self.wide_idx.extend_from_slice(indices);
-        self.push_frame(h, len, mask, wide, vals, lsub)
+        let start = self.frame_slots.len();
+        self.frame_slots.extend_from_slice(vals);
+        self.seal_frame(h, len, mask, wide, start, lsub)
     }
 
-    fn push_frame(
+    /// The new frame whose values are the frame store's tail from `start`, entered under its
+    /// hash `h`.
+    fn seal_frame(
         &mut self,
         h: u64,
         len: u32,
         live: u64,
         wide: u32,
-        vals: &[V],
+        start: usize,
         lsub: SubstId,
     ) -> EnvId {
-        let start = self.frame_slots.len() as u32;
-        self.frame_slots.extend_from_slice(vals);
+        let vals = &self.frame_slots[start..];
         let open = vals.iter().any(|v| self.is_open(*v));
-        let id = EnvId(self.envs.len() as u32);
         let dense = vals.len() == len as usize;
+        let id = EnvId(self.envs.len() as u32);
         self.envs.push(EnvNode {
             parent: EnvId::EMPTY,
-            val: V(start),
+            val: V(start as u32),
             len,
             open,
             frame: true,
             live,
             dense,
-            pmask: 0,
-            pres: NONE,
+            pmask: [0; 2],
+            pres: [NONE; 2],
+            xval: V(NONE),
+            xres: EnvId::EMPTY,
             wide,
             lsub,
         });
@@ -939,7 +1090,7 @@ impl Arena {
             return CtxId(c);
         }
         let id = CtxId(self.ctxs.len() as u32);
-        let open = self.ctxs[parent.0 as usize].open || self.is_open(ty);
+        let open = slot::at(&self.ctxs, parent.0 as usize).open || self.is_open(ty);
         self.ctxs.push(CtxNode { parent, ty, open });
         self.ctx_index.insert((parent.0, ty.0), id.0);
         id
@@ -950,7 +1101,7 @@ impl Arena {
             if c == CtxId::EMPTY {
                 return None;
             }
-            let n = self.ctxs[c.0 as usize];
+            let n = *slot::at(&self.ctxs, c.0 as usize);
             if i == 0 {
                 return Some(n.ty);
             }
@@ -961,7 +1112,7 @@ impl Arena {
 
     #[inline]
     fn ctx_open(&self, c: CtxId) -> bool {
-        self.ctxs[c.0 as usize].open
+        slot::at(&self.ctxs, c.0 as usize).open
     }
 
     /// Bytes held by each part of the arena (capacity: what the process pays).
@@ -981,14 +1132,14 @@ impl Arena {
             ),
             (
                 "value engine: spines",
-                self.spines.capacity() * std::mem::size_of::<SpNode>(),
+                self.spine_slots.capacity() * std::mem::size_of::<V>(),
             ),
             (
                 "value engine: environments and frames",
                 self.envs.capacity() * std::mem::size_of::<EnvNode>()
                     + self.frame_slots.capacity() * 4,
             ),
-            ("value engine: application index", self.app_index.bytes()),
+            ("value engine: neutral index", self.neutral_index.bytes()),
             ("value engine: environment index", self.env_index.bytes()),
             (
                 "value engine: other indexes",

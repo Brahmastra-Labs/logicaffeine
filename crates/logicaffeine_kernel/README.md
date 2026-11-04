@@ -139,6 +139,7 @@ In LOGOS's theory the same core checks the declarations of a `Context`: `logos` 
 | `lean` | off | compiles `interface::lean`, the Lean 4 export reader (implies `serde`) |
 | `shadow` | off | every declaration a checked `Context` door decides is decided again by the `dag` core kept in step with the context (`dag::mirror`), and a disagreement panics with both verdicts |
 | `nbe` | off | compiles `dag::nbe`, the `dag` core's closure-based (NbE) conversion engine, opt-in while it is under construction |
+| `unchecked-access` | off | the `dag` core reads its stores by the ids they hand out without bounds checks; the Lean Kernel Arena entries build with it, every other build and every test keep the checks |
 
 ## Dependencies
 

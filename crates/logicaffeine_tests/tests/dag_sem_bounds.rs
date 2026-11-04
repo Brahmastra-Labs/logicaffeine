@@ -7,6 +7,10 @@
 //! descends one binder deeper at every step (the Arena's con-leche, where this grew a checker
 //! past 46 GB). Terms whose loose variables reach index 64 and beyond are described by an exact
 //! set rather than the store's 64-bit mask, and must be pruned all the same.
+//!
+//! A term is evaluated, and its type inferred, once per environment: a subterm a term holds twice
+//! is found in the caches the second time, so a term whose tree doubles at every level costs what
+//! its dag does.
 
 use logicaffeine_kernel::dag::env::Safety;
 use logicaffeine_kernel::dag::expr::ExprId;
@@ -192,5 +196,84 @@ fn checking_a_ladder_of_redexes_infers_each_body_once() {
     assert!(
         full < 3 * half,
         "{full} values at depth 400 against {half} at depth 200: the work is not linear"
+    );
+}
+
+/// `f t t` nested `depth` times over `x`: `depth + 1` distinct subterms, whose tree has
+/// `2^depth` leaves. Bound past it: `x` at index 0, `f : Prop → Prop → Prop` at index 1.
+fn doubling(k: &mut Kernel, depth: u32) -> ExprId {
+    let mut t = k.s.bvar(0);
+    for _ in 0..depth {
+        let f = k.s.bvar(1);
+        let ft = k.s.app(f, t);
+        t = k.s.app(ft, t);
+    }
+    t
+}
+
+const EVALUATION_CACHE: &str = "value engine: evaluation cache";
+const INFERENCE_CACHES: &str = "value engine: inference caches";
+
+/// The bytes of the session's `part` (as `State::memory_report` names it) once a `doubling` of
+/// `depth` is evaluated, or with `check` its type inferred with checking.
+fn cache_after_doubling(depth: u32, check: bool, part: &str) -> usize {
+    let mut k = Kernel::new();
+    let e = doubling(&mut k, depth);
+    let prop = k.s.prop();
+    let prop_to_prop = k.s.pi(prop, prop);
+    let f_ty = k.s.pi(prop, prop_to_prop);
+    k.with_decl(Rc::from(Vec::new()), Safety::Safe, |k| {
+        k.with_sem(|sem| {
+            let fv = sem.eval(EnvId::EMPTY, f_ty)?;
+            let pv = sem.eval(EnvId::EMPTY, prop)?;
+            sem.under(fv, |sem, f| {
+                sem.under(pv, |sem, x| {
+                    let outer = sem.st.arena.extend(EnvId::EMPTY, f);
+                    let env = sem.st.arena.extend(outer, x);
+                    let outer_ctx = sem.st.arena.ctx_extend(CtxId::EMPTY, fv);
+                    let ctx = sem.st.arena.ctx_extend(outer_ctx, pv);
+                    if check {
+                        let t = sem.infer(env, ctx, e, true)?;
+                        assert_eq!(t, pv, "a doubling is a proposition");
+                    } else {
+                        sem.eval(env, e)?;
+                    }
+                    let report = sem.st.memory_report();
+                    Ok(report
+                        .iter()
+                        .find(|(what, _)| *what == part)
+                        .map(|&(_, bytes)| bytes)
+                        .unwrap_or_else(|| panic!("no {part:?} in {report:?}")))
+                })
+            })
+        })
+    })
+    .unwrap()
+}
+
+/// Evaluating `f t t` finds `t`'s value the second time. Were the evaluation cache not consulted,
+/// a doubling 18 deep would be evaluated 2^18 times, every evaluation a new cache entry.
+#[test]
+fn evaluating_a_shared_subterm_costs_its_dag_not_its_tree() {
+    let (shallow, deep) = (
+        cache_after_doubling(2, false, EVALUATION_CACHE),
+        cache_after_doubling(18, false, EVALUATION_CACHE),
+    );
+    assert_eq!(
+        deep, shallow,
+        "the evaluation cache grew from {shallow} to {deep} bytes: a shared subterm was evaluated again"
+    );
+}
+
+/// Checking `f t t` finds `t`'s type the second time.
+#[test]
+fn checking_a_shared_subterm_costs_its_dag_not_its_tree() {
+    let (shallow, deep) = (
+        cache_after_doubling(2, true, INFERENCE_CACHES),
+        cache_after_doubling(18, true, INFERENCE_CACHES),
+    );
+    assert_eq!(
+        deep, shallow,
+        "the inference caches grew from {shallow} to {deep} bytes: a shared subterm was checked again"
     );
 }

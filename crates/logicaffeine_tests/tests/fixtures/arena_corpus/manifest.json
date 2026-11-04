@@ -1,6 +1,18 @@
 {
- "archive_sha256": "609baebb26a438e61a5ee28b7c3551793ab4066ae7af54f20e60e71cea74d6b5",
+ "archive_sha256": "4e9e5b5106f2a0c482bde6df5f8dd8a7eb8e1fe26bb211aa15eca290a8d859f3",
  "cases": [
+  {
+   "location": "vendored",
+   "name": "bugs/closure-level-subst",
+   "outcome": "reject",
+   "path": "bad/bugs/closure-level-subst.ndjson",
+   "provenance": "official_archive",
+   "sha256": "ba61ad635f4a1e8929b3ada25df22a8ab854f908d5fac44f9e7bf5f2d91ae3a0",
+   "size": 4087,
+   "timeout": null,
+   "upstream_sha256": "ba61ad635f4a1e8929b3ada25df22a8ab854f908d5fac44f9e7bf5f2d91ae3a0",
+   "upstream_size": 4087
+  },
   {
    "location": "vendored",
    "name": "bugs/constlevels",
@@ -36,6 +48,18 @@
    "timeout": null,
    "upstream_sha256": "fd1a643c6c52efe34ec0cc0c22e53cdae32561ff80fb533b3bee7064dbd85ea3",
    "upstream_size": 7365
+  },
+  {
+   "location": "vendored",
+   "name": "bugs/forged-quot-ind",
+   "outcome": "reject",
+   "path": "bad/bugs/forged-quot-ind.ndjson",
+   "provenance": "official_archive",
+   "sha256": "00f3560695f79944f1d45a217e12b0ad0aad30e2a5f038c20441783ea8a911bd",
+   "size": 11917,
+   "timeout": null,
+   "upstream_sha256": "00f3560695f79944f1d45a217e12b0ad0aad30e2a5f038c20441783ea8a911bd",
+   "upstream_size": 11917
   },
   {
    "location": "vendored",
@@ -99,6 +123,18 @@
   },
   {
    "location": "vendored",
+   "name": "bugs/loose-bvar-value",
+   "outcome": "reject",
+   "path": "bad/bugs/loose-bvar-value.ndjson",
+   "provenance": "official_archive",
+   "sha256": "a702608ad2a794f5a4fbac42aa8d3894c2f1ab9707013b9e3ac57b2310a2b328",
+   "size": 2723,
+   "timeout": null,
+   "upstream_sha256": "a702608ad2a794f5a4fbac42aa8d3894c2f1ab9707013b9e3ac57b2310a2b328",
+   "upstream_size": 2723
+  },
+  {
+   "location": "vendored",
    "name": "bugs/nat-rec-k-lie",
    "outcome": "reject",
    "path": "bad/bugs/nat-rec-k-lie.ndjson",
@@ -120,6 +156,18 @@
    "timeout": null,
    "upstream_sha256": "934e59fdc4f2a978605c4a44e90b94b57e9940f3828620c0db337b7125cdd169",
    "upstream_size": 8345
+  },
+  {
+   "location": "vendored",
+   "name": "bugs/nested-name-capture",
+   "outcome": "reject",
+   "path": "bad/bugs/nested-name-capture.ndjson",
+   "provenance": "official_archive",
+   "sha256": "9d38f6480b12a9061ac54dec8ea27477414a39c65301dfb7ee5cedaa8d3cffad",
+   "size": 26680,
+   "timeout": null,
+   "upstream_sha256": "9d38f6480b12a9061ac54dec8ea27477414a39c65301dfb7ee5cedaa8d3cffad",
+   "upstream_size": 26680
   },
   {
    "location": "vendored",
@@ -156,6 +204,18 @@
    "timeout": null,
    "upstream_sha256": "738f28bc1175d70faf09f4b45ae7ca92e8b8d397f6c5d0183240cd695f6d7bc4",
    "upstream_size": 1401
+  },
+  {
+   "location": "vendored",
+   "name": "bugs/pi-closure-context",
+   "outcome": "reject",
+   "path": "bad/bugs/pi-closure-context.ndjson",
+   "provenance": "official_archive",
+   "sha256": "730013454f261b1c20e3ee4600821e325715929a6ddca36779f6ce9e5f506520",
+   "size": 1543,
+   "timeout": null,
+   "upstream_sha256": "730013454f261b1c20e3ee4600821e325715929a6ddca36779f6ce9e5f506520",
+   "upstream_size": 1543
   },
   {
    "location": "vendored",
@@ -242,17 +302,29 @@
    "upstream_size": 275686
   },
   {
+   "location": "vendored",
+   "name": "bugs/unit-rec-rule",
+   "outcome": "reject",
+   "path": "bad/bugs/unit-rec-rule.ndjson",
+   "provenance": "official_archive",
+   "sha256": "cb6d127a5f0daa9fa2047c338e809d1ffb9cc3d8454956c30eede38091a4a969",
+   "size": 3107,
+   "timeout": null,
+   "upstream_sha256": "cb6d127a5f0daa9fa2047c338e809d1ffb9cc3d8454956c30eede38091a4a969",
+   "upstream_size": 3107
+  },
+  {
    "location": "heavy",
    "name": "cedar",
-   "nondeterministic": "every export of cedar-spec@017c35c3 with Lean v4.34.1 differs: the Arena's rounds hold 15,316,784 records (66c354d6) and 15,316,785 (87512b60), three local builds exported 15,316,769, 15,316,775 and 15,316,782",
+   "nondeterministic": "every export of cedar-spec@017c35c3 with Lean v4.34.1 differs: the Arena's rounds hold 15,316,784 records (66c354d6) and 15,316,785 (87512b60), and three more digests since (872,400,341, 872,400,477 and 872,400,520 bytes at d7f74a9e, 236ab462 and 8139f284); three local builds exported 15,316,769, 15,316,775 and 15,316,782",
    "outcome": "accept",
    "path": "reference-kernels/arena-inputs-87512b60/cedar/cedar.mismatch.ndjson",
    "provenance": "regenerated_nondeterministic_upstream",
    "sha256": "3a1adc54e26d460efca0886f168efcf11bf6c02942224d0a3454a12054f91854",
    "size": 872400409,
    "timeout": 940,
-   "upstream_sha256": "7399c8f781f4bcfec441161c55a0178270f9e7e76ad1d3561d5382f8abc4b31d",
-   "upstream_size": 872400540
+   "upstream_sha256": "b5a7b63e839719d23ce8ff1280ee12242a1516db524c90b5e5ced3fde5641484",
+   "upstream_size": 872400520
   },
   {
    "location": "heavy",
@@ -472,6 +544,18 @@
   },
   {
    "location": "vendored",
+   "name": "corner-cases/imax-nested-absorption",
+   "outcome": "either",
+   "path": "either/corner-cases/imax-nested-absorption.ndjson",
+   "provenance": "regenerated_from_pinned_source",
+   "sha256": "ee39c17ff8dab3f1be4a2bca93cc1ddfe4ded94d1ac05ee4c582d91f94016e79",
+   "size": 736,
+   "timeout": null,
+   "upstream_sha256": "ee39c17ff8dab3f1be4a2bca93cc1ddfe4ded94d1ac05ee4c582d91f94016e79",
+   "upstream_size": 736
+  },
+  {
+   "location": "vendored",
    "name": "corner-cases/imax-right-successor",
    "outcome": "either",
    "path": "either/corner-cases/imax-right-successor.ndjson",
@@ -481,6 +565,18 @@
    "timeout": null,
    "upstream_sha256": "00412ecd8a255812553a38f66bd84f521a233fce178742065005ff053c6cbd0f",
    "upstream_size": 806
+  },
+  {
+   "location": "vendored",
+   "name": "corner-cases/large-elim-maybe-prop",
+   "outcome": "either",
+   "path": "either/corner-cases/large-elim-maybe-prop.ndjson",
+   "provenance": "regenerated_from_pinned_source",
+   "sha256": "b060758c2795e39d33c2e2194fb0f6017828c88fbe781c9dcf3e361478196884",
+   "size": 3174,
+   "timeout": null,
+   "upstream_sha256": "b060758c2795e39d33c2e2194fb0f6017828c88fbe781c9dcf3e361478196884",
+   "upstream_size": 3174
   },
   {
    "location": "vendored",
@@ -505,6 +601,18 @@
    "timeout": null,
    "upstream_sha256": "396cea793fb200feb78db27bbc2168b3a10fcc84b67b64a26fc4df3f7ae834e0",
    "upstream_size": 9415
+  },
+  {
+   "location": "vendored",
+   "name": "corner-cases/nested-redex-aux",
+   "outcome": "either",
+   "path": "either/corner-cases/nested-redex-aux.ndjson",
+   "provenance": "regenerated_from_pinned_source",
+   "sha256": "89feeaae5b6ad1f16103ad7a0d53e0c387c2317ec012ed3158e31b95eac86b57",
+   "size": 44047,
+   "timeout": null,
+   "upstream_sha256": "89feeaae5b6ad1f16103ad7a0d53e0c387c2317ec012ed3158e31b95eac86b57",
+   "upstream_size": 44047
   },
   {
    "location": "vendored",
@@ -591,6 +699,18 @@
    "upstream_size": 67092
   },
   {
+   "location": "vendored",
+   "name": "corner-cases/vanishing-occurrence",
+   "outcome": "either",
+   "path": "either/corner-cases/vanishing-occurrence.ndjson",
+   "provenance": "regenerated_from_pinned_source",
+   "sha256": "fa2acbc8d9e6a5986dc07a1233f98d360646d0da6185f590a38002ee0a021069",
+   "size": 7376,
+   "timeout": null,
+   "upstream_sha256": "fa2acbc8d9e6a5986dc07a1233f98d360646d0da6185f590a38002ee0a021069",
+   "upstream_size": 7376
+  },
+  {
    "location": "heavy",
    "name": "cslib",
    "outcome": "accept",
@@ -661,6 +781,18 @@
    "timeout": null,
    "upstream_sha256": "eab650028a71177bd4d9fcb6a84b4e92dd91cf4e7af67023af458d18729be0e2",
    "upstream_size": 1402
+  },
+  {
+   "location": "vendored",
+   "name": "other/inductive-undeclared-universe",
+   "outcome": "reject",
+   "path": "bad/other/inductive-undeclared-universe.ndjson",
+   "provenance": "official_archive",
+   "sha256": "ca3ad18ba0d1bd8abc4ec86f750ec583912ca657b68389cb2e29611c2888a7c9",
+   "size": 2611,
+   "timeout": null,
+   "upstream_sha256": "ca3ad18ba0d1bd8abc4ec86f750ec583912ca657b68389cb2e29611c2888a7c9",
+   "upstream_size": 2611
   },
   {
    "location": "vendored",
@@ -870,7 +1002,7 @@
    "location": "heavy",
    "name": "perf/grind-ring-5",
    "outcome": "accept",
-   "path": "reference-kernels/lean-arena-live-87512b60/payloads/good/perf/grind-ring-5.ndjson",
+   "path": "reference-kernels/lean-arena-live-8139f284/payloads/good/perf/grind-ring-5.ndjson",
    "provenance": "official_archive",
    "sha256": "e9c394e0ff311fd10f60dee2433a530f16e82354c32d6588a8775baa06fd221f",
    "size": 10245385,
@@ -2836,8 +2968,8 @@
   }
  ],
  "license": "Apache-2.0 (lean-kernel-arena test corpus)",
- "results_sha256": "1e2c90211db7e67de3734ed5fa4804051f338ffacca0de87a08db0eee213af9e",
- "revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
+ "results_sha256": "0f6f2dd9a4dae2e67d92b2bd7a189aa531423a9827f406cc1dbbcf4c31d3c6c6",
+ "revision": "8139f284045e9f3a9bcf5f86119270b854057aeb",
  "schema": "logos-arena-corpus/2",
  "source": "https://arena.lean-lang.org/ (lean-arena-tests.tar.gz and results.json)",
  "upstream": "https://github.com/leanprover/lean-kernel-arena"

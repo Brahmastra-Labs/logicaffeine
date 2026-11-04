@@ -17,7 +17,7 @@ if [ "$BIN" = "--run" ]; then
   RUN="${3:?--run needs a command}"
 else
   if [ -z "$BIN" ]; then
-    (cd "$ROOT" && cargo build --profile arena -p logicaffeine-kernel --example logos_kernel >/dev/null 2>&1)
+    (cd "$ROOT" && cargo build --profile arena -p logicaffeine-kernel --features unchecked-access --example logos_kernel >/dev/null 2>&1)
     BIN="$ROOT/target/arena/examples/logos_kernel"
   fi
   ENTRY_ARGS="$(python3 -c '

@@ -24,6 +24,11 @@
 //! the variable a later comparison binds at the same depth with the same type are one value, and
 //! everything known about one is known about the other. That identification is sound exactly
 //! when no two variables in scope share a depth — the one invariant `Sem::bind` keeps.
+//!
+//! The cache probes on the hottest paths (`Sem::eval`, `Sem::infer` and what they inline) are
+//! forced inline only where code is optimized. An unoptimized build merely hints them: there every
+//! inlined copy keeps its own stack slots, and the evaluator's recursion would outgrow a thread's
+//! stack long before an optimized build's.
 
 pub mod conv;
 pub mod eval;
@@ -56,7 +61,6 @@ pub struct State {
     const_body: Table<(u32, u32)>,
     rule_rhs: Table<(u32, u32, u32)>,
     eval_cache: Table<(u32, u32)>,
-    prune_cache: Table<(u32, u64)>,
     /// Pruning for expressions beyond the 64-bit masks, keyed on (environment, expression).
     wide_prune_cache: Table<(u32, u32)>,
     /// Exact loose-variable sets of such expressions. A function of the (persistent) expression
@@ -127,7 +131,6 @@ impl Default for State {
             const_body: Table::new(),
             rule_rhs: Table::new(),
             eval_cache: Table::new(),
-            prune_cache: Table::new(),
             wide_prune_cache: Table::new(),
             loose_sets: Default::default(),
             infer_cache: Table::new(),
@@ -172,7 +175,7 @@ impl State {
 
     #[inline]
     pub(crate) fn atom_memo(&self, e: ExprId, s: SubstId) -> Option<V> {
-        let (k, ks, v) = self.atoms[Self::atom_slot(e, s)];
+        let (k, ks, v) = *crate::dag::slot::at(&self.atoms, Self::atom_slot(e, s));
         (k == e.0 && ks == s.0).then_some(V(v))
     }
 
@@ -192,7 +195,6 @@ impl State {
         self.const_body.clear();
         self.rule_rhs.clear();
         self.eval_cache.clear();
-        self.prune_cache.clear();
         self.wide_prune_cache.clear();
         self.infer_cache.clear();
         self.check_cache.clear();
@@ -207,10 +209,7 @@ impl State {
     pub fn memory_report(&self) -> Vec<(&'static str, usize)> {
         let mut r = self.arena.memory_report();
         r.push(("value engine: evaluation cache", self.eval_cache.bytes()));
-        r.push((
-            "value engine: pruning cache",
-            self.prune_cache.bytes() + self.wide_prune_cache.bytes(),
-        ));
+        r.push(("value engine: pruning cache", self.wide_prune_cache.bytes()));
         r.push((
             "value engine: inference caches",
             self.infer_cache.bytes()

@@ -100,3 +100,34 @@ fn scratch_nodes_are_dropped() {
     let l2 = s.lam(p, b0);
     assert_eq!(l1, l2);
 }
+
+#[test]
+fn reserving_room_keeps_every_node_and_then_grows_no_more() {
+    let mut s = Store::new();
+    let early: Vec<ExprId> = (0..500).map(|i| s.bvar(i)).collect();
+    let base = s.perm.len();
+    let n = 50_000;
+    s.reserve_persistent(n);
+    let cap = s.persistent.slots.len();
+    assert_eq!(
+        cap,
+        ((base + n + 1) * 2).next_power_of_two(),
+        "a reserve goes straight to the capacity that holds the reserved nodes"
+    );
+    for (i, &e) in early.iter().enumerate() {
+        assert_eq!(
+            s.bvar(i as u32),
+            e,
+            "a node interned before the reserve is found after it"
+        );
+    }
+    for i in 500..500 + n as u32 {
+        s.bvar(i);
+    }
+    assert_eq!(s.perm.len(), base + n);
+    assert_eq!(
+        s.persistent.slots.len(),
+        cap,
+        "the reserved nodes fit without growing"
+    );
+}

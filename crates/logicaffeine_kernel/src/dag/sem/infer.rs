@@ -11,46 +11,102 @@ use super::value::{CtxId, EnvId, Val, DEAD, V};
 use super::{reject, Sem};
 use crate::dag::env::Safety;
 use crate::dag::error::{KResult, KernelFailure};
-use crate::dag::expr::{ExprId, Node};
+use crate::dag::expr::{ExprId, Node, SHORT_SPINE};
 use crate::dag::level::{LevelId, LevelsId};
 use crate::dag::name::NameId;
 
 impl Sem<'_> {
     /// The type of `e`, whose bound variables have the values `env` and the types `ctx` (an
-    /// empty context means "the types of the values").
+    /// empty context means "the types of the values"). A variable's is read in place, and a type
+    /// remembered for anything else in an environment [`Sem::known_env`] prunes is found in the
+    /// caller's frame. Inferring one, or pruning an environment first, is a call, and a call that
+    /// only finds where to infer returns before the inference recurses.
+    #[cfg_attr(debug_assertions, inline)]
+    #[cfg_attr(not(debug_assertions), inline(always))]
     pub fn infer(&mut self, env: EnvId, ctx: CtxId, e: ExprId, check: bool) -> KResult<V> {
-        self.note_expr(e);
-        let env = self.env_for(env, e);
-        let key = (env.0, e.0);
-        let lparam_free = !self.k.s.has_lparam(e);
-        let safe = self.k.safety == Safety::Safe;
-        let scoped = (self.st.scope, env.0, e.0);
-        let cached = if !check {
-            self.st.infer_cache.get(&key)
-        } else {
-            let lasting = if lparam_free {
-                self.st.safe_checked.get(&key)
-            } else if safe {
-                self.st.scoped_checked.get(&scoped)
-            } else {
-                None
+        if let Node::BVar(i) = self.k.s.node(e) {
+            if let Some(t) = self.st.arena.ctx_lookup(ctx, i) {
+                return Ok(t);
+            }
+            return match self.st.arena.lookup(env, i) {
+                Some(v) => self.type_of(v),
+                None => Err(reject("unexpected bound variable")),
             };
-            lasting.or_else(|| self.st.check_cache.get(&key))
-        };
-        if let Some(t) = cached {
-            return Ok(V(t));
         }
+        let scope = self.k.s.scope_of(e);
+        let known = if e.is_scratch() {
+            None
+        } else {
+            self.known_env(env, scope)
+        };
+        let (env, cached) = match known {
+            Some(pruned) => (pruned, self.remembered_type(pruned, e, scope.2, check)),
+            None => self.pruned_type(env, e, check),
+        };
+        match cached {
+            Some(t) => Ok(V(t)),
+            None => self.infer_miss(env, ctx, e, check),
+        }
+    }
+
+    /// The environment `e` is inferred in, pruned from `env`, and the type remembered for it
+    /// there: for a term [`Sem::infer`] could not place with no call — one of the scratch region
+    /// (which the session must not outlive) or one whose environment must be pruned first.
+    #[inline(never)]
+    fn pruned_type(&mut self, env: EnvId, e: ExprId, check: bool) -> (EnvId, Option<u32>) {
+        self.note_expr(e);
+        let scope = self.k.s.scope_of(e);
+        let env = self.env_in_scope(env, e, scope);
+        (env, self.remembered_type(env, e, scope.2, check))
+    }
+
+    /// The type remembered for `e` in its pruned `env` — checked, with `check` — whose universe
+    /// parameters `lparams` says it mentions.
+    #[inline]
+    fn remembered_type(&self, env: EnvId, e: ExprId, lparams: bool, check: bool) -> Option<u32> {
+        if check {
+            self.checked_type(env, e, lparams)
+        } else {
+            self.st.infer_cache.get(&(env.0, e.0))
+        }
+    }
+
+    /// A type inferred with checking for `e` in its pruned `env` whose check still holds: in a
+    /// safe declaration, for an expression mentioning no universe parameter (`lparams` false),
+    /// in any later declaration; for one mentioning them, in a later safe declaration with the
+    /// same parameters; otherwise in this declaration.
+    #[inline]
+    fn checked_type(&self, env: EnvId, e: ExprId, lparams: bool) -> Option<u32> {
+        let key = (env.0, e.0);
+        let lasting = if !lparams {
+            self.st.safe_checked.get(&key)
+        } else if self.k.safety == Safety::Safe {
+            self.st.scoped_checked.get(&(self.st.scope, env.0, e.0))
+        } else {
+            None
+        };
+        lasting.or_else(|| self.st.check_cache.get(&key))
+    }
+
+    /// The type of the compound `e` in its pruned `env`, inferred and remembered.
+    #[inline(never)]
+    fn infer_miss(&mut self, env: EnvId, ctx: CtxId, e: ExprId, check: bool) -> KResult<V> {
+        let node = self.k.s.node(e);
+        let lparams = self.k.s.has_lparam(e);
         self.enter()?;
-        let r = self.infer_uncached(env, ctx, e, check);
+        let r = self.infer_uncached(env, ctx, e, node, check);
         self.leave();
         let t = r?;
+        let key = (env.0, e.0);
         if check {
-            if safe && lparam_free {
-                self.st.safe_checked.insert(key, t.0);
-            } else if safe {
-                self.st.scoped_checked.insert(scoped, t.0);
-            } else {
+            if self.k.safety != Safety::Safe {
                 self.st.check_cache.insert(key, t.0);
+            } else if !lparams {
+                self.st.safe_checked.insert(key, t.0);
+            } else {
+                self.st
+                    .scoped_checked
+                    .insert((self.st.scope, env.0, e.0), t.0);
             }
         }
         if !self.st.infer_cache.contains(&key) {
@@ -117,21 +173,20 @@ impl Sem<'_> {
     }
 
     fn is_eager_arg(&self, a: ExprId) -> bool {
-        match self.k.s.const_head(a) {
-            Some((n, _)) => n == self.k.wk.eager_reduce && self.k.s.app_num_args(a) == 2,
-            None => false,
-        }
+        self.k.s.app_num_args(a) == 2
+            && matches!(self.k.s.const_head(a), Some((n, _)) if n == self.k.wk.eager_reduce)
     }
 
-    fn infer_uncached(&mut self, env: EnvId, ctx: CtxId, e: ExprId, check: bool) -> KResult<V> {
-        match self.k.s.node(e) {
-            Node::BVar(i) => match self.st.arena.ctx_lookup(ctx, i) {
-                Some(t) => Ok(t),
-                None => {
-                    let v = self.st.arena.lookup(env, i).ok_or_else(|| reject("unexpected bound variable"))?;
-                    self.type_of(v)
-                }
-            },
+    fn infer_uncached(
+        &mut self,
+        env: EnvId,
+        ctx: CtxId,
+        e: ExprId,
+        node: Node,
+        check: bool,
+    ) -> KResult<V> {
+        match node {
+            Node::BVar(_) => unreachable!("a variable's type is read by infer"),
             Node::FVar(_) => Err(reject("the value engine met a free variable")),
             Node::Sort(l) => {
                 if check {
@@ -189,12 +244,7 @@ impl Sem<'_> {
                 if check {
                     let vt = self.infer(env, ctx, val, true)?;
                     if !self.is_def_eq(vt, tv)? {
-                        return Err(reject("let value type mismatch").with_detail(format!(
-                            "in `{}`\n  expected type: {}\n  but the value has type: {}",
-                            self.k.show(e),
-                            self.show(tv),
-                            self.show(vt)
-                        )));
+                        return Err(self.mismatch("let value type mismatch", "value", e, tv, vt));
                     }
                 }
                 let v = self.eval(env, val)?;
@@ -235,38 +285,42 @@ impl Sem<'_> {
     }
 
     fn infer_app(&mut self, env: EnvId, ctx: CtxId, e: ExprId, check: bool) -> KResult<V> {
-        let (f, args) = self.k.s.app_args(e);
+        let mut short = [ExprId(0); SHORT_SPINE];
+        match self.k.s.short_app_args(e, &mut short) {
+            Some((f, n)) => self.infer_spine(env, ctx, e, f, &short[..n], check),
+            None => {
+                let (f, args) = self.k.s.app_args(e);
+                self.infer_spine(env, ctx, e, f, &args, check)
+            }
+        }
+    }
+
+    /// The type of the application `e` of `f` to `args`, each argument checked against its
+    /// domain when `check`.
+    #[inline]
+    fn infer_spine(
+        &mut self,
+        env: EnvId,
+        ctx: CtxId,
+        e: ExprId,
+        f: ExprId,
+        args: &[ExprId],
+        check: bool,
+    ) -> KResult<V> {
         let mut fty = self.infer(env, ctx, f, check)?;
         for &a in args.iter() {
             let w = self.whnf(fty)?;
-            let dom = match self.st.arena.get(w) {
-                Val::Pi { dom, .. } | Val::PiLam { dom, .. } => dom,
-                _ => {
-                    return Err(reject(format!("function expected, found {}", self.show(w))));
-                }
+            let (dom, body) = match self.st.arena.get(w) {
+                Val::Pi { dom, body, .. } | Val::PiLam { dom, body, .. } => (dom, body),
+                _ => return Err(self.function_expected(w)),
             };
             if check {
                 let at = self.infer(env, ctx, a, true)?;
-                let ok = if self.is_eager_arg(a) && !self.st.eager {
-                    self.st.eager = true;
-                    let r = self.is_def_eq(dom, at);
-                    self.st.eager = false;
-                    r?
-                } else {
-                    self.is_def_eq(dom, at)?
-                };
-                if !ok {
-                    return Err(
-                        KernelFailure::reject("application type mismatch").with_detail(format!(
-                            "in `{}`\n  expected type: {}\n  but the argument has type: {}",
-                            self.k.show(e),
-                            self.show(dom),
-                            self.show(at)
-                        )),
-                    );
+                if at != dom && !self.arg_conforms(a, dom, at)? {
+                    return Err(self.mismatch("application type mismatch", "argument", e, dom, at));
                 }
             }
-            let av = if self.codomain_ignores_binder(w) {
+            let av = if self.ignores_binder(body) {
                 DEAD
             } else {
                 self.eval(env, a)?
@@ -276,16 +330,51 @@ impl Sem<'_> {
         Ok(fty)
     }
 
-    /// Whether a Π-value's codomain provably never mentions its bound variable: then it can be
-    /// instantiated without evaluating the argument (the placeholder is never looked up).
-    #[inline]
-    pub(crate) fn codomain_ignores_binder(&self, pi: V) -> bool {
-        match self.st.arena.get(pi) {
-            Val::Pi { body, .. } | Val::PiLam { body, .. } => {
-                let (n, mask) = self.k.s.loose_bvars(body);
-                n == 0 || mask.is_some_and(|m| m & 1 == 0)
-            }
-            _ => false,
+    /// The refusal of a function type `w` that is not one.
+    #[cold]
+    #[inline(never)]
+    fn function_expected(&mut self, w: V) -> KernelFailure {
+        reject(format!("function expected, found {}", self.show(w)))
+    }
+
+    /// The refusal `what` of a term `e` whose `part` (its argument, a `let`'s value) has type
+    /// `found` where `expected` is required. Built out of line, so that the recursion it
+    /// interrupts carries none of its formatting.
+    #[cold]
+    #[inline(never)]
+    fn mismatch(
+        &mut self,
+        what: &str,
+        part: &str,
+        e: ExprId,
+        expected: V,
+        found: V,
+    ) -> KernelFailure {
+        KernelFailure::reject(what).with_detail(format!(
+            "in `{}`\n  expected type: {}\n  but the {part} has type: {}",
+            self.k.show(e),
+            self.show(expected),
+            self.show(found)
+        ))
+    }
+
+    /// Whether the argument `a`, of type `at`, may be passed for the domain `dom`: their
+    /// definitional equality, decided with Lean's `eagerReduce` when `a` asks for it.
+    fn arg_conforms(&mut self, a: ExprId, dom: V, at: V) -> KResult<bool> {
+        if self.st.eager || !self.is_eager_arg(a) {
+            return self.is_def_eq(dom, at);
         }
+        self.st.eager = true;
+        let r = self.is_def_eq(dom, at);
+        self.st.eager = false;
+        r
+    }
+
+    /// Whether the body of a Π-value provably never mentions its bound variable: then the Π
+    /// can be instantiated without evaluating the argument (the placeholder is never looked up).
+    #[inline]
+    fn ignores_binder(&self, body: ExprId) -> bool {
+        let (n, mask) = self.k.s.loose_bvars(body);
+        n == 0 || mask.is_some_and(|m| m & 1 == 0)
     }
 }

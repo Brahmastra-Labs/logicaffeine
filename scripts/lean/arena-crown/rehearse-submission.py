@@ -36,6 +36,7 @@ import fnmatch
 import importlib.util
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -46,7 +47,7 @@ from pathlib import Path
 
 import yaml
 
-ARENA_REVISION = "87512b60eb2483562967ebc93a5fb42eaa135389"
+ARENA_REVISION = "8139f284045e9f3a9bcf5f86119270b854057aeb"
 ARENA_TARBALL = f"https://codeload.github.com/leanprover/lean-kernel-arena/tar.gz/{ARENA_REVISION}"
 # The rustc of nixpkgs 0ad6f47e (nixos-26.05), which the Arena's flake.lock pins.
 ARENA_RUSTC = "1.95.0"
@@ -109,9 +110,11 @@ def perf_counts_instructions():
     return probe.returncode == 0
 
 
-def arena_environment(work):
+def arena_environment(work, python):
     """The environment lka.py runs in: the Arena's rustc and llvm-profdata, an empty cargo home,
-    and no cargo or rustc settings inherited from this shell."""
+    `python3` the interpreter lka.py's dependencies are installed for (an entry's build may run
+    `lka.py` itself, as `build-test` of the test it trains on), and no cargo or rustc settings
+    inherited from this shell."""
     try:
         sysroot = subprocess.run(["rustc", f"+{ARENA_RUSTC}", "--print", "sysroot"],
                                  capture_output=True, text=True, check=True).stdout.strip()
@@ -126,6 +129,11 @@ def arena_environment(work):
         shutil.rmtree(shims)
     shims.mkdir()
     (shims / "llvm-profdata").symlink_to(profdata)
+    # Python finds its venv beside the path it was started by, so `python3` execs the venv's interpreter by that path
+    # rather than standing in for it as a symlink.
+    shim = shims / "python3"
+    shim.write_text(f'#!/bin/sh\nexec {shlex.quote(str(python))} "$@"\n')
+    shim.chmod(0o755)
     # lka.py hashes each checker's and test's sources for result reuse by asking `git ls-files` which are tracked. The
     # Arena tree here is the pinned revision's tarball, every file of which is tracked, so a stand-in answers with each
     # named file and every file under each named directory (build output aside); anything else goes to git itself.
@@ -315,8 +323,12 @@ def summarize(arena, entry, staged, skipped, work):
     tally = {}
     for r in results:
         tally[r["correctness"]] = tally.get(r["correctness"], 0) + 1
-    print(f"\n{entry} at lean-kernel-arena@{ARENA_REVISION[:8]}: {len(judged)} of {len(staged)} staged tests run, "
-          f"{len(skipped)} skip-on-ci not staged, declared declines: {sorted(declared) or 'none'}")
+    ran = {r["test"] for r in judged}
+    # A test the entry's own build exported (the one it trains its profile on) is run and judged too.
+    built = sorted(ran - set(staged))
+    print(f"\n{entry} at lean-kernel-arena@{ARENA_REVISION[:8]}: {len(ran & set(staged))} of {len(staged)} staged tests run"
+          + (f", and {', '.join(built)}, which the entry's build exported" if built else "")
+          + f"; {len(skipped)} skip-on-ci not staged, declared declines: {sorted(declared) or 'none'}")
     print("  " + ", ".join(f"{k}: {v}" for k, v in sorted(tally.items())))
     wrong = [r for r in judged if r["correctness"] not in ("correct", "either")]
     for r in wrong:
@@ -331,12 +343,12 @@ def summarize(arena, entry, staged, skipped, work):
     for r in timed[:10]:
         print(f"    {r['test']:50} {r['wall_time']:8.1f}s / {r['timeout']:5d}s  {100 * r['wall_time'] / r['timeout']:5.1f}%")
     summary = {"entry": entry, "arena_revision": ARENA_REVISION, "rustc": ARENA_RUSTC, "staged": len(staged),
-               "skipped_skip_on_ci": skipped, "tally": tally,
+               "skipped_skip_on_ci": skipped, "exported_by_build": built, "tally": tally,
                "results": [{k: r.get(k) for k in ("test", "status", "correctness", "exit_code", "wall_time",
                                                   "timeout", "max_rss", "instructions")} for r in results]}
     (work / "summary.json").write_text(json.dumps(summary, indent=2))
     print(f"  summary: {work / 'summary.json'}")
-    return not wrong and {r["test"] for r in judged} == set(staged) - declared
+    return not wrong and set(staged) - declared <= ran
 
 
 def main():
@@ -358,7 +370,7 @@ def main():
     work.mkdir(parents=True, exist_ok=True)
     arena = fetch_arena(work)
     python = lka_python(work)
-    env = arena_environment(work)
+    env = arena_environment(work, python)
     if a.rev:
         stage_from_revision(arena, a.entry, a.ref, a.rev)
     else:

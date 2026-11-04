@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- **The kernel's Lean checker spends 29% fewer instructions on Mathlib.** `logicaffeine-kernel`'s value
+  engine, the Lean Kernel Arena entry's engine, checks the Arena's whole Mathlib export in 409.15 G instructions,
+  from 577.15 G, every verdict unchanged: the Arena entries build with the new `unchecked-access`
+  feature (the `dag` core reads its stores without bounds checks; every other build and every test keep them), cached
+  values and types are found in the caller's frame, a neutral's arguments are stored contiguously and interned in
+  one probe, and an environment remembers its two latest prunings in place of a pruning cache.
+
 ### Fixed
 
 - **The release workflow publishes notes longer than a GitHub release holds, and releases a tag pushed before it was

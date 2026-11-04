@@ -25,23 +25,24 @@ Also writes the generated test list `crates/logicaffeine_tests/tests/arena_corpu
 import hashlib, json, os, shutil, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-REVISION = "87512b60eb2483562967ebc93a5fb42eaa135389"
-LIVE = os.path.join(ROOT, "reference-kernels/lean-arena-live-87512b60")
-LIVE_TAR_SHA256 = "609baebb26a438e61a5ee28b7c3551793ab4066ae7af54f20e60e71cea74d6b5"
-LIVE_RESULTS_SHA256 = "1e2c90211db7e67de3734ed5fa4804051f338ffacca0de87a08db0eee213af9e"
+REVISION = "8139f284045e9f3a9bcf5f86119270b854057aeb"
+LIVE = os.path.join(ROOT, "reference-kernels/lean-arena-live-8139f284")
+LIVE_TAR_SHA256 = "4e9e5b5106f2a0c482bde6df5f8dd8a7eb8e1fe26bb211aa15eca290a8d859f3"
+LIVE_RESULTS_SHA256 = "0f6f2dd9a4dae2e67d92b2bd7a189aa531423a9827f406cc1dbbcf4c31d3c6c6"
 OUT = os.path.join(ROOT, "crates/logicaffeine_tests/tests/fixtures/arena_corpus")
 CASES_RS = os.path.join(ROOT, "crates/logicaffeine_tests/tests/arena_corpus/cases.rs")
 CAP = 4 * 1024 * 1024
 DIR_OF = {"accept": "good", "reject": "bad", "either": "either"}
-# The rounds whose regenerated exports may hold a case's bytes, this round's first.
-REGENERATED_ROUNDS = [REVISION[:8], "66c354d6"]
+# The rounds whose regenerated exports may hold a case's bytes, newest first.
+REGENERATED_ROUNDS = [REVISION[:8], "d7f74a9e", "87512b60", "66c354d6"]
 REGENERATED = "reference-kernels/arena-inputs-{round}/{name}/{base}.ndjson"
-REGENERATED_MISMATCH = "reference-kernels/arena-inputs-" + REVISION[:8] + "/{name}/{base}.mismatch.ndjson"
+REGENERATED_MISMATCH = "reference-kernels/arena-inputs-{round}/{name}/{base}.mismatch.ndjson"
 # Cases no build reproduces byte for byte, with the evidence.
 NONDETERMINISTIC = {
     "cedar": "every export of cedar-spec@017c35c3 with Lean v4.34.1 differs: the Arena's rounds hold 15,316,784 "
-             "records (66c354d6) and 15,316,785 (87512b60), three local builds exported 15,316,769, 15,316,775 "
-             "and 15,316,782",
+             "records (66c354d6) and 15,316,785 (87512b60), and three more digests since (872,400,341, 872,400,477 "
+             "and 872,400,520 bytes at d7f74a9e, 236ab462 and 8139f284); three local builds exported 15,316,769, "
+             "15,316,775 and 15,316,782",
 }
 # Cases whose check takes seconds today; they run with the `#[ignore]` heavy set until the
 # instruction ratchet brings them under a second.
@@ -109,10 +110,12 @@ def main():
                 src, row["provenance"] = cand, provenance
                 break
         if src is None and name in NONDETERMINISTIC:
-            cand = os.path.join(ROOT, REGENERATED_MISMATCH.format(name=name, base=os.path.basename(name)))
-            if os.path.exists(cand):
-                src, row["provenance"] = cand, "regenerated_nondeterministic_upstream"
-                row["nondeterministic"] = NONDETERMINISTIC[name]
+            for r in REGENERATED_ROUNDS:
+                cand = os.path.join(ROOT, REGENERATED_MISMATCH.format(round=r, name=name, base=os.path.basename(name)))
+                if os.path.exists(cand):
+                    src, row["provenance"] = cand, "regenerated_nondeterministic_upstream"
+                    row["nondeterministic"] = NONDETERMINISTIC[name]
+                    break
         if src is None:
             row["location"] = "absent"
             rows.append(row)

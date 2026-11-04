@@ -3,19 +3,27 @@
 The checkers LOGOS enters in the [Lean Kernel Arena](https://arena.lean-lang.org/), in the Arena's
 checker format. `checker.schema.json` is the Arena's `schemas/checker.json`, vendored from
 [lean-kernel-arena](https://github.com/leanprover/lean-kernel-arena) at revision
-`87512b60eb2483562967ebc93a5fb42eaa135389`; everything below describes the Arena at that revision.
+`8139f284045e9f3a9bcf5f86119270b854057aeb`; everything below describes the Arena at that revision.
 
 | file | entry |
 |---|---|
 | `logos-kernel.yaml` | the dag kernel core, checking each declaration once (`../examples/logos_kernel.rs`) |
 | `logos-dual.yaml` | the same core with two complete engines that must agree (`../examples/logos_dual.rs`); declines mathlib, which does not fit its timeout checked twice |
 
-Both entries build with the `arena` profile, `target-cpu=native` and a profile trained on the run line. The checker
+Both entries build with the `arena` profile, `target-cpu=native`, a profile trained on the run line over the Arena's
+`init` and `init-prelude` tests, which the build exports first with the Arena's own `lka.py build-test` (from the
+Arena's root, four directories above the checker's `src/`), and the kernel's `unchecked-access` feature, with which the dag core reads
+its stores by the ids they hand out without a bounds check (every other build of the kernel, and every test, keeps
+the checks). The checker
 is linked as a position-dependent executable, by the kernel's build script (`cargo:rustc-link-arg-examples=-no-pie`, on
 Linux, for the crate's examples alone), so the loader patches none of the binary's own tables at start-up: the Arena
 counts every instruction of every test, start-up included. The flag is not in `RUSTFLAGS`, which reach every crate the
 build compiles, a procedural macro's shared object among them.
-`scripts/lean/arena-crown/snapshot.sh` builds the binary every measurement runs with exactly these flags.
+`init-prelude`'s profile is merged at sixty times its weight: `init` alone makes Mathlib's checking the hot path
+and leaves the declarations a small test spends its time on cold, which cost the small tests up to 4% more
+instructions; weighted, every small test is back within its ceiling and Mathlib costs no more.
+`scripts/lean/arena-crown/snapshot.sh` builds the binary every measurement runs with exactly these flags and this
+training.
 
 `crates/logicaffeine_tests/tests/arena_entry_lock.rs` holds both files to the schema and to the invariants below.
 
@@ -28,8 +36,8 @@ build compiles, a procedural macro's shared object among them.
 - **Machine.** Each checker gets its own job on a Namespace `nscloud-ubuntu-22.04-amd64-8x16`
   runner (8 vCPUs, 16 GB), inside the Arena flake's nix shell (nixpkgs `0ad6f47e`, nixos-26.05):
   rustc and cargo 1.95.0, `llvm-profdata` from `llvmPackages_21`, elan, perf, GNU time. System
-  build dependencies go into that `flake.nix`; ours need nothing beyond rustc, cargo and
-  `llvm-profdata`. The job has 360 minutes for build, test generation and every test.
+  build dependencies go into that `flake.nix`; ours need nothing beyond rustc, cargo,
+  `llvm-profdata` and the elan `lka.py build-test` exports `init` and `init-prelude` with. The job has 360 minutes for build, test generation and every test.
 - **Build.** `git clone --branch <ref> <url> _build/checkers/<name>/src`, `git checkout <rev>`, then
   the `build` script with `/bin/sh` in `src/`. The network is available: cargo resolves the whole
   workspace's lockfile, git dependencies included, although only the kernel is compiled.
@@ -46,8 +54,9 @@ build compiles, a procedural macro's shared object among them.
   rest have none. A checker may also declare its own `timeout`, and the smaller limit applies; both
   entries leave it out, so each test's limit is the one in force.
 - **Inputs.** The tests are exported with Lean v4.34.1 (cslib with v4.34.0, navier-stokes-euler with
-  v4.34.0-rc2, con-leche with v4.33.0) by lean4export 3.1.0; `results.json` publishes each export's
-  SHA-256.
+  v4.34.0-rc2, con-leche with v4.33.0, and `bugs/closure-level-subst`, `bugs/pi-closure-context` and
+  `corner-cases/large-elim-maybe-prop` with v4.35.0) by lean4export 3.1.0 (`other/level-index-out-of-order`
+  and `other/sparse-name-index` record 0.1.0); `results.json` publishes each export's SHA-256.
 - **What pull-request CI runs.** Tests marked `skip-on-ci` — init, std, cedar, cslib, con-leche,
   navier-stokes-euler and mathlib — are not run on a pull request. They first run when the merge lands on `master`:
   every push to `master` builds every checker on every test and deploys the site only if every
@@ -69,9 +78,8 @@ build compiles, a procedural macro's shared object among them.
 Nothing here is pushed or submitted automatically. In order:
 
 1. **The pinned commit is public.** It is a commit of `https://github.com/Brahmastra-Labs/logicaffeine`
-   containing this crate, `logicaffeine-base`, the vendored `init-prelude` export the build trains
-   its profile on, and a `Cargo.lock` in step with every workspace manifest (both builds are
-   `--locked`).
+   containing this crate, `logicaffeine-base` and a `Cargo.lock` in step with every workspace manifest
+   (both builds are `--locked`).
 2. **Pin it.** Replace `SUBMISSION_REF` and `SUBMISSION_REV` with its tag and full 40-character
    commit hash, together.
 3. **Rehearse against it** (below): the pull-request tests with `--ref`/`--rev`, then `--heavy`,
@@ -96,7 +104,8 @@ builds what the public repository would contain (the root manifest and lockfile 
 member's files as the next commit would hold them: tracked or trackable, less those deleted), with rustc
 1.95.0 and an empty cargo home, strips cargo and rustc settings from
 the environment, and stages the tests from the vendored corpus (`tests/fixtures/arena_corpus`), so no
-Lean export is rebuilt.
+Lean export is rebuilt but the `init` and `init-prelude` the entry's build exports itself, with `lka.py`'s
+interpreter and the elan on the rehearsing shell's `PATH`; those two run and are judged as well.
 
 ```bash
 rustup toolchain install 1.95.0 --profile minimal --component llvm-tools   # once

@@ -25,28 +25,28 @@ fn manifest() -> serde_json::Value {
 fn the_manifest_is_the_pinned_upstream_revision() {
     let m = manifest();
     assert_eq!(m["schema"], "logos-arena-corpus/2");
-    assert_eq!(m["revision"], "87512b60eb2483562967ebc93a5fb42eaa135389");
+    assert_eq!(m["revision"], "8139f284045e9f3a9bcf5f86119270b854057aeb");
     assert_eq!(
         m["archive_sha256"],
-        "609baebb26a438e61a5ee28b7c3551793ab4066ae7af54f20e60e71cea74d6b5"
+        "4e9e5b5106f2a0c482bde6df5f8dd8a7eb8e1fe26bb211aa15eca290a8d859f3"
     );
     assert_eq!(
         m["results_sha256"],
-        "1e2c90211db7e67de3734ed5fa4804051f338ffacca0de87a08db0eee213af9e"
+        "0f6f2dd9a4dae2e67d92b2bd7a189aa531423a9827f406cc1dbbcf4c31d3c6c6"
     );
     let cases = m["cases"].as_array().unwrap();
-    assert_eq!(cases.len(), 236, "the live Arena has 236 cases");
+    assert_eq!(cases.len(), 247, "the live Arena has 247 cases");
     let outcomes = |o: &str| cases.iter().filter(|c| c["outcome"] == o).count();
     assert_eq!(
         (outcomes("accept"), outcomes("reject"), outcomes("either")),
-        (137, 73, 26)
+        (137, 80, 30)
     );
     let official = cases
         .iter()
         .filter(|c| c["provenance"] == "official_archive")
         .count();
     assert_eq!(
-        official, 200,
+        official, 207,
         "every scored test in the official archive is used from its official bytes"
     );
     let absent: Vec<_> = cases.iter().filter(|c| c["location"] == "absent").collect();
@@ -156,7 +156,7 @@ fn the_generated_case_list_covers_the_corpus_exactly() {
     assert_eq!(heavy_lines, heavy, "one ignored test per heavy case");
     assert_eq!(
         lines.len() + heavy_lines,
-        236,
+        247,
         "every upstream case has a test"
     );
     for e in &expected {

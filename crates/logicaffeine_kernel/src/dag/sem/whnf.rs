@@ -38,6 +38,7 @@ impl Sem<'_> {
 
     /// Weak-head normal form without δ. With `cheap_proj`, a projection's structure is only
     /// brought to `whnf_core` (not unfolded), as Lean's `whnfCore` does inside conversion.
+    #[inline]
     pub fn whnf_core(&mut self, v: V, cheap_proj: bool) -> KResult<V> {
         let Val::Neu { kind, .. } = self.st.arena.get(v) else {
             return Ok(v);
@@ -45,9 +46,16 @@ impl Sem<'_> {
         if !matches!(kind, Kind::Rec | Kind::Quot | Kind::Proj) {
             return Ok(v);
         }
-        if let Some(r) = self.st.arena.whnf_core_memo(v) {
-            return Ok(r);
+        match self.st.arena.whnf_core_memo(v) {
+            Some(r) => Ok(r),
+            None => self.whnf_core_miss(v, kind, cheap_proj),
         }
+    }
+
+    /// [`Sem::whnf_core`] of a value headed by a recursor, a quotient eliminator or a projection,
+    /// reduced and (unless projections were only brought to `whnf_core`) remembered on it.
+    #[inline(never)]
+    fn whnf_core_miss(&mut self, v: V, kind: Kind, cheap_proj: bool) -> KResult<V> {
         self.enter()?;
         let r = self.whnf_core_step(v, kind, cheap_proj);
         self.leave();
@@ -175,13 +183,20 @@ impl Sem<'_> {
     }
 
     /// Full weak-head normal form.
+    #[inline]
     pub fn whnf(&mut self, v: V) -> KResult<V> {
         if !matches!(self.st.arena.get(v), Val::Neu { .. }) {
             return Ok(v);
         }
-        if let Some(r) = self.st.arena.whnf_memo(v) {
-            return Ok(r);
+        match self.st.arena.whnf_memo(v) {
+            Some(r) => Ok(r),
+            None => self.whnf_miss(v),
         }
+    }
+
+    /// The weak-head normal form of a neutral, reduced and remembered on it.
+    #[inline(never)]
+    fn whnf_miss(&mut self, v: V) -> KResult<V> {
         self.enter()?;
         let r = self.whnf_loop(v);
         self.leave();
@@ -279,7 +294,7 @@ impl Sem<'_> {
             if n != self.k.wk.nat_succ || ls != LevelsId::EMPTY {
                 return Ok(None);
             }
-            let a = self.st.arena.spine_node(spine).arg;
+            let a = self.st.arena.spine_arg(spine, 0);
             let w = self.whnf(a)?;
             return Ok(self.raw_nat(w).map(|x| self.nat_value(x.succ())));
         }
@@ -321,8 +336,10 @@ impl Sem<'_> {
         if !self.k.validated_primitives.contains(&n) {
             return Ok(None);
         }
-        let last = self.st.arena.spine_node(spine);
-        let (a0, a1) = (self.st.arena.spine_node(last.prev).arg, last.arg);
+        let (a0, a1) = (
+            self.st.arena.spine_arg(spine, 0),
+            self.st.arena.spine_arg(spine, 1),
+        );
         let wa = self.whnf(a0)?;
         let Some(x) = self.raw_nat(wa) else {
             return Ok(None);
@@ -392,7 +409,7 @@ impl Sem<'_> {
         let Val::Neu { spine: mks, .. } = self.st.arena.get(mk) else {
             unreachable!()
         };
-        let mk_arg = self.st.arena.spine_node(mks).arg;
+        let mk_arg = self.st.arena.spine_arg(mks, 2);
         let r = self.apply(args[arg_pos], mk_arg)?;
         self.apply_all(r, &args[mk_pos + 1..]).map(Some)
     }
@@ -585,11 +602,11 @@ impl Sem<'_> {
             .ok_or_else(|| reject("not a constructor"))?
             .clone();
         let c = self.const_value(ctor, ls)?;
-        let mut r = self.apply_all(c, &args[..(ci.num_params as usize).min(args.len())])?;
+        let params = &args[..(ci.num_params as usize).min(args.len())];
+        let mut all: smallvec::SmallVec<[V; 16]> = smallvec::SmallVec::from_slice(params);
         for f in 0..ci.num_fields {
-            let p = self.proj(i, f, x)?;
-            r = self.apply(r, p)?;
+            all.push(self.proj(i, f, x)?);
         }
-        Ok(r)
+        self.apply_all(c, &all)
     }
 }

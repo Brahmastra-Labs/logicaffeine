@@ -6,6 +6,8 @@
 //! lookup each probe one. A general hash map spends several times the instructions of a probe
 //! here on hashing, metadata and growth policy.
 
+use crate::dag::slot;
+
 /// A key a table can hold: its hash must be well mixed in the TOP bits.
 pub trait Key: Copy + Eq {
     /// Every bit set: what a vacant slot holds, so that emptying a table is one byte fill.
@@ -100,7 +102,7 @@ impl<Q: Key> Table<Q> {
         let mask = self.slots.len() - 1;
         let mut i = (k.hash() >> self.shift) as usize;
         loop {
-            let s = &self.slots[i];
+            let s = slot::at(&self.slots, i);
             if s.val == EMPTY {
                 return None;
             }
@@ -126,10 +128,10 @@ impl<Q: Key> Table<Q> {
     fn place(&mut self, k: Q, v: u32) {
         let mask = self.slots.len() - 1;
         let mut i = (k.hash() >> self.shift) as usize;
-        while self.slots[i].val != EMPTY {
+        while slot::at(&self.slots, i).val != EMPTY {
             i = (i + 1) & mask;
         }
-        self.slots[i] = Slot { key: k, val: v };
+        *slot::at_mut(&mut self.slots, i) = Slot { key: k, val: v };
     }
 
     fn grow(&mut self) {
@@ -213,7 +215,7 @@ impl<Q: Key> StampedTable<Q> {
         let mask = self.slots.len() - 1;
         let mut i = (k.hash() >> self.shift) as usize;
         loop {
-            let s = &self.slots[i];
+            let s = slot::at(&self.slots, i);
             if s.generation != self.generation {
                 return None;
             }
@@ -238,10 +240,10 @@ impl<Q: Key> StampedTable<Q> {
     fn place(&mut self, k: Q, v: u32) {
         let mask = self.slots.len() - 1;
         let mut i = (k.hash() >> self.shift) as usize;
-        while self.slots[i].generation == self.generation {
+        while slot::at(&self.slots, i).generation == self.generation {
             i = (i + 1) & mask;
         }
-        self.slots[i] = StampedSlot {
+        *slot::at_mut(&mut self.slots, i) = StampedSlot {
             key: k,
             val: v,
             generation: self.generation,

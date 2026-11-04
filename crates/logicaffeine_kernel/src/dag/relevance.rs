@@ -163,7 +163,7 @@ impl Kernel {
         if arity == 0 {
             return 0;
         }
-        let used = loose_mask(self, body, 0, &mut FxMap::default());
+        let used = loose_mask(self, body);
         let mut absent = 0u64;
         let mut rest = ty;
         for i in 0..arity {
@@ -199,8 +199,18 @@ impl Kernel {
     }
 }
 
-/// The loose de Bruijn indices (relative to `depth`, below 64) occurring in `e`.
-fn loose_mask(k: &Kernel, e: ExprId, depth: u32, memo: &mut FxMap<(ExprId, u32), u64>) -> u64 {
+/// The loose de Bruijn indices below 64 occurring in `e`: the store's mask, which records them
+/// exactly unless an index of 64 or more occurs somewhere in `e`, and then a walk.
+fn loose_mask(k: &Kernel, e: ExprId) -> u64 {
+    match k.s.loose_bvar_mask(e) {
+        Some(m) => m,
+        None => loose_mask_walk(k, e, 0, &mut FxMap::default()),
+    }
+}
+
+/// The loose de Bruijn indices (relative to `depth`, below 64) occurring in `e`, found by
+/// walking it.
+fn loose_mask_walk(k: &Kernel, e: ExprId, depth: u32, memo: &mut FxMap<(ExprId, u32), u64>) -> u64 {
     if k.s.loose_bvar_range(e) <= depth {
         return 0;
     }
@@ -216,16 +226,16 @@ fn loose_mask(k: &Kernel, e: ExprId, depth: u32, memo: &mut FxMap<(ExprId, u32),
                 0
             }
         }
-        Node::App(a, b) => loose_mask(k, a, depth, memo) | loose_mask(k, b, depth, memo),
+        Node::App(a, b) => loose_mask_walk(k, a, depth, memo) | loose_mask_walk(k, b, depth, memo),
         Node::Lam(a, b) | Node::Pi(a, b) => {
-            loose_mask(k, a, depth, memo) | loose_mask(k, b, depth + 1, memo)
+            loose_mask_walk(k, a, depth, memo) | loose_mask_walk(k, b, depth + 1, memo)
         }
         Node::Let(a, b, c) => {
-            loose_mask(k, a, depth, memo)
-                | loose_mask(k, b, depth, memo)
-                | loose_mask(k, c, depth + 1, memo)
+            loose_mask_walk(k, a, depth, memo)
+                | loose_mask_walk(k, b, depth, memo)
+                | loose_mask_walk(k, c, depth + 1, memo)
         }
-        Node::Proj(_, _, a) => loose_mask(k, a, depth, memo),
+        Node::Proj(_, _, a) => loose_mask_walk(k, a, depth, memo),
         _ => 0,
     };
     memo.insert((e, depth), m);
@@ -234,5 +244,5 @@ fn loose_mask(k: &Kernel, e: ExprId, depth: u32, memo: &mut FxMap<(ExprId, u32),
 
 /// Does `e` mention the innermost enclosing binder (`BVar(0)` at depth 0)?
 fn mentions_bvar0(k: &Kernel, e: ExprId) -> bool {
-    loose_mask(k, e, 0, &mut FxMap::default()) & 1 == 1
+    loose_mask(k, e) & 1 == 1
 }

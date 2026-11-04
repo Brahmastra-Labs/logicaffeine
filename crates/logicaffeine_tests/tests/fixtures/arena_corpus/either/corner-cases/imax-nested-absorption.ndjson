@@ -1,0 +1,17 @@
+{"meta":{"exporter":{"name":"lean4export","version":"3.1.0"},"format":{"version":"3.1.0"},"lean":{"githash":"5045d0056413266e57c625dcd7c365b10e377c52","version":"4.34.1"}}}
+{"in":1,"str":{"pre":0,"str":"imaxAbsorbRight"}}
+{"in":2,"str":{"pre":0,"str":"u"}}
+{"in":3,"str":{"pre":0,"str":"v"}}
+{"il":1,"param":2}
+{"il":2,"param":3}
+{"il":3,"imax":[1,2]}
+{"il":4,"imax":[3,2]}
+{"il":5,"succ":4}
+{"ie":0,"sort":5}
+{"ie":1,"sort":3}
+{"def":{"all":[1],"hints":"opaque","levelParams":[2,3],"name":1,"safety":"safe","type":0,"value":1}}
+{"in":4,"str":{"pre":0,"str":"imaxAbsorbLeft"}}
+{"il":6,"imax":[2,3]}
+{"il":7,"succ":6}
+{"ie":2,"sort":7}
+{"def":{"all":[4],"hints":"opaque","levelParams":[2,3],"name":4,"safety":"safe","type":2,"value":1}}
