@@ -107,7 +107,14 @@ logicaffeine-verify = 77284
 # Raised 2026-11-04 (Tristen's approval) to the v0.11.0 tag's dist builds as release.yml builds them, plus 3%:
 # largo 53,980,504 B (lean, x86_64-unknown-linux-gnu, ubuntu-22.04) and logicaffeine-lsp 22,310,960 B, 17.5% and 17.7%
 # over the 2026-10-04 budgets. release.yml holds a tag's binaries to the budgets of the commit that dispatches it.
-# By crate, 38af68a03 -> 9dd79e62b (the tree v0.11.0 was cut from): logs/cpe/binsize-1104/report.md.
+# Built as check-binary-sizes.sh builds them, 38af68a03 -> 9dd79e62b (the tree v0.11.0 was cut from): largo
+# 45,133,568 -> 54,328,136 B, logicaffeine-lsp 18,574,488 -> 22,435,832 B. By crate (`.text`, cargo bloat --crates):
+# largo — logicaffeine_compile +3,959,404 (the CUDA lane emitter, the Qwen spatial lowering, checkpoint views, the
+# streamed RDU compile, the VM's number joins, the C backend), logicaffeine_base +1,974,769 (the exact-number tower:
+# algebraic numbers, Puiseux series, supertask and nested flows, hybrid runs, ODE enclosures, matrix exponentials),
+# std +1,033,064, logicaffeine_language +185,046; logicaffeine-lsp — logicaffeine_base +1,526,736,
+# logicaffeine_compile +878,953, std +497,474, logicaffeine_language +164,740. No crate is new in largo; the LSP
+# links logicaffeine_data and indexmap (8,869 B). Report: logs/cpe/binsize-1104/report.md.
 [binaries]
 largo = 55599919
 logicaffeine-lsp = 22980289
