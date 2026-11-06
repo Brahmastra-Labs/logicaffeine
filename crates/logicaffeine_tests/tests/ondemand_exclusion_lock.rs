@@ -1030,3 +1030,159 @@ fn the_handed_reds_runner_runs_exactly_the_suites_behind_the_feature() {
     assert!(!gated.is_empty() || listed.is_empty(), "the runner names suites while none is gated: {listed:?}");
     assert_eq!(listed, gated, "{HANDED_REDS_RUNNER}'s BINARIES must be exactly the suites behind `handed-reds`");
 }
+
+/// What one top-level function of a test file does: whether it is a `#[test]`, the free functions it calls by name, and
+/// whether it starts Verilator itself (`common::verilator()`, or the step program's `run-cosim.sh`).
+#[derive(Default)]
+struct FnFacts {
+    test: bool,
+    calls: BTreeSet<String>,
+    starts_verilator: bool,
+}
+
+/// Every top-level function of `src`, parsed: its calls are read from the expressions and from the token streams of
+/// the macros it writes (`assert!(step(…))` calls `step`), never from comments or other names that end alike.
+fn function_facts(src: &str) -> BTreeMap<String, FnFacts> {
+    use proc_macro2::TokenTree;
+    use syn::visit::Visit;
+    fn tokens(stream: proc_macro2::TokenStream, facts: &mut FnFacts) {
+        let trees: Vec<TokenTree> = stream.into_iter().collect();
+        for (i, tree) in trees.iter().enumerate() {
+            match tree {
+                TokenTree::Ident(id) => {
+                    if let Some(TokenTree::Group(g)) = trees.get(i + 1) {
+                        if g.delimiter() == proc_macro2::Delimiter::Parenthesis
+                            && !matches!(i.checked_sub(1).map(|j| &trees[j]), Some(TokenTree::Punct(p)) if p.as_char() == '.')
+                        {
+                            facts.calls.insert(id.to_string());
+                        }
+                    }
+                }
+                TokenTree::Literal(l) if l.to_string().contains("run-cosim.sh") => facts.starts_verilator = true,
+                TokenTree::Group(g) => tokens(g.stream(), facts),
+                _ => {}
+            }
+        }
+    }
+    struct Walk<'f>(&'f mut FnFacts);
+    impl<'a> Visit<'a> for Walk<'_> {
+        fn visit_expr_call(&mut self, c: &'a syn::ExprCall) {
+            if let syn::Expr::Path(p) = &*c.func {
+                let segs: Vec<String> = p.path.segments.iter().map(|s| s.ident.to_string()).collect();
+                if segs == ["common", "verilator"] {
+                    self.0.starts_verilator = true;
+                }
+                if let [only] = segs.as_slice() {
+                    self.0.calls.insert(only.clone());
+                }
+            }
+            syn::visit::visit_expr_call(self, c);
+        }
+        fn visit_lit_str(&mut self, s: &'a syn::LitStr) {
+            if s.value().contains("run-cosim.sh") {
+                self.0.starts_verilator = true;
+            }
+        }
+        fn visit_macro(&mut self, m: &'a syn::Macro) {
+            let stream = m.tokens.clone();
+            if stream.to_string().contains("common :: verilator ()") {
+                self.0.starts_verilator = true;
+            }
+            tokens(stream, self.0);
+        }
+    }
+    let ast = syn::parse_file(src).unwrap_or_else(|e| panic!("the test file does not parse: {e}"));
+    let mut out = BTreeMap::new();
+    for item in &ast.items {
+        if let syn::Item::Fn(f) = item {
+            let mut facts = FnFacts {
+                test: f.attrs.iter().any(|a| a.path().segments.last().is_some_and(|s| s.ident == "test")),
+                ..FnFacts::default()
+            };
+            Walk(&mut facts).visit_block(&f.block);
+            out.insert(f.sig.ident.to_string(), facts);
+        }
+    }
+    out
+}
+
+/// The tests of `d5005_engine_card_lock` that run Verilator: each that starts it itself or calls one of the file's
+/// functions that does, however deep.
+fn card_cosimulations() -> BTreeSet<String> {
+    let path = repo_root().join("crates/logicaffeine_tests/tests/d5005_engine_card_lock.rs");
+    let src = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    let fns = function_facts(&src);
+    let mut reaching: BTreeSet<String> = fns.iter().filter(|(_, f)| f.starts_verilator).map(|(n, _)| n.clone()).collect();
+    loop {
+        let more: Vec<String> = fns
+            .iter()
+            .filter(|(name, f)| !reaching.contains(*name) && f.calls.iter().any(|c| reaching.contains(c)))
+            .map(|(name, _)| name.clone())
+            .collect();
+        if more.is_empty() {
+            break;
+        }
+        reaching.extend(more);
+    }
+    fns.iter().filter(|(name, f)| f.test && reaching.contains(*name)).map(|(name, _)| name.clone()).collect()
+}
+
+/// The `d5005_engine_card_lock` tests a selector names: its `binary(d5005_engine_card_lock) and test(/^(…)$/)` clause.
+fn card_tests_named(selector: &str) -> BTreeSet<String> {
+    let open = "binary(d5005_engine_card_lock) and test(/^(";
+    let start = selector.find(open).unwrap_or_else(|| panic!("the selector has no d5005_engine_card_lock clause: {selector}"));
+    let rest = &selector[start + open.len()..];
+    let end = rest.find(")$/)").expect("the clause's alternation closes");
+    rest[..end].split('|').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+}
+
+/// A card co-simulation runs the engine build under Verilator for 600–3,400 s alone (Tristen, 2026-10-23: on demand,
+/// beside the silicon sims), so the baseline must not reach one: the silicon runner names exactly the card lock's
+/// tests that start Verilator, derived from the file, and a new co-simulation fails here by name rather than running
+/// into the fast suite's 30-minute cap.
+#[test]
+fn every_card_cosimulation_runs_on_demand_and_no_fast_card_test_does() {
+    let named = card_tests_named(&shell_var(&script("run-silicon-tests.sh"), "SILICON_ONLY"));
+    let cosims = card_cosimulations();
+    assert!(cosims.len() >= 20, "found {} card co-simulations: the reader is reading nothing", cosims.len());
+    let missing: Vec<&String> = cosims.difference(&named).collect();
+    let extra: Vec<&String> = named.difference(&cosims).collect();
+    assert!(
+        missing.is_empty() && extra.is_empty(),
+        "SILICON_ONLY's d5005_engine_card_lock clause must name exactly the tests that start Verilator.\n  \
+         co-simulations it leaves to the fast suite: {missing:?}\n  names that start no Verilator: {extra:?}"
+    );
+}
+
+#[test]
+fn the_function_reader_reads_the_shape_it_guards() {
+    let src = r#"
+fn helper() {
+    let _ = std::process::Command::new(common::verilator());
+}
+fn script() {
+    let _ = std::path::Path::new("scripts/d5005/run-cosim.sh");
+}
+/// doc
+#[test]
+#[ignore]
+fn slow() {
+    assert!(helper() == ());
+}
+#[test]
+fn fast() {
+    // helper();
+    the_helper();
+    x.helper();
+    assert!(true);
+}
+"#;
+    let fns = function_facts(src);
+    assert_eq!(fns.keys().cloned().collect::<Vec<_>>(), ["fast", "helper", "script", "slow"]);
+    assert!(fns["slow"].test && fns["fast"].test && !fns["helper"].test);
+    assert!(fns["helper"].starts_verilator && fns["script"].starts_verilator && !fns["slow"].starts_verilator);
+    assert!(fns["slow"].calls.contains("helper"), "a call inside a macro is read: {:?}", fns["slow"].calls);
+    assert!(!fns["fast"].calls.contains("helper"), "a comment, a longer name and a method are not calls: {:?}", fns["fast"].calls);
+    let clause = "(binary(d5005_engine_card_lock) and test(/^(a_b|c_d)$/))";
+    assert_eq!(card_tests_named(clause), BTreeSet::from(["a_b".to_string(), "c_d".to_string()]));
+}

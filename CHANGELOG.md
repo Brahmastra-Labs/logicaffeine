@@ -31,6 +31,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `check-binary-sizes.sh --bin-dir` reads a relative directory from where it is called. The `[binaries]` budgets rise
   to v0.11.0's builds plus 3% (`largo` 55,599,919 B, `logicaffeine-lsp` 22,980,289 B): both had grown 17.5% past the
   2026-10-04 budgets, which only the release checked. Locked by `release_assets_lock`.
+- **`largo run` and the optimizer finish on a recursive function that calls itself inside a loop.** The recursive
+  inliner unfolds such a function eight levels deep, and the abstract interpreter proves each unfolded loop's entry
+  facts with Fourier–Motzkin elimination, which can square its constraint set at every variable it eliminates: on
+  `walk(n, base)` calling `walk(n - 1, acc)` four times in a loop, `largo run` and `compile_to_program_optimized`
+  ran past 30 GB and never finished (0.10.1 as well). The optimizer's prover now eliminates under a budget of 4,096
+  constraints a step and reads a proof past it as not found, which costs at most the optimization it would have
+  licensed; the compile peaks at 19.6 MB. Locked by `compiler_stack_safety_lock` and the kernel's `lia` units.
+- **The fast suite leaves every D5005 card co-simulation to `run-silicon-tests.sh`.** The card lock's tests that
+  start Verilator take 600–3,400 s each; seven added since the on-demand ruling ran into the fast suite's 30-minute
+  cap. `ondemand_exclusion_lock` now derives the co-simulations from the test file (each test that starts Verilator,
+  directly or through the file's helpers) and holds the silicon selector to exactly them.
 
 ## [0.11.0] - 2026-11-02
 

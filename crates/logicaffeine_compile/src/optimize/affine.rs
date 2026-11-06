@@ -26,7 +26,7 @@
 
 use crate::ast::stmt::{BinaryOpKind, Expr, Literal};
 use crate::intern::Symbol;
-use logicaffeine_kernel::lia::{fourier_motzkin_unsat, LinearExpr, Rational};
+use logicaffeine_kernel::lia::{fourier_motzkin_unsat_within, LinearExpr, Rational};
 
 /// The kernel's linear-arithmetic types, re-exported under the optimizer's
 /// names so callers (the abstract interpreter's `scalar_def` map, the bounds
@@ -115,19 +115,27 @@ pub(crate) fn nonneg(e: &LinearExpr) -> Constraint {
     }
 }
 
+/// The most constraints one Fourier–Motzkin step may leave in a proof the optimizer attempts. Elimination can square
+/// its constraint set at every variable, and the loop nest the recursive inliner unfolds carries a fact per variable
+/// per level, enough for an unbounded elimination to exhaust memory. A proof past the budget is not found, which costs
+/// at most the optimization it would have licensed.
+const PROOF_BUDGET: usize = 4_096;
+
 /// Are `facts` (each a kernel `expr <= 0` / `< 0`) mutually SATISFIABLE? A
 /// contradictory fact set proves every goal vacuously, so a bounds proof must
 /// refuse to fire on one — a defensive net against any false hypothesis
-/// (a stale or self-referential fact) slipping into the system.
+/// (a stale or self-referential fact) slipping into the system. A system too
+/// large to decide within [`PROOF_BUDGET`] counts as satisfiable.
 pub(crate) fn consistent(facts: &[Constraint]) -> bool {
-    !fourier_motzkin_unsat(facts)
+    fourier_motzkin_unsat_within(facts, PROOF_BUDGET) != Some(true)
 }
 
 /// Is `goal >= 0` implied by `facts` (each already a kernel `expr <= 0` / `< 0`)
 /// over the integers? The integer negation of `goal >= 0` is `goal <= -1`, i.e.
 /// `goal + 1 <= 0`; if `facts ∧ (goal + 1 <= 0)` is unsatisfiable, the goal is
 /// valid. Soundness is the kernel's (rational-unsat ⟹ integer-unsat) and is
-/// additionally certified against Z3 by the differential below.
+/// additionally certified against Z3 by the differential below. A goal whose
+/// refutation outgrows [`PROOF_BUDGET`] is not proven.
 pub(crate) fn prove(facts: &[Constraint], goal: &LinearExpr) -> bool {
     let neg = goal.add(&LinearExpr::constant(Rational::from_i64(1)));
     let mut system: Vec<Constraint> = facts.to_vec();
@@ -135,7 +143,7 @@ pub(crate) fn prove(facts: &[Constraint], goal: &LinearExpr) -> bool {
         expr: neg,
         strict: false,
     });
-    fourier_motzkin_unsat(&system)
+    fourier_motzkin_unsat_within(&system, PROOF_BUDGET) == Some(true)
 }
 
 /// Reify an AST expression into a kernel `LinearExpr`, or `None` if it is not

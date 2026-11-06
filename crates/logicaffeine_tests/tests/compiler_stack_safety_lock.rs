@@ -21,7 +21,13 @@
 //!   2. past that depth the compiler REPORTS `AstTooDeep` — it never aborts the process;
 //!   3. the benchmark corpus compiles at the inliner's default unfold depth;
 //!   4. the AST nodes stay small, so a new statement or expression kind cannot quietly multiply
-//!      every compiler frame by widening the node every recursion level holds.
+//!      every compiler frame by widening the node every recursion level holds;
+//!   5. the nest the inliner unfolds compiles in bounded time and memory: the abstract interpreter
+//!      proves each loop's entry facts with Fourier–Motzkin elimination, which can square its
+//!      constraint set at every variable it eliminates, so the optimizer's prover works under a
+//!      budget and reads a proof past it as not found. Without the budget a recursive function
+//!      calling itself inside a constant loop (corpus program 6ea4a494d4ea4fcb) kept both
+//!      `largo run` and the optimizer lattice compiling past 30 GB and never finished.
 //!
 //! Each entry point is named explicitly — a new one is not covered until it is added here.
 
@@ -308,4 +314,58 @@ fn exceeding_the_call_depth_limit_is_reported_not_a_crash() {
         err.contains(logicaffeine_compile::semantics::CALL_DEPTH_ERR),
         "the error must be the documented depth-limit error, got: {err}"
     );
+}
+
+/// A recursive function that calls itself inside a loop, called from a loop over constants: the n-queens shape the
+/// recursive inliner unfolds eight levels deep, corpus program 6ea4a494d4ea4fcb.
+const LOOP_INTERLEAVED_RECURSION: &str = "## To walk (n: Int, base: Int) -> Int:
+    If n is less than 1:
+        Return base.
+    Let mutable acc be base.
+    Let mutable step be n * 2 + 1.
+    Let mutable k be 0.
+    While k is less than 4:
+        Let r be walk(n - 1, acc).
+        Set acc to acc + r + step + k.
+        Set step to step - 1.
+        Set k to k + 1.
+    Return acc.
+
+## Main
+Let mutable total be 0.
+Let mutable i be 0.
+While i is less than 200:
+    Set total to total + walk(6, i).
+    Set i to i + 1.
+Show total.
+";
+
+/// The compile `f` runs, on an ordinary thread, or a failure naming `what` once it has run for `limit`. A compile that
+/// never finishes is left running in a test process that exits with the failure.
+fn finishes_within<T: Send + 'static>(what: &str, limit: std::time::Duration, f: impl FnOnce() -> T + Send + 'static) -> T {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::Builder::new()
+        .stack_size(2 * 1024 * 1024)
+        .spawn(move || {
+            let _ = tx.send(f());
+        })
+        .expect("spawn");
+    rx.recv_timeout(limit)
+        .unwrap_or_else(|_| panic!("{what} did not finish within {limit:?} on loop-interleaved recursion the inliner unfolds"))
+}
+
+#[test]
+fn the_optimizer_lattice_compiles_loop_interleaved_recursion_in_bounded_time() {
+    let out = finishes_within("compile_to_program_optimized", std::time::Duration::from_secs(300), || {
+        logicaffeine_compile::compile::compile_to_program_optimized(LOOP_INTERLEAVED_RECURSION).map(|_| ())
+    });
+    assert!(out.is_ok(), "compile_to_program_optimized refuses the program: {out:?}");
+}
+
+#[test]
+fn the_rust_backend_compiles_loop_interleaved_recursion_in_bounded_time() {
+    let out = finishes_within("compile_to_rust", std::time::Duration::from_secs(300), || {
+        logicaffeine_compile::compile::compile_to_rust(LOOP_INTERLEAVED_RECURSION).map(|_| ())
+    });
+    assert!(out.is_ok(), "compile_to_rust refuses the program: {out:?}");
 }

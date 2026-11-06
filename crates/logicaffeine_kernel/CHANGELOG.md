@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `lia::fourier_motzkin_unsat_within(constraints, budget) -> Option<bool>`: Fourier–Motzkin elimination that gives up
+  (`None`) once a step would leave more than `budget` constraints. `fourier_motzkin_unsat` is the unbounded case and
+  decides as before.
+
 ### Changed
 
 - **The value engine checks Mathlib in 29% fewer instructions.** `logos_kernel --check sem`, built as the Lean Kernel Arena entry builds it, checks the Arena's whole Mathlib export in 409.15 G instructions, from 577.15 G (its first 2 GB in 118.60 G, from 163.86 G); the heavy `perf` cases fall by more than a quarter too (`magma-list-pair-n21` 25.92 → 18.98 G, `magma-list-deep-n36` 27.54 → 20.56 G), every verdict unchanged.

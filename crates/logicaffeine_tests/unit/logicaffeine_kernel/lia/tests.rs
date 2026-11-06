@@ -147,3 +147,78 @@ fn test_x_lt_x_plus_1() {
     // 1 <= 0 is unsat, so goal is valid
     assert!(fourier_motzkin_unsat(&[constraint]));
 }
+
+/// `Σ coeff·x_var + constant <= 0` (`< 0` when `strict`).
+fn sum_le(terms: &[(i64, i64)], constant: i64, strict: bool) -> Constraint {
+    let mut expr = LinearExpr::constant(Rational::from_i64(constant));
+    for &(var, coeff) in terms {
+        expr = expr.add(&LinearExpr::var(var).scale(&Rational::from_i64(coeff)));
+    }
+    Constraint { expr, strict }
+}
+
+/// `x_i - x_j <= c` for every ordered pair of `n` variables: eliminating one variable pairs its `n - 1` lower bounds
+/// with its `n - 1` upper bounds, so each step leaves about the square of the last.
+fn difference_system(n: i64) -> Vec<Constraint> {
+    let mut out = Vec::new();
+    for i in 0..n {
+        for j in 0..n {
+            if i != j {
+                out.push(sum_le(&[(i, 1), (j, -1)], -(i + 2 * j + 1), false));
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn a_budget_no_step_reaches_gives_the_exact_verdict() {
+    let systems: Vec<(&str, Vec<Constraint>)> = vec![
+        ("1 <= x0 <= 3", vec![sum_le(&[(0, -1)], 1, false), sum_le(&[(0, 1)], -3, false)]),
+        ("3 <= x0 <= 1", vec![sum_le(&[(0, -1)], 3, false), sum_le(&[(0, 1)], -1, false)]),
+        (
+            "x0 < x1 < x2 < x0",
+            vec![
+                sum_le(&[(0, 1), (1, -1)], 0, true),
+                sum_le(&[(1, 1), (2, -1)], 0, true),
+                sum_le(&[(2, 1), (0, -1)], 0, true),
+            ],
+        ),
+        ("the 4-variable difference system", difference_system(4)),
+    ];
+    for (what, system) in &systems {
+        let exact = fourier_motzkin_unsat(system);
+        assert_eq!(fourier_motzkin_unsat_within(system, usize::MAX), Some(exact), "{what}: the unbounded elimination");
+        assert_eq!(fourier_motzkin_unsat_within(system, 10_000), Some(exact), "{what}: a budget no step reaches");
+    }
+    assert!(fourier_motzkin_unsat(&systems[1].1) && fourier_motzkin_unsat(&systems[2].1), "the contradictions are refuted");
+    assert!(!fourier_motzkin_unsat(&systems[0].1), "the interval is satisfiable");
+}
+
+/// The budget is the largest constraint set one elimination step may leave: eliminating `x0` here pairs its 2 lower
+/// bounds with its 3 upper bounds (6) beside the 1 constraint without it, 7 in all, and eliminating `x1` then leaves 6.
+#[test]
+fn the_budget_bounds_the_constraints_an_elimination_step_leaves() {
+    let system = vec![
+        sum_le(&[(0, -1)], 1, false),
+        sum_le(&[(0, -1)], 2, false),
+        sum_le(&[(0, 1)], -4, false),
+        sum_le(&[(0, 1)], -5, false),
+        sum_le(&[(0, 1)], -6, false),
+        sum_le(&[(1, 1)], -5, false),
+    ];
+    assert!(!fourier_motzkin_unsat(&system));
+    assert_eq!(fourier_motzkin_unsat_within(&system, 7), Some(false), "every step fits a budget of 7");
+    assert_eq!(fourier_motzkin_unsat_within(&system, 6), None, "the first step leaves 7, past a budget of 6");
+    assert_eq!(fourier_motzkin_unsat_within(&system, 0), None, "no step fits a budget of 0");
+}
+
+/// A system whose elimination outgrows any fixed budget: the bounded elimination gives up at once instead of
+/// squaring its way through every variable.
+#[test]
+fn a_system_that_outgrows_its_budget_is_given_up_on_promptly() {
+    let system = difference_system(12);
+    let started = std::time::Instant::now();
+    assert_eq!(fourier_motzkin_unsat_within(&system, 1_000), None);
+    assert!(started.elapsed() < std::time::Duration::from_secs(1), "giving up took {:?}", started.elapsed());
+}

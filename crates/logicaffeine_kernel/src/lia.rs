@@ -324,8 +324,15 @@ pub fn goal_to_negated_constraint(
 /// To prove a goal G is valid, we check if NOT(G) is unsatisfiable.
 /// If `fourier_motzkin_unsat(negation_constraints)` returns true, the goal is valid.
 pub fn fourier_motzkin_unsat(constraints: &[Constraint]) -> bool {
+    fourier_motzkin_unsat_within(constraints, usize::MAX).expect("an elimination without a budget always decides")
+}
+
+/// [`fourier_motzkin_unsat`] under a budget: `None` once an elimination step would leave more than `budget`
+/// constraints. Each eliminated variable pairs every lower bound on it with every upper bound, so the set can square
+/// at every step; a caller that may give up (the optimizer's prover) reads `None` as "not shown unsatisfiable".
+pub fn fourier_motzkin_unsat_within(constraints: &[Constraint], budget: usize) -> Option<bool> {
     if constraints.is_empty() {
-        return false; // Empty set is satisfiable
+        return Some(false); // Empty set is satisfiable
     }
 
     // Collect all variables (sorted for a deterministic elimination order —
@@ -342,18 +349,18 @@ pub fn fourier_motzkin_unsat(constraints: &[Constraint]) -> bool {
 
     // Eliminate each variable
     for var in vars {
-        current = eliminate_variable(&current, var);
+        current = eliminate_variable(&current, var, budget)?;
 
         // Early termination: check for constant contradictions
         for c in &current {
             if c.expr.is_constant() && !c.is_satisfied_constant() {
-                return true; // Contradiction found!
+                return Some(true); // Contradiction found!
             }
         }
     }
 
     // Check all remaining constant constraints
-    current.iter().any(|c| !c.is_satisfied_constant())
+    Some(current.iter().any(|c| !c.is_satisfied_constant()))
 }
 
 /// Eliminate a variable from a set of constraints using Fourier-Motzkin.
@@ -363,8 +370,9 @@ pub fn fourier_motzkin_unsat(constraints: &[Constraint]) -> bool {
 /// - Upper bounds: x <= expr (coeff > 0 means c*x + rest <= 0 => x <= -rest/c)
 /// - Independent: doesn't contain variable
 ///
-/// Combines each lower with each upper to get new constraints without the variable.
-fn eliminate_variable(constraints: &[Constraint], var: i64) -> Vec<Constraint> {
+/// Combines each lower with each upper to get new constraints without the variable; `None` when that would leave
+/// more than `budget` constraints.
+fn eliminate_variable(constraints: &[Constraint], var: i64, budget: usize) -> Option<Vec<Constraint>> {
     let mut lower: Vec<(LinearExpr, bool)> = vec![]; // lower bound on var
     let mut upper: Vec<(LinearExpr, bool)> = vec![]; // upper bound on var
     let mut independent: Vec<Constraint> = vec![];
@@ -392,6 +400,9 @@ fn eliminate_variable(constraints: &[Constraint], var: i64) -> Vec<Constraint> {
         }
     }
 
+    if independent.len().saturating_add(lower.len().saturating_mul(upper.len())) > budget {
+        return None;
+    }
     // lo <= var <= hi  ⟹  lo <= hi must hold (strict if either bound is strict).
     for (lo_expr, lo_strict) in &lower {
         for (hi_expr, hi_strict) in &upper {
@@ -404,7 +415,7 @@ fn eliminate_variable(constraints: &[Constraint], var: i64) -> Vec<Constraint> {
         }
     }
 
-    independent
+    Some(independent)
 }
 
 #[cfg(test)]
