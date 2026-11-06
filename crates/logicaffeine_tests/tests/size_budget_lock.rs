@@ -272,6 +272,11 @@ fn ci_and_the_release_run_the_checks() {
         test_yml.contains("./scripts/check-packaging.sh"),
         "per-push CI must run the packaging check (tarball budgets)"
     );
+    assert!(
+        test_yml.lines().any(|l| l.trim() == "run: ./scripts/check-binary-sizes.sh"),
+        "per-push CI must build the shipped binaries and hold each to its budget, so a commit that grows one past it \
+         fails the day it lands, not at the release"
+    );
     let release = read(".github/workflows/release.yml");
     assert!(
         release.contains(

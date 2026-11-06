@@ -56,6 +56,37 @@ the run, and ends with a summary of the duration and the pass/fail counts. Some 
 deliberately left out of it (research probes, gate-level silicon simulations and a few other
 on-demand sets), and each has its own runner; `scripts/README.md` lists them.
 
+### Running CI on Your Machine
+
+`scripts/run-ci-locally.py` runs a workflow itself (`.github/workflows/test.yml` by default),
+job by job, each in a Docker container shaped like the GitHub runner its label names (ubuntu-24.04 or
+ubuntu-22.04): its packages, its `runner` account and paths, its 4 cores and 16 GB for the standard
+labels. Every `run:` step runs as written, every action through a local equivalent, and anything it
+cannot reproduce faithfully is refused by name rather than skipped. A leg this machine cannot host
+(macOS, Windows, arm64) is named as not run, never counted as passed. A workflow that is green here is
+green on GitHub before a runner minute is spent.
+
+```bash
+# What each trigger runs, or what the runner cannot reproduce
+python3 scripts/run-ci-locally.py plan
+
+# Every job on the working tree, uncommitted changes included (a few hundred GB of state)
+CI_LOCAL_STATE=/path/on/a/big/disk python3 scripts/run-ci-locally.py run --tree .
+
+# One leg again, reusing the archive and outputs of an earlier run
+python3 scripts/run-ci-locally.py run --tree . --job test --matrix partition=2 --from-run <run>
+
+# A command in a failed job's container, toolchain and workspace
+python3 scripts/run-ci-locally.py exec --run <run> --job "test (2)" -- cargo nextest run --archive-file ...
+
+# The release workflow as the dispatch that releases a pushed tag (nothing is published)
+python3 scripts/run-ci-locally.py run --workflow .github/workflows/release.yml --event workflow_dispatch --input tag=v0.11.0
+```
+
+Logs land in `logs/ci-local/<run>/`, one file per step, with `summary.txt` giving each job's result,
+time against its timeout and disk use. A job that passes gives its workspace back; a failing job's is
+kept for `exec` (`--keep-workspaces` keeps them all).
+
 ## Development Workflow
 
 Development is **test-driven (TDD)**:
@@ -125,7 +156,8 @@ The voice, in brief:
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/my-feature`)
 3. Make your changes following TDD
-4. Ensure all tests pass (`./scripts/run-all-tests-fast.sh`)
+4. Ensure all tests pass (`./scripts/run-all-tests-fast.sh`), and the CI workflow
+   (`python3 scripts/run-ci-locally.py run --tree .`)
 5. Submit a pull request
 
 ### PR Guidelines

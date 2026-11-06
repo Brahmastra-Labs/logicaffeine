@@ -129,12 +129,14 @@ jobs:
         # The wasm linker tests (vm::wasm::link) and forge runtime-object gates
         # spawn `rustc --target wasm32-unknown-unknown` at RUNTIME to build a wasm
         # object; without the target installed they fail with "wasm32 sysroot lib
-        # dir missing". The test binary itself is host-compiled in the archive job.
+        # dir missing". The RISC-V exact-value locks build the C value runtime with
+        # `cargo build --target riscv64gc-unknown-linux-gnu` the same way. The test
+        # binary itself is host-compiled in the archive job.
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32-unknown-unknown, riscv64gc-unknown-linux-gnu
 
       - name: Install Z3, mold, clang
-        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang gcc-riscv64-linux-gnu qemu-user-static iverilog qemu-user
+        run: sudo apt-get update && sudo apt-get install -y z3 libz3-dev mold clang gcc-riscv64-linux-gnu qemu-user-static iverilog qemu-user yosys
 
       - name: Install nextest
         uses: taiki-e/install-action@nextest
@@ -153,7 +155,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           # The tools this job installs, demanded: a test that needs one fails here if it is missing,
           # rather than recording a skip, so the job cannot slide back into not running them.
-          LOGOS_REQUIRE_TOOLS: iverilog,qemu-riscv64,riscv64-linux-gnu-gcc
+          LOGOS_REQUIRE_TOOLS: iverilog,qemu-riscv64,riscv64-linux-gnu-gcc,yosys
         run: |
           set -o pipefail
           # Nightly/on-demand: --run-ignored all so the fuzz/bench monsters run too.
@@ -282,6 +284,24 @@ jobs:
 
       - name: Build every published crate from its own tarball
         run: ./scripts/check-packaging.sh
+
+  # The binaries a release ships (largo and logicaffeine-lsp, built `--profile dist` as release.yml builds them),
+  # each held to its budget in .config/size-budgets.toml on every push, so the commit that grows one past its budget
+  # fails the day it lands rather than at the next release.
+  binary-sizes:
+    runs-on: ubuntu-latest-m
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Every shipped binary within its budget
+        run: ./scripts/check-binary-sizes.sh
 
   # The declared minimum Rust (`rust-version` in the root Cargo.toml) is built here on exactly that
   # toolchain, against the locked dependency graph, so the number a downstream user trusts is one CI

@@ -103,6 +103,7 @@ top_level = [
   "generate-roadmap.sh",
   "check-packaging.sh",
   "check-binary-sizes.sh",
+  "run-ci-locally.py",
   # the tt ledger's reproducers: tenstorrent_gemm.json records them at this path
   "tt-sim.sh",
   "tt-matmul-measure.sh",

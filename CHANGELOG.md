@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **The CI workflows run on your own machine before they run on GitHub.** `scripts/run-ci-locally.py` executes
+  `.github/workflows/test.yml` itself, and `release.yml` as the dispatch that releases a pushed tag: each job in its
+  own Docker container built from its label's image under `scripts/test/ci-runner/` (ubuntu:24.04 or ubuntu:22.04 with
+  the hosted runner image's packages, its uid-1001 `runner`
+  account with passwordless sudo, its `/home/runner/work` paths and `CI`/`GITHUB_*`/`RUNNER_*` environment), every
+  `run:` step verbatim, every `${{ }}` expression and `if:` evaluated with GitHub's rules, and every action replaced by
+  a local equivalent (checkout into a fresh shallow clone, today's stable Rust at `--profile minimal` plus rustfmt and
+  clippy in a toolchain copied fresh for each job, nextest, artifacts carried between jobs, a cache that restores
+  nothing as a miss does, a checkout of the tag a dispatch names). Matrices expand with `include` and `exclude` as
+  GitHub expands them, a dispatch reads the inputs it declares (`--input`), and `hashFiles` digests the workspace. A
+  leg on a macOS, Windows or arm64 label, or one that needs what only such a leg makes, is named as not run, and a
+  run that left one out does not call itself GREEN. The standard runner's
+  size is applied (4 pinned cores, so `nproc` reads 4, and a 16 GB memory limit), each job's `timeout-minutes` is
+  enforced, and the summary gives each job's time against its timeout and its disk use. No job holding a `write`
+  permission runs, and no credential enters a container. `plan` refuses by name any action, runner label, key,
+  trigger, context or expression function it cannot reproduce, and evaluates every value it can before a run, so the
+  local run cannot drift from CI in silence; `run --tree .` runs the working tree with its uncommitted changes,
+  `--job`/`--matrix`/`--from-run` repeat one leg, `--timeout-scale` stretches every timeout on a slower or busier
+  machine (and says so in the summary), `exec` runs a command in a failed job's container (a passing job gives its
+  workspace back), and a stopped run removes its containers. Locked by `ci_local_runner_lock`.
+
 ### Changed
 
 - **The kernel's Lean checker spends 29% fewer instructions on Mathlib.** `logicaffeine-kernel`'s value
