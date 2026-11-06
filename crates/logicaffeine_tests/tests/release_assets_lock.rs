@@ -23,57 +23,12 @@
 
 #![cfg(not(target_arch = "wasm32"))]
 
-use std::collections::BTreeMap;
+#[path = "common/workflows.rs"]
+mod workflows;
+
 use std::path::PathBuf;
 
-fn workflow(name: &str) -> String {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .join(".github/workflows")
-        .join(name);
-    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
-}
-
-/// Each job's text, keyed by its name: the lines from `  <name>:` to the next job.
-fn jobs(text: &str) -> BTreeMap<String, String> {
-    let body = &text[text.find("\njobs:\n").expect("a jobs: table") + "\njobs:\n".len()..];
-    let mut out = BTreeMap::new();
-    let mut current: Option<(String, String)> = None;
-    for line in body.lines() {
-        let is_job = line.starts_with("  ")
-            && !line.starts_with("   ")
-            && line.trim_end().ends_with(':')
-            && !line.trim_start().starts_with('#');
-        if is_job {
-            if let Some((name, text)) = current.take() {
-                out.insert(name, text);
-            }
-            current = Some((line.trim().trim_end_matches(':').to_string(), String::new()));
-        } else if let Some((_, text)) = current.as_mut() {
-            text.push_str(line);
-            text.push('\n');
-        }
-    }
-    if let Some((name, text)) = current {
-        out.insert(name, text);
-    }
-    out
-}
-
-/// A job's steps, each as its text.
-fn steps(job: &str) -> Vec<String> {
-    let mut out: Vec<String> = Vec::new();
-    for line in job.lines() {
-        if line.starts_with("      - ") {
-            out.push(String::new());
-        }
-        if let Some(step) = out.last_mut() {
-            step.push_str(line);
-            step.push('\n');
-        }
-    }
-    out
-}
+use workflows::{jobs, steps, workflow};
 
 /// Every value a matrix key takes in `job` (`target: x` or `{ …, target: x, … }`).
 fn matrix_values(job: &str, key: &str) -> Vec<String> {

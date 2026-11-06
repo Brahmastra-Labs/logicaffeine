@@ -297,6 +297,9 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Install mold, clang
+        run: sudo apt-get update && sudo apt-get install -y mold clang
+
       - name: Cache dependencies
         uses: Swatinem/rust-cache@v2
 

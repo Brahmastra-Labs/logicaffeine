@@ -65,6 +65,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   start Verilator take 600–3,400 s each; seven added since the on-demand ruling ran into the fast suite's 30-minute
   cap. `ondemand_exclusion_lock` now derives the co-simulations from the test file (each test that starts Verilator,
   directly or through the file's helpers) and holds the silicon selector to exactly them.
+- **The per-push binary-size check installs the linker the test workflow links with.** `test.yml` links every Linux
+  build with mold through clang, and the job that holds the shipped binaries to their budgets installed neither, so it
+  failed at its first build script on every push. It installs both, and `workflow_linker_lock` holds every job that
+  installs Rust to the packages its workflow's link line names.
 
 ## [0.11.0] - 2026-11-02
 
