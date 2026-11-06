@@ -43,6 +43,7 @@ helpers, fixtures and goldens, not suites. A family that reaches eight suites ge
 | `native_*` | Native decision procedures in the kernel: `native_decide` and the recursor-aware compiled deciders. |
 | `nested_*` | Nested inductive types in the kernel, admitted all-or-nothing as Lean admits them. |
 | `obs_*` | Observation statements: structured events on their own channel, zero cost when compiled out. |
+| `one_*` | One of each thing, never two: an event's one path to a page and every listener it reaches, an LGX page's one implementation (its lowered LOGOS), the one IR below the front end and its fusion table with the artifacts its migration could move pinned by digest, a model's one logical representation, and the one Studio the front page and `/studio` draw. |
 | `original_*` | Declarations from the original Lean corpus, bridged into the kernel unchanged. |
 | `page_*` | LGX pages under test: traces after every statement, page coverage, isolation between tiers. |
 | `parity_*` | Stdlib parity: each function against the other languages' standard library it matches. |
@@ -57,6 +58,7 @@ helpers, fixtures and goldens, not suites. A family that reaches eight suites ge
 | `spatial_*` | The spatial IR: one dataflow representation lowered to fabrics, Tenstorrent and RDU, with its cost and work models. |
 | `ssr_*` | Server-side rendering of LGX pages: inert markup, child components, scaling. |
 | `stdlib_*` | The standard library as a whole: name hygiene, collisions, native-tier coverage. |
+| `studio_*` | The Studio: the file opened decides its mode and its first frame is the state it ends in, its server render byte for byte, the debounced web preview, every example's contract and math document, the Heal button, and the browser scenarios the docs cite. |
 | `tactic_*` | Proof tactics: combinators, elimination, the tactic surface. |
 | `tensor_*` | Tensors as language: gather sugars, row blocks, compile-time evaluation of static tensor programs. |
 | `tt_*` | Tenstorrent: the work meter, cycles that track work, dynamic meshes on the Tensix grid. |

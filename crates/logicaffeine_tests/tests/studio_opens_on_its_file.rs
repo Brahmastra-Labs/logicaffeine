@@ -10,6 +10,8 @@
 
 #![cfg(feature = "web-tests")]
 
+mod common;
+
 use dioxus::prelude::*;
 use dioxus_history::{History, MemoryHistory};
 use logicaffeine_web::ui::examples::{ExampleSpec, ALL_CODE_EXAMPLES, ALL_HARDWARE_SPECS, ALL_LOGIC_EXAMPLES, ALL_MATH_EXAMPLES};
@@ -377,20 +379,6 @@ fn the_guards_rule_hides_the_prerendered_panels_and_nothing_else() {
     assert_eq!(body.trim(), "visibility: hidden;", "the guard's rule does more than keep the panels unpainted");
 }
 
-/// Whether `tool` can run here; a missing tool skips loudly, unless `LOGOS_REQUIRE_TOOLS` names it.
-fn require_tool(tool: &str, available: bool) -> bool {
-    if available {
-        return true;
-    }
-    let spec = std::env::var("LOGOS_REQUIRE_TOOLS").unwrap_or_default();
-    let required = spec == "1"
-        || spec.eq_ignore_ascii_case("all")
-        || spec.split([',', ' ', '\t']).map(str::trim).any(|t| t == tool);
-    assert!(!required, "required external tool '{tool}' is not available, but LOGOS_REQUIRE_TOOLS demands it");
-    eprintln!("LOGOS_TOOL_SKIP: {tool}");
-    false
-}
-
 /// Run the guard under node once per `search` (the address's query, `?` included), and say for
 /// each whether it hid the prerendered panels.
 fn guard_hides(guard: &str, searches: &[&str]) -> Vec<bool> {
@@ -436,8 +424,7 @@ fn the_guard_reads_the_link_as_the_router_does() {
     use logicaffeine_web::ui::router::Route;
     use std::str::FromStr;
 
-    let node = std::process::Command::new("node").arg("--version").output().map(|o| o.status.success()).unwrap_or(false);
-    if !require_tool("node", node) {
+    if !common::require_tool("node") {
         return;
     }
     let html = render_route("/studio");

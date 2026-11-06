@@ -21,6 +21,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The optimizer's linear prover (`optimize::affine::{consistent, prove}`) eliminates under a budget of 4,096
   constraints a step (`lia::fourier_motzkin_unsat_within`): a system past it counts as satisfiable and its goal as
   not proven, so loop-interleaved recursion the inliner unfolds compiles (`largo run` never finished on it).
+- The browser runtime's `read_reals` host function takes the path the module passes it: the module imports it with
+  one parameter and the host declared none, and WebAssembly refuses to instantiate on a signature mismatch, so a
+  page whose program reads reals rendered blank. Locked by `wasm_host_abi_lock`.
 
 ## [0.11.0] - 2026-11-02
 

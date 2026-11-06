@@ -180,7 +180,6 @@ fn a_process_s_own_and_another_user_s_processes_count_as_running() {
 /// The suites that make a per-process directory under the temporary directory by hand and never remove a directory,
 /// from before the helper. They may only leave this list, by taking their directory from `common/scratch.rs`.
 const HAND_MADE: &[&str] = &[
-    "H_honesty_extra",
     "c_binding_scope_lock",
     "c_bytecode_perf_lock",
     "c_family_scheduler_conformance_lock",

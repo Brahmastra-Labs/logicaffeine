@@ -33,6 +33,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `speed_floor_lock`'s recorder on main's ledgers: the 44 achievements without a floor, the six vanished
   `clique_coloring/24` floors dropped, and the Lean Kernel Arena pin's counts.
 - `collected_heap_lock`'s rows collect at least twice on every collected tier: `record_with_a_list_field` and `text_by_appending` run 300,000 iterations, and `list_grown_by_pushes` hands its list to a variable that outlives the iteration, since a list of twenty pushes built and read inside one iteration never reaches the heap on the C tiers.
+- `wasm_host_abi_lock` freezes `read_reals` and checks it on every host (`compile_common/wasm_host.rs`);
+  `parity_opt_lattice_lock` scans whole identifiers; `eda_tools_seam_lock` admits `benchmark_remote_run_lock`'s
+  tools under a temporary root; the Studio locks read the debounced preview where `studio_workbench.rs` keeps it;
+  `H_honesty_extra` keeps only its scratch probes and leaves `per_process_dir_lock`'s hand-made list; `INDEX.md`
+  gains its `one_*` and `studio_*` rows.
 
 ### Fixed
 - `bringup_lock` follows the chips it tests: the SN50 brings up an expert mixture (it deploys SambaNova's published families), the D5005 refuses it naming "experts"; the undescribed checkpoint is written with no metadata (`tiny_models::write_bare_checkpoint`), since every tiny checkpoint now carries its keys.

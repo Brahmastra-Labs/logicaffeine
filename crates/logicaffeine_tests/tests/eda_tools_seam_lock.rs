@@ -96,6 +96,16 @@ const MENTION_FILES: &[(&str, &str)] = &[
 /// Functions that name the tree without reading it, each with its reason.
 const MENTION_FNS: &[(&str, &str, &str)] = &[
     (
+        "benchmark_remote_run_lock.rs",
+        "prepare_pins_the_published_run_s_toolchains_beside_the_system_s",
+        "reads the `tools/` its rig's remote machine holds under a temporary root, never this checkout's tree",
+    ),
+    (
+        "benchmark_remote_run_lock.rs",
+        "a_run_measures_with_the_pinned_toolchains_on_a_quiet_machine_and_gives_it_back",
+        "reads the `tools/` its rig's remote machine holds under a temporary root, never this checkout's tree",
+    ),
+    (
         "caravel_project_lock.rs",
         "every_submission_directory_is_ignored",
         "the .gitignore matcher's own cases: paths as data, nothing read",

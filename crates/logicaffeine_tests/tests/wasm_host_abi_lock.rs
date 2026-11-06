@@ -402,6 +402,7 @@ const FROZEN: &[&str] = &[
     "print_time",
     "print_word",
     "random_int",
+    "read_reals",
     "read_wire_frame",
     "temporal_component",
     "temporal_component_date",

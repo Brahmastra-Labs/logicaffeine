@@ -2,9 +2,9 @@
 //! its first paint, as `preview_document` builds them) are served prebuilt from
 //! `public/previews/`, so the browser fetches one instead of running the LOGOS compiler on every
 //! click (the user, 2026-11-02: the web files were slow to load). The files are held to the
-//! compiler in this tree; when the compiler or a page changes, this goes red and the regenerator
-//! rewrites them: `LOGOS_REGEN=1 cargo test -p logicaffeine-tests --features web-tests --test
-//! web_previews_lock -- --ignored regenerate_web_previews`.
+//! compiler in this tree; when the compiler or a page changes, this goes red, and
+//! `LOGOS_REGEN=1 cargo nextest run -p logicaffeine-tests --features web-tests --test web_previews_lock` rewrites
+//! them before holding them to it.
 #![cfg(feature = "web-tests")]
 
 use logicaffeine_web::ui::examples::seeded_examples;
@@ -42,6 +42,15 @@ fn only_the_shipped_pages_have_a_prebuilt_preview() {
 
 #[test]
 fn every_shipped_page_is_served_prebuilt_and_current() {
+    if std::env::var_os("LOGOS_REGEN").is_some() {
+        for (_, source, url) in pages() {
+            let file = served(&url);
+            std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+            let tmp = file.with_extension("html.regen.tmp");
+            std::fs::write(&tmp, preview_document(source)).unwrap();
+            std::fs::rename(&tmp, &file).unwrap();
+        }
+    }
     for (path, source, url) in pages() {
         let file = served(&url);
         let shipped = std::fs::read_to_string(&file).unwrap_or_else(|e| panic!("{path}: {} is not served ({e}); regenerate (see the file's doc)", file.display()));
@@ -65,22 +74,5 @@ fn no_stale_preview_is_served() {
     let wanted: Vec<PathBuf> = pages().into_iter().map(|(_, _, url)| served(&url)).collect();
     for file in files {
         assert!(wanted.iter().any(|w| w == &file), "{} is served but no shipped page is behind it", file.display());
-    }
-}
-
-/// Not a check: the regenerator. `LOGOS_REGEN=1` opts in, since the full suite runs ignored tests.
-#[test]
-#[ignore = "writes public/previews; run explicitly with LOGOS_REGEN=1 to regenerate"]
-fn regenerate_web_previews() {
-    if std::env::var_os("LOGOS_REGEN").is_none() {
-        eprintln!("skipping regeneration: set LOGOS_REGEN=1");
-        return;
-    }
-    for (_, source, url) in pages() {
-        let file = served(&url);
-        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
-        let tmp = file.with_extension("html.regen.tmp");
-        std::fs::write(&tmp, preview_document(source)).unwrap();
-        std::fs::rename(&tmp, &file).unwrap();
     }
 }

@@ -4,8 +4,8 @@
 //! The registry (`ui::examples`) already locks each example's outcome at the engine level;
 //! this exports the same promises — the file, the mode it opens in, and its `Expected` — so
 //! `scripts/web/test-studio-e2e.mjs` can hold the Studio's own panels to them, one file type at a
-//! time. Regenerate with `LOGOS_REGEN=1 cargo test -p logicaffeine-tests --features web-tests
-//! --test studio_example_contract -- --ignored`.
+//! time. `LOGOS_REGEN=1 cargo nextest run -p logicaffeine-tests --features web-tests --test studio_example_contract`
+//! rewrites it from the registry before holding it to the registry.
 
 #![cfg(feature = "web-tests")]
 
@@ -84,27 +84,19 @@ fn render_contract_json() -> String {
 #[test]
 fn the_studio_example_contract_matches_the_registry() {
     let path = contract_path();
+    if std::env::var_os("LOGOS_REGEN").is_some() {
+        std::fs::create_dir_all(path.parent().expect("fixtures directory")).expect("create fixtures directory");
+        std::fs::write(&path, render_contract_json()).expect("write the contract");
+    }
     let have = std::fs::read_to_string(&path).unwrap_or_else(|_| {
         panic!(
-            "{} is missing — LOGOS_REGEN=1 cargo test -p logicaffeine-tests --features web-tests --test studio_example_contract -- --ignored",
+            "{} is missing — LOGOS_REGEN=1 cargo nextest run -p logicaffeine-tests --features web-tests --test studio_example_contract",
             path.display()
         )
     });
     assert_eq!(
         have,
         render_contract_json(),
-        "the Studio example contract is stale — LOGOS_REGEN=1 cargo test -p logicaffeine-tests --features web-tests --test studio_example_contract -- --ignored"
+        "the Studio example contract is stale — LOGOS_REGEN=1 cargo nextest run -p logicaffeine-tests --features web-tests --test studio_example_contract"
     );
-}
-
-#[test]
-#[ignore = "regenerator — LOGOS_REGEN=1 cargo test -p logicaffeine-tests --features web-tests --test studio_example_contract -- --ignored"]
-fn regenerate_the_studio_example_contract() {
-    if std::env::var_os("LOGOS_REGEN").is_none() {
-        eprintln!("skipping regeneration: set LOGOS_REGEN=1");
-        return;
-    }
-    let path = contract_path();
-    std::fs::create_dir_all(path.parent().expect("fixtures directory")).expect("create fixtures directory");
-    std::fs::write(path, render_contract_json()).expect("write the contract");
 }

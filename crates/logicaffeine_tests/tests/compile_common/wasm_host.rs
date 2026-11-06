@@ -655,6 +655,36 @@ pub fn link_value_imports<T: 'static>(l: &mut Linker<T>) {
         },
     )
     .expect("parse_float");
+    // `readReals(path)`: the product's own read and refusals, the values laid out as `runtime.js` and the node shim
+    // lay them — a `Seq of Real` header `[len][cap][data_ptr]` and its binary64 slots on pages the host grows, since
+    // the module's own allocator never grows memory.
+    l.func_wrap(
+        "env",
+        "read_reals",
+        |mut c: Caller<'_, T>, h: i32| -> Result<i32, wasmi::core::Trap> {
+            let reals = logicaffeine_system::file::read_reals(read_text(&c, h)).map_err(wasmi::core::Trap::new)?;
+            let bytes: Vec<u8> = reals.iter().flat_map(|r| r.to_le_bytes()).collect();
+            let mem = c
+                .get_export("memory")
+                .and_then(|e| e.into_memory())
+                .expect("memory");
+            let pages = wasmi::core::Pages::new((16 + bytes.len()).div_ceil(65536) as u32)
+                .expect("a file's pages fit the address space");
+            let before = mem
+                .grow(&mut c, pages)
+                .map_err(|e| wasmi::core::Trap::new(format!("readReals: the module's memory cannot grow: {e}")))?;
+            let seq = (u32::from(before) as usize) * 65536;
+            let n = reals.len() as i32;
+            let mut header = Vec::with_capacity(12);
+            for word in [n, n, (seq + 16) as i32] {
+                header.extend_from_slice(&word.to_le_bytes());
+            }
+            mem.write(&mut c, seq, &header).expect("the grown page holds the header");
+            mem.write(&mut c, seq + 16, &bytes).expect("the grown pages hold the values");
+            Ok(seq as i32)
+        },
+    )
+    .expect("read_reals");
 
     l.func_wrap(
         "env",

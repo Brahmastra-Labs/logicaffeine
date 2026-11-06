@@ -90,7 +90,8 @@ fn opt_refs_on_line(line: &str) -> Vec<String> {
     let needle = b"Opt::";
     let mut i = 0;
     while i + needle.len() <= bytes.len() {
-        if &bytes[i..i + needle.len()] == needle {
+        let whole = i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_');
+        if whole && &bytes[i..i + needle.len()] == needle {
             let mut j = i + needle.len();
             let start = j;
             while j < bytes.len() {
@@ -373,6 +374,14 @@ mod teeth {
             vec!["Comptime".to_string()],
         );
         assert!(opt_refs_on_line("// just a comment about Opt::Fuse").len() == 1);
+        assert_eq!(
+            opt_refs_on_line("crate::optimize::Opt::Narrow"),
+            vec!["Narrow".to_string()],
+        );
+        assert!(
+            opt_refs_on_line("logicaffeine_data::LogosOpt::from(present)").is_empty(),
+            "a type whose name ends in `Opt` is not the registry"
+        );
     }
 
     #[test]

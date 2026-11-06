@@ -7,13 +7,13 @@
 //! edit from silently re-pointing the preview back at the raw editor buffer —
 //! the exact papercut it removed.
 
-const STUDIO_SRC: &str = include_str!("../../../apps/logicaffeine_web/src/ui/pages/studio.rs");
+const STUDIO_SRC: &str = include_str!("../../../apps/logicaffeine_web/src/ui/pages/studio_workbench.rs");
 
 /// Slice out the body of the `web_preview` memo so we can assert what it reads.
 fn web_preview_memo_body(src: &str) -> &str {
     let start = src
         .find("let web_preview = use_memo(")
-        .expect("studio.rs defines the `web_preview` memo");
+        .expect("studio_workbench.rs defines the `web_preview` memo");
     let tail = &src[start..];
     // The memo body ends at the first `});` that closes `use_memo(move || { … })`.
     let end = tail.find("});").expect("web_preview memo is closed");
