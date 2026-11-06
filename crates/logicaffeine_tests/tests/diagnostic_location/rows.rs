@@ -153,21 +153,6 @@ fn page(source: String, at: &'static str, says: &'static str) -> Reach {
     }
 }
 
-fn pending(
-    source: String,
-    at: &'static str,
-    says: &'static str,
-    pending: &'static [(Surface, &'static str)],
-) -> Reach {
-    Reach::Page {
-        source,
-        at,
-        says,
-        severity: Severity::Error,
-        pending,
-    }
-}
-
 fn warning(source: String, at: &'static str, says: &'static str) -> Reach {
     Reach::Page {
         source,
@@ -575,19 +560,13 @@ pub fn rows() -> Vec<Row> {
         ),
         r(
             Check("lower_view_functions", "`## To {name}`'s template"),
-            pending(
+            page(
                 format!(
                     "# Page\n\n## To badge (label: Text) -> View:\n    <button on-click={{go}}>{{label}}</button>\n\n{}",
                     component("<p>{badge(\"x\")}</p>")
                 ),
                 "on-click={go}",
                 "template holds an event handler",
-                &[(
-                    Surface::Editor,
-                    "the editor drops a whole-file parse error from a file holding `## To` blocks \
-                     when its per-block recovery finds none (logicaffeine_lsp pipeline.rs \
-                     `has_function_blocks`), and the recovery's fragments skip `resolve_lgx`",
-                )],
             ),
         ),
         r(

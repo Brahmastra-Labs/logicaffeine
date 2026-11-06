@@ -77,7 +77,7 @@ under the rest.
 → ∃^∞x((Primes(x) ∧ Odd(x)))
 
 "All but finitely many dogs bark."
-→ ∀^∞x((Dogs(x) → ∃e(Bark(e) ∧ Agent(e, x))))
+→ ∀^∞x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) → ∃e(Bark(e) ∧ Agent(e, x))))
 ```
 
 LaTeX writes them `\exists^{\infty}`, `\exists^{<\infty}` and `\forall^{\infty}`. The proof

@@ -3,7 +3,8 @@
 //! Structural tests (see `learn_examples.rs`) prove the options are well-formed.
 //! This file proves they are *logically correct*: for every exercise we
 //!
-//!   1. parse each LaTeX option (`\cdot \vee \supset \equiv \sim`) into a formula,
+//!   1. parse each option, in LaTeX (`\cdot \vee \supset \equiv \sim`) or Unicode (`∧ ∨ → ↔ ¬`),
+//!      into a formula,
 //!   2. parse the English prompt — written in the module's controlled,
 //!      Quine-style grammar ("both A and B", "either A or B", "if A then B",
 //!      "neither A nor B", "A unless B", "A only if B", "A iff B",
@@ -99,6 +100,11 @@ fn ftok(s: &str) -> Result<Vec<FT>, String> {
         ("\\equiv", " = "),
         ("\\,", " "),
         ("\\ ", " "),
+        ("¬", " ~ "),
+        ("∧", " & "),
+        ("∨", " | "),
+        ("→", " > "),
+        ("↔", " = "),
     ] {
         s = s.replace(a, b);
     }

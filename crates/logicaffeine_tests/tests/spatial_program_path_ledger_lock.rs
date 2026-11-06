@@ -96,10 +96,10 @@ const FROZEN_PROGRAM_PATH_GAP_COUNT: usize = 0;
 
 /// The ops that reach the SN50 artifact on the program path — `OP_PROBES.len() - PROGRAM_PATH_GAPS.len()`,
 /// pinned exactly so `kernel_registry_census_lock` reads a proven number. Raise-only.
-const PROGRAM_PATH_FLOOR: usize = 35;
+const PROGRAM_PATH_FLOOR: usize = 36;
 
 /// The universe the floor is out of: the probe table. Pinned as a literal so the census reads it from here.
-const PROGRAM_PATH_UNIVERSE: usize = 35;
+const PROGRAM_PATH_UNIVERSE: usize = 36;
 
 fn first_line(s: &str) -> &str {
     s.lines().next().unwrap_or(s)

@@ -85,11 +85,11 @@ fn the_words_alone_keep_their_ordinary_reading() {
     assert!(matches!(tokens("Many dogs bark.")[0], TokenType::Many));
     assert_eq!(
         unicode("Many dogs bark."),
-        "MANY x((Dogs(x) ∧ ∃e(Bark(e) ∧ Agent(e, x))))"
+        "MANY x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) ∧ ∃e(Bark(e) ∧ Agent(e, x))))"
     );
     assert_eq!(
         unicode("All dogs bark."),
-        "∀x((Dogs(x) → ∃e(Bark(e) ∧ Agent(e, x))))"
+        "∀x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) → ∃e(Bark(e) ∧ Agent(e, x))))"
     );
 }
 
@@ -97,7 +97,7 @@ fn the_words_alone_keep_their_ordinary_reading() {
 fn infinitely_many_prints_as_mostowskis_quantifier() {
     assert_eq!(
         unicode("Infinitely many dogs bark."),
-        "∃^∞x((Dogs(x) ∧ ∃e(Bark(e) ∧ Agent(e, x))))"
+        "∃^∞x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) ∧ ∃e(Bark(e) ∧ Agent(e, x))))"
     );
     assert_eq!(
         unicode("Infinitely many primes are odd."),
@@ -109,7 +109,7 @@ fn infinitely_many_prints_as_mostowskis_quantifier() {
 fn finitely_many_prints_as_its_negation_shape() {
     assert_eq!(
         unicode("Finitely many dogs bark."),
-        "∃^<∞x((Dogs(x) ∧ ∃e(Bark(e) ∧ Agent(e, x))))"
+        "∃^<∞x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) ∧ ∃e(Bark(e) ∧ Agent(e, x))))"
     );
     assert_eq!(
         unicode("Only finitely many dogs bark."),
@@ -125,7 +125,7 @@ fn finitely_many_prints_as_its_negation_shape() {
 fn all_but_finitely_many_restricts_by_implication() {
     assert_eq!(
         unicode("All but finitely many dogs bark."),
-        "∀^∞x((Dogs(x) → ∃e(Bark(e) ∧ Agent(e, x))))"
+        "∀^∞x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) → ∃e(Bark(e) ∧ Agent(e, x))))"
     );
     assert_eq!(
         unicode("All but finitely many primes are odd."),
@@ -137,11 +137,11 @@ fn all_but_finitely_many_restricts_by_implication() {
 fn an_infinitary_object_scopes_under_its_verb() {
     assert_eq!(
         unicode("Every dog chases infinitely many cats."),
-        "∀x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) → ∃^∞y((Cats(y) ∧ ∃e(Chase(e) ∧ Agent(e, x) ∧ Theme(e, y))))))"
+        "∀x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) → ∃^∞y((((Cat(y) ∧ Animal(y)) ∧ Mammal(y)) ∧ ∃e(Chase(e) ∧ Agent(e, x) ∧ Theme(e, y))))))"
     );
     assert_eq!(
         unicode("Every dog chases all but finitely many cats."),
-        "∀x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) → ∀^∞y((Cats(y) → ∃e(Chase(e) ∧ Agent(e, x) ∧ Theme(e, y))))))"
+        "∀x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) → ∀^∞y((((Cat(y) ∧ Animal(y)) ∧ Mammal(y)) → ∃e(Chase(e) ∧ Agent(e, x) ∧ Theme(e, y))))))"
     );
 }
 
@@ -149,15 +149,15 @@ fn an_infinitary_object_scopes_under_its_verb() {
 fn latex_writes_the_superscript_infinity() {
     assert_eq!(
         latex("Infinitely many dogs bark."),
-        "\\exists^{\\infty} x((D(x) \\cdot \\exists e(Bark(e) \\cdot Agent(e, x))))"
+        "\\exists^{\\infty} x((((D(x) \\cdot A(x)) \\cdot M(x)) \\cdot \\exists e(Bark(e) \\cdot Agent(e, x))))"
     );
     assert_eq!(
         latex("Finitely many dogs bark."),
-        "\\exists^{<\\infty} x((D(x) \\cdot \\exists e(Bark(e) \\cdot Agent(e, x))))"
+        "\\exists^{<\\infty} x((((D(x) \\cdot A(x)) \\cdot M(x)) \\cdot \\exists e(Bark(e) \\cdot Agent(e, x))))"
     );
     assert_eq!(
         latex("All but finitely many dogs bark."),
-        "\\forall^{\\infty} x((D(x) \\supset \\exists e(Bark(e) \\cdot Agent(e, x))))"
+        "\\forall^{\\infty} x((((D(x) \\cdot A(x)) \\cdot M(x)) \\supset \\exists e(Bark(e) \\cdot Agent(e, x))))"
     );
 }
 
@@ -165,27 +165,27 @@ fn latex_writes_the_superscript_infinity() {
 fn simple_and_kripke_formats_name_the_quantifier() {
     assert_eq!(
         compile_simple("Infinitely many dogs bark.").unwrap(),
-        "∃^∞x((Dogs(x) ∧ Bark(x)))"
+        "∃^∞x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) ∧ Bark(x)))"
     );
     assert_eq!(
         compile_simple("Finitely many dogs bark.").unwrap(),
-        "∃^<∞x((Dogs(x) ∧ Bark(x)))"
+        "∃^<∞x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) ∧ Bark(x)))"
     );
     assert_eq!(
         compile_simple("All but finitely many dogs bark.").unwrap(),
-        "∀^∞x((Dogs(x) → Bark(x)))"
+        "∀^∞x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) → Bark(x)))"
     );
     assert_eq!(
         compile_kripke("Infinitely many dogs bark.").unwrap(),
-        "Exists^inf x((Dogs(x, w0)  And  Exists e(Bark(e, w0)  And  Agent(e, x, w0))))"
+        "Exists^inf x((((Dog(x, w0)  And  Animal(x, w0))  And  Mammal(x, w0))  And  Exists e(Bark(e, w0)  And  Agent(e, x, w0))))"
     );
     assert_eq!(
         compile_kripke("Finitely many dogs bark.").unwrap(),
-        "Exists^<inf x((Dogs(x, w0)  And  Exists e(Bark(e, w0)  And  Agent(e, x, w0))))"
+        "Exists^<inf x((((Dog(x, w0)  And  Animal(x, w0))  And  Mammal(x, w0))  And  Exists e(Bark(e, w0)  And  Agent(e, x, w0))))"
     );
     assert_eq!(
         compile_kripke("All but finitely many dogs bark.").unwrap(),
-        "ForAll^inf x((Dogs(x, w0)  Implies  Exists e(Bark(e, w0)  And  Agent(e, x, w0))))"
+        "ForAll^inf x((((Dog(x, w0)  And  Animal(x, w0))  And  Mammal(x, w0))  Implies  Exists e(Bark(e, w0)  And  Agent(e, x, w0))))"
     );
 }
 

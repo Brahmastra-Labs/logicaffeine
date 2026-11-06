@@ -214,13 +214,14 @@ fn a_determiner_changes_only_the_quantifier_of_the_reading() {
 }
 
 /// Object and agent positions: each template with the determiner's slot, the variable the object
-/// binds, and the object's restrictor predicate.
+/// binds, and the object's restrictor as the formula prints it (a plural noun names its singular's
+/// predicate, with the singular's hypernyms).
 const OBJECT_CONSTRUCTIONS: [(&str, &str, &str); 5] = [
-    ("Every cat chases {} dogs.", "y", "Dogs"),
-    ("Every cat will chase {} dogs.", "y", "Dogs"),
-    ("Every cat saw {} dogs.", "y", "Dogs"),
-    ("Every book was read by {} students.", "y", "Students"),
-    ("John chases {} dogs.", "x", "Dogs"),
+    ("Every cat chases {} dogs.", "y", "((Dog(y) ∧ Animal(y)) ∧ Mammal(y))"),
+    ("Every cat will chase {} dogs.", "y", "((Dog(y) ∧ Animal(y)) ∧ Mammal(y))"),
+    ("Every cat saw {} dogs.", "y", "((Dog(y) ∧ Animal(y)) ∧ Mammal(y))"),
+    ("Every book was read by {} students.", "y", "Student(y)"),
+    ("John chases {} dogs.", "x", "((Dog(x) ∧ Animal(x)) ∧ Mammal(x))"),
 ];
 
 #[test]
@@ -238,7 +239,7 @@ fn a_determiner_in_object_or_agent_position_changes_only_its_quantifier() {
                     .expect("the `all` reading parses")
                     .replacen(&format!("∀{var}("), &format!("{symbol}{var}("), 1),
                 Join::ImpliesNot => {
-                    let restricted = format!("∀{var}(({restrictor}({var}) → ");
+                    let restricted = format!("∀{var}(({restrictor} → ");
                     compile(&template.replace("{}", "all"))
                         .expect("the `all` reading parses")
                         .replacen(&restricted, &format!("{restricted}¬"), 1)
@@ -265,11 +266,11 @@ fn a_determiner_in_object_or_agent_position_changes_only_its_quantifier() {
 fn a_passive_agent_keeps_its_determiner() {
     assert_eq!(
         compile("Every book was read by no students.").unwrap(),
-        "∀x((Book(x) → ∀y((Students(y) → ¬∃e(Read(e) ∧ Theme(e, x) ∧ Agent(e, y) ∧ Past(e))))))"
+        "∀x((Book(x) → ∀y((Student(y) → ¬∃e(Read(e) ∧ Theme(e, x) ∧ Agent(e, y) ∧ Past(e))))))"
     );
     assert_eq!(
         compile("Every book was read by three students.").unwrap(),
-        "∀x((Book(x) → ∃=3.y((Students(y) ∧ ∃e(Read(e) ∧ Theme(e, x) ∧ Agent(e, y) ∧ Past(e))))))"
+        "∀x((Book(x) → ∃=3.y((Student(y) ∧ ∃e(Read(e) ∧ Theme(e, x) ∧ Agent(e, y) ∧ Past(e))))))"
     );
 }
 
@@ -277,11 +278,11 @@ fn a_passive_agent_keeps_its_determiner() {
 fn many_under_an_auxiliary_is_many() {
     assert_eq!(
         compile("Many dogs will bark.").unwrap(),
-        "MANY x((Dogs(x) ∧ ∃e(Bark(e) ∧ Agent(e, x) ∧ Future(e))))"
+        "MANY x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) ∧ ∃e(Bark(e) ∧ Agent(e, x) ∧ Future(e))))"
     );
     assert_eq!(
         compile("Many dogs did not bark.").unwrap(),
-        "MANY x((Dogs(x) ∧ ¬∃e(Bark(e) ∧ Agent(e, x) ∧ Past(e))))"
+        "MANY x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) ∧ ¬∃e(Bark(e) ∧ Agent(e, x) ∧ Past(e))))"
     );
 }
 
@@ -309,11 +310,11 @@ fn any_with_a_quantified_object_restricts_by_implication() {
 fn any_under_negation_is_existential_with_an_auxiliary_too() {
     assert_eq!(
         compile("Not any dogs will run.").unwrap(),
-        "¬∃x((Dogs(x) ∧ ∃e(Run(e) ∧ Agent(e, x) ∧ Future(e))))"
+        "¬∃x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) ∧ ∃e(Run(e) ∧ Agent(e, x) ∧ Future(e))))"
     );
     assert_eq!(
         compile("Not any dogs run.").unwrap(),
-        "¬∃x((Dogs(x) ∧ ∃e(Run(e) ∧ Agent(e, x))))"
+        "¬∃x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) ∧ ∃e(Run(e) ∧ Agent(e, x))))"
     );
 }
 
@@ -325,11 +326,11 @@ fn do_support_keeps_the_determiners_quantifier() {
     );
     assert_eq!(
         compile("Most dogs do not bark.").unwrap(),
-        "MOST x((Dogs(x) ∧ ¬Bark(x)))"
+        "MOST x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) ∧ ¬Bark(x)))"
     );
     assert_eq!(
         compile("Three dogs do not bark.").unwrap(),
-        "∃=3.x((Dogs(x) ∧ ¬Bark(x)))"
+        "∃=3.x((((Dog(x) ∧ Animal(x)) ∧ Mammal(x)) ∧ ¬Bark(x)))"
     );
     assert_eq!(
         compile("Every dog does not bark.").unwrap(),

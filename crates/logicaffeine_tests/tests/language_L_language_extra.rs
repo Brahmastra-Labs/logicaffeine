@@ -124,7 +124,7 @@ fn the_math_layer_refuses_what_it_cannot_represent_and_says_which_construct_brok
 fn the_math_layer_never_steals_an_english_sentence() {
     for (english, expected) in [
         ("Every man is mortal.", "∀x((Man(x) → Mortal(x)))"),
-        ("All men are mortal.", "∀x((Men(x) → Mortal(x)))"),
+        ("All men are mortal.", "∀x((Man(x) → Mortal(x)))"),
         ("Bob is happy or Bob is sad.", "(Happy(Bob) ∨ Sad(Bob))"),
         ("Simon is taller than Mary.", "Taller(Simon, Mary)"),
     ] {
