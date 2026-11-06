@@ -46,11 +46,6 @@ enum Kind {
     Bool,
     Float,
     Text,
-    /// An optional value — the result of `Pop` (`Some(x)` when the seq was non-empty, else `nothing`). A boxed
-    /// `int64_t[2]` = `[present, value]`; `Show` renders the inner value (by the interned element kind) or the
-    /// literal `nothing`, exactly as the VM's `RuntimeValue::Nothing`. The `u16` indexes `opt_types` (the inner
-    /// element kind), so `Show` knows how to render a present payload.
-    Optional(u16),
     /// An exact integer, held where the program can make an `Int` outgrow i64 ([`Emitter::exactness`]). It rides
     /// its register tagged: an even word is the value shifted left once (any integer within 63 bits, so the zero
     /// word is 0), an odd word a boxed `LInt*` with its low bit set. The `lc_x*` operations stay on the word
@@ -995,10 +990,10 @@ pub fn compile_program_to_c_offloaded<'a>(
         tmp: 0,
         tuple_types: std::cell::RefCell::new(Vec::new()),
         map_types: std::cell::RefCell::new(Vec::new()),
-        opt_types: std::cell::RefCell::new(Vec::new()),
         inductive_types: std::cell::RefCell::new(Vec::new()),
         seq_elems: std::cell::RefCell::new(Vec::new()),
         param_kinds: Vec::new(),
+        capture_kinds: Vec::new(),
         current_fn: None,
         net_message: std::cell::Cell::new(Kind::Unknown),
         net_stream: std::cell::Cell::new(Kind::Unknown),
@@ -1080,9 +1075,6 @@ struct Emitter<'a> {
     /// points here — the value may be ANY kind (it rides the i64/str cell), so the pair is remembered so a
     /// later `Index`/`Show` recovers the true value kind.
     map_types: std::cell::RefCell<Vec<(Kind, Kind)>>,
-    /// Interning table for `Optional` inner element kinds: a `Kind::Optional(idx)` points here so `Show` renders
-    /// a present payload by the right scalar kind. Interior-mutable (filled during the `&self` infer fixpoint).
-    opt_types: std::cell::RefCell<Vec<Kind>>,
     /// Interning table for the enums the program never declares (`Kind::Inductive`): the type's name and, per
     /// constructor in tag order, the payload kinds known for it — `None` for a constructor the value can never
     /// be (a `none` is never a `Some`). Interior-mutable (filled during the infer fixpoint).
@@ -1091,6 +1083,9 @@ struct Emitter<'a> {
     seq_elems: std::cell::RefCell<Vec<Kind>>,
     /// Every function's parameter kinds, settled over the whole program ([`Emitter::refine_signatures`]).
     param_kinds: Vec<Vec<Kind>>,
+    /// Every closure body's captured values, as the `MakeClosure` that builds it stores them, settled with the
+    /// parameters: a local as the machine word it holds there, a global as its own slot holds it.
+    capture_kinds: Vec<Vec<Kind>>,
     /// The function whose body is being emitted (`None` in Main).
     current_fn: Option<usize>,
     /// The kind of every message the program `Send`s, and of every sequence it `Stream`s — one offline node,
@@ -1279,25 +1274,6 @@ impl<'a> Emitter<'a> {
             .get(idx as usize)
             .cloned()
             .unwrap_or_default()
-    }
-
-    /// Intern an `Optional`'s inner element kind, returning the index a `Kind::Optional` carries.
-    fn intern_opt(&self, inner: Kind) -> u16 {
-        let mut t = self.opt_types.borrow_mut();
-        if let Some(i) = t.iter().position(|e| e == &inner) {
-            return i as u16;
-        }
-        t.push(inner);
-        (t.len() - 1) as u16
-    }
-
-    /// The inner element kind of the `Optional` layout `idx`.
-    fn opt_inner(&self, idx: u16) -> Kind {
-        self.opt_types
-            .borrow()
-            .get(idx as usize)
-            .copied()
-            .unwrap_or(Kind::Unknown)
     }
 
     /// The element kind of a sequence or set kind — a scalar's, or the interned element of a `SeqOf`.
@@ -1845,14 +1821,25 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
-    /// The register kinds function `fi`'s body starts with: its parameters' settled kinds (`param_kinds`),
-    /// every other register unknown.
+    /// The register kinds function `fi`'s body starts with: its parameters' settled kinds (`param_kinds`), a closure
+    /// body's captured values (`capture_kinds`) and their present flags in the slots after them, every other register
+    /// unknown.
     fn seed_of(&self, fi: usize) -> Vec<Kind> {
         let f = &self.prog.functions[fi];
         let mut seed = vec![Kind::Unknown; f.register_count.max(1)];
         for (i, k) in self.param_kinds[fi].iter().enumerate() {
             if i < seed.len() {
                 seed[i] = *k;
+            }
+        }
+        if self.closure_bodies.contains(&fi) {
+            let (params, caps) = (f.param_count as usize, f.captures.len());
+            for (i, k) in self.capture_kinds.get(fi).into_iter().flatten().enumerate() {
+                for (slot, kind) in [(params + i, *k), (params + caps + i, Kind::Bool)] {
+                    if slot < seed.len() {
+                        seed[slot] = kind;
+                    }
+                }
             }
         }
         seed
@@ -1957,9 +1944,16 @@ impl<'a> Emitter<'a> {
             }
         }
         let declared_ret: Vec<Kind> = self.fn_ret.clone();
+        self.capture_kinds = self
+            .prog
+            .functions
+            .iter()
+            .map(|f| vec![Kind::Unknown; f.captures.len()])
+            .collect();
         for _ in 0..16 {
             let before = (
                 self.param_kinds.clone(),
+                self.capture_kinds.clone(),
                 self.fn_ret.clone(),
                 self.net_message.get(),
                 self.net_stream.get(),
@@ -1970,6 +1964,9 @@ impl<'a> Emitter<'a> {
             );
             let mut passed: Vec<Vec<Option<Kind>>> = (0..nf)
                 .map(|fi| vec![None; self.param_kinds[fi].len()])
+                .collect();
+            let mut captured: Vec<Vec<Option<Kind>>> = (0..nf)
+                .map(|fi| vec![None; self.capture_kinds[fi].len()])
                 .collect();
             let (mut sent, mut streamed): (Option<Kind>, Option<Kind>) = (None, None);
             for (func, start, end, holes) in regions {
@@ -2029,6 +2026,31 @@ impl<'a> Emitter<'a> {
                                 self.refine_return(*fi, declared_ret[*fi], k);
                             }
                         }
+                        // A closure stores a local it captures as the machine word it holds (an exact one narrowed,
+                        // as every op that does not read exact integers sees them) and a global as its slot holds it.
+                        Op::MakeClosure {
+                            func: body,
+                            locals_start,
+                            ..
+                        } => {
+                            let mut local = *locals_start;
+                            for (i, (_, global)) in self.prog.functions[*body as usize].captures.iter().enumerate() {
+                                let k = match global {
+                                    Some(g) => self.global_kinds.get(*g as usize).copied().unwrap_or(Kind::Unknown),
+                                    None => {
+                                        let k = kind_at(&per_pc[pc - start], local);
+                                        local += 1;
+                                        if k == Kind::BigInt { Kind::Int } else { k }
+                                    }
+                                };
+                                if let Some(slot) = captured[*body as usize].get_mut(i) {
+                                    *slot = Some(match *slot {
+                                        None => k,
+                                        Some(prev) => self.join_passed(prev, k),
+                                    });
+                                }
+                            }
+                        }
                         _ => {}
                     }
                     // A return hands each `mutable` parameter back to the caller: what it holds there is passed to
@@ -2066,11 +2088,17 @@ impl<'a> Emitter<'a> {
                             self.refine_param(declared_params[fi][i], self.param_kinds[fi][i], got);
                     }
                 }
+                for i in 0..captured[fi].len() {
+                    if let Some(got) = captured[fi][i] {
+                        self.capture_kinds[fi][i] = self.refine_param(Kind::Unknown, self.capture_kinds[fi][i], got);
+                    }
+                }
             }
             self.net_message.set(sent.unwrap_or(Kind::Unknown));
             self.net_stream.set(streamed.unwrap_or(Kind::Unknown));
             if (
                 self.param_kinds.clone(),
+                self.capture_kinds.clone(),
                 self.fn_ret.clone(),
                 self.net_message.get(),
                 self.net_stream.get(),
@@ -2135,7 +2163,7 @@ impl<'a> Emitter<'a> {
 
     /// Fold one `Return` of function `fi`, returning a value of kind `k`, into the function's result kind: a
     /// boxed kind the boundary under-types (a `Tuple` declared as a `Seq`, an exact integer or rational declared
-    /// `Int`, a popped value), an undeclared result, an `Option`/`Result` learning its payloads.
+    /// `Int`), an undeclared result, an `Option`/`Result` learning its payloads.
     fn refine_return(&mut self, fi: usize, declared: Kind, k: Kind) {
         let current = self.fn_ret[fi];
         self.fn_ret[fi] = match (current, k) {
@@ -2147,7 +2175,7 @@ impl<'a> Emitter<'a> {
             }
             (Kind::Int, Kind::BigInt) | (Kind::BigInt, Kind::Int) => Kind::BigInt,
             (c, r) if c == r => c,
-            (c, r @ (Kind::Tuple(_) | Kind::BigInt | Kind::Rational | Kind::Optional(_)))
+            (c, r @ (Kind::Tuple(_) | Kind::BigInt | Kind::Rational))
                 if c == declared =>
             {
                 r
@@ -3194,53 +3222,6 @@ impl<'a> Emitter<'a> {
         }
     }
 
-    /// The operands of `op`, a numeric operator, that are popped values (an optional, present or `nothing`) the op
-    /// reads as the number they hold, each with that number's kind and the VM's sentence for `nothing` there.
-    fn optional_operands(&self, op: &Op, kinds: &[Kind]) -> Vec<(u16, Kind, String)> {
-        use crate::ast::stmt::BinaryOpKind as B;
-        let (kind, lhs, rhs) = match *op {
-            Op::Add { lhs, rhs, .. } => (B::Add, lhs, rhs),
-            Op::AddAssign { dst, src } => (B::Add, dst, src),
-            Op::Sub { lhs, rhs, .. } => (B::Subtract, lhs, rhs),
-            Op::Mul { lhs, rhs, .. } => (B::Multiply, lhs, rhs),
-            Op::Div { lhs, rhs, .. } => (B::Divide, lhs, rhs),
-            Op::ExactDiv { lhs, rhs, .. } => (B::ExactDivide, lhs, rhs),
-            Op::FloorDiv { lhs, rhs, .. } => (B::FloorDivide, lhs, rhs),
-            Op::Mod { lhs, rhs, .. } => (B::Modulo, lhs, rhs),
-            Op::Pow { lhs, rhs, .. } => (B::Pow, lhs, rhs),
-            Op::Lt { lhs, rhs, .. } => (B::Lt, lhs, rhs),
-            Op::Gt { lhs, rhs, .. } => (B::Gt, lhs, rhs),
-            Op::LtEq { lhs, rhs, .. } => (B::LtEq, lhs, rhs),
-            Op::GtEq { lhs, rhs, .. } => (B::GtEq, lhs, rhs),
-            Op::BitAnd { lhs, rhs, .. } => (B::BitAnd, lhs, rhs),
-            Op::BitOr { lhs, rhs, .. } => (B::BitOr, lhs, rhs),
-            Op::BitXor { lhs, rhs, .. } => (B::BitXor, lhs, rhs),
-            Op::Shl { lhs, rhs, .. } => (B::Shl, lhs, rhs),
-            Op::Shr { lhs, rhs, .. } => (B::Shr, lhs, rhs),
-            _ => return Vec::new(),
-        };
-        let number = |k: Kind| matches!(k, Kind::Int | Kind::BigInt | Kind::Float | Kind::Rational);
-        let held = |r: u16| match kind_at(kinds, r) {
-            Kind::Optional(oi) => Some(self.opt_inner(oi)).filter(|k| number(*k)),
-            _ => None,
-        };
-        let plain = |r: u16| held(r).unwrap_or_else(|| kind_at(kinds, r));
-        let mut out: Vec<(u16, Kind, String)> = Vec::new();
-        for (reg, other, nothing_left) in [(lhs, rhs, true), (rhs, lhs, false)] {
-            let Some(inner) = held(reg) else { continue };
-            if out.iter().any(|(r, _, _)| *r == reg) || !number(plain(other)) {
-                continue;
-            }
-            let Some(sentence) =
-                sample_value(plain(other)).and_then(|v| words::nothing_refused(kind, nothing_left, v))
-            else {
-                continue;
-            };
-            out.push((reg, inner, sentence));
-        }
-        out
-    }
-
     /// Lower `op` where exact integers meet it. An op that reads an exact operand as one sees it as it is; any
     /// other sees the machine integer it holds (loudly, if it holds none), and the register gets its exact value
     /// back after. A result the region holds exact that the op makes as a machine integer is tagged once it lands.
@@ -3252,48 +3233,9 @@ impl<'a> Emitter<'a> {
         in_function: bool,
         pc: usize,
     ) -> Result<(), String> {
-        // A popped value the op reads as a number holds it, or stops the program as the VM does over `nothing`.
-        let presented = self.optional_operands(op, before);
-        let mut opened = Vec::new();
-        let mut present_kinds;
-        let before = if presented.is_empty() {
-            before
-        } else {
-            present_kinds = before.to_vec();
-            for (reg, inner, sentence) in &presented {
-                let n = self.fresh();
-                self.line(&format!(
-                    "int64_t _op{n} = r[{reg}]; if (!((int64_t*)(intptr_t)_op{n})[0]) logos_fatalf({sentence}); r[{reg}] = ((int64_t*)(intptr_t)_op{n})[1];"
-                ));
-                present_kinds[*reg as usize] = *inner;
-                opened.push((*reg, n));
-            }
-            &present_kinds[..]
-        };
-        let lowered = if self.deopt.contains(&pc) {
-            self.lower_checked(op, before, after, in_function, pc)
-        } else {
-            self.lower_over_present(op, before, after, in_function, pc)
-        };
-        let mut written = Vec::new();
-        op.for_each_written_reg(|w| written.push(w));
-        for (reg, n) in opened {
-            if !written.contains(&reg) {
-                self.line(&format!("r[{reg}] = _op{n};"));
-            }
+        if self.deopt.contains(&pc) {
+            return self.lower_checked(op, before, after, in_function, pc);
         }
-        lowered
-    }
-
-    /// [`Emitter::lower_over_exact`] once every popped value the op reads is presented as the number it holds.
-    fn lower_over_present(
-        &mut self,
-        op: &Op,
-        before: &[Kind],
-        after: &[Kind],
-        in_function: bool,
-        pc: usize,
-    ) -> Result<(), String> {
         let mut read = Vec::new();
         op.for_each_read_reg(
             |f| self.prog.functions[f as usize].captures.len(),
@@ -4301,16 +4243,6 @@ impl<'a> Emitter<'a> {
                 }
                 // An op that does not read exact integers as they are sees the machine integers they hold, as its
                 // lowering does ([`Emitter::lower_over_exact`]): what it builds from them holds machine integers.
-                // A popped value a numeric operator reads is the number it holds there ([`Emitter::optional_operands`]).
-                let presented: Vec<(u16, Kind)> = self
-                    .optional_operands(&self.prog.code[pc], &cur)
-                    .into_iter()
-                    .map(|(r, inner, _)| {
-                        let held = kind_of(&cur, r);
-                        set(&mut cur, r, inner);
-                        (r, held)
-                    })
-                    .collect();
                 let mut narrowed: Vec<u16> = Vec::new();
                 self.prog.code[pc].for_each_read_reg(
                     |f| self.prog.functions[f as usize].captures.len(),
@@ -4455,12 +4387,9 @@ impl<'a> Emitter<'a> {
                     Op::ListPush { list, value } => {
                         Some((*list, self.seq_kind_for(kind_of(&cur, *value))))
                     }
-                    // `Pop` yields an OPTIONAL (`Some(x)` if the seq was non-empty, else `nothing`), carrying the
-                    // element kind so `Show` renders a present payload correctly.
-                    Op::ListPop { list, dst } => Some((
-                        *dst,
-                        Kind::Optional(self.intern_opt(self.elem_kind(kind_of(&cur, *list)))),
-                    )),
+                    // A pop meets only a list with an item to give (`resolve_pop` checks every other one first), so
+                    // what it yields is that item.
+                    Op::ListPop { list, dst } => Some((*dst, self.elem_kind(kind_of(&cur, *list)))),
                     Op::NewEmptySet { dst } => Some((*dst, Kind::SetUnknown)),
                     Op::SetAdd { set, value } => Some((*set, kind_of(&cur, *value).set_of())),
                     Op::NewEmptyMap { dst } | Op::NewEmptyMapWithCapacity { dst, .. } => {
@@ -4782,8 +4711,6 @@ impl<'a> Emitter<'a> {
                             (Kind::Inductive(ii), _, Some((t, c))) if t == target => {
                                 self.inductive_payload(ii, c, *index as usize)
                             }
-                            // A `Some` arm over a value that was popped (present or `nothing`) binds the value.
-                            (Kind::Optional(oi), _, _) => self.opt_inner(oi),
                             _ => Kind::Unknown,
                         };
                         Some((*dst, k))
@@ -4923,9 +4850,6 @@ impl<'a> Emitter<'a> {
                 };
                 for r in &narrowed {
                     set(&mut cur, *r, Kind::BigInt);
-                }
-                for (r, held) in &presented {
-                    set(&mut cur, *r, *held);
                 }
                 if let Some((dst, k)) = write {
                     // What the program declares the value to be (`a new Seq of Text`, `Let x: Seq of Int be …`)
@@ -5709,12 +5633,6 @@ impl<'a> Emitter<'a> {
                     self.render_constructors(v, &ctors, n)?
                 }
             }
-            // A popped value of a sequence that never holds one is always absent.
-            Kind::Optional(oi) if self.opt_inner(oi) == Kind::Never => "\"nothing\"".to_string(),
-            Kind::Optional(oi) => {
-                let inner = self.render(&format!("_o{n}[1]"), self.opt_inner(oi))?;
-                format!("({{ int64_t *_o{n} = (int64_t*)(intptr_t)({v}); _o{n}[0] ? {inner} : \"nothing\"; }})")
-            }
             other => return Err(format!("the display of a {other:?} value")),
         })
     }
@@ -5822,33 +5740,6 @@ impl<'a> Emitter<'a> {
                     ("Option", Some(none)) => format!("(((int64_t*)(intptr_t)({v}))[0] == {none})"),
                     _ => "0".to_string(),
                 }
-            }
-            (Kind::Optional(oi), other) | (other, Kind::Optional(oi))
-                if !matches!(other, Kind::Optional(_)) =>
-            {
-                let (o, v) = if matches!(ka, Kind::Optional(_)) {
-                    (a, b)
-                } else {
-                    (b, a)
-                };
-                let inner = self.opt_inner(oi);
-                if other == Kind::Nothing {
-                    format!("(!((int64_t*)(intptr_t)({o}))[0])")
-                } else {
-                    let same = self.eq_expr(&format!("_o{n}[1]"), inner, v, other)?;
-                    format!(
-                        "({{ int64_t *_o{n} = (int64_t*)(intptr_t)({o}); _o{n}[0] && {same}; }})"
-                    )
-                }
-            }
-            (Kind::Optional(x), Kind::Optional(y)) => {
-                let same = self.eq_expr(
-                    &format!("_p{n}[1]"),
-                    self.opt_inner(x),
-                    &format!("_q{n}[1]"),
-                    self.opt_inner(y),
-                )?;
-                format!("({{ int64_t *_p{n} = (int64_t*)(intptr_t)({a}), *_q{n} = (int64_t*)(intptr_t)({b}); (_p{n}[0] == _q{n}[0]) && (!_p{n}[0] || {same}); }})")
             }
             (x, y) if is_sequence(x) && is_sequence(y) => {
                 let (sx, sy) = (seq_kind_of(x), seq_kind_of(y));
@@ -6199,7 +6090,7 @@ impl<'a> Emitter<'a> {
                     c_escape(s)
                 )),
                 // `Nothing` — the seed value of a CRDT register/counter field (a `Divergent T` / counter before
-                // its first write) and the empty-`Optional` sentinel. It rides the slot as `0` (an empty
+                // its first write). It rides the slot as `0` (an empty
                 // pointer / zero int); a following `StructInsert` / `CrdtBump` / `CrdtResolve` establishes the
                 // real cell value, matching the VM's `RuntimeValue::Nothing` initial field state.
                 Constant::Nothing => self.line(&format!("r[{dst}] = 0;")),
@@ -7306,8 +7197,8 @@ impl<'a> Emitter<'a> {
                 }
             }
             Op::ListPop { list, dst } => {
-                // Pop → a boxed `[present, value]` optional: pop only when non-empty (else `nothing`), matching
-                // the VM's `list_pop` (value when present, `RuntimeValue::Nothing` when the seq is empty).
+                // The list has an item to give: `resolve_pop` stopped the program with the VM's sentence before any
+                // pop that could find none.
                 let lk = seq_kind_of(kind_at(kinds, *list));
                 let infix = lk
                     .seq_infix()
@@ -7315,12 +7206,7 @@ impl<'a> Emitter<'a> {
                 self.own_target(*list, lk)?;
                 let ptr = Self::seq_ptr(*list, lk)?;
                 let read = elem_to_reg(&format!("seq_{infix}_pop({ptr})"), self.elem_kind(lk));
-                let n = self.fresh();
-                self.line(&format!(
-                    "int64_t *_opt{n} = (int64_t*)lc_gc_calloc(2, sizeof(int64_t));"
-                ));
-                self.line(&format!("if (({ptr})->len > 0) {{ _opt{n}[0] = 1; _opt{n}[1] = {read}; }} else {{ _opt{n}[0] = 0; }}"));
-                self.line(&format!("r[{dst}] = (int64_t)(intptr_t)_opt{n};"));
+                self.line(&format!("r[{dst}] = {read};"));
             }
             // ── Sets (heap-boxed insertion-ordered dedup'd Set_i64/Set_str) ──────────────────────────────────
             Op::NewEmptySet { dst } => {
@@ -7653,16 +7539,6 @@ impl<'a> Emitter<'a> {
                         ((self.struct_name_of_kind(tk).as_deref() == Some(name.as_str())) as i32)
                             .to_string()
                     }
-                    Kind::Optional(oi) => match (name.as_str(), self.opt_inner(oi)) {
-                        ("None", _) => format!("(!((int64_t*)(intptr_t)r[{target}])[0])"),
-                        (_, inner @ (Kind::Struct(_) | Kind::StructSynth(_)))
-                            if self.struct_name_of_kind(inner).as_deref()
-                                == Some(name.as_str()) =>
-                        {
-                            format!("(((int64_t*)(intptr_t)r[{target}])[0] != 0)")
-                        }
-                        _ => "0".to_string(),
-                    },
                     Kind::Nothing => ((name == "None") as i32).to_string(),
                     Kind::Unknown => return Err(format!("TestArm on a non-enum kind {tk:?}")),
                     _ => "0".to_string(),
@@ -7670,7 +7546,7 @@ impl<'a> Emitter<'a> {
                 self.line(&format!("r[{dst}] = {test};"));
             }
             // The bound payload of the arm just matched: an enum's payload cell, a record's field (or, for a
-            // `Some` arm over a record, the record itself), a popped value's value; `nothing` binds nothing.
+            // `Some` arm over a record, the record itself); `nothing` binds nothing.
             Op::BindArm {
                 dst,
                 target,
@@ -7699,11 +7575,6 @@ impl<'a> Emitter<'a> {
                                 "r[{dst}] = ((int64_t*)(intptr_t)r[{target}])[{cell}];"
                             ));
                         }
-                    }
-                    Kind::Optional(_) => {
-                        self.line(&format!(
-                            "if (((int64_t*)(intptr_t)r[{target}])[0]) r[{dst}] = ((int64_t*)(intptr_t)r[{target}])[1];"
-                        ));
                     }
                     Kind::Nothing => {}
                     Kind::Unknown => return Err(format!("BindArm on a non-enum kind {tk:?}")),

@@ -290,21 +290,6 @@ pub(crate) fn exact_number_sentences() -> Vec<(&'static str, String)> {
     ]
 }
 
-/// The VM's refusal of operator `op` over `nothing` (on the left when `nothing_left`) and `other`; `None` where the
-/// VM answers the pair.
-pub(super) fn nothing_refused(
-    op: crate::ast::stmt::BinaryOpKind,
-    nothing_left: bool,
-    other: RuntimeValue,
-) -> Option<String> {
-    let (left, right) = if nothing_left {
-        (RuntimeValue::Nothing, other)
-    } else {
-        (other, RuntimeValue::Nothing)
-    };
-    arith::binary_op(op, left, right).err().map(|sentence| literal(&sentence))
-}
-
 /// A remainder the VM refuses for these two operands (`Real % Real`).
 pub(super) fn modulo_refused(left: RuntimeValue, right: RuntimeValue) -> String {
     literal(&failure(arith::modulo(left, right), "remainder"))

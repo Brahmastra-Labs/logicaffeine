@@ -69,6 +69,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   build with mold through clang, and the job that holds the shipped binaries to their budgets installed neither, so it
   failed at its first build script on every push. It installs both, and `workflow_linker_lock` holds every job that
   installs Rust to the packages its workflow's link line names.
+- **A closure's captured integer and a popped value keep what they are on the collected tiers.** On the bytecode→C
+  tier a closure that captured a loop variable crashed: its body never learned the kinds of what it captured, so `x +
+  i` ran as a machine add while every caller read the result as an exact integer. A closure body's captured values are
+  now settled with the parameters, from every `MakeClosure` that builds it. A popped value is the item it is
+  (`resolve_pop` stops the program before any pop that could find none) rather than a boxed optional, so `length of`
+  and every other operation take it, and a pop allocates nothing. A program that asks for its heap report
+  (`LOGOS_HEAP_REPORT`) gets it even when it allocated nothing, and the RISC-V runtime calls the C library's allocator
+  nowhere: the C runtime's fallback for a build without the collector (`lc_gc_libc_source`) stays out of it, and a
+  RISC-V build where the collector cannot run refuses to compile. Locked by `collected_heap_lock`, its rows sized and
+  shaped so each collects at least twice on every collected tier.
 
 ## [0.11.0] - 2026-11-02
 

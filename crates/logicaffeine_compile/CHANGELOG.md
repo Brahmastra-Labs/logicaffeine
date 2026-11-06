@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Changed
+
+- `codegen_c::from_program`: a closure body's captured values take the kinds every `MakeClosure` that builds it stores
+  (`capture_kinds`, settled with the parameters), so its arithmetic and its result agree with what its callers read; a
+  popped value is the list's element (no `[present, value]` box), as `resolve_pop` guarantees an item to every pop.
+- The collector prints the heap report a program asks for even when it never allocated (`lc_gc_report_unstarted`).
+- `codegen_riscv::RISCV_RUNTIME_C` carries no call of the C library's allocator: the libc fallback moved out of
+  `lc_gc_api_source` into `lc_gc_libc_source`, which only the C runtime emits, and the RISC-V runtime refuses to compile
+  where the collector cannot run.
+
 ### Fixed
 
 - The optimizer's linear prover (`optimize::affine::{consistent, prove}`) eliminates under a budget of 4,096

@@ -41,8 +41,9 @@ const ROWS: &[(&str, usize, &str)] = &[
     (
         "list_grown_by_pushes",
         60_000,
-        "## Main\nLet mutable total be 0.\nRepeat for i from 1 to {n}:\n    Let mutable xs be a new Seq of Int.\n    \
-         Repeat for j from 1 to 20:\n        Push i + j to xs.\n    Set total to total + item 20 of xs.\nShow total.\n",
+        "## Main\nLet mutable total be 0.\nLet mutable last be a new Seq of Int.\nRepeat for i from 1 to {n}:\n    \
+         Let mutable xs be a new Seq of Int.\n    Repeat for j from 1 to 20:\n        Push i + j to xs.\n    \
+         Set last to xs.\n    Set total to total + item 20 of last.\nShow total.\n",
     ),
     (
         "list_of_lists",
@@ -67,7 +68,7 @@ const ROWS: &[(&str, usize, &str)] = &[
     ),
     (
         "record_with_a_list_field",
-        150_000,
+        300_000,
         "## A Bag has:\n    An items: Seq of Int.\n    A label: Text.\n\n## Main\nLet mutable total be 0.\n\
          Repeat for i from 1 to {n}:\n    Let mutable b be a new Bag with items [i, i] and label \"x\".\n    \
          Push i to b's items.\n    Set total to total + length of b's items.\nShow total.\n",
@@ -80,7 +81,7 @@ const ROWS: &[(&str, usize, &str)] = &[
     ),
     (
         "text_by_appending",
-        150_000,
+        300_000,
         "## Main\nLet mutable total be 0.\nRepeat for i from 1 to {n}:\n    Let mutable s be \"\".\n    \
          Repeat for j from 1 to 8:\n        Set s to s + \"ab\".\n    Set total to total + length of s.\nShow total.\n",
     ),

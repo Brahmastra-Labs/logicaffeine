@@ -12,6 +12,9 @@ pub const RISCV_RUNTIME_C: &str = concat!(
     crate::codegen_c::runtime::lc_gc_collector_source!(),
     crate::codegen_c::runtime::lc_gc_api_source!(),
 r#"
+#ifndef LC_GC_COLLECTS
+#error "the RISC-V runtime allocates only through the collector, and the collector finds no data segments here"
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

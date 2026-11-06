@@ -685,6 +685,16 @@ static void lc_gc_teardown(void) {
     lc_gc_pending_n = lc_gc_pending_cap = lc_gc_roots_n = lc_gc_roots_cap = lc_gc_holds_n = lc_gc_holds_cap = 0;
 }
 
+/* A report asked for is printed whether or not the program allocated: one that never did started no collector, so
+   no teardown prints it. Registered before main, this runs after every handler registered later, the teardown of a
+   collector that started among them. */
+static void lc_gc_report_unstarted(void) {
+    const char *report = getenv("LOGOS_HEAP_REPORT");
+    if (!lc_gc_started && report && report[0])
+        fprintf(stderr, "logos heap: live=0 high=0 collections=0 allocated=0 freed=0\n");
+}
+__attribute__((constructor)) static void lc_gc_arm_report(void) { atexit(lc_gc_report_unstarted); }
+
 /* Before allocating `n` bytes: collect when due. */
 static inline void lc_gc_due(size_t n) {
     if (__builtin_expect(!lc_gc_started, 0)) lc_gc_start();
@@ -826,8 +836,40 @@ pub(crate) use lc_gc_collector_source;
 /// generator that leaves it out, and every device target, keeps the C library's calls under the same names.
 pub(crate) const C_GC_COLLECTOR: &str = lc_gc_collector_source!();
 
+/// The C library's allocator under the collector's names, for a runtime built where the collector is not
+/// (`LC_GC_COLLECTS` undefined: another generator, a device target, a platform whose segments it cannot find). The C
+/// runtime emits it ahead of [`lc_gc_api_source`]; a runtime that always carries the collector (the RISC-V shim)
+/// leaves it out, so nothing in it can reach the C library's allocator.
+macro_rules! lc_gc_libc_source {
+    () => {
+        r#"/* LC_GC_BEGIN — the C library's allocator under the collector's names, where the collector is not built. */
+#ifndef LC_GC_COLLECTS
+__attribute__((unused)) static inline void *lc_gc_alloc(size_t n) { return malloc(n); }
+__attribute__((unused)) static inline void *lc_gc_alloc_atomic(size_t n) { return malloc(n); }
+__attribute__((unused)) static inline void *lc_gc_calloc(size_t count, size_t n) { return calloc(count, n); }
+__attribute__((unused)) static inline void *lc_gc_calloc_atomic(size_t count, size_t n) { return calloc(count, n); }
+__attribute__((unused)) static inline void *lc_gc_realloc(void *p, size_t n) { return realloc(p, n); }
+__attribute__((unused)) static inline void *lc_gc_realloc_atomic(void *p, size_t n) { return realloc(p, n); }
+__attribute__((unused)) static inline void lc_gc_free(void *p) { free(p); }
+__attribute__((unused)) static inline void lc_gc_add_root(const void *lo, const void *hi) { (void)lo; (void)hi; }
+__attribute__((unused)) static inline void lc_gc_remove_root(const void *lo) { (void)lo; }
+__attribute__((unused)) static inline void lc_gc_on_release(void *p, void (*release)(void *)) { (void)p; (void)release; }
+__attribute__((unused)) static inline void lc_gc_count_outside(size_t (*bytes)(void), void (*report)(FILE *)) { (void)bytes; (void)report; }
+__attribute__((unused)) static inline void lc_gc_note_outside(size_t grown) { (void)grown; }
+__attribute__((unused)) static inline void lc_gc_stack_enter(const void *lo, const void *hi) { (void)lo; (void)hi; }
+__attribute__((unused)) static inline void lc_gc_stack_leave(void) {}
+__attribute__((unused)) static inline void lc_gc_scheduler_stack_enter(const void *top) { (void)top; }
+__attribute__((unused)) static inline uintptr_t lc_gc_worker_stack_enter(const void *top) { (void)top; return 0; }
+__attribute__((unused)) static inline void lc_gc_worker_stack_leave(uintptr_t saved) { (void)saved; }
+#endif
+/* LC_GC_END */
+"#
+    };
+}
+pub(crate) use lc_gc_libc_source;
+
 /// The allocator interface every runtime calls (its comment, `LC_GC_BEGIN`, is the contract): the collector's when
-/// [`C_GC_COLLECTOR`] is emitted ahead of it, the C library's otherwise.
+/// [`C_GC_COLLECTOR`] is emitted ahead of it, the C library's ([`lc_gc_libc_source`]) otherwise.
 macro_rules! lc_gc_api_source {
     () => {
         r#"/* LC_GC_BEGIN — the one allocator. Every block the program and this runtime allocate comes from it, and nothing else
@@ -865,26 +907,8 @@ macro_rules! lc_gc_api_source {
    - at exit, after every handler registered later, it gives back what every object still holds outside the heap,
      then frees every block, then its own tables.
    The collector is C_GC_COLLECTOR, emitted ahead of this runtime; without it (LC_GC_COLLECTS undefined: another
-   generator, a device target, a platform whose segments it cannot find) the calls are the C library's. */
-#ifndef LC_GC_COLLECTS
-__attribute__((unused)) static inline void *lc_gc_alloc(size_t n) { return malloc(n); }
-__attribute__((unused)) static inline void *lc_gc_alloc_atomic(size_t n) { return malloc(n); }
-__attribute__((unused)) static inline void *lc_gc_calloc(size_t count, size_t n) { return calloc(count, n); }
-__attribute__((unused)) static inline void *lc_gc_calloc_atomic(size_t count, size_t n) { return calloc(count, n); }
-__attribute__((unused)) static inline void *lc_gc_realloc(void *p, size_t n) { return realloc(p, n); }
-__attribute__((unused)) static inline void *lc_gc_realloc_atomic(void *p, size_t n) { return realloc(p, n); }
-__attribute__((unused)) static inline void lc_gc_free(void *p) { free(p); }
-__attribute__((unused)) static inline void lc_gc_add_root(const void *lo, const void *hi) { (void)lo; (void)hi; }
-__attribute__((unused)) static inline void lc_gc_remove_root(const void *lo) { (void)lo; }
-__attribute__((unused)) static inline void lc_gc_on_release(void *p, void (*release)(void *)) { (void)p; (void)release; }
-__attribute__((unused)) static inline void lc_gc_count_outside(size_t (*bytes)(void), void (*report)(FILE *)) { (void)bytes; (void)report; }
-__attribute__((unused)) static inline void lc_gc_note_outside(size_t grown) { (void)grown; }
-__attribute__((unused)) static inline void lc_gc_stack_enter(const void *lo, const void *hi) { (void)lo; (void)hi; }
-__attribute__((unused)) static inline void lc_gc_stack_leave(void) {}
-__attribute__((unused)) static inline void lc_gc_scheduler_stack_enter(const void *top) { (void)top; }
-__attribute__((unused)) static inline uintptr_t lc_gc_worker_stack_enter(const void *top) { (void)top; return 0; }
-__attribute__((unused)) static inline void lc_gc_worker_stack_leave(uintptr_t saved) { (void)saved; }
-#endif
+   generator, a device target, a platform whose segments it cannot find) the calls are the C library's, defined just
+   before this contract. */
 __attribute__((unused)) static char *lc_gc_strdup(const char *s) {
     size_t n = strlen(s);
     char *t = (char *)lc_gc_alloc_atomic(n + 1);
@@ -1581,6 +1605,7 @@ r#"
 /* ========== Memory ========== */
 
 "#,
+    lc_gc_libc_source!(),
     lc_gc_api_source!(),
     r#"
 

@@ -32,6 +32,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `propositional_logic` reads the Unicode connectives, and `benchmarks/results/speed_floors.json` is re-recorded by
   `speed_floor_lock`'s recorder on main's ledgers: the 44 achievements without a floor, the six vanished
   `clique_coloring/24` floors dropped, and the Lean Kernel Arena pin's counts.
+- `collected_heap_lock`'s rows collect at least twice on every collected tier: `record_with_a_list_field` and `text_by_appending` run 300,000 iterations, and `list_grown_by_pushes` hands its list to a variable that outlives the iteration, since a list of twenty pushes built and read inside one iteration never reaches the heap on the C tiers.
 
 ### Fixed
 - `bringup_lock` follows the chips it tests: the SN50 brings up an expert mixture (it deploys SambaNova's published families), the D5005 refuses it naming "experts"; the undescribed checkpoint is written with no metadata (`tiny_models::write_bare_checkpoint`), since every tiny checkpoint now carries its keys.
