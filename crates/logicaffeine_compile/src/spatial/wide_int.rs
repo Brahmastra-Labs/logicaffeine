@@ -1137,11 +1137,10 @@ impl Proof {
                 if derived.len() != recorded.len() || derived.iter().zip(recorded).any(|(d, (r, _))| d != r) {
                     return false;
                 }
-                KERNEL.with(|ctx| {
-                    recorded.iter().all(|(id, verdict)| {
-                        let now = kernels_on(ctx, id);
-                        now != KernelVerdict::Rejected && now == *verdict
-                    })
+                let ctx = StandardLibrary::context();
+                recorded.iter().all(|(id, verdict)| {
+                    let now = kernels_on(ctx, id);
+                    now != KernelVerdict::Rejected && now == *verdict
                 })
             }
         }
@@ -1178,15 +1177,6 @@ fn identities_of(program: &LaneProgram) -> Result<Option<Vec<Identity>>, String>
     }
 }
 
-thread_local! {
-    /// The kernel's standard library, registered once a thread: building it is most of what checking one identity costs.
-    static KERNEL: Context = {
-        let mut ctx = Context::new();
-        StandardLibrary::register(&mut ctx);
-        ctx
-    };
-}
-
 /// The lowering of `op` and its proof.
 pub fn prove(op: Op64) -> Result<Proof, String> {
     prove_program(lower(op))
@@ -1200,7 +1190,7 @@ pub fn prove_program(program: LaneProgram) -> Result<Proof, String> {
         Some(ids) => {
             let mut verdicts = Vec::with_capacity(ids.len());
             for (i, id) in ids.into_iter().enumerate() {
-                let verdict = KERNEL.with(|ctx| kernels_on(ctx, &id));
+                let verdict = kernels_on(StandardLibrary::context(), &id);
                 if verdict == KernelVerdict::Rejected {
                     return Err(format!("{op:?}: the kernel rejects identity {i}"));
                 }

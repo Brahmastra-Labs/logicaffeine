@@ -4329,7 +4329,7 @@ async function main() {
   return failed ? 1 : 0;
 }
 
-// LLM Heal (work/LLM_HEAL.md): the fairy mends a typo through the worker, which the page's own
+// LLM Heal: the fairy mends a typo through the worker, which the page's own
 // fetch answers here, so no request leaves the machine. The card shows both texts; Keep lands
 // the mend, Undo does not, and a failing worker is said so.
 // The address the build under test was given (LOGOS_HEAL_URL at build time), else production.

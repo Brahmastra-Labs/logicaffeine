@@ -15,6 +15,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `codegen_riscv::RISCV_RUNTIME_C` carries no call of the C library's allocator: the libc fallback moved out of
   `lc_gc_api_source` into `lc_gc_libc_source`, which only the C runtime emits, and the RISC-V runtime refuses to compile
   where the collector cannot run.
+- `spatial::wide_int` checks its identities in the kernel's one standard library (`StandardLibrary::context`) instead
+  of registering its own on every thread. Locked by `prelude_registered_once_lock`.
 
 ### Fixed
 
@@ -24,6 +26,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The browser runtime's `read_reals` host function takes the path the module passes it: the module imports it with
   one parameter and the host declared none, and WebAssembly refuses to instantiate on a signature mismatch, so a
   page whose program reads reals rendered blank. Locked by `wasm_host_abi_lock`.
+- `concurrency::pnp`'s ledger locks its file with `fs2::FileExt::lock_exclusive`: `File::lock` needs Rust 1.89, and the
+  crate declares 1.88.
 
 ## [0.11.0] - 2026-11-02
 

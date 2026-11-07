@@ -66,7 +66,7 @@ HANG_POLL="${QUARTUS_HANG_POLL:-60}"
 PROBE_WAIT="${QUARTUS_PROBE_WAIT:-60}"
 STARTUP_LIMIT="${QUARTUS_STARTUP_LIMIT:-21600}"
 LICENSES="$ROOT/tools/d5005/licenses"
-IP_CACHE="${QUARTUS_IP_CACHE:-/mnt/build/d5005-quartus/ip-cache}"
+IP_CACHE="${QUARTUS_IP_CACHE:-$(dirname "$JOBS")/ip-cache}"
 DEVICE=1SX280HN2F43E2VG
 USAGE="usage: quartus.sh syn <job> <verilog> <top> [NAME=VALUE ...]
        quartus.sh fit <job> <verilog> <top> <period ns> [NAME=VALUE ...]
@@ -106,7 +106,7 @@ RESUMED_MODULES="Fitter,Timing Analyzer,Assembler"
 # ungenerated (its regeneration policy skips the rest), so the compile's own IP generation finds it all generated; an
 # IP that never generates stops the step after twenty runs. A setup keeps its tree's manifest and the hash of its IP
 # sources (ip_cache.sh begin, in /work/ipcache), and the step restores the IP a build of the same sources and Quartus
-# kept (QUARTUS_IP_CACHE, default /mnt/build/d5005-quartus/ip-cache) instead of generating it, every file checked, or
+# kept (QUARTUS_IP_CACHE, default ip-cache beside the job directories) instead of generating it, every file checked, or
 # generates it and, once the design built from it has synthesized, keeps what the generation wrote outside the project
 # directory for the next build (scripts/d5005/ip_cache.sh). The compile then runs to its synthesis's end
 # (ANALYSIS_AND_ELAB_ONLY, which the FIM's build_fim_compile.sh turns into `-end synthesis`), the design is held to the

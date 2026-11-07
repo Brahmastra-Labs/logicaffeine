@@ -563,7 +563,7 @@ pub fn compare() -> &'static [Card] {
                 usually: &[LEAN, ROCQ],
                 logos: proven(
                     "Theorems in English, checked by a kernel whose integers are Lean's.",
-                    &["dag_dual_agreement", "axiom_footprint_lean_parity", "definition_kernel"],
+                    &["dag_dual_agreement", "lean_arena_big_naturals", "definition_kernel"],
                 ),
                 tags: &[Status::InTheStudio],
                 uses: &[Uses::Command("lean")],
@@ -690,7 +690,7 @@ pub fn features() -> &'static [Claim] {
             proven("A failing run replays, and the debugger steps backward.", &["replay_lock", "e2e_deterministic_replay"]),
             proven("Import joins files. The type checker runs on every join.", &["import_hygiene", "phase36_modules", "lgx_check_lock"]),
             proven("Infinitesimals, hyperreals and exact reals, compiled to Rust.", &["hyperreal_closure", "hyperreal_functions", "exact_by_context"]),
-            proven("Theorems check in a kernel whose integers are Lean's.", &["dag_dual_agreement", "axiom_footprint_lean_parity"]),
+            proven("Theorems check in a kernel whose integers are Lean's.", &["dag_dual_agreement", "lean_arena_big_naturals"]),
             proven("HTTP served natively, with verified TLS.", &["http_lifecycle_lock", "tcp_tls_lock"]),
             proven("One scheduler runs tasks on C, RISC-V and GPU.", &["c_family_scheduler_conformance_lock", "c_concurrency_scheduler_lock"]),
         ]

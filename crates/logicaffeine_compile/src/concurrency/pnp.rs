@@ -300,8 +300,7 @@ impl PadLedgerStore for FileLedger {
             .write(true)
             .open(self.sibling(".lock"))
             .map_err(|e| self.error("could not be locked", e))?;
-        lock.lock()
-            .map_err(|e| self.error("could not be locked", e))?;
+        fs2::FileExt::lock_exclusive(&lock).map_err(|e| self.error("could not be locked", e))?;
         let mut ledger = self.read()?;
         if change(&mut ledger) {
             self.record(&ledger)?;

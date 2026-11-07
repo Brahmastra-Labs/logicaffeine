@@ -38,6 +38,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   tools under a temporary root; the Studio locks read the debounced preview where `studio_workbench.rs` keeps it;
   `H_honesty_extra` keeps only its scratch probes and leaves `per_process_dir_lock`'s hand-made list; `INDEX.md`
   gains its `one_*` and `studio_*` rows.
+- The `cuda-gpu` test group, which gives a test the card alone, takes `model_golden_lock` and `numerics_contract_lock`,
+  which probe the GPU (`nextest_schedule_lock`); `spatial_int64_lock`'s KERNEL-6 override sits above the generated
+  widths block (`test_ledger_lock`).
+- The Studio and Learn end-to-end scripts name no file of the private workspace. Locked by `workspace_reads_lock`.
 
 ### Fixed
 - `bringup_lock` follows the chips it tests: the SN50 brings up an expert mixture (it deploys SambaNova's published families), the D5005 refuses it naming "experts"; the undescribed checkpoint is written with no metadata (`tiny_models::write_bare_checkpoint`), since every tiny checkpoint now carries its keys.

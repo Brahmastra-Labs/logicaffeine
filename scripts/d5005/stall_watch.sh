@@ -33,15 +33,15 @@ group_ticks() {
   echo "$total"
 }
 
-# Stop group `$1`: TERM to it, then KILL to what is left of it after the grace.
+# Stop group `$1`: TERM to it, then KILL to what is left of it after the grace, each process found by its group id.
 stop_group() {
   local waited=0
-  kill -s TERM -- "-$1" 2>/dev/null
-  while kill -0 -- "-$1" 2>/dev/null && [ "$waited" -lt "$grace" ]; do
+  pkill -TERM -g "$1" 2>/dev/null
+  while pgrep -g "$1" > /dev/null && [ "$waited" -lt "$grace" ]; do
     sleep 1
     waited=$((waited + 1))
   done
-  kill -s KILL -- "-$1" 2>/dev/null
+  pkill -KILL -g "$1" 2>/dev/null
 }
 
 own=$(mktemp -d)

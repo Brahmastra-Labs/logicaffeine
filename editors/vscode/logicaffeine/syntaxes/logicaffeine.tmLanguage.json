@@ -449,11 +449,11 @@
       "comment": "Multiword English operators — the signature LOGOS look",
       "patterns": [
         {
-          "match": "\\b(is at least|is at most|is less than|is greater than|is equal to|is not equal to|is not|is divisible by|is even|is odd|is between)\\b",
+          "match": "\\b(is infinitely close to|is infinitesimal|is limited|is at least|is at most|is less than|is greater than|is equal to|is not equal to|is not|is divisible by|is even|is odd|is between)\\b",
           "name": "keyword.operator.word.comparison.logicaffeine"
         },
         {
-          "match": "\\b(combined with|followed by|shifted left by|shifted right by|without|equals|xor|union|intersection|contains)\\b",
+          "match": "\\b(combined with|followed by|shifted left by|shifted right by|without|equals|xor|union|intersection|contains|matmul|hadamard|plus|across)\\b",
           "name": "keyword.operator.word.logicaffeine"
         },
         {
@@ -463,7 +463,7 @@
       ]
     },
     "keywords": {
-      "match": "\\b(Let|Set|If|While|Repeat|Return|Break|Show|Give|Push|Pop|Call|Inspect|When|Otherwise|Else|Elif|elif|New|Check|Assert|Trust|Require|Requires|Ensures|Escape|Native|native|Read|Write|Sleep|Spawn|Send|Await|Merge|Converge|Increase|Decrease|Launch|Receive|Stop|Try|Mount|Sync|Listen|Connect|For|for|In|in|From|from|Be|be|To|to|Into|Inside|Zone|Called|called|Add|Remove|Append|Resolve|Attempt|Simultaneously|Following|Given|Prove|Auto|First|After|Console|File|Values|Size|Mapped|Manifest|Chunk|with|of|by|at|Task|task)\\b",
+      "match": "\\b(At the limit|Let|Set|If|While|Repeat|Return|Break|Show|Give|Push|Pop|Call|Inspect|When|Otherwise|Else|Elif|elif|New|Check|Assert|Trust|Require|Requires|Ensures|Escape|Native|native|Read|Write|Sleep|Spawn|Send|Await|Merge|Converge|Increase|Decrease|Launch|Receive|Stop|Try|Mount|Sync|Listen|Connect|For|for|In|in|From|from|Be|be|To|to|Into|Inside|Zone|Called|called|Add|Remove|Append|Resolve|Attempt|Simultaneously|Following|Given|Prove|Auto|First|After|Console|File|Values|Size|Mapped|Manifest|Chunk|with|of|by|at|Task|task)\\b",
       "name": "keyword.control.logicaffeine"
     },
     "storage-modifiers": {
@@ -475,7 +475,7 @@
       "name": "entity.name.type.logicaffeine"
     },
     "constants": {
-      "match": "\\b(true|false|none|nothing|some)\\b",
+      "match": "\\b(true|false|none|nothing|some|pi|omega)\\b|(?<![\\w])(π|ω)(?![\\w])",
       "name": "constant.language.logicaffeine"
     },
     "quantifiers": {

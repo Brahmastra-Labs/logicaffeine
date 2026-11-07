@@ -347,7 +347,7 @@ function helpers(page, base) {
 }
 
 // ---------------------------------------------------------------------------------------
-// Scenarios. Each names the ledger entry (work/learn-page-bug-squash.md) it locks.
+// Scenarios. Each names the Learn page bug it locks by its ledger id (B1, …).
 // ---------------------------------------------------------------------------------------
 
 const scenarios = [];

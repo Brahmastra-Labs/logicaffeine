@@ -64,8 +64,9 @@ default = []
 # a plain CSR takeover over the prerendered HTML instead.
 web = ["dioxus/web"]
 # The native SSG/prerender server (dx builds this side for `--ssg --fullstack`).
-# fullstack is needed here for the `#[server]` static_routes manifest endpoint.
-server = ["dioxus/server", "dioxus/fullstack"]
+# fullstack is needed here for the `#[server]` static_routes manifest endpoint; the
+# language server's `server` comes with it, so the native side links one LSP build.
+server = ["dioxus/server", "dioxus/fullstack", "logicaffeine-lsp/server"]
 # Code-splitting: `#[component(lazy)]` route bodies move into a lazily-fetched
 # wasm chunk when dx's `--wasm-split` is passed too; without BOTH, lazy components
 # compile to direct calls. The deploy build leaves it off (the fork's splitter

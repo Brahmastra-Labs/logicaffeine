@@ -79,6 +79,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   nowhere: the C runtime's fallback for a build without the collector (`lc_gc_libc_source`) stays out of it, and a
   RISC-V build where the collector cannot run refuses to compile. Locked by `collected_heap_lock`, its rows sized and
   shaped so each collects at least twice on every collected tier.
+- **The published crates build on the Rust they declare, 1.88.** `logicaffeine-compile`'s one-time-pad ledger took
+  its file lock with `File::lock`, which Rust 1.89 added, so building 0.11.0 on Rust 1.88 failed. The ledger locks
+  through `fs2`, as the crate's other file locks do; CI's `msrv` job checks every published crate on 1.88.
+- **The D5005 Quartus scripts keep to the job's own directories and signal only the processes they started.**
+  `quartus.sh` kept its IP cache at `/mnt/build/d5005-quartus/ip-cache`, a path of one machine; its default is now
+  `ip-cache` beside the job directories (`QUARTUS_IP_CACHE` still overrides it). `stall_watch.sh` finds a stalled
+  step's processes by their group id (`pkill -g`, `pgrep -g`) instead of signalling a negative pid, the form
+  `signal_blast_radius_lock` keeps out of the repository. Locked by `d5005_quartus_queue_lock`.
 
 ## [0.11.0] - 2026-11-02
 
