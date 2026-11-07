@@ -1262,19 +1262,6 @@
       },
       "unit": "instructions"
     },
-    "arena/navier-stokes-euler/over-sokonanoda": {
-      "achieved": 1.1537360753169896,
-      "better": "higher",
-      "bound": 1.09604927155114,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
-    },
     "arena/other/extra-rec/instructions": {
       "achieved": 537335.0,
       "better": "lower",

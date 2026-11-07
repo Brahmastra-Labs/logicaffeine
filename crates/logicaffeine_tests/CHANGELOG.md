@@ -51,6 +51,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (Tristen, 11-07): the Arena pin of 9447fcc83 changed the field's best checker on those tests, and each margin is
   floored under the new rival's name (`arena/bugs/large-elim-param/over-kefir`, `arena/mathlib/over-nano-lean`, …).
   `arena/navier-stokes-euler/over-sokonanoda` stays: on that test the pin's field has a faster checker than ours.
+- `benchmarks/results/speed_floors.json` drops `arena/navier-stokes-euler/over-sokonanoda` (Tristen, 11-07): at the
+  Arena pin of 9447fcc83 nano-lean checks that test in fewer instructions than ours, so there is no lead to hold;
+  `arena/navier-stokes-euler/instructions` still floors our own count.
 
 ### Fixed
 - `bringup_lock` follows the chips it tests: the SN50 brings up an expert mixture (it deploys SambaNova's published families), the D5005 refuses it naming "experts"; the undescribed checkpoint is written with no metadata (`tiny_models::write_bare_checkpoint`), since every tiny checkpoint now carries its keys.
