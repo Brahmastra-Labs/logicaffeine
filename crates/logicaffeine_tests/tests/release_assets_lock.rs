@@ -28,7 +28,7 @@ mod workflows;
 
 use std::path::PathBuf;
 
-use workflows::{jobs, steps, workflow};
+use workflows::{jobs, runs_on, script, steps, workflow};
 
 /// Every value a matrix key takes in `job` (`target: x` or `{ …, target: x, … }`).
 fn matrix_values(job: &str, key: &str) -> Vec<String> {
@@ -610,6 +610,43 @@ fn the_size_check_reads_its_own_trees_budgets_and_the_callers_binaries() {
 
 /// The scripts a workflow line runs by its path (`./scripts/x.sh …`), each as a path in this tree: a script run from the
 /// release-policy checkout is the same tree's file.
+/// Whether `job` can run on a Windows runner: its `runs-on` names one, or its matrix gives `os` one.
+fn runs_on_windows(job: &str) -> bool {
+    runs_on(job).is_some_and(|label| label.contains("windows"))
+        || matrix_values(job, "os").iter().any(|os| os.contains("windows"))
+}
+
+/// The release's jobs that check out on a Windows runner without first turning off the checkout's line-ending
+/// conversion.
+fn crlf_checkouts(text: &str) -> Vec<String> {
+    jobs(text)
+        .into_iter()
+        .filter(|(_, job)| runs_on_windows(job))
+        .filter_map(|(name, job)| {
+            let steps = steps(&job);
+            let checkout = steps.iter().position(|s| s.contains("uses: actions/checkout"))?;
+            (!steps[..checkout].iter().any(|s| script(s).iter().any(|l| l == "git config --global core.autocrlf false")))
+                .then_some(name)
+        })
+        .collect()
+}
+
+/// A Windows runner's git checks text out with CRLF line endings, and the prelude's build script reads each module's
+/// source line for line against its spliced code (`stdlib_text::index`): with CRLF it panics ("its spliced code is
+/// not a sequence of its source's lines"), and the v0.11.0 dispatch lost every Windows binary to it. Each job that
+/// checks out on Windows turns the conversion off first, so the tag builds from the bytes it holds.
+#[test]
+fn every_release_job_on_windows_checks_out_the_trees_own_line_endings() {
+    let missing = crlf_checkouts(&workflow("release.yml"));
+    assert!(missing.is_empty(), "release jobs that check out CRLF on Windows: {missing:?}");
+}
+
+#[test]
+fn the_line_ending_reader_reads_the_shape_it_guards() {
+    let text = "on: push\n\njobs:\n  kept:\n    runs-on: ${{ matrix.os }}\n    strategy:\n      matrix:\n        include:\n          - { os: windows-latest, target: x }\n    steps:\n      - name: Keep the tree's line endings\n        run: git config --global core.autocrlf false\n      - uses: actions/checkout@v4\n  converted:\n    runs-on: windows-latest\n    steps:\n      - uses: actions/checkout@v4\n      - run: git config --global core.autocrlf false\n  linux:\n    runs-on: ubuntu-latest\n    steps:\n      - uses: actions/checkout@v4\n";
+    assert_eq!(crlf_checkouts(text), vec!["converted".to_string()]);
+}
+
 fn scripts_run_by_path(workflow: &str) -> Vec<String> {
     code_lines(workflow)
         .map(|l| l.trim().trim_start_matches("- ").trim_start_matches("run:").trim_start())

@@ -92,3 +92,31 @@ pub fn runs_on(job: &str) -> Option<String> {
         .find_map(|l| l.strip_prefix("    runs-on:"))
         .map(|v| v.trim().to_string())
 }
+
+/// The shell a step runs: its `run:` line's command, or the lines of its `run: |` block, without comments.
+pub fn script(step: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut block: Option<usize> = None;
+    for line in step.lines() {
+        let indent = line.len() - line.trim_start().len();
+        if let Some(at) = block {
+            if indent > at || line.trim().is_empty() {
+                if !line.trim_start().starts_with('#') {
+                    out.push(line.trim().to_string());
+                }
+                continue;
+            }
+            block = None;
+        }
+        let key = line.trim_start().trim_start_matches("- ");
+        if let Some(command) = key.strip_prefix("run:") {
+            let command = command.trim();
+            if command == "|" || command == ">" || command.starts_with("|-") || command.starts_with(">-") {
+                block = Some(indent);
+            } else {
+                out.push(command.to_string());
+            }
+        }
+    }
+    out
+}

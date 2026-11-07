@@ -87,6 +87,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `ip-cache` beside the job directories (`QUARTUS_IP_CACHE` still overrides it). `stall_watch.sh` finds a stalled
   step's processes by their group id (`pkill -g`, `pgrep -g`) instead of signalling a negative pid, the form
   `signal_blast_radius_lock` keeps out of the repository. Locked by `d5005_quartus_queue_lock`.
+- **The release builds its Windows binaries.** A Windows runner's git checks text out with CRLF line endings, and
+  the prelude's build script reads each module's source line for line against its spliced code, so every Windows
+  build of v0.11.0 stopped in `logicaffeine-compile`'s build script ("its spliced code is not a sequence of its
+  source's lines"). Each release job that checks out on Windows keeps the tree's own LF line endings first
+  (`git config --global core.autocrlf false`). Locked by `release_assets_lock`.
 
 ## [0.11.0] - 2026-11-02
 

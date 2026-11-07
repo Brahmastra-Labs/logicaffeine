@@ -22,6 +22,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `workflow_linker_lock`: every job that installs Rust on a Linux runner installs the packages its workflow's link
   line names before its first build, read from the workflow's own `env:`. The workflow readers live in
   `common/workflows.rs`, and `release_assets_lock` reads them from there.
+- `release_assets_lock::every_release_job_on_windows_checks_out_the_trees_own_line_endings`: a release job that can run
+  on Windows turns off the checkout's CRLF conversion before it checks out. The workflow readers' `script` (a step's
+  shell, comments left out) lives in `common/workflows.rs` beside the others.
 
 ### Changed
 - The Arena corpus at lean-kernel-arena `8139f284`: 247 cases, the 11 new ones (six `bugs/` rejects, `other/inductive-undeclared-universe` and four `corner-cases/`) vendored by `scripts/lean/arena-crown/vendor-corpus.py` from the official archive or from the corner cases rebuilt byte-identical at `d7f74a9e`; a regenerated export is now looked for in every round held, newest first, and `cedar`, re-exported at every round since, keeps its regenerated export with the new digests in its evidence. `arena_corpus_lock`, `arena_entry_lock`, the Arena README, the rehearsal and the scoreboard pin the round.

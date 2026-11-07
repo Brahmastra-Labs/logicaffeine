@@ -46,6 +46,11 @@ jobs:
             artifact: logicaffeine-lsp-win32-x64
 
     steps:
+      # A Windows runner's git checks text out as CRLF; the prelude's build script reads each module line for
+      # line against its spliced code, so the tree's own LF bytes are checked out.
+      - name: Keep the tree's line endings
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.RELEASE_TAG }}
@@ -128,6 +133,11 @@ jobs:
           - { target: x86_64-pc-windows-msvc,    os: windows-latest,   flavor: full, artifact: largo-full-win32-x64,   bin: largo.exe }
 
     steps:
+      # A Windows runner's git checks text out as CRLF; the prelude's build script reads each module line for
+      # line against its spliced code, so the tree's own LF bytes are checked out.
+      - name: Keep the tree's line endings
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.RELEASE_TAG }}
@@ -364,6 +374,11 @@ jobs:
           - { os: macos-latest,   target: darwin-arm64 }
           - { os: windows-latest, target: win32-x64 }
     steps:
+      # A Windows runner's git checks text out as CRLF; the prelude's build script reads each module line for
+      # line against its spliced code, so the tree's own LF bytes are checked out.
+      - name: Keep the tree's line endings
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.RELEASE_TAG }}
@@ -617,6 +632,11 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || startsWith(inputs.tag, 'v')
     runs-on: windows-latest
     steps:
+      # A Windows runner's git checks text out as CRLF; the prelude's build script reads each module line for
+      # line against its spliced code, so the tree's own LF bytes are checked out.
+      - name: Keep the tree's line endings
+        run: git config --global core.autocrlf false
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ env.RELEASE_TAG }}

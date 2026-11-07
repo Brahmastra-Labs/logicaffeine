@@ -16,7 +16,7 @@ mod workflows;
 
 use std::collections::BTreeSet;
 
-use workflows::{env, jobs, runs_on, steps, workflow, workflow_names};
+use workflows::{env, jobs, runs_on, script, steps, workflow, workflow_names};
 
 const LINKER: &str = "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER";
 const RUSTFLAGS: &str = "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS";
@@ -32,34 +32,6 @@ fn link_packages(text: &str) -> BTreeSet<String> {
         for word in flags.split_whitespace() {
             if let Some(ld) = word.split("-fuse-ld=").nth(1) {
                 out.insert(ld.to_string());
-            }
-        }
-    }
-    out
-}
-
-/// The shell a step runs: its `run:` line's command, or the lines of its `run: |` block, without comments.
-fn script(step: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut block: Option<usize> = None;
-    for line in step.lines() {
-        let indent = line.len() - line.trim_start().len();
-        if let Some(at) = block {
-            if indent > at || line.trim().is_empty() {
-                if !line.trim_start().starts_with('#') {
-                    out.push(line.trim().to_string());
-                }
-                continue;
-            }
-            block = None;
-        }
-        let key = line.trim_start().trim_start_matches("- ");
-        if let Some(command) = key.strip_prefix("run:") {
-            let command = command.trim();
-            if command == "|" || command == ">" || command.starts_with("|-") || command.starts_with(">-") {
-                block = Some(indent);
-            } else {
-                out.push(command.to_string());
             }
         }
     }
