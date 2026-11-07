@@ -398,6 +398,13 @@ jobs:
         working-directory: editors/vscode/logicaffeine
         run: npm ci
 
+      # VS Code 1.110 names its macOS executable for the product (`Code`), and @vscode/test-electron before 3.1.0
+      # launches `Contents/MacOS/Electron`; the tag pins its own, so the gate runs with one that reads the name from the
+      # app's Info.plist.
+      - name: Install a VS Code launcher that reads the app's executable name
+        working-directory: editors/vscode/logicaffeine
+        run: npm install --no-save @vscode/test-electron@3.1.0
+
       - name: Run install gate (Linux, under xvfb)
         if: runner.os == 'Linux'
         working-directory: editors/vscode/logicaffeine

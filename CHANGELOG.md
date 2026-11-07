@@ -92,6 +92,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   build of v0.11.0 stopped in `logicaffeine-compile`'s build script ("its spliced code is not a sequence of its
   source's lines"). Each release job that checks out on Windows keeps the tree's own LF line endings first
   (`git config --global core.autocrlf false`). Locked by `release_assets_lock`.
+- **The release's VSIX install gate launches VS Code on macOS.** VS Code 1.110 names its macOS executable for the
+  product (`Code`), and the `@vscode/test-electron` the tag pins (2.5.2) launches `Contents/MacOS/Electron`, so the
+  darwin-arm64 gate died at `spawn … Electron ENOENT` and held the release back. The gate installs
+  `@vscode/test-electron` 3.1.0, which reads the executable's name from the app's `Info.plist`, before it runs.
+  Locked by `release_assets_lock`.
 
 ## [0.11.0] - 2026-11-02
 

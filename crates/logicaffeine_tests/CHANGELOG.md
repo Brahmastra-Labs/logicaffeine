@@ -25,6 +25,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `release_assets_lock::every_release_job_on_windows_checks_out_the_trees_own_line_endings`: a release job that can run
   on Windows turns off the checkout's CRLF conversion before it checks out. The workflow readers' `script` (a step's
   shell, comments left out) lives in `common/workflows.rs` beside the others.
+- `release_assets_lock::the_vsix_gate_launches_vs_code_by_the_name_its_app_gives`: the VSIX gate installs a
+  `@vscode/test-electron` of at least 3.1.0 between its dependencies and itself.
 
 ### Changed
 - The Arena corpus at lean-kernel-arena `8139f284`: 247 cases, the 11 new ones (six `bugs/` rejects, `other/inductive-undeclared-universe` and four `corner-cases/`) vendored by `scripts/lean/arena-crown/vendor-corpus.py` from the official archive or from the corner cases rebuilt byte-identical at `d7f74a9e`; a regenerated export is now looked for in every round held, newest first, and `cedar`, re-exported at every round since, keeps its regenerated export with the new digests in its evidence. `arena_corpus_lock`, `arena_entry_lock`, the Arena README, the rehearsal and the scoreboard pin the round.

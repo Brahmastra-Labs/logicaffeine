@@ -647,6 +647,56 @@ fn the_line_ending_reader_reads_the_shape_it_guards() {
     assert_eq!(crlf_checkouts(text), vec!["converted".to_string()]);
 }
 
+/// The `@vscode/test-electron` versions `job`'s steps install over the tree's own pin, each with its step's place.
+fn launcher_overrides(job: &str) -> Vec<(usize, (u32, u32, u32))> {
+    let mut out = Vec::new();
+    for (i, step) in steps(job).iter().enumerate() {
+        for line in script(step) {
+            if !(line.starts_with("npm install") && line.contains("--no-save")) {
+                continue;
+            }
+            for word in line.split_whitespace() {
+                if let Some(v) = word.strip_prefix("@vscode/test-electron@") {
+                    let n: Vec<u32> = v.split('.').map(|p| p.parse().unwrap_or(0)).collect();
+                    if n.len() == 3 {
+                        out.push((i, (n[0], n[1], n[2])));
+                    }
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Whether the VSIX gate in `job` runs with a launcher of at least 3.1.0 installed between its dependencies and itself.
+fn gate_launches_by_the_apps_name(job: &str) -> bool {
+    let steps = steps(job);
+    let at = |needle: &str| steps.iter().position(|s| script(s).iter().any(|l| l.contains(needle)));
+    let (Some(install), Some(gate)) = (at("npm ci"), at("test:vsix-gate")) else { return false };
+    launcher_overrides(job).iter().any(|&(i, v)| i > install && i < gate && v >= (3, 1, 0))
+}
+
+/// VS Code 1.110 names its macOS executable for the product (`Code` on Stable), and `@vscode/test-electron` before 3.1.0
+/// launches `Contents/MacOS/Electron`, so the gate died at `spawn … Electron ENOENT` on darwin-arm64 and held back the
+/// v0.11.0 release. The gate runs the tag's harness, whose lockfile pins its own launcher (2.5.2 in v0.11.0), so it
+/// installs one that reads the executable's name from the app's `Info.plist` before it runs.
+#[test]
+fn the_vsix_gate_launches_vs_code_by_the_name_its_app_gives() {
+    let job = &jobs(&workflow("release.yml"))["e2e-vsix"];
+    assert!(gate_launches_by_the_apps_name(job), "the VSIX gate runs with the tag's own @vscode/test-electron");
+}
+
+#[test]
+fn the_launcher_reader_reads_the_shape_it_guards() {
+    let job = |line: &str| {
+        format!("    steps:\n      - name: deps\n        run: npm ci\n      - name: launcher\n        run: {line}\n      - name: gate\n        run: npm run test:vsix-gate\n")
+    };
+    assert!(gate_launches_by_the_apps_name(&job("npm install --no-save @vscode/test-electron@3.1.0")));
+    assert!(!gate_launches_by_the_apps_name(&job("npm install --no-save @vscode/test-electron@3.0.0")));
+    assert!(!gate_launches_by_the_apps_name(&job("npm install @vscode/test-electron@3.1.0")));
+    assert!(!gate_launches_by_the_apps_name(&job("echo nothing")));
+}
+
 fn scripts_run_by_path(workflow: &str) -> Vec<String> {
     code_lines(workflow)
         .map(|l| l.trim().trim_start_matches("- ").trim_start_matches("run:").trim_start())
