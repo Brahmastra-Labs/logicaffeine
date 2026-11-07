@@ -183,19 +183,6 @@
       },
       "unit": "×"
     },
-    "arena/bugs/large-elim-param/over-nanoda": {
-      "achieved": 4.40131859821178,
-      "better": "higher",
-      "bound": 4.181252668301191,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
-    },
     "arena/bugs/large-elim-prop-bool/instructions": {
       "achieved": 1111188.0,
       "better": "lower",
@@ -404,19 +391,6 @@
       },
       "unit": "×"
     },
-    "arena/bugs/nested-rec-rule-nfields/over-sokonanoda": {
-      "achieved": 3.120542112408158,
-      "better": "higher",
-      "bound": 2.9645150067877495,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
-    },
     "arena/bugs/nested-unused-param/instructions": {
       "achieved": 3230840.0,
       "better": "lower",
@@ -429,19 +403,6 @@
         "measured_at": "2026-11-04T17:17:24Z"
       },
       "unit": "instructions"
-    },
-    "arena/bugs/nested-unused-param/over-mathgraph": {
-      "achieved": 2.5761725109997413,
-      "better": "higher",
-      "bound": 2.447363885449754,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
     },
     "arena/bugs/nested-unused-param/over-sokonanoda": {
       "achieved": 2.597281511928786,
@@ -468,19 +429,6 @@
         "measured_at": "2026-11-04T17:17:24Z"
       },
       "unit": "instructions"
-    },
-    "arena/bugs/orphan-rec/over-kefir": {
-      "achieved": 4.414205756087956,
-      "better": "higher",
-      "bound": 4.193495468283558,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
     },
     "arena/bugs/orphan-rec/over-nanobruijn": {
       "achieved": 4.436996176057728,
@@ -625,19 +573,6 @@
       },
       "unit": "×"
     },
-    "arena/bugs/proj-of-subst-prop/over-sokonanoda": {
-      "achieved": 1.3769417015589382,
-      "better": "higher",
-      "bound": 1.3080946164809912,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
-    },
     "arena/bugs/rec-k-lie/instructions": {
       "achieved": 565249.0,
       "better": "lower",
@@ -713,19 +648,6 @@
         "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
         "live_revision": "8139f284045e9f3a9bcf5f86119270b854057aeb",
         "measured_at": "2026-11-04T17:17:24Z"
-      },
-      "unit": "×"
-    },
-    "arena/bugs/rec-of-subst-prop/over-sokonanoda": {
-      "achieved": 1.383815621984693,
-      "better": "higher",
-      "bound": 1.3146248408854586,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
       },
       "unit": "×"
     },
@@ -1301,19 +1223,6 @@
       },
       "unit": "×"
     },
-    "arena/init/over-sokonanoda": {
-      "achieved": 1.0154181300099276,
-      "better": "higher",
-      "bound": 0.9646472235094312,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
-    },
     "arena/mathlib/instructions": {
       "achieved": 409149695108.0,
       "better": "lower",
@@ -1326,19 +1235,6 @@
         "measured_at": "2026-11-04T17:17:24Z"
       },
       "unit": "instructions"
-    },
-    "arena/mathlib/over-mathgraph": {
-      "achieved": 1.3452944002018432,
-      "better": "higher",
-      "bound": 1.278029680191751,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
     },
     "arena/mathlib/over-nano-lean": {
       "achieved": 1.0689758541150827,
@@ -1470,19 +1366,6 @@
       },
       "unit": "instructions"
     },
-    "arena/other/nat-lit-add-bad/over-mathgraph": {
-      "achieved": 3.0834354404427744,
-      "better": "higher",
-      "bound": 2.9292636684206355,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
-    },
     "arena/other/nat-lit-add-bad/over-nano-lean": {
       "achieved": 3.1625558406437726,
       "better": "higher",
@@ -1508,19 +1391,6 @@
         "measured_at": "2026-11-04T17:17:24Z"
       },
       "unit": "instructions"
-    },
-    "arena/other/nat-lit-add/over-mathgraph": {
-      "achieved": 2.998881461005792,
-      "better": "higher",
-      "bound": 2.848937387955502,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
     },
     "arena/other/nat-lit-add/over-nano-lean": {
       "achieved": 3.1496301788492214,
@@ -1548,19 +1418,6 @@
       },
       "unit": "instructions"
     },
-    "arena/other/nat-lit-ble/over-mathgraph": {
-      "achieved": 2.834930298183076,
-      "better": "higher",
-      "bound": 2.693183783273922,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
-    },
     "arena/other/nat-lit-ble/over-nano-lean": {
       "achieved": 2.939166653568678,
       "better": "higher",
@@ -1587,19 +1444,6 @@
       },
       "unit": "instructions"
     },
-    "arena/other/nat-lit-sub/over-mathgraph": {
-      "achieved": 2.7565812479617775,
-      "better": "higher",
-      "bound": 2.6187521855636886,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
-    },
     "arena/other/nat-lit-sub/over-nano-lean": {
       "achieved": 2.9465620311111462,
       "better": "higher",
@@ -1625,19 +1469,6 @@
         "measured_at": "2026-11-04T17:17:24Z"
       },
       "unit": "instructions"
-    },
-    "arena/other/orphan-ctor/over-kefir": {
-      "achieved": 4.421050282072887,
-      "better": "higher",
-      "bound": 4.199997767969243,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
     },
     "arena/other/orphan-ctor/over-nanobruijn": {
       "achieved": 4.450826961691845,
@@ -1740,19 +1571,6 @@
         "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
         "live_revision": "8139f284045e9f3a9bcf5f86119270b854057aeb",
         "measured_at": "2026-11-04T17:17:24Z"
-      },
-      "unit": "×"
-    },
-    "arena/perf/args-before-unfold/over-sokonanoda": {
-      "achieved": 1.200268105927859,
-      "better": "higher",
-      "bound": 1.140254700631466,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
       },
       "unit": "×"
     },
@@ -1860,19 +1678,6 @@
       },
       "unit": "×"
     },
-    "arena/perf/folded-constant-first/over-sokonanoda": {
-      "achieved": 1.1631955383990424,
-      "better": "higher",
-      "bound": 1.1050357614790902,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
-    },
     "arena/perf/folded-constant-last/instructions": {
       "achieved": 9837240.0,
       "better": "lower",
@@ -1896,19 +1701,6 @@
         "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
         "live_revision": "8139f284045e9f3a9bcf5f86119270b854057aeb",
         "measured_at": "2026-11-04T17:17:24Z"
-      },
-      "unit": "×"
-    },
-    "arena/perf/folded-constant-last/over-sokonanoda": {
-      "achieved": 1.1639260302728447,
-      "better": "higher",
-      "bound": 1.1057297287592025,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
       },
       "unit": "×"
     },
@@ -2029,19 +1821,6 @@
       },
       "unit": "instructions"
     },
-    "arena/perf/irrelevance-refutes/over-mathgraph": {
-      "achieved": 4.3226300174681365,
-      "better": "higher",
-      "bound": 4.10649851659473,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
-    },
     "arena/perf/irrelevance-refutes/over-nanoda": {
       "achieved": 4.458765514752621,
       "better": "higher",
@@ -2146,19 +1925,6 @@
       },
       "unit": "×"
     },
-    "arena/perf/magma-list-pair-n7/over-sokonanoda": {
-      "achieved": 1.0646860393591884,
-      "better": "higher",
-      "bound": 1.0114517373912288,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
-    },
     "arena/perf/magma-string-n4/instructions": {
       "achieved": 1200944354.0,
       "better": "lower",
@@ -2210,19 +1976,6 @@
         "measured_at": "2026-11-04T17:17:24Z"
       },
       "unit": "instructions"
-    },
-    "arena/perf/proj-cheap-struct/over-mathgraph": {
-      "achieved": 1.9954655283289824,
-      "better": "higher",
-      "bound": 1.8956922519125337,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
     },
     "arena/perf/proj-cheap-struct/over-nano-lean": {
       "achieved": 1.977427104668582,
@@ -2276,19 +2029,6 @@
       },
       "unit": "instructions"
     },
-    "arena/perf/proj-stuck-struct/over-mathgraph": {
-      "achieved": 2.4792652605373906,
-      "better": "higher",
-      "bound": 2.355301997510521,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
-    },
     "arena/perf/proj-stuck-struct/over-nano-lean": {
       "achieved": 2.5762012477529552,
       "better": "higher",
@@ -2314,19 +2054,6 @@
         "measured_at": "2026-11-04T17:17:24Z"
       },
       "unit": "instructions"
-    },
-    "arena/perf/refute-cheap-first/over-mathgraph": {
-      "achieved": 3.725753572702439,
-      "better": "higher",
-      "bound": 3.539465894067317,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
     },
     "arena/perf/refute-cheap-first/over-nano-lean": {
       "achieved": 3.9698289979520016,
@@ -2445,19 +2172,6 @@
       },
       "unit": "×"
     },
-    "arena/perf/unroll-versus-evaluate/over-rpylean": {
-      "achieved": 3.3273081726671423,
-      "better": "higher",
-      "bound": 3.160942764033785,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
-    },
     "arena/reachability/instructions": {
       "achieved": 17668144780.0,
       "better": "lower",
@@ -2494,19 +2208,6 @@
         "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
         "live_revision": "8139f284045e9f3a9bcf5f86119270b854057aeb",
         "measured_at": "2026-11-04T17:17:24Z"
-      },
-      "unit": "×"
-    },
-    "arena/std/over-sokonanoda": {
-      "achieved": 1.050370708114378,
-      "better": "higher",
-      "bound": 0.9978521727086592,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
       },
       "unit": "×"
     },
@@ -4057,19 +3758,6 @@
       },
       "unit": "instructions"
     },
-    "arena/tutorial/060_typeWithTypeFieldPoly/over-nanoda": {
-      "achieved": 4.417554326067981,
-      "better": "higher",
-      "bound": 4.196676609764581,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
-    },
     "arena/tutorial/060_typeWithTypeFieldPoly/over-rpylean": {
       "achieved": 4.549246246418532,
       "better": "higher",
@@ -4577,19 +4265,6 @@
       },
       "unit": "×"
     },
-    "arena/tutorial/079_prodRecEqns/over-rpylean": {
-      "achieved": 4.416925830193316,
-      "better": "higher",
-      "bound": 4.19607953868365,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
-    },
     "arena/tutorial/080_nRecReduction/instructions": {
       "achieved": 1003638.0,
       "better": "lower",
@@ -4629,19 +4304,6 @@
       },
       "unit": "instructions"
     },
-    "arena/tutorial/081_listRecReduction/over-mathgraph": {
-      "achieved": 3.831190457225387,
-      "better": "higher",
-      "bound": 3.639630934364118,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
-    },
     "arena/tutorial/081_listRecReduction/over-nano-lean": {
       "achieved": 4.000242065496468,
       "better": "higher",
@@ -4678,19 +4340,6 @@
         "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
         "live_revision": "8139f284045e9f3a9bcf5f86119270b854057aeb",
         "measured_at": "2026-11-04T17:17:24Z"
-      },
-      "unit": "×"
-    },
-    "arena/tutorial/082_RBTree.id_spec/over-sokonanoda": {
-      "achieved": 2.473107666615992,
-      "better": "higher",
-      "bound": 2.349452283285192,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
       },
       "unit": "×"
     },
@@ -5928,19 +5577,6 @@
         "measured_at": "2026-11-04T17:17:24Z"
       },
       "unit": "instructions"
-    },
-    "arena/tutorial/130_quotLiftReduction/over-nanoda": {
-      "achieved": 4.636876319524792,
-      "better": "higher",
-      "bound": 4.4050325035485525,
-      "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-      "receipt": {
-        "checker_sha256": "010c02dcccc14c907733f32898d7f3a0224e4bfffaabfc3d068edb4ed6126938",
-        "ledger": "benchmarks/results/lean-kernel-arena/scoreboard.json",
-        "live_revision": "87512b60eb2483562967ebc93a5fb42eaa135389",
-        "measured_at": "2026-10-25T10:47:18Z"
-      },
-      "unit": "×"
     },
     "arena/tutorial/130_quotLiftReduction/over-rpylean": {
       "achieved": 4.877354130200515,

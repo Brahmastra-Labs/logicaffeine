@@ -42,6 +42,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   which probe the GPU (`nextest_schedule_lock`); `spatial_int64_lock`'s KERNEL-6 override sits above the generated
   widths block (`test_ledger_lock`).
 - The Studio and Learn end-to-end scripts name no file of the private workspace. Locked by `workspace_reads_lock`.
+- `benchmarks/results/speed_floors.json` drops the 28 Lean Kernel Arena floors named for a test's former best rival
+  (Tristen, 11-07): the Arena pin of 9447fcc83 changed the field's best checker on those tests, and each margin is
+  floored under the new rival's name (`arena/bugs/large-elim-param/over-kefir`, `arena/mathlib/over-nano-lean`, …).
+  `arena/navier-stokes-euler/over-sokonanoda` stays: on that test the pin's field has a faster checker than ours.
 
 ### Fixed
 - `bringup_lock` follows the chips it tests: the SN50 brings up an expert mixture (it deploys SambaNova's published families), the D5005 refuses it naming "experts"; the undescribed checkpoint is written with no metadata (`tiny_models::write_bare_checkpoint`), since every tiny checkpoint now carries its keys.
