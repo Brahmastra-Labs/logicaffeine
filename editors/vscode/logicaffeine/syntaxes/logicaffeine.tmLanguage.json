@@ -475,7 +475,7 @@
       "name": "entity.name.type.logicaffeine"
     },
     "constants": {
-      "match": "\\b(true|false|none|nothing|some|pi|omega)\\b|(?<![\\w])(π|ω)(?![\\w])",
+      "match": "\\b(true|false|none|nothing|some|pi|e|omega)\\b|(?<![\\w])(π|ω)(?![\\w])",
       "name": "constant.language.logicaffeine"
     },
     "quantifiers": {

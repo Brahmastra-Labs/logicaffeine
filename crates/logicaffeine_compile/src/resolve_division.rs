@@ -13,7 +13,8 @@
 //!
 //! The exact field types are `Rational` and the exact real types above it (`Algebraic`, `ExactReal`,
 //! `Hyperreal`). Because the default stays as it was, code that declares none of them is untouched:
-//! `sqrt(2)` there is still a `Real`, and `pi(digits)` still the library's digits.
+//! `sqrt(2)` there is still a `Real`, and `pi(digits)` still the library's digits. A bare `pi` (`π`) or `e`
+//! outside an exact context is the `Real` constant, the double nearest π or e ([`resolve_real_constants`]).
 //!
 //! Resolution is **bidirectional**, a small forward dataflow over the variables known to hold an
 //! exact field value or an ordinal:
@@ -34,10 +35,13 @@
 //! division strength reductions (MagicDivU / DivPow2), which would miscompile a Rational.
 
 use std::collections::{HashMap, HashSet};
+use std::f64::consts::{E, PI};
 
 use logicaffeine_base::{Arena, Interner, Rational, Symbol};
 
-use crate::ast::stmt::{BinaryOpKind, Expr, Literal, Pattern, Stmt, TypeExpr};
+use crate::ast::stmt::{BinaryOpKind, ClosureBody, Expr, Literal, Stmt, TypeExpr};
+use crate::ast_map::{self, Arenas, AstMap};
+use crate::optimize::writes::{self, Bind, EffectSink};
 
 /// Resolve every exact context of the program. Returns the rewritten statements, or `None` if
 /// nothing changed (so callers keep the original).
@@ -80,11 +84,12 @@ pub(crate) fn resolve_divisions<'a>(
             );
         }
     }
-    let globals = declared_names(
+    let globals = Scope::of(
         stmts
             .iter()
             .filter(|s| !matches!(s, Stmt::FunctionDef { .. })),
-    );
+    )
+    .bound;
     let names = Names::intern(interner);
     let mut cx = Cx {
         stmt_arena,
@@ -99,6 +104,79 @@ pub(crate) fn resolve_divisions<'a>(
     };
     let mut known = Known::default();
     cx.block(stmts, &mut known, Expect::Plain)
+}
+
+/// Read every bare `pi` (`π`) and `e` the exact contexts left as the `Real` constant, the double nearest π or e, in
+/// each scope — `## Main`, or one function, which also sees the names `## Main` binds — that binds no name so
+/// spelled ([`Scope`]), unless the program defines its own function so named. Returns the rewritten statements, or
+/// `None` if no scope reads one.
+pub(crate) fn resolve_real_constants<'a>(
+    stmts: &[Stmt<'a>],
+    arenas: Arenas<'a>,
+    interner: &mut Interner,
+    library: &HashSet<String>,
+) -> Option<&'a [Stmt<'a>]> {
+    let names = Names::intern(interner);
+    let doubles = [(names.pi[0], PI), (names.pi[1], PI), (names.e, E)];
+    let own: HashSet<Symbol> = stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FunctionDef { name, .. } if !library.contains(interner.resolve(*name)) => Some(*name),
+            _ => None,
+        })
+        .collect();
+    let constants = |scope: &Scope, outer: &HashSet<Symbol>| -> HashMap<Symbol, f64> {
+        doubles
+            .iter()
+            .filter(|(sym, _)| {
+                scope.read.contains(sym) && !scope.bound.contains(sym) && !outer.contains(sym) && !own.contains(sym)
+            })
+            .copied()
+            .collect()
+    };
+    let main = Scope::of(stmts.iter().filter(|s| !matches!(s, Stmt::FunctionDef { .. })));
+    let at_main = constants(&main, &HashSet::new());
+    let mut out: Option<Vec<Stmt<'a>>> = None;
+    for (i, s) in stmts.iter().enumerate() {
+        let here = match s {
+            Stmt::FunctionDef { .. } => constants(&Scope::of(std::iter::once(s)), &main.bound),
+            _ => at_main.clone(),
+        };
+        let mapped = (!here.is_empty()).then(|| RealConstants { arenas, constants: here }.map_stmt(s));
+        match (&mut out, mapped) {
+            (Some(v), Some(m)) => v.push(m),
+            (Some(v), None) => v.push(s.clone()),
+            (None, Some(m)) => {
+                let mut v = stmts[..i].to_vec();
+                v.push(m);
+                out = Some(v);
+            }
+            (None, None) => {}
+        }
+    }
+    out.map(|v| arenas.stmts.alloc_slice(v))
+}
+
+/// The rewrite of one scope: each name it reads as a constant becomes its double.
+struct RealConstants<'a> {
+    arenas: Arenas<'a>,
+    constants: HashMap<Symbol, f64>,
+}
+
+impl<'a> AstMap<'a> for RealConstants<'a> {
+    fn arenas(&self) -> Arenas<'a> {
+        self.arenas
+    }
+
+    fn map_expr(&mut self, e: &'a Expr<'a>) -> &'a Expr<'a> {
+        match e {
+            Expr::Identifier(sym) => match self.constants.get(sym) {
+                Some(&double) => self.arenas.exprs.alloc(Expr::Literal(Literal::Float(double))),
+                None => e,
+            },
+            _ => ast_map::walk_expr(self, e),
+        }
+    }
 }
 
 /// What a context expects of a value, and what an expression is known to yield: nothing in
@@ -230,23 +308,49 @@ impl Names {
     }
 }
 
-/// Every name the statements bind anywhere in them: what a bare `pi` or `e` would then mean.
-fn declared_names<'s, 'a: 's>(stmts: impl Iterator<Item = &'s Stmt<'a>>) -> HashSet<Symbol> {
-    let mut out = HashSet::new();
-    for s in stmts {
-        let w = crate::optimize::WriteSet::of_stmt(s);
-        out.extend(w.declared().iter().copied());
-        out.extend(w.assigned().iter().copied());
-        if let Stmt::Repeat { pattern, .. } = s {
-            match pattern {
-                Pattern::Identifier(p) => {
-                    out.insert(*p);
-                }
-                Pattern::Tuple(ps) => out.extend(ps.iter().copied()),
-            }
+/// What statements bind and read anywhere in them: every name a statement declares, assigns or mutates, a block's
+/// header binds (a loop's pattern, an arm's bindings), a closure or a nested function takes as a parameter or binds
+/// in its body, and every name an expression reads. A name bound anywhere in a scope is that binding wherever the
+/// scope names it, so a bare `pi` or `e` is a constant only in a scope that binds no name so spelled.
+#[derive(Default)]
+struct Scope {
+    bound: HashSet<Symbol>,
+    read: HashSet<Symbol>,
+}
+
+impl Scope {
+    fn of<'s, 'a: 's>(stmts: impl Iterator<Item = &'s Stmt<'a>>) -> Scope {
+        let mut scope = Scope::default();
+        for s in stmts {
+            writes::walk_stmt(s, &mut scope);
+        }
+        scope
+    }
+}
+
+impl EffectSink for Scope {
+    fn bind(&mut self, sym: Symbol, _how: Bind) {
+        self.bound.insert(sym);
+    }
+    fn mutate(&mut self, root: Symbol) {
+        self.bound.insert(root);
+    }
+    fn call(&mut self) {}
+    fn opaque(&mut self) {}
+    fn read(&mut self, sym: Symbol) {
+        self.read.insert(sym);
+    }
+    fn closure(&mut self, params: &[Symbol], body: &ClosureBody) {
+        self.bound.extend(params.iter().copied());
+        match body {
+            ClosureBody::Expression(e) => writes::walk_expr(e, self),
+            ClosureBody::Block(b) => writes::walk_block(b, self),
         }
     }
-    out
+    fn function(&mut self, params: &[Symbol], body: &[Stmt]) {
+        self.bound.extend(params.iter().copied());
+        writes::walk_block(body, self);
+    }
 }
 
 struct Cx<'a, 'i> {
@@ -345,8 +449,7 @@ impl<'a, 'i> Cx<'a, 'i> {
                     inner.bind(*p, expect_of(Some(ty), self.interner));
                 }
                 let mut bound = self.globals.clone();
-                bound.extend(params.iter().map(|(p, _)| *p));
-                bound.extend(declared_names(body.iter()));
+                bound.extend(Scope::of(std::iter::once(s)).bound);
                 let outer = std::mem::replace(&mut self.bound, bound);
                 let returns = self
                     .signatures

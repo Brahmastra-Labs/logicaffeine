@@ -97,6 +97,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   darwin-arm64 gate died at `spawn … Electron ENOENT` and held the release back. The gate installs
   `@vscode/test-electron` 3.1.0, which reads the executable's name from the app's `Info.plist`, before it runs.
   Locked by `release_assets_lock`.
+- **`pi`, `π` and `e` are the `Real` constants wherever no exact type is declared, on every tier.** The quick
+  guide's exact-functions row says a bare `pi` or `e` outside an exact context is a `Real`; every tier stopped instead
+  with `Undefined variable: pi`, and `largo run` reported the generated Rust's failure as a compiler bug, so
+  `Let area be pi * r * r.` never ran. Outside an exact context each is now the double nearest π or e, in every
+  expression; a name the scope binds (a `Let`, a parameter, a closure's parameter, a loop's pattern, an arm's binding)
+  is still that binding, and `pi(digits)` still the library's digits. Locked by `real_constants_every_tier_lock`.
+- **A `Real` shows one text in an interpolation hole, a record, a map and a padded hole on both C backends.** The
+  AST→C backend rendered a `Real` in a bare hole, a record's or map's text and a tuple's item with C's `%g`, six
+  significant digits (`"{x}"` of π printed `3.14159`), handed a padded hole's double to `%s` or the centring helper
+  (`{x:^12}` did not build), and held a `Map of Text to Real` or `Map of Int to Real` as an integer map (π showed as
+  `3`, its text key as a pointer); the bytecode→C backend padded a `Real` with `%g` and refused to centre one. Each now
+  renders the shortest decimal that reads back as the same double, as `Show` does. Locked by
+  `real_text_every_tier_lock`.
 
 ## [0.11.0] - 2026-11-02
 

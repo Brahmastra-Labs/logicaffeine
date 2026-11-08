@@ -27,6 +27,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   shell, comments left out) lives in `common/workflows.rs` beside the others.
 - `release_assets_lock::the_vsix_gate_launches_vs_code_by_the_name_its_app_gives`: the VSIX gate installs a
   `@vscode/test-electron` of at least 3.1.0 between its dependencies and itself.
+- `real_constants_every_tier_lock`: a bare `pi`, `π` and `e` are the nearest doubles outside an exact context, in
+  arithmetic, a function, a closure, a condition, a list and a text, beside the exact reading, and a `Let`, parameter,
+  closure parameter, loop variable or arm binding so named keeps its value, on every backend that runs a program.
+- `real_text_every_tier_lock`: six `Real`s, written as literals and computed at run time, each shown alone, in a bare
+  hole, padded right, left, centred and by a bare width, as a record's field, a list's items and the value of a map
+  keyed by text and by an integer: the tree-walker's shortest decimal on every backend.
 
 ### Changed
 - The Arena corpus at lean-kernel-arena `8139f284`: 247 cases, the 11 new ones (six `bugs/` rejects, `other/inductive-undeclared-universe` and four `corner-cases/`) vendored by `scripts/lean/arena-crown/vendor-corpus.py` from the official archive or from the corner cases rebuilt byte-identical at `d7f74a9e`; a regenerated export is now looked for in every round held, newest first, and `cedar`, re-exported at every round since, keeps its regenerated export with the new digests in its evidence. `arena_corpus_lock`, `arena_entry_lock`, the Arena README, the rehearsal and the scoreboard pin the round.

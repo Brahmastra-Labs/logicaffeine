@@ -8633,6 +8633,7 @@ impl<'a> Emitter<'a> {
                     Kind::Word(_) => Ok(format!(
                         "logos_center_str(logos_dyn_sprintf(\"%\" PRIu64, (uint64_t)r[{src}]), {width})"
                     )),
+                    Kind::Float => Ok(format!("logos_center_str(logos_fmt_f64(as_f64(r[{src}])), {width})")),
                     _ => Err(format!("center-format of kind {sk:?} unsupported")),
                 };
             }
@@ -8646,7 +8647,7 @@ impl<'a> Emitter<'a> {
                     as_cstr(src)
                 )),
                 Kind::Float => Ok(format!(
-                    "logos_dyn_sprintf(\"%{flag}{width}g\", as_f64(r[{src}]))"
+                    "logos_dyn_sprintf(\"%{flag}{width}s\", logos_fmt_f64(as_f64(r[{src}])))"
                 )),
                 Kind::Word(_) => Ok(format!(
                     "logos_dyn_sprintf(\"%{flag}{width}\" PRIu64, (uint64_t)r[{src}])"
@@ -8662,7 +8663,7 @@ impl<'a> Emitter<'a> {
                     as_cstr(src)
                 )),
                 Kind::Float => Ok(format!(
-                    "logos_dyn_sprintf(\"%{width}g\", as_f64(r[{src}]))"
+                    "logos_dyn_sprintf(\"%{width}s\", logos_fmt_f64(as_f64(r[{src}])))"
                 )),
                 Kind::Word(_) => Ok(format!(
                     "logos_dyn_sprintf(\"%{width}\" PRIu64, (uint64_t)r[{src}])"

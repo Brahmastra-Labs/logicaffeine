@@ -352,6 +352,9 @@ pub(super) fn map_ctype(key: &CType, val: &CType) -> CType {
         (_, CType::String, Some(k), _) => CType::MapI64Str(k),
         (CType::String, v, ..) if is_c_map_value(v) => CType::MapStrValue(Box::new(v.clone())),
         (_, CType::Tower, Some(Ints::Int), _) => CType::MapI64Value(Box::new(CType::Tower)),
+        // A `Real` value is a double in the generic family, never an integer map's word.
+        (CType::String, CType::Float64, ..) => CType::MapStrValue(Box::new(CType::Float64)),
+        (_, CType::Float64, Some(Ints::Int), _) => CType::MapI64Value(Box::new(CType::Float64)),
         (_, _, k, v) => CType::MapI64I64(k.unwrap_or(Ints::Int), v.unwrap_or(Ints::Int)),
     }
 }
@@ -662,7 +665,7 @@ pub(super) fn c_field_to_string_expr(ct: &CType, access: &str, interner: &Intern
     match ct {
         CType::Int64 => format!("logos_dyn_sprintf(\"%lld\", (long long)({access}))"),
         CType::Word(_) => format!("logos_dyn_sprintf(\"%\" PRIu64, (uint64_t)({access}))"),
-        CType::Float64 => format!("logos_dyn_sprintf(\"%g\", {access})"),
+        CType::Float64 => format!("logos_fmt_f64({access})"),
         CType::Bool => format!("lstrdup({access} ? \"true\" : \"false\")"),
         CType::String => format!("lstrdup({access} ? {access} : \"\")"),
         CType::Money => format!("money_to_string({access})"),

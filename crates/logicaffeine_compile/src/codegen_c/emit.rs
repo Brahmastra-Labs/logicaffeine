@@ -4482,10 +4482,20 @@ pub(super) fn c_format_spec_for_hole(
                                 ),
                             )
                         }
-                        _ => {
+                        CType::String => {
                             return (
                                 "%s".to_string(),
                                 format!("logos_center_str({}, {})", val_str, width),
+                            )
+                        }
+                        _ => {
+                            return (
+                                "%s".to_string(),
+                                format!(
+                                    "logos_center_str({}, {})",
+                                    c_text_of(&ty, &val_str, ctx),
+                                    width
+                                ),
                             )
                         }
                     }
@@ -4504,7 +4514,12 @@ pub(super) fn c_format_spec_for_hole(
                             format!("(uint64_t)({val_str})"),
                         )
                     }
-                    _ => return (format!("%{}{}s", c_flag, width), val_str),
+                    _ => {
+                        return (
+                            format!("%{}{}s", c_flag, width),
+                            c_text_of(&ty, &val_str, ctx),
+                        )
+                    }
                 }
             }
         }
@@ -4520,7 +4535,7 @@ pub(super) fn c_format_spec_for_hole(
                         format!("(uint64_t)({val_str})"),
                     )
                 }
-                _ => return (format!("%{}s", width), val_str),
+                _ => return (format!("%{}s", width), c_text_of(&ty, &val_str, ctx)),
             }
         }
     }
@@ -4531,7 +4546,7 @@ pub(super) fn c_format_spec_for_hole(
             "%\" PRIu64 \"".to_string(),
             format!("(uint64_t)({val_str})"),
         ),
-        CType::Float64 => ("%g".to_string(), val_str),
+        CType::Float64 => ("%s".to_string(), format!("logos_fmt_f64({val_str})")),
         CType::Bool => (
             "%s".to_string(),
             format!("{} ? \"true\" : \"false\"", val_str),
@@ -6707,7 +6722,9 @@ fn codegen_stmt_node(stmt: &Stmt, ctx: &mut CContext, output: &mut String, inden
                                     CType::Int64 => {
                                         ("%\" PRId64 \"", format!("{}.{}", val_str, acc_name))
                                     }
-                                    CType::Float64 => ("%g", format!("{}.{}", val_str, acc_name)),
+                                    CType::Float64 => {
+                                        ("%s", format!("logos_fmt_f64({}.{})", val_str, acc_name))
+                                    }
                                     CType::Bool => (
                                         "%s",
                                         format!("{}.{} ? \"true\" : \"false\"", val_str, acc_name),

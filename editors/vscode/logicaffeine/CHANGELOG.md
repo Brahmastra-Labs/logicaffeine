@@ -9,6 +9,7 @@ All notable changes to the LOGOS VSCode extension.
 - The grammar highlights the quick guide's infinitesimal tests (`is infinitesimal`, `is limited`, `is infinitely close
   to`), `At the limit`, the tensor words `matmul`, `hadamard`, `plus` and `across`, and the constants `pi`/`π` and
   `omega`/`ω`. Locked by the grammar's quick-guide ratchet.
+- The grammar highlights `e` as the constant it is outside an exact context, beside `pi`, so the quick guide's every form highlights.
 
 ## [0.11.0] - 2026-11-02
 

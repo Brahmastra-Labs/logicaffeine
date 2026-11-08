@@ -28,6 +28,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   page whose program reads reals rendered blank. Locked by `wasm_host_abi_lock`.
 - `concurrency::pnp`'s ledger locks its file with `fs2::FileExt::lock_exclusive`: `File::lock` needs Rust 1.89, and the
   crate declares 1.88.
+- `resolve_division::resolve_real_constants`, run by `resolve_program` after the exact contexts: each bare `pi`, `π`
+  or `e` left outside an exact context is the `Real` literal nearest π or e, in each scope (`## Main`, or one function,
+  which also sees the names `## Main` binds) that binds no name so spelled and defines no function so named. What a
+  scope binds is read from every binder the effect walk reports, a closure's parameters and body and a nested
+  function's included, for the exact reading too.
+- `codegen_c`: `c_field_to_string_expr` renders a `Float64` with `logos_fmt_f64`, and `c_format_spec_for_hole` renders
+  a `Real` hole with it and every padded hole that is not text through `c_text_of`; `map_ctype` holds a `Real` value
+  in the generic `Map_str_double` / `Map_i64_double` families, not the integer map; the bytecode→C lowering pads and
+  centres a `Float` register's `logos_fmt_f64` text.
 
 ## [0.11.0] - 2026-11-02
 
