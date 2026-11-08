@@ -664,6 +664,9 @@ pub struct Vm<'p> {
     ///
     /// [`BuiltinId::DomDispatchEntry`]: crate::semantics::builtins::BuiltinId::DomDispatchEntry
     unhandled: Option<(String, Option<u32>)>,
+    /// How many page entries ([`Vm::dispatch_entry`]) are running inside one another: the events an entry raised
+    /// ([`crate::semantics::dom::take_raised_events`]) are delivered once the outermost has returned.
+    entry_depth: u32,
     /// The failure site of the run's end, when a contained failure ended it: what
     /// [`Vm::failing_site`] answers then, the site the failure trapped at.
     ended_at_site: Option<Option<u32>>,
@@ -762,6 +765,7 @@ impl<'p> Vm<'p> {
             resume_wraps_option: false,
             select_pending: Vec::new(),
             unhandled: None,
+            entry_depth: 0,
             ended_at_site: None,
             journal: None,
             journal_plan: None,
@@ -4213,6 +4217,54 @@ impl<'p> Vm<'p> {
         let args: Vec<RuntimeValue> = (3..6)
             .map(|k| self.reg(args_start + k).as_runtime().clone())
             .collect();
+        self.entry_depth += 1;
+        let answer = self.enter_page(dispatcher, context, hook, args);
+        self.entry_depth -= 1;
+        if self.entry_depth == 0 {
+            self.deliver_raised_events(dispatcher, context, hook);
+        }
+        answer
+    }
+
+    /// The events the entries just taken raised on the page's own elements (a `Click` the page gives itself),
+    /// each delivered as an entry of its own once those entries have returned, along the event's dispatch path —
+    /// what the in-process page host does after every call it makes (`page_host::lowered`).
+    fn deliver_raised_events(&mut self, dispatcher: u16, context: Option<u16>, hook: Option<u16>) {
+        use crate::interpreter::RuntimeValue;
+        loop {
+            let raised = crate::semantics::dom::take_raised_events();
+            if raised.is_empty() {
+                return;
+            }
+            for (node, event) in raised {
+                for stop in crate::semantics::dom::dispatch_path(node, event).stops {
+                    let at = crate::semantics::dom::query_selector(&stop);
+                    if at < 0 {
+                        continue;
+                    }
+                    let args = vec![
+                        RuntimeValue::Int(at),
+                        RuntimeValue::Text(event.to_string().into()),
+                        RuntimeValue::Text(String::new().into()),
+                    ];
+                    self.entry_depth += 1;
+                    let _ = self.enter_page(dispatcher, context, hook, args);
+                    self.entry_depth -= 1;
+                }
+            }
+        }
+    }
+
+    /// One page entry: the dispatcher run on `args`, a failure heard through the page's failure door and recorded
+    /// for the program's end when no handler absorbed it ([`Vm::dispatch_entry`]).
+    fn enter_page(
+        &mut self,
+        dispatcher: u16,
+        context: Option<u16>,
+        hook: Option<u16>,
+        args: Vec<crate::interpreter::RuntimeValue>,
+    ) -> Result<crate::interpreter::RuntimeValue, String> {
+        use crate::interpreter::RuntimeValue;
         let message = match self.invoke_function(dispatcher, args) {
             Ok(answer) => return Ok(answer),
             Err(message) => message,

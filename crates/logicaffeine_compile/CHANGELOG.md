@@ -37,6 +37,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   a `Real` hole with it and every padded hole that is not text through `c_text_of`; `map_ctype` holds a `Real` value
   in the generic `Map_str_double` / `Map_i64_double` families, not the integer map; the bytecode→C lowering pads and
   centres a `Float` register's `logos_fmt_f64` text.
+- `page_host::lowered`: the mount's `When the page loads:` call runs outside the guarded turn door, so its failure
+  ends the page's main (`DriveError::Failed`). `semantics::dom::element_click` raises a `click` the host delivers after
+  the turn, and the `click` element command reaches it; the browser runtime's command calls `element.click()`.
+- `vm`: a page entry the program takes (`dispatchEntry`) delivers the events its turns raised on the page's own
+  elements once the outermost entry has returned, each an entry of its own along the event's dispatch path through the
+  page's node dispatcher, as `page_host::lowered` does after every call it makes.
 
 ## [0.11.0] - 2026-11-02
 

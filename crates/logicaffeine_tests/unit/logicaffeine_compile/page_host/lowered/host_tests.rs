@@ -76,6 +76,10 @@ fn boom(_: &[RuntimeValue]) -> Result<RuntimeValue, String> {
     Err("boom".to_string())
 }
 
+fn bang(_: &[RuntimeValue]) -> Result<RuntimeValue, String> {
+    Err("bang".to_string())
+}
+
 fn text(s: &str) -> RuntimeValue {
     RuntimeValue::Text(Rc::new(s.to_string()))
 }
@@ -143,29 +147,43 @@ fn an_engine_behind_a_trait_object_is_driven_the_same_way() {
     assert_eq!(engine.called(), ["__mount_App"]);
 }
 
-#[test]
-fn a_failure_no_handler_absorbs_is_the_hosts_record_and_the_first_one_stays() {
-    dom::reset();
-    let mut engine = ScriptedEngine::with(&[("__mount_App", boom), ("__mount_Other", nothing)]);
-    let mut host = LoweredHost::new();
-    host.start(&mut engine, None, |_| Ok(())).unwrap();
+/// The page mounted, then `actions` replayed against it: each one a turn the page is handed.
+fn replayed(engine: &mut ScriptedEngine, host: &mut LoweredHost, actions: &[&str]) -> Result<(), DriveError> {
     host.drive(
-        &mut engine,
+        engine,
+        &Drive::Replay {
+            actions: actions.iter().map(|a| a.to_string()).collect(),
+        },
+    )
+}
+
+fn mounted(engine: &mut ScriptedEngine) -> LoweredHost {
+    let mut host = LoweredHost::new();
+    host.start(engine, None, |_| Ok(())).unwrap();
+    host.drive(
+        engine,
         &Drive::Mount {
             component: "App".to_string(),
             at: None,
         },
     )
-    .expect("a failing call is handed to the failure path, not returned as the statement's");
+    .expect("the page mounts");
+    host
+}
+
+#[test]
+fn a_failure_no_handler_absorbs_is_the_hosts_record_and_the_first_one_stays() {
+    dom::reset();
+    let mut engine = ScriptedEngine::with(&[
+        ("__mount_App", nothing),
+        ("__act_App_fails", boom),
+        ("__act_App_fails_too", bang),
+    ]);
+    let mut host = mounted(&mut engine);
+    replayed(&mut engine, &mut host, &["fails"])
+        .expect("a failing turn is handed to the failure path, not returned as the statement's");
     assert_eq!(host.unhandled_failure(), Some("boom"));
-    host.drive(
-        &mut engine,
-        &Drive::Mount {
-            component: "Other".to_string(),
-            at: None,
-        },
-    )
-    .unwrap();
+    replayed(&mut engine, &mut host, &["fails_too"]).unwrap();
     assert_eq!(
         host.unhandled_failure(),
         Some("boom"),
@@ -179,23 +197,40 @@ fn a_failure_the_page_absorbs_is_not_recorded() {
     fn absorbed(_: &[RuntimeValue]) -> Result<RuntimeValue, String> {
         Ok(RuntimeValue::Bool(true))
     }
-    let mut engine = ScriptedEngine::with(&[("__mount_App", boom), ("__lgx_on_failure", absorbed)]);
+    let mut engine = ScriptedEngine::with(&[
+        ("__mount_App", nothing),
+        ("__act_App_fails", boom),
+        ("__lgx_on_failure", absorbed),
+    ]);
+    let mut host = mounted(&mut engine);
+    replayed(&mut engine, &mut host, &["fails"]).unwrap();
+    assert_eq!(host.unhandled_failure(), None);
+    assert_eq!(
+        engine.calls[2],
+        ("__lgx_on_failure".to_string(), vec![text("boom")]),
+        "the page's failure hook heard the failure's own message"
+    );
+}
+
+#[test]
+fn a_mount_that_fails_is_the_statements_failure() {
+    dom::reset();
+    let mut engine = ScriptedEngine::with(&[("__mount_App", boom), ("__lgx_on_failure", nothing)]);
     let mut host = LoweredHost::new();
     host.start(&mut engine, None, |_| Ok(())).unwrap();
-    host.drive(
+    let outcome = host.drive(
         &mut engine,
         &Drive::Mount {
             component: "App".to_string(),
             at: None,
         },
-    )
-    .unwrap();
-    assert_eq!(host.unhandled_failure(), None);
-    assert_eq!(
-        engine.calls[1],
-        ("__lgx_on_failure".to_string(), vec![text("boom")]),
-        "the page's failure hook heard the failure's own message"
     );
+    assert!(
+        matches!(outcome, Err(DriveError::Failed(ref why)) if why == "boom"),
+        "`When the page loads:` runs as the page mounts, not as a turn: {outcome:?}"
+    );
+    assert_eq!(engine.called(), ["__mount_App"], "no turn's failure hook hears a mount's failure");
+    assert_eq!(host.unhandled_failure(), None);
 }
 
 #[test]

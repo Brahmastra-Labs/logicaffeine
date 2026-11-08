@@ -411,7 +411,13 @@ impl<L: LoweredCalls + ?Sized> Driver<'_, L> {
             }
             None => dom::body(),
         };
-        self.guarded(|c| c.call(&entry, vec![RuntimeValue::Int(parent)]));
+        // `When the page loads:` runs as the page mounts, not as a turn the page is handed, so its
+        // failure is the program's: a browser's page main ends where its mount traps.
+        let mounted = self
+            .calls
+            .call(&entry, vec![RuntimeValue::Int(parent)])
+            .map_err(|message| DriveError::Failed(in_failure_context(&mut *self.calls, message)))?;
+        self.after_call(Ok(mounted));
         self.host.mounted_component = Some(component.to_string());
         Ok(())
     }
@@ -813,6 +819,13 @@ impl<L: LoweredCalls + ?Sized> Driver<'_, L> {
             Ok(v) => Ok(v),
             Err(message) => Err(in_failure_context(&mut *self.calls, message)),
         };
+        self.after_call(outcome)
+    }
+
+    /// What follows every call into the page, in [`Driver::guarded`]'s order: its turns' contained
+    /// failures held, the events and the `popstate` it raised delivered, the reload it asked for carried
+    /// out, its own failure handed to the page's handler, and the document it asked to load committed.
+    fn after_call(&mut self, outcome: Result<RuntimeValue, String>) -> Option<RuntimeValue> {
         self.host.hold_contained_failure(&mut *self.calls);
         self.deliver_raised_events();
         if dom::take_popped() {

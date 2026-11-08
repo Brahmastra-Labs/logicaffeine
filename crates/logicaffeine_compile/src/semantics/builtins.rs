@@ -4892,6 +4892,7 @@ pub fn call_builtin(id: BuiltinId, args: Vec<RuntimeValue>) -> Result<RuntimeVal
             match command.as_str() {
                 "focus" => crate::semantics::dom::element_focus(el),
                 "blur" => crate::semantics::dom::element_blur(el),
+                "click" => crate::semantics::dom::element_click(el),
                 "scrollto" => crate::semantics::dom::scroll_to(el),
                 "selecttext" => crate::semantics::dom::select_text(el),
                 _ => {}

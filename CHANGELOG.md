@@ -110,6 +110,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `3`, its text key as a pointer); the bytecode→C backend padded a `Real` with `%g` and refused to centre one. Each now
   renders the shortest decimal that reads back as the same double, as `Show` does. Locked by
   `real_text_every_tier_lock`.
+- **A page that clicks its own element runs that click as a turn of its own, and a failing `When the page loads:`
+  ends the program, on every tier.** A `Click` inside an action is the host's own click (`element.click()` in a
+  browser, a click the in-process hosts deliver once the action's turn has committed), so the turn it starts commits
+  or fails by itself: its failure is not the outer turn's, and the outer turn's write-back never overwrites what it
+  wrote; a browser used to ignore the command. `When the page loads:` runs as the page mounts, not
+  as a turn the page is handed, so its failure is the program's, as the browser's page main ends where its mount
+  traps. Locked by `vm_turn_boundary_lock`.
 
 ## [0.11.0] - 2026-11-02
 

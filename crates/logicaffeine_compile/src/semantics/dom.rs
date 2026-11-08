@@ -2885,6 +2885,15 @@ pub fn element_blur(node: i64) {
     }
 }
 
+/// `element.click()`: a `click` is raised on the element ([`take_raised_events`]), which the host
+/// delivers once the turn that asked for it has committed — a turn of its own.
+pub fn element_click(node: i64) {
+    if node >= 0 {
+        let element = node_address(node);
+        DOM.with(|d| d.borrow_mut().raised.push((element, "click")));
+    }
+}
+
 fn raise_focus_events(blurred: i64, gained: i64) {
     let events: Vec<(String, &'static str)> = [(blurred, "blur"), (gained, "focus")]
         .into_iter()
@@ -2894,9 +2903,9 @@ fn raise_focus_events(blurred: i64, gained: i64) {
     DOM.with(|d| d.borrow_mut().raised.extend(events));
 }
 
-/// The events the page's own element commands raised ([`element_focus`], [`element_blur`]) that
-/// the host has not delivered yet, `(element, event)` in the order they were raised — taken, so
-/// each is delivered once. Each element is found as the page stands NOW (it was recorded by its
+/// The events the page's own element commands raised ([`element_focus`], [`element_blur`],
+/// [`element_click`]) that the host has not delivered yet, `(element, event)` in the order they
+/// were raised — taken, so each is delivered once. Each element is found as the page stands NOW (it was recorded by its
 /// [`node_address`], which survives the turn's repaint), and an event whose element has left the
 /// page is dropped: nothing is listening there any more.
 pub fn take_raised_events() -> Vec<(i64, &'static str)> {

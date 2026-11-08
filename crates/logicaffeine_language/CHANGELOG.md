@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `parser::lgx_lower`: a `Click` on the page's own element lowers as the host's `click` element command alone; the
+  host raises the event, as it raises `focus` and `blur`.
+
 ## [0.11.0] - 2026-11-02
 
 ### Added

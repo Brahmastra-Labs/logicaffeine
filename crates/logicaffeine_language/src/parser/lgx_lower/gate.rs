@@ -555,14 +555,12 @@ pub(crate) fn any_navigates(all: &[ComponentDef<'_>]) -> bool {
 
 /// Whether `stmt` itself asks for an element event delivered after its turn commits — the
 /// statements that lower through `Parser::queue_element_event`: a `Publish` (its page-local
-/// delivery) and a `Hover` (the `mouseover` a browser raises for it). `Focus`/`Blur` are not
-/// here: the host raises their events itself, and only on a real move of focus.
+/// delivery) and a `Hover` (the `mouseover` a browser raises for it). `Focus`, `Blur` and `Click`
+/// are not here: the host raises their events itself — focus's only on a real move of focus, a
+/// click's as an entry of its own.
 pub(crate) fn queues_element_event(stmt: &Stmt<'_>) -> bool {
     use crate::ast::stmt::UiStmt;
-    matches!(
-        stmt,
-        Stmt::Ui(UiStmt::Publish { .. } | UiStmt::Hover { .. })
-    )
+    matches!(stmt, Stmt::Ui(UiStmt::Publish { .. } | UiStmt::Hover { .. }))
 }
 
 /// Whether any statement in `stmts`, at any depth, queues an element event.

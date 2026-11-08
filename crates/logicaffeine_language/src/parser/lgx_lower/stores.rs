@@ -613,6 +613,11 @@ impl<'a, 'ctx, 'int> super::super::Parser<'a, 'ctx, 'int> {
             Stmt::Ui(UiStmt::Hover { selector }) => {
                 self.lower_element_command(selector, "hover", "mouseover")
             }
+            // ★ A PAGE THAT CLICKS ITS OWN ELEMENT HANDS IT A TURN OF ITS OWN. The host raises the `click`
+            // (`element.click()` in a browser, a raised event the in-process hosts deliver once this turn
+            // has committed), so the turn it starts is an entry of its own: its failure is contained at
+            // its own boundary, not this turn's, and this turn's write-back never overwrites what it wrote.
+            Stmt::Ui(UiStmt::Click { selector }) => self.lower_element_command_only(selector, "click"),
             Stmt::Ui(UiStmt::AddClass { class, selector }) => {
                 self.lower_class_change(selector, class, "classListWith")
             }

@@ -938,7 +938,7 @@ const settle = () => { if (inst.exports.__logos_render) inst.exports.__logos_ren
 
 // One named operation on one element. `focus`/`blur` raise the browser's own events, so a page
 // listening for them is answered by the platform.
-const elementCommand = (e, c) => { if (c === 'focus') e.focus(); else if (c === 'blur') e.blur(); else if (c === 'scrollto') e.scrollIntoView(); else if (c === 'selecttext') { if (e.select) e.select(); } else if (c === 'hover') e.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); };
+const elementCommand = (e, c) => { if (c === 'focus') e.focus(); else if (c === 'blur') e.blur(); else if (c === 'click') e.click(); else if (c === 'scrollto') e.scrollIntoView(); else if (c === 'selecttext') { if (e.select) e.select(); } else if (c === 'hover') e.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); };
 // What makes two head tags THE SAME TAG — the identity a page's own version replaces (mirrors
 // `web_host.rs`'s `head_identity`, which computes the SAME keys for the server-rendered shell, so a
 // page merges identically whichever way its head reached the document). `null` means the tag
