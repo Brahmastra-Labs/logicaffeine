@@ -614,8 +614,8 @@ Where a program declares one of these types — a binding, a parameter, a functi
 `sqrt`, `exp` and `ln` are exact and `pi` (`π`) and `e` are the constants themselves; an operation,
 a comparison or a call with an exact operand is exact the same way. In an `Ordinal` context `omega`
 (`ω`) is the first infinite ordinal. Elsewhere they keep their meaning (`sqrt(2.0)` is a `Real`,
-`pi(digits)` the digits of π), and a function the program defines, or a name it binds, is never
-replaced:
+`pi(digits)` the digits of π), a bare `pi` (`π`) or `e` is the `Real` nearest it, and a function the
+program defines, or a name it binds, is never replaced:
 
 ```logos
 ## Main
@@ -628,6 +628,7 @@ Show x is greater than 5.
 Let w: Ordinal be omega + 1.
 Show w.
 Show sqrt(2.0).
+Show 2.0 * pi.
 ```
 
 ```output
@@ -637,6 +638,7 @@ Show sqrt(2.0).
 true
 ω + 1
 1.4142135623730951
+6.283185307179586
 ```
 
 A program declares an infinitesimal, reads it with `is infinitesimal`, `is limited`, `is infinitely

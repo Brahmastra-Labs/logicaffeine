@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The agent pack serves `docs/logic-mode.md` and `docs/imperative-mode.md` as the guides read, as `mcp::resources`
+  holds every resource to its source: the logic guide's generic carries its noun's kinds in the restrictor, and the
+  imperative guide reads a bare `pi` or `e` as the `Real` nearest it.
+
 ## [0.11.0] - 2026-11-02
 
 ### Added

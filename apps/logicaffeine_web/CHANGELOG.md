@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - The prebuilt previews of the shipped Web pages carry the browser runtime whose `read_reals` takes the path the module passes it, as `web_previews_lock` holds them to the compiler.
 - The native `server` feature turns on `logicaffeine-lsp/server`, so the server side links one build of the language server. Locked by `feature_forwarding_lock`.
 - The landing page cites `lean_arena_big_naturals` for the kernel's Lean integers: the suite it cited is absent from a public checkout.
+- `public/llms-full.txt` is the concatenation of the guides `llms_lock` holds it to: the logic guide's generic and the imperative guide's `Real` constants.
 
 ## [0.11.0] - 2026-11-02
 
