@@ -245,17 +245,20 @@ fn neutral_hash(head: HeadId, args: &[V]) -> u64 {
 }
 
 /// Ids interned by content (frames, neutrals): open addressing over ids, probed by a caller's
-/// equality test (the content lives in the arena, not the table).
+/// equality test (the content lives in the arena, not the table). A slot keeps the top half of
+/// its entry's hash: all that places the entry (the table indexes by the hash's top bits, and
+/// never outgrows 2^32 slots), and a filter that leaves the content compare to entries whose
+/// hash agrees in 32 bits.
 #[derive(Clone)]
 struct ContentTable {
-    slots: Vec<(u64, u32)>,
+    slots: Vec<(u32, u32)>,
     shift: u32,
     len: usize,
 }
 
 impl ContentTable {
     /// A vacant slot: every bit set, so that emptying the table is one byte fill.
-    const VACANT: (u64, u32) = (u64::MAX, NONE);
+    const VACANT: (u32, u32) = (u32::MAX, NONE);
 
     fn new() -> ContentTable {
         ContentTable {
@@ -275,13 +278,14 @@ impl ContentTable {
     #[inline]
     fn find(&self, h: u64, same: impl Fn(u32) -> bool) -> Option<u32> {
         let mask = self.slots.len() - 1;
+        let top = (h >> 32) as u32;
         let mut i = (h >> self.shift) as usize;
         loop {
-            let (sh, e) = *slot::at(&self.slots, i);
+            let (t, e) = *slot::at(&self.slots, i);
             if e == NONE {
                 return None;
             }
-            if sh == h && same(e) {
+            if t == top && same(e) {
                 return Some(e);
             }
             i = (i + 1) & mask;
@@ -291,11 +295,12 @@ impl ContentTable {
     fn insert(&mut self, h: u64, e: u32) {
         if (self.len + 1) * 2 > self.slots.len() {
             let cap = self.slots.len() * 2;
+            assert!(cap as u64 <= 1 << 32, "a content table outgrew the hash half it keeps");
             let old = std::mem::replace(&mut self.slots, vec![Self::VACANT; cap]);
             self.shift = 64 - cap.trailing_zeros();
-            for (oh, oe) in old {
+            for (ot, oe) in old {
                 if oe != NONE {
-                    self.place(oh, oe);
+                    self.place((ot as u64) << 32, oe);
                 }
             }
         }
@@ -309,11 +314,11 @@ impl ContentTable {
         while slot::at(&self.slots, i).1 != NONE {
             i = (i + 1) & mask;
         }
-        *slot::at_mut(&mut self.slots, i) = (h, e);
+        *slot::at_mut(&mut self.slots, i) = ((h >> 32) as u32, e);
     }
 
     fn bytes(&self) -> usize {
-        self.slots.capacity() * std::mem::size_of::<(u64, u32)>()
+        self.slots.capacity() * std::mem::size_of::<(u32, u32)>()
     }
 }
 
@@ -1137,13 +1142,20 @@ impl Arena {
             (
                 "value engine: environments and frames",
                 self.envs.capacity() * std::mem::size_of::<EnvNode>()
-                    + self.frame_slots.capacity() * 4,
+                    + self.frame_slots.capacity() * std::mem::size_of::<V>()
+                    + self.wide_idx.capacity() * 4,
+            ),
+            (
+                "value engine: contexts",
+                self.ctxs.capacity() * std::mem::size_of::<CtxNode>(),
             ),
             ("value engine: neutral index", self.neutral_index.bytes()),
             ("value engine: environment index", self.env_index.bytes()),
+            ("value engine: frame index", self.frame_index.bytes()),
             (
                 "value engine: other indexes",
-                self.head_index.bytes()
+                self.base_index.bytes()
+                    + self.head_index.bytes()
                     + self.ctx_index.bytes()
                     + self.atom_index.bytes()
                     + self.lam_index.bytes()
@@ -1157,3 +1169,11 @@ impl Arena {
         self.memory_report().iter().map(|(_, b)| b).sum()
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../logicaffeine_tests/unit/logicaffeine_kernel/dag/sem/value/content_controls.rs"]
+mod content_controls;
+
+#[cfg(test)]
+#[path = "../../../../logicaffeine_tests/unit/logicaffeine_kernel/dag/sem/value/memory_controls.rs"]
+mod memory_controls;

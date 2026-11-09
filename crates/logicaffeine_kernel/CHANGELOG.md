@@ -30,6 +30,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - An environment remembers its two latest prunings (`EnvNode::pmask`/`pres`), which replace the pruning cache; a pruning picks its values straight into the frame store's tail, in one walk, and keeps them only when no frame holds them yet (`Arena::prune`). A neutral built from a closure's arguments takes them from a stack buffer.
   - A universe substitution is shared rather than copied when it is applied, and two level lists are compared in place (`Levels::subst`, `Levels::equiv_lists`).
   - The absent-parameter analysis reads a definition's loose variables from the masks the store keeps, walking the term only when an index of 64 or more makes the mask inexact (`relevance::absent_mask`), and reserving room in the persistent expression table rehashes once, straight to the capacity that holds it (`Store::reserve_persistent`).
+- `dag::sem::value`'s content tables (the neutral and frame indexes) keep the top half of each entry's hash beside its
+  id, eight bytes a slot where sixteen were: the half places the entry and filters candidates before the content
+  compare. `dag::export::Reader::size_hint` expects one expression per 56 bytes (`Reader::expected_expressions`; the
+  Arena's large exports run 56 to 61), so Mathlib's persistent table is 2^28 slots where it was 2^29. The value
+  engine's `memory_report` counts every store it holds, the frame index, substitution bases, wide-frame indices,
+  contexts, loose-variable sets and recent-atoms memo among them.
 
 ## [0.11.0] - 2026-11-02
 

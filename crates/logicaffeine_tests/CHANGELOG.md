@@ -36,6 +36,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `installer_docs_lock`'s `each_installer_ends_on_the_first_run_the_quick_start_proves`: the `get started:` line
   `install.sh` and `install.ps1` print is the README quick start's commands, the first run `getting_started_lock`
   replays with nothing but `largo` on the PATH.
+- `dag::sem::value`'s `content_controls` (a slot is half a hash and an id; every entry is found after every growth;
+  entries whose hashes share their top half are told apart by content; content is compared only where the kept half
+  agrees; an emptied table) and `memory_controls` (the arena's memory report counts every store, its fields
+  destructured whole, and names each part once); `dag::sem`'s `memory_controls` (a session's report counts every
+  store); `dag::export`'s `size_controls` (each of the Arena's large exports reserves the persistent table its
+  expressions need, and the estimate covers it within a tenth).
 
 ### Changed
 - The Arena corpus at lean-kernel-arena `8139f284`: 247 cases, the 11 new ones (six `bugs/` rejects, `other/inductive-undeclared-universe` and four `corner-cases/`) vendored by `scripts/lean/arena-crown/vendor-corpus.py` from the official archive or from the corner cases rebuilt byte-identical at `d7f74a9e`; a regenerated export is now looked for in every round held, newest first, and `cedar`, re-exported at every round since, keeps its regenerated export with the new digests in its evidence. `arena_corpus_lock`, `arena_entry_lock`, the Arena README, the rehearsal and the scoreboard pin the round.

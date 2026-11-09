@@ -225,7 +225,25 @@ impl State {
             "value engine: constant caches",
             self.const_type.bytes() + self.const_body.bytes() + self.rule_rhs.bytes(),
         ));
+        r.push((
+            "value engine: loose-variable sets",
+            Self::loose_set_bytes(&self.loose_sets),
+        ));
+        r.push((
+            "value engine: recent atoms",
+            self.atoms.capacity() * std::mem::size_of::<(u32, u32, u32)>(),
+        ));
         r
+    }
+
+    /// The loose-variable sets' table and the sets themselves (each shared slice behind its two
+    /// counts).
+    fn loose_set_bytes(sets: &rustc_hash::FxHashMap<ExprId, std::rc::Rc<[u32]>>) -> usize {
+        sets.capacity() * (std::mem::size_of::<(ExprId, std::rc::Rc<[u32]>)>() + 1)
+            + sets
+                .values()
+                .map(|s| 2 * std::mem::size_of::<usize>() + s.len() * 4)
+                .sum::<usize>()
     }
 
     pub fn bytes(&self) -> usize {
@@ -407,3 +425,7 @@ impl Kernel {
         ((self.validated_primitives.len() as u64) << 1) | self.env.quot_init as u64
     }
 }
+
+#[cfg(test)]
+#[path = "../../../../logicaffeine_tests/unit/logicaffeine_kernel/dag/sem/memory_controls.rs"]
+mod memory_controls;

@@ -45,6 +45,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `cargo install logicaffeine-kernel`'s new `logos-kernel` binary run, so the Arena measures what LOGOS users run, and
   `largo lean import`'s independent recheck asks the core to decide the whole export too: a refusal of what the LOGOS
   kernel accepted stops the import as a disagreement between the kernels. Locked by `arena_entry_lock`.
+- **The value engine holds a Lean export in less memory, in fewer instructions.** The export reader expects one
+  expression per 56 bytes, the densest of the Lean Kernel Arena's large exports, so the persistent table it sizes once
+  for Mathlib takes 1 GiB where it took 2; the content tables that intern the value engine's neutrals and frames keep
+  half of each entry's hash, eight bytes a slot where sixteen were; and `logos_kernel --stats` counts every store the
+  value engine holds. The Arena entry checks Mathlib in 407.18 G instructions (from 409.15), `init` in 18.01 G (from
+  18.16) and `std` in 31.02 G (from 31.22) (`logicaffeine_kernel`; locked by its `dag::sem` and `dag::export` unit
+  tests).
 
 ### Fixed
 

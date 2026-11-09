@@ -387,9 +387,16 @@ impl<'k> Reader<'k> {
         }
     }
 
-    /// Prepares the stores for an export of `bytes` bytes (about one expression per 45 bytes).
+    /// The expressions an export of `bytes` bytes holds, at most: one per 56 bytes, the densest of
+    /// the Arena's large exports (56 to 61 bytes an expression). The persistent table is sized once
+    /// for this count, so an estimate a quarter too high doubles the table for nothing.
+    pub(crate) fn expected_expressions(bytes: u64) -> usize {
+        (bytes / 56).min(u32::MAX as u64 / 2) as usize
+    }
+
+    /// Prepares the stores for an export of `bytes` bytes ([`Reader::expected_expressions`]).
     pub fn size_hint(&mut self, bytes: u64) {
-        let nodes = (bytes / 45).min(u32::MAX as u64 / 2) as usize;
+        let nodes = Self::expected_expressions(bytes);
         self.k.s.reserve_persistent(nodes);
         self.exprs.dense.reserve(nodes);
     }
@@ -1328,3 +1335,7 @@ pub fn load_refs(k: &mut Kernel, input: impl BufRead) -> KResult<FxMap<String, E
 #[cfg(test)]
 #[path = "../../../logicaffeine_tests/unit/logicaffeine_kernel/dag/export/number_tests.rs"]
 mod number_tests;
+
+#[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_kernel/dag/export/size_controls.rs"]
+mod size_controls;
