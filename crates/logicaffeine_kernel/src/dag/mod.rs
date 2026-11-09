@@ -17,6 +17,7 @@
 //! declarations; [`mirror`] keeps a core in step with a context through the context's admission
 //! log.
 
+pub mod arena;
 pub mod check;
 pub mod env;
 pub mod error;

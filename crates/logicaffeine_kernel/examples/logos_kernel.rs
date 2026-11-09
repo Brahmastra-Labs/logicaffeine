@@ -1,5 +1,8 @@
 //! `logos-kernel`: the LOGOS kernel core as a Lean Kernel Arena checker.
 //!
+//! Its plain run (`--check sem <export>`, the Arena entry's run line) is [`logicaffeine_kernel::dag::arena::run`], the
+//! check `largo lean check` and the crate's `logos-kernel` binary run; the flags below are measurements beside it.
+//!
 //! Reads a `lean4export` NDJSON file (path argument, or standard input) and exits with the Arena
 //! protocol: 0 accepted, 1 rejected, 2 declined. The reason for a rejection or a decline is
 //! written to standard error.
@@ -202,6 +205,10 @@ fn main() {
         None => 0,
     };
     let path = args.into_iter().next();
+    if !parse_only && !report && decl_costs.is_none() && trust_before == 0 && !nbe {
+        // The Arena's run line: the check `largo lean check` runs, through the one function both run.
+        logicaffeine_kernel::dag::arena::run(path.map(std::path::PathBuf::from), engine);
+    }
     let worker = std::thread::Builder::new()
         .name("logos-kernel".into())
         .stack_size(STACK_BYTES)

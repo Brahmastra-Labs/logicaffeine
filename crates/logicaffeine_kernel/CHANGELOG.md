@@ -11,6 +11,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `lia::fourier_motzkin_unsat_within(constraints, budget) -> Option<bool>`: Fourier–Motzkin elimination that gives up
   (`None`) once a step would leave more than `budget` constraints. `fourier_motzkin_unsat` is the unbounded case and
   decides as before.
+- `dag::arena::run`: the Lean Kernel Arena's protocol over the `dag` core (one lean4export stream, a check by an
+  engine, exit 0/1/2, the reason on stderr), the one function the Arena entry's run line, `largo lean check` and the new
+  `logos-kernel` binary (`src/bin/logos-kernel.rs`, the value engine, or both under `--dual`) run; `dag::arena::verdict`
+  returns that verdict for a caller that goes on, and `interface::lean::pipeline`'s independent recheck asks it of the
+  whole export, failing the stage (`RecheckRefused`) when the core refuses what the `Term` kernel accepted. The README's
+  Acknowledgements credit the work the core builds on.
 
 ### Changed
 

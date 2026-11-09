@@ -55,7 +55,7 @@ The subcommands of the clap `Commands` enum in `src/cli.rs`, each dispatched by 
 | `logic [sentence]` | English → first-order logic (`--format unicode\|latex\|ascii\|kripke`, `--all-readings`, `--discourse`) |
 | `prove [file]` | Kernel-certified proving of `## Theory` developments and `## Theorem` blocks (`--trace`, `--json`) |
 | `sat <file.cnf>` | The certified SAT solver; `--proof` writes a DRAT (or DPR/SR) refutation; exits `10`/`20` |
-| `lean import` / `lean replay` | Import a Lean 4 declaration as a checked LOGOS package, or re-verify a published one |
+| `lean import` / `lean replay` / `lean check` | Import a Lean 4 declaration as a checked LOGOS package, re-verify a published one, or check a whole export with the kernel core, as the Lean Kernel Arena runs it |
 | `fmt [paths…]` | Format sources with the canonical rules the language server uses; `--check` for CI |
 | `emit <target>` | Print or write a compiled translation without building a binary (every target: [docs/cli.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/cli.md#emit)) |
 | `doc [--out DIR]` | Generate markdown documentation from a project's `##` blocks |

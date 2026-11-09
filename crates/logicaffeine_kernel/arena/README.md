@@ -27,6 +27,13 @@ training.
 
 `crates/logicaffeine_tests/tests/arena_entry_lock.rs` holds both files to the schema and to the invariants below.
 
+## Acknowledgements
+
+The core is LOGOS's own code, and it stands on the work of others: the Lean 4 kernel, lean4lean, smalltt,
+sokonanoda, nanoda, mathgraph, nano-lean, lean4export and this Arena, credited one by one, with what each gave it, in
+the [crate README](../README.md#acknowledgements). Both entries' descriptions credit them too, and say how the
+entries are built: the core LOGOS runs (`largo lean check`), in a build tuned for the Arena's instruction count.
+
 ## How the Arena builds and runs an entry
 
 - **Submission is a pull request** to lean-kernel-arena adding `checkers/<name>.yaml`; the file

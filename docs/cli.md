@@ -556,13 +556,16 @@ largo lean import --project ./proofs --target Demo.andSwap --out ./Demo.andSwap 
 largo lean import Demo.ndjson --target Demo.andSwap --out ./out                    # a lean4export stream
 largo lean import Demo.ndjson --arena-protocol                                     # Lean Kernel Arena protocol
 largo lean replay ./Demo.andSwap
+largo lean check Demo.ndjson                                                        # the kernel core, as the Arena runs it
 ```
 
 `--project` compiles the project in isolation with the pinned Lean 4.14.0 (`--lean <path>` names the
 executable, `lean` by default, whose elan shim selects the toolchain) and exports the target with the
 pinned `lean4export` (revision `20c4a64a`, export format 3.1.0), located by `--exporter <dir>`, else
 `$LOGOS_LEAN4EXPORT`, else `~/.logos/lean/lean4export`. The declaration's closure is then checked by
-the LOGOS kernel and rechecked by the independent second kernel. It is held to the assumption policy
+the LOGOS kernel and rechecked by the independent second kernel, and the whole export is decided once more
+by the kernel core `largo lean check` runs, the check the Lean Kernel Arena runs: a refusal there is a
+disagreement between the kernels, and the import stops. It is held to the assumption policy
 by Lean's own `#print axioms` rule (`propext`, `Quot.sound` and `Classical.choice` are allowed;
 `sorryAx` is refused, including through lemmas), and emitted as one literate `<Target>.lg` document
 that is re-parsed and re-checked in a fresh context. The target's statement is compared with an
@@ -587,6 +590,18 @@ failed stage, `2` when the receipt is otherwise incomplete, and `5` when the pac
 0/1/2, nothing else. It takes an export and no `--project`, `--target` or `--out`; under it,
 `--trace-stages` reports every checking stage as JSON on stderr and `--audit-declarations` runs the
 declaration audit.
+
+`check` checks a whole lean4export stream with the kernel's hash-consed core, the code the Lean Kernel
+Arena runs as the `logos-kernel` entry (the `logos-kernel` binary of `logicaffeine-kernel` runs it too):
+
+```bash
+largo lean check Mathlib.ndjson          # the value engine
+largo lean check --dual Mathlib.ndjson   # both engines, which must agree on every declaration
+largo lean check - < Mathlib.ndjson      # the export on standard input
+```
+
+It exits `0` when the export is accepted, `1` when it is rejected and `2` when it is declined, and writes
+the reason, or the declarations and records it accepted, on stderr.
 
 ### `doc`
 

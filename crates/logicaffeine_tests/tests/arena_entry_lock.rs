@@ -812,3 +812,58 @@ fn the_strict_entry_reader_refuses_what_it_does_not_understand() {
         assert!(refused, "the entry reader refuses {bad:?}");
     }
 }
+
+/// The checkers and the work the core builds on, each with the link its credit gives it.
+const CREDITED: [(&str, &str); 7] = [
+    ("lean4lean", "https://github.com/digama0/lean4lean"),
+    ("smalltt", "https://github.com/AndrasKovacs/smalltt"),
+    ("sokonanoda", "https://github.com/intgrah/sokonanoda"),
+    ("nanoda", "https://github.com/ammkrn/nanoda_lib"),
+    ("mathgraph", "https://github.com/metalogiclabs/mathgraph-lean-kernel"),
+    ("nano-lean", "https://github.com/sdiehl/nano-lean"),
+    ("lean4export", "https://github.com/leanprover/lean4export"),
+];
+
+/// The core stands on others' work, and every place it is presented says so: the kernel README's Acknowledgements and
+/// each entry's description credit each checker with its link, and each description says how the entry is built.
+#[test]
+fn every_entry_and_the_kernel_readme_credit_the_work_the_core_builds_on() {
+    let readme = read(kernel_dir().join("README.md"));
+    let at = readme.find("\n## Acknowledgements\n").expect("the kernel README acknowledges the work the core builds on");
+    let section = &readme[at + 1..];
+    let section = &section[..section[1..].find("\n## ").map_or(section.len(), |i| i + 1)];
+    assert!(section.contains("The Lean 4 kernel"), "the README credits the Lean 4 kernel");
+    for (name, url) in CREDITED {
+        let credit = format!("[{name}]({url})");
+        assert!(section.contains(&credit), "the kernel README credits {name} with its link");
+        for e in entries() {
+            assert!(e.req("description").contains(&credit), "{}: the description credits {name} with its link", e.name);
+        }
+    }
+    for e in entries() {
+        assert!(
+            e.req("description").contains("tuned for the Arena's instruction count"),
+            "{}: the description says the entry is a build tuned for the Arena",
+            e.name
+        );
+    }
+}
+
+/// What the Arena measures is what LOGOS users run: the entry's run line (the example's plain check), `largo lean
+/// check` and the `logos-kernel` binary all check through `dag::arena::run`.
+#[test]
+fn the_entrys_run_line_is_the_check_largo_lean_check_runs() {
+    let example = read(kernel_dir().join("examples/logos_kernel.rs"));
+    let binary = read(kernel_dir().join("src/bin/logos-kernel.rs"));
+    let largo = read(workspace_root().join("apps/logicaffeine_cli/src/commands/lean.rs"));
+    for (what, text) in [("the entry's example", &example), ("logos-kernel", &binary), ("largo lean check", &largo)] {
+        assert!(text.contains("arena::run("), "{what} checks through dag::arena::run");
+    }
+    let kernel = entries().into_iter().find(|e| e.name == "logos-kernel").unwrap();
+    assert_eq!(
+        kernel.run_line(),
+        "target/arena/examples/logos_kernel --check sem \"$IN\"",
+        "the run line is the example's plain check, which is dag::arena::run with the value engine"
+    );
+    assert!(largo.contains("Engine::Sem") && binary.contains("Engine::Sem"), "both run the value engine the entry names");
+}

@@ -439,13 +439,37 @@ fn run_stages(
         "primary_check",
         "the LOGOS kernel accepted every declaration of the export",
     );
-    result.pass(
-        "independent_recheck",
-        format!(
-            "{} definitions, theorems, opaques and axioms rechecked independently",
-            report.declarations.len()
+    // The kernel core (`dag`, the check the Lean Kernel Arena runs and `largo lean check` runs) decides the whole export
+    // too: a refusal of what the LOGOS kernel accepted is a disagreement between the kernels, and the import stops; a
+    // decline is no verdict, and the recheck stands on the independent kernel.
+    let rechecked = report.declarations.len();
+    match crate::dag::arena::verdict(export, crate::dag::tc::Engine::Sem) {
+        crate::dag::Verdict::Reject(why) => {
+            result.fail(
+                "independent_recheck",
+                Diagnostic::new(
+                    "independent_recheck",
+                    DiagnosticCode::RecheckRefused,
+                    format!("the kernel core refuses the export the LOGOS kernel accepted: {why}"),
+                ),
+            );
+            return None;
+        }
+        crate::dag::Verdict::Accept => result.pass(
+            "independent_recheck",
+            format!(
+                "{rechecked} definitions, theorems, opaques and axioms rechecked independently, and the whole export \
+                 accepted by the kernel core"
+            ),
         ),
-    );
+        crate::dag::Verdict::Decline(why) => result.pass(
+            "independent_recheck",
+            format!(
+                "{rechecked} definitions, theorems, opaques and axioms rechecked independently; the kernel core \
+                 declined the export ({why})"
+            ),
+        ),
+    }
     result.audit = Some(report.to_json());
     result.information_losses = losses(&report);
 

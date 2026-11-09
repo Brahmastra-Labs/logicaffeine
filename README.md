@@ -471,6 +471,9 @@ organized into phase tests, with differential tests proving the interpreter, VM,
   license, stated beside it: Berkeley SoftFloat (BSD-3-Clause), the RISC-V ISA tests (BSD-3-Clause), the Lean kernel
   arena's cases (Apache-2.0), OpenLane's flow scripts (Apache-2.0), the Math editor's font (Bitstream-Vera) and the
   terminal font (MIT).
+- **Acknowledgements**: the kernel's Lean checker builds on the Lean 4 kernel, lean4lean, smalltt, sokonanoda, nanoda,
+  mathgraph, nano-lean, lean4export and the Lean Kernel Arena, each credited for what it gave in the
+  [kernel README](crates/logicaffeine_kernel/README.md#acknowledgements).
 
 ---
 

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `largo lean check [--dual] <export>`: a whole lean4export stream checked by the kernel's core, the code the Lean
+  Kernel Arena runs; exit 0 accepted, 1 rejected, 2 declined, the reason on stderr. `largo lean import`'s independent
+  recheck asks that core to decide the export too.
+
 ### Fixed
 
 - The agent pack serves `docs/logic-mode.md` and `docs/imperative-mode.md` as the guides read, as `mcp::resources`

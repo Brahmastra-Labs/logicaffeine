@@ -66,6 +66,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `page_host::lowered`'s unit tests: a failure no handler absorbs, and one the page absorbs, are driven through a
   replayed turn instead of a mount (a mount is no longer a guarded entry, Tristen 11-07), and
   `a_mount_that_fails_is_the_statements_failure` pins the mount's own failure.
+- `arena_entry_lock`: each entry's description and the kernel README credit every checker the core builds on, with its
+  link, and the entry's run line, `largo lean check` and the `logos-kernel` binary check through `dag::arena::run`.
 
 ### Fixed
 - `bringup_lock` follows the chips it tests: the SN50 brings up an expert mixture (it deploys SambaNova's published families), the D5005 refuses it naming "experts"; the undescribed checkpoint is written with no metadata (`tiny_models::write_bare_checkpoint`), since every tiny checkpoint now carries its keys.

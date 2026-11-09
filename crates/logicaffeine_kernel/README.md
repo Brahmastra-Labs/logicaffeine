@@ -146,6 +146,32 @@ In LOGOS's theory the same core checks the declarations of a `Context`: `logos` 
 - **Internal**: `logicaffeine-base`, for the `UnionFind` behind the `cc` e-graph.
 - **External**: `rustc-hash` (id-keyed tables) and `smallvec` (application spines); `serde` and `serde_json` only with the `serde`/`lean` features, so the default trusted core has no serialization dependency.
 
+## Acknowledgements
+
+The `dag` core and the Lean export reader are this crate's own code, written for LOGOS; no other checker's
+source is copied into them (against sokonanoda at `28c03d0`, the two share no run of three lines). They were built
+on the ideas of others and measured beside their work, declaration by declaration, while the core was tuned:
+
+- **The Lean 4 kernel** (Leonardo de Moura, Sebastian Ullrich and the Lean FRO): `Theory::Lean` is its theory, and
+  its conversion is Lean's algorithm.
+- **[lean4lean](https://github.com/digama0/lean4lean)** (Mario Carneiro): the `Nat` and `String` literal fast paths
+  are enabled only after the environment's definitions are validated in its manner, and its account of the kernel's
+  rules is a reference throughout.
+- **[smalltt](https://github.com/AndrasKovacs/smalltt)** (András Kovács): the value engine's evaluation into
+  closures, with neutral values waiting for conversion, is its design.
+- **[sokonanoda](https://github.com/intgrah/sokonanoda)** (Jeremy Chen), the closure-based Lean checker in the
+  lineage of **[nanoda](https://github.com/ammkrn/nanoda_lib)** (Chris Bailey), and
+  **[mathgraph](https://github.com/metalogiclabs/mathgraph-lean-kernel)**, built on it: studied, profiled and
+  compared declaration by declaration with ours.
+- **[nano-lean](https://github.com/sdiehl/nano-lean)** (Stephen Diehl), a hash-consed checker with de Bruijn indices:
+  studied and profiled; the Arena entries train their profile as its build does, on exports the Arena's own
+  `lka.py build-test` writes.
+- **[lean4export](https://github.com/leanprover/lean4export)** (Joachim Breitner, Henrik Böving, Kim Morrison, Chris
+  Bailey, Sebastian Ullrich and its other contributors): the export format the reader reads, and the exporter
+  `largo lean import` drives.
+- **The [Lean Kernel Arena](https://github.com/leanprover/lean-kernel-arena)** (Joachim Breitner and its
+  contributors): the protocol and the corpus every Arena-facing test is held to.
+
 ## License
 
 MIT License — see [LICENSE.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/LICENSE.md).

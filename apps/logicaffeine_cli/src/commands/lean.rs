@@ -5,6 +5,7 @@
 //! largo lean import <export.ndjson> --target <Qualified.Name> --out <dir>  # advanced interchange
 //! largo lean import <export.ndjson> --arena-protocol                        # benchmark compatibility
 //! largo lean replay <package-dir>
+//! largo lean check <export.ndjson>                                          # the kernel core, as the Arena runs it
 //! ```
 //!
 //! `import` writes exactly one `logos-lean-result/1` document on stdout and its diagnostics, one JSON
@@ -56,6 +57,18 @@ enum LeanCommand {
     Import(ImportArgs),
     /// Replay a published package in this (fresh) process and print its receipt.
     Replay(ReplayArgs),
+    /// Check a whole lean4export stream with the kernel core, as the Lean Kernel Arena runs it.
+    #[command(after_help = "Exit codes: 0 accepted, 1 rejected, 2 declined; the reason on stderr.\n\nExamples:\n  largo lean check Mathlib.ndjson\n  largo lean check - < Mathlib.ndjson")]
+    Check(CheckArgs),
+}
+
+#[derive(Args)]
+struct CheckArgs {
+    /// The lean4export 3.1.0 stream (`-`, or nothing, for standard input).
+    export: Option<PathBuf>,
+    /// Check with both of the core's engines, which must agree on every declaration.
+    #[arg(long)]
+    dual: bool,
 }
 
 #[derive(Args)]
@@ -118,6 +131,11 @@ pub(crate) fn cmd_lean(arguments: Vec<OsString>) -> Result<(), Box<dyn std::erro
         Ok(cli) => match cli.command {
             LeanCommand::Import(args) => import(args),
             LeanCommand::Replay(args) => replay(&args.package),
+            LeanCommand::Check(args) => {
+                use logicaffeine_kernel::dag::{arena, tc::Engine};
+                let _ = std::io::stdout().flush();
+                arena::run(args.export, if args.dual { Engine::Dual } else { Engine::Sem })
+            }
         },
         Err(error) => match error.kind() {
             clap::error::ErrorKind::DisplayHelp | clap::error::ErrorKind::DisplayVersion => {

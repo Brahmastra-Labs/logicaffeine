@@ -37,6 +37,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   feature (the `dag` core reads its stores without bounds checks; every other build and every test keep them), cached
   values and types are found in the caller's frame, a neutral's arguments are stored contiguously and interned in
   one probe, and an environment remembers its two latest prunings in place of a pruning cache.
+- **The Lean Kernel Arena entry credits the checkers it builds on, says how it is built, and runs the check LOGOS
+  ships.** The kernel README's Acknowledgements, the Arena runbook and both entries' descriptions credit the Lean 4
+  kernel, lean4lean, smalltt, sokonanoda, nanoda, mathgraph, nano-lean, lean4export and the Arena, each for what it
+  gave; the core shares no three-line run with sokonanoda. The descriptions say the entry is the core LOGOS runs in a
+  build tuned for the Arena's instruction count. Its run line is `dag::arena::run`, the check `largo lean check` and
+  `cargo install logicaffeine-kernel`'s new `logos-kernel` binary run, so the Arena measures what LOGOS users run, and
+  `largo lean import`'s independent recheck asks the core to decide the whole export too: a refusal of what the LOGOS
+  kernel accepted stops the import as a disagreement between the kernels. Locked by `arena_entry_lock`.
 
 ### Fixed
 
