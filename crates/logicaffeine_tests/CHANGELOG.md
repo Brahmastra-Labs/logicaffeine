@@ -33,6 +33,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `real_text_every_tier_lock`: six `Real`s, written as literals and computed at run time, each shown alone, in a bare
   hole, padded right, left, centred and by a bare width, as a record's field, a list's items and the value of a map
   keyed by text and by an integer: the tree-walker's shortest decimal on every backend.
+- `installer_docs_lock`'s `each_installer_ends_on_the_first_run_the_quick_start_proves`: the `get started:` line
+  `install.sh` and `install.ps1` print is the README quick start's commands, the first run `getting_started_lock`
+  replays with nothing but `largo` on the PATH.
 
 ### Changed
 - The Arena corpus at lean-kernel-arena `8139f284`: 247 cases, the 11 new ones (six `bugs/` rejects, `other/inductive-undeclared-universe` and four `corner-cases/`) vendored by `scripts/lean/arena-crown/vendor-corpus.py` from the official archive or from the corner cases rebuilt byte-identical at `d7f74a9e`; a regenerated export is now looked for in every round held, newest first, and `cedar`, re-exported at every round since, keeps its regenerated export with the new digests in its evidence. `arena_corpus_lock`, `arena_entry_lock`, the Arena README, the rehearsal and the scoreboard pin the round.

@@ -92,7 +92,7 @@ try {
     }
 
     Write-Host ""
-    Write-Host "get started:  largo new hello; cd hello; largo run"
+    Write-Host "get started:  largo new hello; cd hello; largo run --interpret"
     Write-Host "uninstall:    remove $installDir and its PATH entry"
 } finally {
     Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue

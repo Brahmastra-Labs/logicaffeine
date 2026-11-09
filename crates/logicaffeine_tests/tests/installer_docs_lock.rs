@@ -167,6 +167,45 @@ fn full_flavor_uses_the_documented_piping_form() {
     }
 }
 
+/// The commands the README's quick start runs after the install, in order: its first console block's `$ ` lines, the
+/// first run `getting_started_lock` replays with nothing but `largo` on the PATH.
+fn quick_start_commands() -> Vec<String> {
+    let readme = read("README.md");
+    let start = readme.find("\n## Quick start\n").expect("the README has a quick start");
+    let console = &readme[start..][readme[start..].find("```console\n").expect("its console block") + "```console\n".len()..];
+    let block = &console[..console.find("```").expect("the console block closes")];
+    block.lines().filter_map(|l| l.strip_prefix("$ ")).map(str::to_string).collect()
+}
+
+/// The `get started:` line an installer prints last, the command text after the label.
+fn get_started(script: &str) -> String {
+    let at = script.find("get started:").unwrap_or_else(|| panic!("the installer says how to get started:\n{script}"));
+    let line = &script[at + "get started:".len()..];
+    line[..line.find('"').expect("the line is one quoted string")].trim().to_string()
+}
+
+#[test]
+fn each_installer_ends_on_the_first_run_the_quick_start_proves() {
+    let commands = quick_start_commands();
+    assert_eq!(commands, ["largo new hello", "cd hello", "largo run --interpret"], "the README's first run");
+    assert_eq!(
+        get_started(&read("apps/logicaffeine_web/public/install.sh")),
+        commands.join(" && "),
+        "install.sh's last word is the quick start's first run, which needs nothing but largo"
+    );
+    assert_eq!(
+        get_started(&read("apps/logicaffeine_web/public/install.ps1")),
+        commands.join("; "),
+        "install.ps1's last word is the quick start's first run, which needs nothing but largo"
+    );
+}
+
+#[test]
+fn the_get_started_reader_reads_the_shape_it_guards() {
+    assert_eq!(get_started("say \"get started:  largo new a && cd a\"\n"), "largo new a && cd a");
+    assert_eq!(get_started("    Write-Host \"get started:  largo new a; cd a\"\n"), "largo new a; cd a");
+}
+
 #[test]
 fn install_scripts_self_document_their_own_command() {
     assert!(

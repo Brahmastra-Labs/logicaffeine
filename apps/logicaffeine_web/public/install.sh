@@ -154,5 +154,5 @@ if [ -z "$FLAVOR" ]; then
   say "  curl -fsSL https://logicaffeine.com/install.sh | sh -s -- --full"
 fi
 say ""
-say "get started:  largo new hello && cd hello && largo run"
+say "get started:  largo new hello && cd hello && largo run --interpret"
 say "uninstall:    rm $INSTALL_DIR/largo"
