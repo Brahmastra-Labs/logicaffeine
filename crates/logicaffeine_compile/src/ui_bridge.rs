@@ -842,6 +842,8 @@ struct ParsedTheorem {
     /// Whether the goal asks ("Who is in Florida?") rather than claims ("Some dog barks."):
     /// a question is answered by its witnesses, a claim is proved.
     asks: bool,
+    /// Each premise's accommodated presupposition ([`presupposition_failure`]).
+    accommodated: Vec<Option<Accommodated>>,
 }
 
 fn parse_theorem(input: &str) -> Result<ParsedTheorem, String> {
@@ -924,6 +926,7 @@ fn parse_theorem(input: &str) -> Result<ParsedTheorem, String> {
         rule_name,
         premise_names,
         asks: matches!(theorem.goal, ast::LogicExpr::Question { .. }),
+        accommodated: accommodated_premises(&theorem.premises, &interner),
     })
 }
 
@@ -1125,6 +1128,7 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
         rule_name,
         premise_names,
         asks,
+        accommodated,
     } = parsed;
 
     // The easter egg: when the premises take the grid form (declared bijection +
@@ -1140,7 +1144,11 @@ pub fn compile_theorem_for_ui(input: &str) -> TheoremCompileResult {
     // How many obligations the DECLARED method left for the automation. Only the declared-
     // script route can leave any: `Auto` IS the automation, so its count is 0 by construction.
     let mut discharged = 0usize;
-    let (derivation, verified, verification_error, answer) = if is_auto {
+    let (derivation, verified, verification_error, answer) = if let Some(why) =
+        presupposition_failure(&premises, &accommodated)
+    {
+        (None, false, Some(why), None)
+    } else if is_auto {
         // A wh-question goal ("Who is in Florida?") is an open ∃-form; the closed-goal
         // prover cannot discharge it and grinds a deep, futile search. Recognize the
         // question and ANSWER it by enumerating witnesses through the same certified no-Z3
@@ -5523,7 +5531,7 @@ pub fn check_theorem_premises_consistent(
 pub fn check_theorem_defeasible(
     input: &str,
 ) -> Result<logicaffeine_proof::oracle::SmtVerdict, ParseError> {
-    let (proof_exprs, goal, defaults, _definitions, _declared) = theorem_problem(input, true)?;
+    let (proof_exprs, goal, defaults, _definitions, _declared, _accommodated) = theorem_problem(input, true)?;
     let theory = smt_theory_for(&proof_exprs, Some(&goal));
     Ok(crate::defeasible::defeasible_entails(
         &proof_exprs,
@@ -5539,7 +5547,7 @@ pub fn check_theorem_defeasible(
 pub fn check_theorem_defeasible_consistent(
     input: &str,
 ) -> Result<logicaffeine_proof::oracle::SmtConsistency, ParseError> {
-    let (proof_exprs, _goal, defaults, _definitions, _declared) = theorem_problem(input, true)?;
+    let (proof_exprs, _goal, defaults, _definitions, _declared, _accommodated) = theorem_problem(input, true)?;
     let theory = smt_theory_for(&proof_exprs, None);
     Ok(crate::defeasible::defeasible_consistent(
         &proof_exprs,
@@ -5555,7 +5563,7 @@ pub fn check_theorem_defeasible_consistent(
 /// [`ProofExpr`]. Public so a puzzle solver can obtain the parsed-FOL premises
 /// (the Given clues/declarations) and feed them to the entailment oracle.
 pub fn theorem_proof_exprs(input: &str) -> Result<(Vec<ProofExpr>, ProofExpr), ParseError> {
-    let (premises, goal, _defaults, _definitions, _declared) = theorem_problem(input, false)?;
+    let (premises, goal, _defaults, _definitions, _declared, _accommodated) = theorem_problem(input, false)?;
     Ok((premises, goal))
 }
 
@@ -5572,7 +5580,7 @@ pub fn theorem_proof_exprs_with_defs(
     ),
     ParseError,
 > {
-    let (premises, goal, _defaults, definitions, _declared) = theorem_problem(input, false)?;
+    let (premises, goal, _defaults, definitions, _declared, _accommodated) = theorem_problem(input, false)?;
     Ok((premises, goal, definitions))
 }
 
@@ -5590,7 +5598,13 @@ fn theorem_problem_declared(
     ),
     ParseError,
 > {
-    let (premises, goal, _defaults, definitions, declared) = theorem_problem(input, false)?;
+    let (premises, goal, _defaults, definitions, declared, accommodated) = theorem_problem(input, false)?;
+    if let Some(why) = presupposition_failure(&premises, &accommodated) {
+        return Err(ParseError {
+            kind: logicaffeine_language::error::ParseErrorKind::Custom(why),
+            span: logicaffeine_language::token::Span::default(),
+        });
+    }
     Ok((premises, goal, definitions, declared))
 }
 
@@ -6220,6 +6234,7 @@ fn theorem_problem(
         Vec<logicaffeine_language::proof_convert::DefaultRule>,
         Vec<logicaffeine_proof::verify::Definition>,
         DeclaredProof,
+        Vec<Option<Accommodated>>,
     ),
     ParseError,
 > {
@@ -6295,6 +6310,7 @@ fn theorem_problem(
         })
         .collect();
     let goal_expr = logic_expr_to_proof_expr(theorem.goal, &interner);
+    let accommodated = accommodated_premises(&theorem.premises, &interner);
 
     // Rung 0a: collect every `## Define` block in the document, lowered to a
     // proof-layer definition the prover can δ-unfold.
@@ -6312,5 +6328,69 @@ fn theorem_problem(
         defaults,
         definitions,
         declared_proof(theorem),
+        accommodated,
     ))
+}
+
+/// A premise that presupposes something at its top (`The king of France is bald.` asserts the king is bald and
+/// presupposes France has him): what it presupposes, as the prover reads it and written out.
+struct Accommodated {
+    presupposed: ProofExpr,
+    presupposition: String,
+}
+
+/// Each premise's [`Accommodated`] form, `None` for a premise that presupposes nothing at its top.
+fn accommodated_premises(premises: &[&LogicExpr<'_>], interner: &Interner) -> Vec<Option<Accommodated>> {
+    use logicaffeine_language::proof_convert::logic_expr_to_proof_expr;
+    premises
+        .iter()
+        .map(|premise| match *premise {
+            LogicExpr::Presupposition { presupposition, .. } => {
+                let mut registry = SymbolRegistry::new();
+                Some(Accommodated {
+                    presupposed: logic_expr_to_proof_expr(presupposition, interner),
+                    presupposition: presupposition.transpile(&mut registry, interner, OutputFormat::Unicode),
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// How deep the search for a contradiction an accommodation causes goes: such a contradiction is a short one.
+const ACCOMMODATION_DEPTH: usize = 12;
+
+/// Van der Sandt: a presupposition is accommodated in its context, the other premises, only where it is consistent
+/// there. When the other premises are consistent and deny what a premise presupposes, that presupposition has no
+/// consistent site, and the theorem is a presupposition failure, never a proof from the contradiction. A premise is
+/// never its own context, and premises inconsistent without the presupposition are no failure of it. Every refutation
+/// counts only once it is kernel-checked, and none is searched for unless the premises refute each other at all.
+fn presupposition_failure(premises: &[ProofExpr], accommodated: &[Option<Accommodated>]) -> Option<String> {
+    if accommodated.iter().all(Option::is_none) {
+        return None;
+    }
+    let falsum = ProofExpr::Atom("⊥".to_string());
+    let contradicts = |set: &[ProofExpr]| {
+        logicaffeine_proof::verify::prove_certify_check_bounded(set, &falsum, ACCOMMODATION_DEPTH).verified
+    };
+    if !contradicts(premises) {
+        return None;
+    }
+    accommodated.iter().enumerate().find_map(|(i, a)| {
+        let a = a.as_ref()?;
+        let mut context: Vec<ProofExpr> =
+            premises.iter().enumerate().filter(|&(j, _)| j != i).map(|(_, p)| p.clone()).collect();
+        if contradicts(&context) {
+            return None;
+        }
+        context.push(a.presupposed.clone());
+        contradicts(&context).then(|| {
+            format!(
+                "Premise {} presupposes {}, and the other premises deny it, so the premise has no consistent reading. \
+                 This is a presupposition failure: nothing follows from it.",
+                i + 1,
+                a.presupposition
+            )
+        })
+    })
 }

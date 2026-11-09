@@ -43,6 +43,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `vm`: a page entry the program takes (`dispatchEntry`) delivers the events its turns raised on the page's own
   elements once the outermost entry has returned, each an entry of its own along the event's dispatch path through the
   page's node dispatcher, as `page_host::lowered` does after every call it makes.
+- `ui_bridge`: a premise that presupposes at its top is accommodated only where its context, the other premises, is
+  consistent with what it presupposes. The theorem paths (`verify_theorem`, `prove_theorem_trace`,
+  `theorem_certificate`, `compile_theorem_for_ui`) refuse it as a presupposition failure when the other premises are
+  consistent and refute the presupposition, each refutation found by `prove_certify_check_bounded` at depth 12 and
+  checked by the kernel, and none searched for unless the premises refute each other at all.
 
 ## [0.11.0] - 2026-11-02
 

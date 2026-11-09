@@ -117,6 +117,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   wrote; a browser used to ignore the command. `When the page loads:` runs as the page mounts, not
   as a turn the page is handed, so its failure is the program's, as the browser's page main ends where its mount
   traps. Locked by `vm_turn_boundary_lock`.
+- **A theorem whose premise presupposes what the other premises deny is a presupposition failure, not a proof.**
+  `The king of France is bald.` presupposes that France has a king; beside `France has no king.`, accommodating that
+  made the premises contradict each other, and the prover proved `France has a king.`, or any goal, from the
+  contradiction. A presupposition is accommodated in its context, the other premises: when they are consistent and a
+  kernel-checked contradiction shows they deny what a premise presupposes, `verify_theorem`, `prove_theorem_trace`,
+  `theorem_certificate` and the Studio's theorem compile answer a presupposition failure naming the premise and what it
+  presupposes. A premise is never its own context, and premises inconsistent without the presupposition are no failure
+  of it. Locked by `phase142_vandersandt`.
 
 ## [0.11.0] - 2026-11-02
 

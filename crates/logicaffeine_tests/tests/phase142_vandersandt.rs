@@ -151,3 +151,31 @@ fn inconsistent_accommodation_is_a_failure_not_a_proof() {
          must fail, not prove a king into existence"
     );
 }
+
+#[test]
+fn the_failure_names_the_premise_whose_presupposition_the_others_deny() {
+    let src = theorem(
+        &["France has no king.", "The king of France is bald."],
+        "France has a king.",
+    );
+    let why = format!("{:?}", verify_theorem(&src).err());
+    assert!(
+        why.contains("Premise 2 presupposes") && why.contains("presupposition failure"),
+        "the second premise's definite is the one its context denies: {why}"
+    );
+}
+
+#[test]
+fn premises_inconsistent_without_the_presupposition_are_no_failure_of_it() {
+    // The context contradicts itself before anything is accommodated, so the definite's presupposition is not what
+    // leaves the premises without a consistent reading.
+    let src = theorem(
+        &["John is tall.", "John is not tall.", "The king of France is bald."],
+        "France has a king.",
+    );
+    let why = format!("{:?}", verify_theorem(&src).err());
+    assert!(
+        !why.contains("presupposition failure"),
+        "an inconsistent context is not the presupposition's failure: {why}"
+    );
+}
