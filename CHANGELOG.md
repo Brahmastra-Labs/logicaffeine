@@ -154,6 +154,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `theorem_certificate` and the Studio's theorem compile answer a presupposition failure naming the premise and what it
   presupposes. A premise is never its own context, and premises inconsistent without the presupposition are no failure
   of it. Locked by `phase142_vandersandt`.
+- **`largo lean import` rechecks a `native_decide` proof as the LOGOS kernel read it.** The kernel core's independent
+  recheck decides the export with each native decision re-derived, the proof the LOGOS kernel checked; handed the
+  export as exported, it met the `Lean.ofReduceBool` step only Lean's compiler can check and refused what the LOGOS
+  kernel accepted (`logicaffeine_kernel`).
 
 ## [0.11.0] - 2026-11-02
 

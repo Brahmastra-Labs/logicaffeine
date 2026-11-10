@@ -46,6 +46,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   assignment over {0, …, 4}, on every pair of depth-one levels over two parameters and 30,000 pairs of depth-two ones.
 - `dag_level_allocation`: a counting global allocator, by thread: deciding 4,000 orders of levels, finding a known
   substitution and substituting into 3,000 lists allocate only as a memo grows.
+- `interface::lean::native_decide`'s `export_controls` (an export without a native decision is read as exported,
+  uncopied; only each leaf's line is replaced, by its re-derivation; the kernel core accepts the re-derived export and
+  refuses the export as exported) and `pipeline::native_controls::the_kernel_core_rechecks_the_native_result_as_the_logos_kernel_read_it`.
 
 ### Changed
 - The Arena corpus at lean-kernel-arena `8139f284`: 247 cases, the 11 new ones (six `bugs/` rejects, `other/inductive-undeclared-universe` and four `corner-cases/`) vendored by `scripts/lean/arena-crown/vendor-corpus.py` from the official archive or from the corner cases rebuilt byte-identical at `d7f74a9e`; a regenerated export is now looked for in every round held, newest first, and `cedar`, re-exported at every round since, keeps its regenerated export with the new digests in its evidence. `arena_corpus_lock`, `arena_entry_lock`, the Arena README, the rehearsal and the scoreboard pin the round.

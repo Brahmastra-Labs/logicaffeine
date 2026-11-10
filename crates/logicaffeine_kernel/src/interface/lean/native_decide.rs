@@ -315,6 +315,33 @@ impl NativeDecisions {
         json!({ "ie": decision.leaf, "app": { "fn": decision.premise, "arg": decision.evaluation } })
     }
 
+    /// `export` as LOGOS reads it: each leaf's record replaced by its re-derivation
+    /// ([`NativeDecisions::rederive`]), every other line as exported. An independent checker given this
+    /// text decides the proof the LOGOS kernel decided; given the export itself, it meets Lean's
+    /// compiled step, which no kernel without Lean's compiler can check.
+    pub fn rederived_export<'e>(&self, export: &'e str) -> std::borrow::Cow<'e, str> {
+        if self.decisions.is_empty() {
+            return std::borrow::Cow::Borrowed(export);
+        }
+        let mut out = String::with_capacity(export.len());
+        for line in export.split_inclusive('\n') {
+            let body = line.trim_end_matches(['\n', '\r']);
+            let leaf = serde_json::from_str::<Value>(body).ok().filter(|r| {
+                r.get("ie")
+                    .and_then(index)
+                    .is_some_and(|e| self.decisions.contains_key(&e))
+            });
+            match leaf {
+                Some(record) => {
+                    out.push_str(&self.rederive(record).to_string());
+                    out.push_str(&line[body.len()..]);
+                }
+                None => out.push_str(line),
+            }
+        }
+        std::borrow::Cow::Owned(out)
+    }
+
     /// Every declaration whose type or value holds a leaf, in export order.
     pub fn rederivations(&self) -> Vec<Rederivation> {
         let Some(tables) = &self.tables else {
@@ -926,3 +953,7 @@ fn simple_typed(kind: Kind, body: &Value) -> Option<(usize, Constant)> {
 fn index(v: &Value) -> Option<usize> {
     v.as_u64().and_then(|n| usize::try_from(n).ok())
 }
+
+#[cfg(test)]
+#[path = "../../../../logicaffeine_tests/unit/logicaffeine_kernel/interface/lean/native_decide/export_controls.rs"]
+mod export_controls;

@@ -57,3 +57,23 @@ fn an_unobserved_native_result_discloses_the_rederivation_and_lacks_only_leans_a
     );
     assert_eq!(result.outcome(), Outcome::UnsupportedFeature);
 }
+
+#[test]
+fn the_kernel_core_rechecks_the_native_result_as_the_logos_kernel_read_it() {
+    let checked = check_export(
+        NATIVE,
+        TARGET,
+        &LeanEvidence::NotObserved,
+        &Limits::default(),
+    );
+    let stage = checked
+        .result
+        .receipt
+        .stage("independent_recheck")
+        .expect("every stage is on the receipt");
+    assert_eq!(stage.status, StageStatus::Passed, "{stage:?}");
+    assert!(
+        stage.detail.contains("accepted by the kernel core"),
+        "the recheck is the core's acceptance, not its decline: {stage:?}"
+    );
+}

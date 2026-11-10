@@ -440,10 +440,12 @@ fn run_stages(
         "the LOGOS kernel accepted every declaration of the export",
     );
     // The kernel core (`dag`, the check the Lean Kernel Arena runs and `largo lean check` runs) decides the whole export
-    // too: a refusal of what the LOGOS kernel accepted is a disagreement between the kernels, and the import stops; a
-    // decline is no verdict, and the recheck stands on the independent kernel.
+    // too, as the LOGOS kernel read it (each native decision re-derived, `native_decide`): a refusal of what the LOGOS
+    // kernel accepted is a disagreement between the kernels, and the import stops; a decline is no verdict, and the
+    // recheck stands on the independent kernel.
     let rechecked = report.declarations.len();
-    match crate::dag::arena::verdict(export, crate::dag::tc::Engine::Sem) {
+    let natives = native_decide::NativeDecisions::read(export);
+    match crate::dag::arena::verdict(&natives.rederived_export(export), crate::dag::tc::Engine::Sem) {
         crate::dag::Verdict::Reject(why) => {
             result.fail(
                 "independent_recheck",

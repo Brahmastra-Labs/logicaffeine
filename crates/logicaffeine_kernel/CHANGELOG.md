@@ -41,6 +41,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `dag::sem`'s constant inference reads the universe list in place; `dag::sem::value::Arena::args` returns a
   `SmallVec<[V; 16]>`.
 
+### Fixed
+
+- `interface::lean::native_decide::NativeDecisions::rederived_export`: the export with each leaf's record replaced by
+  its re-derivation and every other line as exported. The pipeline's independent recheck hands it to the kernel core,
+  which decides the proof the LOGOS kernel decided.
+
 ## [0.11.0] - 2026-11-02
 
 ### Added
