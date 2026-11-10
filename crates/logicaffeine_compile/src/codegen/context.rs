@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
+use std::rc::Rc;
 
 use crate::ast::logic::LogicExpr;
 use crate::ast::stmt::Stmt;
@@ -46,16 +47,16 @@ pub struct RefinementContext<'a> {
     variable_types: HashMap<Symbol, String>,
 
     /// The program's top-level function bodies, for the SIMD-reduce lifter (`simd_reduce::try_plan`)
-    /// to inline liftable transcendentals into an AVX2 kernel. Populated per-function from `all_stmts`.
-    simd_fns: crate::codegen::simd_reduce::FnMap<'a>,
+    /// to inline liftable transcendentals into an AVX2 kernel: one table per program, shared by its contexts.
+    simd_fns: Rc<crate::codegen::simd_reduce::FnMap<'a>>,
 
     /// Tracks variables that are known to be String type.
     /// Used for proper string concatenation codegen (format! vs +).
     string_vars: HashSet<Symbol>,
 
-    /// Maps function Symbol to its return type string.
-    /// Used to infer variable types from function call results.
-    fn_returns: HashMap<Symbol, String>,
+    /// Every function's return type, used to infer variable types from function call results: one table per
+    /// program, shared by its contexts.
+    fn_returns: Rc<HashMap<Symbol, String>>,
 
     /// Collection variables that escape the function (passed to calls, returned).
     /// Variables NOT in this set can use Vec<T> instead of LogosSeq<T> for zero-overhead indexing.
@@ -196,10 +197,10 @@ impl<'a> RefinementContext<'a> {
         Self {
             scopes: vec![HashMap::new()],
             variable_types: HashMap::new(),
-            simd_fns: crate::codegen::simd_reduce::FnMap::new(),
+            simd_fns: Rc::default(),
             string_vars: HashSet::new(),
             escaping_vars: HashSet::new(),
-            fn_returns: HashMap::new(),
+            fn_returns: Rc::default(),
             oracle: None,
             array_fill_pos: HashMap::new(),
             de_rc_vars: HashSet::new(),
@@ -237,10 +238,10 @@ impl<'a> RefinementContext<'a> {
         Self {
             scopes: vec![HashMap::new()],
             variable_types: type_env.to_legacy_variable_types(),
-            simd_fns: crate::codegen::simd_reduce::FnMap::new(),
+            simd_fns: Rc::default(),
             string_vars: type_env.to_legacy_string_vars(),
             escaping_vars: HashSet::new(),
-            fn_returns: HashMap::new(),
+            fn_returns: Rc::default(),
             oracle: None,
             array_fill_pos: HashMap::new(),
             de_rc_vars: HashSet::new(),
@@ -640,7 +641,7 @@ impl<'a> RefinementContext<'a> {
         self.escaping_vars = vars;
     }
 
-    pub(super) fn set_simd_fns(&mut self, fns: crate::codegen::simd_reduce::FnMap<'a>) {
+    pub(super) fn set_simd_fns(&mut self, fns: Rc<crate::codegen::simd_reduce::FnMap<'a>>) {
         self.simd_fns = fns;
     }
 
@@ -653,9 +654,9 @@ impl<'a> RefinementContext<'a> {
         self.escaping_vars.contains(sym)
     }
 
-    /// Register a function's return type.
-    pub fn register_fn_return(&mut self, fn_sym: Symbol, return_type: String) {
-        self.fn_returns.insert(fn_sym, return_type);
+    /// Read every function's return type from the program's table.
+    pub fn share_fn_returns(&mut self, returns: Rc<HashMap<Symbol, String>>) {
+        self.fn_returns = returns;
     }
 
     /// Get a function's return type.

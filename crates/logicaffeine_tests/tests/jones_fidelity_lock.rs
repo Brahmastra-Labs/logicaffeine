@@ -22,9 +22,7 @@
 //!     the classical `p2(p) ≡ p1(p)` proof, asserted where the reduced dialects genuinely agree.
 //!
 //! Correctness is verified per construct: by RE-RUNNING the residual where it round-trips through
-//! the decompiler, or by running the source program where it cannot (`CNewSet` is nullary in the
-//! Core IR, so a set residual decompiles to the unparseable `new Set of Any` — a tracked Core-IR
-//! round-trip gap, orthogonal to the set residual's Jones-optimality).
+//! the decompiler, or by running the source program where it cannot.
 //!
 //! This is exactly the lock that caught the closure keystone: `pe_mini` residualized a closure
 //! parameter as a dangling free variable (fails run-correctness) and `pe_bti` panicked — both are
@@ -93,8 +91,8 @@ const FIDELITY_CORPUS: &[Case] = &[
     c("list_index", "## Main\nLet xs be [10, 20, 30].\nShow item 2 of xs.", "20", false, true),
     c("list_length", "## Main\nShow length of [1, 2, 3, 4].", "4", false, true),
     c("push_length", "## Main\nLet mutable xs be [1, 2].\nPush 3 to xs.\nShow length of xs.", "3", false, true),
-    // set: Core-IR CNewSet is untyped → residual `new Set of Any` cannot re-parse (round_trips=false)
-    c("set_add_dedup", "## Main\nLet s be a new Set of Int.\nAdd 5 to s.\nAdd 5 to s.\nShow length of s.", "1", false, false),
+    // set: the Core IR's CNewSet carries its element type, so the residual `a new Set of Int` re-parses.
+    c("set_add_dedup", "## Main\nLet s be a new Set of Int.\nAdd 5 to s.\nAdd 5 to s.\nShow length of s.", "1", false, true),
     // ── strings ──
     c("string_interp", "## Main\nLet n be 7.\nShow \"n={n}\".", "n=7", true, true),
     c("string_interp_expr", "## Main\nLet a be 3.\nLet b be 4.\nShow \"{a + b}\".", "7", true, true),
@@ -120,11 +118,10 @@ const FIDELITY_CORPUS: &[Case] = &[
     c("copy_scalar", "## Main\nLet a be 7.\nLet b be copy of a.\nShow b.", "7", false, true),
     c("slice_len", "## Main\nLet xs be [10, 20, 30, 40].\nLet ys be items 2 through 3 of xs.\nShow length of ys.", "2", false, true),
     // (CSlice decompiles to the re-parseable `items N through M of X` form — round-trips.)
-    // ── set algebra (CUnion, CIntersection) — set residual can't round-trip (CNewSet is untyped in
-    // the Core IR → `new Set of Any`); correctness verified via the source program, residual still
-    // must be Jones-optimal in all three stages.
-    c("set_union", "## Main\nLet a be a new Set of Int.\nAdd 1 to a.\nLet b be a new Set of Int.\nAdd 2 to b.\nLet c be a union b.\nShow length of c.", "2", false, false),
-    c("set_intersection", "## Main\nLet a be a new Set of Int.\nAdd 1 to a.\nAdd 2 to a.\nLet b be a new Set of Int.\nAdd 2 to b.\nAdd 3 to b.\nLet c be a intersection b.\nShow length of c.", "1", false, false),
+    // ── set algebra (CUnion, CIntersection) — the typed CNewSet makes the set residual round-trip; it
+    // must also be Jones-optimal in all three stages.
+    c("set_union", "## Main\nLet a be a new Set of Int.\nAdd 1 to a.\nLet b be a new Set of Int.\nAdd 2 to b.\nLet c be a union b.\nShow length of c.", "2", false, true),
+    c("set_intersection", "## Main\nLet a be a new Set of Int.\nAdd 1 to a.\nAdd 2 to a.\nLet b be a new Set of Int.\nAdd 2 to b.\nAdd 3 to b.\nLet c be a intersection b.\nShow length of c.", "1", false, true),
 ];
 
 /// Every construct is Jones-optimal in all three stages. Floor may only RISE.

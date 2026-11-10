@@ -75,6 +75,12 @@ pub use abstract_interp::{
     OracleFacts, ScalarKind, VarProvenFacts,
 };
 pub mod bta;
+pub mod core_builtins;
+pub mod core_defaults;
+pub mod core_formats;
+pub mod core_operators;
+pub mod mix_bta;
+pub mod mix_lift_types;
 pub mod effects;
 pub mod egraph;
 pub mod partial_eval;
@@ -144,6 +150,29 @@ pub(crate) fn same_expr(a: &crate::ast::stmt::Expr, b: &crate::ast::stmt::Expr) 
         (Expr::Length { collection: x }, Expr::Length { collection: y }) => same_expr(x, y),
         _ => false,
     }
+}
+
+thread_local! {
+    /// The symbols of the clock reads ([`ClockRead`](crate::semantics::temporal::ClockRead)) in the program being
+    /// optimized. A clock read is no variable: each read reads the clock afresh, so no pass may equate two reads,
+    /// forward a binding of one to a later read, or move one. Installed at optimizer entry (symbols are reused
+    /// across programs on a thread).
+    static CLOCK_READS: std::cell::RefCell<std::collections::HashSet<crate::intern::Symbol>> =
+        std::cell::RefCell::new(std::collections::HashSet::new());
+}
+
+/// Record the clock reads' symbols for the program `interner` holds (call at optimizer entry).
+pub(crate) fn install_clock_reads(interner: &Interner) {
+    let reads = crate::semantics::temporal::ClockRead::ALL
+        .into_iter()
+        .filter_map(|read| interner.lookup(read.name()))
+        .collect();
+    CLOCK_READS.with(|s| *s.borrow_mut() = reads);
+}
+
+/// Whether `sym` is a clock read of the program being optimized.
+pub(crate) fn is_clock_read(sym: crate::intern::Symbol) -> bool {
+    CLOCK_READS.with(|s| s.borrow().contains(&sym))
 }
 
 thread_local! {
@@ -598,6 +627,7 @@ pub fn optimize_for_run_tiered<'a>(
 ) -> Vec<Stmt<'a>> {
     set_active_config(*cfg);
     clear_lifted_closures();
+    install_clock_reads(interner);
     crate::analysis::callgraph::install_lending_parameters(&stmts);
     if cfg.is_all_off() || tier == Tier::T0 {
         return stmts;
@@ -933,6 +963,7 @@ pub fn optimize_program<'a>(
 ) -> Vec<Stmt<'a>> {
     set_active_config(*cfg);
     clear_lifted_closures();
+    install_clock_reads(interner);
     crate::analysis::callgraph::install_lending_parameters(&stmts);
     // De-desugar FIRST: under reference semantics the parser's place-write
     // Splices fuse back to the direct nested writes every downstream pass

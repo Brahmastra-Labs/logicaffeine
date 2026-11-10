@@ -71,3 +71,27 @@ Inspect c:
         "green",
     );
 }
+
+/// An `Inspect` that ends a function, on an item of a list the function holds: the compiled match reads the item
+/// before the list goes out of scope.
+#[test]
+fn a_function_ending_in_an_inspect_of_an_item_of_its_own_list_compiles() {
+    assert_compiled_equals_interpreted_eq(
+        r#"## A Shape is one of:
+    A Circle with r Int.
+    A Dot.
+
+## To firstRadius (n: Int) -> Int:
+    Let shapes be [a new Circle with r n, a new Dot].
+    Inspect item 1 of shapes:
+        When Circle (r):
+            Return r.
+        Otherwise:
+            Return 0.
+
+## Main
+Show firstRadius(3).
+"#,
+        "3",
+    );
+}

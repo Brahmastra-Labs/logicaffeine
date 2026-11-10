@@ -1,4 +1,6 @@
 mod common;
+#[path = "common/thread_cpu.rs"]
+mod thread_cpu;
 
 // =============================================================================
 // Phase 1: Core Data Structures + Pure/Read/Write
@@ -245,4 +247,84 @@ fn analyze_fn(source: &str) -> TestEffects {
     let full_source = format!("{}\n\n## Main\nShow 1.", source);
     let env = EffectEnv::analyze_source(&full_source).expect("should parse");
     TestEffects { env }
+}
+
+/// `n` functions, each calling the next with its argument; the last `last_body` (one statement over `x`).
+fn call_chain(n: usize, last_body: &str) -> String {
+    let mut out = String::new();
+    for i in 1..n {
+        out.push_str(&format!("## To f{i} (x: Int):\n    Call f{} with x.\n\n", i + 1));
+    }
+    out.push_str(&format!("## To f{n} (x: Int):\n    {last_body}\n"));
+    out
+}
+
+#[test]
+fn a_deep_call_chain_carries_its_last_callees_effect_to_its_first_caller() {
+    let effects = analyze_fn(&call_chain(200, "Show x."));
+    for i in [1, 2, 100, 199, 200] {
+        assert!(effects.fn_has_io(&format!("f{i}")), "f{i} reaches the `Show` at the end of the chain");
+    }
+}
+
+#[test]
+fn a_pure_call_chain_stays_pure() {
+    let effects = analyze_fn(&call_chain(200, "Let y be x * 2."));
+    for i in [1, 100, 200] {
+        assert!(effects.fn_is_pure(&format!("f{i}")), "f{i} calls nothing that acts");
+    }
+}
+
+#[test]
+fn every_function_of_a_recursive_component_and_its_callers_carry_its_effects() {
+    let effects = analyze_fn(
+        "## To ping (n: Int):\n    If n is greater than 0:\n        Call pong with n - 1.\n\n## To pong (n: Int):\n    Show n.\n    Call ping with n.\n\n## To start (n: Int):\n    Call ping with n.",
+    );
+    for f in ["ping", "pong", "start"] {
+        assert!(effects.fn_has_io(f), "{f} reaches pong's `Show` through the recursion");
+        assert!(!effects.fn_is_pure(f), "{f} acts and may not return");
+    }
+}
+
+/// The CPU the effect analysis alone takes over the parsed chain of `n` functions.
+fn analysis_cpu(n: usize) -> std::time::Duration {
+    use logicaffeine_base::{Arena, Interner, Symbol};
+    use logicaffeine_language::analysis::{DiscoveryPass, TypeRegistry};
+    use logicaffeine_language::arena_ctx::AstContext;
+    use logicaffeine_language::ast::{Expr, LogicExpr, NounPhrase, Stmt, Term, ThematicRole, TypeExpr};
+    use logicaffeine_language::drs::WorldState;
+    use logicaffeine_language::{Lexer, Parser};
+    let source = format!("{}\n\n## Main\nShow 1.", call_chain(n, "Show x."));
+    let mut interner = Interner::new();
+    let mut world_state = WorldState::new();
+    let expr_arena: Arena<LogicExpr> = Arena::new();
+    let term_arena: Arena<Term> = Arena::new();
+    let np_arena: Arena<NounPhrase> = Arena::new();
+    let sym_arena: Arena<Symbol> = Arena::new();
+    let role_arena: Arena<(ThematicRole, Term)> = Arena::new();
+    let pp_arena: Arena<&LogicExpr> = Arena::new();
+    let stmt_arena: Arena<Stmt> = Arena::new();
+    let iexpr_arena: Arena<Expr> = Arena::new();
+    let type_arena: Arena<TypeExpr> = Arena::new();
+    let ctx = AstContext::with_types(
+        &expr_arena, &term_arena, &np_arena, &sym_arena, &role_arena, &pp_arena, &stmt_arena, &iexpr_arena, &type_arena,
+    );
+    let tokens = Lexer::new(&source, &mut interner).tokenize();
+    let registry: TypeRegistry = DiscoveryPass::new(&tokens, &mut interner).run_full().types;
+    let stmts = Parser::new(tokens, &mut world_state, &mut interner, ctx, registry).parse_program().expect("the chain parses");
+    let start = thread_cpu::thread_cpu_time();
+    let env = EffectEnv::from_stmts(&stmts, &interner);
+    let spent = thread_cpu::thread_cpu_time() - start;
+    assert!(env.function_has_io("f1"), "the chain's first function reaches its `Show`");
+    spent
+}
+
+/// The analysis is one pass over the call graph's components, so its cost follows the call graph's size: the chain four
+/// times as long costs under eight times the CPU, where a propagation round per level of the chain made it sixteen.
+#[test]
+fn the_effect_analysis_grows_linearly_with_a_call_chain() {
+    let short = analysis_cpu(500);
+    let long = analysis_cpu(2000);
+    let ratio = long.as_secs_f64() / short.as_secs_f64().max(0.000_001);
+    assert!(ratio < 8.0, "the analysis of 2000 functions took {long:?}, of 500 {short:?}: {ratio:.1}x for 4x the chain");
 }

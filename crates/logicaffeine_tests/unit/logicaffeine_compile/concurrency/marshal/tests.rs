@@ -3459,7 +3459,7 @@ fn aot_wiring(v: &RuntimeValue) -> AotWiring {
         RuntimeValue::Text(_) => Rust("String"),
         RuntimeValue::Char(_) => Rust("char"),
         RuntimeValue::Nothing => Rust("()"),
-        RuntimeValue::Duration(_) => Rust("std::time::Duration"),
+        RuntimeValue::Duration(_) => Rust("LogosDuration"),
         RuntimeValue::Date(_) => Rust("LogosDate"),
         RuntimeValue::Moment(_) => Rust("LogosMoment"),
         RuntimeValue::Span { .. } => Rust("LogosSpan"),
@@ -4345,6 +4345,25 @@ fn wire_encode_then_peer_decode_reconstructs_the_runtime_value() {
     ce_tree().wire_encode(&mut bytes);
     let rv = decode_value_raw(&bytes).expect("peer decode");
     assert_eq!(materialize(&rv).unwrap(), materialize(&rt_tree()).unwrap());
+}
+
+#[test]
+fn a_wire_map_peer_decodes_to_the_same_map_in_its_order() {
+    // A native engine's map reaches the host as the map it holds: every entry, in insertion order.
+    let m: logicaffeine_data::LogosMap<String, CE> = logicaffeine_data::LogosMap::new();
+    m.insert("zeta".to_string(), ce_tree());
+    m.insert("alpha".to_string(), CE::CInt(-4));
+    let mut bytes = Vec::new();
+    m.wire_encode(&mut bytes);
+    let rv = decode_value_raw(&bytes).expect("peer decode");
+    let mut expected = crate::interpreter::MapStorage::default();
+    expected.insert(RuntimeValue::Text(Rc::new("zeta".to_string())), rt_tree());
+    expected.insert(
+        RuntimeValue::Text(Rc::new("alpha".to_string())),
+        rt_ind("CE", "CInt", vec![RuntimeValue::Int(-4)]),
+    );
+    let expected = RuntimeValue::Map(Rc::new(RefCell::new(expected)));
+    assert_eq!(materialize(&rv).unwrap(), materialize(&expected).unwrap());
 }
 
 #[test]

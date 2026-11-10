@@ -8,6 +8,7 @@
 
 pub mod acceptance;
 pub mod arith;
+pub mod builtin_overloads;
 pub mod builtins;
 pub mod collections;
 pub mod compare;
@@ -20,6 +21,7 @@ pub mod exact;
 pub mod failcode;
 pub mod format;
 pub mod native_kernels;
+pub mod operator_overloads;
 pub mod patch;
 pub mod policy;
 pub mod storage;

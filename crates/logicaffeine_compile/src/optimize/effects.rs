@@ -95,8 +95,9 @@ impl EffectSet {
             && !self.concurrent
     }
 
-    /// Join two EffectSets (union of all effects).
-    pub fn join(&mut self, other: &EffectSet) {
+    /// Join two EffectSets (union of all effects), answering whether this one grew.
+    pub fn join(&mut self, other: &EffectSet) -> bool {
+        let before = self.extent();
         self.reads.extend(&other.reads);
         self.writes.extend(&other.writes);
         self.allocates |= other.allocates;
@@ -106,6 +107,16 @@ impl EffectSet {
         self.unknown |= other.unknown;
         self.nondet |= other.nondet;
         self.concurrent |= other.concurrent;
+        self.extent() != before
+    }
+
+    /// What a join can only grow: the sizes of the read and write sets and every flag.
+    fn extent(&self) -> (usize, usize, [bool; 7]) {
+        (
+            self.reads.len(),
+            self.writes.len(),
+            [self.allocates, self.io, self.security_check, self.diverges, self.unknown, self.nondet, self.concurrent],
+        )
     }
 }
 
@@ -358,56 +369,36 @@ fn analyze_program(stmts: &[Stmt<'_>], interner: &Interner) -> AnalysisResult {
         }
     }
 
-    // Fixed-point: propagate effects through call graph
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for scc in &callgraph.sccs {
-            // For each SCC, join effects of all callees
+    // Effects flow from callees to callers. The call graph's components come out callers first (Kosaraju's order, a
+    // topological order of its condensation), so one pass over them in reverse reaches every callee's final effects
+    // before its callers join them. A recursive component (several functions, or one that calls itself) always
+    // diverges, and iterates to its own fixpoint, since its members' effects feed one another.
+    for scc in callgraph.sccs.iter().rev() {
+        let recursive = scc.len() > 1 || callgraph.edges.get(&scc[0]).is_some_and(|e| e.contains(&scc[0]));
+        if recursive {
+            for fn_sym in scc {
+                if let Some(fn_effects) = functions.get_mut(fn_sym) {
+                    fn_effects.diverges = true;
+                }
+            }
+        }
+        loop {
+            let mut grew = false;
             for &fn_sym in scc {
                 if callgraph.native_fns.contains(&fn_sym) {
                     continue;
                 }
-                let callees = callgraph.edges.get(&fn_sym).cloned().unwrap_or_default();
-                for callee in &callees {
+                let Some(callees) = callgraph.edges.get(&fn_sym) else { continue };
+                for callee in callees {
                     if let Some(callee_effects) = functions.get(callee).cloned() {
                         if let Some(fn_effects) = functions.get_mut(&fn_sym) {
-                            let before = format!("{:?}", fn_effects);
-                            fn_effects.join(&callee_effects);
-                            let after = format!("{:?}", fn_effects);
-                            if before != after {
-                                changed = true;
-                            }
+                            grew |= fn_effects.join(&callee_effects);
                         }
                     }
                 }
             }
-
-            // Recursive SCCs always diverge
-            if scc.len() > 1 {
-                for &fn_sym in scc {
-                    if let Some(fn_effects) = functions.get_mut(&fn_sym) {
-                        if !fn_effects.diverges {
-                            fn_effects.diverges = true;
-                            changed = true;
-                        }
-                    }
-                }
-            } else if scc.len() == 1 {
-                let fn_sym = scc[0];
-                if callgraph
-                    .edges
-                    .get(&fn_sym)
-                    .map(|e| e.contains(&fn_sym))
-                    .unwrap_or(false)
-                {
-                    if let Some(fn_effects) = functions.get_mut(&fn_sym) {
-                        if !fn_effects.diverges {
-                            fn_effects.diverges = true;
-                            changed = true;
-                        }
-                    }
-                }
+            if !recursive || !grew {
+                break;
             }
         }
     }

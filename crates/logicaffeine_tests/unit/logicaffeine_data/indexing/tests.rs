@@ -201,3 +201,19 @@ fn logos_run_through_is_the_loop_it_replaces() {
     assert_eq!(logos_run_before(3, i64::MIN, 5), 0..0);
     std::panic::set_hook(quiet);
 }
+
+#[test]
+fn a_map_entry_reads_its_key_and_its_value_from_either_end() {
+    let entry = ("iron".to_string(), 26i64);
+    assert_eq!(LogosIndex::logos_get(&entry, 1i64), crate::types::Value::from("iron".to_string()));
+    assert_eq!(LogosIndex::logos_get(&entry, 2i64), crate::types::Value::from(26i64));
+    assert_eq!(LogosIndex::logos_get(&entry, -1i64), crate::types::Value::from(26i64));
+    assert_eq!(LogosIndex::logos_get(&entry, -2i64), crate::types::Value::from("iron".to_string()));
+}
+
+#[test]
+#[should_panic(expected = "Index 3 out of bounds")]
+fn an_index_past_a_map_entry_fails_as_any_index_past_the_end() {
+    let entry = (3i64, 9i64);
+    let _ = LogosIndex::logos_get(&entry, 3i64);
+}

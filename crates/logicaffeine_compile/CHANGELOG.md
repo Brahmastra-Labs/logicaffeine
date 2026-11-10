@@ -22,6 +22,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   shape once, trying every compressor on that one body (dials a value never reaches give identical bodies, compressed
   once; under `Auto` the numeric dial is skipped, since the column menu never reads it): smaller and fewer encode
   passes. Context mixing runs last, only on bodies whose zstd form is within a quarter of the best candidate.
+- `compile::CoreAtom`: a duration, date, instant, span, time of day or character the Core IR holds as the language's
+  own value (`CDuration`, `CDate`, `CMoment`, `CSpan`, `CTime`, `CChar`), with its tree-walker value, its wire bytes and
+  the language's expression for it; the self-interpreter's `VDuration` … `VChar` hold the same values, and
+  `core_interp.logos`, the three partial evaluators, `mix.logos`, `mix_bta` and the decompiler run, fold and spell them
+  by the language's operator and builtin tables (`semantics::operator_overloads`, `semantics::builtin_overloads`).
+  The bootstrap programs compile with reference collections and blocking waits (`codegen::with_blocking_waits`: a
+  `Sleep` compiles to `std::thread::sleep` and makes no function async), part of every native engine's cache key.
+- `pe_source.logos`: `peEmitProgram(residual, state)`, the residual's emission — every reached function once (an
+  identity helper inlined into its callers), each body and the main block through `peFinishBlock`, a pass over final
+  code only: copy loops to `copy of`, a dead initializer merged into its first write, a copy coalesced into the variable
+  it was taken from when no path reads that variable after the copy is written, a single-use binding substituted into
+  the next statement's first evaluation (anywhere in it when it can neither fail nor act; never into a loop, nor into an
+  interpolation hole whose text the parser would read as a format specifier or an end of the string), a dead
+  store whose failure the next statement subsumes, `While true` whose body opens with its exit test as a `While` on
+  that test, a never-written binding of `args()` read where it is used, `Show "{e}"` as `Show e`, a text built in steps
+  as one text, a short-circuit the self-interpreter split into a branch and a second test as one test, and a guard whose failure the next step reports identically under the same condition: an operator's
+  guard when its operands' kinds select an overload whose table guard is that condition (`peGuardCondition`), an index
+  guard when its condition is a disjunction of the host's out-of-range tests for an Int index of a list, a text or a
+  tuple read or of a list write (the kinds a fixpoint over the function's writes, `peKinds`). It also drops the stores
+  of a local nothing reads when they cannot fail by kinds (Int and Real `+ - *` widen and never fail; a name with a
+  store that can fail keeps its `Let`s), fuses a short circuit whose right operand was inlined, spells a list or tuple
+  of known structure shown in a text item by item where a hole could not hold it, drops `copy of args()` wherever it
+  stands, cuts every statement after an exit, and ends each level holding the header of a branch or loop whose blocks
+  it emptied (`Let pkv__held be …`) when that header can fail. The pass runs to its fixpoint. `PE_DRIVER_CORE` (the
+  textbook projection, the resident-server and the cdylib engines) calls it.
+- `core_operators::guards_source`: `peGuardCondition`, the finishing pass's reading of the operator table's guards,
+  generated into `pe_source.logos` between `GUARDS_BEGIN` and `GUARDS_END` and locked to the table.
 
 ### Changed
 
@@ -34,6 +61,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   where the collector cannot run.
 - `spatial::wide_int` checks its identities in the kernel's one standard library (`StandardLibrary::context`) instead
   of registering its own on every thread. Locked by `prelude_registered_once_lock`.
+- `compile::textbook_projection1` specializes the self-interpreter on the program's run-time arguments (`args()`);
+  `refuse_run_time_input` refuses the other run-time inputs, and the arguments too for `mix`'s store.
+- `core_operators` emits each table guard as `If {when}: Fail with "{report}".` ahead of the operation (it answered a
+  failure value), and `core_interp.logos` guards each index read and write by the host's own rule
+  (`logicaffeine_data::indexing::logos_offset`) the same way, then runs the operation on the host: a specializer that
+  knows a guard holds emits the failure and never computes the operation, one that does not leaves a guard the
+  finishing pass drops, never a failure value threaded through the program. The self-interpreter stops every failing
+  run itself, where the program's run stops, with the language's report — a program's own `Fail`, a broken assertion
+  or check, a pop from an empty list, a refusal, `Escape to Rust:` — and never hands a `CoreFail` back to its driver;
+  `is not` on two values of one scalar kind is the host's own `is not`. `core_interp.logos` also runs a `While`
+  with its test at the head, a range loop and a collection loop as the host's own (a collection whose loop body writes
+  it is iterated from one snapshot), and shows a list of one scalar kind through a host list. A call's body
+  reports every exit but a failure as one return (its result and its parameters' last values), so a procedure that
+  returns early and one that runs to its end leave the same shape. A list of lists of one scalar kind shows through a
+  host list of lists (`coreRowsAll` decides the kind per kind, with no state carried across the rows).
+- `mix.logos` ends a residual block at a failure it reaches (`MixHalted`): a residual `Fail`, a static block whose run
+  fails, a function unfolded at a call that fails; a dynamic branch or loop body that fails ends there. `mix_bta`
+  annotates a `Break` by the control between it and its own loop. Under static control relative to that loop it ends
+  the unrolling (`BSBreak`), even where the loop stands in a residual branch. With a residual branch, loop or
+  `Inspect` between them it is a residual `Break` and its loop is residual, and no statement holding such a `Break`
+  runs while specializing. `mix.logos` ends the static loop a `Break` reaches (`MixBroke`), a `Break` that a static
+  block's run answers (`CoreBreak`) included.
+- `mix_bta` specializes a residual call on its static arguments when every argument is static: a call whose result is
+  dynamic, or one that writes back a variable live where a region ends. It used to take each such argument as dynamic
+  and lift it into the residual, so the specializer's own evaluator, called with the self-interpreter's functions,
+  held a literal of all of them in every lift it specialized.
+- The effect analysis (`optimize::effects`) propagates a callee's effects to its callers in one pass over the call
+  graph's components, callees first, and iterates only inside a recursive component, to its own fixpoint;
+  `EffectSet::join` answers whether a set grew. It used to repeat a whole-graph round per level of the call graph and
+  render both effect sets with `{:?}` on every edge of every round. LOGOS→Rust of the second projection's 186k-line
+  compiler takes 42 s of CPU where it took 83 s, and the generated Rust is byte for byte the same (`phase_effects`).
+- A generated engine is built by what it is (`EngineBuild`). The specializers' engines keep `opt-level=3` with the
+  release default's local ThinLTO. The residual programs the projections compile to native code (the second
+  projection's compiler, the third's compiler generator) build at `opt-level=1` over 256 codegen units without
+  link-time optimization: the native compiler's build takes 420 s of CPU where it took 1,514 s, of which ThinLTO was
+  624 s, and it compiles within 7% of its old speed.
+- `pe_source.logos` generalizes a call at a deep strict embedding only when it re-enters the same code: every
+  argument holding no residual leaf is the one the embedded call held (`peSameStaticConfig`).
+- `mix_bta` annotates a range loop (`BSRepeatRange` when its bounds are known, `BDRepeatRange` otherwise) and
+  `mix.logos` runs both, so the offline projections hold a self-interpreter that runs the program's range loops as the
+  host's.
+- `pe_source.logos`: a block's modified set excludes the names it declares; a static value that turns residual is
+  declared once (`peDeclareDynamic`: nothing for a self-binding, a `Set` for a name already residual); an `If` with one
+  exiting branch continues in the enclosing block; every residual loop variable is a leaf; a static list read at a
+  run-time index is a box; a static range unrolls as the `While` arm does; comparisons, `length of` and `not` over pure
+  operands are pure. A return tree branches on an `Inspect` with an `Otherwise` arm as on an `If` (the rest of the block
+  continues in the one arm that does not exit), so a function whose block exits through a call's failure check splits at
+  its call, and a recursive procedure writing through a `mutable` parameter compiles to a function returning the
+  parameter's last value. A branch ending in a `Fail` is an exit and a leaf of a return tree. A `Fail` the specializer
+  reaches ends the path as a `Return` does: its block stops there, a loop it unrolls stops at the pass that fails, and
+  a function whose body fails unfolds with every statement hoisted and the bottom as its value. A value the run decides
+  pushed onto a known list takes a fresh name and the list stays known; two lists that differ at every item generalize
+  to one box; a box whose element is the identity or a copy of it is the identity or a copy.
+- `pe_source.logos` keeps a variant whose tag the run decides as one residual sum: `## A PeSum is one of:`, with a
+  constructor per shape the specializer met, whose fields are that shape's run-time parts. A residual `Inspect` on
+  the sum opens it to the shape each arm knows, and the arms of a residual `Inspect` merge by shape as an `If`'s
+  branches do, so a variant set under a run-time branch compiles to the program's own branches at no dispatch.
 
 ### Fixed
 
@@ -67,6 +151,95 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   checked by the kernel, and none searched for unless the premises refute each other at all.
 - A receiver refuses a byte, delta, delta-of-delta, bit-pack, dictionary or run-length int column claiming more
   elements than its `ReceiveLimits::max_elements`; a tiny compressed frame could expand those past the budget.
+- The generated Rust reads the clock for `today` and `now` wherever they appear (`semantics::temporal::ClockRead`
+  names them for the checker, the type environment and the emitter), holds a Duration as the signed `LogosDuration`,
+  waits in `Sleep` and a select's `After` for any duration-typed
+  expression (an Int at or below zero waits not at all), and types the language's temporal arithmetic
+  (`LogosType::temporal_arithmetic`) and an interpolated Text.
+- Async coloring walks every expression a statement evaluates (`ast_depth`'s enumerators) and every nested block
+  (`analysis::tower::nested_blocks`): a call of a sleeping function from a constructor field, `not`, a set field, a
+  `Splice`, `Reversibly:`, `some`, a range bound, `length`/`contains`/copy, a set's add/remove/union, a capacity or a
+  failure reason colors its caller, as a `Sleep` in any block colors its function.
+- A `Repeat` whose body awaits steps an iterator over the items its `for` would walk (it moved the collection); an
+  await of a function on a cycle of the call graph boxes its future (`::std::boxed::Box::pin`, in full, as every std
+  name the compiler emits beside a program's own types), at every call and launch site.
+- A slice is an owned list (`LogosSeq::from_vec`) wherever it is held, returned, passed or stored; a length, a
+  membership, a borrowed parameter and a loop's snapshot read the view of the items (`codegen::expr::slice_view`).
+- No optimization treats a clock read as a variable: the optimizer installs the program's clock symbols at entry
+  (`optimize::is_clock_read`) and equality saturation reads each as an opaque leaf. The C and RISC-V shims' `now`
+  read nanoseconds, and RISC-V compares two instants or two dates as the integers they ride in.
+- The AST → C backend's integer collections read a date, an instant, a time of day and a duration apart
+  (`codegen_c::types::Ints`; `logos_int_text` shows each as itself), a record or variant holding a temporal value
+  shows, and the runtime computes `months_between` and `years_between` as base does.
+- **The self-interpreter compares and keys values as the language does.** `core_interp`'s equality is structural:
+  numbers across Int and Real, lists and tuples by position, sets by content, maps, records and variants by their
+  entries, where it compared the text it would print (`["1"] equals [1]` was `true`). A map holds each key as the
+  value it is, under a text two keys share only when the language calls them equal, so an Int-keyed map iterates its
+  keys as Ints (`k + 1` gave `11`) and two keys that print alike stay two; a set adds, holds and removes by the same
+  equality. The store the offline specializer reads its program from (`mix_bta::store_builder`, `residual_input_wire`)
+  writes its maps the same way.
+- **The textbook first projection specializes a value it knows only in part.** A `Let` whose value has a known kind
+  and a part the specializer cannot compute (`Let n be parseInt("15").`) binds that part once, where it is computed,
+  and keeps the kind, so `Show n + 1` specializes to the program's own work instead of a residual that kept the
+  self-interpreter and named its pattern variables unbound; a residual that still holds the self-interpreter's values
+  carries their types (`textbook_projection1`).
+- **The specializers fold what the language computes, by the language's own tables.** Two known values fold by the
+  operator table (`core_operators::specializer_source`, `**`, `//` and `is approximately` included), a pure builtin on
+  known arguments by the builtin table (`core_builtins::specializer_source`, bytes as a known list), and known lists
+  concatenate and repeat; `Show upper("hi")` specializes to `text_from_bytes([72, 73])` where it left 12,618 lines.
+- Both decompilers print a construction an operator follows in parentheses: `(a new Point with x 1) equals …` read
+  as `x (1 equals …)`.
+- `mix_bta`: a specialization read the clock. The self-interpreter reads it for `now` and `now()`, and the
+  specializer's own two-level program held those reads in its static parts. So the compiler the second projection
+  writes, and the compiler generator of the third, each held the moment it was built, and the compiler the generator
+  writes differed from the second projection's by those moments. In a program with a dynamic input, a read of the run
+  (what `run_time_input` names) is now dynamic and an effect, and the residual reads it when it runs
+  (`futamura_textbook_lock`; mix_bta's unit tests).
+- `pe_source.logos`: a store into a literal list under a run-time branch left a residual reading a leaf it never bound
+  (`Undefined variable`) — `peMatchLeaves` took no literal list apart — and the same store under a run-time loop ran
+  the program interpreted; a merge whose entry or branch ends do not match its shape now takes the dynamic path. A
+  branch whose blocks the specializer emptied was printed as nothing, its test with it: `If (5 / n) > 1:` over a dead
+  body ran on at `n = 0`.
+- `pe_source.logos`: a single-use leaf sank into a later move across a write to the leaf itself, and an `If` merge
+  kept a list copy that the other branch had pushed to in place — both printed stale values. A loop frame cleared by
+  an unrolled loop that returned stayed cleared, so the enclosing loop's `Break` went unrecorded and the whole program
+  fell back to the self-interpreter.
+- `pe_source.logos`: the specializer's memo key spelled a record's or a map's field values but not their fields, every
+  closure the same and an indirect call by its target alone, so two calls differing only there shared one
+  specialization: the textbook first projection of two functions running one block under differently named
+  parameters (`f(a)`, `g(b)`) read `f`'s parameter in `g` (`Undefined variable: b`), and the direct specialization of
+  one function given two closures ran the first closure twice. Every value and statement now keys by its whole
+  structure (`stmtToKeyPart` covers every statement, `exprToKeyPart` every expression) (`futamura_textbook_lock`,
+  `two_functions_run_one_block_under_their_own_parameters`, `two_closures_passed_to_one_function_keep_their_bodies`).
+- `mix.logos`: a static block whose run failed went on with an empty store.
+- The decompiler's `collectCallNames` reads a range loop's bounds and body, so a function called only inside one is
+  emitted (the direct first projection printed `Unknown function`).
+- The textbook first projection of a recursive procedure writing through a `mutable` parameter, called on a value the
+  specializer knows only in part (`parseInt("3")`), left a residual reading a leaf it never declared (`Undefined
+  variable`, 1151 units of dispatch); it now compiles to the procedure as a function at no dispatch
+  (`futamura_textbook_lock`, `a_recursive_procedure_writes_a_parsed_number_back`).
+- The decompiler prints a range collection as a `from … to` loop, a call used as an index in parentheses and an
+  interpolation inside an interpolation flattened.
+- The Core IR encoders (`encode_program_source`, its compact form and the native builder) put a desugaring's
+  statements (a comprehension's, a destructuring `Let`'s, a tensor declaration's) and a `Reversibly:` block's in the
+  block that holds them, as they put a `During` span's. They wrote them as an always-taken `CIf`, and a
+  self-interpreter that scopes its blocks lost the names they bind. Every block the encoders walk (a closure's, a
+  concurrent or parallel task's, a `Select` branch's, a zone's) goes through the one list walk: a loop or an `Inspect`
+  inside a closure's block was encoded as text the self-interpreter could not parse, and the native builder left the
+  program to the interpreter (`futamura_textbook_lock`, `native_pe_wire`, compile's unit tests).
+- `pe_source.logos`: the online specializer folds an `Add` into a set it knows only when it knows the element, and
+  writes a folded `Add` into the residual only for a set the residual binds. It folded an element it knew only in part
+  (a parsed `n`) by its spelling, so the set it knew counted `n` as one more item (`length of b` answered 2 for
+  `{1}` after `Add n to b` with `n` = 1) and `b contains 3` folded to `false` with `n` = 3; it now declares the set
+  and leaves that `Add` to the run, as `Push` does. A set it knew whole, bound from another set (`Let b be copy of a`,
+  `Let b be a`, a function's copy of its parameter), had no residual binding, yet each `Add` to it was written too,
+  so the residual added to a name it never bound (`Undefined variable`) (`futamura_textbook_lock`, the semantics
+  corpus's set cases).
+- The Rust tier stores a `mutable` parameter put into a variant or a record as the value the parameter holds then: a
+  deep copy of a list or map lent by sharing, as `Let` and `Return` take one (`lent_by_sharing`). At the parameter's
+  last use it stored the reference itself (`&LogosSeq`, `&LogosMap` or `&mut T`, which did not build), elsewhere a
+  second handle on the caller's buffer, which a later write to the parameter changed: the stored list printed
+  `[5, 1, 2]` where the language prints `[5, 1]` (`e2e_ref_semantics`).
 
 ## [0.11.0] - 2026-11-02
 

@@ -18,25 +18,33 @@ const CORE_TYPES: &str = r#"
     A CIndex with coll CExpr and idx CExpr.
     A CLen with target CExpr.
     A CMapGet with target CExpr and key CExpr.
-    A CNewSeq.
+    A CNewSeq with elementType Text.
     A CNewVariant with tag Text and fnames Seq of Text and fvals Seq of CExpr.
     A CList with items Seq of CExpr.
     A CRange with start CExpr and end CExpr.
     A CSlice with coll CExpr and startIdx CExpr and endIdx CExpr.
     A CCopy with target CExpr.
-    A CNewSet.
+    A CNewSet with elementType Text.
     A CContains with coll CExpr and elem CExpr.
     A CUnion with left CExpr and right CExpr.
     A CIntersection with left CExpr and right CExpr.
     A COptionSome with inner CExpr.
     A COptionNone.
+    A CNothing.
+    A CDeclaredDefault with typeName Text.
+    A CSpelled with code Text and awaits Text.
     A CTuple with items Seq of CExpr.
     A CNew with typeName Text and fieldNames Seq of Text and fields Seq of CExpr.
     A CFieldAccess with target CExpr and field Text.
     A CClosure with params Seq of Text and body Seq of CStmt and captured Seq of Text.
     A CCallExpr with target CExpr and args Seq of CExpr.
     A CInterpolatedString with parts Seq of CStringPart.
-    A CDuration with amount CExpr and unit Text.
+    A CDuration with value Duration.
+    A CDate with value Date.
+    A CMoment with value Moment.
+    A CSpan with value Span.
+    A CTime with value Time.
+    A CChar with value Char.
     A CTimeNow.
     A CDateToday.
     A CEscExpr with code Text.
@@ -55,6 +63,7 @@ const CORE_TYPES: &str = r#"
     A CSetIdx with target Text and idx CExpr and val CExpr.
     A CMapSet with target Text and key CExpr and val CExpr.
     A CPop with target Text.
+    A CPopInto with target Text and into Text.
     A CRepeat with var Text and coll CExpr and body Seq of CStmt.
     A CRepeatRange with var Text and start CExpr and end CExpr and body Seq of CStmt.
     A CBreak.
@@ -62,11 +71,13 @@ const CORE_TYPES: &str = r#"
     A CRemove with elem CExpr and target Text.
     A CForceDynamic with name Text.
     A CSetField with target Text and field Text and val CExpr.
+    A CAtPath with target Text and path Seq of Text and body Seq of CStmt.
     A CStructDef with name Text and fieldNames Seq of Text.
     A CInspect with target CExpr and arms Seq of CMatchArm.
     A CEnumDef with name Text and variants Seq of Text.
     A CRuntimeAssert with cond CExpr and msg CExpr.
     A CHardAssert with cond CExpr and msg CExpr.
+    A CFail with reason CExpr.
     A CGive with expr CExpr and target Text.
     A CEscStmt with code Text.
     A CSleep with duration CExpr.
@@ -74,6 +85,7 @@ const CORE_TYPES: &str = r#"
     A CReadFile with path CExpr and target Text.
     A CWriteFile with path CExpr and content CExpr.
     A CCheck with predicate CExpr and msg CExpr.
+    A CCheckPolicy with subject Text and object Text and capability Bool and rule Text and alternatives Seq of CPolicyAlt and source Text.
     A CAssert with proposition CExpr.
     A CTrust with proposition CExpr and justification Text.
     A CRequire with dependency Text.
@@ -83,6 +95,7 @@ const CORE_TYPES: &str = r#"
     A CDecrease with target Text and amount CExpr.
     A CAppendToSeq with target Text and value CExpr.
     A CResolve with target Text.
+    A CResolveTo with target Text and value CExpr.
     A CSync with target Text and channel CExpr.
     A CMount with target Text and path CExpr.
     A CConcurrent with branches Seq of Seq of CStmt.
@@ -131,20 +144,34 @@ const CORE_TYPES: &str = r#"
     A VStruct with typeName Text and fields Map of Text to CVal.
     A VVariant with typeName Text and variantName Text and fields Seq of CVal.
     A VClosure with params Seq of Text and body Seq of CStmt and capturedEnv Map of Text to CVal.
-    A VDuration with millis Int.
-    A VDate with year Int and month Int and day Int.
-    A VMoment with millis Int.
-    A VSpan with startMillis Int and endMillis Int.
-    A VTime with hour Int and minute Int and second Int.
+    A VDuration with value Duration.
+    A VDate with value Date.
+    A VMoment with value Moment.
+    A VSpan with value Span.
+    A VTime with value Time.
+    A VChar with value Char.
     A VCrdt with kind Text and state Map of Text to CVal.
 
 ## A CMatchArm is one of:
     A CWhen with variantName Text and bindings Seq of Text and body Seq of CStmt.
     A COtherwise with body Seq of CStmt.
 
+## A CPolicyAlt is one of:
+    A CPolicyCase with typeName Text and condition CPolicy.
+
+## A CPolicy is one of:
+    A PFieldEquals with field Text and expected Text and literal Bool and asInt Int and isInt Bool and asBool Bool and isBool Bool.
+    A PFieldBool with field Text and value Bool.
+    A PFieldsEqual with subjectField Text and objectField Text.
+    A PAnd with left CPolicy and right CPolicy.
+    A POr with left CPolicy and right CPolicy.
+    A PFalse.
+    A PRecursive with predicate Text.
+
 ## A CStringPart is one of:
     A CLiteralPart with value Text.
     A CExprPart with expr CExpr.
+    A CFormattedPart with expr CExpr and spec Text and form Text and size Int.
 "#;
 
 /// ════════════════════════════════════════════════════════════════════════════════════════════
@@ -205,6 +232,16 @@ fn promoted_core_interp_is_the_fixture_self_interpreter() {
 fn run_interpreter_program(main_block: &str, expected: &str) {
     let source = format!("{}\n{}\n## Main\n{}", CORE_TYPES, INTERPRETER, main_block);
     common::assert_bootstrap_exact_output(&source, expected);
+}
+
+/// [`run_interpreter_program`] for a run that fails: the self-interpreter stops it itself, where the language stops the
+/// program, having printed `printed`, with `report`.
+fn run_interpreter_program_failing(main_block: &str, printed: &str, report: &str) {
+    let source = format!("{}\n{}\n## Main\n{}", CORE_TYPES, INTERPRETER, main_block);
+    let result = common::run_bootstrap_logos(&source);
+    assert!(!result.success, "the run should stop with `{report}`, but it ran on and printed {:?}", result.stdout);
+    assert_eq!(result.stdout.trim(), printed, "what the run printed before it stopped");
+    assert!(result.stderr.contains(report), "the run should stop with `{report}`; it reported:\n{}", result.stderr);
 }
 
 #[test]
@@ -866,7 +903,7 @@ Let result be coreExecBlock(stmts, env, funcMap).
 
 #[test]
 fn core_eval_div_by_zero() {
-    run_interpreter_program(
+    run_interpreter_program_failing(
         r#"Let divExpr be a new CBinOp with op "/" and left (a new CInt with value 10) and right (a new CInt with value 0).
 Let showStmt be a new CShow with expr divExpr.
 Let stmts be a new Seq of CStmt.
@@ -874,14 +911,20 @@ Push showStmt to stmts.
 Let env be a new Map of Text to CVal.
 Let funcMap be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcMap).
+Inspect result:
+    When CoreFail (failure):
+        Show "stopped: {failure}".
+    Otherwise:
+        Show "ran on".
 "#,
-        "Error: division by zero",
+        "",
+        "Division by zero",
     );
 }
 
 #[test]
 fn core_eval_mod_by_zero() {
-    run_interpreter_program(
+    run_interpreter_program_failing(
         r#"Let modExpr be a new CBinOp with op "%" and left (a new CInt with value 10) and right (a new CInt with value 0).
 Let showStmt be a new CShow with expr modExpr.
 Let stmts be a new Seq of CStmt.
@@ -889,14 +932,20 @@ Push showStmt to stmts.
 Let env be a new Map of Text to CVal.
 Let funcMap be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcMap).
+Inspect result:
+    When CoreFail (failure):
+        Show "stopped: {failure}".
+    Otherwise:
+        Show "ran on".
 "#,
-        "Error: modulo by zero",
+        "",
+        "Modulo by zero",
     );
 }
 
 #[test]
 fn core_eval_index_out_of_bounds() {
-    run_interpreter_program(
+    run_interpreter_program_failing(
         r#"Let initItems be a new Seq of CVal.
 Push (a new VInt with value 10) to initItems.
 Push (a new VInt with value 20) to initItems.
@@ -910,14 +959,20 @@ Let env be a new Map of Text to CVal.
 Set item "items" of env to initSeq.
 Let funcMap be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcMap).
+Inspect result:
+    When CoreFail (failure):
+        Show "stopped: {failure}".
+    Otherwise:
+        Show "ran on".
 "#,
-        "Error: index out of bounds",
+        "",
+        "Index 10 out of bounds",
     );
 }
 
 #[test]
 fn core_eval_error_propagation_binop() {
-    run_interpreter_program(
+    run_interpreter_program_failing(
         r#"Let errExpr be a new CBinOp with op "/" and left (a new CInt with value 1) and right (a new CInt with value 0).
 Let letErr be a new CLet with name "err" and expr errExpr.
 Let addExpr be a new CBinOp with op "+" and left (a new CVar with name "err") and right (a new CInt with value 5).
@@ -928,14 +983,20 @@ Push showStmt to stmts.
 Let env be a new Map of Text to CVal.
 Let funcMap be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcMap).
+Inspect result:
+    When CoreFail (failure):
+        Show "stopped: {failure}".
+    Otherwise:
+        Show "ran on".
 "#,
-        "Error: division by zero",
+        "",
+        "Division by zero",
     );
 }
 
 #[test]
 fn core_eval_error_in_show() {
-    run_interpreter_program(
+    run_interpreter_program_failing(
         r#"Let modExpr be a new CBinOp with op "%" and left (a new CInt with value 7) and right (a new CInt with value 0).
 Let showStmt be a new CShow with expr modExpr.
 Let stmts be a new Seq of CStmt.
@@ -943,8 +1004,14 @@ Push showStmt to stmts.
 Let env be a new Map of Text to CVal.
 Let funcMap be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcMap).
+Inspect result:
+    When CoreFail (failure):
+        Show "stopped: {failure}".
+    Otherwise:
+        Show "ran on".
 "#,
-        "Error: modulo by zero",
+        "",
+        "Modulo by zero",
     );
 }
 
@@ -2697,7 +2764,7 @@ Show valToText(v).
 
 #[test]
 fn core_float_div_by_zero() {
-    run_interpreter_program(
+    run_interpreter_program_failing(
         r#"Let leftExpr be a new CFloat with value 1.0.
 Let rightExpr be a new CFloat with value 0.0.
 Let divExpr be a new CBinOp with op "/" and left leftExpr and right rightExpr.
@@ -2707,8 +2774,14 @@ Push showStmt to stmts.
 Let env be a new Map of Text to CVal.
 Let funcMap be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcMap).
+Inspect result:
+    When CoreFail (failure):
+        Show "stopped: {failure}".
+    Otherwise:
+        Show "ran on".
 "#,
-        "Error: division by zero",
+        "",
+        "Division by zero",
     );
 }
 
@@ -3173,7 +3246,7 @@ Let result be coreExecBlock(stmts, env, funcMap).
 
 #[test]
 fn core_iter_pop_empty_error() {
-    run_interpreter_program(
+    run_interpreter_program_failing(
         r#"Let emptyItems be a new Seq of CExpr.
 Let letXs be a new CLet with name "xs" and expr (a new CList with items emptyItems).
 Let popStmt be a new CPop with target "xs".
@@ -3185,8 +3258,14 @@ Push showStmt to stmts.
 Let env be a new Map of Text to CVal.
 Let funcMap be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcMap).
+Inspect result:
+    When CoreFail (failure):
+        Show "stopped: {failure}".
+    Otherwise:
+        Show "ran on".
 "#,
-        "survived",
+        "",
+        "Cannot pop from xs: it is empty",
     );
 }
 
@@ -3375,7 +3454,7 @@ Let env be a new Map of Text to CVal.
 Let funcMap be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcMap).
 "#,
-        "Some(42)",
+        "42",
     );
 }
 
@@ -3390,7 +3469,7 @@ Let env be a new Map of Text to CVal.
 Let funcMap be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcMap).
 "#,
-        "None",
+        "nothing",
     );
 }
 
@@ -3409,7 +3488,7 @@ Let env be a new Map of Text to CVal.
 Let funcMap be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcMap).
 "#,
-        "Some(42)",
+        "42",
     );
 }
 
@@ -3618,7 +3697,7 @@ Let env be a new Map of Text to CVal.
 Let funcMap be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcMap).
 "#,
-        "Point(...)",
+        "Point { x: 3, y: 4 }",
     );
 }
 
@@ -3800,7 +3879,7 @@ Let f2 be a new Seq of CExpr.
 Push a new CInt with value 3 to f2.
 Push a new CInt with value 4 to f2.
 Let n2 be a new CNew with typeName "Point" and fieldNames fn2 and fields f2.
-Let letSeq be a new CLet with name "pts" and expr (a new CNewSeq).
+Let letSeq be a new CLet with name "pts" and expr (a new CNewSeq with elementType "Point").
 Let push1 be a new CPush with expr n1 and target "pts".
 Let push2 be a new CPush with expr n2 and target "pts".
 Let idxExpr be a new CIndex with coll (a new CVar with name "pts") and idx (a new CInt with value 2).
@@ -3956,7 +4035,7 @@ Let env be a new Map of Text to CVal.
 Let funcMap be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcMap).
 "#,
-        "[map]",
+        "Circle(5)",
     );
 }
 
@@ -4520,7 +4599,7 @@ Push v2 to listItems.
 Push v3 to listItems.
 Let listExpr be a new CList with items listItems.
 Let letSeq be a new CLet with name "items" and expr listExpr.
-Let letResult be a new CLet with name "result" and expr (a new CNewSeq).
+Let letResult be a new CLet with name "result" and expr (a new CNewSeq with elementType "Int").
 Let numBindings be a new Seq of Text.
 Push "n" to numBindings.
 Let numBody be a new Seq of CStmt.
@@ -4966,7 +5045,7 @@ fn core_temporal_duration_seconds() {
         r#"
 Let env be a new Map of Text to CVal.
 Let funcs be a new Map of Text to CFunc.
-Let dur be coreEval(a new CDuration with amount (a new CInt with value 5) and unit "seconds", env, funcs).
+Let dur be coreEval(a new CDuration with value 5 seconds, env, funcs).
 Show valToText(dur).
 "#,
         "5s",
@@ -4979,10 +5058,10 @@ fn core_temporal_duration_minutes() {
         r#"
 Let env be a new Map of Text to CVal.
 Let funcs be a new Map of Text to CFunc.
-Let dur be coreEval(a new CDuration with amount (a new CInt with value 3) and unit "minutes", env, funcs).
+Let dur be coreEval(a new CDuration with value 3 minutes, env, funcs).
 Show valToText(dur).
 "#,
-        "3m",
+        "3min",
     );
 }
 
@@ -4992,8 +5071,8 @@ fn core_temporal_duration_add() {
         r#"
 Let env be a new Map of Text to CVal.
 Let funcs be a new Map of Text to CFunc.
-Let d1 be a new CDuration with amount (a new CInt with value 5) and unit "seconds".
-Let d2 be a new CDuration with amount (a new CInt with value 10) and unit "seconds".
+Let d1 be a new CDuration with value 5 seconds.
+Let d2 be a new CDuration with value 10 seconds.
 Let addExpr be a new CBinOp with op "+" and left d1 and right d2.
 Let result be coreEval(addExpr, env, funcs).
 Show valToText(result).
@@ -5008,12 +5087,12 @@ fn core_temporal_duration_multiply() {
         r#"
 Let env be a new Map of Text to CVal.
 Let funcs be a new Map of Text to CFunc.
-Let d1 be a new CDuration with amount (a new CInt with value 5) and unit "seconds".
+Let d1 be a new CDuration with value 5 seconds.
 Let mulExpr be a new CBinOp with op "*" and left d1 and right (a new CInt with value 3).
 Let result be coreEval(mulExpr, env, funcs).
 Show valToText(result).
 "#,
-        "15s",
+        "Error: Cannot multiply Duration and Int",
     );
 }
 
@@ -5024,9 +5103,9 @@ fn core_temporal_date_construct() {
 Let env be a new Map of Text to CVal.
 Let funcs be a new Map of Text to CFunc.
 Let result be coreEval(a new CDateToday, env, funcs).
-Show valToText(result).
+Show valToText(result) equals "{today}".
 "#,
-        "2026-1-1",
+        "true",
     );
 }
 
@@ -5051,24 +5130,30 @@ Let result be coreExecBlock(stmts, env, funcs).
 
 #[test]
 fn core_temporal_date_add_duration() {
-    run_interpreter_program(
+    run_interpreter_program_failing(
         r#"
 Let stmts be a new Seq of CStmt.
 Push a new CLet with name "d" and expr (a new CDateToday) to stmts.
-Push a new CLet with name "dur" and expr (a new CDuration with amount (a new CInt with value 5) and unit "seconds") to stmts.
+Push a new CLet with name "dur" and expr (a new CDuration with value 5 seconds) to stmts.
 Let addExpr be a new CBinOp with op "+" and left (a new CVar with name "d") and right (a new CVar with name "dur").
 Push a new CShow with expr addExpr to stmts.
 Let env be a new Map of Text to CVal.
 Let funcs be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcs).
+Inspect result:
+    When CoreFail (failMsg):
+        Show failMsg.
+    Otherwise:
+        Show "ran on".
 "#,
-        "2026-1-1",
+        "",
+        "Cannot add Date and Duration",
     );
 }
 
 #[test]
 fn core_temporal_date_difference() {
-    run_interpreter_program(
+    run_interpreter_program_failing(
         r#"
 Let stmts be a new Seq of CStmt.
 Push a new CLet with name "d1" and expr (a new CDateToday) to stmts.
@@ -5078,8 +5163,14 @@ Push a new CShow with expr diffExpr to stmts.
 Let env be a new Map of Text to CVal.
 Let funcs be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcs).
+Inspect result:
+    When CoreFail (failMsg):
+        Show failMsg.
+    Otherwise:
+        Show "ran on".
 "#,
-        "0ms",
+        "",
+        "Cannot subtract Date from Date",
     );
 }
 
@@ -5090,7 +5181,7 @@ fn core_temporal_moment_comparison() {
 Let stmts be a new Seq of CStmt.
 Push a new CLet with name "m1" and expr (a new CTimeNow) to stmts.
 Push a new CLet with name "m2" and expr (a new CTimeNow) to stmts.
-Let cmpExpr be a new CBinOp with op "==" and left (a new CVar with name "m1") and right (a new CVar with name "m2").
+Let cmpExpr be a new CBinOp with op "<=" and left (a new CVar with name "m1") and right (a new CVar with name "m2").
 Push a new CShow with expr cmpExpr to stmts.
 Let env be a new Map of Text to CVal.
 Let funcs be a new Map of Text to CFunc.
@@ -5105,13 +5196,13 @@ fn core_temporal_time_construct() {
     run_interpreter_program(
         r#"
 Let env be a new Map of Text to CVal.
-Set item "t" of env to (a new VTime with hour 14 and minute 30 and second 0).
+Set item "t" of env to (a new VTime with value 2:30pm).
 Let funcs be a new Map of Text to CFunc.
 Let stmts be a new Seq of CStmt.
 Push a new CShow with expr (a new CVar with name "t") to stmts.
 Let result be coreExecBlock(stmts, env, funcs).
 "#,
-        "14:30:0",
+        "14:30:00",
     );
 }
 
@@ -5120,17 +5211,17 @@ fn core_temporal_duration_to_text() {
     run_interpreter_program(
         r#"
 Let stmts be a new Seq of CStmt.
-Push a new CLet with name "d1" and expr (a new CDuration with amount (a new CInt with value 500) and unit "milliseconds") to stmts.
+Push a new CLet with name "d1" and expr (a new CDuration with value 500 milliseconds) to stmts.
 Push a new CShow with expr (a new CVar with name "d1") to stmts.
-Push a new CLet with name "d2" and expr (a new CDuration with amount (a new CInt with value 30) and unit "seconds") to stmts.
+Push a new CLet with name "d2" and expr (a new CDuration with value 30 seconds) to stmts.
 Push a new CShow with expr (a new CVar with name "d2") to stmts.
-Push a new CLet with name "d3" and expr (a new CDuration with amount (a new CInt with value 2) and unit "minutes") to stmts.
+Push a new CLet with name "d3" and expr (a new CDuration with value 2 minutes) to stmts.
 Push a new CShow with expr (a new CVar with name "d3") to stmts.
 Let env be a new Map of Text to CVal.
 Let funcs be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcs).
 "#,
-        "500ms\n30s\n2m",
+        "500ms\n30s\n2min",
     );
 }
 
@@ -5158,15 +5249,21 @@ Let result be coreExecBlock(stmts, env, funcs).
 
 #[test]
 fn core_io_runtime_assert_fail() {
-    run_interpreter_program(
+    run_interpreter_program_failing(
         r#"
 Let stmts be a new Seq of CStmt.
 Push a new CRuntimeAssert with cond (a new CBool with value false) and msg (a new CText with value "invariant broken") to stmts.
 Let env be a new Map of Text to CVal.
 Let funcs be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcs).
+Inspect result:
+    When CoreFail (failure):
+        Show "stopped: {failure}".
+    Otherwise:
+        Show "ran on".
 "#,
-        "Assertion failed: invariant broken",
+        "",
+        "invariant broken",
     );
 }
 
@@ -5188,7 +5285,7 @@ Let result be coreExecBlock(stmts, env, funcs).
 
 #[test]
 fn core_io_escape_stmt() {
-    run_interpreter_program(
+    run_interpreter_program_failing(
         r#"
 Let stmts be a new Seq of CStmt.
 Push a new CEscStmt with code "foreign_code_here" to stmts.
@@ -5197,13 +5294,14 @@ Let env be a new Map of Text to CVal.
 Let funcs be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcs).
 "#,
-        "after",
+        "",
+        "`Escape to Rust:` holds raw Rust code, which only the Rust backends compile",
     );
 }
 
 #[test]
 fn core_io_escape_expr() {
-    run_interpreter_program(
+    run_interpreter_program_failing(
         r#"
 Let stmts be a new Seq of CStmt.
 Push a new CLet with name "x" and expr (a new CEscExpr with code "foreign_expr") to stmts.
@@ -5212,7 +5310,8 @@ Let env be a new Map of Text to CVal.
 Let funcs be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcs).
 "#,
-        "after",
+        "",
+        "`Escape to Rust:` holds raw Rust code, which only the Rust backends compile",
     );
 }
 
@@ -5264,7 +5363,7 @@ Let result be coreExecBlock(stmts, env, funcs).
 
 #[test]
 fn core_io_assert_dynamic_message() {
-    run_interpreter_program(
+    run_interpreter_program_failing(
         r#"
 Let stmts be a new Seq of CStmt.
 Push a new CLet with name "x" and expr (a new CInt with value 3) to stmts.
@@ -5273,8 +5372,14 @@ Push a new CRuntimeAssert with cond (a new CBool with value false) and msg msgEx
 Let env be a new Map of Text to CVal.
 Let funcs be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcs).
+Inspect result:
+    When CoreFail (failure):
+        Show "stopped: {failure}".
+    Otherwise:
+        Show "ran on".
 "#,
-        "Assertion failed: x was 3",
+        "",
+        "x was 3",
     );
 }
 
@@ -5303,7 +5408,7 @@ Let result be coreExecBlock(stmts, env, funcMap).
 
 #[test]
 fn core_io_pe_treats_io_as_dynamic() {
-    run_interpreter_program(
+    run_interpreter_program_failing(
         r#"
 Let stmts be a new Seq of CStmt.
 Push a new CSleep with duration (a new CInt with value 0) to stmts.
@@ -5314,7 +5419,8 @@ Let env be a new Map of Text to CVal.
 Let funcs be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcs).
 "#,
-        "dynamic",
+        "",
+        "`Escape to Rust:` holds raw Rust code, which only the Rust backends compile",
     );
 }
 
@@ -5342,15 +5448,21 @@ Let result be coreExecBlock(stmts, env, funcs).
 
 #[test]
 fn core_security_check_fail() {
-    run_interpreter_program(
+    run_interpreter_program_failing(
         r#"
 Let stmts be a new Seq of CStmt.
 Push a new CCheck with predicate (a new CBool with value false) and msg (a new CText with value "access denied") to stmts.
 Let env be a new Map of Text to CVal.
 Let funcs be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcs).
+Inspect result:
+    When CoreFail (failure):
+        Show "stopped: {failure}".
+    Otherwise:
+        Show "ran on".
 "#,
-        "Security violation: access denied",
+        "",
+        "Security Check Failed: access denied",
     );
 }
 
@@ -5503,7 +5615,7 @@ Set item "doc" of env to a new VSeq with items (a new Seq of CVal).
 Let funcs be a new Map of Text to CFunc.
 Let result be coreExecBlock(stmts, env, funcs).
 "#,
-        "[seq]",
+        "[hello, world]",
     );
 }
 
@@ -5954,7 +6066,7 @@ Show v8.
 Show v9.
 Show v10.
 "#,
-        "42\n3.14\nhello\ntrue\nnothing\n[seq]\n[map]\nError: err\n[set]\n<crdt:GCounter>",
+        "42\n3.14\nhello\ntrue\nnothing\n[]\n{}\nError: err\n{}\n<crdt:GCounter>",
     );
 }
 
@@ -8978,9 +9090,9 @@ fn pe_mini_key_no_unk_collisions() {
     Let k1 be exprToKeyPartM(a new CIndex with coll (a new CVar with name "x") and idx (a new CInt with value 1)).
     Let k2 be exprToKeyPartM(a new CLen with target (a new CVar with name "x")).
     Let k3 be exprToKeyPartM(a new CMapGet with target (a new CVar with name "x") and key (a new CText with value "y")).
-    Let k4 be exprToKeyPartM(a new CNewSeq).
+    Let k4 be exprToKeyPartM(a new CNewSeq with elementType "Int").
     Let k5 be exprToKeyPartM(a new CRange with start (a new CInt with value 0) and end (a new CInt with value 10)).
-    Let k6 be exprToKeyPartM(a new CNewSet).
+    Let k6 be exprToKeyPartM(a new CNewSet with elementType "Int").
     Let k7 be exprToKeyPartM(a new CCopy with target (a new CVar with name "z")).
     Let k8 be exprToKeyPartM(a new CTimeNow).
     Let k9 be exprToKeyPartM(a new CDateToday).
@@ -9196,8 +9308,8 @@ fn decompile_stmt_text(stmt_constructor: &str) -> String {
 fn decompile_expr_no_placeholders() {
     // Test CExpr variants that currently produce <?expr?>
     let cases = vec![
-        ("Let testExpr be a new CNewSeq.", "CNewSeq"),
-        ("Let testExpr be a new CNewSet.", "CNewSet"),
+        ("Let testExpr be a new CNewSeq with elementType \"Int\".", "CNewSeq"),
+        ("Let testExpr be a new CNewSet with elementType \"Int\".", "CNewSet"),
         ("Let testExpr be a new CRange with start (a new CInt with value 1) and end (a new CInt with value 10).", "CRange"),
         ("Let testExpr be a new CSlice with coll (a new CVar with name \"xs\") and startIdx (a new CInt with value 0) and endIdx (a new CInt with value 3).", "CSlice"),
         ("Let testExpr be a new CCopy with target (a new CVar with name \"xs\").", "CCopy"),
@@ -10938,7 +11050,7 @@ fn decompile_all_cexpr_variants_no_placeholder() {
     Push (a new CIndex with coll (a new CVar with name "xs") and idx (a new CInt with value 0)) to exprs.
     Push (a new CLen with target (a new CVar with name "xs")) to exprs.
     Push (a new CMapGet with target (a new CVar with name "m") and key (a new CText with value "k")) to exprs.
-    Push (a new CNewSeq) to exprs.
+    Push (a new CNewSeq with elementType "Int") to exprs.
     Let fnames be a new Seq of Text.
     Push "value" to fnames.
     Let fvals be a new Seq of CExpr.
@@ -10950,7 +11062,7 @@ fn decompile_all_cexpr_variants_no_placeholder() {
     Push (a new CRange with start (a new CInt with value 0) and end (a new CInt with value 10)) to exprs.
     Push (a new CSlice with coll (a new CVar with name "xs") and startIdx (a new CInt with value 0) and endIdx (a new CInt with value 3)) to exprs.
     Push (a new CCopy with target (a new CVar with name "xs")) to exprs.
-    Push (a new CNewSet) to exprs.
+    Push (a new CNewSet with elementType "Int") to exprs.
     Push (a new CContains with coll (a new CVar with name "s") and elem (a new CInt with value 1)) to exprs.
     Push (a new CUnion with left (a new CVar with name "a") and right (a new CVar with name "b")) to exprs.
     Push (a new CIntersection with left (a new CVar with name "a") and right (a new CVar with name "b")) to exprs.
@@ -13326,6 +13438,49 @@ fn run_rust_native_p1(program: &str) -> String {
             "Rust-native P1 residual did not run.\nResidual:\n{}\nError: {:?}",
             residual, e
         ),
+    }
+}
+
+/// The Rust-native first projection prints every operator the residual keeps as the program spells it: one printed as
+/// another (`xor` as `+`, `combined with` as `+`, a shift by a run-time amount as a product) computes something else.
+#[test]
+fn rust_native_p1_spells_every_operator_as_itself() {
+    let programs = [
+        ("xor", "## Main\nRepeat for i from 4 to 5:\n    Show i xor 3.\n"),
+        ("combined with", "## Main\nRepeat for i from 4 to 5:\n    Show i combined with 3.\n"),
+        ("shifted left by", "## Main\nRepeat for i from 1 to 3:\n    Show 5 shifted left by i.\n"),
+        ("shifted right by", "## Main\nRepeat for i from 1 to 3:\n    Show 96 shifted right by i.\n"),
+    ];
+    for (spelling, program) in programs {
+        let residual = logicaffeine_compile::compile::projection1_source("", "", program)
+            .unwrap_or_else(|e| panic!("`{spelling}`: projection1_source failed: {e}"));
+        assert!(residual.contains(spelling), "`{spelling}` did not reach the residual as itself:\n{residual}");
+        let source = logicaffeine_compile::compile::interpret_program(program).expect("the program runs");
+        let ran = logicaffeine_compile::compile::interpret_program(&residual)
+            .unwrap_or_else(|e| panic!("`{spelling}`: the residual did not run: {e:?}\n{residual}"));
+        assert_eq!(ran, source, "`{spelling}`: the residual computes another thing\n{residual}");
+    }
+}
+
+/// The Rust-native first projection prints every loop it keeps as the language writes it: a counted loop `from … to …`,
+/// a pattern over a map's entries in parentheses.
+#[test]
+fn rust_native_p1_prints_every_loop_as_the_language_writes_it() {
+    let programs = [
+        ("Repeat for i from", "## Main\nLet mutable total be 0.\nRepeat for i from 1 to 4:\n    Set total to total + i * i.\n    Show total.\n"),
+        (
+            "Repeat for (k, v) in",
+            "## Main\nLet mutable m be a new Map of Text to Int.\nSet item \"a\" of m to 1.\nSet item \"b\" of m to 2.\nRepeat for (k, v) in m:\n    Show k combined with v.\n",
+        ),
+    ];
+    for (form, program) in programs {
+        let residual = logicaffeine_compile::compile::projection1_source("", "", program)
+            .unwrap_or_else(|e| panic!("`{form}`: projection1_source failed: {e}"));
+        assert!(residual.contains(form), "`{form}` did not reach the residual as the language writes it:\n{residual}");
+        let source = logicaffeine_compile::compile::interpret_program(program).expect("the program runs");
+        let ran = logicaffeine_compile::compile::interpret_program(&residual)
+            .unwrap_or_else(|e| panic!("`{form}`: the residual did not run: {e:?}\n{residual}"));
+        assert_eq!(ran, source, "`{form}`: the residual computes another thing\n{residual}");
     }
 }
 

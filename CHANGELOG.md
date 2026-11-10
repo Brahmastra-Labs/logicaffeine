@@ -38,6 +38,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `--job`/`--matrix`/`--from-run` repeat one leg, `--timeout-scale` stretches every timeout on a slower or busier
   machine (and says so in the summary), `exec` runs a command in a failed job's container (a passing job gives its
   workspace back), and a stopped run removes its containers. Locked by `ci_local_runner_lock`.
+- **The Futamura projections hold the language's dates, instants, times of day, spans, durations and characters.**
+  The self-interpreter keeps each as the language's own value (`VDate`, `VMoment`, `VTime`, `VSpan`, `VDuration`,
+  `VChar`, built from the Core IR's `CDate` … `CChar` constants) and runs their literals, arithmetic, comparisons,
+  display and calendar builtins as the tree-walker does, failing in the tree-walker's words (`Cannot add Date and
+  Duration`). The three specializers fold them by the same tables, so a temporal program's first projection — textbook,
+  direct and mix — is its output at `count_dispatch = 0`, and the second projection's compiler and the third's cogen
+  carry them; the decompiler spells each value as its literal or as the language's arithmetic that evaluates to exactly
+  it (a negative duration, an instant between minutes). A program that reads the clock keeps that input dynamic, and
+  its first projection is refused by name. The projections' own engines compile with reference collections and
+  blocking waits, so an engine's `Sleep` waits on its thread and its exported entry stays synchronous
+  (`futamura_textbook_lock`, `phase_futamura`; `logicaffeine_compile`, `logicaffeine_data`).
+- **The textbook first projection reads the program's arguments when it runs, and is as fast as the program.** The
+  self-interpreter receives them from `coreRun(main, funcs, args())` and the specializer meets them as a run-time
+  `args()`, so the residual is a compiled program for every input, not one run: a parsed argument, a loop it bounds, a
+  branch it decides, a list it sizes and a recursion it drives all stay for the residual to run, at `count_dispatch =
+  0`. On every argument vector of the lock's corpus and of thirty generated programs the residual takes no more steps
+  than the program — statements on the tree-walker, instructions on the VM — and most residuals are the program: the
+  self-interpreter now runs the program's loops as the host's (a `While` decided at its head, a range and a
+  collection loop as the host's own), indexes and divides with the host's operation (whose failure is the language's
+  report), and shows a list, or a list of lists, of one scalar kind through the host's display; the specializer ends a
+  path at a failure it reaches, keeps a list's structure through a run-time branch or loop that writes one of its
+  items or pushes a decided value, keeps a variant whose tag the run decides as one residual sum, emits each function once
+  and finishes the emitted program (forward substitution of single-use bindings in evaluation order, copy loops,
+  interference-checked copy coalescing, dead stores whose failure the next statement subsumes); a recursive procedure
+  writing through a `mutable` parameter compiles to a function returning the parameter's last value. A program that reads
+  another input when it runs — the clock, the console, a file — is still refused by name, as is the offline
+  specializer's first projection of a program that reads its arguments (`futamura_arguments_lock`,
+  `futamura_textbook_lock`; `logicaffeine_compile`).
 
 ### Changed
 
@@ -177,6 +205,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   kernel declares all four at once; and the lift and the induction principle compute only on the quotient's own
   constructor, in every engine (`logicaffeine_kernel`). Locked by `dag_quotient_integrity`, `dag_crafted` and
   `dag_trusted_prefix`.
+- **The generated Rust runs what the tree-walker runs with the clock, durations, sleeps, async calls and slices.**
+  `today` and `now` compile to clock reads (they emitted bare identifiers), reading `LOGOS_FIXED_DAYS` and
+  `LOGOS_FIXED_NANOS` as the C, RISC-V and CUDA runtimes do. A duration is signed (`0ns - 5ns` is `-5ns`; it
+  panicked), a moment moves by a duration or a span either side of `+`, a time of day orders against a moment, `date_of` takes a Date, `Sleep` waits for any duration-typed expression
+  and not at all at or below zero, and a record or variant holds a temporal value. A function that reaches an async function from a constructor field, `not`, a set field, a
+  multi-push, a reversible block or any other expression or block is async; a loop that awaits keeps the collection it
+  walks; a recursion through an async function runs. A slice is a new list wherever it is held, returned, passed or
+  stored (a slice of a call's result did not compile) (`logicaffeine_compile`, `logicaffeine_data`,
+  `logicaffeine_system`).
+- **No optimization treats a clock read as a variable.** Equality saturation forwarded `Let t be now.` into later
+  reads, so `Show now is greater than t.` after time had passed printed `false` on every optimized tier; each read of
+  `today` or `now` is its own opaque leaf. The C and RISC-V `now` read nanoseconds (they read whole seconds).
+- **The C tier holds temporal values in its lists, sets and maps as themselves.** `[today]` showed `[20000]` and a
+  duration taken out of a list added as an Int; `months_between` and `years_between` did not link.
+- **The Futamura projections run and specialize the language as it runs.** The self-interpreter compares values
+  structurally and keys a map by its keys' values (an Int-keyed map iterated its keys as text), the textbook first
+  projection specializes a value it knows only in part instead of leaving the self-interpreter in its residual, and
+  the specializers fold operators, pure builtins and list operations by the language's own tables
+  (`logicaffeine_compile`).
+- **A specialization never reads the clock, and the offline projections run inside their budgets.** The second
+  projection's compiler and the third's compiler generator each held the moment they were built, so the compiler the
+  generator writes was the second projection's only up to those two moments; now a read of the run stays in the
+  residual, and the third projection's equation holds byte for byte. The effect analysis propagated a call graph's
+  effects in a round per level of the graph; one pass now reaches them. The residual programs the projections compile
+  to native code build without link-time optimization. Together the native compiler generator is built and run in 12
+  minutes where it took 63, and the native compiler builds in 8 where it took 23 (`futamura_textbook_lock`,
+  `phase_effects`; `logicaffeine_compile`).
+- **The specializer's sets and the self-interpreter's blocks.** The online specializer counted a set element it knew
+  only in part by its spelling (`b contains n` and `length of b` folded wrong) and wrote an `Add` to a set it knew
+  whole but never bound; the Core IR encoders wrote a desugaring's statements and a `Reversibly:` block as a block of
+  their own, which a self-interpreter that scopes its blocks dropped the names of, and encoded a loop inside a
+  closure's block as text the self-interpreter could not parse (`futamura_textbook_lock`, `native_pe_wire`;
+  `logicaffeine_compile`).
+- **Large programs parse in linear time.** The lexer and the parser ran three scans over the rest of the file per
+  construct; a 186k-line program parses in 6 s of CPU where it took 157 s (`header_trailing_colon_lock`;
+  `logicaffeine_language`).
 
 ## [0.11.0] - 2026-11-02
 

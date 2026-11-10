@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
 use logicaffeine_base::Symbol;
-use logicaffeine_language::ast::stmt::Pattern;
+use logicaffeine_language::ast::stmt::{ClosureBody, Pattern};
 use logicaffeine_language::ast::{Expr, Stmt};
 
-use crate::optimize::Mentions;
+use crate::optimize::writes::{walk_block, walk_expr, walk_stmt, Bind, EffectSink};
 
 /// Liveness analysis result for a whole program.
 ///
@@ -15,9 +15,9 @@ use crate::optimize::Mentions;
 /// Used by codegen to decide when a value can be *moved* (into a call, into a constructed record) instead of cloned:
 /// if a variable is not live after the statement, the old value is never read again and ownership can be
 /// transferred. A move on a variable wrongly thought dead breaks the program, so the analysis errs toward "live": a
-/// statement kind it has no case for uses every name it touches (the optimizer's one exhaustive walk,
-/// `crate::optimize::Mentions`), foreign code uses every name, and a loop body's end sees what the next iteration
-/// needs.
+/// statement kind it has no case for uses every name it touches (the optimizer's one exhaustive walk, read by
+/// `Reads`), foreign code uses every name, and a loop body's end sees what the next iteration needs. A call to one of
+/// the program's functions reads no variable: the call reaches the function before any binding of its name.
 pub struct LivenessResult {
     functions: HashMap<Symbol, FunctionLiveness>,
     /// Every analysed statement's live-after set, keyed by the statement's address in the arena it was analysed in.
@@ -36,27 +36,32 @@ impl LivenessResult {
     /// Algorithm: backward dataflow over each body. `Return` is treated as a terminator — variables used in
     /// subsequent (dead-code) statements do not affect liveness before the `Return`.
     pub fn analyze(stmts: &[Stmt<'_>]) -> Self {
+        let defined: HashSet<Symbol> = stmts
+            .iter()
+            .filter_map(|s| match s {
+                Stmt::FunctionDef { name, .. } => Some(*name),
+                _ => None,
+            })
+            .collect();
         let mut functions = HashMap::new();
         let mut by_stmt = HashMap::new();
         let none_pinned = HashSet::new();
         for stmt in stmts {
             if let Stmt::FunctionDef { name, body, .. } = stmt {
-                functions.insert(*name, analyze_body(body, &none_pinned, &mut by_stmt));
+                functions.insert(*name, analyze_body(body, &none_pinned, &defined, &mut by_stmt));
             }
         }
         // A function reaches Main's variables by name (they are its globals), so a call can read one no Main
-        // statement names: every name a function body speaks of stays live throughout Main.
+        // statement names: every name a function body reads stays live throughout Main.
         let reached: HashSet<Symbol> = stmts
             .iter()
             .filter_map(|s| match s {
-                Stmt::FunctionDef { body, .. } => {
-                    Some(Mentions::of_block(body).symbols().collect::<Vec<_>>())
-                }
+                Stmt::FunctionDef { body, .. } => Some(Reads::of_block(body, &defined).names),
                 _ => None,
             })
             .flatten()
             .collect();
-        analyze_body(stmts, &reached, &mut by_stmt);
+        analyze_body(stmts, &reached, &defined, &mut by_stmt);
         Self { functions, by_stmt }
     }
 
@@ -109,8 +114,10 @@ pub fn stmt_key(stmt: &Stmt<'_>) -> usize {
 /// The backward walk over one body: what foreign code may read, the names live throughout it, and where each
 /// statement's live-after set is written.
 struct Walk<'r> {
-    /// Every name the body speaks of — what foreign code may read.
+    /// Every name the body reads — what foreign code may read.
     every: HashSet<Symbol>,
+    /// The program's functions: a call to one reads no binding.
+    defined: &'r HashSet<Symbol>,
     /// Names live at every point of the body (Main's variables that a function reads by name).
     pinned: &'r HashSet<Symbol>,
     /// What is live where a `Break` goes: after the nearest loop or zone.
@@ -123,10 +130,12 @@ struct Walk<'r> {
 fn analyze_body(
     body: &[Stmt<'_>],
     pinned: &HashSet<Symbol>,
+    defined: &HashSet<Symbol>,
     by_stmt: &mut HashMap<usize, HashSet<Symbol>>,
 ) -> FunctionLiveness {
     let mut walk = Walk {
-        every: Mentions::of_block(body).symbols().collect(),
+        every: Reads::of_block(body, defined).names,
+        defined,
         pinned,
         break_exit: None,
         return_exit: None,
@@ -364,10 +373,10 @@ impl Walk<'_> {
             // splice, a select arm, a concurrent task reads what it names), and foreign code uses every name.
             // Nothing nested in it is recorded, so nothing inside it moves.
             _ => {
-                let touched = Mentions::of_stmt(stmt);
+                let touched = Reads::of_stmt(stmt, self.defined);
                 let mut result = live_out.clone();
-                result.extend(touched.symbols());
-                if touched.is_opaque() {
+                result.extend(touched.names);
+                if touched.opaque {
                     result.extend(self.every.iter().copied());
                 }
                 result
@@ -395,13 +404,77 @@ impl Walk<'_> {
     }
 
     /// Every variable an expression uses: each identifier it reads, what a closure in it captures, and — for foreign
-    /// code — every name the body speaks of. From the optimizer's one exhaustive walk, so no expression form is
+    /// code — every name the body reads. From the optimizer's one exhaustive walk, so no expression form is
     /// overlooked.
     fn gen_expr(&self, expr: &Expr<'_>, out: &mut HashSet<Symbol>) {
-        let touched = Mentions::of_expr(expr);
-        out.extend(touched.symbols());
-        if touched.is_opaque() {
+        let touched = Reads::of_expr(expr, self.defined);
+        out.extend(touched.names);
+        if touched.opaque {
             out.extend(self.every.iter().copied());
+        }
+    }
+}
+
+/// The names a statement, block or expression touches as bindings: the optimizer's one exhaustive walk
+/// ([`crate::optimize::Mentions`]'s), except that a call to one of the program's functions reads no binding of its
+/// name — the call reaches the function before any binding. A live set holds variables, never the names of the
+/// functions a body still calls.
+struct Reads<'d> {
+    names: HashSet<Symbol>,
+    opaque: bool,
+    defined: &'d HashSet<Symbol>,
+}
+
+impl<'d> Reads<'d> {
+    fn new(defined: &'d HashSet<Symbol>) -> Self {
+        Self { names: HashSet::new(), opaque: false, defined }
+    }
+
+    fn of_stmt(stmt: &Stmt<'_>, defined: &'d HashSet<Symbol>) -> Self {
+        let mut r = Self::new(defined);
+        walk_stmt(stmt, &mut r);
+        r
+    }
+
+    fn of_block(block: &[Stmt<'_>], defined: &'d HashSet<Symbol>) -> Self {
+        let mut r = Self::new(defined);
+        walk_block(block, &mut r);
+        r
+    }
+
+    fn of_expr(expr: &Expr<'_>, defined: &'d HashSet<Symbol>) -> Self {
+        let mut r = Self::new(defined);
+        walk_expr(expr, &mut r);
+        r
+    }
+}
+
+impl EffectSink for Reads<'_> {
+    fn bind(&mut self, sym: Symbol, _how: Bind) {
+        self.names.insert(sym);
+    }
+    fn mutate(&mut self, root: Symbol) {
+        self.names.insert(root);
+    }
+    fn call(&mut self) {}
+    fn opaque(&mut self) {
+        self.opaque = true;
+    }
+    fn read(&mut self, sym: Symbol) {
+        self.names.insert(sym);
+    }
+    fn callee(&mut self, function: Symbol) {
+        if !self.defined.contains(&function) {
+            self.names.insert(function);
+        }
+    }
+    /// A closure captures what its body names; its parameters shadow, and are counted, so the answer only errs
+    /// toward "touched".
+    fn closure(&mut self, params: &[Symbol], body: &ClosureBody) {
+        self.names.extend(params.iter().copied());
+        match body {
+            ClosureBody::Expression(e) => walk_expr(e, self),
+            ClosureBody::Block(b) => walk_block(b, self),
         }
     }
 }

@@ -654,28 +654,24 @@ fn write_tokio_select<'a>(
                 writeln!(output, "{}    }}", indent_str).unwrap();
             }
             SelectBranch::Timeout { milliseconds, body } => {
+                let waited = codegen_expr_with_async(
+                    milliseconds,
+                    interner,
+                    synced_vars,
+                    async_functions,
+                    ctx.get_variable_types(),
+                );
                 let dur = match milliseconds {
-                    Expr::Literal(Literal::Duration(_)) => codegen_expr_with_async(
-                        milliseconds,
-                        interner,
-                        synced_vars,
-                        async_functions,
-                        ctx.get_variable_types(),
-                    ),
                     Expr::Literal(Literal::Span { months, days }) => {
                         let secs = ((*months as i64) * 30 + (*days as i64)) * 86_400;
                         format!("std::time::Duration::from_secs({}u64)", secs.max(0))
                     }
-                    _ => {
-                        let n = codegen_expr_with_async(
-                            milliseconds,
-                            interner,
-                            synced_vars,
-                            async_functions,
-                            ctx.get_variable_types(),
-                        );
-                        format!("std::time::Duration::from_secs({} as u64)", n)
+                    _ if super::types::infer_logos_type(milliseconds, interner, ctx.get_variable_types())
+                        == crate::analysis::types::LogosType::Duration =>
+                    {
+                        format!("({waited}).to_std()")
                     }
+                    _ => format!("std::time::Duration::from_secs((({waited}) as i64).max(0) as u64)"),
                 };
                 writeln!(
                     output,
@@ -713,8 +709,8 @@ fn write_tokio_select<'a>(
 /// evaluated where the launch stands and moved into the task, so a named value handed to two tasks is
 /// cloned once for each before either starts — never moved into the first — and in the order the
 /// interpreter evaluates them; a literal, which can neither move nor observe anything, stays in the
-/// call. `tail` follows the call (`.await`, a `;` to discard the result).
-fn launched_future(function: &str, args: &[(String, bool)], tail: &str) -> String {
+/// call. The call waits as `wait` says, and `discards` its result when the launch keeps no handle.
+fn launched_future(function: &str, args: &[(String, bool)], wait: super::expr::Wait, discards: bool) -> String {
     let mut lets = String::new();
     let mut call_args = Vec::with_capacity(args.len());
     for (i, (value, literal)) in args.iter().enumerate() {
@@ -725,10 +721,9 @@ fn launched_future(function: &str, args: &[(String, bool)], tail: &str) -> Strin
             call_args.push(format!("__logos_arg{i}"));
         }
     }
-    let future = format!(
-        "async move {{ {function}({}){tail} }}",
-        call_args.join(", ")
-    );
+    let call = wait.around(format!("{function}({})", call_args.join(", ")));
+    let tail = if discards { ";" } else { "" };
+    let future = format!("async move {{ {call}{tail} }}");
     if lets.is_empty() {
         future
     } else {
@@ -1581,26 +1576,12 @@ fn codegen_repeat_stmt<'a>(
         false
     };
 
-    if par_emitted {
-        // Parallel code already emitted — skip normal loop codegen
-    } else if body
+    // A body that awaits steps an iterator by hand (`for` holds none across an await), over the same items a `for`
+    // would walk; the items are owned there, since a borrow of a shared buffer must not be held across an await.
+    let awaits = body
         .iter()
-        .any(|s| requires_async_stmt(s) || calls_async_function(s, async_functions))
-    {
-        // Use while-let with explicit iterator for async compatibility
-        writeln!(
-            output,
-            "{}let mut __iter = ({}).into_iter();",
-            indent_str, iter_str
-        )
-        .unwrap();
-        writeln!(
-            output,
-            "{}while let Some({}) = __iter.next() {{",
-            indent_str, pattern_str
-        )
-        .unwrap();
-    } else {
+        .any(|s| requires_async_stmt(s) || calls_async_function(s, async_functions));
+    if !par_emitted {
         // Determine iteration strategy based on collection type
         let is_logos_seq = if let Expr::Identifier(coll_sym) = iterable {
             ctx.get_variable_types()
@@ -1636,7 +1617,7 @@ fn codegen_repeat_stmt<'a>(
             super::types::infer_logos_type(iterable, interner, ctx.get_variable_types()),
             crate::analysis::types::LogosType::String
         );
-        if let (Pattern::Identifier(_), Expr::Range { start, end }) = (pattern, iterable) {
+        let source = if let (Pattern::Identifier(_), Expr::Range { start, end }) = (pattern, iterable) {
             let emit = |e: &Expr| {
                 let ecx = super::expr::ExprCtx {
                     async_functions,
@@ -1655,9 +1636,7 @@ fn codegen_repeat_stmt<'a>(
                     })
             };
             let (start_str, end_str) = super::expr::range_bound_strs(start, end, emit);
-            let range =
-                super::expr::counted_loop_range(start, end, &start_str, &end_str, ctx.oracle());
-            writeln!(output, "{}for {} in {} {{", indent_str, pattern_str, range).unwrap();
+            super::expr::counted_loop_range(start, end, &start_str, &end_str, ctx.oracle())
         } else if iterates_text {
             // The bound name is a `String`, and saying so is what makes the rest of the body
             // compile: a non-Copy loop variable read twice needs the `.clone()` the identifier
@@ -1666,12 +1645,15 @@ fn codegen_repeat_stmt<'a>(
             if let Pattern::Identifier(sym) = pattern {
                 ctx.register_variable_type(*sym, "String".to_string());
             }
-            writeln!(
-                output,
-                "{}for {} in {}.chars().map(|__c| __c.to_string()).collect::<Vec<String>>() {{",
-                indent_str, pattern_str, iter_str
-            )
-            .unwrap();
+            format!("{iter_str}.chars().map(|__c| __c.to_string()).collect::<Vec<String>>()")
+        } else if let Expr::Slice { collection, start, end } = iterable {
+            // The items a slice names, copied out of the view on entry, as a loop over any list walks a snapshot.
+            let ecx = super::expr::ExprCtx {
+                async_functions,
+                variable_types: ctx.get_variable_types(),
+                ..super::expr::ExprCtx::bare(interner, synced_vars)
+            };
+            format!("{}.to_vec()", super::expr::slice_view(collection, start, end, &ecx))
         } else if is_text_bytes {
             // ── OPT TextBytesView (iteration) ───────────────────────────────
             // `for b in sb` over the borrowed `&[u8]` view yields each byte widened
@@ -1679,12 +1661,7 @@ fn codegen_repeat_stmt<'a>(
             if let Pattern::Identifier(sym) = pattern {
                 ctx.register_variable_type(*sym, "i64".to_string());
             }
-            writeln!(
-                output,
-                "{}for {} in {}.iter().map(|&__x| __x as i64) {{",
-                indent_str, pattern_str, iter_str
-            )
-            .unwrap();
+            format!("{iter_str}.iter().map(|&__x| __x as i64)")
         } else if is_logos_seq {
             // A `Seq` nothing in the loop can change is iterated through a shared borrow of its buffer, which is the
             // snapshot every tier iterates (`optimize::iteration`); `.copied()` for a `Copy` element, the lazy
@@ -1693,10 +1670,11 @@ fn codegen_repeat_stmt<'a>(
                 Expr::Identifier(xs) => Some(*xs),
                 _ => None,
             };
-            let lent = crate::optimize::facts::holds_stmt(
-                crate::optimize::facts::Fact::LentIteration,
-                repeat,
-            );
+            let lent = !awaits
+                && crate::optimize::facts::holds_stmt(
+                    crate::optimize::facts::Fact::LentIteration,
+                    repeat,
+                );
             if lent {
                 crate::optimize::mark_fired(crate::optimization::Opt::Borrow);
                 let seq_ty = coll
@@ -1713,19 +1691,9 @@ fn codegen_repeat_stmt<'a>(
                 } else {
                     "cloned"
                 };
-                writeln!(
-                    output,
-                    "{}for {} in {}.borrow().iter().{}() {{",
-                    indent_str, pattern_str, iter_str, each
-                )
-                .unwrap();
+                format!("{iter_str}.borrow().iter().{each}()")
             } else {
-                writeln!(
-                    output,
-                    "{}for {} in {}.to_vec() {{",
-                    indent_str, pattern_str, iter_str
-                )
-                .unwrap();
+                format!("{iter_str}.to_vec()")
             }
         } else {
             // Optimization: for known Vec<T>/&[T] with Copy element type,
@@ -1787,33 +1755,35 @@ fn codegen_repeat_stmt<'a>(
             };
 
             if use_iter_copied {
-                writeln!(
-                    output,
-                    "{}for {} in {}.iter().copied() {{",
-                    indent_str, pattern_str, iter_str
-                )
-                .unwrap();
+                format!("{iter_str}.iter().copied()")
             } else if use_iter_cloned {
-                writeln!(
-                    output,
-                    "{}for {} in {}.iter().cloned() {{",
-                    indent_str, pattern_str, iter_str
-                )
-                .unwrap();
+                format!("{iter_str}.iter().cloned()")
             } else {
                 // Clone the collection before iterating to avoid moving it.
                 // This allows the collection to be reused after the loop.
-                writeln!(
-                    output,
-                    "{}for {} in {}.clone() {{",
-                    indent_str, pattern_str, iter_str
-                )
-                .unwrap();
+                format!("{iter_str}.clone()")
             }
+        };
+        if awaits {
+            writeln!(output, "{indent_str}let mut __iter = ({source}).into_iter();").unwrap();
+            writeln!(output, "{indent_str}while let Some({pattern_str}) = __iter.next() {{").unwrap();
+        } else {
+            writeln!(output, "{indent_str}for {pattern_str} in {source} {{").unwrap();
         }
     }
     if !par_emitted {
         ctx.push_scope();
+        // A loop over a map binds each entry as its key and value, so `item 1 of entry` reads the key as itself.
+        if let (Pattern::Identifier(pvar), Expr::Identifier(coll_sym)) = (pattern, iterable) {
+            let entry = ctx
+                .get_variable_types()
+                .get(coll_sym)
+                .and_then(|t| super::types::map_entry_types(t))
+                .map(|(key, value)| format!("({key}, {value})"));
+            if let Some(entry) = entry {
+                ctx.register_variable_type(*pvar, entry);
+            }
+        }
         // A loop over a list of rationals binds each item as the rational it is.
         if let Pattern::Identifier(pvar) = pattern {
             if let Some(list) = super::rational::rational_type_of(iterable, super::rational::Typing { interner, variable_types: ctx.get_variable_types(), registry }) {
@@ -1996,12 +1966,13 @@ fn codegen_inspect_stmt<'a>(
     //
     // A CALL is the shape that needs it: its result is a temporary, and a `Seq` argument inside it
     // is emitted `&*xs.borrow()`, whose guard would otherwise outlive the block's locals when the
-    // `Inspect` is the function's tail expression. A CONSTRUCTION is a temporary too, and a struct
+    // `Inspect` is the function's tail expression. An ITEM READ is the same shape: `xs.borrow()[i]
+    // .clone()` holds the guard while it clones. A CONSTRUCTION is a temporary too, and a struct
     // literal is not a scrutinee Rust accepts (`match Json::JNum { n } {`). A variable or a field read
     // owns no temporary and is left exactly as it was.
     let hoist = matches!(
         target,
-        Expr::Call { .. } | Expr::CallExpr { .. } | Expr::New { .. } | Expr::NewVariant { .. }
+        Expr::Call { .. } | Expr::CallExpr { .. } | Expr::New { .. } | Expr::NewVariant { .. } | Expr::Index { .. }
     );
     // A lent scrutinee (`&T`, a lent parameter or binding, `codegen::lent`) is matched through the reference: its arms bind
     // by `ref`, so matching the place `*x` moves nothing.
@@ -2071,9 +2042,7 @@ fn codegen_inspect_stmt<'a>(
                                 arm.body,
                                 *binding_sym,
                                 interner,
-                                &|f, j| {
-                                    super::expr::lends_record_at(f, j, ctx.get_variable_types())
-                                },
+                                &super::expr::lends_record_at,
                             );
                         if lendable {
                             lent_bindings.insert(*binding_sym);
@@ -2274,9 +2243,45 @@ fn codegen_inspect_stmt<'a>(
         ctx.pop_scope();
         writeln!(output, "{}    }}", indent_str).unwrap();
     }
+    for uncovered in uncovered_variant_patterns(arms, registry, interner) {
+        writeln!(output, "{indent_str}    {uncovered}").unwrap();
+    }
 
     writeln!(output, "{}}}", indent_str).unwrap();
     output
+}
+
+/// The arms an `Inspect` with no `Otherwise` adds for each variant of its enum that none of its arms names: the run
+/// stops there with the words the tree-walker and the VM give the same value
+/// ([`crate::semantics::builtins::inspect_unhandled_message`]), never a match the compiler refuses as non-exhaustive.
+fn uncovered_variant_patterns(arms: &[MatchArm], registry: &TypeRegistry, interner: &Interner) -> Vec<String> {
+    if arms.iter().any(|arm| arm.variant.is_none()) {
+        return Vec::new();
+    }
+    let Some(enum_sym) = arms.iter().find_map(|arm| {
+        arm.enum_name.or_else(|| arm.variant.and_then(|v| registry.find_variant(v).map(|(e, _)| e)))
+    }) else {
+        return Vec::new();
+    };
+    let Some(crate::analysis::TypeDef::Enum { variants, .. }) = registry.get(enum_sym) else {
+        return Vec::new();
+    };
+    let enum_name = interner.resolve(enum_sym);
+    let path = super::types::rust_type_ident(enum_name);
+    variants
+        .iter()
+        .filter(|v| !arms.iter().any(|arm| arm.variant == Some(v.name)))
+        .map(|v| {
+            let variant = interner.resolve(v.name);
+            let words = crate::semantics::builtins::inspect_unhandled_message(enum_name, variant);
+            let pattern = if v.fields.is_empty() {
+                format!("{path}::{variant}")
+            } else {
+                format!("{path}::{variant} {{ .. }}")
+            };
+            format!("{pattern} => panic!(\"{{}}\", {words:?}),")
+        })
+        .collect()
 }
 
 /// Whether a field's declared type is one of the program's own enums.
@@ -2328,7 +2333,19 @@ fn inspect_arm_pattern(
         Some(e) => format!("{}::{}", super::types::rust_type_ident(e), variant_name),
         None => variant_name.to_string(),
     };
+    let variant_def = match arm.enum_name {
+        Some(e) => registry.variant_in(e, variant),
+        None => registry.find_variant(variant).map(|(_, v)| v),
+    };
     if arm.bindings.is_empty() {
+        // A variant with fields matched without binding any: the braced rest pattern matches every variant kind, a
+        // struct variant, a tuple variant (a boxed recursive one) or `Some`.
+        if variant_name == "Some" {
+            return ("Some(..)".to_string(), String::new());
+        }
+        if variant_def.is_some_and(|v| !v.fields.is_empty()) {
+            return (format!("{path} {{ .. }}"), String::new());
+        }
         return (path, String::new());
     }
     if variant_name == "Some" {
@@ -2348,10 +2365,6 @@ fn inspect_arm_pattern(
             )
         })
         .collect();
-    let variant_def = match arm.enum_name {
-        Some(e) => registry.variant_in(e, variant),
-        None => registry.find_variant(variant).map(|(_, v)| v),
-    };
     let shape = match (variant_def, enum_name.as_deref()) {
         (Some(v), Some(e)) => super::types::VariantShape::of(v, e, interner),
         _ => super::types::VariantShape::InPlace,
@@ -2528,13 +2541,8 @@ fn codegen_concurrent_stmt<'a>(
                             )
                         })
                         .collect();
-                    // Only add .await for async functions
-                    let await_suffix = if async_functions.contains(function) {
-                        ".await"
-                    } else {
-                        ""
-                    };
-                    format!("{}({}){}", func_name, args_str.join(", "), await_suffix)
+                    super::expr::Wait::of(*function, async_functions)
+                        .around(format!("{}({})", func_name, args_str.join(", ")))
                 }
                 _ => {
                     // Fallback for other statement types
@@ -3570,20 +3578,8 @@ fn probe_fusion<'a>(
     {
         ("i64".to_string(), "i64".to_string())
     } else {
-        let args = map_ty.strip_prefix("LogosMap<")?.strip_suffix('>')?;
-        let mut depth = 0i32;
-        let comma = args.char_indices().find(|&(_, c)| {
-            match c {
-                '<' | '(' | '[' => depth += 1,
-                '>' | ')' | ']' => depth -= 1,
-                _ => {}
-            }
-            c == ',' && depth == 0
-        })?;
-        (
-            args[..comma.0].trim().to_string(),
-            args[comma.0 + 1..].trim().to_string(),
-        )
+        let (key, value) = super::types::map_entry_types(&map_ty)?;
+        (key.to_string(), value.to_string())
     };
     if !matches!(value_ty.as_str(), "i64" | "f64" | "bool") {
         return None;
@@ -4132,20 +4128,9 @@ fn codegen_call_stmt<'a>(
         return output;
     }
     let args_str: Vec<String> = super::expr::call_arguments(*function, args, &ecx);
-    let await_suffix = if async_functions.contains(function) {
-        ".await"
-    } else {
-        ""
-    };
     let path = format!("{func_name}{fish}");
-    let call = super::expr::sequenced_call(
-        &path,
-        *function,
-        args,
-        args_str,
-        await_suffix,
-        ctx.get_variable_types(),
-    );
+    let wait = super::expr::Wait::of(*function, async_functions);
+    let call = super::expr::sequenced_call(&path, *function, args, args_str, wait);
     writeln!(output, "{}{};", indent_str, call).unwrap();
     output
 }
@@ -4399,7 +4384,7 @@ fn codegen_push_stmt<'a>(
     };
     let val_str = stored_value(value, val_str, ctx.get_variable_types());
     let val_str =
-        value_taken_before_the_write(value, collection, val_str, ctx, indent_str, &mut output);
+        value_taken_before_the_write(value, collection, val_str, indent_str, &mut output);
     let coll_str = codegen_expr_with_async(
         collection,
         interner,
@@ -4499,12 +4484,11 @@ fn value_taken_before_the_write(
     value: &Expr,
     collection: &Expr,
     val_str: String,
-    ctx: &RefinementContext,
     indent_str: &str,
     output: &mut String,
 ) -> String {
     match get_root_identifier(collection) {
-        Some(root) if super::expr::lends_binding(value, root, ctx.get_variable_types()) => {
+        Some(root) if super::expr::lends_binding(value, root) => {
             writeln!(output, "{}let __lent_value = {};", indent_str, val_str).unwrap();
             "__lent_value".to_string()
         }
@@ -5139,10 +5123,9 @@ fn codegen_set_index_stmt<'a>(
     // so the index is read before the value can change it and every lend has ended by the time the
     // store borrows.
     if let Some(root) = get_root_identifier(collection) {
-        let types = ctx.get_variable_types();
         if ordered(&[*index, *value])
-            || super::expr::lends_binding(index, root, types)
-            || super::expr::lends_binding(value, root, types)
+            || super::expr::lends_binding(index, root)
+            || super::expr::lends_binding(value, root)
         {
             let index_str = codegen_expr_with_async(
                 index,
@@ -5151,6 +5134,7 @@ fn codegen_set_index_stmt<'a>(
                 async_functions,
                 ctx.get_variable_types(),
             );
+            let index_str = stored_value(index, index_str, ctx.get_variable_types());
             writeln!(output, "{}let __lent_index = {};", indent_str, index_str).unwrap();
             writeln!(output, "{}let __lent_value = {};", indent_str, value_str).unwrap();
             emit_cow(collection, ctx, &names, &indent_str, &mut output);
@@ -5292,6 +5276,7 @@ fn codegen_set_index_stmt<'a>(
                 async_functions,
                 ctx.get_variable_types(),
             );
+            let index_str = stored_value(index, index_str, ctx.get_variable_types());
             writeln!(
                 output,
                 "{}{}.insert({}, {});",
@@ -5382,6 +5367,7 @@ fn codegen_set_index_stmt<'a>(
                 async_functions,
                 ctx.get_variable_types(),
             );
+            let index_str = stored_value(index, index_str, ctx.get_variable_types());
             writeln!(
                 output,
                 "{}{}.insert({}, {});",
@@ -5397,6 +5383,7 @@ fn codegen_set_index_stmt<'a>(
                 async_functions,
                 ctx.get_variable_types(),
             );
+            let index_str = stored_value(index, index_str, ctx.get_variable_types());
             // Fallback: polymorphic indexing via trait.
             // If the value expression reads ANY collection, bind it to a
             // temp first: that collection may alias the one being written
@@ -6237,7 +6224,7 @@ fn codegen_set_stmt<'a>(
         let mut used_mut_borrow = false;
         if let Expr::Call { function, args } = value {
             let callee_mut_borrow_indices: HashSet<usize> =
-                super::fn_role_indices(var_types.get(function), super::FnRole::MutBorrow);
+                super::fn_role_indices(*function, super::FnRole::MutBorrow);
             if !callee_mut_borrow_indices.is_empty() {
                 // Check if target is at a mut_borrow position
                 let target_at_mut_borrow = args.iter().enumerate().any(|(i, a)| {
@@ -6246,7 +6233,7 @@ fn codegen_set_stmt<'a>(
                 });
                 if target_at_mut_borrow {
                     let callee_borrow_indices: HashSet<usize> =
-                        super::fn_role_indices(var_types.get(function), super::FnRole::Borrow);
+                        super::fn_role_indices(*function, super::FnRole::Borrow);
                     let func_name = names.ident(*function);
                     let args_str: Vec<String> = args
                         .iter()
@@ -6337,20 +6324,9 @@ fn codegen_set_stmt<'a>(
                             }
                         }
                     }
-                    let await_suffix = if async_functions.contains(function) {
-                        ".await"
-                    } else {
-                        ""
-                    };
-                    writeln!(
-                        output,
-                        "{}{}({}){};",
-                        indent_str,
-                        func_name,
-                        args_str.join(", "),
-                        await_suffix
-                    )
-                    .unwrap();
+                    let call = super::expr::Wait::of(*function, async_functions)
+                        .around(format!("{}({})", func_name, args_str.join(", ")));
+                    writeln!(output, "{indent_str}{call};").unwrap();
                     used_mut_borrow = true;
                 }
             }
@@ -6431,19 +6407,8 @@ fn codegen_set_stmt<'a>(
                 }
                 let func_name =
                     super::expr::called_function_path(*function, names.ident(*function), var_types);
-                let await_suffix = if async_functions.contains(function) {
-                    ".await"
-                } else {
-                    ""
-                };
-                super::expr::sequenced_call(
-                    &func_name,
-                    *function,
-                    args,
-                    args_str,
-                    await_suffix,
-                    var_types,
-                )
+                let wait = super::expr::Wait::of(*function, async_functions);
+                super::expr::sequenced_call(&func_name, *function, args, args_str, wait)
             }
         } else {
             let vs = codegen_expr_boxed_with_types(
@@ -6922,19 +6887,13 @@ fn codegen_let_stmt<'a>(
             ctx.register_variable_type(*var, rust_ty);
         }
     } else if let Expr::Identifier(src_sym) = value {
-        // Propagate type from source variable: `Let result be arr` inherits arr's type.
-        // For borrow params (&[T]), the copy becomes Vec<T> (owned).
-        if let Some(src_type) = ctx.get_variable_types().get(src_sym).cloned() {
-            if src_type.starts_with("&[") {
-                // Propagate borrow type — rebinding the slice, not copying
-                ctx.register_variable_type(*var, src_type);
-            } else if src_type.starts_with("&mut [") {
-                // Mutable borrow param consumed into alias → propagate &mut [T]
-                // so the alias continues to be treated as the in-place mutable borrow.
-                ctx.register_variable_type(*var, src_type);
-            } else if !super::is_fn_role_slot(&src_type) {
-                ctx.register_variable_type(*var, src_type);
-            }
+        // Propagate type from source variable: `Let result be arr` inherits arr's type. A borrow
+        // (`&[T]`) rebinds the slice rather than copying it, and a `&mut [T]` alias stays the
+        // in-place mutable borrow. A clock read binds what it reads.
+        if let Some((_, read)) = crate::codegen::expr::clock_read(interner.resolve(*src_sym)) {
+            ctx.register_variable_type(*var, read.to_string());
+        } else if let Some(src_type) = ctx.get_variable_types().get(src_sym).cloned() {
+            ctx.register_variable_type(*var, src_type);
         }
     } else if let Expr::Copy { expr: inner } = value {
         // `Copy of items ... of arr` or `Copy of arr` produces same collection type
@@ -6949,12 +6908,14 @@ fn codegen_let_stmt<'a>(
             Expr::Identifier(s) => Some(*s),
             _ => None,
         };
+        let mut typed = false;
         if let Some(s) = src_sym {
             if let Some(src_type) = ctx.get_variable_types().get(&s).cloned() {
                 if src_type.starts_with("LogosSeq")
                     || src_type.starts_with("Vec")
                     || src_type.starts_with("&[")
                 {
+                    typed = true;
                     let elem = if src_type.starts_with("LogosSeq<") {
                         src_type
                             .strip_prefix("LogosSeq<")
@@ -6973,8 +6934,18 @@ fn codegen_let_stmt<'a>(
                     };
                     ctx.register_variable_type(*var, format!("LogosSeq<{}>", elem));
                 } else if src_type.starts_with("LogosMap") {
+                    typed = true;
                     ctx.register_variable_type(*var, src_type);
                 }
+            }
+        }
+        // A copy of anything else — a record, a call's result, a field — is a value of the type it copies, so a
+        // later write into it (`Push … to c's tags`) knows the place it writes and copies it on write.
+        if !typed && !matches!(inner, Expr::Slice { .. }) {
+            if let Some(ty) =
+                crate::codegen::expr::value_rust_type(inner, ctx.get_variable_types(), registry, interner)
+            {
+                ctx.register_variable_type(*var, ty);
             }
         }
     }
@@ -7072,17 +7043,22 @@ fn codegen_let_stmt<'a>(
             let numeric = infer_numeric_type(value, interner, ctx.get_variable_types());
             if numeric != "unknown" {
                 ctx.register_variable_type(*var, numeric.to_string());
-            } else if let crate::analysis::types::LogosType::Map(k, v) =
-                super::types::infer_logos_type(value, interner, ctx.get_variable_types())
-            {
-                // A `{k: v, …}` map-literal binding: record its `Map<K, V>` type so a
-                // numeric-unified key lookup (`m contains 1.0` on an Int-keyed map) can
-                // coerce. Only Map is registered here — the narrowest change that closes
-                // the compiled key-coercion gap.
-                ctx.register_variable_type(
-                    *var,
-                    crate::analysis::types::LogosType::Map(k, v).to_rust_type(),
-                );
+            } else {
+                match super::types::infer_logos_type(value, interner, ctx.get_variable_types()) {
+                    // A `{k: v, …}` map-literal binding: record its `Map<K, V>` type so a
+                    // numeric-unified key lookup (`m contains 1.0` on an Int-keyed map) can
+                    // coerce.
+                    crate::analysis::types::LogosType::Map(k, v) => ctx.register_variable_type(
+                        *var,
+                        crate::analysis::types::LogosType::Map(k, v).to_rust_type(),
+                    ),
+                    // A Text built by interpolation or concatenation: a `Repeat` over it walks its characters, and a
+                    // read of it twice copies the first.
+                    crate::analysis::types::LogosType::String => {
+                        ctx.register_variable_type(*var, "String".to_string())
+                    }
+                    _ => {}
+                }
             }
         }
     }
@@ -7371,6 +7347,8 @@ fn codegen_let_stmt<'a>(
     // sibling-branch `cutBefore(creds, …)`), and a bare move would leave those a use-after-move
     // (E0382). Mirrors the field-read clone just below and the defensive arg clone in the call
     // codegen; a redundant clone of a truly-dead value is elided by LLVM.
+    // A source whose type this emission did not record (`Let a be item j of xs` over a borrowed list
+    // parameter) is copied the same way unless this binding is its last use.
     if let Expr::Identifier(src_sym) = value {
         if let Some(src_type) = ctx.get_variable_types().get(src_sym) {
             if super::expr::lent_by_sharing(*src_sym, ctx.get_variable_types()) {
@@ -7385,6 +7363,8 @@ fn codegen_let_stmt<'a>(
             {
                 value_str = format!("{}.clone()", value_str);
             }
+        } else if !super::flow::moves_at_last_use(*src_sym, 1) {
+            value_str = format!("{}.clone()", value_str);
         }
     }
 
@@ -8150,7 +8130,7 @@ pub fn codegen_stmt<'a>(
             ctx.register_variable_type(*var, PEER_AGENT_TYPE.to_string());
         }
 
-        // Phase 51: Sleep - supports Duration literals or milliseconds
+        // A Duration waits that long, an Int that many milliseconds; either waits not at all at or below zero.
         Stmt::Sleep { milliseconds } => {
             let expr_str = codegen_expr_with_async(
                 milliseconds,
@@ -8159,24 +8139,17 @@ pub fn codegen_stmt<'a>(
                 async_functions,
                 ctx.get_variable_types(),
             );
-            let inferred_type = infer_rust_type_from_expr(milliseconds, interner);
-
-            if inferred_type == "std::time::Duration" {
-                // Duration type: use directly (already a std::time::Duration)
-                writeln!(
-                    output,
-                    "{}tokio::time::sleep({}).await;",
-                    indent_str, expr_str
-                )
-                .unwrap();
+            let wait = if super::types::infer_logos_type(milliseconds, interner, ctx.get_variable_types())
+                == crate::analysis::types::LogosType::Duration
+            {
+                format!("({expr_str}).to_std()")
             } else {
-                // Assume milliseconds (integer) - legacy behavior
-                writeln!(
-                    output,
-                    "{}tokio::time::sleep(std::time::Duration::from_millis({} as u64)).await;",
-                    indent_str, expr_str
-                )
-                .unwrap();
+                format!("std::time::Duration::from_millis((({expr_str}) as i64).max(0) as u64)")
+            };
+            if super::waits_block() {
+                writeln!(output, "{indent_str}std::thread::sleep({wait});").unwrap();
+            } else {
+                writeln!(output, "{indent_str}tokio::time::sleep({wait}).await;").unwrap();
             }
         }
 
@@ -8280,17 +8253,12 @@ pub fn codegen_stmt<'a>(
                 .zip(args.iter())
                 .map(|(s, a)| (s, matches!(a, Expr::Literal(_))))
                 .collect();
-            // Phase 54: Add .await only if the function is async
-            let await_suffix = if async_functions.contains(function) {
-                ".await"
-            } else {
-                ""
-            };
+            let wait = super::expr::Wait::of(*function, async_functions);
             writeln!(
                 output,
                 "{}tokio::spawn({});",
                 indent_str,
-                launched_future(&fn_name, &args_str, &format!("{await_suffix};"))
+                launched_future(&fn_name, &args_str, wait, true)
             )
             .unwrap();
         }
@@ -8326,18 +8294,13 @@ pub fn codegen_stmt<'a>(
                 .zip(args.iter())
                 .map(|(s, a)| (s, matches!(a, Expr::Literal(_))))
                 .collect();
-            // Phase 54: Add .await only if the function is async
-            let await_suffix = if async_functions.contains(function) {
-                ".await"
-            } else {
-                ""
-            };
+            let wait = super::expr::Wait::of(*function, async_functions);
             writeln!(
                 output,
                 "{}let {} = tokio::spawn({});",
                 indent_str,
                 handle_name,
-                launched_future(&fn_name, &args_str, await_suffix)
+                launched_future(&fn_name, &args_str, wait, false)
             )
             .unwrap();
         }
@@ -8798,14 +8761,7 @@ pub fn codegen_stmt<'a>(
                 ctx.oracle(),
             );
             let val_str = stored_value(value, val_str, ctx.get_variable_types());
-            let val_str = value_taken_before_the_write(
-                value,
-                collection,
-                val_str,
-                ctx,
-                &indent_str,
-                &mut output,
-            );
+            let val_str = value_taken_before_the_write(value, collection, val_str, &indent_str, &mut output);
             let coll_str = codegen_expr_with_async(
                 collection,
                 interner,
@@ -8832,14 +8788,7 @@ pub fn codegen_stmt<'a>(
                 ctx.get_fast_div(),
                 ctx.oracle(),
             );
-            let val_str = value_taken_before_the_write(
-                value,
-                collection,
-                val_str,
-                ctx,
-                &indent_str,
-                &mut output,
-            );
+            let val_str = value_taken_before_the_write(value, collection, val_str, &indent_str, &mut output);
             let coll_str = codegen_expr_with_async(
                 collection,
                 interner,

@@ -40,7 +40,8 @@ pub use logicaffeine_base::numeric::{float_max as logos_max_f64, float_min as lo
 pub use rustc_hash::{FxHashMap, FxHashSet};
 pub use types::{
     decimal_of, set_rate, set_rates, text_bytes, text_from_bytes, to_currency, Bool, Boxable, Byte,
-    Char, DecimalArg, FillClone, FxIndexMap, FxIndexSet, Int, IntoRate, LogosBits, LogosBoxed,
+    Char, DecimalArg, DeepCopy, DeepCopyByClone, DeepCopyByFill, FillClone, FxIndexMap, FxIndexSet,
+    Int, IntoRate, LogosBits, LogosBoxed,
     LogosComplex, LogosComplexF, LogosContains, LogosDecimal, LogosDenseI64Map,
     LogosDenseI64MapNoPresence, LogosDenseI64Set, LogosDivU64, LogosI32Map, LogosI32Set,
     LogosI64Map, LogosI64Set, LogosInt, LogosMap, LogosModular, LogosMoney, LogosQuantity,

@@ -7,17 +7,24 @@
 //! `semantics::collections::with_reference_semantics` is the bootstrap scope that switches one to
 //! the other for a single run.
 //!
+//! A bootstrap program written to mean the same on either host (the self-interpreter does) may also
+//! be run outside the scope by a proof of exactly that — a test that compares it with its run inside
+//! the scope. Each such proof is named in [`HOST_AGNOSTIC_PROOFS`]; every other run enters the scope.
+//!
 //! The halves:
 //! - a source census: every function in `compile.rs` that runs or compiles a bootstrap program
 //!   does it inside the scope, on every engine (tree-walker, VM, compiled Rust);
 //! - the converse: nothing in the workspace enters the scope except those runs;
-//! - behaviour: the partial evaluator specializes a known value on the tree-walker and the VM
-//!   alike, and an ordinary program run before, after or around any of that sees value semantics,
-//!   even after a run inside the scope unwinds.
+//! - behaviour: inside the scope the tree-walker, the VM and compiled Rust mean the same program —
+//!   a plain binding shares, a `mutable` parameter is the caller's value, `copy of` is a value of
+//!   its own — so a bootstrap program means one thing on every engine; the partial evaluator
+//!   specializes a known value on the tree-walker and the VM alike; and an ordinary program run
+//!   before, after or around any of that sees value semantics, even after a run inside the scope
+//!   unwinds.
 
 use logicaffeine_compile::compile::{
     interpret_program, projection1_source_real_fast, projection1_source_real_fast_on_vm,
-    tw_outcome, vm_outcome,
+    run_logos_source, tw_outcome, vm_outcome,
 };
 use logicaffeine_compile::semantics::collections::{
     reference_scope_active, with_reference_semantics,
@@ -37,7 +44,19 @@ const BOOTSTRAP_SOURCES: &[&str] = &[
     "genuine_p3_on_target_source(",
     "pe_native_source()",
     "pe_cdylib_source()",
+    "mix_cdylib_source()",
+    "self_interpreter_run_source(",
+    "textbook_projection1_subject_source(",
+    "mix_source_text()",
     "CORE_TYPES_FOR_PE",
+];
+
+/// The test functions that run a bootstrap program outside the scope on purpose: each proves the
+/// program means the same there as inside it, as `(file, function)`.
+const HOST_AGNOSTIC_PROOFS: &[(&str, &str)] = &[
+    ("futamura_textbook_lock.rs", "sint_on_the_value_host"),
+    ("futamura_textbook_lock.rs", "specializer_on_the_value_host"),
+    ("futamura_textbook_lock.rs", "textbook_on_the_value_host"),
 ];
 
 /// A call that runs a program, or compiles one to Rust, on some engine.
@@ -176,6 +195,7 @@ const BOOTSTRAP_LOGOS: &[&str] = &[
     "optimize/pe_mini_source.logos",
     "optimize/pe_bti_source.logos",
     "optimize/decompile_source.logos",
+    "optimize/mix.logos",
 ];
 
 /// Every name that produces a bootstrap program in the test file `text`: the names above, and each
@@ -235,6 +255,7 @@ fn test_files() -> Vec<PathBuf> {
 /// An in-process run a test makes.
 const TEST_RUNNERS: &[&str] = &[
     "interpret_program(",
+    "interpret_bootstrap_on_the_value_host(",
     "tw_outcome(",
     "vm_outcome(",
     "vm_run_source(",
@@ -263,7 +284,10 @@ fn every_test_that_runs_a_bootstrap_program_in_process_enters_the_scope() {
                 .any(|l| code(l) && (TEST_RUNNERS.iter().any(|m| l.contains(m)) || in_scope(l)));
             if names && runs {
                 found += 1;
-                if !body.iter().any(|l| code(l) && in_scope(l)) {
+                let proof = HOST_AGNOSTIC_PROOFS.iter().any(|(f, n)| {
+                    file.file_name().and_then(|x| x.to_str()) == Some(*f) && name == *n
+                });
+                if !proof && !body.iter().any(|l| code(l) && in_scope(l)) {
                     outside.push(format!("{}: fn {name}", file.display()));
                 }
             }
@@ -497,6 +521,98 @@ fn the_probe_tells_the_two_semantics_apart_on_every_engine() {
     );
 }
 
+const ST: &str = "## A St has:\n    an env, which is Map of Text to Int.\n    a log, which is Seq of Text.\n\n\
+    ## To stEnv (st: St) -> Map of Text to Int:\n    Return st's env.\n\n\
+    ## To stBind (st: mutable St) and (k: Text) and (v: Int):\n    Let mutable e be stEnv(st).\n    Set item k of e to v.\n    Set st to a new St with env e and log (st's log).\n\n";
+
+const HOLDER: &str = "## A Holder has:\n    an m, which is Map of Text to Int.\n\n\
+    ## To getM (h: Holder) -> Map of Text to Int:\n    Return h's m.\n\n\
+    ## To poke (m: mutable Map of Text to Int):\n    Set item \"a\" of m to 9.\n\n";
+
+const TAGGED: &str = "## A Tagged has:\n    a tags, which is Seq of Int.\n\n";
+
+/// What a program means inside the scope, one row per rule: `(row, program, what it shows)`.
+fn scope_rows() -> Vec<(&'static str, String, &'static str)> {
+    vec![
+        ("a plain binding shares its list", COPY_THEN_PUSH.to_string(), "2"),
+        (
+            "a mutable Int parameter is the caller's",
+            "## To bump (n: mutable Int):\n    Set n to n + 1.\n\n## Main\nLet mutable k be 1.\nbump(k).\nShow k.\n".to_string(),
+            "2",
+        ),
+        (
+            "a mutable record parameter replaced whole is the caller's",
+            "## A Box has:\n    an n, which is Int.\n\n## To bump (b: mutable Box):\n    Set b to a new Box with n (b's n + 1).\n\n\
+             ## Main\nLet mutable b be a new Box with n 1.\nbump(b).\nShow b's n.\n".to_string(),
+            "2",
+        ),
+        (
+            "a copy of a call's map is a map of its own",
+            format!("{HOLDER}## Main\nLet mutable inner be a new Map of Text to Int.\nSet item \"a\" of inner to 1.\n\
+                     Let h be a new Holder with m inner.\nLet mutable c be copy of (getM(h)).\nSet item \"a\" of c to 9.\nShow item \"a\" of (getM(h)).\n"),
+            "1",
+        ),
+        (
+            "a copy of a call's map lent to a mutable parameter takes the write alone",
+            format!("{HOLDER}## Main\nLet mutable inner be a new Map of Text to Int.\nSet item \"a\" of inner to 1.\n\
+                     Let h be a new Holder with m inner.\nLet mutable c be copy of (getM(h)).\npoke(c).\nShow item \"a\" of (getM(h)).\nShow item \"a\" of c.\n"),
+            "1\n9",
+        ),
+        (
+            "a copy of a record keeps a push onto its field to itself",
+            format!("{TAGGED}## Main\nLet mutable a be a new Tagged with tags [1].\nLet mutable b be copy of a.\nPush 9 to b's tags.\nShow a's tags.\nShow b's tags.\n"),
+            "[1]\n[1, 9]",
+        ),
+        (
+            "a copy of a nested list keeps a nested write to itself",
+            "## Main\nLet mutable g be a new Seq of Seq of Int.\nLet mutable row be a new Seq of Int.\nPush 1 to row.\nPush row to g.\n\
+             Let mutable c be copy of g.\nSet item 1 of item 1 of c to 9.\nShow item 1 of item 1 of g.\nShow item 1 of item 1 of c.\n".to_string(),
+            "1\n9",
+        ),
+        (
+            "a copy of a nested list has rows of its own",
+            "## Main\nLet mutable g be a new Seq of Seq of Int.\nLet mutable row be a new Seq of Int.\nPush 1 to row.\nPush row to g.\n\
+             Let mutable c be copy of g.\nLet mutable r be item 1 of c.\nPush 9 to r.\nShow g.\nShow c.\n".to_string(),
+            "[[1]]\n[[1, 9]]",
+        ),
+        (
+            "a state threaded through a mutable parameter, and a child built from a copy of its map",
+            format!("{ST}## Main\nLet mutable st be a new St with env (a new Map of Text to Int) and log (a new Seq of Text).\nstBind(st, \"x\", 1).\n\
+                     Let mutable child be a new St with env (copy of (stEnv(st))) and log (st's log).\nstBind(child, \"x\", 4).\n\
+                     Show item \"x\" of (stEnv(st)).\nShow item \"x\" of (stEnv(child)).\n"),
+            "1\n4",
+        ),
+    ]
+}
+
+/// Inside the scope every engine runs a program to the same answer: the tree-walker, the VM, and
+/// the program compiled to Rust and run — the three ways `compile.rs` runs a bootstrap program.
+#[test]
+fn the_scope_means_the_same_on_every_engine() {
+    let mut wrong = Vec::new();
+    for (row, program, expected) in scope_rows() {
+        let (tw, vm, aot) = with_reference_semantics(|| {
+            (
+                shown(tw_outcome(&program)),
+                shown(vm_outcome(&program)),
+                run_logos_source(&program).map(|out| out.trim().to_string()),
+            )
+        });
+        let answers = [("tree-walker", Ok(tw)), ("VM", Ok(vm)), ("compiled Rust", aot)];
+        for (engine, answer) in answers {
+            if answer.as_deref() != Ok(expected) {
+                wrong.push(format!("{row} — {engine}: {answer:?}, not {expected:?}"));
+            }
+        }
+    }
+    assert!(
+        wrong.is_empty(),
+        "inside the scope an engine means something else:\n{}",
+        wrong.join("\n")
+    );
+    assert_eq!(ordinary(), value_semantics(), "the scope is left behind");
+}
+
 #[test]
 fn the_partial_evaluator_specializes_a_known_value_on_every_engine() {
     let program = "## Main\nLet x be 5.\nShow x.\n";
@@ -544,4 +660,28 @@ fn an_unwinding_bootstrap_run_leaves_the_scope() {
         value_semantics(),
         "a panic inside the scope does not keep it entered"
     );
+}
+
+/// Every named host-agnosticism proof is still there and still runs its program outside the scope —
+/// a renamed or retired proof leaves no stale exemption.
+#[test]
+fn every_host_agnosticism_proof_runs_outside_the_scope() {
+    for (file, name) in HOST_AGNOSTIC_PROOFS {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join(file);
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let functions = functions_indented(&text);
+        let body = functions
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, b)| b)
+            .unwrap_or_else(|| panic!("{file} no longer has `fn {name}` — drop it from HOST_AGNOSTIC_PROOFS"));
+        assert!(
+            body.iter().any(|l| code(l) && TEST_RUNNERS.iter().any(|m| l.contains(m))),
+            "{file}: `fn {name}` no longer runs anything — drop it from HOST_AGNOSTIC_PROOFS"
+        );
+        assert!(
+            !body.iter().any(|l| code(l) && in_scope(l)),
+            "{file}: `fn {name}` runs inside the scope — it proves nothing about the other host; drop it from HOST_AGNOSTIC_PROOFS"
+        );
+    }
 }

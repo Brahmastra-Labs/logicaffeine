@@ -222,19 +222,75 @@ fn step_into<'v>(value: &'v mut RuntimeValue, step: &PlaceStep) -> Option<&'v mu
 /// type to one of them, and a CRDT field that silently defaults to `Nothing` on one path is a
 /// replica that never converges.
 pub fn default_for_declared_type(type_name: &str) -> RuntimeValue {
-    if let Some(c) = crdt_for_declared_type(type_name) {
-        return c;
+    match declared_default(type_name) {
+        DeclaredDefault::Crdt(kind) => RuntimeValue::Crdt(Rc::new(RefCell::new(kind.fresh()))),
+        DeclaredDefault::Int => RuntimeValue::Int(0),
+        DeclaredDefault::Float => RuntimeValue::Float(0.0),
+        DeclaredDefault::Bool => RuntimeValue::Bool(false),
+        DeclaredDefault::Text => RuntimeValue::Text(Rc::new(String::new())),
+        DeclaredDefault::Char => RuntimeValue::Char('\0'),
+        DeclaredDefault::List => RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(Vec::new())))),
+        DeclaredDefault::Set => RuntimeValue::Set(Rc::new(RefCell::new(vec![]))),
+        DeclaredDefault::Map => RuntimeValue::Map(Rc::new(RefCell::new(MapStorage::default()))),
+        DeclaredDefault::Nothing => RuntimeValue::Nothing,
     }
-    match type_name {
-        "Int" | "Element" | "Event" | "View" | "Byte" => RuntimeValue::Int(0),
-        "Float" => RuntimeValue::Float(0.0),
-        "Bool" => RuntimeValue::Bool(false),
-        "Text" | "String" => RuntimeValue::Text(Rc::new(String::new())),
-        "Char" => RuntimeValue::Char('\0'),
-        "Seq" | "List" => RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(Vec::new())))),
-        "Set" | "HashSet" => RuntimeValue::Set(Rc::new(RefCell::new(vec![]))),
-        "Map" | "HashMap" => RuntimeValue::Map(Rc::new(RefCell::new(MapStorage::default()))),
-        _ => RuntimeValue::Nothing,
+}
+
+/// Which value a declared type starts at (see [`default_for_declared_type`]) — the one classification every reader
+/// asks, the Core IR encoders included, so a slot a construction leaves out starts at the same value on every tier.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeclaredDefault {
+    Int,
+    Float,
+    Bool,
+    Text,
+    Char,
+    List,
+    Set,
+    Map,
+    /// A fresh, empty replica of this CRDT kind.
+    Crdt(crate::semantics::crdt::CrdtKind),
+    Nothing,
+}
+
+/// The [`DeclaredDefault`] of the declared type `type_name`: a CRDT kind's fresh replica, else [`DECLARED_DEFAULTS`]'s
+/// entry, else nothing.
+pub fn declared_default(type_name: &str) -> DeclaredDefault {
+    if let Some(kind) = crate::semantics::crdt::CrdtKind::of_type_name(type_name) {
+        return DeclaredDefault::Crdt(kind);
+    }
+    DECLARED_DEFAULTS.iter().find(|(n, _)| *n == type_name).map_or(DeclaredDefault::Nothing, |(_, d)| *d)
+}
+
+/// The declared type names whose slots start at a value of their own, other than the CRDT kinds
+/// (`CrdtKind::TYPE_NAMES`).
+pub const DECLARED_DEFAULTS: &[(&str, DeclaredDefault)] = &[
+    ("Int", DeclaredDefault::Int),
+    ("Element", DeclaredDefault::Int),
+    ("Event", DeclaredDefault::Int),
+    ("View", DeclaredDefault::Int),
+    ("Byte", DeclaredDefault::Int),
+    ("Float", DeclaredDefault::Float),
+    ("Bool", DeclaredDefault::Bool),
+    ("Text", DeclaredDefault::Text),
+    ("String", DeclaredDefault::Text),
+    ("Char", DeclaredDefault::Char),
+    ("Seq", DeclaredDefault::List),
+    ("List", DeclaredDefault::List),
+    ("Set", DeclaredDefault::Set),
+    ("HashSet", DeclaredDefault::Set),
+    ("Map", DeclaredDefault::Map),
+    ("HashMap", DeclaredDefault::Map),
+];
+
+/// The type name a struct field's declared type starts its slot by ([`declared_default`]): the type itself, a
+/// generic's base (`Seq of Int` is `Seq`), and none for a tuple or a record.
+pub fn declared_field_type(ty: &crate::analysis::registry::FieldType) -> Symbol {
+    use crate::analysis::registry::FieldType;
+    match ty {
+        FieldType::Primitive(s) | FieldType::Named(s) | FieldType::TypeParam(s) => *s,
+        FieldType::Generic { base, .. } => *base,
+        FieldType::Tuple(_) | FieldType::Record(_) => Symbol::EMPTY,
     }
 }
 
@@ -2077,30 +2133,7 @@ impl RuntimeValue {
             RuntimeValue::Peer(topic) => format!("<peer {topic}>"),
             RuntimeValue::Crdt(c) => c.borrow().render(),
             RuntimeValue::Nothing => "nothing".to_string(),
-            RuntimeValue::Duration(nanos) => {
-                // Format durations nicely based on magnitude
-                let abs_nanos = nanos.unsigned_abs();
-                let sign = if *nanos < 0 { "-" } else { "" };
-                if abs_nanos >= 3_600_000_000_000 {
-                    // Hours
-                    format!("{}{}h", sign, abs_nanos / 3_600_000_000_000)
-                } else if abs_nanos >= 60_000_000_000 {
-                    // Minutes
-                    format!("{}{}min", sign, abs_nanos / 60_000_000_000)
-                } else if abs_nanos >= 1_000_000_000 {
-                    // Seconds
-                    format!("{}{}s", sign, abs_nanos / 1_000_000_000)
-                } else if abs_nanos >= 1_000_000 {
-                    // Milliseconds
-                    format!("{}{}ms", sign, abs_nanos / 1_000_000)
-                } else if abs_nanos >= 1_000 {
-                    // Microseconds
-                    format!("{}{}μs", sign, abs_nanos / 1_000)
-                } else {
-                    // Nanoseconds
-                    format!("{}{}ns", sign, abs_nanos)
-                }
-            }
+            RuntimeValue::Duration(nanos) => logicaffeine_base::temporal::shown_duration(*nanos),
             RuntimeValue::Date(days) => {
                 // Convert days since epoch to YYYY-MM-DD format
                 // Using Howard Hinnant's algorithm
@@ -3055,24 +3088,12 @@ impl<'a> Interpreter<'a> {
     /// This allows the interpreter to initialize default field values for
     /// structs created with `new Point` (no explicit fields).
     pub fn with_type_registry(mut self, registry: &crate::analysis::TypeRegistry) -> Self {
-        use crate::analysis::registry::{FieldType, TypeDef};
+        use crate::analysis::registry::TypeDef;
         self.ctx.types = Some(registry.clone());
         for (name_sym, type_def) in registry.iter_types() {
             if let TypeDef::Struct { fields, .. } = type_def {
-                let field_defs: Vec<(Symbol, Symbol, bool)> = fields
-                    .iter()
-                    .map(|f| {
-                        let type_sym = match &f.ty {
-                            FieldType::Primitive(s)
-                            | FieldType::Named(s)
-                            | FieldType::TypeParam(s) => *s,
-                            FieldType::Generic { base, .. } => *base,
-                            // A tuple names no type with a scalar default.
-                            FieldType::Tuple(_) | FieldType::Record(_) => Symbol::EMPTY,
-                        };
-                        (f.name, type_sym, f.is_public)
-                    })
-                    .collect();
+                let field_defs: Vec<(Symbol, Symbol, bool)> =
+                    fields.iter().map(|f| (f.name, declared_field_type(&f.ty), f.is_public)).collect();
                 self.ctx.struct_defs.insert(*name_sym, field_defs);
             } else if let TypeDef::Enum { variants, .. } = type_def {
                 // Constructor names in declaration order — the order is the wire's ctor

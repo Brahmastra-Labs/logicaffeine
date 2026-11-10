@@ -10,6 +10,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - `parser::lgx_lower`: a `Click` on the page's own element lowers as the host's `click` element command alone; the
   host raises the event, as it raises `focus` and `blur`.
+- The front end's cost grew with the square of a file's constructs. From every `##` header, the parser scanned for
+  a `Newline` token, which LOGOS emits only for a table row, so the scan ran to the end of the file. The lexer tested
+  every structural event against every multi-line string, bracket span and escape body. The parser's scan is gone (a
+  header's trailing colon is the lexer's alone to drop, on the raw source), and the lexer locates each event by binary
+  search. A 186k-line program now parses in 6 s of CPU where it took 157 s (`header_trailing_colon_lock`, the lexer's
+  unit tests).
 
 ## [0.11.0] - 2026-11-02
 

@@ -12,18 +12,10 @@
 //! - Async + Zones
 //! - Select + Features
 //! - Parallel + Features
-//!
-//! ## Test Results Summary
-//! - 28 passing tests
-//! - 3 failing tests (codegen bugs identified)
-//!
-//! ## Known Codegen Bugs Found:
-//! 1. Transitive async in Inspect arms: Sleep inside Inspect arm doesn't
-//!    make the function async (e2e_async_inside_inspect_arm)
-//! 2. Duration return type: `Duration` should be `std::time::Duration`
-//!    (e2e_async_returns_duration)
-//! 3. Async in list iteration: Parse/codegen issue with mutable variables
-//!    in for-in loops (e2e_async_in_list_iteration)
+//! - Async coloring: a function that reaches a sleeping function from any expression or nested
+//!   block is itself async on the compiled tier, a loop that awaits keeps the collection it walks,
+//!   and a cycle of calls through a sleeping function runs; each prints what the tree-walker and the
+//!   scheduler-driven VM print
 
 #[cfg(not(target_arch = "wasm32"))]
 mod common;
@@ -669,5 +661,276 @@ fn e2e_concurrent_struct_creation() {
     Show p's y.
 "#,
         &["10", "20"],
+    );
+}
+
+// =============================================================================
+// Async coloring: every expression and nested block reaches the callee
+// =============================================================================
+
+/// The declarations every coloring program starts from: a sleeping `nap` and `naps`, a record and a variant
+/// to build around them.
+#[cfg(not(target_arch = "wasm32"))]
+const SLEEPERS: &str = r#"## A Box has:
+    a v: Int.
+
+## A Wrap is one of:
+    A W with n Int.
+
+## To nap (n: Int) -> Int:
+    Sleep 1.
+    Return n.
+
+## To naps (n: Int) -> Seq of Int:
+    Sleep 1.
+    Return [n, n + 1, n + 2].
+"#;
+
+/// `body` after [`SLEEPERS`] prints `expected` on the tree-walker, on the VM under its scheduler and on the compiled
+/// tier, whose function `f` awaits the sleeper it reaches only through the position under test.
+#[cfg(not(target_arch = "wasm32"))]
+fn assert_colored(body: &str, expected: &str) {
+    let source = format!("{SLEEPERS}\n{body}");
+    for (tier, run) in [
+        ("the tree-walker", logicaffeine_compile::compile::tw_outcome(&source)),
+        ("the scheduled VM", logicaffeine_compile::compile::vm_outcome_concurrent(&source)),
+    ] {
+        assert_eq!(run.error, None, "{tier} refused:\n{source}");
+        assert_eq!(run.output.trim(), expected, "{tier}:\n{source}");
+    }
+    assert_exact_output(&source, expected);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_in_a_record_field_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Box:\n    Return a new Box with v nap(n).\n\n## Main\nShow f(4)'s v.\n",
+        "4",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_in_a_variant_field_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Wrap:\n    Return a new W with n nap(n).\n\n## Main\nInspect f(3):\n    When W (k):\n        Show k.\n",
+        "3",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_under_not_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Bool:\n    Return not (nap(n) equals 0).\n\n## Main\nShow f(5).\n",
+        "true",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_set_into_a_field_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Int:\n    Let b be a new Box with v 1.\n    Set b's v to nap(n).\n    Return b's v.\n\n## Main\nShow f(7).\n",
+        "7",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_calls_pushed_together_color_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Seq of Int:\n    Let mutable xs be a new Seq of Int.\n    Push nap(n), nap(n + 1) to xs.\n    Return xs.\n\n## Main\nShow f(2).\n",
+        "[2, 3]",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_in_a_reversible_block_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Int:\n    Let mutable x be 1.\n    Reversibly:\n        Set x to x + nap(n).\n    Return x.\n\n## Main\nShow f(4).\n",
+        "5",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleep_in_a_reversible_block_colors_the_function() {
+    assert_colored(
+        "## To f (n: Int) -> Int:\n    Reversibly:\n        Sleep 1.\n    Return n.\n\n## Main\nShow f(4).\n",
+        "4",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_wrapped_in_some_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Option of Int:\n    Return some nap(n).\n\n## Main\nShow f(6).\n",
+        "6",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_as_a_range_bound_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Int:\n    Let mutable t be 0.\n    Repeat for i from 1 to nap(n):\n        Set t to t + i.\n    Return t.\n\n## Main\nShow f(4).\n",
+        "10",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_under_length_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Int:\n    Return length of naps(n).\n\n## Main\nShow f(1).\n",
+        "3",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_under_contains_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Bool:\n    Return naps(n) contains 2.\n\n## Main\nShow f(1).\n",
+        "true",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_as_a_slice_bound_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Int:\n    Let xs be [5, 6, 7, 8].\n    Return length of (items 2 through (nap(n)) of xs).\n\n## Main\nShow f(3).\n",
+        "2",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_under_copy_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Seq of Int:\n    Return copy of naps(n).\n\n## Main\nShow f(1).\n",
+        "[1, 2, 3]",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_added_to_a_set_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Int:\n    Let mutable s be a new Set of Int.\n    Add nap(n) to s.\n    Add nap(n + 1) to s.\n    Return length of s.\n\n## Main\nShow f(1).\n",
+        "2",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_removed_from_a_set_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Int:\n    Let mutable s be a new Set of Int.\n    Add 1 to s.\n    Add 2 to s.\n    Remove nap(n) from s.\n    Return length of s.\n\n## Main\nShow f(1).\n",
+        "1",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_in_a_set_union_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Int:\n    Let mutable s be a new Set of Int.\n    Add n to s.\n    Let mutable t be a new Set of Int.\n    Add nap(n + 1) to t.\n    Return length of (s union t).\n\n## Main\nShow f(1).\n",
+        "2",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_as_a_capacity_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Int:\n    Let mutable xs be a new Seq of Int with capacity nap(n).\n    Push n to xs.\n    Return length of xs.\n\n## Main\nShow f(8).\n",
+        "1",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_in_a_failure_reason_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Int:\n    If n equals 0:\n        Fail with \"bad {nap(n)}\".\n    Return n.\n\n## Main\nShow f(2).\n",
+        "2",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_in_a_list_and_a_text_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Seq of Int:\n    Return [nap(n), nap(n + 1)].\n\n## To g (n: Int) -> Text:\n    Return \"got {nap(n)}\".\n\n## Main\nShow f(1).\nShow g(2).\n",
+        "[1, 2]\ngot 2",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_sleeping_call_in_a_loop_condition_colors_the_caller() {
+    assert_colored(
+        "## To f (n: Int) -> Int:\n    Let mutable i be 0.\n    While i is less than nap(n):\n        Set i to i + 1.\n    Return i.\n\n## Main\nShow f(3).\n",
+        "3",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_coloring_reaches_a_caller_through_every_new_position() {
+    assert_colored(
+        "## To inner (n: Int) -> Box:\n    Return a new Box with v nap(n).\n\n## To middle (n: Int) -> Bool:\n    Return not (inner(n)'s v equals 0).\n\n## To outer (n: Int) -> Seq of Bool:\n    Return copy of [middle(n), middle(0)].\n\n## Main\nShow outer(2).\n",
+        "[true, false]",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_a_loop_that_awaits_keeps_the_map_it_walks() {
+    assert_colored(
+        "## To f (m: Map of Text to Int) -> Int:\n    Let mutable t be 0.\n    Repeat for (k, v) in m:\n        Set t to t + nap(v).\n    Return t + length of m.\n\n## Main\nLet mutable m be a new Map of Text to Int.\nSet item \"a\" of m to 5.\nSet item \"b\" of m to 7.\nShow f(m).\nShow length of m.\n",
+        "14\n2",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_a_loop_that_awaits_keeps_the_list_it_walks() {
+    assert_colored(
+        "## To f (n: Int) -> Int:\n    Let xs be [n, n + 1, n + 2].\n    Let mutable t be 0.\n    Repeat for x in xs:\n        Set t to t + nap(x).\n    Repeat for y in xs:\n        Set t to t + y.\n    Return t + length of xs.\n\n## Main\nShow f(1).\n",
+        "15",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_a_loop_that_awaits_walks_the_characters_of_a_text() {
+    assert_colored(
+        "## To f (n: Int) -> Int:\n    Let s be \"{n}:{n}\".\n    Let mutable t be 0.\n    Repeat for c in s:\n        If c equals \":\":\n            Set t to t + nap(10).\n    Return t + length of s.\n\n## Main\nShow f(42).\n",
+        "15",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_a_sleeping_function_calls_itself() {
+    assert_colored(
+        "## To f (n: Int) -> Int:\n    If n is at most 0:\n        Return 0.\n    Sleep 1.\n    Return f(n - 1) + 1.\n\n## Main\nShow f(3).\n",
+        "3",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_two_functions_call_each_other_through_a_sleep() {
+    assert_colored(
+        "## To ping (n: Int) -> Int:\n    If n is at most 0:\n        Return 0.\n    Return pong(n - 1) + 1.\n\n## To pong (n: Int) -> Int:\n    Return ping(n) + nap(0).\n\n## Main\nShow ping(4).\nShow pong(2).\n",
+        "4\n2",
     );
 }

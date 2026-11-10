@@ -161,3 +161,29 @@ fn the_standard_library_functions_themselves_run() {
         "&lt;a href=&quot;x&quot;&gt;&amp;\ntrue\nfalse\nfalse",
     );
 }
+
+#[test]
+fn a_text_built_by_interpolation_or_concatenation_walks_its_characters() {
+    // A Text the program builds — an interpolation, a concatenation, an interpolation walked in place — is a Text like
+    // any other: the walk visits its characters.
+    e2e(
+        "## To marks (n: Int) -> Int:\n\
+        \x20   Let s be \"{n}:{n}\".\n\
+        \x20   Let t be s + \":\".\n\
+        \x20   Let mutable count be 0.\n\
+        \x20   For each c in s:\n\
+        \x20       If c equals \":\":\n\
+        \x20           Set count to count + 1.\n\
+        \x20   For each c in t:\n\
+        \x20       If c equals \":\":\n\
+        \x20           Set count to count + 1.\n\
+        \x20   For each c in \"{n};\":\n\
+        \x20       If c equals \";\":\n\
+        \x20           Set count to count + 1.\n\
+        \x20   Return count.\n\
+         \n\
+         ## Main\n\
+         Show marks(42).\n",
+        "4",
+    );
+}

@@ -217,3 +217,170 @@ fn mvs_mutable_param_keyword_accepted() {
         "2",
     );
 }
+
+// A `mutable` parameter stored in a construction is stored as its value at that moment: a later write the body makes
+// to the parameter reaches the caller, never the stored copy, and storing it at its last use builds as well.
+#[test]
+fn a_mutable_list_stored_in_a_variant_keeps_its_value_when_the_parameter_is_written_again() {
+    assert_exact_output(
+        r#"## A Box is one of:
+    A Held with items Seq of Int.
+
+## To wrap (xs: mutable Seq of Int) -> Box:
+    Push 1 to xs.
+    Let b be a new Held with items xs.
+    Push 2 to xs.
+    Return b.
+
+## Main
+Let mutable ys be [5].
+Let b be wrap(ys).
+Inspect b:
+    When Held (got):
+        Show got.
+Show ys.
+"#,
+        "[5, 1]\n[5, 1, 2]",
+    );
+}
+
+#[test]
+fn a_mutable_list_stored_in_a_variant_at_its_last_use_builds() {
+    assert_exact_output(
+        r#"## A Box is one of:
+    A Held with items Seq of Int.
+
+## To wrap (xs: mutable Seq of Int) -> Box:
+    Push 1 to xs.
+    Return a new Held with items xs.
+
+## Main
+Let mutable ys be [5].
+Let b be wrap(ys).
+Inspect b:
+    When Held (got):
+        Show got.
+Show ys.
+"#,
+        "[5, 1]\n[5, 1]",
+    );
+}
+
+#[test]
+fn a_mutable_map_stored_in_a_variant_keeps_its_value_when_the_parameter_is_written_again() {
+    assert_exact_output(
+        r#"## A Box is one of:
+    A Held with entries Map of Text to Int.
+
+## To wrap (m: mutable Map of Text to Int) -> Box:
+    Set item "a" of m to 1.
+    Let b be a new Held with entries m.
+    Set item "b" of m to 2.
+    Return b.
+
+## Main
+Let mutable n be a new Map of Text to Int.
+Let b be wrap(n).
+Inspect b:
+    When Held (got):
+        Show length of got.
+Show length of n.
+"#,
+        "1\n2",
+    );
+}
+
+#[test]
+fn a_mutable_list_stored_in_a_record_keeps_its_value_when_the_parameter_is_written_again() {
+    assert_exact_output(
+        r#"## A Bag has:
+    An items: Seq of Int.
+
+## To wrap (xs: mutable Seq of Int) -> Bag:
+    Push 1 to xs.
+    Let b be a new Bag with items xs.
+    Push 2 to xs.
+    Return b.
+
+## Main
+Let mutable ys be [5].
+Let b be wrap(ys).
+Show b's items.
+Show ys.
+"#,
+        "[5, 1]\n[5, 1, 2]",
+    );
+}
+
+#[test]
+fn a_mutable_map_stored_in_a_record_at_its_last_use_builds_and_keeps_its_value() {
+    assert_exact_output(
+        r#"## A Bag has:
+    An entries: Map of Text to Int.
+
+## To wrap (m: mutable Map of Text to Int) -> Bag:
+    Set item "a" of m to 1.
+    Return a new Bag with entries m.
+
+## Main
+Let mutable n be a new Map of Text to Int.
+Let b be wrap(n).
+Set item "c" of n to 3.
+Show length of b's entries.
+Show length of n.
+"#,
+        "1\n2",
+    );
+}
+
+#[test]
+fn a_mutable_record_stored_in_a_variant_keeps_its_value_when_the_parameter_is_written_again() {
+    assert_exact_output(
+        r#"## A Point has:
+    An x: Int.
+
+## A Box is one of:
+    A Held with p Point.
+
+## To wrap (pt: mutable Point) -> Box:
+    Set pt's x to 2.
+    Let b be a new Held with p pt.
+    Set pt's x to 3.
+    Return b.
+
+## Main
+Let mutable q be a new Point with x 1.
+Let b be wrap(q).
+Inspect b:
+    When Held (got):
+        Show got's x.
+Show q's x.
+"#,
+        "2\n3",
+    );
+}
+
+#[test]
+fn a_mutable_record_stored_in_a_variant_at_its_last_use_builds() {
+    assert_exact_output(
+        r#"## A Point has:
+    An x: Int.
+
+## A Box is one of:
+    A Held with p Point.
+
+## To wrap (pt: mutable Point) -> Box:
+    Set pt's x to 2.
+    Return a new Held with p pt.
+
+## Main
+Let mutable q be a new Point with x 1.
+Let b be wrap(q).
+Inspect b:
+    When Held (got):
+        Show got's x.
+Show q's x.
+"#,
+        "2\n2",
+    );
+}

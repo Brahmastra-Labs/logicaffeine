@@ -302,7 +302,9 @@ long long logos_today(void) {
 long long logos_now(void) {
     const char *e = getenv("LOGOS_FIXED_NANOS");
     if (e) return atoll(e);
-    return (long long)time(NULL) * 1000000000LL;
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    return (long long)ts.tv_sec * 1000000000LL + (long long)ts.tv_nsec;
 }
 
 /* time.lg's `now()` — the Unix time in milliseconds from the real clock, as the interpreter reads it. */

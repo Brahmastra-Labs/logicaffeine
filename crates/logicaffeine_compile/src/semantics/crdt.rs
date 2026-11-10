@@ -116,18 +116,26 @@ impl CrdtKind {
 
     /// The CRDT a declared field type names, or `None` for a type that is not one.
     pub fn of_type_name(name: &str) -> Option<CrdtKind> {
-        Some(match name {
-            "SharedSet" | "ORSet" | "SharedSet_AddWins" => CrdtKind::Set,
-            "SharedSet_RemoveWins" => CrdtKind::SetRemoveWins,
-            "SharedSequence" | "RGA" | "SharedSequence_YATA" | "CollaborativeSequence" => {
-                CrdtKind::Seq
-            }
-            "ConvergentCount" | "GCounter" => CrdtKind::Counter,
-            "Tally" | "PNCounter" => CrdtKind::PnCounter,
-            "SharedMap" | "ORMap" => CrdtKind::Map,
-            _ => return None,
-        })
+        CrdtKind::TYPE_NAMES.iter().find(|(n, _)| *n == name).map(|(_, kind)| *kind)
     }
+
+    /// Every declared type name that names a CRDT, with its kind.
+    pub const TYPE_NAMES: &'static [(&'static str, CrdtKind)] = &[
+        ("SharedSet", CrdtKind::Set),
+        ("ORSet", CrdtKind::Set),
+        ("SharedSet_AddWins", CrdtKind::Set),
+        ("SharedSet_RemoveWins", CrdtKind::SetRemoveWins),
+        ("SharedSequence", CrdtKind::Seq),
+        ("RGA", CrdtKind::Seq),
+        ("SharedSequence_YATA", CrdtKind::Seq),
+        ("CollaborativeSequence", CrdtKind::Seq),
+        ("ConvergentCount", CrdtKind::Counter),
+        ("GCounter", CrdtKind::Counter),
+        ("Tally", CrdtKind::PnCounter),
+        ("PNCounter", CrdtKind::PnCounter),
+        ("SharedMap", CrdtKind::Map),
+        ("ORMap", CrdtKind::Map),
+    ];
 
     /// Whether `backend` lowers this CRDT — single-replica, running identically to the interpreter and
     /// the VM. [`crate::compile::refuse_unlinkable`] refuses a program that builds a kind its backend
@@ -186,6 +194,19 @@ impl CrdtKind {
                 Backend::WebAssembly => true,
                 Backend::SoftCore => false,
             },
+        }
+    }
+
+    /// The type name a value of this kind answers ([`CrdtValue::kind`]): its declared name ([`Self::type_name`])
+    /// without a set's bias.
+    pub const fn value_type_name(self) -> &'static str {
+        match self {
+            CrdtKind::Set | CrdtKind::SetRemoveWins => "SharedSet",
+            CrdtKind::Seq => "SharedSequence",
+            CrdtKind::Register => "Divergent",
+            CrdtKind::Counter => "ConvergentCount",
+            CrdtKind::PnCounter => "Tally",
+            CrdtKind::Map => "SharedMap",
         }
     }
 
@@ -395,14 +416,7 @@ impl CrdtValue {
 
     /// The CRDT kind, used for type errors and `type_name`.
     pub fn kind(&self) -> &'static str {
-        match self {
-            CrdtValue::Set(_) | CrdtValue::SetRemoveWins(_) => "SharedSet",
-            CrdtValue::Seq(_) => "SharedSequence",
-            CrdtValue::Register(_) => "Divergent",
-            CrdtValue::Counter(_) => "ConvergentCount",
-            CrdtValue::PnCounter(_) => "Tally",
-            CrdtValue::Map(_) => "SharedMap",
-        }
+        self.crdt_kind().value_type_name()
     }
 
     /// `Add element to <set>` — insert into the observed-remove set.

@@ -172,6 +172,7 @@ fn opaque_statement_builders() -> Vec<(&'static str, &'static str)> {
         ("CCallS", "a new CCallS with name \"f\" and args (a new Seq of CExpr)"),
         ("CPush", "a new CPush with expr (a new CVar with name \"src\") and target \"items\""),
         ("CPop", "a new CPop with target \"items\""),
+        ("CPopInto", "a new CPopInto with target \"items\" and into \"last\""),
         ("CAdd", "a new CAdd with elem (a new CVar with name \"src\") and target \"s\""),
         ("CRemove", "a new CRemove with elem (a new CVar with name \"src\") and target \"s\""),
         ("CSetIdx", "a new CSetIdx with target \"a\" and idx (a new CVar with name \"src\") and val (a new CVar with name \"src\")"),
@@ -179,6 +180,7 @@ fn opaque_statement_builders() -> Vec<(&'static str, &'static str)> {
         ("CSetField", "a new CSetField with target \"o\" and field \"f\" and val (a new CVar with name \"src\")"),
         ("CRuntimeAssert", "a new CRuntimeAssert with cond (a new CVar with name \"src\") and msg (a new CVar with name \"src\")"),
         ("CHardAssert", "a new CHardAssert with cond (a new CVar with name \"src\") and msg (a new CVar with name \"src\")"),
+        ("CFail", "a new CFail with reason (a new CVar with name \"src\")"),
         ("CGive", "a new CGive with expr (a new CVar with name \"src\") and target \"r\""),
         ("CEscStmt", "a new CEscStmt with code \"raw\""),
         ("CSleep", "a new CSleep with duration (a new CVar with name \"src\")"),
@@ -195,6 +197,8 @@ fn opaque_statement_builders() -> Vec<(&'static str, &'static str)> {
         ("CDecrease", "a new CDecrease with target \"x\" and amount (a new CVar with name \"src\")"),
         ("CAppendToSeq", "a new CAppendToSeq with target \"items\" and value (a new CVar with name \"src\")"),
         ("CResolve", "a new CResolve with target \"c's active\""),
+        ("CResolveTo", "a new CResolveTo with target \"c's active\" and value (a new CVar with name \"src\")"),
+        ("CCheckPolicy", "a new CCheckPolicy with subject \"src\" and object \"\" and capability false and rule \"admin\" and alternatives (a new Seq of CPolicyAlt) and source \"src is admin\""),
         ("CSync", "a new CSync with target \"x\" and channel (a new CVar with name \"src\")"),
         ("CMount", "a new CMount with target \"x\" and path (a new CVar with name \"src\")"),
         ("CConcurrent", "a new CConcurrent with branches concBranches"),
@@ -244,6 +248,11 @@ const EXCLUDED_FROM_OPAQUE_BATCH: &[(&str, &str)] = &[
     (
         "CForceDynamic",
         "PE-internal binding-time hint, never an opaque body statement; static lock",
+    ),
+    (
+        "CAtPath",
+        "a write through a field path — the PE forces its root dynamic and residualizes the write it wraps, which \
+         the decompiler prints as the program wrote it; static lock + futamura_textbook_lock's field-path cases",
     ),
     (
         "CStructDef",

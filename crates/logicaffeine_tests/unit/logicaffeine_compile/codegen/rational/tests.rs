@@ -155,3 +155,32 @@ fn a_read_of_a_records_field_is_typed_by_the_fields_declaration() {
         assert_eq!(shown, [LogosType::Rational, LogosType::Rational, LogosType::Int]);
     });
 }
+
+/// An expression is typed from the bindings and functions it names wherever they sit in it: a call inside a sum and a
+/// binding inside an index keep their types though the environment holds nothing else.
+#[test]
+fn an_expression_is_typed_from_the_names_it_holds_wherever_they_sit() {
+    let src = "## To native parseInt (s: Text) -> Int\n\n## To halve (x: Rational) -> Rational:\n    Return x / 2.\n\n## Main\nLet r: Rational be 1 / parseInt(\"3\").\nLet ys be [r, r, r].\nShow halve(item 2 of ys) + r.\n";
+    with_program(src, |stmts, registry, interner| {
+        let sym = |name: &str| interner.lookup(name).unwrap_or_else(|| panic!("`{name}` is interned"));
+        let shown = stmts
+            .iter()
+            .find_map(|s| match s {
+                Stmt::Show { object, .. } => Some(*object),
+                _ => None,
+            })
+            .expect("Main shows the sum");
+        let types: HashMap<Symbol, String> = HashMap::from([
+            (sym("r"), RATIONAL.to_string()),
+            (sym("ys"), format!("LogosSeq<{RATIONAL}>")),
+        ]);
+        super::super::expr::set_fn_return_types(&HashMap::from([(sym("halve"), RATIONAL.to_string())]));
+        let t = Typing { interner, variable_types: &types, registry };
+        let sum = type_of(shown, t);
+        let Expr::BinaryOp { left: Expr::Call { args, .. }, .. } = shown else { panic!("the sum is a call plus a binding") };
+        let item = type_of(args[0], t);
+        super::super::expr::set_fn_return_types(&HashMap::new());
+        assert_eq!(sum, LogosType::Rational, "the call's declared result and the binding type the sum");
+        assert_eq!(item, LogosType::Rational, "the binding inside the index types the item");
+    });
+}

@@ -99,6 +99,20 @@ pub struct TypeEnv {
 }
 
 impl LogosType {
+    /// The type of `left op right` the language computes on temporal values, as the tree-walker's arithmetic does: a
+    /// duration from two durations, an instant moved by a duration or a span (either side of `+`), a date moved by a
+    /// span. `None` for any other operands.
+    pub fn temporal_arithmetic(op: BinaryOpKind, left: &LogosType, right: &LogosType) -> Option<LogosType> {
+        use LogosType::{Date, Duration, Moment, Span};
+        match (op, left, right) {
+            (BinaryOpKind::Add | BinaryOpKind::Subtract, Duration, Duration) => Some(Duration),
+            (BinaryOpKind::Add | BinaryOpKind::Subtract, Moment, Duration | Span) => Some(Moment),
+            (BinaryOpKind::Add, Duration | Span, Moment) => Some(Moment),
+            (BinaryOpKind::Add | BinaryOpKind::Subtract, Date, Span) => Some(Date),
+            _ => None,
+        }
+    }
+
     /// Whether this type is Copy in Rust (no .clone() needed).
     ///
     /// This is the single source of truth for clone decisions,
@@ -235,7 +249,7 @@ impl LogosType {
             LogosType::Quantity => "LogosQuantity".into(),
             LogosType::Money => "LogosMoney".into(),
             LogosType::Uuid => "LogosUuid".into(),
-            LogosType::Duration => "std::time::Duration".into(),
+            LogosType::Duration => "LogosDuration".into(),
             LogosType::Date => "LogosDate".into(),
             LogosType::Moment => "LogosMoment".into(),
             LogosType::Time => "LogosTime".into(),
@@ -381,7 +395,7 @@ impl LogosType {
             "LogosUuid" => LogosType::Uuid,
             "String" => LogosType::String,
             "()" => LogosType::Unit,
-            "std::time::Duration" => LogosType::Duration,
+            "LogosDuration" => LogosType::Duration,
             "LogosDate" => LogosType::Date,
             "LogosMoment" => LogosType::Moment,
             "LogosTime" => LogosType::Time,
@@ -505,7 +519,10 @@ impl TypeEnv {
         match expr {
             Expr::Literal(lit) => LogosType::from_literal(lit),
 
-            Expr::Identifier(sym) => self.lookup(*sym).clone(),
+            Expr::Identifier(sym) => match crate::semantics::temporal::ClockRead::named(interner.resolve(*sym)) {
+                Some(read) => read.logos_type(),
+                None => self.lookup(*sym).clone(),
+            },
 
             Expr::BinaryOp { op, left, right } => {
                 match op {
@@ -527,24 +544,27 @@ impl TypeEnv {
                     // `a followed by b` — a sequence of the same type as the operands.
                     BinaryOpKind::SeqConcat => self.infer_expr_with(left, interner, field),
 
-                    // Bitwise ops always produce Int
-                    // `& | ^` on Sets yield a Set of the left operand's type;
-                    // on ints they stay Int.
-                    BinaryOpKind::BitAnd | BinaryOpKind::BitOr => {
+                    // `& | xor` on Sets yield a Set of the left operand's type, on two Bools a Bool, on
+                    // integers an Int; the shifts an Int.
+                    BinaryOpKind::BitAnd | BinaryOpKind::BitOr | BinaryOpKind::BitXor => {
                         let lt = self.infer_expr_with(left, interner, field);
-                        if matches!(lt, LogosType::Set(_)) {
-                            lt
-                        } else {
-                            LogosType::Int
+                        match lt {
+                            LogosType::Set(_) => lt,
+                            LogosType::Bool if self.infer_expr_with(right, interner, field) == LogosType::Bool => {
+                                LogosType::Bool
+                            }
+                            _ => LogosType::Int,
                         }
                     }
-                    BinaryOpKind::BitXor | BinaryOpKind::Shl | BinaryOpKind::Shr => LogosType::Int,
+                    BinaryOpKind::Shl | BinaryOpKind::Shr => LogosType::Int,
 
-                    // Add: could be numeric or string concatenation
+                    // Add: numeric, string concatenation, or temporal
                     BinaryOpKind::Add => {
                         let lt = self.infer_expr_with(left, interner, field);
                         let rt = self.infer_expr_with(right, interner, field);
-                        if lt.is_string() || rt.is_string() {
+                        if let Some(moved) = LogosType::temporal_arithmetic(*op, &lt, &rt) {
+                            moved
+                        } else if lt.is_string() || rt.is_string() {
                             LogosType::String
                         } else {
                             LogosType::numeric_promotion(&lt, &rt)
@@ -564,6 +584,9 @@ impl TypeEnv {
                     | BinaryOpKind::Modulo => {
                         let lt = self.infer_expr_with(left, interner, field);
                         let rt = self.infer_expr_with(right, interner, field);
+                        if let Some(moved) = LogosType::temporal_arithmetic(*op, &lt, &rt) {
+                            return moved;
+                        }
                         let promoted = LogosType::numeric_promotion(&lt, &rt);
                         // Decimal division widens to an exact Rational (base-10 division need
                         // not terminate); `+ − ×` keep it Decimal. Complex stays Complex.
@@ -745,6 +768,8 @@ impl TypeEnv {
             }
 
             Expr::WithCapacity { value, .. } => self.infer_expr_with(value, interner, field),
+
+            Expr::InterpolatedString(_) => LogosType::String,
 
             _ => LogosType::Unknown,
         }

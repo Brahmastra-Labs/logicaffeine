@@ -227,7 +227,7 @@ pub(crate) fn value(expr: &Expr, ecx: &ExprCtx) -> String {
             let items: Vec<String> = items.iter().map(|i| value(i, ecx)).collect();
             format!("LogosValue::list(vec![{}])", items.join(", "))
         }
-        Expr::Identifier(sym) => format!(
+        Expr::Identifier(sym) if super::expr::clock_read(ecx.interner.resolve(*sym)).is_none() => format!(
             "LogosValue::from({}.clone())",
             RustNames::new(ecx.interner).ident(*sym)
         ),

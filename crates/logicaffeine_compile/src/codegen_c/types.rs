@@ -112,13 +112,18 @@ pub(super) fn escape_c_ident(name: &str) -> String {
 // C Type System
 // =============================================================================
 
-/// How the integers an integer collection holds read. Each is an `int64_t`; a machine word is held as its
-/// zero-extended bits, so a collection of words shares the `Int` collection's storage and runtime, and only
-/// what reads an element back — its type, its display, its order — tells the two apart.
+/// How the integers an integer collection holds read. Each is an `int64_t`: a machine word is held as its
+/// zero-extended bits, a date as its days since the epoch, an instant, a time of day and a duration as their
+/// nanoseconds, so every collection of them shares the `Int` collection's storage and runtime, and only what reads an
+/// element back — its type, its display — tells them apart.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Ints {
     Int,
     Word(u8),
+    Date,
+    Moment,
+    Time,
+    Duration,
 }
 
 impl Ints {
@@ -127,6 +132,10 @@ impl Ints {
         match elem {
             CType::Int64 => Some(Ints::Int),
             CType::Word(bits) => Some(Ints::Word(*bits)),
+            CType::Date => Some(Ints::Date),
+            CType::Moment => Some(Ints::Moment),
+            CType::Time => Some(Ints::Time),
+            CType::Duration => Some(Ints::Duration),
             _ => None,
         }
     }
@@ -136,12 +145,34 @@ impl Ints {
         match self {
             Ints::Int => CType::Int64,
             Ints::Word(bits) => CType::Word(bits),
+            Ints::Date => CType::Date,
+            Ints::Moment => CType::Moment,
+            Ints::Time => CType::Time,
+            Ints::Duration => CType::Duration,
         }
     }
 
-    /// The runtime renderers' flag: `1` shows each integer as a word, by its unsigned value; `0` as an `Int`.
-    pub(super) fn words(self) -> u8 {
-        u8::from(matches!(self, Ints::Word(_)))
+    /// The runtime renderers' code for how each integer shows (`logos_int_text`): `0` as an `Int`, `1` as a word by
+    /// its unsigned value, `2` a date, `3` an instant, `4` a time of day, `5` a duration.
+    pub(super) fn shown(self) -> u8 {
+        match self {
+            Ints::Int => 0,
+            Ints::Word(_) => 1,
+            Ints::Date => 2,
+            Ints::Moment => 3,
+            Ints::Time => 4,
+            Ints::Duration => 5,
+        }
+    }
+}
+
+/// Whether a value of `ty` holds integers that read as something other than an `Int` — words or temporal values —
+/// so its display goes through the renderers that are told how each reads.
+pub(super) fn holds_ints_read_apart(ty: &CType) -> bool {
+    match ty {
+        CType::SeqI64(i) | CType::SetI64(i) | CType::MapStrI64(i) | CType::MapI64Str(i) => *i != Ints::Int,
+        CType::MapI64I64(k, v) => *k != Ints::Int || *v != Ints::Int,
+        _ => false,
     }
 }
 
@@ -488,7 +519,12 @@ pub(super) fn c_ctype_showable(
         | CType::Complex
         | CType::BigInt
         | CType::Rational
-        | CType::Decimal => true,
+        | CType::Decimal
+        | CType::Date
+        | CType::Moment
+        | CType::Time
+        | CType::Duration
+        | CType::Span => true,
         CType::Struct(sym) => {
             if visited.contains(sym) {
                 return false;
@@ -681,7 +717,7 @@ pub(super) fn c_field_to_string_expr(ct: &CType, access: &str, interner: &Intern
         }
         // Seq fields — each renders `[a, b, …]` via the element's `seq_<E>_to_string` (takes a pointer).
         CType::SeqI64(Ints::Int) => format!("seq_i64_to_string(&{access})"),
-        CType::SeqI64(ints) => format!("seq_i64_to_string_as(&{access}, {})", ints.words()),
+        CType::SeqI64(ints) => format!("seq_i64_to_string_as(&{access}, {})", ints.shown()),
         CType::SeqBool => format!("seq_bool_to_string(&{access})"),
         CType::SeqStr => format!("seq_str_to_string(&{access})"),
         CType::SeqF64 => format!("seq_f64_to_string(&{access})"),
@@ -708,17 +744,17 @@ pub(super) fn c_field_to_string_expr(ct: &CType, access: &str, interner: &Intern
         CType::MapI64I64(Ints::Int, Ints::Int) => format!("map_i64_i64_to_string(&{access})"),
         CType::MapI64I64(key, val) => format!(
             "map_i64_i64_to_string_as(&{access}, {}, {})",
-            key.words(),
-            val.words()
+            key.shown(),
+            val.shown()
         ),
         CType::MapStrI64(Ints::Int) => format!("map_str_i64_to_string(&{access})"),
         CType::MapStrI64(val) => {
-            format!("map_str_i64_to_string_as(&{access}, {})", val.words())
+            format!("map_str_i64_to_string_as(&{access}, {})", val.shown())
         }
         CType::MapStrStr => format!("map_str_str_to_string(&{access})"),
         CType::MapI64Str(Ints::Int) => format!("map_i64_str_to_string(&{access})"),
         CType::MapI64Str(key) => {
-            format!("map_i64_str_to_string_as(&{access}, {})", key.words())
+            format!("map_i64_str_to_string_as(&{access}, {})", key.shown())
         }
         // Values that may be nothing render as their payload does, `nothing` where absent, in insertion order.
         CType::MapStrValue(inner) | CType::MapI64Value(inner) if matches!(**inner, CType::Opt(_)) => {
@@ -745,7 +781,7 @@ pub(super) fn c_field_to_string_expr(ct: &CType, access: &str, interner: &Intern
             c_type_str_resolved(inner, interner)
         ),
         CType::SetI64(Ints::Int) => format!("set_i64_to_string(&{access})"),
-        CType::SetI64(ints) => format!("set_i64_to_string_as(&{access}, {})", ints.words()),
+        CType::SetI64(ints) => format!("set_i64_to_string_as(&{access}, {})", ints.shown()),
         CType::SetStr => format!("set_str_to_string(&{access})"),
         // Tuple / record field → `<LTuple>_to_string(v)` (by value); a Seq-of-tuple field → its seq form.
         CType::Tuple(elems) => format!("{}_to_string({access})", tuple_c_name(elems, interner)),

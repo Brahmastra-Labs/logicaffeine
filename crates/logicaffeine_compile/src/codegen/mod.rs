@@ -101,6 +101,10 @@ pub(crate) mod slice_escape;
 // AVX2 SIMD reduction of transcendental accumulator loops (math.<transcendental> caps).
 pub(crate) mod simd_reduce;
 
+use std::collections::{HashMap, HashSet};
+
+use crate::intern::Symbol;
+
 // ─── External API re-exports ────────────────────────────────────────────────
 // These preserve the public API used by compile.rs, ui_bridge.rs, and test files.
 
@@ -128,6 +132,30 @@ thread_local! {
     static SEEDED_SELECT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static OBSERVED_CODEGEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static EMBED_ASSETS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static BLOCKING_WAITS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Does a `Sleep` block the thread for this compile, as the interpreter's synchronous twin waits, instead of yielding
+/// to the runtime? The compiler's own engines compile so: a sequential interpreter that runs a program's `Sleep` waits,
+/// and its compiled form stays synchronous, its exported entry callable from a host that runs no runtime.
+pub(crate) fn waits_block() -> bool {
+    BLOCKING_WAITS.with(|c| c.get())
+}
+
+/// Run `f` with blocking waits ([`waits_block`]), restoring the previous mode afterwards (panic-safe).
+pub fn with_blocking_waits<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            BLOCKING_WAITS.with(|c| c.set(self.0));
+        }
+    }
+    let _guard = BLOCKING_WAITS.with(|c| {
+        let prev = c.get();
+        c.set(true);
+        Restore(prev)
+    });
+    f()
 }
 
 /// Is the deterministic-replay lowering active for this compile?
@@ -310,61 +338,54 @@ pub(crate) enum FnRole {
     ValueMutable,
 }
 
-/// Pack the per-parameter role index sets a function plays into ONE `variable_types`
-/// slot. The slot is single-valued, so registering each role as its own
-/// `fn_borrow:` / `fn_value_mutable:` string used to make them clobber each other —
-/// a function with both a readonly-borrow param and a `mutable` param would keep
-/// only the last-registered role, and every call site then mis-lowered the other
-/// (cloning an owned `LogosSeq` into a `&[T]` slot). This keeps all roles together.
-pub(crate) fn encode_fn_roles(
-    borrow: &std::collections::HashSet<usize>,
-    mut_borrow: &std::collections::HashSet<usize>,
-    value_mutable: &std::collections::HashSet<usize>,
-) -> String {
-    fn csv(s: &std::collections::HashSet<usize>) -> String {
-        let mut v: Vec<usize> = s.iter().copied().collect();
-        v.sort_unstable();
-        v.iter()
-            .map(|i| i.to_string())
-            .collect::<Vec<_>>()
-            .join(",")
-    }
-    format!(
-        "fn_roles|b={}|m={}|v={}",
-        csv(borrow),
-        csv(mut_borrow),
-        csv(value_mutable)
-    )
+/// The parameter indices at which one function plays each [`FnRole`].
+#[derive(Clone, Default)]
+struct FnRoles {
+    borrow: HashSet<usize>,
+    mut_borrow: HashSet<usize>,
+    value_mutable: HashSet<usize>,
 }
 
-/// The parameter indices for one [`FnRole`] out of a slot written by
-/// [`encode_fn_roles`]. Empty when the slot is absent or is an ordinary variable
-/// type rather than a role encoding.
-pub(crate) fn fn_role_indices(
-    encoded: Option<&String>,
-    role: FnRole,
-) -> std::collections::HashSet<usize> {
-    let empty = std::collections::HashSet::new();
-    let Some(rest) = encoded.and_then(|s| s.strip_prefix("fn_roles|")) else {
-        return empty;
-    };
-    let key = match role {
-        FnRole::Borrow => "b=",
-        FnRole::MutBorrow => "m=",
-        FnRole::ValueMutable => "v=",
-    };
-    for section in rest.split('|') {
-        if let Some(csv) = section.strip_prefix(key) {
-            return csv.split(',').filter_map(|i| i.parse().ok()).collect();
-        }
-    }
-    empty
+thread_local! {
+    /// Every function's [`FnRoles`]: a fact of the function, the same at every call site, so it is built once per
+    /// program and read by each function's codegen.
+    static FN_ROLES: std::cell::RefCell<HashMap<Symbol, FnRoles>> =
+        std::cell::RefCell::new(HashMap::new());
 }
 
-/// True when a `variable_types` slot is a [`encode_fn_roles`] encoding (a function
-/// symbol's ABI role) rather than an ordinary variable type.
-pub(crate) fn is_fn_role_slot(ty: &str) -> bool {
-    ty.starts_with("fn_roles|")
+/// Install the whole program's calling roles, from each role's function → parameter indices map. Called once at
+/// codegen entry.
+pub(crate) fn set_fn_roles(
+    borrow: &HashMap<Symbol, HashSet<usize>>,
+    mut_borrow: &HashMap<Symbol, HashSet<usize>>,
+    value_mutable: &HashMap<Symbol, HashSet<usize>>,
+) {
+    let mut roles: HashMap<Symbol, FnRoles> = HashMap::new();
+    for (function, at) in borrow {
+        roles.entry(*function).or_default().borrow = at.clone();
+    }
+    for (function, at) in mut_borrow {
+        roles.entry(*function).or_default().mut_borrow = at.clone();
+    }
+    for (function, at) in value_mutable {
+        roles.entry(*function).or_default().value_mutable = at.clone();
+    }
+    FN_ROLES.with(|c| *c.borrow_mut() = roles);
+}
+
+/// The parameter indices at which `function` plays `role`: empty for a function that plays it nowhere, and for a
+/// name that is no function of the program.
+pub(crate) fn fn_role_indices(function: Symbol, role: FnRole) -> HashSet<usize> {
+    FN_ROLES.with(|c| {
+        c.borrow()
+            .get(&function)
+            .map(|roles| match role {
+                FnRole::Borrow => roles.borrow.clone(),
+                FnRole::MutBorrow => roles.mut_borrow.clone(),
+                FnRole::ValueMutable => roles.value_mutable.clone(),
+            })
+            .unwrap_or_default()
+    })
 }
 
 /// Generated-project metadata is a file prologue, so program text cannot select runtime requirements. A program

@@ -1114,9 +1114,13 @@ fn as_param_value(
     if let Some(ty @ CType::Opt(_)) = declared {
         return opt_item(arg, ty, ctx);
     }
-    // A name nothing binds fails before the call: its stand-in only has to be of the parameter's type.
+    // A name nothing binds fails before the call: its stand-in only has to be of the parameter's type. A clock read
+    // is no name a binding holds.
     if let (Expr::Identifier(sym), Some(ty)) = (arg, declared) {
-        if !ctx.vars.contains_key(sym) && !ctx.program_statics.contains(sym) {
+        if !ctx.vars.contains_key(sym)
+            && !ctx.program_statics.contains(sym)
+            && crate::semantics::temporal::ClockRead::named(ctx.interner.resolve(*sym)).is_none()
+        {
             let failure = format!("Undefined variable: {}", ctx.interner.resolve(*sym));
             return format!(
                 "({{ {} {}; }})",
@@ -2638,11 +2642,12 @@ fn codegen_expr_node(expr: &Expr, ctx: &CContext) -> String {
                     )
                 }
                 // Two-argument temporal builtins.
-                "seconds_between" | "add_seconds" => {
-                    let cfn = if raw_name == "seconds_between" {
-                        "logos_seconds_between"
-                    } else {
-                        "logos_add_seconds"
+                "seconds_between" | "add_seconds" | "months_between" | "years_between" => {
+                    let cfn = match raw_name {
+                        "seconds_between" => "logos_seconds_between",
+                        "months_between" => "logos_months_between",
+                        "years_between" => "logos_years_between",
+                        _ => "logos_add_seconds",
                     };
                     let a = args
                         .first()
@@ -6454,13 +6459,8 @@ fn codegen_stmt_node(stmt: &Stmt, ctx: &mut CContext, output: &mut String, inden
                 CType::Time => writeln!(output, "{}show_time({});", pad, val_str).unwrap(),
                 CType::Duration => writeln!(output, "{}show_duration({});", pad, val_str).unwrap(),
                 CType::Span => writeln!(output, "{}show_span({});", pad, val_str).unwrap(),
-                // A collection of machine words shows each by its unsigned value.
-                CType::SeqI64(Ints::Word(_))
-                | CType::SetI64(Ints::Word(_))
-                | CType::MapStrI64(Ints::Word(_))
-                | CType::MapI64Str(Ints::Word(_))
-                | CType::MapI64I64(Ints::Word(_), _)
-                | CType::MapI64I64(_, Ints::Word(_)) => {
+                // A collection of machine words shows each by its unsigned value, of temporal values each as itself.
+                _ if crate::codegen_c::types::holds_ints_read_apart(&ty) => {
                     let render = crate::codegen_c::types::c_field_to_string_expr(
                         &ty,
                         "__c",

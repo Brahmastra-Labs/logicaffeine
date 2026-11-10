@@ -70,18 +70,43 @@ pub(super) fn named(rust: &str) -> LogosType {
 }
 
 /// The static type of `expr` under `t`, a call typed by its function's declared result and a read of a record's field
-/// by the field's declared type.
+/// by the field's declared type. The environment holds exactly the bindings and functions `expr` names — all its type
+/// can read — so typing an expression costs its own size, not the program's.
 pub(super) fn type_of(expr: &Expr, t: Typing) -> LogosType {
+    let (bindings, calls) = names_in(expr);
     let mut env = TypeEnv::new();
-    for (sym, rust) in t.variable_types {
-        env.register(*sym, named(rust));
+    for sym in bindings {
+        if let Some(rust) = t.variable_types.get(&sym) {
+            env.register(sym, named(rust));
+        }
     }
     super::expr::with_declared_returns(|returns| {
-        for (f, rust) in returns {
-            env.register_fn(*f, FnSig { params: Vec::new(), return_type: named(rust) });
+        for f in calls {
+            if let Some(rust) = returns.get(&f) {
+                env.register_fn(f, FnSig { params: Vec::new(), return_type: named(rust) });
+            }
         }
     });
     env.infer_expr_with(expr, t.interner, &|e| t.field(e).map(|rust| named(&rust)))
+}
+
+/// The bindings `expr` reads and the functions it calls, anywhere in it.
+fn names_in(expr: &Expr) -> (HashSet<Symbol>, HashSet<Symbol>) {
+    let (mut bindings, mut calls) = (HashSet::new(), HashSet::new());
+    let mut work = vec![expr];
+    while let Some(e) = work.pop() {
+        match e {
+            Expr::Identifier(sym) => {
+                bindings.insert(*sym);
+            }
+            Expr::Call { function, .. } => {
+                calls.insert(*function);
+            }
+            _ => {}
+        }
+        work.extend(logicaffeine_language::ast_depth::expr_children(e));
+    }
+    (bindings, calls)
 }
 
 /// Whether `expr` may compute with a rational: it names a binding, a field or a call whose type holds one, or makes

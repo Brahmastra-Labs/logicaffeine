@@ -147,6 +147,7 @@ pub mod monomorphize;
 
 // Program bindings on the ahead-of-time tiers: the root bindings functions reach become the fields
 // of one record every such function takes as a `mutable` parameter.
+pub(crate) mod core_ir_scope;
 pub mod program_bindings;
 
 // Type-directed division resolution: rewrites `Divide → ExactDivide` where a `/`'s

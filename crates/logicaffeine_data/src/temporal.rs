@@ -1,14 +1,14 @@
-//! The temporal values of a compiled program: a calendar date, an instant, a time of day and a calendar span,
-//! with the arithmetic and the printing every tier shares (base's `temporal`), and each as an [`OtherValue`] a
-//! [`LogosValue`](crate::exact::LogosValue) holds, so the exact extension's values meet them as the
-//! interpreter's do. Reading the clock is the system's (`logicaffeine_system::temporal::now`).
+//! The temporal values of a compiled program: a calendar date, an instant, a time of day, a calendar span and a
+//! physical duration, with the arithmetic and the printing every tier shares (base's `temporal`), and each as an
+//! [`OtherValue`] a [`LogosValue`](crate::exact::LogosValue) holds, so the exact extension's values meet them as the
+//! interpreter's do. Reading the clock is the system's (`logicaffeine_system::temporal::today` and `now`).
 
 use std::fmt::{self, Display};
 
 /// Date stored as days since Unix epoch (1970-01-01).
 ///
-/// Range: ±5.8 million years from epoch.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Range: ±5.8 million years from epoch. A slot of the type starts at the epoch's day.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct LogosDate(pub i32);
 
 impl LogosDate {
@@ -29,6 +29,12 @@ impl LogosDate {
     #[inline]
     pub fn days(&self) -> i32 {
         self.0
+    }
+
+    /// The calendar day the date falls on: itself — `date_of` of a Date.
+    #[inline]
+    pub fn date(&self) -> LogosDate {
+        *self
     }
 
     /// UTC calendar components — AOT mirrors of `year_of`/`month_of`/`day_of`/`weekday_of` on a Date.
@@ -110,10 +116,57 @@ impl Display for LogosDate {
 }
 
 
+/// A physical duration in nanoseconds, signed as the language holds one: `0ns - 5ns` is `-5ns`. Months are no fixed
+/// number of nanoseconds, so a calendar span is [`LogosSpan`], never a duration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct LogosDuration(pub i64);
+
+impl LogosDuration {
+    /// A duration of `nanos` nanoseconds.
+    #[inline]
+    pub fn new(nanos: i64) -> Self {
+        Self(nanos)
+    }
+
+    /// The duration in nanoseconds.
+    #[inline]
+    pub fn nanos(&self) -> i64 {
+        self.0
+    }
+
+    /// How long a wait for this duration waits: none for a duration at or below zero, as `Sleep` waits.
+    #[inline]
+    pub fn to_std(self) -> std::time::Duration {
+        std::time::Duration::from_nanos(self.0.max(0) as u64)
+    }
+}
+
+impl std::ops::Add for LogosDuration {
+    type Output = LogosDuration;
+    #[inline]
+    fn add(self, rhs: LogosDuration) -> LogosDuration {
+        LogosDuration(self.0.wrapping_add(rhs.0))
+    }
+}
+
+impl std::ops::Sub for LogosDuration {
+    type Output = LogosDuration;
+    #[inline]
+    fn sub(self, rhs: LogosDuration) -> LogosDuration {
+        LogosDuration(self.0.wrapping_sub(rhs.0))
+    }
+}
+
+impl Display for LogosDuration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&logicaffeine_base::temporal::shown_duration(self.0))
+    }
+}
+
 /// Moment stored as nanoseconds since Unix epoch.
 ///
 /// Provides nanosecond precision for timestamps.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct LogosMoment(pub i64);
 
 impl LogosMoment {
@@ -275,21 +328,63 @@ impl LogosMoment {
 
 }
 
-// `Moment + Duration` / `Moment − Duration` → a shifted Moment (the AOT mirror of the tree-walker's
-// arith). Duration is `std::time::Duration` on this path; the nanos add/subtract on the i64 instant.
-impl std::ops::Add<std::time::Duration> for LogosMoment {
+// `Moment ± Duration` and `Duration + Moment` → a shifted Moment, the nanoseconds added to the instant as the
+// tree-walker adds them.
+impl std::ops::Add<LogosDuration> for LogosMoment {
     type Output = LogosMoment;
     #[inline]
-    fn add(self, rhs: std::time::Duration) -> LogosMoment {
-        LogosMoment(self.0.wrapping_add(rhs.as_nanos() as i64))
+    fn add(self, rhs: LogosDuration) -> LogosMoment {
+        LogosMoment(self.0.wrapping_add(rhs.0))
     }
 }
 
-impl std::ops::Sub<std::time::Duration> for LogosMoment {
+impl std::ops::Sub<LogosDuration> for LogosMoment {
     type Output = LogosMoment;
     #[inline]
-    fn sub(self, rhs: std::time::Duration) -> LogosMoment {
-        LogosMoment(self.0.wrapping_sub(rhs.as_nanos() as i64))
+    fn sub(self, rhs: LogosDuration) -> LogosMoment {
+        LogosMoment(self.0.wrapping_sub(rhs.0))
+    }
+}
+
+impl std::ops::Add<LogosMoment> for LogosDuration {
+    type Output = LogosMoment;
+    #[inline]
+    fn add(self, rhs: LogosMoment) -> LogosMoment {
+        rhs + self
+    }
+}
+
+impl std::ops::Add<LogosMoment> for LogosSpan {
+    type Output = LogosMoment;
+    #[inline]
+    fn add(self, rhs: LogosMoment) -> LogosMoment {
+        rhs + self
+    }
+}
+
+// A time of day orders against an instant by the instant's time of day, either way round; the two are never equal,
+// being values of two kinds.
+impl PartialEq<LogosTime> for LogosMoment {
+    fn eq(&self, _: &LogosTime) -> bool {
+        false
+    }
+}
+
+impl PartialOrd<LogosTime> for LogosMoment {
+    fn partial_cmp(&self, t: &LogosTime) -> Option<std::cmp::Ordering> {
+        Some(self.0.rem_euclid(NANOS_PER_DAY).cmp(&t.0))
+    }
+}
+
+impl PartialEq<LogosMoment> for LogosTime {
+    fn eq(&self, _: &LogosMoment) -> bool {
+        false
+    }
+}
+
+impl PartialOrd<LogosMoment> for LogosTime {
+    fn partial_cmp(&self, m: &LogosMoment) -> Option<std::cmp::Ordering> {
+        Some(self.0.cmp(&m.0.rem_euclid(NANOS_PER_DAY)))
     }
 }
 
@@ -349,7 +444,7 @@ impl Display for LogosMoment {
 ///
 /// Years fold into months (1 year = 12 months).
 /// Weeks fold into days (1 week = 7 days).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct LogosSpan {
     /// Total months (years * 12 + months)
     pub months: i32,
@@ -430,7 +525,7 @@ impl Display for LogosSpan {
 /// Time-of-day stored as nanoseconds from midnight — the wall-clock face of a `Moment`, with no
 /// date or zone. Renders `HH:MM:SS[.frac]`, lossless to the nanosecond (the AOT mirror of the
 /// interpreter's `Time`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct LogosTime(pub i64);
 
 impl LogosTime {
@@ -456,6 +551,37 @@ impl Display for LogosTime {
     }
 }
 
+
+// Each temporal value rides a tuple element as itself, shown as `Show` shows it.
+impl crate::types::Boxable for LogosDate {
+    fn render(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+impl crate::types::Boxable for LogosMoment {
+    fn render(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+impl crate::types::Boxable for LogosTime {
+    fn render(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+impl crate::types::Boxable for LogosSpan {
+    fn render(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
+
+impl crate::types::Boxable for LogosDuration {
+    fn render(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        Display::fmt(self, f)
+    }
+}
 
 // ── as values of the exact extension ─────────────────────────────────────────────────────────
 //
@@ -489,6 +615,12 @@ impl From<LogosTime> for LogosValue {
 impl From<LogosSpan> for LogosValue {
     fn from(s: LogosSpan) -> Self {
         LogosValue::other(s)
+    }
+}
+
+impl From<LogosDuration> for LogosValue {
+    fn from(d: LogosDuration) -> Self {
+        LogosValue::other(d)
     }
 }
 
@@ -551,6 +683,13 @@ impl OtherValue for LogosMoment {
     }
 
     fn combine(&self, op: Op, o: &LogosValue, reversed: bool) -> Option<Result<LogosValue, String>> {
+        if let Some(d) = o.other_as::<LogosDuration>() {
+            return match (op, reversed) {
+                (Op::Add, _) => Some(Ok(LogosValue::other(*self + *d))),
+                (Op::Sub, false) => Some(Ok(LogosValue::other(*self - *d))),
+                _ => None,
+            };
+        }
         let span = *o.other_as::<LogosSpan>()?;
         match (op, reversed) {
             (Op::Add, _) => Some(Ok(LogosValue::other(*self + span))),
@@ -587,6 +726,45 @@ impl OtherValue for LogosTime {
 
     fn combine(&self, _op: Op, _o: &LogosValue, _reversed: bool) -> Option<Result<LogosValue, String>> {
         None
+    }
+}
+
+impl OtherValue for LogosDuration {
+    fn type_name(&self) -> &str {
+        "Duration"
+    }
+
+    fn display_string(&self) -> String {
+        self.to_string()
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn equals(&self, o: &dyn OtherValue) -> bool {
+        o.as_any().downcast_ref::<LogosDuration>() == Some(self)
+    }
+
+    fn order(&self, o: &LogosValue) -> Option<Option<std::cmp::Ordering>> {
+        o.other_as::<LogosDuration>().map(|d| Some(self.0.cmp(&d.0)))
+    }
+
+    fn combine(&self, op: Op, o: &LogosValue, reversed: bool) -> Option<Result<LogosValue, String>> {
+        if let Some(m) = o.other_as::<LogosMoment>() {
+            return match (op, reversed) {
+                (Op::Add, _) => Some(Ok(LogosValue::other(*m + *self))),
+                (Op::Sub, true) => Some(Ok(LogosValue::other(*m - *self))),
+                _ => None,
+            };
+        }
+        let d = *o.other_as::<LogosDuration>()?;
+        let (left, right) = if reversed { (d, *self) } else { (*self, d) };
+        match op {
+            Op::Add => Some(Ok(LogosValue::other(left + right))),
+            Op::Sub => Some(Ok(LogosValue::other(left - right))),
+            _ => None,
+        }
     }
 }
 

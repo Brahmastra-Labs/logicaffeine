@@ -12,10 +12,10 @@ mod pe_support;
 use logicaffeine_compile::compile::count_dispatch;
 use pe_support::*;
 
-/// How many of the three Futamura projections currently produce Jones-optimal
-/// (zero-dispatch) residuals over the smoke corpus.
-///   1 = P1 today.  Phase 3 raises this to 3 (the P2 compiler + the P3 cogen).
-const PROJECTIONS_AT_JONES_ZERO: usize = 1;
+/// How many of the three Futamura projections hold over the smoke corpus: P1 residuals carry no
+/// interpreter dispatch; the P2 compiler, executed, compiles each program to its dispatch-free first
+/// projection; the P3 compiler generator, executed on the self-interpreter, prints that compiler.
+const PROJECTIONS_AT_JONES_ZERO: usize = 3;
 
 /// Representative programs spanning the folded surface (straight-line, recursion, loops).
 fn smoke_corpus() -> Vec<(&'static str, &'static str)> {
@@ -32,7 +32,7 @@ fn smoke_corpus() -> Vec<(&'static str, &'static str)> {
     ]
 }
 
-/// P1 residuals are Jones-optimal today; this floor can only rise as P2/P3 join.
+/// All three projections hold over the smoke corpus; the floor can only rise.
 #[test]
 fn projections_at_jones_zero_never_regresses() {
     let mut p1_ok = true;
@@ -51,9 +51,28 @@ fn projections_at_jones_zero_never_regresses() {
             }
         }
     }
-    // Phase 3 will add P2 (generated compiler) and P3 (generated cogen) checks here and
-    // raise PROJECTIONS_AT_JONES_ZERO to 3.
-    let achieved = usize::from(p1_ok);
+    let compiler = logicaffeine_compile::compile::mix_projection2();
+    let p2_ok = compiler.as_ref().is_ok_and(|compiler| {
+        smoke_corpus().iter().all(|(name, prog)| {
+            let compiled = logicaffeine_compile::compile::run_mix_compiler(compiler, prog);
+            let first = logicaffeine_compile::compile::mix_projection1(prog);
+            let ok = compiled.is_ok() && compiled == first && count_dispatch(compiled.as_ref().unwrap()) == 0;
+            if !ok {
+                eprintln!("[{name}] the P2 compiler compiled {compiled:?}, the first projection is {first:?}");
+            }
+            ok
+        })
+    });
+    let p3_ok = compiler.as_ref().is_ok_and(|compiler| {
+        let generated = logicaffeine_compile::compile::mix_projection3()
+            .and_then(|cogen| logicaffeine_compile::compile::run_mix_cogen(&cogen));
+        let ok = generated.as_ref() == Ok(compiler);
+        if !ok {
+            eprintln!("the P3 compiler generator did not print the P2 compiler: {:?}", generated.map(|g| g.len()));
+        }
+        ok
+    });
+    let achieved = usize::from(p1_ok) + usize::from(p2_ok) + usize::from(p3_ok);
     assert!(
         achieved >= PROJECTIONS_AT_JONES_ZERO,
         "projection Jones-coverage regressed below floor {PROJECTIONS_AT_JONES_ZERO} (achieved {achieved})"

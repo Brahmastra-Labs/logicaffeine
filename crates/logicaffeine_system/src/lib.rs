@@ -143,7 +143,7 @@ pub use ntt::{
     mlkem_base_mul, mlkem_byte_decode, mlkem_byte_encode, mlkem_cbd2, mlkem_cbd3, mlkem_compress,
     mlkem_decompress, mlkem_inv_ntt, mlkem_ntt, mlkem_sample_a, mlkem_sample_ntt, mlkem_to_mont,
 };
-pub use temporal::{LogosDate, LogosMoment, LogosSpan, LogosTime};
+pub use temporal::{LogosDate, LogosDuration, LogosMoment, LogosSpan, LogosTime};
 pub use word_rt::{
     and_not4, byte_add16, hsum_lanes4, int_of_word16, int_of_word32, int_of_word64, int_of_word8,
     interleave_hi16, interleave_lo16, lanes16_word16, lanes16_word8, lanes4_of, lanes4_word32,

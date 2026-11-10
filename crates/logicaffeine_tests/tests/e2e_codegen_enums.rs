@@ -208,3 +208,50 @@ Show area(rect).
         "15",
     );
 }
+
+// === ARMS THAT BIND NO FIELD ===
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_codegen_an_arm_binding_no_field_of_a_payload_variant() {
+    assert_exact_output(
+        r#"## A Shape is one of:
+    A Circle with radius Int.
+    A Rectangle with width Int and height Int.
+    A Dot.
+
+## To name (s: Shape) -> Text:
+    Inspect s:
+        When Circle: Return "circle".
+        When Rectangle: Return "rectangle".
+        When Dot: Return "dot".
+
+## Main
+Show name(a new Rectangle with width 5 and height 3).
+Show name(a new Circle with radius 2).
+Show name(a new Dot).
+"#,
+        "rectangle\ncircle\ndot",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_codegen_an_arm_binding_no_field_of_a_recursive_variant() {
+    assert_exact_output(
+        r#"## A Tree is one of:
+    A Leaf.
+    A Node with left Tree and right Tree.
+
+## To kind (t: Tree) -> Text:
+    Inspect t:
+        When Leaf: Return "leaf".
+        When Node: Return "node".
+
+## Main
+Show kind(a new Node with left (a new Leaf) and right (a new Leaf)).
+Show kind(a new Leaf).
+"#,
+        "node\nleaf",
+    );
+}

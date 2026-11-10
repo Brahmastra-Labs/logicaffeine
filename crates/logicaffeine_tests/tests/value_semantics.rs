@@ -143,6 +143,61 @@ fn vs_aot_an_argument_read_before_a_lend_of_the_same_list_keeps_its_value() {
     assert_all_tiers(&src, "[5, 1, 4, 4]\n[5, 1]");
 }
 
+const TAGGED: &str = "## A Tagged has:\n    a tags, which is Seq of Int.\n    a n, which is Int.\n\n";
+
+/// A copy of a record is a record of its own: its lists start as the original's and a push onto
+/// one, a write into one and a whole-field replacement land on the copy alone.
+#[test]
+fn vs_aot_a_copy_of_a_record_is_a_record_of_its_own() {
+    vs();
+    let src = format!(
+        "{TAGGED}## Main\nLet mutable a be a new Tagged with tags [1, 2] and n 0.\nLet mutable c be copy of a.\n\
+         Push 3 to c's tags.\nLet mutable d be copy of a.\nSet item 1 of d's tags to 9.\nLet mutable e be copy of a.\n\
+         Set e's tags to [7].\nSet e's n to 5.\nShow a's tags.\nShow a's n.\nShow c's tags.\nShow d's tags.\nShow e's tags.\n"
+    );
+    assert_compiled_equals_interpreted_eq(&src, "[1, 2]\n0\n[1, 2, 3]\n[9, 2]\n[7]");
+    assert_all_tiers(&src, "[1, 2]\n0\n[1, 2, 3]\n[9, 2]\n[7]");
+}
+
+/// A binding copied from an element of a list parameter is a copy: the element stays readable after
+/// it, in the same branch and in a condition that follows.
+#[test]
+fn vs_aot_a_copy_of_an_element_leaves_the_element_readable() {
+    vs();
+    let src = "## A Box has:\n    A n: Int.\n\n## To isBig (b: Box) -> Bool:\n    Return b's n is greater than 5.\n\n\
+               ## To isOdd (b: Box) -> Bool:\n    Return b's n % 2 equals 1.\n\n\
+               ## To f (xs: Seq of Box) -> Int:\n    Let mutable out be a new Seq of Box.\n    Let mutable j be 1.\n    Repeat for x in xs:\n        Let a be item j of xs.\n        If isBig(a):\n            Push a to out.\n        Otherwise:\n            Let c be a.\n            Push c to out.\n            If isOdd(a):\n                Push a to out.\n        Set j to j + 1.\n    Return length of out.\n\n\
+               ## Main\nLet mutable bs be a new Seq of Box.\nPush a new Box with n 1 to bs.\nPush a new Box with n 8 to bs.\nShow f(bs).\n";
+    assert_compiled_equals_interpreted_eq(src, "3");
+    assert_all_tiers(src, "3");
+}
+
+/// A map stores its key as it stores its value, a copy of its own: the variable the key came from stays the
+/// program's, read after the write and written under again on the next pass of a loop.
+#[test]
+fn vs_aot_a_map_key_stays_the_programs() {
+    vs();
+    let src = "## Main\nLet mutable m be a new Map of Text to Int.\nLet k be \"a\".\nSet item k of m to 1.\nShow item k of m.\n\
+               Let mutable seen be a new Map of Text to Int.\nLet key be \"x\".\nRepeat for i from 1 to 3:\n    Set item key of seen to i.\n\
+               Show item key of seen.\nShow k.\n";
+    assert_compiled_equals_interpreted_eq(src, "1\n3\na");
+    assert_all_tiers(src, "1\n3\na");
+}
+
+/// `n copies of` a record fills each slot with a record of its own: a push onto one slot's list
+/// reaches no other slot.
+#[test]
+fn vs_aot_copies_of_a_record_are_records_of_their_own() {
+    vs();
+    let src = format!(
+        "{TAGGED}## Main\nLet mutable t be a new Tagged with tags [1] and n 0.\nLet mutable rows be 3 copies of t.\n\
+         Let mutable r be item 1 of rows.\nPush 9 to r's tags.\nSet item 1 of rows to r.\n\
+         Show (item 1 of rows)'s tags.\nShow (item 2 of rows)'s tags.\nShow t's tags.\nShow length of rows.\n"
+    );
+    assert_compiled_equals_interpreted_eq(&src, "[1, 9]\n[1]\n[1]\n3");
+    assert_all_tiers(&src, "[1, 9]\n[1]\n[1]\n3");
+}
+
 /// Text is built left to right: a field read before a call that writes the record through a
 /// `mutable` parameter shows the field from before the call.
 #[test]

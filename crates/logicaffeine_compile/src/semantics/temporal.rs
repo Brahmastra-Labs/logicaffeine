@@ -28,6 +28,40 @@ pub fn fixed_clock() -> Option<(i32, i64)> {
     FIXED_CLOCK.with(|c| c.get())
 }
 
+/// A clock read the language names as a value: `today` reads the date, `now` the instant. The name reads the clock
+/// wherever it appears, whatever a binding of the same name holds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ClockRead {
+    Today,
+    Now,
+}
+
+impl ClockRead {
+    /// Every clock read.
+    pub const ALL: [ClockRead; 2] = [ClockRead::Today, ClockRead::Now];
+
+    /// The name the read is written as.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Today => "today",
+            Self::Now => "now",
+        }
+    }
+
+    /// The clock read `name` names, if it names one.
+    pub fn named(name: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|read| read.name() == name)
+    }
+
+    /// The type of what the read reads.
+    pub fn logos_type(self) -> crate::analysis::types::LogosType {
+        match self {
+            Self::Today => crate::analysis::types::LogosType::Date,
+            Self::Now => crate::analysis::types::LogosType::Moment,
+        }
+    }
+}
+
 /// The `today` builtin identifier.
 pub fn today() -> RuntimeValue {
     if let Some((days, _)) = FIXED_CLOCK.with(|c| c.get()) {

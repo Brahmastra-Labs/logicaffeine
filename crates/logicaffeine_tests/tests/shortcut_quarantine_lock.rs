@@ -41,6 +41,10 @@ const GATE_FILES: &[(&str, &str)] = &[
         include_str!("futamura_tier_lock.rs"),
     ),
     ("futamura_ratchet.rs", include_str!("futamura_ratchet.rs")),
+    (
+        "futamura_textbook_lock.rs",
+        include_str!("futamura_textbook_lock.rs"),
+    ),
 ];
 
 /// The three shortcut surfaces, matched as a call/`use` token. `projection1_source(` deliberately

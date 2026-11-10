@@ -794,6 +794,24 @@ pub fn add_business_days(z: i64, n: i64) -> i64 {
     d
 }
 
+/// How `Show` writes a physical duration (nanoseconds): the count of its largest whole unit, from hours down to
+/// nanoseconds, truncated toward zero and signed — `2h` for two and a half hours, `-750ms`, `1μs`, `0ns`.
+pub fn shown_duration(nanos: i64) -> String {
+    const UNITS: [(u64, &str); 5] = [
+        (3_600_000_000_000, "h"),
+        (60_000_000_000, "min"),
+        (1_000_000_000, "s"),
+        (1_000_000, "ms"),
+        (1_000, "μs"),
+    ];
+    let sign = if nanos < 0 { "-" } else { "" };
+    let magnitude = nanos.unsigned_abs();
+    match UNITS.iter().find(|(size, _)| magnitude >= *size) {
+        Some((size, unit)) => format!("{sign}{}{unit}", magnitude / size),
+        None => format!("{sign}{magnitude}ns"),
+    }
+}
+
 /// Format a **physical duration** (nanoseconds) as a compact human string — `1h30m`, `500ms`,
 /// `1.5s`, `2d`, `-45m`, `0s`. Largest unit first; zero components omitted; sub-second fractions
 /// trimmed. The inverse of [`parse_duration`]. (This is a *physical* elapsed time, distinct from a

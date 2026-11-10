@@ -21,7 +21,7 @@ use super::expr::{
     codegen_expr_with_async, ExprCtx,
 };
 use super::stmt::codegen_stmt;
-use super::types::{infer_rust_type_from_expr, map_type_to_rust};
+use super::types::map_type_to_rust;
 
 const REPLAY: &str = "logicaffeine_system::replay";
 
@@ -120,9 +120,8 @@ impl<'s, 'a> Scope<'s, 'a> {
     /// `Int` tick count it evaluates to.
     fn ticks(&self, e: &Expr) -> String {
         let s = self.expr(e);
-        let is_duration = infer_rust_type_from_expr(e, self.interner) == "std::time::Duration"
-            || matches!(e, Expr::Identifier(sym)
-                if self.ctx.get_variable_types().get(sym).is_some_and(|t| t == "std::time::Duration"));
+        let is_duration = super::types::infer_logos_type(e, self.interner, self.ctx.get_variable_types())
+            == crate::analysis::types::LogosType::Duration;
         if is_duration {
             s
         } else {
@@ -261,14 +260,13 @@ fn launch<'a>(
     out: &mut String,
 ) {
     let pad = scope.pad(0);
-    let callee_roles = scope.ctx.get_variable_types().get(&function).cloned();
     let borrowed = [
         super::FnRole::Borrow,
         super::FnRole::MutBorrow,
         super::FnRole::ValueMutable,
     ]
     .into_iter()
-    .any(|role| !super::fn_role_indices(callee_roles.as_ref(), role).is_empty());
+    .any(|role| !super::fn_role_indices(function, role).is_empty());
     let raw = names.raw(function).to_string();
     if borrowed {
         writeln!(
@@ -294,11 +292,7 @@ fn launch<'a>(
         scope.ctx.get_variable_types(),
     );
     let fish = super::instantiation::for_stmt(stmt);
-    let await_suffix = if scope.async_functions.contains(&function) {
-        ".await"
-    } else {
-        ""
-    };
+    let wait = super::expr::Wait::of(function, scope.async_functions);
     let binding = match handle {
         Some(h) => format!("let {} = ", names.ident(h)),
         None => String::new(),
@@ -310,12 +304,8 @@ fn launch<'a>(
     for (param, value) in params.iter().zip(&values) {
         writeln!(out, "{pad}    let {param} = {value};").unwrap();
     }
-    writeln!(
-        out,
-        "{pad}    async move {{ {path}{fish}({}){await_suffix}; }}",
-        params.join(", ")
-    )
-    .unwrap();
+    let call = wait.around(format!("{path}{fish}({})", params.join(", ")));
+    writeln!(out, "{pad}    async move {{ {call}; }}").unwrap();
     writeln!(out, "{pad}}}).await;").unwrap();
 }
 

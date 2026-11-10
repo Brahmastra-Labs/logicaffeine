@@ -10927,31 +10927,6 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
     }
 
-    /// A `##` header's own line may end in an optional, meaningless `:` — the one habit the
-    /// retired reactive dialect left behind (`## Component Name:`). ONE rule for every
-    /// `BlockType`: `self.current` names the `BlockHeader` token; if the token immediately
-    /// before the `Newline` ending its line is a bare `Colon`, it is excised from the token
-    /// stream before any header-specific parsing runs, so `## Component Counter:` is simply
-    /// `## Component Counter`. Never touches a colon that is not the LAST token of the line —
-    /// a header whose own grammar legitimately uses one mid-line (`## Page /post/:id`) keeps it.
-    fn skip_optional_header_colon(&mut self) {
-        let mut i = self.current;
-        while let Some(tok) = self.tokens.get(i) {
-            if matches!(tok.kind, TokenType::Newline) {
-                break;
-            }
-            i += 1;
-        }
-        if i > self.current
-            && matches!(
-                self.tokens.get(i.wrapping_sub(1)).map(|t| &t.kind),
-                Some(TokenType::Colon)
-            )
-        {
-            self.tokens.remove(i - 1);
-        }
-    }
-
     pub fn parse_program(&mut self) -> ParseResult<Vec<Stmt<'a>>> {
         let mut statements = Vec::new();
         self.stmt_spans.clear();
@@ -10981,7 +10956,6 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }) = self.tokens.get(self.current)
             {
                 let block_type = *block_type;
-                self.skip_optional_header_colon();
                 match &block_type {
                     BlockType::SuspectedTypo { found, suggestion } => {
                         let found = self.interner.resolve(*found).to_string();

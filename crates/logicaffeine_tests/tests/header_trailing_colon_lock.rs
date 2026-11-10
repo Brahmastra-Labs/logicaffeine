@@ -210,3 +210,27 @@ fn the_five_headers_that_gain_the_rule_are_named_in_the_source() {
         );
     }
 }
+
+// ---- A file with a case table: the table's rows end in `Newline` tokens, the headers' lines do not. ----
+
+#[test]
+fn a_trailing_header_colon_drops_beside_a_case_table() {
+    assert_colon_is_invisible(
+        "## Main:\nShow \"hi\".\n\n## Test: Addition cases\n\nFor each of these cases:\n\n| a | b | total |\n|---|---|-------|\n| 1 | 2 | 3     |\n\nExpect that a plus b is total.\n",
+        "## Main \nShow \"hi\".\n\n## Test: Addition cases\n\nFor each of these cases:\n\n| a | b | total |\n|---|---|-------|\n| 1 | 2 | 3     |\n\nExpect that a plus b is total.\n",
+    );
+}
+
+#[test]
+fn a_test_header_keeps_its_colon_and_its_case_table_keeps_every_row() {
+    let stmts = accepted(
+        "## Test: Addition cases\n\nFor each of these cases:\n\n| a | b | total |\n|---|---|-------|\n| 1 | 2 | 3     |\n| 2 | 2 | 4     |\n\nExpect that a plus b is total.\n",
+    );
+    let shown = format!("{stmts:?}");
+    assert_eq!(stmts.len(), 1, "one `## Test:` header is one TestDef: {shown}");
+    assert!(shown.starts_with("[TestDef"), "the `## Test:` colon still separates the header from its name: {shown}");
+    assert!(
+        shown.contains("rows: [[Literal(Number(1)), Literal(Number(2)), Literal(Number(3))], [Literal(Number(2)), Literal(Number(2)), Literal(Number(4))]]"),
+        "both rows of the case table survive, cell for cell: {shown}"
+    );
+}

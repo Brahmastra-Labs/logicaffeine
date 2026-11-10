@@ -70,9 +70,9 @@ impl Ticks for i64 {
     }
 }
 
-impl Ticks for std::time::Duration {
+impl Ticks for crate::temporal::LogosDuration {
     fn ticks(self) -> u64 {
-        u64::try_from(self.as_nanos()).unwrap_or(u64::MAX)
+        self.nanos().max(0) as u64
     }
 }
 
@@ -88,7 +88,7 @@ impl TimeoutTicks for i64 {
     }
 }
 
-impl TimeoutTicks for std::time::Duration {
+impl TimeoutTicks for crate::temporal::LogosDuration {
     fn timeout_ticks(self) -> u64 {
         self.ticks()
     }

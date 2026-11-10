@@ -1,7 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
+use logicaffeine_language::ast_depth::{expr_children, stmt_expr_children};
+
 use crate::analysis::registry::{FieldType, TypeDef, TypeRegistry};
-use crate::ast::stmt::{Expr, Literal, ReadSource, Stmt, TypeExpr};
+use crate::analysis::tower::nested_blocks;
+use crate::ast::stmt::{ClosureBody, Expr, Literal, ReadSource, Stmt, TypeExpr};
 use crate::intern::{Interner, Symbol};
 
 use super::field_is_boxed;
@@ -41,7 +44,7 @@ pub(super) fn requires_async_stmt(stmt: &Stmt) -> bool {
         Stmt::ConnectTo { .. } => true,
         // HTTP server binds a tokio listener and awaits per-request handling.
         Stmt::Serve { .. } => true,
-        Stmt::Sleep { .. } => true,
+        Stmt::Sleep { .. } => !super::waits_block(),
         // Phase 52: Sync is async (GossipSub subscription)
         Stmt::Sync { .. } => true,
         // Phase 53: Mount is async (VFS file operations)
@@ -65,27 +68,10 @@ pub(super) fn requires_async_stmt(stmt: &Stmt) -> bool {
         | Stmt::TryReceivePipe { .. }
         | Stmt::StopTask { .. }
         | Stmt::CloseChannel { .. } => super::deterministic_replay_enabled(),
-        // While and Repeat are now always async due to check_preemption()
-        // (handled below in recursive check)
-        // Recursively check nested blocks
-        Stmt::If {
-            then_block,
-            else_block,
-            ..
-        } => {
-            then_block.iter().any(|s| requires_async_stmt(s))
-                || else_block.map_or(false, |b| b.iter().any(|s| requires_async_stmt(s)))
-        }
-        Stmt::While { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
-        Stmt::Repeat { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
-        Stmt::Zone { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
-        Stmt::Parallel { tasks } => tasks.iter().any(|s| requires_async_stmt(s)),
-        Stmt::FunctionDef { body, .. } => body.iter().any(|s| requires_async_stmt(s)),
-        // Check Inspect arms for async operations
-        Stmt::Inspect { arms, .. } => arms
-            .iter()
-            .any(|arm| arm.body.iter().any(|s| requires_async_stmt(s))),
-        _ => false,
+        Stmt::FunctionDef { body, .. } => body.iter().any(requires_async_stmt),
+        _ => nested_blocks(stmt)
+            .into_iter()
+            .any(|block| block.iter().any(requires_async_stmt)),
     }
 }
 
@@ -520,126 +506,35 @@ pub fn collect_async_functions(stmts: &[Stmt]) -> HashSet<Symbol> {
     async_fns
 }
 
-/// Helper: Check if a statement calls any function in the async_fns set
+/// Whether `stmt` calls a function in `async_fns` where the emitted Rust awaits it: any expression the statement
+/// evaluates, at any depth, or any statement of its nested blocks.
 pub(super) fn calls_async_function(stmt: &Stmt, async_fns: &HashSet<Symbol>) -> bool {
     match stmt {
-        Stmt::Call { function, args } => {
-            // Check if the called function is async OR if any argument expression calls an async function
-            async_fns.contains(function)
-                || args
-                    .iter()
-                    .any(|a| calls_async_function_in_expr(a, async_fns))
-        }
-        Stmt::If {
-            cond,
-            then_block,
-            else_block,
-        } => {
-            calls_async_function_in_expr(cond, async_fns)
-                || then_block
-                    .iter()
-                    .any(|s| calls_async_function(s, async_fns))
-                || else_block.map_or(false, |b| {
-                    b.iter().any(|s| calls_async_function(s, async_fns))
-                })
-        }
-        Stmt::While { cond, body, .. } => {
-            calls_async_function_in_expr(cond, async_fns)
-                || body.iter().any(|s| calls_async_function(s, async_fns))
-        }
-        Stmt::Repeat { iterable, body, .. } => {
-            calls_async_function_in_expr(iterable, async_fns)
-                || body.iter().any(|s| calls_async_function(s, async_fns))
-        }
-        Stmt::Zone { body, .. } => body.iter().any(|s| calls_async_function(s, async_fns)),
-        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
-            tasks.iter().any(|s| calls_async_function(s, async_fns))
-        }
+        Stmt::Call { function, .. } if async_fns.contains(function) => true,
         Stmt::FunctionDef { body, .. } => body.iter().any(|s| calls_async_function(s, async_fns)),
-        // Check Let statements for async function calls in the value expression
-        Stmt::Let { value, .. } => calls_async_function_in_expr(value, async_fns),
-        // Check Set statements for async function calls in the value expression
-        Stmt::Set { value, .. } => calls_async_function_in_expr(value, async_fns),
-        // Check Return statements for async function calls in the return value
-        Stmt::Return { value } => value
-            .as_ref()
-            .map_or(false, |v| calls_async_function_in_expr(v, async_fns)),
-        // Check RuntimeAssert condition for async calls
-        Stmt::RuntimeAssert { condition, .. } => calls_async_function_in_expr(condition, async_fns),
-        // Check Show for async calls
-        Stmt::Show { object, .. } => calls_async_function_in_expr(object, async_fns),
-        // Check Push for async calls
-        Stmt::Push { collection, value } => {
-            calls_async_function_in_expr(collection, async_fns)
-                || calls_async_function_in_expr(value, async_fns)
+        _ => {
+            stmt_expr_children(stmt)
+                .into_iter()
+                .any(|e| calls_async_function_in_expr(e, async_fns))
+                || nested_blocks(stmt)
+                    .into_iter()
+                    .any(|block| block.iter().any(|s| calls_async_function(s, async_fns)))
         }
-        // Check SetIndex for async calls
-        Stmt::SetIndex {
-            collection,
-            index,
-            value,
-        } => {
-            calls_async_function_in_expr(collection, async_fns)
-                || calls_async_function_in_expr(index, async_fns)
-                || calls_async_function_in_expr(value, async_fns)
-        }
-        // Check SendPipe for async calls
-        Stmt::SendPipe { value, pipe } | Stmt::TrySendPipe { value, pipe, .. } => {
-            calls_async_function_in_expr(value, async_fns)
-                || calls_async_function_in_expr(pipe, async_fns)
-        }
-        // Check Inspect arms for async function calls
-        Stmt::Inspect { target, arms, .. } => {
-            calls_async_function_in_expr(target, async_fns)
-                || arms
-                    .iter()
-                    .any(|arm| arm.body.iter().any(|s| calls_async_function(s, async_fns)))
-        }
-        _ => false,
     }
 }
 
-/// Helper: Check if an expression calls any function in the async_fns set
+/// Whether `expr` calls a function in `async_fns`, at any depth. A closure's expression body awaits in the
+/// enclosing function; a closure's block body is a body of its own.
 fn calls_async_function_in_expr(expr: &Expr, async_fns: &HashSet<Symbol>) -> bool {
     match expr {
-        Expr::Call { function, args } => {
-            async_fns.contains(function)
-                || args
-                    .iter()
-                    .any(|a| calls_async_function_in_expr(a, async_fns))
-        }
-        Expr::BinaryOp { left, right, .. } => {
-            calls_async_function_in_expr(left, async_fns)
-                || calls_async_function_in_expr(right, async_fns)
-        }
-        Expr::Index { collection, index } => {
-            calls_async_function_in_expr(collection, async_fns)
-                || calls_async_function_in_expr(index, async_fns)
-        }
-        Expr::FieldAccess { object, .. } => calls_async_function_in_expr(object, async_fns),
-        Expr::List(items) | Expr::Tuple(items) => items
-            .iter()
-            .any(|i| calls_async_function_in_expr(i, async_fns)),
+        Expr::Call { function, .. } if async_fns.contains(function) => true,
         Expr::Closure { body, .. } => match body {
-            crate::ast::stmt::ClosureBody::Expression(expr) => {
-                calls_async_function_in_expr(expr, async_fns)
-            }
-            crate::ast::stmt::ClosureBody::Block(_) => false,
+            ClosureBody::Expression(body) => calls_async_function_in_expr(body, async_fns),
+            ClosureBody::Block(_) => false,
         },
-        Expr::CallExpr { callee, args } => {
-            calls_async_function_in_expr(callee, async_fns)
-                || args
-                    .iter()
-                    .any(|a| calls_async_function_in_expr(a, async_fns))
-        }
-        Expr::InterpolatedString(parts) => parts.iter().any(|p| {
-            if let crate::ast::stmt::StringPart::Expr { value, .. } = p {
-                calls_async_function_in_expr(value, async_fns)
-            } else {
-                false
-            }
-        }),
-        _ => false,
+        _ => expr_children(expr)
+            .into_iter()
+            .any(|e| calls_async_function_in_expr(e, async_fns)),
     }
 }
 
@@ -1217,21 +1112,6 @@ pub(crate) fn collect_de_rc_seqs(
     if !crate::optimize::active_config().is_on(crate::optimization::Opt::Unbox) {
         return HashSet::new();
     }
-    // Phase 3a/3b: a candidate passed at EITHER a readonly-borrow (`&[T]`) or a
-    // mutable-borrow (`&mut [T]`) param slot is only borrowed for the call, not
-    // retained — that is not an escape. Both call conventions pass a reference
-    // to the de-Rc'd `Vec`, so the use-scan treats both as safe slots. (Codegen
-    // distinguishes `&x` vs `&mut x` via its own borrow maps.)
-    let borrow_slots: HashMap<Symbol, HashSet<usize>> = if mut_borrow_params.is_empty() {
-        borrow_params.clone()
-    } else {
-        let mut m = borrow_params.clone();
-        for (f, idx) in mut_borrow_params {
-            m.entry(*f).or_default().extend(idx.iter().copied());
-        }
-        m
-    };
-    let borrow_params = &borrow_slots;
     let mut candidates = HashSet::new();
     collect_de_rc_candidates_block(stmts, interner, vec_return_fns, &mut candidates);
     if candidates.is_empty() {
@@ -1257,8 +1137,7 @@ pub(crate) fn collect_de_rc_seqs(
         stmts,
         &candidates,
         &swaps,
-        borrow_params,
-        mut_borrow_params,
+        BorrowSlots { borrow: borrow_params, mut_borrow: mut_borrow_params },
         vec_return_fns,
         returns_vec,
         interner,
@@ -1436,8 +1315,8 @@ fn collect_unsound_vec_returns(
     }
 }
 
-/// Condition (a): every `Return` in `body` yields a value the codegen can hand
-/// back as an owned `Vec<T>`. Only two return shapes are owned-Vec compatible:
+/// Condition (a): every `Return` in `body` — in any block nested in it, an `Inspect` arm's included — yields a value
+/// the codegen can hand back as an owned `Vec<T>`. Only two return shapes are owned-Vec compatible:
 ///   - a readonly-BORROW param (idx ∈ `borrow_idx`) → `return p.to_vec();` (a
 ///     copy — a borrow can never alias the caller's value), or
 ///   - a LOCAL that itself de-Rc's (`x ∈ de_rc`) → `return x;` (the moved Vec).
@@ -1466,20 +1345,11 @@ fn all_returns_vec_ownable(
                     }
                 }
                 Stmt::Return { value: None } => *ok = false,
-                Stmt::If {
-                    then_block,
-                    else_block,
-                    ..
-                } => {
-                    walk(then_block, params, borrow_idx, de_rc, ok);
-                    if let Some(eb) = else_block {
-                        walk(eb, params, borrow_idx, de_rc, ok);
+                _ => {
+                    for block in crate::analysis::tower::nested_blocks(s) {
+                        walk(block, params, borrow_idx, de_rc, ok);
                     }
                 }
-                Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
-                    walk(body, params, borrow_idx, de_rc, ok)
-                }
-                _ => {}
             }
         }
     }
@@ -1665,14 +1535,29 @@ fn detect_swap_in_body(body: &[Stmt], interner: &Interner, out: &mut HashSet<(Sy
     }
 }
 
+/// The parameter slots a call only borrows for its duration: a readonly-borrow (`&[T]`) or a mutable-borrow
+/// (`&mut [T]`) parameter. Both call conventions pass a reference to the de-Rc'd `Vec`, so a candidate passed at one
+/// is not retained and does not escape. (Codegen tells `&x` from `&mut x` by its own borrow maps.)
+#[derive(Clone, Copy)]
+struct BorrowSlots<'m> {
+    borrow: &'m HashMap<Symbol, HashSet<usize>>,
+    mut_borrow: &'m HashMap<Symbol, HashSet<usize>>,
+}
+
+impl BorrowSlots<'_> {
+    /// Whether a call to `function` only borrows its argument at `at`.
+    fn borrows(&self, function: Symbol, at: usize) -> bool {
+        [self.borrow, self.mut_borrow].iter().any(|slots| slots.get(&function).is_some_and(|set| set.contains(&at)))
+    }
+}
+
 /// Walk every statement, disqualifying any candidate that appears outside a
 /// Vec-safe slot. Buffer-reuse swap pairs are exempt from the alias rule.
 fn derc_scan_uses(
     stmts: &[Stmt],
     cands: &HashSet<Symbol>,
     swaps: &HashSet<(Symbol, Symbol)>,
-    borrow_params: &HashMap<Symbol, HashSet<usize>>,
-    mut_borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    slots: BorrowSlots<'_>,
     vec_return_fns: &HashSet<Symbol>,
     returns_vec: bool,
     interner: &Interner,
@@ -1683,8 +1568,7 @@ fn derc_scan_uses(
             stmt,
             cands,
             swaps,
-            borrow_params,
-            mut_borrow_params,
+            slots,
             vec_return_fns,
             returns_vec,
             interner,
@@ -1701,19 +1585,17 @@ fn derc_scan_call_args(
     function: Symbol,
     args: &[&Expr],
     cands: &HashSet<Symbol>,
-    borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    slots: BorrowSlots<'_>,
     dq: &mut HashSet<Symbol>,
 ) {
-    let slots = borrow_params.get(&function);
     for (i, a) in args.iter().enumerate() {
         match a {
             Expr::Identifier(s) if cands.contains(s) => {
-                let is_borrow_slot = slots.map_or(false, |set| set.contains(&i));
-                if !is_borrow_slot {
+                if !slots.borrows(function, i) {
                     dq.insert(*s);
                 }
             }
-            _ => derc_scan_expr(a, cands, borrow_params, dq),
+            _ => derc_scan_expr(a, cands, slots, dq),
         }
     }
 }
@@ -1738,8 +1620,7 @@ fn derc_scan_stmt(
     stmt: &Stmt,
     cands: &HashSet<Symbol>,
     swaps: &HashSet<(Symbol, Symbol)>,
-    borrow_params: &HashMap<Symbol, HashSet<usize>>,
-    mut_borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    slots: BorrowSlots<'_>,
     vec_return_fns: &HashSet<Symbol>,
     returns_vec: bool,
     interner: &Interner,
@@ -1754,10 +1635,10 @@ fn derc_scan_stmt(
                 // captures a uniquely-owned fresh value, not a shared handle.
                 // Still scan the call's args.
                 if let Expr::Call { function, args } = value {
-                    derc_scan_call_args(*function, args, cands, borrow_params, dq);
+                    derc_scan_call_args(*function, args, cands, slots, dq);
                 }
             } else if !is_fresh_seq_value(value, interner) {
-                derc_scan_expr(value, cands, borrow_params, dq);
+                derc_scan_expr(value, cands, slots, dq);
             }
         }
         Stmt::Set { target, value } => {
@@ -1777,16 +1658,16 @@ fn derc_scan_stmt(
                 // handle, so x stays eligible. Still scan the call's args (a
                 // candidate passed to a NON-borrow param would escape).
                 if let Expr::Call { function, args } = value {
-                    derc_scan_call_args(*function, args, cands, borrow_params, dq);
+                    derc_scan_call_args(*function, args, cands, slots, dq);
                 }
-            } else if is_mut_borrow_inplace_call(*target, value, mut_borrow_params) {
+            } else if is_mut_borrow_inplace_call(*target, value, slots.mut_borrow) {
                 // Phase 3b: `Set x to f(..., x, ...)` where `f` mut-borrows `x`
                 // at x's position is lowered to an IN-PLACE call `f(&mut x, ...)`
                 // — the "result" is x itself, not a reassignment, so x keeps its
                 // unique ownership and stays eligible. Scan the OTHER args (a
                 // candidate passed to a non-borrow slot still escapes).
                 if let Expr::Call { function, args } = value {
-                    derc_scan_call_args(*function, args, cands, borrow_params, dq);
+                    derc_scan_call_args(*function, args, cands, slots, dq);
                 }
             } else if !is_fresh_seq_value(value, interner) {
                 // `Set x to <non-fresh value>` (a call result, slice, copy, …)
@@ -1794,43 +1675,42 @@ fn derc_scan_stmt(
                 // e.g. `Set right to mergeSort(right)` binds right to a callee's
                 // returned `LogosSeq`. Disqualify the target.
                 dq.insert(*target);
-                derc_scan_expr(value, cands, borrow_params, dq);
+                derc_scan_expr(value, cands, slots, dq);
             }
         }
         // Collection slots are safe for a bare candidate; the value/index are
         // general uses.
         Stmt::Push { value, collection } | Stmt::Add { value, collection } => {
-            derc_scan_collection_slot(collection, cands, borrow_params, dq);
-            derc_scan_expr(value, cands, borrow_params, dq);
+            derc_scan_collection_slot(collection, cands, slots, dq);
+            derc_scan_expr(value, cands, slots, dq);
         }
         Stmt::Pop { collection, .. } => {
-            derc_scan_collection_slot(collection, cands, borrow_params, dq)
+            derc_scan_collection_slot(collection, cands, slots, dq)
         }
         Stmt::Remove { value, collection } => {
-            derc_scan_collection_slot(collection, cands, borrow_params, dq);
-            derc_scan_expr(value, cands, borrow_params, dq);
+            derc_scan_collection_slot(collection, cands, slots, dq);
+            derc_scan_expr(value, cands, slots, dq);
         }
         Stmt::SetIndex {
             collection,
             index,
             value,
         } => {
-            derc_scan_collection_slot(collection, cands, borrow_params, dq);
-            derc_scan_expr(index, cands, borrow_params, dq);
-            derc_scan_expr(value, cands, borrow_params, dq);
+            derc_scan_collection_slot(collection, cands, slots, dq);
+            derc_scan_expr(index, cands, slots, dq);
+            derc_scan_expr(value, cands, slots, dq);
         }
         Stmt::If {
             cond,
             then_block,
             else_block,
         } => {
-            derc_scan_expr(cond, cands, borrow_params, dq);
+            derc_scan_expr(cond, cands, slots, dq);
             derc_scan_uses(
                 then_block,
                 cands,
                 swaps,
-                borrow_params,
-                mut_borrow_params,
+                slots,
                 vec_return_fns,
                 returns_vec,
                 interner,
@@ -1841,8 +1721,7 @@ fn derc_scan_stmt(
                     eb,
                     cands,
                     swaps,
-                    borrow_params,
-                    mut_borrow_params,
+                    slots,
                     vec_return_fns,
                     returns_vec,
                     interner,
@@ -1851,13 +1730,12 @@ fn derc_scan_stmt(
             }
         }
         Stmt::While { cond, body, .. } => {
-            derc_scan_expr(cond, cands, borrow_params, dq);
+            derc_scan_expr(cond, cands, slots, dq);
             derc_scan_uses(
                 body,
                 cands,
                 swaps,
-                borrow_params,
-                mut_borrow_params,
+                slots,
                 vec_return_fns,
                 returns_vec,
                 interner,
@@ -1866,13 +1744,12 @@ fn derc_scan_stmt(
         }
         Stmt::Repeat { iterable, body, .. } => {
             // Iterating a de-Rc'd Vec is not lowered in v1 → treat as a use.
-            derc_scan_expr(iterable, cands, borrow_params, dq);
+            derc_scan_expr(iterable, cands, slots, dq);
             derc_scan_uses(
                 body,
                 cands,
                 swaps,
-                borrow_params,
-                mut_borrow_params,
+                slots,
                 vec_return_fns,
                 returns_vec,
                 interner,
@@ -1883,8 +1760,7 @@ fn derc_scan_stmt(
             body,
             cands,
             swaps,
-            borrow_params,
-            mut_borrow_params,
+            slots,
             vec_return_fns,
             returns_vec,
             interner,
@@ -1893,19 +1769,19 @@ fn derc_scan_stmt(
         // Statements that carry expressions which may legitimately pass a
         // candidate to a borrow-param: scan position-aware.
         Stmt::Call { function, args } => {
-            derc_scan_call_args(*function, args, cands, borrow_params, dq);
+            derc_scan_call_args(*function, args, cands, slots, dq);
         }
         // Phase 4: in a Vec-returning function, returning a candidate LOCAL
         // moves it out as the owned Vec result — not a disqualifying escape.
         Stmt::Return { value: Some(e) } => {
             if !(returns_vec && matches!(e, Expr::Identifier(x) if cands.contains(x))) {
-                derc_scan_expr(e, cands, borrow_params, dq);
+                derc_scan_expr(e, cands, slots, dq);
             }
         }
         Stmt::Return { value: None } => {}
         Stmt::Show { object, recipient } | Stmt::Give { object, recipient } => {
-            derc_scan_expr(object, cands, borrow_params, dq);
-            derc_scan_expr(recipient, cands, borrow_params, dq);
+            derc_scan_expr(object, cands, slots, dq);
+            derc_scan_expr(recipient, cands, slots, dq);
         }
         // A nested function is a SEPARATE scope with its own de-Rc analysis. Its
         // parameter/local symbols are distinct bindings even when they reuse an
@@ -1936,12 +1812,12 @@ fn derc_scan_stmt(
 fn derc_scan_collection_slot(
     collection: &Expr,
     cands: &HashSet<Symbol>,
-    borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    slots: BorrowSlots<'_>,
     dq: &mut HashSet<Symbol>,
 ) {
     match collection {
         Expr::Identifier(_) => {}
-        other => derc_scan_expr(other, cands, borrow_params, dq),
+        other => derc_scan_expr(other, cands, slots, dq),
     }
 }
 
@@ -1952,7 +1828,7 @@ fn derc_scan_collection_slot(
 fn derc_scan_expr(
     expr: &Expr,
     cands: &HashSet<Symbol>,
-    borrow_params: &HashMap<Symbol, HashSet<usize>>,
+    slots: BorrowSlots<'_>,
     dq: &mut HashSet<Symbol>,
 ) {
     match expr {
@@ -1962,19 +1838,19 @@ fn derc_scan_expr(
             }
         }
         Expr::Index { collection, index } => {
-            derc_scan_collection_slot(collection, cands, borrow_params, dq);
-            derc_scan_expr(index, cands, borrow_params, dq);
+            derc_scan_collection_slot(collection, cands, slots, dq);
+            derc_scan_expr(index, cands, slots, dq);
         }
         Expr::Length { collection } => {
-            derc_scan_collection_slot(collection, cands, borrow_params, dq)
+            derc_scan_collection_slot(collection, cands, slots, dq)
         }
         Expr::BinaryOp { left, right, .. } => {
-            derc_scan_expr(left, cands, borrow_params, dq);
-            derc_scan_expr(right, cands, borrow_params, dq);
+            derc_scan_expr(left, cands, slots, dq);
+            derc_scan_expr(right, cands, slots, dq);
         }
-        Expr::Not { operand } => derc_scan_expr(operand, cands, borrow_params, dq),
+        Expr::Not { operand } => derc_scan_expr(operand, cands, slots, dq),
         Expr::Call { function, args } => {
-            derc_scan_call_args(*function, args, cands, borrow_params, dq);
+            derc_scan_call_args(*function, args, cands, slots, dq);
         }
         // Slice, Copy, FieldAccess, interpolation, New init-fields, and any
         // other kind: a candidate appearing inside is an unsafe use.
@@ -2210,37 +2086,40 @@ pub(super) fn collect_stmt_identifiers(stmt: &Stmt, identifiers: &mut HashSet<Sy
     }
 }
 
-/// Collect parameter indices where any call site passes `Give` as the argument.
-/// If a caller writes `Call f with Give x`, index 0 must not be borrowed as &[T].
-pub(super) fn collect_give_arg_indices(fn_sym: Symbol, stmts: &[Stmt]) -> HashSet<usize> {
-    let mut result = HashSet::new();
+/// Every function's parameter indices at which some call site passes `Give` as the argument, in one walk of the
+/// program. If a caller writes `Call f with Give x`, index 0 of `f` must not be borrowed as &[T].
+pub(super) fn collect_give_args(stmts: &[Stmt]) -> HashMap<Symbol, HashSet<usize>> {
+    let mut result = HashMap::new();
     for stmt in stmts {
-        scan_give_args_stmt(fn_sym, stmt, &mut result);
+        scan_give_args_stmt(stmt, &mut result);
     }
     result
 }
 
-fn scan_give_args_stmt(fn_sym: Symbol, stmt: &Stmt, result: &mut HashSet<usize>) {
+/// Record, under `function`, every index of `args` that passes `Give`.
+fn record_give_args(function: Symbol, args: &[&Expr], result: &mut HashMap<Symbol, HashSet<usize>>) {
+    for (i, arg) in args.iter().enumerate() {
+        if matches!(arg, Expr::Give { .. }) {
+            result.entry(function).or_default().insert(i);
+        }
+    }
+}
+
+fn scan_give_args_stmt(stmt: &Stmt, result: &mut HashMap<Symbol, HashSet<usize>>) {
     match stmt {
         Stmt::Call { function, args } => {
-            if *function == fn_sym {
-                for (i, arg) in args.iter().enumerate() {
-                    if matches!(arg, Expr::Give { .. }) {
-                        result.insert(i);
-                    }
-                }
-            }
+            record_give_args(*function, args, result);
             for arg in args {
-                scan_give_args_expr(fn_sym, arg, result);
+                scan_give_args_expr(arg, result);
             }
         }
         Stmt::Let { value, .. } | Stmt::Set { value, .. } => {
-            scan_give_args_expr(fn_sym, value, result);
+            scan_give_args_expr(value, result);
         }
-        Stmt::Return { value: Some(v) } => scan_give_args_expr(fn_sym, v, result),
+        Stmt::Return { value: Some(v) } => scan_give_args_expr(v, result),
         Stmt::FunctionDef { body, .. } => {
             for s in *body {
-                scan_give_args_stmt(fn_sym, s, result);
+                scan_give_args_stmt(s, result);
             }
         }
         Stmt::If {
@@ -2249,28 +2128,28 @@ fn scan_give_args_stmt(fn_sym: Symbol, stmt: &Stmt, result: &mut HashSet<usize>)
             ..
         } => {
             for s in *then_block {
-                scan_give_args_stmt(fn_sym, s, result);
+                scan_give_args_stmt(s, result);
             }
             if let Some(b) = else_block {
                 for s in *b {
-                    scan_give_args_stmt(fn_sym, s, result);
+                    scan_give_args_stmt(s, result);
                 }
             }
         }
         Stmt::While { body, .. } | Stmt::Repeat { body, .. } | Stmt::Zone { body, .. } => {
             for s in *body {
-                scan_give_args_stmt(fn_sym, s, result);
+                scan_give_args_stmt(s, result);
             }
         }
         Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
             for s in *tasks {
-                scan_give_args_stmt(fn_sym, s, result);
+                scan_give_args_stmt(s, result);
             }
         }
         Stmt::Inspect { arms, .. } => {
             for arm in arms.iter() {
                 for s in arm.body.iter() {
-                    scan_give_args_stmt(fn_sym, s, result);
+                    scan_give_args_stmt(s, result);
                 }
             }
         }
@@ -2278,37 +2157,31 @@ fn scan_give_args_stmt(fn_sym: Symbol, stmt: &Stmt, result: &mut HashSet<usize>)
     }
 }
 
-fn scan_give_args_expr(fn_sym: Symbol, expr: &Expr, result: &mut HashSet<usize>) {
+fn scan_give_args_expr(expr: &Expr, result: &mut HashMap<Symbol, HashSet<usize>>) {
     match expr {
         Expr::Call { function, args } => {
-            if *function == fn_sym {
-                for (i, arg) in args.iter().enumerate() {
-                    if matches!(arg, Expr::Give { .. }) {
-                        result.insert(i);
-                    }
-                }
-            }
+            record_give_args(*function, args, result);
             for arg in args {
-                scan_give_args_expr(fn_sym, arg, result);
+                scan_give_args_expr(arg, result);
             }
         }
         Expr::BinaryOp { left, right, .. } => {
-            scan_give_args_expr(fn_sym, left, result);
-            scan_give_args_expr(fn_sym, right, result);
+            scan_give_args_expr(left, result);
+            scan_give_args_expr(right, result);
         }
         Expr::FieldAccess { object, .. }
         | Expr::Give { value: object }
         | Expr::Copy { expr: object }
         | Expr::Length { collection: object } => {
-            scan_give_args_expr(fn_sym, object, result);
+            scan_give_args_expr(object, result);
         }
         Expr::Index { collection, index } => {
-            scan_give_args_expr(fn_sym, collection, result);
-            scan_give_args_expr(fn_sym, index, result);
+            scan_give_args_expr(collection, result);
+            scan_give_args_expr(index, result);
         }
         Expr::List(items) | Expr::Tuple(items) => {
             for item in items {
-                scan_give_args_expr(fn_sym, item, result);
+                scan_give_args_expr(item, result);
             }
         }
         _ => {}

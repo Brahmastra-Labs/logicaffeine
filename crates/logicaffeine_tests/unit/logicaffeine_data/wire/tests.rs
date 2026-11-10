@@ -206,3 +206,89 @@ fn truncated_input_returns_none_never_panics() {
         let _ = Tree::wire_decode(&out[..cut], &mut pos); // must not panic
     }
 }
+
+#[test]
+fn logos_map_roundtrips_in_insertion_order() {
+    use crate::types::LogosMap;
+    let m: LogosMap<String, i64> = LogosMap::new();
+    for (k, v) in [("zeta", 1i64), ("alpha", -7), ("mid", i64::MIN), ("", 0), ("é", i64::MAX)] {
+        m.insert(k.to_string(), v);
+    }
+    let mut bytes = Vec::new();
+    m.wire_encode(&mut bytes);
+    let mut pos = 0usize;
+    let back = LogosMap::<String, i64>::wire_decode(&bytes, &mut pos).expect("decode");
+    assert_eq!(pos, bytes.len(), "must consume every byte");
+    let entries: Vec<(String, i64)> = back.borrow().iter().map(|(k, v)| (k.clone(), *v)).collect();
+    assert_eq!(
+        entries,
+        vec![
+            ("zeta".to_string(), 1),
+            ("alpha".to_string(), -7),
+            ("mid".to_string(), i64::MIN),
+            (String::new(), 0),
+            ("é".to_string(), i64::MAX)
+        ],
+        "a map is its entries in insertion order"
+    );
+}
+
+#[test]
+fn logos_map_bytes_are_the_peer_codecs_map_layout() {
+    use crate::types::LogosMap;
+    let m: LogosMap<String, bool> = LogosMap::new();
+    m.insert("a".to_string(), true);
+    m.insert("bc".to_string(), false);
+    let mut bytes = Vec::new();
+    m.wire_encode(&mut bytes);
+    assert_eq!(bytes, vec![T_MAP, 2, T_TEXT, 1, b'a', T_TRUE, T_TEXT, 2, b'b', b'c', T_FALSE]);
+    let empty: LogosMap<String, bool> = LogosMap::new();
+    let mut b = Vec::new();
+    empty.wire_encode(&mut b);
+    assert_eq!(b, vec![T_MAP, 0]);
+    let mut p = 0usize;
+    assert!(LogosMap::<String, bool>::wire_decode(&b, &mut p).expect("decode").is_empty());
+}
+
+#[test]
+fn a_map_of_enum_values_roundtrips() {
+    use crate::types::LogosMap;
+    let m: LogosMap<String, Tree> = LogosMap::new();
+    m.insert("leaf".to_string(), Tree::Leaf(3));
+    m.insert(
+        "node".to_string(),
+        Tree::Node {
+            tag: "t".to_string(),
+            flag: false,
+            ratio: -0.5,
+            kids: vec![Tree::Empty, Tree::Str("s".to_string())],
+            boxed: Box::new(Tree::Leaf(-1)),
+        },
+    );
+    let mut bytes = Vec::new();
+    m.wire_encode(&mut bytes);
+    let mut pos = 0usize;
+    let back = LogosMap::<String, Tree>::wire_decode(&bytes, &mut pos).expect("decode");
+    assert_eq!(pos, bytes.len());
+    let entries: Vec<(String, Tree)> = back.borrow().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let expected: Vec<(String, Tree)> = m.borrow().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    assert_eq!(entries, expected);
+}
+
+#[test]
+fn a_truncated_map_returns_none_never_panics() {
+    use crate::types::LogosMap;
+    let m: LogosMap<String, Tree> = LogosMap::new();
+    m.insert("k".to_string(), Tree::Leaf(123456));
+    m.insert("j".to_string(), Tree::Str("text".to_string()));
+    let mut out = Vec::new();
+    m.wire_encode(&mut out);
+    for cut in 0..out.len() {
+        let mut pos = 0usize;
+        assert!(
+            LogosMap::<String, Tree>::wire_decode(&out[..cut], &mut pos).is_none(),
+            "a map cut at byte {cut} of {} decoded",
+            out.len()
+        );
+    }
+}

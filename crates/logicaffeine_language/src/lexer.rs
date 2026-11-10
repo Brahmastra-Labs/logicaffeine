@@ -354,6 +354,33 @@ pub struct Lexer<'a> {
     escape_body_ranges: Vec<(usize, usize)>,
 }
 
+/// A set of byte ranges, asked whether a position lies strictly inside one of them (after its start, before its end)
+/// in logarithmic time: the ranges sorted by start, each prefix with the furthest end it reaches.
+struct StrictCover {
+    starts: Vec<usize>,
+    reach: Vec<usize>,
+}
+
+impl StrictCover {
+    fn new(mut ranges: Vec<(usize, usize)>) -> StrictCover {
+        ranges.sort_unstable();
+        let mut far = 0;
+        let reach = ranges
+            .iter()
+            .map(|&(_, end)| {
+                far = far.max(end);
+                far
+            })
+            .collect();
+        StrictCover { starts: ranges.into_iter().map(|(start, _)| start).collect(), reach }
+    }
+
+    fn covers(&self, pos: usize) -> bool {
+        let before = self.starts.partition_point(|&start| start < pos);
+        before > 0 && self.reach[before - 1] > pos
+    }
+}
+
 struct WordItem {
     word: String,
     trailing_punct: Option<char>,
@@ -2172,20 +2199,10 @@ impl<'a> Lexer<'a> {
         // events for their indentation changes. We keep exactly the boundary events
         // (Indent at body start, Dedent at body end) but remove internal ones.
         if !self.escape_body_ranges.is_empty() {
-            // For each escape body range, find the first Indent at the body start and
-            // track that we're inside the range. Filter out all events strictly inside
-            // the range except for the first Indent and events at/after the end.
-            let mut filtered = Vec::new();
-            for &(pos, is_indent) in &structural_events {
-                let is_inside_escape_body = self.escape_body_ranges.iter().any(|(start, end)| {
-                    // Strictly inside the body (not at start boundary and not at/after end)
-                    pos > *start && pos < *end
-                });
-                if !is_inside_escape_body {
-                    filtered.push((pos, is_indent));
-                }
-            }
-            structural_events = filtered;
+            // The boundary events stay (the Indent at a body's start, the events at or after its end); every event
+            // strictly inside a body goes.
+            let bodies = StrictCover::new(self.escape_body_ranges.clone());
+            structural_events.retain(|&(pos, _)| !bodies.covers(pos));
         }
 
         // Filter out structural events from within multi-line string literals.
@@ -2204,11 +2221,8 @@ impl<'a> Lexer<'a> {
                 .map(|t| (t.span.start, t.span.end))
                 .collect();
             if !string_spans.is_empty() {
-                structural_events.retain(|&(pos, _)| {
-                    !string_spans
-                        .iter()
-                        .any(|(start, end)| pos > *start && pos < *end)
-                });
+                let strings = StrictCover::new(string_spans);
+                structural_events.retain(|&(pos, _)| !strings.covers(pos));
             }
         }
 
@@ -2235,11 +2249,8 @@ impl<'a> Lexer<'a> {
                 }
             }
             if !bracket_ranges.is_empty() {
-                structural_events.retain(|&(pos, _)| {
-                    !bracket_ranges
-                        .iter()
-                        .any(|(start, end)| pos > *start && pos < *end)
-                });
+                let brackets = StrictCover::new(bracket_ranges);
+                structural_events.retain(|&(pos, _)| !brackets.covers(pos));
             }
         }
 
@@ -4073,6 +4084,107 @@ impl<'a> Lexer<'a> {
         }
 
         None
+    }
+}
+
+/// `text` as a string literal this lexer reads back as exactly `text`.
+pub fn text_literal(text: &str) -> String {
+    format!("\"{}\"", text_literal_body(text))
+}
+
+/// The inside of [`text_literal`], which is also a literal part of an interpolated string: every character the lexer
+/// decodes from an escape (`\\`, `\"`, `\n`, `\t`, `\r`, `\0`) written as that escape, and each brace doubled, so
+/// nothing in it opens an interpolation.
+pub fn text_literal_body(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for c in text.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\t' => out.push_str("\\t"),
+            '\r' => out.push_str("\\r"),
+            '\0' => out.push_str("\\0"),
+            '{' => out.push_str("{{"),
+            '}' => out.push_str("}}"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
+/// `c` as a character literal this lexer reads back as exactly `c`: between backticks, each character the lexer decodes
+/// from an escape (`\n`, `\t`, `\r`, `\\`, `` \` ``, `\0`) written as that escape.
+pub fn char_literal(c: char) -> String {
+    match c {
+        '\n' => "`\\n`".to_string(),
+        '\t' => "`\\t`".to_string(),
+        '\r' => "`\\r`".to_string(),
+        '\\' => "`\\\\`".to_string(),
+        '`' => "`\\``".to_string(),
+        '\0' => "`\\0`".to_string(),
+        other => format!("`{other}`"),
+    }
+}
+
+/// The nanoseconds in a minute, the finest a time-of-day literal spells.
+const MINUTE_NANOS: i64 = 60_000_000_000;
+
+/// The nanoseconds in a day.
+const DAY_NANOS: i64 = 86_400_000_000_000;
+
+/// The day `days` after 1970-01-01 as a date literal this lexer reads back as exactly that day (`YYYY-MM-DD`), for a
+/// year the literal's four digits hold, 0 through 9999.
+pub fn date_literal(days: i32) -> Option<String> {
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    (0..=9999).contains(&year).then(|| format!("{year:04}-{month:02}-{day:02}"))
+}
+
+/// `nanos` past midnight as a time-of-day literal this lexer reads back as exactly that time (`H:MMam`, `H:MMpm`),
+/// for a whole minute of the day.
+pub fn time_literal(nanos: i64) -> Option<String> {
+    if !(0..DAY_NANOS).contains(&nanos) || nanos % MINUTE_NANOS != 0 {
+        return None;
+    }
+    let minutes = nanos / MINUTE_NANOS;
+    let (hour, minute) = (minutes / 60, minutes % 60);
+    let (hour, half) = match hour {
+        0 => (12, "am"),
+        1..=11 => (hour, "am"),
+        12 => (12, "pm"),
+        _ => (hour - 12, "pm"),
+    };
+    Some(format!("{hour}:{minute:02}{half}"))
+}
+
+/// `nanos` since 1970-01-01 at midnight as a moment literal the parser reads back as exactly that moment
+/// (`<date> at <time>`), when its day has a [`date_literal`] and its time of day a [`time_literal`].
+pub fn moment_literal(nanos: i64) -> Option<String> {
+    let days = i32::try_from(nanos.div_euclid(DAY_NANOS)).ok()?;
+    Some(format!("{} at {}", date_literal(days)?, time_literal(nanos.rem_euclid(DAY_NANOS))?))
+}
+
+/// `nanos` as a duration literal this lexer reads back as exactly that duration (`<n>ns`), when it is not negative.
+pub fn duration_literal(nanos: i64) -> Option<String> {
+    (nanos >= 0).then(|| format!("{nanos}ns"))
+}
+
+/// A calendar span of `months` and `days` as a span literal the parser reads back as exactly that span
+/// (`<m> months and <d> days`, a zero part left out unless both are zero), when neither part is negative.
+pub fn span_literal(months: i32, days: i32) -> Option<String> {
+    match (months, days) {
+        (m, d) if m < 0 || d < 0 => None,
+        (0, d) => Some(format!("{d} days")),
+        (m, 0) => Some(format!("{m} months")),
+        (m, d) => Some(format!("{m} months and {d} days")),
     }
 }
 

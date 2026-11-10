@@ -335,7 +335,7 @@ fn native_builder_covers_crdt_and_launch() {
         "## Main\nEscape to Rust:\n    let _ = 1;\n",
         // StreamMessage (relay batch) → CStreamMessage.
         "## Main\nLet x be 5.\nStream x to remote.\nShow x.\n",
-        // Splice: a multi-value `Push` desugars to `Stmt::Splice` → CIf(true, [pushes], []).
+        // Splice: a multi-value `Push` desugars to `Stmt::Splice` → its pushes, in place.
         "## Main\nLet coll be a new Seq of Int.\nPush 1, 2, 3 to coll.\nShow length of coll.\n",
     ];
     let mut diverged: Vec<usize> = Vec::new();
@@ -497,4 +497,45 @@ fn native_pe_inprocess_is_not_slower_than_the_server() {
         best_inproc.as_secs_f64() < best_server.as_secs_f64() * 2.0,
         "in-process PE ({best_inproc:?}) must not be materially slower than the server ({best_server:?})"
     );
+}
+
+/// A value a native engine receives over the wire may hold maps — the self-interpreter's values do (`VMap`,
+/// `VStruct`'s fields) — so an enum whose fields hold a `Map` gets the codec like any other, nested in a
+/// sequence or behind another enum.
+#[test]
+fn an_enum_holding_a_map_gets_the_wire_codec() {
+    let src = "## A Bag is one of:\n    A Full with items Map of Text to Int.\n    A Nested with inner Map of Text to Bag and names Seq of Text.\n    An Empty.\n\n## A Holder is one of:\n    A Holding with bags Seq of Bag.\n\n## Main\nLet h be a new Holding with bags [a new Empty].\nShow 1.\n";
+    let rust = logicaffeine_compile::compile::compile_program_full_with_wire(src)
+        .expect("compiles with the wire codec")
+        .rust_code;
+    for ty in ["Bag", "Holder"] {
+        for codec in ["WireEncode", "WireDecode"] {
+            assert!(
+                rust.contains(&format!("impl logicaffeine_data::wire::{codec} for {ty} {{")),
+                "`{ty}` has no `{codec}`:\n{rust}"
+            );
+        }
+    }
+}
+
+/// Every block a desugaring or a closure writes is in the native builder's coverage, and the builder makes each
+/// program's `CProgram` byte for byte as the interpreter's encoding does: a comprehension's and a destructuring `Let`'s
+/// statements and a `Reversibly:` block's stand in the block that holds them, and a closure's block, with a loop, an
+/// `Inspect` and a desugaring in it, and a zone's block go through the one list walk.
+#[test]
+fn the_native_builder_walks_every_block_as_the_interpreter_does() {
+    let programs: &[&str] = &[
+        "## Main\nLet xs be [1, 5, 2, 8, 3].\nLet small be every n in xs where n is less than 4.\nShow small.",
+        "## To pair (n: Int) -> (Int, Int):\n    Return (n, n * 2).\n\n## Main\nLet (a, b) be pair(3).\nShow a + b.",
+        "## To spread (xs: Seq of Int) -> Int:\n    Let big be every x in xs where x is greater than 2.\n    Let (lo, hi) be (item 1 of big, item 2 of big).\n    Return lo + hi.\n\n## Main\nLet mutable total be 0.\nRepeat for i from 1 to 3:\n    Let picked be every x in [1, 2, 3, 4] where x is greater than i.\n    Set total to total + length of picked.\nShow total.\nShow spread([1, 3, 5, 7]).\nLet count be (n: Int) ->:\n    Let above be every x in [1, 2, 3, 4, 5] where x is greater than n.\n    Return length of above.\nShow count(2).",
+        "## A Shape is one of:\n    A Dot with size Int.\n    A Line with from Int and to Int.\n\n## Main\nLet measure be (s: Shape) ->:\n    Let mutable total be 0.\n    Repeat for i from 1 to 3:\n        Set total to total + i.\n    Let (lo, hi) be (total, total * 2).\n    Inspect s:\n        When Dot (size):\n            Return lo + size.\n        When Line (from, to):\n            Return hi + to - from.\nShow measure(a new Dot with size 4).\nShow measure(a new Line with from 1 and to 5).",
+        "## Main\nLet mutable x be 5.\nReversibly:\n    Let y be x + 3.\n    Set x to y xor 1.\nShow x.\nShow y.",
+        "## Main\nInside a new zone called \"Scratch\":\n    Let small be every n in [4, 1, 3] where n is less than 4.\n    Show small.",
+    ];
+    for prog in programs {
+        assert!(program_covered_by_native_builder(prog), "the native builder leaves out:\n{prog}");
+        let native = program_to_core_wire_bytes(prog).expect("native builder marshal");
+        let interp = program_to_core_wire_bytes_via_interpreter(prog).expect("interpreter marshal");
+        assert_eq!(native, interp, "native builder wire bytes differ from the interpreter's for:\n{prog}");
+    }
 }

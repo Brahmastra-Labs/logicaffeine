@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `temporal::LogosDuration`: a physical duration in signed nanoseconds, with the language's sum and difference, its
+  display (`base::temporal::shown_duration`), `to_std` (the wait it stands for, none at or below zero) and its
+  `OtherValue`. A `LogosMoment` moves by one either side of `+`.
+- `Default` for `LogosDate`, `LogosMoment`, `LogosTime` and `LogosSpan` (the epoch's day and instant, midnight, no
+  span), so a record or variant holds them; `LogosDate::date`; a `LogosMoment` and a `LogosTime` order by the moment's
+  time of day, either way round, and are never equal; a `LogosSpan` plus a `LogosMoment` is the moment moved, as the
+  moment plus the span is. `Boxable` for the temporal types, so each rides a tuple element as itself.
+- The wire codec carries a `char` (`T_CHAR`), a `LogosDuration` (`T_DURATION`), a `LogosDate`, a `LogosMoment`, a
+  `LogosSpan` and a `LogosTime` (`T_DATE` … `T_TIME`) — a character as its scalar value, the rest as their signed
+  counts zig-zag + varint — so a value of each crosses between a compiled engine and its host as itself.
+
+### Changed
+
+- A moment moves by a `LogosDuration`, not a `std::time::Duration` (which cannot be negative), and `FillClone` covers
+  `LogosDuration` in its place. Migration: `LogosDuration(d.as_nanos() as i64)`.
+
 ## [0.11.0] - 2026-11-02
 
 ### Added

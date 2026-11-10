@@ -146,8 +146,8 @@ fn every_statement_has_a_tier_disposition(s: &Stmt<'_>) -> TierDisposition {
 
         // ── everything else: portable across tree-walker + VM ──
         // (`Splice` is parser-desugar output — a scope-transparent sequence of
-        // the portable statements below; the PE encoder lowers it to an
-        // always-taken `CIf`, so the PE dialects and decompiler need no arm.
+        // the portable statements below; the PE encoders splice it into the
+        // block that holds it, so the PE dialects and decompiler need no arm.
         // A `Reversibly:` block is output-transparent in the same way — every
         // tier runs its body with the plain FORWARD semantics (interpreter, VM,
         // AOT-Rust, C, and WASM all lower it identically to the body inline; the

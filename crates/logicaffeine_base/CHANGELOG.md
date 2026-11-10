@@ -112,6 +112,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   InfoZIP's zip shares); `cm::lzw`: GIF's LZW both ways, with the matches an encoder ended early (`cuts`, `encode_cut`);
   `cm::x86`: an x86 instruction-length decoder that names the field and instruction of every byte and what each
   instruction does (sixteen kinds, from the opcode maps; a group opcode's from its ModRM reg field).
+- `temporal::shown_duration(nanos)`: how `Show` writes a duration, its largest whole unit truncated toward zero and
+  signed, as the tree-walker prints it.
 
 ### Fixed
 

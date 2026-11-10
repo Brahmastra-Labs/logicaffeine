@@ -442,12 +442,30 @@ fn sliced_type(collection: &Expr, ecx: &ExprCtx) -> Option<String> {
     let ty = match collection {
         Expr::Identifier(sym) => ecx.variable_types.get(sym).cloned(),
         Expr::FieldAccess { .. } => record_field_rust_type(collection, ecx.interner, ecx.variable_types, ecx.registry),
-        _ => None,
+        _ => value_rust_type(collection, ecx.variable_types, ecx.registry, ecx.interner),
     }?;
     let ty = ty.split("|__hl:").next().unwrap_or(&ty).to_string();
     match super::absent::read(collection).and(super::absent::payload(&ty)) {
         Some(held) => Some(held.to_string()),
         None => Some(ty),
+    }
+}
+
+/// The items `items start through end of collection` names, as a borrowed view of the collection's buffer (`&[T]`):
+/// what a reader that only reads them in place takes — a length, a membership, a borrowed parameter, a loop's
+/// snapshot, a further slice, a copy.
+pub(crate) fn slice_view(collection: &Expr, start: &Expr, end: &Expr, ecx: &ExprCtx) -> String {
+    let coll_str = codegen_expr_ctx(collection, ecx);
+    let bound = |e: &Expr| {
+        super::rational::integer_operand(e, crate::semantics::collections::IntegerPlace::Slice, ecx)
+            .unwrap_or_else(|| codegen_expr_ctx(e, ecx))
+    };
+    let start_str = bound(start);
+    let end_str = bound(end);
+    if matches!(sliced_type(collection, ecx).as_deref(), Some(t) if t.starts_with("LogosSeq")) {
+        format!("{coll_str}.borrow().logos_slice({start_str}, {end_str})")
+    } else {
+        format!("{coll_str}.logos_slice({start_str}, {end_str})")
     }
 }
 
@@ -485,7 +503,7 @@ pub(super) fn call_argument(function: Symbol, i: usize, a: &Expr, ecx: &ExprCtx)
 /// writes the list before the callee reads the borrow. Using a list again in the very call that
 /// lends it never reaches here — the law of exclusivity refuses it.
 pub(super) fn call_arguments(function: Symbol, args: &[&Expr], ecx: &ExprCtx) -> Vec<String> {
-    let lent_later = lent_by_later_arguments(args, ecx.variable_types);
+    let lent_later = lent_by_later_arguments(args);
     args.iter()
         .enumerate()
         .map(|(i, a)| {
@@ -516,10 +534,9 @@ pub(super) fn sequenced_call(
     function: Symbol,
     args: &[&Expr],
     mut rendered: Vec<String>,
-    suffix: &str,
-    variable_types: &HashMap<Symbol, String>,
+    wait: Wait,
 ) -> String {
-    let lent = super::fn_role_indices(variable_types.get(&function), super::FnRole::ValueMutable);
+    let lent = super::fn_role_indices(function, super::FnRole::ValueMutable);
     let lends: Vec<(usize, Symbol)> = lent
         .iter()
         .filter(|i| rendered.get(**i).is_some_and(|r| r.starts_with("&mut ")))
@@ -535,7 +552,7 @@ pub(super) fn sequenced_call(
             .any(|(j, a)| j != *at && mentions_binding(a, *root))
     });
     if !overlaps {
-        return format!("{path}({}){suffix}", rendered.join(", "));
+        return wait.around(format!("{path}({})", rendered.join(", ")));
     }
     let mut before = String::new();
     for (j, arg) in rendered.iter_mut().enumerate() {
@@ -545,7 +562,52 @@ pub(super) fn sequenced_call(
         before.push_str(&format!("let __arg{j} = {arg}; "));
         *arg = format!("__arg{j}");
     }
-    format!("{{ {before}{path}({}){suffix} }}", rendered.join(", "))
+    format!("{{ {before}{} }}", wait.around(format!("{path}({})", rendered.join(", "))))
+}
+
+thread_local! {
+    /// The program's async functions that lie on a cycle of its call graph, installed at codegen entry
+    /// ([`set_recursive_async`]).
+    static RECURSIVE_ASYNC: std::cell::RefCell<HashSet<Symbol>> = std::cell::RefCell::new(HashSet::new());
+}
+
+/// Install the program's async functions that lie on a cycle of its call graph. Called once at codegen entry.
+pub(crate) fn set_recursive_async(recursive: HashSet<Symbol>) {
+    RECURSIVE_ASYNC.with(|c| *c.borrow_mut() = recursive);
+}
+
+/// How a call waits for the function it calls.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Wait {
+    /// The function does not await: the call is its value.
+    No,
+    /// The function awaits: the call is awaited.
+    Await,
+    /// The function awaits and lies on a cycle of the call graph: its future would hold itself, so the call's
+    /// future is boxed before it is awaited.
+    Boxed,
+}
+
+impl Wait {
+    /// How a call of `function` waits, in a program whose async functions are `async_functions`.
+    pub(crate) fn of(function: Symbol, async_functions: &HashSet<Symbol>) -> Wait {
+        if !async_functions.contains(&function) {
+            Wait::No
+        } else if RECURSIVE_ASYNC.with(|c| c.borrow().contains(&function)) {
+            Wait::Boxed
+        } else {
+            Wait::Await
+        }
+    }
+
+    /// `call` waited for this way.
+    pub(crate) fn around(self, call: String) -> String {
+        match self {
+            Wait::No => call,
+            Wait::Await => format!("{call}.await"),
+            Wait::Boxed => format!("::std::boxed::Box::pin({call}).await"),
+        }
+    }
 }
 
 /// The binding a lent place is rooted at: the binding, or the record a field of it belongs to.
@@ -567,15 +629,10 @@ fn mentions_binding(expr: &Expr, binding: Symbol) -> bool {
 /// Whether a call anywhere in `expr` lends `binding` to a `mutable` parameter. A statement that
 /// writes into `binding` evaluates such an expression before it touches its target — as every
 /// tier's statement order has it — rather than inside the write.
-pub(super) fn lends_binding(
-    expr: &Expr,
-    binding: Symbol,
-    variable_types: &HashMap<Symbol, String>,
-) -> bool {
+pub(super) fn lends_binding(expr: &Expr, binding: Symbol) -> bool {
     let mut lends = false;
     crate::analysis::callgraph::for_each_call_site_in_expr(expr, &mut |function, inner| {
-        for at in super::fn_role_indices(variable_types.get(&function), super::FnRole::ValueMutable)
-        {
+        for at in super::fn_role_indices(function, super::FnRole::ValueMutable) {
             if matches!(inner.get(at), Some(Expr::Identifier(s)) if *s == binding) {
                 lends = true;
             }
@@ -588,18 +645,11 @@ pub(super) fn lends_binding(
 /// operand for the whole call, so when an operand's call lends a binding to a `mutable` parameter
 /// the text is built from values taken first, in order — a field or binding read copied out
 /// before the lend writes it, as every tier reads it.
-fn format_in_order(
-    fmt: &str,
-    operands: &[&Expr],
-    values: Vec<String>,
-    variable_types: &HashMap<Symbol, String>,
-) -> String {
+fn format_in_order(fmt: &str, operands: &[&Expr], values: Vec<String>) -> String {
     let lends = operands.iter().any(|operand| {
         let mut lends = false;
         crate::analysis::callgraph::for_each_call_site_in_expr(operand, &mut |function, _| {
-            lends |=
-                !super::fn_role_indices(variable_types.get(&function), super::FnRole::ValueMutable)
-                    .is_empty();
+            lends |= !super::fn_role_indices(function, super::FnRole::ValueMutable).is_empty();
         });
         lends
     });
@@ -621,18 +671,13 @@ fn format_in_order(
 
 /// For each argument, the bindings that an argument to its right lends to a `mutable` parameter,
 /// in a call anywhere inside it.
-fn lent_by_later_arguments(
-    args: &[&Expr],
-    variable_types: &HashMap<Symbol, String>,
-) -> Vec<HashSet<Symbol>> {
+fn lent_by_later_arguments(args: &[&Expr]) -> Vec<HashSet<Symbol>> {
     let mut later = vec![HashSet::new(); args.len()];
     let mut lent: HashSet<Symbol> = HashSet::new();
     for (i, a) in args.iter().enumerate().rev() {
         later[i] = lent.clone();
         crate::analysis::callgraph::for_each_call_site_in_expr(a, &mut |function, inner| {
-            for at in
-                super::fn_role_indices(variable_types.get(&function), super::FnRole::ValueMutable)
-            {
+            for at in super::fn_role_indices(function, super::FnRole::ValueMutable) {
                 if let Some(Expr::Identifier(s)) = inner.get(at) {
                     lent.insert(*s);
                 }
@@ -652,21 +697,15 @@ fn call_argument_read(
     let variable_types = ecx.variable_types;
     let names = RustNames::new(ecx.interner);
     let raw_name = names.raw(function);
-    // Callee param-role indices (packed one slot per function): a readonly
-    // borrow (`&[T]`) and a value-semantics `mutable` collection param can
-    // BOTH be present, so read each role independently rather than assuming
-    // one clobbers the other.
-    let callee_slot = variable_types.get(&function);
-    let callee_borrow_indices: HashSet<usize> =
-        super::fn_role_indices(callee_slot, super::FnRole::Borrow);
+    // The callee's calling roles: a readonly borrow (`&[T]`) and a value-semantics `mutable`
+    // collection param can BOTH be present, so each role is read on its own.
+    let callee_borrow_indices: HashSet<usize> = super::fn_role_indices(function, super::FnRole::Borrow);
     // `mutable` collection params (value semantics): pass the caller's
     // collection by shared reference (no clone) so the callee mutates it
     // in place — the explicit propagation escape hatch.
-    let callee_value_mutable: HashSet<usize> =
-        super::fn_role_indices(callee_slot, super::FnRole::ValueMutable);
+    let callee_value_mutable: HashSet<usize> = super::fn_role_indices(function, super::FnRole::ValueMutable);
     // Element `&mut` borrows: the callee writes a sequence's elements in place.
-    let callee_mut_borrow_indices: HashSet<usize> =
-        super::fn_role_indices(callee_slot, super::FnRole::MutBorrow);
+    let callee_mut_borrow_indices: HashSet<usize> = super::fn_role_indices(function, super::FnRole::MutBorrow);
     // An integer handed to a parameter that holds rationals is the rational it equals, a list of them item by item.
     if let Some(param) = fn_param_rust_type(function, i).filter(|t| t.contains(super::rational::RATIONAL)) {
         if !callee_value_mutable.contains(&i) && !callee_mut_borrow_indices.contains(&i) {
@@ -704,7 +743,7 @@ fn call_argument_read(
     // where an overflowing closure produces a bignum. Seq-HOFs are NOT in `EXACT_HOFS`, so
     // `map`/`fold` closures stay `i64` (no regression).
     let callee_is_exact_hof = is_exact_hof_call(function);
-    let callee_is_exact_fnptr = callee_slot.map_or(false, |t| t.contains(EXACT_FNPTR_MARKER));
+    let callee_is_exact_fnptr = variable_types.get(&function).map_or(false, |t| t.contains(EXACT_FNPTR_MARKER));
     let exact_closure_arg = callee_is_exact_hof
         && fn_param_rust_type(function, i).map_or(false, |t| t.starts_with("impl Fn"));
     let exact_int_parameter = callee_is_exact_fnptr
@@ -768,6 +807,11 @@ fn call_argument_read(
         if let Some(own) = cow_handle(a, variable_types, &names) {
             return format!("{{ {own}.cow(); &{own} }}");
         }
+        // A value that is not a binding — a field, a call's result — is lent as the callee's
+        // parameter takes it: a record or a scalar as `&mut`.
+        if fn_param_rust_type(function, i).is_some_and(|t| !lent_by_shared_reference(&t)) {
+            return format!("&mut {}", s);
+        }
         return format!("&{}", s);
     }
     if callee_mut_borrow_indices.contains(&i) {
@@ -797,6 +841,10 @@ fn call_argument_read(
         return format!("&({})", s);
     }
     if callee_borrow_indices.contains(&i) {
+        // A slice handed to a borrowed parameter is the view of the items, never a copy of them.
+        if let Expr::Slice { collection, start, end } = a {
+            return slice_view(collection, start, end, ecx);
+        }
         // Borrow param: pass &[T] reference instead of cloning
         if let Expr::Identifier(sym) = a {
             if let Some(ty) = variable_types.get(sym) {
@@ -903,13 +951,9 @@ pub(super) fn lent_record_type(ty: &str) -> bool {
 }
 
 /// Whether a call to `function` lends the value it is given at argument `index` — a borrowed enum parameter
-/// (`codegen::lent`), read from the function's call roles in `variable_types`.
-pub(super) fn lends_record_at(
-    function: Symbol,
-    index: usize,
-    variable_types: &HashMap<Symbol, String>,
-) -> bool {
-    super::fn_role_indices(variable_types.get(&function), super::FnRole::Borrow).contains(&index)
+/// (`codegen::lent`), read from the function's calling roles.
+pub(super) fn lends_record_at(function: Symbol, index: usize) -> bool {
+    super::fn_role_indices(function, super::FnRole::Borrow).contains(&index)
         && fn_param_rust_type(function, index).is_some_and(|t| lent_record_type(&t))
 }
 
@@ -921,18 +965,13 @@ pub(super) fn is_lent_record(ty: &str) -> bool {
 
 /// The Rust path a call to the program's function `function` names: its own name, or `crate::name`
 /// where a local value of that name is in scope. A value and a function may share a name and a call
-/// always means the function (the loader's hygiene rule), while a Rust local would shadow it. A
-/// function's calling roles live under its symbol as a `fn_roles|` slot, so any other type there is
-/// a local's.
+/// always means the function (the loader's hygiene rule), while a Rust local would shadow it.
 pub(super) fn called_function_path(
     function: Symbol,
     name: String,
     variable_types: &HashMap<Symbol, String>,
 ) -> String {
-    let shadowed = program_defines_function(function)
-        && variable_types
-            .get(&function)
-            .is_some_and(|t| !t.starts_with("fn_roles|"));
+    let shadowed = program_defines_function(function) && variable_types.contains_key(&function);
     if shadowed {
         format!("crate::{name}")
     } else {
@@ -3297,6 +3336,16 @@ pub(super) fn exact_value_type_of(
     }
 }
 
+/// The Rust a clock read ([`ClockRead`](crate::semantics::temporal::ClockRead)) emits, and the Rust type of what it
+/// reads.
+pub(crate) fn clock_read(name: &str) -> Option<(&'static str, &'static str)> {
+    use crate::semantics::temporal::ClockRead;
+    ClockRead::named(name).map(|read| match read {
+        ClockRead::Today => ("logicaffeine_system::temporal::today()", "LogosDate"),
+        ClockRead::Now => ("logicaffeine_system::temporal::now()", "LogosMoment"),
+    })
+}
+
 /// The Rust type a value expression evidently produces, read from its shape: an exact value, a
 /// literal, a variable of a plain registered type, a record or variant of the program's being built,
 /// a record field, a call to a program function, a list of such, or a tuple of such. `None` when the
@@ -3331,7 +3380,10 @@ pub(super) fn value_rust_type(
         Expr::Literal(lit) => {
             plain(crate::analysis::types::LogosType::from_literal(lit).to_rust_type())
         }
-        Expr::Identifier(sym) => plain(variable_types.get(sym)?.clone()),
+        Expr::Identifier(sym) => match clock_read(interner.resolve(*sym)) {
+            Some((_, ty)) => Some(ty.to_string()),
+            None => plain(variable_types.get(sym)?.clone()),
+        },
         Expr::New {
             type_name,
             type_args,
@@ -3491,17 +3543,10 @@ fn logos_map_value_rust_type<'a>(
         return None;
     };
     let t = variable_types.get(sym)?.as_str();
-    let inner = t.strip_prefix("LogosMap<")?.strip_suffix('>')?;
-    let mut depth = 0i32;
-    for (i, ch) in inner.char_indices() {
-        match ch {
-            '<' => depth += 1,
-            '>' => depth -= 1,
-            ',' if depth == 0 => return Some(inner[i + 1..].trim()),
-            _ => {}
-        }
+    match super::types::top_level_parts(t.strip_prefix("LogosMap<")?.strip_suffix('>')?).as_slice() {
+        [_, value] => Some(*value),
+        _ => None,
     }
-    None
 }
 
 /// True when `e` is a bare identifier whose DECLARED Rust type is `String` — a Text-typed
@@ -4152,6 +4197,9 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
         Expr::Literal(lit) => codegen_literal(lit, interner),
 
         Expr::Identifier(sym) => {
+            if let Some((read, _)) = clock_read(interner.resolve(*sym)) {
+                return read.to_string();
+            }
             let name = names.ident(*sym);
             // Dereference boxed bindings from enum destructuring, and a `mutable` parameter lent
             // as `&mut` — both are read and written as the place behind the reference.
@@ -4289,7 +4337,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                         }
                     })
                     .collect();
-                return format_in_order(&placeholders, &operands, values, variable_types);
+                return format_in_order(&placeholders, &operands, values);
             }
 
             // `a followed by b` — merge two sequences into one fresh `LogosSeq` (the default repr
@@ -4372,7 +4420,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     return format!(
                         "{{ let __rp_src = ({}).to_vec(); let __rp_n = (({}) as i64).max(0) as usize; \
                          let mut __rp = Vec::with_capacity(__rp_src.len() * __rp_n); \
-                         for _ in 0..__rp_n {{ __rp.extend(__rp_src.iter().map(|__e| __e.fill_clone())); }} \
+                         for _ in 0..__rp_n {{ __rp.extend(__rp_src.iter().map(|__e| logicaffeine_data::deep_copy!(*__e))); }} \
                          LogosSeq::from_vec(__rp) }}",
                         s, n
                     );
@@ -5624,7 +5672,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     format!(
                         "{{ let __rp_x = ({}); let __rp_n = (({}) as i64).max(0) as usize; \
                          let mut __rp = Vec::with_capacity(__rp_n); \
-                         for _ in 0..__rp_n {{ __rp.push(__rp_x.fill_clone()); }} \
+                         for _ in 0..__rp_n {{ __rp.push(logicaffeine_data::deep_copy!(__rp_x)); }} \
                          LogosSeq::from_vec(__rp) }}",
                         args_str[0], args_str[1]
                     )
@@ -6007,8 +6055,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 _ => {
                     let fish = super::instantiation::for_expr(expr);
                     let path = format!("{}{}", called_function_path(*function, func_name, variable_types), fish);
-                    let suffix = if async_functions.contains(function) { ".await" } else { "" };
-                    sequenced_call(&path, *function, args, args_str, suffix, variable_types)
+                    sequenced_call(&path, *function, args, args_str, Wait::of(*function, async_functions))
                 }
             }
         }
@@ -6092,6 +6139,16 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
             } else {
                 None
             };
+            // A map entry, `(key, value)`, read at a constant index: the key or the value itself, of its own type.
+            if let (Some(t), Expr::Literal(Literal::Number(n))) = (known_type, index) {
+                if let Some((component, ty)) = super::types::entry_component(t, *n) {
+                    return if is_copy_type(ty) {
+                        format!("{}.{}", coll_str, component)
+                    } else {
+                        format!("{}.{}.clone()", coll_str, component)
+                    };
+                }
+            }
             // HETEROGENEOUS-TUPLE element: a CONSTANT `item N of t`, where `t` is a marked tuple variable
             // (`Vec<Value> /* logos_tuple: … */`), reads the boxed `Value` at position N and UNBOXES it to
             // that position's scalar type — so `upper(item 2 of t)` gets a `String`, not a `Value`. Only
@@ -6202,27 +6259,18 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
             }
         }
 
+        // A slice is a new list of the items it names: held, returned, passed or stored, it is one. A reader that
+        // only reads the items in place takes the view instead (`slice_view`).
         Expr::Slice {
             collection,
             start,
             end,
         } => {
-            let coll_str = recurse!(collection);
-            let bound = |e: &Expr| {
-                super::rational::integer_operand(e, crate::semantics::collections::IntegerPlace::Slice, ecx)
-                    .unwrap_or_else(|| recurse!(e))
-            };
-            let start_str = bound(start);
-            let end_str = bound(end);
-            // For LogosSeq, need to borrow the inner Vec first
-            let known_type = sliced_type(collection, ecx);
-            if matches!(known_type.as_deref(), Some(t) if t.starts_with("LogosSeq")) {
-                format!(
-                    "{}.borrow().logos_slice({}, {})",
-                    coll_str, start_str, end_str
-                )
+            let view = slice_view(collection, start, end, ecx);
+            if sliced_type(collection, ecx).as_deref() == Some("String") {
+                view
             } else {
-                format!("{}.logos_slice({}, {})", coll_str, start_str, end_str)
+                format!("LogosSeq::from_vec({view}.to_vec())")
             }
         }
 
@@ -6242,7 +6290,25 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 let start_str = bound(start);
                 let end_str = bound(end);
                 let known_type = sliced_type(collection, ecx);
-                if matches!(known_type.as_deref(), Some(t) if t.starts_with("LogosSeq")) {
+                let reference = !crate::semantics::collections::value_semantics_enabled();
+                if reference && matches!(known_type.as_deref(), Some(t) if t.starts_with("LogosSeq")) {
+                    format!(
+                        "LogosSeq::from_vec(logicaffeine_data::deep_copy!({}.borrow().logos_slice({}, {}).to_vec()))",
+                        coll_str, start_str, end_str
+                    )
+                } else if reference
+                    && matches!(known_type.as_deref(), Some(t) if t.starts_with("&[") || t.starts_with("Vec<"))
+                {
+                    format!(
+                        "LogosSeq::from_vec(logicaffeine_data::deep_copy!({}.logos_slice({}, {}).to_vec()))",
+                        coll_str, start_str, end_str
+                    )
+                } else if reference {
+                    format!(
+                        "logicaffeine_data::deep_copy!({}.logos_slice({}, {}).to_vec())",
+                        coll_str, start_str, end_str
+                    )
+                } else if matches!(known_type.as_deref(), Some(t) if t.starts_with("LogosSeq")) {
                     format!(
                         "LogosSeq::from_vec({}.borrow().logos_slice({}, {}).to_vec())",
                         coll_str, start_str, end_str
@@ -6269,7 +6335,15 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     None
                 };
                 let expr_str = recurse!(inner);
-                if matches!(known_type, Some(t) if t.starts_with("Vec<")) {
+                // Under reference semantics no write copies on write, so the copy itself must share
+                // nothing with what it copies, at any depth — as the tree-walker's `deep_clone` does.
+                // `to_owned` first reads the value through a lent parameter's reference.
+                let reference = !crate::semantics::collections::value_semantics_enabled();
+                if reference && matches!(known_type, Some(t) if t.starts_with("Vec<") || t.starts_with("&[")) {
+                    format!("LogosSeq::from_vec(logicaffeine_data::deep_copy!({}.to_vec()))", expr_str)
+                } else if reference {
+                    format!("logicaffeine_data::deep_copy!(({}).to_owned())", expr_str)
+                } else if matches!(known_type, Some(t) if t.starts_with("Vec<")) {
                     // Slice variable stored as Vec<T> — wrap with LogosSeq::from_vec.
                     // One copy (.clone()) + zero-cost wrap, same as old pre-ref-semantics .to_vec().
                     format!("LogosSeq::from_vec({}.clone())", expr_str)
@@ -6316,13 +6390,19 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     }
                 }
             }
-            let coll_str = recurse!(collection);
+            let coll_str = match collection {
+                Expr::Slice { collection, start, end } => slice_view(collection, start, end, ecx),
+                _ => recurse!(collection),
+            };
             // Phase 43D: Collection length - cast to i64 for LOGOS integer semantics
             format!("({}.len() as i64)", coll_str)
         }
 
         Expr::Contains { collection, value } => {
-            let coll_str = recurse!(collection);
+            let coll_str = match collection {
+                Expr::Slice { collection, start, end } => slice_view(collection, start, end, ecx),
+                _ => recurse!(collection),
+            };
             let val_str = recurse!(value);
             // Numeric-unified map key: a Float indexing an `Int`-keyed map coerces to its Int
             // (`1.0` → key `1`; a non-integral `1.5` matches nothing), mirroring the interpreter's
@@ -6576,7 +6656,13 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                         let last_use = matches!(value, Expr::Identifier(s) if super::flow::moves_at_last_use(*s, 1));
                         let owned_binding = is_value_struct_identifier(value, variable_types)
                             || holds_collection(value, variable_types);
-                        let value_semantics_copy = field_read_of_non_copy || (owned_binding && !last_use);
+                        // ★ A `mutable` PARAMETER IS THE CALLER'S VALUE, LENT. Stored in a field it is copied, at its
+                        // last use too: a list or map lent by sharing deeply (`lent_by_sharing`), since every later
+                        // write the body makes lands in the caller's buffer; a value lent as `&mut` by value.
+                        let lent_by_sharing_binding = matches!(value, Expr::Identifier(s) if lent_by_sharing(*s, variable_types));
+                        let value_semantics_copy = field_read_of_non_copy
+                            || (owned_binding && !last_use)
+                            || copies_out_of_a_lend(value, variable_types);
                         // ★ WIDEN AT THE BOUNDARY. A field stored as `LogosInt` may be filled from
                         // an `i64` — a literal, a counter, a function that cannot overflow — and
                         // requiring both sides to have been PREDICTED the same is what made this
@@ -6592,6 +6678,8 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                         // build failure for a wrong number.
                         if exact_field {
                             format!("{}: logicaffeine_data::LogosInt::from({})", field_name, value_str)
+                        } else if lent_by_sharing_binding {
+                            format!("{}: {}.deep_clone()", field_name, value_str)
                         } else if borrowed_slice {
                             format!("{}: LogosSeq::from_vec(({}).to_vec())", field_name, value_str)
                         } else if value_semantics_copy {
@@ -6678,7 +6766,11 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     .map(|(field_name, value)| {
                         let name = interner.resolve(*field_name);
 
-                        let val = if let Expr::Identifier(sym) = value {
+                        let binding = match value {
+                            Expr::Identifier(sym) if clock_read(interner.resolve(*sym)).is_none() => Some(sym),
+                            _ => None,
+                        };
+                        let val = if let Some(sym) = binding {
                             let base_name = if boxed_bindings.contains(sym) {
                                 format!("(*{})", interner.resolve(*sym))
                             } else {
@@ -6694,7 +6786,13 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                                     None => false,
                                 }
                             });
-                            let read = if movable {
+                            // A `mutable` parameter is the caller's value, lent: the variant stores a copy of it — a
+                            // deep one of a list or map lent by sharing, whose buffer the caller keeps writing.
+                            let read = if lent_by_sharing(*sym, variable_types) {
+                                format!("{}.deep_clone()", base_name)
+                            } else if lent_in_place(*sym, variable_types) {
+                                format!("(*{}).clone()", base_name)
+                            } else if movable {
                                 base_name
                             } else {
                                 format!("{}.clone()", base_name)
@@ -7059,7 +7157,7 @@ pub(crate) fn codegen_interpolated_string(
         }
         format!("::std::string::String::from(\"{}\")", raw)
     } else {
-        format_in_order(&fmt_str, &holes, args, ecx.variable_types)
+        format_in_order(&fmt_str, &holes, args)
     }
 }
 
@@ -7101,7 +7199,7 @@ pub(crate) fn codegen_literal(lit: &Literal, interner: &Interner) -> String {
             }
         }
         // Temporal literals: Duration stored as nanoseconds (i64)
-        Literal::Duration(nanos) => format!("std::time::Duration::from_nanos({}u64)", nanos),
+        Literal::Duration(nanos) => format!("LogosDuration({}_i64)", nanos),
         // Date stored as days since Unix epoch (i32)
         Literal::Date(days) => format!("LogosDate({})", days),
         // Moment stored as nanoseconds since Unix epoch (i64)

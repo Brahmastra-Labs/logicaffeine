@@ -131,6 +131,200 @@ impl<K: Clone + Eq + Hash, V: FillClone> FillClone for LogosMap<K, V> {
     }
 }
 
+fill_by_clone!(
+    (),
+    LogosInt,
+    LogosRational,
+    LogosDecimal,
+    LogosComplex,
+    LogosComplexF,
+    LogosModular,
+    LogosQuantity,
+    LogosMoney,
+    LogosUuid,
+    LogosBits,
+    LogosBoxed,
+    LogosDivU64,
+    LogosI64Map,
+    LogosI32Map,
+    LogosI64Set,
+    LogosI32Set,
+    LogosDenseI64Map,
+    LogosDenseI64MapNoPresence,
+    LogosDenseI64Set,
+    crate::temporal::LogosDuration,
+    crate::temporal::LogosMoment,
+    crate::temporal::LogosDate,
+    crate::temporal::LogosTime,
+    crate::temporal::LogosSpan,
+    crate::exact::LogosValue,
+    crate::crdt::GCounter,
+    crate::crdt::PNCounter,
+    logicaffeine_base::Word8,
+    logicaffeine_base::Word16,
+    logicaffeine_base::Word32,
+    logicaffeine_base::Word64,
+    logicaffeine_base::Lanes8Word32,
+    logicaffeine_base::Lanes4Word32,
+    logicaffeine_base::Lanes16Word8,
+    logicaffeine_base::Lanes4Word64,
+    logicaffeine_base::Lanes16Word16,
+);
+
+/// The CRDTs own their state (no list or map of the language inside), so their `Clone` is already a copy of
+/// its own, under whatever bounds that `Clone` carries.
+macro_rules! fill_crdt_by_clone {
+    ($($t:ident<$($p:ident),*>),* $(,)?) => {
+        $(impl<$($p),*> FillClone for crate::crdt::$t<$($p),*>
+        where
+            Self: Clone,
+        {
+            #[inline]
+            fn fill_clone(&self) -> Self {
+                self.clone()
+            }
+        })*
+    };
+}
+
+fill_crdt_by_clone!(LWWRegister<T>, MVRegister<T>, RGA<T>, YATA<T>);
+
+impl<T, B: crate::crdt::SetBias> FillClone for crate::crdt::ORSet<T, B>
+where
+    Self: Clone,
+{
+    #[inline]
+    fn fill_clone(&self) -> Self {
+        self.clone()
+    }
+}
+
+impl<K, V: crate::crdt::Merge + Default + Clone> FillClone for crate::crdt::ORMap<K, V>
+where
+    Self: Clone,
+{
+    #[inline]
+    fn fill_clone(&self) -> Self {
+        self.clone()
+    }
+}
+
+impl FillClone for Value {
+    fn fill_clone(&self) -> Self {
+        match self {
+            Value::Seq(items) => Value::Seq(items.fill_clone()),
+            other => other.clone(),
+        }
+    }
+}
+
+impl FillClone for LogosTuple {
+    fn fill_clone(&self) -> Self {
+        LogosTuple(self.0.fill_clone())
+    }
+}
+
+impl<T: FillClone> FillClone for Vec<T> {
+    fn fill_clone(&self) -> Self {
+        self.iter().map(FillClone::fill_clone).collect()
+    }
+}
+
+impl<T: FillClone + Eq + Hash> FillClone for FxIndexSet<T> {
+    fn fill_clone(&self) -> Self {
+        self.iter().map(FillClone::fill_clone).collect()
+    }
+}
+
+impl<T: FillClone> FillClone for Option<T> {
+    fn fill_clone(&self) -> Self {
+        self.as_ref().map(FillClone::fill_clone)
+    }
+}
+
+impl<T: FillClone, E: FillClone> FillClone for Result<T, E> {
+    fn fill_clone(&self) -> Self {
+        match self {
+            Ok(v) => Ok(v.fill_clone()),
+            Err(e) => Err(e.fill_clone()),
+        }
+    }
+}
+
+impl<T: FillClone> FillClone for Box<T> {
+    fn fill_clone(&self) -> Self {
+        Box::new((**self).fill_clone())
+    }
+}
+
+impl<T: FillClone> FillClone for crate::opt::LogosOpt<T> {
+    fn fill_clone(&self) -> Self {
+        crate::opt::LogosOpt(self.0.fill_clone())
+    }
+}
+
+macro_rules! fill_tuple {
+    ($(($($t:ident $i:tt),+)),* $(,)?) => {
+        $(impl<$($t: FillClone),+> FillClone for ($($t,)+) {
+            fn fill_clone(&self) -> Self {
+                ($(self.$i.fill_clone(),)+)
+            }
+        })*
+    };
+}
+
+fill_tuple!(
+    (A 0),
+    (A 0, B 1),
+    (A 0, B 1, C 2),
+    (A 0, B 1, C 2, D 3),
+    (A 0, B 1, C 2, D 3, E 4),
+    (A 0, B 1, C 2, D 3, E 4, F 5),
+    (A 0, B 1, C 2, D 3, E 4, F 5, G 6),
+    (A 0, B 1, C 2, D 3, E 4, F 5, G 6, H 7),
+);
+
+/// `copy of x` where reference semantics hold (the bootstrap scope, `LOGOS_VALUE_SEMANTICS=0`), and every slot
+/// of a fill: a value sharing no list or map with `x` at any depth — the tree-walker's `RuntimeValue::deep_clone`.
+/// A type with a [`FillClone`] copies through it; any other type through `Clone`, which for a type holding no
+/// list or map is already a copy of its own. Spelled [`deep_copy!`](crate::deep_copy): the receiver's two
+/// borrows let method lookup take [`DeepCopyByFill`] when `T: FillClone`, and fall back to [`DeepCopyByClone`].
+pub struct DeepCopy<'a, T>(pub &'a T);
+
+/// The [`DeepCopy`] arm for a type with a [`FillClone`].
+pub trait DeepCopyByFill<T> {
+    fn deep_copy(&self) -> T;
+}
+
+impl<T: FillClone> DeepCopyByFill<T> for &DeepCopy<'_, T> {
+    #[inline]
+    fn deep_copy(&self) -> T {
+        self.0.fill_clone()
+    }
+}
+
+/// The [`DeepCopy`] arm for every other type.
+pub trait DeepCopyByClone<T> {
+    fn deep_copy(&self) -> T;
+}
+
+impl<T: Clone> DeepCopyByClone<T> for DeepCopy<'_, T> {
+    #[inline]
+    fn deep_copy(&self) -> T {
+        self.0.clone()
+    }
+}
+
+/// A copy of `value` sharing no list or map with it at any depth ([`DeepCopy`]).
+#[macro_export]
+macro_rules! deep_copy {
+    ($value:expr) => {{
+        #[allow(unused_imports)]
+        use $crate::{DeepCopyByClone as _, DeepCopyByFill as _};
+        (&&$crate::DeepCopy(&$value)).deep_copy()
+    }};
+}
+
 impl<T: Clone> LogosSeq<T> {
     pub fn deep_clone(&self) -> Self {
         Self(Rc::new(RefCell::new(self.0.borrow().clone())))

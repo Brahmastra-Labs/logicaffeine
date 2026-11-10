@@ -317,6 +317,21 @@ impl LogosIndexMut<i64> for crate::types::LogosTuple {
     }
 }
 
+// === A map entry `(key, value)` with i64 (1-based indexing): what `Repeat for entry in m` binds ===
+// The generated Rust reads a constant `item 1`/`item 2` as the key or the value itself; any other index reads
+// either one as a `Value`, and one past both fails as any index past the end does.
+impl<K: Clone + Into<crate::types::Value>, V: Clone + Into<crate::types::Value>> LogosIndex<i64> for (K, V) {
+    type Output = crate::types::Value;
+
+    #[inline(always)]
+    fn logos_get(&self, index: i64) -> crate::types::Value {
+        match resolve_logos_index(index, 2) {
+            0 => self.0.clone().into(),
+            _ => self.1.clone().into(),
+        }
+    }
+}
+
 // === [T] slice with i64 (1-based indexing, used by &mut [T] borrow params) ===
 
 impl<T: Clone> LogosIndex<i64> for [T] {

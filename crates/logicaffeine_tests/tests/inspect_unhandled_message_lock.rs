@@ -11,6 +11,9 @@
 //! `semantics::builtins::inspect_unhandled_message(type_name, variant_name)` is the ONE shared
 //! constructor both tiers call.
 
+mod common;
+
+use common::{assert_compiled_equals_interpreted_eq, assert_panics};
 use logicaffeine_compile::compile::tw_outcome;
 use logicaffeine_compile::semantics::builtins::inspect_unhandled_message;
 
@@ -64,4 +67,19 @@ fn the_vm_falls_back_to_the_values_display_text_with_no_static_enum_known() {
             "the value's own display text must still name its actual constructor: {err}"
         );
     });
+}
+
+/// The compiled half: the binary built from the program stops with the same words, so no tier hands its author a
+/// compiler's complaint about generated code in place of the language's own refusal.
+#[test]
+fn the_compiled_binary_names_the_same_variant_and_type() {
+    assert_panics(SRC, &inspect_unhandled_message("Choice", "Second"));
+}
+
+/// An `Inspect` with no `Otherwise` is a program: it runs, on every tier, whenever an arm covers the value it meets.
+#[test]
+fn the_compiled_binary_runs_an_inspect_whose_arms_cover_the_values_it_meets() {
+    let src = "## A Shape is one of:\n    A Circle with r Int.\n    A Square with s Int.\n    A Dot.\n\n\
+               ## Main\nLet mutable total be 0.\nRepeat for sh in [a new Circle with r 2, a new Circle with r 5]:\n    Inspect sh:\n        When Circle (r):\n            Set total to total + r.\nShow total.\n";
+    assert_compiled_equals_interpreted_eq(src, "7");
 }

@@ -895,3 +895,28 @@ fn julian_round_trips_over_a_wide_range_under_fuzz() {
         assert_eq!(days_from_julian(y, m, d), z, "julian round-trip at z={z}");
     }
 }
+
+#[test]
+fn shown_duration_writes_the_largest_whole_unit_truncated_toward_zero_and_signed() {
+    for (nanos, shown) in [
+        (0, "0ns"),
+        (5, "5ns"),
+        (-5, "-5ns"),
+        (999, "999ns"),
+        (1_000, "1μs"),
+        (-1_999, "-1μs"),
+        (1_500_000, "1ms"),
+        (-750_000_000, "-750ms"),
+        (1_000_000_000, "1s"),
+        (59_999_999_999, "59s"),
+        (60_000_000_000, "1min"),
+        (135_000_000_000, "2min"),
+        (3_599_999_999_999, "59min"),
+        (3_600_000_000_000, "1h"),
+        (9_000_000_000_000, "2h"),
+        (i64::MAX, "2562047h"),
+        (i64::MIN, "-2562047h"),
+    ] {
+        assert_eq!(shown_duration(nanos), shown, "{nanos}ns");
+    }
+}

@@ -457,7 +457,11 @@ impl<'r> CheckEnv<'r> {
         match expr {
             Expr::Literal(lit) => Ok(InferType::from_literal(lit)),
 
-            Expr::Identifier(sym) => Ok(self.lookup_var(*sym).unwrap_or(InferType::Unknown)),
+            Expr::Identifier(sym) => Ok(match crate::semantics::temporal::ClockRead::named(self.interner.resolve(*sym)) {
+                Some(crate::semantics::temporal::ClockRead::Today) => InferType::Date,
+                Some(crate::semantics::temporal::ClockRead::Now) => InferType::Moment,
+                None => self.lookup_var(*sym).unwrap_or(InferType::Unknown),
+            }),
 
             Expr::BinaryOp { op, left, right } => self.infer_binary_op(*op, left, right),
 
@@ -721,15 +725,11 @@ impl<'r> CheckEnv<'r> {
                 Ok(InferType::Bool)
             }
 
-            // And/Or: type-aware — integer operands → Int (bitwise), else → Bool (logical)
+            // And/Or: the logical words — every operand's truth in, a Bool out (`&`/`|` are the bitwise spellings).
             BinaryOpKind::And | BinaryOpKind::Or => {
-                let lt = self.infer_expr(left)?;
+                self.infer_expr(left)?;
                 self.infer_expr(right)?;
-                if lt == InferType::Int {
-                    Ok(InferType::Int)
-                } else {
-                    Ok(InferType::Bool)
-                }
+                Ok(InferType::Bool)
             }
 
             BinaryOpKind::Concat => {
@@ -744,11 +744,18 @@ impl<'r> CheckEnv<'r> {
                 self.infer_expr(left)
             }
 
-            BinaryOpKind::BitXor
-            | BinaryOpKind::BitAnd
-            | BinaryOpKind::BitOr
-            | BinaryOpKind::Shl
-            | BinaryOpKind::Shr => {
+            // `& | xor`: on two Bools a Bool, on Sets the left operand's Set, on integers an Int.
+            BinaryOpKind::BitXor | BinaryOpKind::BitAnd | BinaryOpKind::BitOr => {
+                let lt = self.infer_expr(left)?;
+                let rt = self.infer_expr(right)?;
+                Ok(match (&lt, &rt) {
+                    (InferType::Bool, InferType::Bool) => InferType::Bool,
+                    (InferType::Set(_), _) => lt,
+                    _ => InferType::Int,
+                })
+            }
+
+            BinaryOpKind::Shl | BinaryOpKind::Shr => {
                 self.infer_expr(left)?;
                 self.infer_expr(right)?;
                 Ok(InferType::Int)

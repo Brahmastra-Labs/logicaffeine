@@ -143,7 +143,7 @@ fn to_rust_type_primitives() {
 
 #[test]
 fn to_rust_type_temporal() {
-    assert_eq!(LogosType::Duration.to_rust_type(), "std::time::Duration");
+    assert_eq!(LogosType::Duration.to_rust_type(), "LogosDuration");
     assert_eq!(LogosType::Date.to_rust_type(), "LogosDate");
     assert_eq!(LogosType::Moment.to_rust_type(), "LogosMoment");
     assert_eq!(LogosType::Time.to_rust_type(), "LogosTime");
@@ -801,4 +801,34 @@ fn function_type_element_type_is_none() {
     assert!(fn_ty.element_type().is_none());
     assert!(fn_ty.key_type().is_none());
     assert!(fn_ty.value_type().is_none());
+}
+
+#[test]
+fn temporal_arithmetic_types_exactly_the_sums_and_differences_the_tree_walker_computes() {
+    use crate::ast::stmt::BinaryOpKind;
+    let kinds = [
+        (LogosType::Duration, "90 seconds"),
+        (LogosType::Date, "2024-02-29"),
+        (LogosType::Moment, "2026-11-08 at 9:30am"),
+        (LogosType::Span, "1 month"),
+        (LogosType::Time, "9:30am"),
+    ];
+    let mut computed = 0;
+    for (op, word) in [(BinaryOpKind::Add, "+"), (BinaryOpKind::Subtract, "-")] {
+        for (left, left_literal) in &kinds {
+            for (right, right_literal) in &kinds {
+                let typed = LogosType::temporal_arithmetic(op, left, right);
+                let run = crate::compile::tw_outcome(&format!("## Main\nShow {left_literal} {word} {right_literal}.\n"));
+                assert_eq!(
+                    typed.is_some(),
+                    run.error.is_none(),
+                    "{left:?} {word} {right:?}: typed {typed:?}, the tree-walker {:?}",
+                    run.error
+                );
+                computed += usize::from(typed.is_some());
+            }
+        }
+    }
+    assert_eq!(computed, 10, "the language computes ten temporal sums and differences");
+    assert_eq!(LogosType::temporal_arithmetic(BinaryOpKind::Multiply, &LogosType::Duration, &LogosType::Int), None);
 }

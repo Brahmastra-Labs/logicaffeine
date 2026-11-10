@@ -73,3 +73,27 @@ fn a_return_outside_every_zone_keeps_nothing_live() {
         assert!(!l.after(at).expect("recorded").contains(&sym(i, "a")));
     });
 }
+
+#[test]
+fn a_call_to_a_function_of_the_program_keeps_no_name_live() {
+    let source = "## To later (n: Int) -> Int:\n    Return n + 1.\n## Main\nLet x be 1.\nShow x.\nShow later(2).\n";
+    liveness(source, |l, stmts, i| {
+        let at = first(stmts, &|s| matches!(s, Stmt::Let { .. })).expect("the Let");
+        let live = l.after(at).expect("recorded");
+        assert!(live.contains(&sym(i, "x")), "`Show x` follows");
+        assert!(!live.contains(&sym(i, "later")), "a call reaches the function `later`, never a binding: {live:?}");
+    });
+}
+
+#[test]
+fn a_call_through_a_closure_binding_keeps_the_binding_live() {
+    let source = "## Main\nLet double be (n: Int) -> n * 2.\nShow 1.\nShow double(3).\n";
+    liveness(source, |l, stmts, i| {
+        let at = first(stmts, &|s| matches!(s, Stmt::Show { object: Expr::Literal(Literal::Number(1)), .. }))
+            .expect("the first Show");
+        assert!(
+            l.after(at).expect("recorded").contains(&sym(i, "double")),
+            "`double(3)` calls the closure the binding holds"
+        );
+    });
+}

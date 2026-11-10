@@ -275,6 +275,29 @@ Show item 3 of r.
     common::assert_exact_output(source, "4");
 }
 
+/// A function whose returns sit in `Inspect` arms returns what each arm returns: an arm handing back a list it bound
+/// from the inspected value keeps the function's `Seq` return, so the program builds and runs as it reads.
+#[test]
+fn a_return_inside_an_inspect_arm_stays_sound() {
+    let source = r#"## A Box is one of:
+    A Full with items Seq of Int.
+    A Hollow.
+
+## To itemsOf (b: Box) -> Seq of Int:
+    Inspect b:
+        When Full (items):
+            Return items.
+        Otherwise:
+            Return a new Seq of Int.
+
+## Main
+Let b be a new Full with items [1, 2, 3].
+Let xs be itemsOf(b).
+Show length of xs.
+"#;
+    common::assert_exact_output(source, "3");
+}
+
 // =============================================================================
 // Phase 3 — interprocedural: a Seq passed ONLY to borrow-params (&[T]/&mut [T])
 // does not escape, so the caller's Seq de-Rc's and is passed by reference.

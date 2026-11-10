@@ -118,9 +118,9 @@ fn every_stmt_has_a_jones_class(s: &Stmt<'_>) -> JonesClass {
         | Stmt::SetIndex { .. }
         | Stmt::Splice { .. }
         // A `Reversibly:` block is executable code the PE dissolves exactly like `Splice`:
-        // `compile.rs` encodes both `Stmt::Splice { body } | Stmt::Reversibly { body }` as an
-        // always-taken `CIf`, so its body is Core-IR encoded inline (the reverse in-place ops are
-        // a VM-only forward-identical encoding).
+        // `compile.rs` splices both `Stmt::Splice { body } | Stmt::Reversibly { body }` into the
+        // block that holds them, so its body is Core-IR encoded inline (the reverse in-place ops
+        // are a VM-only forward-identical encoding).
         | Stmt::Reversibly { .. }
         | Stmt::Zone { .. }
         | Stmt::Concurrent { .. }

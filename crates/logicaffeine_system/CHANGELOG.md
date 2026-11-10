@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `temporal::today()` and `temporal::now()`: the day and the instant the clock reads, the ones `LOGOS_FIXED_DAYS` and
+  `LOGOS_FIXED_NANOS` pin when the environment pins them. `Showable` for `LogosDuration` and the crate-root
+  re-export of it.
+
+### Changed
+
+- `temporal::current_moment()` is `temporal::now()`, which honors `LOGOS_FIXED_NANOS`. A duration shows, ticks and
+  times out as `LogosDuration`, whose display is signed; `Showable`, `replay::Ticks` and `replay::TimeoutTicks` for
+  `std::time::Duration` are gone. Migration: call `temporal::now()`; hold a duration as `LogosDuration`.
+
 ## [0.11.0] - 2026-11-02
 
 ### Added

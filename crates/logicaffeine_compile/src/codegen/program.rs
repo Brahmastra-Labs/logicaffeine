@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
+use std::rc::Rc;
 
 use crate::analysis::policy::PolicyRegistry;
 use crate::analysis::registry::{TypeDef, TypeRegistry};
@@ -59,7 +60,7 @@ use crate::analysis::readonly::{MutableBorrowParams, ReadonlyParams};
 
 use super::detection::{
     collect_async_functions, collect_boxed_fields, collect_crdt_register_fields,
-    collect_de_rc_seqs, collect_escaping_collection_vars, collect_give_arg_indices,
+    collect_de_rc_seqs, collect_escaping_collection_vars, collect_give_args,
     collect_interleaved_groups, collect_mutable_vars, collect_mutable_vars_stmt,
     collect_pipe_sender_params, collect_pipe_vars, collect_pure_functions,
     collect_scalarizable_seqs, collect_single_char_text_vars, collect_vec_return_fns,
@@ -298,31 +299,6 @@ fn bitpack_seqs(
         crate::optimize::mark_fired(crate::optimization::Opt::BitPack);
     }
     packed
-}
-
-/// Register every function's call-site param-role info into a context's
-/// `variable_types`, packing readonly-borrow (`&[T]`), element-`&mut`-borrow, and
-/// value-semantics `mutable`-collection indices into a single slot per function.
-/// A function may hold several roles (e.g. a readonly `Seq` param plus a `mutable`
-/// param), so the sets are combined rather than written as separate overwriting
-/// strings.
-fn register_fn_roles(
-    ctx: &mut RefinementContext,
-    borrow_params_map: &HashMap<Symbol, HashSet<usize>>,
-    mut_borrow_params_map: &HashMap<Symbol, HashSet<usize>>,
-    value_mutable_params_map: &HashMap<Symbol, HashSet<usize>>,
-) {
-    let mut role_fns: HashSet<Symbol> = HashSet::new();
-    role_fns.extend(borrow_params_map.keys().copied());
-    role_fns.extend(mut_borrow_params_map.keys().copied());
-    role_fns.extend(value_mutable_params_map.keys().copied());
-    let empty = HashSet::new();
-    for fn_sym in role_fns {
-        let b = borrow_params_map.get(&fn_sym).unwrap_or(&empty);
-        let m = mut_borrow_params_map.get(&fn_sym).unwrap_or(&empty);
-        let v = value_mutable_params_map.get(&fn_sym).unwrap_or(&empty);
-        ctx.register_variable_type(fn_sym, super::encode_fn_roles(b, m, v));
-    }
 }
 
 /// The fixed length of every local that codegen emits as a `[T; N]` stack array in `body`, keyed by NAME
@@ -790,8 +766,9 @@ fn codegen_program_body(
         output.push_str(super::UNWIND_PROFILE_HEADER);
     }
     // (rust line, LOGOS span) records; materialized into the SourceMap at the
-    // end. `line_count(&output)` before/after an emission brackets its lines.
+    // end. `lines.of(&output)` before/after an emission brackets its lines.
     let mut line_records: Vec<(u32, LogosSpan)> = Vec::new();
+    let mut lines = LineCount::default();
 
     // Prelude
     // Use extracted crates instead of logos_core
@@ -875,6 +852,10 @@ fn codegen_program_body(
 
     // Phase 54: Collect async functions for Launch codegen
     let async_functions = collect_async_functions(stmts);
+    let call_graph = crate::analysis::callgraph::CallGraph::build(stmts, interner);
+    super::expr::set_recursive_async(
+        async_functions.iter().copied().filter(|f| call_graph.is_recursive(*f)).collect(),
+    );
 
     // Purity analysis for memoization
     let pure_functions = collect_pure_functions(stmts, interner);
@@ -1035,6 +1016,7 @@ fn codegen_program_body(
     // correctly excluded from borrow optimization.
     let callgraph = CallGraph::build(stmts, interner);
     let readonly_params = ReadonlyParams::analyze(stmts, &callgraph, type_env);
+    let give_args = collect_give_args(stmts);
 
     let mut borrow_params_map: HashMap<Symbol, HashSet<usize>> = HashMap::new();
     for stmt in stmts {
@@ -1104,8 +1086,10 @@ fn codegen_program_body(
                 .map(|(i, _)| i)
                 .collect();
             if !indices.is_empty() {
-                let give_indices = collect_give_arg_indices(*name, stmts);
-                let filtered: HashSet<usize> = indices.difference(&give_indices).copied().collect();
+                let filtered: HashSet<usize> = match give_args.get(name) {
+                    Some(given) => indices.difference(given).copied().collect(),
+                    None => indices,
+                };
                 if !filtered.is_empty() {
                     borrow_params_map.insert(*name, filtered);
                     crate::optimize::mark_fired(Opt::Borrow);
@@ -1200,30 +1184,27 @@ fn codegen_program_body(
         }
     }
 
-    // `mutable` collection params (value semantics): passed by shared `&LogosSeq`/
-    // `&LogosMap` so the callee's in-place mutation reaches the caller. Distinct
-    // from the `&mut [T]` borrow opt (which has no `.push()`). Skip functions
-    // already using the readonly borrow opt (mixed readonly+mutable is rare and
-    // would clobber the single-slot call-site encoding).
+    // `mutable` params, on both semantics: the caller's own value is lent for the call — a list or a map by
+    // shared `&LogosSeq`/`&LogosMap` (its writes go through its own `RefCell`), anything else by `&mut` — so
+    // every write the callee makes is the caller's. Distinct from the `&mut [T]` borrow opt (which has no
+    // `.push()`).
     let mut value_mutable_params_map: HashMap<Symbol, HashSet<usize>> = HashMap::new();
-    if crate::semantics::collections::value_semantics_enabled() {
-        for stmt in stmts {
-            if let Stmt::FunctionDef {
-                name,
-                params,
-                is_native: false,
-                ..
-            } = stmt
-            {
-                let idx: HashSet<usize> = params
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, (_, ty))| matches!(ty, crate::ast::stmt::TypeExpr::Mutable { .. }))
-                    .map(|(i, _)| i)
-                    .collect();
-                if !idx.is_empty() {
-                    value_mutable_params_map.insert(*name, idx);
-                }
+    for stmt in stmts {
+        if let Stmt::FunctionDef {
+            name,
+            params,
+            is_native: false,
+            ..
+        } = stmt
+        {
+            let idx: HashSet<usize> = params
+                .iter()
+                .enumerate()
+                .filter(|(_, (_, ty))| matches!(ty, crate::ast::stmt::TypeExpr::Mutable { .. }))
+                .map(|(i, _)| i)
+                .collect();
+            if !idx.is_empty() {
+                value_mutable_params_map.insert(*name, idx);
             }
         }
     }
@@ -1347,7 +1328,14 @@ fn codegen_program_body(
     // A program's OWN function shadows a stdlib name of the same spelling: install its declared
     // return types BEFORE anything is emitted, so a call's result type comes from the program's
     // declaration rather than math.lg's `-> Real` name list.
+    let fn_returns_map = Rc::new(fn_returns_map);
     super::expr::set_fn_return_types(&fn_returns_map);
+    // A function's calling roles are the same at every call site: one table for the program, read by every
+    // function's codegen.
+    super::set_fn_roles(&borrow_params_map, &mut_borrow_params_map, &value_mutable_params_map);
+    // The SIMD-reduce lifter inlines liftable transcendentals from the program's function bodies, in Main and in
+    // every function: one table for the program.
+    let simd_fns = Rc::new(super::simd_reduce::build_fn_map(stmts));
     super::expr::set_bigint_returning_fns(&bigint_fns);
     super::expr::set_exact_hofs(&exact_hofs);
     super::instantiation::install(stmts, registry, interner);
@@ -1426,7 +1414,7 @@ fn codegen_program_body(
     let aot_compiled = crate::analysis::callgraph::aot_compiled_functions(stmts, interner);
     // Phase 32/38: Emit function definitions before main
     for (top_idx, stmt) in stmts.iter().enumerate() {
-        let fn_emit_start = line_count(&output) + 1;
+        let fn_emit_start = lines.of(&output) + 1;
         if let Stmt::FunctionDef {
             name,
             params,
@@ -1508,11 +1496,13 @@ fn codegen_program_body(
                     &exact_hofs,
                     &exact_result_fns,
                     &ascii_masks,
+                    &simd_fns,
                 ));
             }
             if let Some((spans, _)) = mapping {
                 record_emitted_lines(
                     &output,
+                    &mut lines,
                     fn_emit_start,
                     spans.get(top_idx).copied(),
                     &mut line_records,
@@ -1608,9 +1598,7 @@ fn codegen_program_body(
     // Opt::StrengthReducePow2: the Main body's always-non-negative variables (walking `stmts` skips
     // FunctionDef bodies, so this is exactly Main's set). Per-function registration does not cover Main.
     super::expr::set_nonneg_vars(super::expr::collect_always_nonneg(stmts));
-    // SIMD-reduce lifter needs the program's function bodies (the Main body has the transcendental
-    // accumulator loops; per-function registration in codegen_function_def does not cover Main).
-    main_ctx.set_simd_fns(super::simd_reduce::build_fn_map(stmts));
+    main_ctx.set_simd_fns(Rc::clone(&simd_fns));
     // O1 borrow hoisting: seed the oracle (pointer-keyed loop alias
     // snapshots must match the Stmts codegen walks).
     if let Some(o) = &oracle {
@@ -1799,21 +1787,7 @@ fn codegen_program_body(
         oracle.as_deref(),
         interner,
     ));
-    // Register function param-role info on main context for call-site lowering:
-    // readonly borrow (`&[T]`), element-mutating borrow (`&mut [T]`), and
-    // value-semantics `mutable` collection (`&LogosSeq`/`&LogosMap`). A function
-    // can play several at once, so all its roles pack into ONE slot (else the last
-    // registered would clobber the rest and every call site mis-lower the others).
-    register_fn_roles(
-        &mut main_ctx,
-        &borrow_params_map,
-        &mut_borrow_params_map,
-        &value_mutable_params_map,
-    );
-    // Register function return types for variable type inference at call sites
-    for (fn_sym, rt_str) in &fn_returns_map {
-        main_ctx.register_fn_return(*fn_sym, rt_str.clone());
-    }
+    main_ctx.share_fn_returns(Rc::clone(&fn_returns_map));
     let mut main_synced_vars = HashSet::new(); // Phase 52: Track synced variables in main
                                                // Phase 56: Pre-scan for Mount+Sync combinations
     let main_var_caps = analyze_variable_capabilities(stmts, interner);
@@ -1855,7 +1829,7 @@ fn codegen_program_body(
                 registry,
                 type_env,
             ) {
-                let emit_start = line_count(&output) + 1;
+                let emit_start = lines.of(&output) + 1;
                 output.push_str(&code);
                 if let Some((spans, _)) = mapping {
                     // A peephole fuses statements i..=i+skip: map its lines to
@@ -1867,12 +1841,12 @@ fn codegen_program_body(
                         (Some(a), _) => Some(*a),
                         _ => None,
                     };
-                    record_emitted_lines(&output, emit_start, merged, &mut line_records);
+                    record_emitted_lines(&output, &mut lines, emit_start, merged, &mut line_records);
                 }
                 i += 1 + skip;
                 continue;
             }
-            let emit_start = line_count(&output) + 1;
+            let emit_start = lines.of(&output) + 1;
             output.push_str(&codegen_stmt(
                 stmt_refs[i],
                 interner,
@@ -1892,6 +1866,7 @@ fn codegen_program_body(
             if let Some((spans, _)) = mapping {
                 record_emitted_lines(
                     &output,
+                    &mut lines,
                     emit_start,
                     spans.get(i).copied(),
                     &mut line_records,
@@ -1914,8 +1889,21 @@ fn codegen_program_body(
 }
 
 /// Newlines emitted so far — brackets each statement's generated line range.
-fn line_count(s: &str) -> u32 {
-    s.bytes().filter(|&b| b == b'\n').count() as u32
+/// The lines of an output that only grows, each newline read once: a count reads only the text appended since the
+/// last.
+#[derive(Default)]
+struct LineCount {
+    read: usize,
+    lines: u32,
+}
+
+impl LineCount {
+    /// The lines `output` holds; `output` extends the text this count last read.
+    fn of(&mut self, output: &str) -> u32 {
+        self.lines += output.as_bytes()[self.read..].iter().filter(|&&b| b == b'\n').count() as u32;
+        self.read = output.len();
+        self.lines
+    }
 }
 
 /// Map every line an emission produced (`start..=` the current line) to the
@@ -1923,6 +1911,7 @@ fn line_count(s: &str) -> u32 {
 /// prelude-generated code never claims user-source positions.
 fn record_emitted_lines(
     output: &str,
+    lines: &mut LineCount,
     start_line: u32,
     span: Option<LogosSpan>,
     records: &mut Vec<(u32, LogosSpan)>,
@@ -1931,7 +1920,7 @@ fn record_emitted_lines(
     if span.start >= span.end {
         return;
     }
-    let mut end_line = line_count(output);
+    let mut end_line = lines.of(output);
     if !output.ends_with('\n') {
         end_line += 1;
     }
@@ -2160,12 +2149,12 @@ fn generic_bounds(
     format!(" where {}", clauses.join(", "))
 }
 
-fn codegen_function_def(
+fn codegen_function_def<'p>(
     name: Symbol,
     generics: &[Symbol],
     params: &[(Symbol, &TypeExpr)],
     body: &[Stmt],
-    all_stmts: &[Stmt],
+    all_stmts: &[Stmt<'p>],
     return_type: Option<&TypeExpr>,
     is_native: bool,
     native_path: Option<Symbol>,
@@ -2183,7 +2172,7 @@ fn codegen_function_def(
     mut_borrow_params_map: &HashMap<Symbol, HashSet<usize>>,
     value_mutable_params_map: &HashMap<Symbol, HashSet<usize>>,
     opt_flags: &OptimizationConfig,
-    fn_returns_map: &HashMap<Symbol, String>,
+    fn_returns_map: &Rc<HashMap<Symbol, String>>,
     vec_return_fns: &HashSet<Symbol>,
     str_slice_return_fns: &HashMap<Symbol, usize>,
     byte_slice_return_fns: &HashMap<Symbol, usize>,
@@ -2197,6 +2186,7 @@ fn codegen_function_def(
     exact_result_fns: &HashSet<Symbol>,
     // Opt::AsciiClassMask: predicate name -> its precomputed 256-bit membership mask.
     ascii_masks: &HashMap<Symbol, [u64; 4]>,
+    simd_fns: &Rc<super::simd_reduce::FnMap<'p>>,
 ) -> String {
     let mut output = String::new();
     let _tower_scope = super::tower::enter_scope(Some(name));
@@ -2412,12 +2402,10 @@ fn codegen_function_def(
             } else {
                 ty
             };
-            // A `mutable` param (value semantics) is lent: a `LogosSeq`/`LogosMap` as a shared `&`
-            // (its writes go through its own `RefCell`), anything else as `&mut` — either way the
-            // callee's writes are the caller's value.
-            if crate::semantics::collections::value_semantics_enabled()
-                && matches!(param_type, crate::ast::stmt::TypeExpr::Mutable { .. })
-            {
+            // A `mutable` param is lent: a `LogosSeq`/`LogosMap` as a shared `&` (its writes go
+            // through its own `RefCell`), anything else as `&mut` — either way the callee's writes
+            // are the caller's value.
+            if matches!(param_type, crate::ast::stmt::TypeExpr::Mutable { .. }) {
                 let lend = if super::expr::lent_by_shared_reference(&ty) {
                     "&"
                 } else {
@@ -2824,8 +2812,7 @@ fn codegen_function_def(
         }
 
         let mut func_ctx = RefinementContext::new();
-        // SIMD-reduce lifter needs the program's function bodies (to inline liftable transcendentals).
-        func_ctx.set_simd_fns(super::simd_reduce::build_fn_map(all_stmts));
+        func_ctx.set_simd_fns(Rc::clone(simd_fns));
         // O1 borrow hoisting: same oracle, keyed by the loop Stmts in this
         // body (sub-slice of the program codegen analyzed).
         if let Some(o) = oracle {
@@ -3085,19 +3072,7 @@ fn codegen_function_def(
         );
         func_ctx.set_rational_joins(func_joins);
 
-        // Register function param-role info on func context for call-site lowering
-        // (readonly `&[T]` / element `&mut [T]` / value-semantics `mutable`). All of
-        // a function's roles pack into one slot — see the main-context registration.
-        register_fn_roles(
-            &mut func_ctx,
-            borrow_params_map,
-            mut_borrow_params_map,
-            value_mutable_params_map,
-        );
-        // Register function return types for variable type inference at call sites
-        for (fn_sym, rt_str) in fn_returns_map {
-            func_ctx.register_fn_return(*fn_sym, rt_str.clone());
-        }
+        func_ctx.share_fn_returns(Rc::clone(fn_returns_map));
 
         // Phase 54: Functions receive pipe senders as parameters, no local pipe declarations
         let func_pipe_vars = HashSet::new();

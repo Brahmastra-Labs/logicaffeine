@@ -57,6 +57,12 @@ pub(crate) trait EffectSink {
     /// name a statement carries (`Swap`'s two, a `Check`'s subject and object). Only a receiver that tracks every
     /// name a statement touches asks; the write receivers ignore it.
     fn read(&mut self, _sym: Symbol) {}
+    /// The statement calls `function` by name: the program's function of that name when it has one (a call reaches
+    /// a function before any binding), else the closure a binding of that name holds. Heard as a read of the name
+    /// unless the receiver tells the two apart.
+    fn callee(&mut self, function: Symbol) {
+        self.read(function);
+    }
     /// `Swap a and b`: each name is read and reassigned the other's value. A receiver that must keep the two alike
     /// (one representation for both) hears the pair; every other receiver hears the two reads and the two
     /// assignments.
@@ -147,7 +153,7 @@ pub(crate) fn walk_stmt<S: EffectSink + ?Sized>(stmt: &Stmt, sink: &mut S) {
         }
         Stmt::Swap { a, b } => sink.exchange(*a, *b),
         Stmt::Call { function, args } => {
-            sink.read(*function);
+            sink.callee(*function);
             for a in args {
                 walk_expr(a, sink);
             }
@@ -576,7 +582,7 @@ pub(crate) fn walk_expr<S: EffectSink + ?Sized>(expr: &Expr, sink: &mut S) {
             walk_expr(end, sink);
         }
         Expr::Call { function, args } => {
-            sink.read(*function);
+            sink.callee(*function);
             for a in args {
                 walk_expr(a, sink);
             }

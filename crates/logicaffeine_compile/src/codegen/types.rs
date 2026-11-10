@@ -122,6 +122,51 @@ pub(crate) fn logos_record_field_type<'a>(ty: &'a str, field: &str) -> Option<&'
 
 /// Given a tuple variable's marked Rust type and a 1-based position, that element's scalar Rust type
 /// (for the unbox), or `None` if not a marked tuple / out of range.
+/// `args` cut at each comma not nested in `<…>`, `(…)` or `[…]`, each part trimmed: the arguments of a generic
+/// type, the components of a tuple type.
+pub(crate) fn top_level_parts(args: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let (mut depth, mut start) = (0i32, 0usize);
+    for (i, c) in args.char_indices() {
+        match c {
+            '<' | '(' | '[' => depth += 1,
+            '>' | ')' | ']' => depth -= 1,
+            ',' if depth == 0 => {
+                parts.push(args[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    parts.push(args[start..].trim());
+    parts
+}
+
+/// The key and value types of a `LogosMap<K, V>`, owned or borrowed as a local, a field or a parameter is typed:
+/// a `Repeat` over the map binds each entry as `(K, V)`.
+pub(crate) fn map_entry_types(ty: &str) -> Option<(&str, &str)> {
+    let ty = ty.split("|__hl:").next().unwrap_or(ty);
+    let ty = ty.strip_prefix("&mut ").or_else(|| ty.strip_prefix('&')).unwrap_or(ty);
+    match top_level_parts(ty.strip_prefix("LogosMap<")?.strip_suffix('>')?).as_slice() {
+        [key, value] => Some((*key, *value)),
+        _ => None,
+    }
+}
+
+/// The component a constant `item n of entry` reads from a map entry typed `(K, V)`, with its type: the key at
+/// `1` (or `-2`, counted from the back), the value at `2` (or `-1`). `None` for any other type or index.
+pub(crate) fn entry_component(ty: &str, n: i64) -> Option<(usize, &str)> {
+    let components = top_level_parts(ty.strip_prefix('(')?.strip_suffix(')')?);
+    let [key, value] = components.as_slice() else {
+        return None;
+    };
+    match n {
+        1 | -2 => Some((0, *key)),
+        2 | -1 => Some((1, *value)),
+        _ => None,
+    }
+}
+
 pub(crate) fn logos_tuple_elem_type(ty: &str, pos_1based: i64) -> Option<&str> {
     if pos_1based < 1 {
         return None;
@@ -275,10 +320,11 @@ fn wire_field_type(f: &FieldDef, enum_name: &str, interner: &Interner) -> String
 }
 
 /// Whether a field type has a `logicaffeine_data::wire` impl: the primitives we implement
-/// (`i64`/`String`/`bool`/`f64`), any `Named` user type (assumed a fellow wire-ok enum — a wrong
-/// guess is a loud compile error in the generated crate, never silent corruption), or a `Seq`/`List`
-/// of such. `Map`, CRDTs, temporal/quantity primitives, and type params are NOT serializable, so an
-/// enum carrying one (e.g. the PE's runtime `PEState`/`CVal`) is skipped.
+/// (`i64`/`String`/`bool`/`f64`), any `Named` type — a fellow wire-ok enum, or a character or a
+/// temporal value (`char`, `Duration`, `LogosDate`, `LogosMoment`, `LogosSpan`, `LogosTime`, which
+/// the wire implements; a wrong guess is a loud compile error in the generated crate, never silent
+/// corruption) — or a `Seq`/`List` or `Map` of such. A CRDT, a set, a quantity, a type param, a
+/// tuple or a record is NOT serializable, so an enum carrying one is skipped.
 fn field_wire_ok(ty: &FieldType, interner: &Interner) -> bool {
     match ty {
         FieldType::Primitive(sym) => matches!(
@@ -287,7 +333,7 @@ fn field_wire_ok(ty: &FieldType, interner: &Interner) -> bool {
         ),
         FieldType::Named(_) => true,
         FieldType::Generic { base, params } => {
-            matches!(interner.resolve(*base), "Seq" | "List")
+            matches!(interner.resolve(*base), "Seq" | "List" | "Map")
                 && params.iter().all(|p| field_wire_ok(p, interner))
         }
         FieldType::TypeParam(_) | FieldType::Tuple(_) | FieldType::Record(_) => false,
@@ -714,7 +760,7 @@ pub(crate) fn map_type_to_rust(ty: &str) -> String {
         "Algebraic" | "ExactReal" | "Hyperreal" | "Hypernatural" | "Ordinal" => {
             super::tower::VALUE.to_string()
         }
-        "Duration" => "std::time::Duration".to_string(),
+        "Duration" => "LogosDuration".to_string(),
         // Temporal value types — first-class as function params, fields, and locals.
         "Moment" => "LogosMoment".to_string(),
         "Date" => "LogosDate".to_string(),
@@ -841,8 +887,91 @@ pub(super) fn codegen_struct_def(
         output.push_str(&codegen_show_impl(name, fields, generics, interner, indent));
         output.push_str(&codegen_boxable_impl(name, generics, interner, indent));
     }
+    output.push_str(&codegen_struct_fill_impl(name, fields, generics, interner, indent));
 
     output
+}
+
+/// The bound a generated `FillClone` impl puts on each type parameter.
+const FILL_BOUND: &str = "logicaffeine_data::FillClone + Clone";
+
+/// Emit `impl FillClone for <Struct>`: a copy of the record sharing no list or map with it at any depth — what
+/// `copy of` means under reference semantics and what every slot of a fill is. Each field copies through
+/// `deep_copy!`: its own `FillClone`, or its `Clone` for a type that holds no list or map.
+fn codegen_struct_fill_impl(
+    name: Symbol,
+    fields: &[FieldDef],
+    generics: &[Symbol],
+    interner: &Interner,
+    indent: usize,
+) -> String {
+    let ind = " ".repeat(indent);
+    let (bounds, ty) = impl_generics(name, generics, FILL_BOUND, interner);
+    let copies: Vec<String> = fields
+        .iter()
+        .map(|f| {
+            let field = super::escape_rust_ident(interner.resolve(f.name));
+            format!("{field}: logicaffeine_data::deep_copy!(self.{field})")
+        })
+        .collect();
+    format!(
+        "{ind}impl{bounds} logicaffeine_data::FillClone for {ty} {{\n\
+         {ind}    fn fill_clone(&self) -> Self {{\n\
+         {ind}        Self {{ {} }}\n\
+         {ind}    }}\n\
+         {ind}}}\n\n",
+        copies.join(", ")
+    )
+}
+
+/// Emit `impl FillClone for <Enum>` ([`codegen_struct_fill_impl`]'s variant twin): each variant rebuilt in its own
+/// shape with every field copied through `deep_copy!`.
+fn codegen_enum_fill_impl(
+    name: Symbol,
+    variants: &[VariantDef],
+    generics: &[Symbol],
+    interner: &Interner,
+    indent: usize,
+) -> String {
+    let ind = " ".repeat(indent);
+    let enum_raw = interner.resolve(name);
+    let (bounds, ty) = impl_generics(name, generics, FILL_BOUND, interner);
+    let body = if variants.is_empty() {
+        format!("{ind}        match *self {{}}\n")
+    } else {
+        let mut arms = String::new();
+        for variant in variants {
+            let path = format!("Self::{}", interner.resolve(variant.name));
+            if variant.fields.is_empty() {
+                writeln!(arms, "{ind}            {path} => {path},").unwrap();
+                continue;
+            }
+            let shape = VariantShape::of(variant, enum_raw, interner);
+            let binds: Vec<(String, String)> = variant
+                .fields
+                .iter()
+                .map(|f| {
+                    let field = super::escape_rust_ident(interner.resolve(f.name));
+                    (field.clone(), field)
+                })
+                .collect();
+            let (pattern, prelude) = shape.pattern(&path, &binds, false);
+            let copies: Vec<(String, String)> = binds
+                .iter()
+                .map(|(field, bound)| (field.clone(), format!("logicaffeine_data::deep_copy!(*{bound})")))
+                .collect();
+            let built = shape.build(&path, &copies);
+            writeln!(arms, "{ind}            {pattern} => {{ {prelude} {built} }}").unwrap();
+        }
+        format!("{ind}        match self {{\n{arms}{ind}        }}\n")
+    };
+    format!(
+        "{ind}impl{bounds} logicaffeine_data::FillClone for {ty} {{\n\
+         {ind}    fn fill_clone(&self) -> Self {{\n\
+         {body}\
+         {ind}    }}\n\
+         {ind}}}\n\n"
+    )
 }
 
 /// Whether the program's type `name` (registry entry `def`) becomes a Rust type in its `user_types`
@@ -1517,6 +1646,7 @@ pub(super) fn codegen_enum_def(
         ));
         output.push_str(&codegen_boxable_impl(name, generics, interner, indent));
     }
+    output.push_str(&codegen_enum_fill_impl(name, variants, generics, interner, indent));
 
     output
 }

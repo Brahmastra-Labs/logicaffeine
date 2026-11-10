@@ -1,0 +1,941 @@
+## A BExpr is one of:
+    A BStatic with expr CExpr.
+    A BLift with expr CExpr.
+    A BDVar with name Text.
+    A BDOp with op Text and left BExpr and right BExpr.
+    A BDNot with inner BExpr.
+    A BDCall with name Text and args Seq of BExpr.
+    A BUCall with name Text and args Seq of BExpr.
+    A BDExpr with expr CExpr and statics Seq of Text.
+
+## A BStmt is one of:
+    A BSBlock with stmts Seq of CStmt.
+    A BDLet with name Text and expr BExpr.
+    A BDSet with name Text and expr BExpr.
+    A BSIf with cond CExpr and thenBlock Seq of BStmt and elseBlock Seq of BStmt.
+    A BDIf with cond BExpr and thenBlock Seq of BStmt and elseBlock Seq of BStmt.
+    A BSWhile with cond CExpr and body Seq of BStmt.
+    A BDWhile with cond BExpr and body Seq of BStmt.
+    A BDShow with expr BExpr.
+    A BDReturn with expr BExpr.
+    A BSReturn with expr CExpr.
+    A BSCallLet with name Text and fname Text and args Seq of CExpr.
+    A BSCallS with fname Text and args Seq of CExpr.
+    A BSInspect with target CExpr and arms Seq of BArm.
+    A BSRepeat with var Text and coll CExpr and body Seq of BStmt.
+    A BSRepeatRange with var Text and start CExpr and end CExpr and body Seq of BStmt.
+    A BDStmt with stmt CStmt and statics Seq of Text.
+    A BDCallLet with name Text and fname Text and args Seq of BExpr.
+    A BDCallS with fname Text and args Seq of BExpr.
+    A BDRepeat with var Text and coll BExpr and body Seq of BStmt.
+    A BDRepeatRange with var Text and start BExpr and end BExpr and body Seq of BStmt.
+    A BDInspect with target BExpr and arms Seq of BArm.
+    A BDLift with name Text and empty CExpr.
+    A BSBreak.
+    A BDFail with reason BExpr.
+
+## A BArm is one of:
+    A BWhen with variantName Text and bindings Seq of Text and body Seq of BStmt.
+    A BOtherwise with body Seq of BStmt.
+
+## A BFunc is one of:
+    A BFuncDef with name Text and params Seq of Text and types Seq of Text and returnType Text and statics Seq of Bool and mutables Seq of Bool and invariants Seq of Bool and body Seq of BStmt.
+
+## A MixJob is one of:
+    A MixJobR with fname Text and specName Text and statics Seq of CVal.
+
+## A MixOut is one of:
+    A MixNext with store Map of Text to CVal.
+    A MixReturned with store Map of Text to CVal.
+    A MixReturnedS with store Map of Text to CVal and result CVal.
+    A MixHalted.
+    A MixBroke with store Map of Text to CVal.
+
+## To mixShallow (shM: Map of Text to CVal) -> Map of Text to CVal:
+    Let mutable shOut be a new Map of Text to CVal.
+    Repeat for (shK, shV) in shM:
+        Set item shK of shOut to shV.
+    Return shOut.
+
+## To mixValKey (v: CVal) -> Text:
+    Inspect v:
+        When VInt (n):
+            Return "i{n};".
+        When VBool (b):
+            If b:
+                Return "bt".
+            Return "bf".
+        When VText (s):
+            Return mixTextKey("t", s).
+        When VFloat (f):
+            Return "f{f};".
+        When VNothing:
+            Return "n".
+        When VError (msg):
+            Return mixTextKey("e", msg).
+        When VSeq (items):
+            Return mixItemsKey("l", items).
+        When VSet (setItems):
+            Return mixItemsKey("s", setItems).
+        When VTuple (tupleItems):
+            Return mixItemsKey("u", tupleItems).
+        When VMap (entries):
+            Return mixEntriesKey("m", entries).
+        When VOption (optInner, optPresent):
+            If optPresent:
+                Let optKey be mixValKey(optInner).
+                Return "p{optKey}".
+            Return "q".
+        When VStruct (structName, structFields):
+            Let structNameKey be mixTextKey("r", structName).
+            Let structFieldsKey be mixEntriesKey("", structFields).
+            Return "{structNameKey}{structFieldsKey}".
+        When VVariant (variantType, variantName, variantFields):
+            Let variantTypeKey be mixTextKey("v", variantType).
+            Let variantNameKey be mixTextKey("", variantName).
+            Let variantFieldsKey be mixItemsKey("", variantFields).
+            Return "{variantTypeKey}{variantNameKey}{variantFieldsKey}".
+        When VDuration (keyDuration):
+            Return mixTextKey("d", format_timestamp(1970-01-01 at 12:00am + keyDuration)).
+        When VMoment (keyMoment):
+            Return mixTextKey("w", format_timestamp(keyMoment)).
+        When VSpan (keySpan):
+            Return mixTextKey("g", "{keySpan}").
+        When VDate (keyDate):
+            Return mixTextKey("a", "{keyDate}").
+        When VTime (keyTime):
+            Return mixTextKey("h", "{keyTime}").
+        When VChar (keyChar):
+            Return mixTextKey("c", "{keyChar}").
+        Otherwise:
+            Return mixTextKey("o", valToText(v)).
+
+## To mixTextKey (tag: Text) and (s: Text) -> Text:
+    Let sLen be length of s.
+    Return "{tag}{sLen}:{s}".
+
+## To mixItemsKey (tag: Text) and (items: Seq of CVal) -> Text:
+    Let mutable itemsKey be "{tag}{length of items}[".
+    Repeat for it in items:
+        Let itKey be mixValKey(it).
+        Set itemsKey to "{itemsKey}{itKey}".
+    Return "{itemsKey}]".
+
+## To mixEntriesKey (tag: Text) and (entries: Map of Text to CVal) -> Text:
+    Let mutable entriesKey be "{tag}{length of entries}[".
+    Repeat for (entryName, entryValue) in entries:
+        Let entryNameKey be mixTextKey("", entryName).
+        Let entryValueKey be mixValKey(entryValue).
+        Set entriesKey to "{entriesKey}{entryNameKey}{entryValueKey}".
+    Return "{entriesKey}]".
+
+## To mixLiftAs (asValue: CVal) and (asEmpty: CExpr) and (funcs: Map of Text to CFunc) and (out: mutable Seq of CStmt) -> CExpr:
+    If mixIsEmptyCollection(asValue):
+        If mixIsTypedEmpty(asEmpty):
+            Return asEmpty.
+    Return mixLiftAt(asValue, mixTypeOfEmpty(asEmpty), funcs, out).
+
+## To mixTypeOfEmpty (ofEmpty: CExpr) -> Text:
+    Inspect ofEmpty:
+        When CNewSeq (ofSeqElem):
+            Return "Seq of {ofSeqElem}".
+        When CNewSet (ofSetElem):
+            Return "Set of {ofSetElem}".
+        When CNew (ofName, ofFieldNames, ofFields):
+            If mixIsTypedEmpty(ofEmpty):
+                Return ofName.
+            Return "".
+        Otherwise:
+            Return "".
+
+## To mixEmptyAt (emptyType: Text) and (funcs: Map of Text to CFunc) -> CExpr:
+    Let emptyKind be mixAskOne("liftedCollectionKind", emptyType, funcs).
+    If emptyKind equals "Seq":
+        Return a new CNewSeq with elementType (mixAskOne("liftedElementType", emptyType, funcs)).
+    If emptyKind equals "Set":
+        Return a new CNewSet with elementType (mixAskOne("liftedElementType", emptyType, funcs)).
+    If emptyKind equals "Map":
+        Return a new CNew with typeName emptyType and fieldNames (a new Seq of Text) and fields (a new Seq of CExpr).
+    Return a new COptionNone.
+
+## To mixAskOne (askName: Text) and (askArg: Text) and (funcs: Map of Text to CFunc) -> Text:
+    If not (funcs contains askName):
+        Return "".
+    Let mutable askEnv be a new Map of Text to CVal.
+    Set item "mixAskArg" of askEnv to a new VText with value askArg.
+    Let askArgs be a new Seq of CExpr.
+    Push (a new CVar with name "mixAskArg") to askArgs.
+    Return mixAnswerText(coreEval(a new CCall with name askName and args askArgs, askEnv, funcs)).
+
+## To mixAskTwo (askName: Text) and (askFirst: Text) and (askSecond: Text) and (funcs: Map of Text to CFunc) -> Text:
+    If not (funcs contains askName):
+        Return "".
+    Let mutable askEnv be a new Map of Text to CVal.
+    Set item "mixAskFirst" of askEnv to a new VText with value askFirst.
+    Set item "mixAskSecond" of askEnv to a new VText with value askSecond.
+    Let askArgs be a new Seq of CExpr.
+    Push (a new CVar with name "mixAskFirst") to askArgs.
+    Push (a new CVar with name "mixAskSecond") to askArgs.
+    Return mixAnswerText(coreEval(a new CCall with name askName and args askArgs, askEnv, funcs)).
+
+## To mixAnswerText (answer: CVal) -> Text:
+    Inspect answer:
+        When VText (answerText):
+            Return answerText.
+        Otherwise:
+            Return "".
+
+## To mixIsTypedEmpty (typedEmpty: CExpr) -> Bool:
+    Inspect typedEmpty:
+        When CNewSeq (typedSeqElem):
+            Return true.
+        When CNewSet (typedSetElem):
+            Return true.
+        When CNew (typedName, typedFieldNames, typedFields):
+            Return (length of typedFieldNames) equals 0 and (typedName contains "Map of ").
+        Otherwise:
+            Return false.
+
+## To mixIsEmptyCollection (emptyValue: CVal) -> Bool:
+    Inspect emptyValue:
+        When VSeq (emptySeqItems):
+            Return (length of emptySeqItems) equals 0.
+        When VSet (emptySetItems):
+            Return (length of emptySetItems) equals 0.
+        When VMap (emptyMapEntries):
+            Return (length of emptyMapEntries) equals 0.
+        Otherwise:
+            Return false.
+
+## To mixLiftAt (v: CVal) and (liftType: Text) and (funcs: Map of Text to CFunc) and (out: mutable Seq of CStmt) -> CExpr:
+    If mixIsEmptyCollection(v):
+        Let liftEmpty be mixEmptyAt(liftType, funcs).
+        If mixIsTypedEmpty(liftEmpty):
+            Return liftEmpty.
+    Let liftElement be mixAskOne("liftedElementType", liftType, funcs).
+    Inspect v:
+        When VInt (n):
+            Return a new CInt with value n.
+        When VBool (b):
+            Return a new CBool with value b.
+        When VText (s):
+            Return a new CText with value s.
+        When VFloat (f):
+            Return a new CFloat with value f.
+        When VDuration (liftDuration):
+            Return a new CDuration with value liftDuration.
+        When VDate (liftDate):
+            Return a new CDate with value liftDate.
+        When VMoment (liftMoment):
+            Return a new CMoment with value liftMoment.
+        When VSpan (liftSpan):
+            Return a new CSpan with value liftSpan.
+        When VTime (liftTime):
+            Return a new CTime with value liftTime.
+        When VChar (liftChar):
+            Return a new CChar with value liftChar.
+        When VSeq (items):
+            Let liftItems be a new Seq of CExpr.
+            Repeat for it in items:
+                Push mixLiftPart(it, liftElement, funcs, out) to liftItems.
+            Return a new CList with items liftItems.
+        When VTuple (tItems):
+            Let liftTup be a new Seq of CExpr.
+            Repeat for ti in tItems:
+                Push mixLiftPart(ti, "", funcs, out) to liftTup.
+            Return a new CTuple with items liftTup.
+        When VOption (oInner, oPresent):
+            If oPresent:
+                Return a new COptionSome with inner (mixLiftPart(oInner, "", funcs, out)).
+            Return a new COptionNone.
+        When VNothing:
+            Return a new CNothing.
+        When VSet (setItems):
+            Let liftSet be a new Seq of CExpr.
+            Repeat for si in setItems:
+                Push mixLiftPart(si, liftElement, funcs, out) to liftSet.
+            Return a new CCall with name "setOf" and args liftSet.
+        When VStruct (stName, stFields):
+            Let stNames be a new Seq of Text.
+            Let stVals be a new Seq of CExpr.
+            Repeat for (stK, stV) in stFields:
+                Let stKc be "{stK}".
+                Push stKc to stNames.
+                Push mixLiftPart(stV, "", funcs, out) to stVals.
+            Return a new CNew with typeName stName and fieldNames stNames and fields stVals.
+        When VVariant (vtName, vvName, vvFields):
+            Let vvVals be a new Seq of CExpr.
+            Repeat for vf in vvFields:
+                Push mixLiftPart(vf, "", funcs, out) to vvVals.
+            Return a new CNewVariant with tag vvName and fnames (a new Seq of Text) and fvals vvVals.
+        When VMap (mEntries):
+            Let mIsVariant be (mEntries contains "__tag") and (mEntries contains "__fnames__").
+            If mIsVariant:
+                Let mTag be valToText(item "__tag" of mEntries).
+                Let mNames be a new Seq of Text.
+                Let mVals be a new Seq of CExpr.
+                Inspect (item "__fnames__" of mEntries):
+                    When VSeq (mFnames):
+                        Repeat for mfn in mFnames:
+                            Let mfnText be valToText(mfn).
+                            Push mfnText to mNames.
+                            Push mixLiftPart(item mfnText of mEntries, mixAskTwo("liftedFieldType", mTag, mfnText, funcs), funcs, out) to mVals.
+                    Otherwise:
+                        Let noFnames be true.
+                Return a new CNewVariant with tag mTag and fnames mNames and fvals mVals.
+            If length of mEntries equals 0:
+                Return a new CNew with typeName "Map" and fieldNames (a new Seq of Text) and fields (a new Seq of CExpr).
+            Let mapArgs be a new Seq of CExpr.
+            Repeat for (mk, mPair) in mEntries:
+                Inspect mPair:
+                    When VTuple (mPairItems):
+                        Push mixLiftPart(item 1 of mPairItems, "", funcs, out) to mapArgs.
+                        Push mixLiftPart(item 2 of mPairItems, liftElement, funcs, out) to mapArgs.
+                    Otherwise:
+                        Return a new CVar with name "__mix_unliftable".
+            Return a new CCall with name "mapOf" and args mapArgs.
+        Otherwise:
+            Return a new CVar with name "__mix_unliftable".
+
+## To mixLiftPart (part: CVal) and (partType: Text) and (funcs: Map of Text to CFunc) and (out: mutable Seq of CStmt) -> CExpr:
+    Let partE be mixLiftAt(part, partType, funcs, out).
+    If mixIsScalar(part):
+        Return partE.
+    Let partName be "mixLift{length of out}".
+    Push (a new CLet with name partName and expr partE) to out.
+    Return a new CVar with name partName.
+
+## To mixIsScalar (sv: CVal) -> Bool:
+    Inspect sv:
+        When VInt (svI):
+            Return true.
+        When VBool (svB):
+            Return true.
+        When VText (svT):
+            Return true.
+        When VFloat (svF):
+            Return true.
+        When VDuration (svDuration):
+            Return true.
+        When VDate (svDate):
+            Return true.
+        When VMoment (svMoment):
+            Return true.
+        When VSpan (svSpan):
+            Return true.
+        When VTime (svTime):
+            Return true.
+        When VChar (svChar):
+            Return true.
+        When VNothing:
+            Return true.
+        Otherwise:
+            Return false.
+
+## To mixSubstExprs (es: Seq of CExpr) and (statics: Seq of Text) and (store: Map of Text to CVal) and (funcs: Map of Text to CFunc) and (out: mutable Seq of CStmt) -> Seq of CExpr:
+    Let resOut be a new Seq of CExpr.
+    Repeat for resE in es:
+        Push mixSubstExpr(resE, statics, store, funcs, out) to resOut.
+    Return resOut.
+
+## To mixSubstExpr (e: CExpr) and (statics: Seq of Text) and (store: Map of Text to CVal) and (funcs: Map of Text to CFunc) and (out: mutable Seq of CStmt) -> CExpr:
+    Inspect e:
+        When CVar (reVn):
+            Let reVk be "{reVn}".
+            If statics contains reVk:
+                Return mixLiftAt(item reVk of store, "", funcs, out).
+            Return e.
+        When CInt (reI):
+            Return e.
+        When CFloat (reF):
+            Return e.
+        When CBool (reB):
+            Return e.
+        When CText (reT):
+            Return e.
+        When CNewSeq (mixSeqElem1):
+            Return e.
+        When CNewSet (mixSetElem1):
+            Return e.
+        When COptionNone:
+            Return e.
+        When CNothing:
+            Return e.
+        When CDeclaredDefault (msDefaultType):
+            Return e.
+        When CSpelled (msSpelledCode, msSpelledAwaits):
+            Return e.
+        When CDuration (msAtomDuration):
+            Return e.
+        When CDate (msAtomDate):
+            Return e.
+        When CMoment (msAtomMoment):
+            Return e.
+        When CSpan (msAtomSpan):
+            Return e.
+        When CTime (msAtomTime):
+            Return e.
+        When CChar (msAtomChar):
+            Return e.
+        When CTimeNow:
+            Return e.
+        When CDateToday:
+            Return e.
+        When CBinOp (reOp, reL, reR):
+            Let reL2 be mixSubstExpr(reL, statics, store, funcs, out).
+            Let reR2 be mixSubstExpr(reR, statics, store, funcs, out).
+            Return a new CBinOp with op reOp and left reL2 and right reR2.
+        When CNot (reIn):
+            Let reIn2 be mixSubstExpr(reIn, statics, store, funcs, out).
+            Return a new CNot with inner reIn2.
+        When CCall (reFn, reArgs):
+            Let reArgs2 be mixSubstExprs(reArgs, statics, store, funcs, out).
+            Return a new CCall with name reFn and args reArgs2.
+        When CIndex (reColl, reIdx):
+            Let reColl2 be mixSubstExpr(reColl, statics, store, funcs, out).
+            Let reIdx2 be mixSubstExpr(reIdx, statics, store, funcs, out).
+            Return a new CIndex with coll reColl2 and idx reIdx2.
+        When CLen (reLt):
+            Let reLt2 be mixSubstExpr(reLt, statics, store, funcs, out).
+            Return a new CLen with target reLt2.
+        When CMapGet (reMt, reMk):
+            Let reMt2 be mixSubstExpr(reMt, statics, store, funcs, out).
+            Let reMk2 be mixSubstExpr(reMk, statics, store, funcs, out).
+            Return a new CMapGet with target reMt2 and key reMk2.
+        When CNewVariant (reTag, reNames, reVals):
+            Let reVals2 be a new Seq of CExpr.
+            Let mutable reVi be 1.
+            Repeat for reVal in reVals:
+                Let mutable reFieldType be "".
+                If reVi is at most (length of reNames):
+                    Set reFieldType to mixAskTwo("liftedFieldType", reTag, item reVi of reNames, funcs).
+                Push mixSubstAt(reVal, reFieldType, statics, store, funcs, out) to reVals2.
+                Set reVi to reVi + 1.
+            Return a new CNewVariant with tag reTag and fnames reNames and fvals reVals2.
+        When CList (reItems):
+            Let reItems2 be mixSubstExprs(reItems, statics, store, funcs, out).
+            Return a new CList with items reItems2.
+        When CRange (reRs, reRe):
+            Let reRs2 be mixSubstExpr(reRs, statics, store, funcs, out).
+            Let reRe2 be mixSubstExpr(reRe, statics, store, funcs, out).
+            Return a new CRange with start reRs2 and end reRe2.
+        When CSlice (reSc, reSs, reSe):
+            Let reSc2 be mixSubstExpr(reSc, statics, store, funcs, out).
+            Let reSs2 be mixSubstExpr(reSs, statics, store, funcs, out).
+            Let reSe2 be mixSubstExpr(reSe, statics, store, funcs, out).
+            Return a new CSlice with coll reSc2 and startIdx reSs2 and endIdx reSe2.
+        When CCopy (reCt):
+            Let reCt2 be mixSubstExpr(reCt, statics, store, funcs, out).
+            Return a new CCopy with target reCt2.
+        When CContains (reCc, reCe):
+            Let reCc2 be mixSubstExpr(reCc, statics, store, funcs, out).
+            Let reCe2 be mixSubstExpr(reCe, statics, store, funcs, out).
+            Return a new CContains with coll reCc2 and elem reCe2.
+        When CUnion (reUl, reUr):
+            Let reUl2 be mixSubstExpr(reUl, statics, store, funcs, out).
+            Let reUr2 be mixSubstExpr(reUr, statics, store, funcs, out).
+            Return a new CUnion with left reUl2 and right reUr2.
+        When CIntersection (reIl, reIr):
+            Let reIl2 be mixSubstExpr(reIl, statics, store, funcs, out).
+            Let reIr2 be mixSubstExpr(reIr, statics, store, funcs, out).
+            Return a new CIntersection with left reIl2 and right reIr2.
+        When COptionSome (reOs):
+            Let reOs2 be mixSubstExpr(reOs, statics, store, funcs, out).
+            Return a new COptionSome with inner reOs2.
+        When CTuple (reTup):
+            Let reTup2 be mixSubstExprs(reTup, statics, store, funcs, out).
+            Return a new CTuple with items reTup2.
+        When CNew (reTy, reFn2, reFv):
+            Let reFv2 be mixSubstExprs(reFv, statics, store, funcs, out).
+            Return a new CNew with typeName reTy and fieldNames reFn2 and fields reFv2.
+        When CFieldAccess (reFt, reFf):
+            Let reFt2 be mixSubstExpr(reFt, statics, store, funcs, out).
+            Return a new CFieldAccess with target reFt2 and field reFf.
+        When CClosure (reCp, reCb, reCcap):
+            Return e.
+        When CCallExpr (reTgt, reCa):
+            Let reTgt2 be mixSubstExpr(reTgt, statics, store, funcs, out).
+            Let reCa2 be mixSubstExprs(reCa, statics, store, funcs, out).
+            Return a new CCallExpr with target reTgt2 and args reCa2.
+        When CInterpolatedString (reParts):
+            Let reParts2 be a new Seq of CStringPart.
+            Repeat for rePart in reParts:
+                Inspect rePart:
+                    When CLiteralPart (reLv):
+                        Push rePart to reParts2.
+                    When CExprPart (rePe):
+                        Let rePe2 be mixSubstExpr(rePe, statics, store, funcs, out).
+                        Push (a new CExprPart with expr rePe2) to reParts2.
+                    When CFormattedPart (reFe, reFs, reFf, reFz):
+                        Let reFe2 be mixSubstExpr(reFe, statics, store, funcs, out).
+                        Push (a new CFormattedPart with expr reFe2 and spec reFs and form reFf and size reFz) to reParts2.
+            Return a new CInterpolatedString with parts reParts2.
+        When CManifestOf (reZn):
+            Let reZn2 be mixSubstExpr(reZn, statics, store, funcs, out).
+            Return a new CManifestOf with zn reZn2.
+        When CChunkAt (reCi, reCz):
+            Let reCi2 be mixSubstExpr(reCi, statics, store, funcs, out).
+            Let reCz2 be mixSubstExpr(reCz, statics, store, funcs, out).
+            Return a new CChunkAt with idx reCi2 and zn reCz2.
+        Otherwise:
+            Return e.
+
+
+## To mixSubstAt (atExpr: CExpr) and (atType: Text) and (statics: Seq of Text) and (store: Map of Text to CVal) and (funcs: Map of Text to CFunc) and (out: mutable Seq of CStmt) -> CExpr:
+    Inspect atExpr:
+        When CVar (atName):
+            Let atKey be "{atName}".
+            If statics contains atKey:
+                Return mixLiftAt(item atKey of store, atType, funcs, out).
+        Otherwise:
+            Let atOther be true.
+    Return mixSubstExpr(atExpr, statics, store, funcs, out).
+
+## To mixSubstStmt (st: CStmt) and (statics: Seq of Text) and (store: Map of Text to CVal) and (funcs: Map of Text to CFunc) and (out: mutable Seq of CStmt) -> CStmt:
+    Inspect st:
+        When CLet (sln, sle):
+            Return a new CLet with name sln and expr (mixSubstExpr(sle, statics, store, funcs, out)).
+        When CSet (ssn, sse):
+            Return a new CSet with name ssn and expr (mixSubstExpr(sse, statics, store, funcs, out)).
+        When CShow (she):
+            Return a new CShow with expr (mixSubstExpr(she, statics, store, funcs, out)).
+        When CReturn (sre):
+            Return a new CReturn with expr (mixSubstExpr(sre, statics, store, funcs, out)).
+        When CPush (spe, spt):
+            Return a new CPush with expr (mixSubstExpr(spe, statics, store, funcs, out)) and target spt.
+        When CSetIdx (sxt, sxi, sxv):
+            Return a new CSetIdx with target sxt and idx (mixSubstExpr(sxi, statics, store, funcs, out)) and val (mixSubstExpr(sxv, statics, store, funcs, out)).
+        When CMapSet (smt, smk, smv):
+            Return a new CMapSet with target smt and key (mixSubstExpr(smk, statics, store, funcs, out)) and val (mixSubstExpr(smv, statics, store, funcs, out)).
+        When CSetField (sft, sff, sfv):
+            Return a new CSetField with target sft and field sff and val (mixSubstExpr(sfv, statics, store, funcs, out)).
+        When CAdd (sae, sat):
+            Return a new CAdd with elem (mixSubstExpr(sae, statics, store, funcs, out)) and target sat.
+        When CRemove (sme, smtg):
+            Return a new CRemove with elem (mixSubstExpr(sme, statics, store, funcs, out)) and target smtg.
+        When CCallS (scn, sca):
+            Return a new CCallS with name scn and args (mixSubstExprs(sca, statics, store, funcs, out)).
+        When CFail (sfr):
+            Return a new CFail with reason (mixSubstExpr(sfr, statics, store, funcs, out)).
+        When CHardAssert (shc, shm):
+            Return a new CHardAssert with cond (mixSubstExpr(shc, statics, store, funcs, out)) and msg (mixSubstExpr(shm, statics, store, funcs, out)).
+        When CRuntimeAssert (src, srm):
+            Return a new CRuntimeAssert with cond (mixSubstExpr(src, statics, store, funcs, out)) and msg (mixSubstExpr(srm, statics, store, funcs, out)).
+        When CWriteFile (swp, swc):
+            Return a new CWriteFile with path (mixSubstExpr(swp, statics, store, funcs, out)) and content (mixSubstExpr(swc, statics, store, funcs, out)).
+        When CReadFile (srp, srt):
+            Return a new CReadFile with path (mixSubstExpr(srp, statics, store, funcs, out)) and target srt.
+        When CSleep (ssd):
+            Return a new CSleep with duration (mixSubstExpr(ssd, statics, store, funcs, out)).
+        Otherwise:
+            Return st.
+
+## To mixSpecName (fname: Text) and (keys: Seq of Text) -> Text:
+    Let mutable joined be "".
+    Repeat for k in keys:
+        Set joined to "{joined}|{k}".
+    Return "{fname}{joined}".
+
+## To mixIsTrue (v: CVal) -> Bool:
+    Inspect v:
+        When VBool (b):
+            Return b.
+        Otherwise:
+            Return false.
+
+## To mixExpr (e: BExpr) and (store: Map of Text to CVal) and (funcs: Map of Text to CFunc) and (bfuncs: Map of Text to BFunc) and (pending: mutable Seq of MixJob) and (names: mutable Map of Text to Text) and (out: mutable Seq of CStmt) -> CExpr:
+    Inspect e:
+        When BStatic (se):
+            If mixIsTypedEmpty(se):
+                Return se.
+            Let mutable sEnv be mixShallow(store).
+            Return mixLiftAt(coreEval(se, sEnv, funcs), "", funcs, out).
+        When BLift (le):
+            If mixIsTypedEmpty(le):
+                Return le.
+            Let mutable lEnv be mixShallow(store).
+            Return mixLiftAt(coreEval(le, lEnv, funcs), "", funcs, out).
+        When BDVar (vn):
+            Return a new CVar with name vn.
+        When BDOp (op, l, r):
+            Let rl be mixExpr(l, store, funcs, bfuncs, pending, names, out).
+            Let rr be mixExpr(r, store, funcs, bfuncs, pending, names, out).
+            Return a new CBinOp with op op and left rl and right rr.
+        When BDNot (inner):
+            Let ri be mixExpr(inner, store, funcs, bfuncs, pending, names, out).
+            Return a new CNot with inner ri.
+        When BDCall (cn, cargs):
+            Return mixSpecCall(cn, cargs, store, funcs, bfuncs, pending, names, out).
+        When BUCall (un, uargs):
+            Return mixSpecCall(un, uargs, store, funcs, bfuncs, pending, names, out).
+        When BDExpr (dxe, dxs):
+            Return mixSubstExpr(dxe, dxs, store, funcs, out).
+
+## To mixSpecCall (cn: Text) and (cargs: Seq of BExpr) and (store: Map of Text to CVal) and (funcs: Map of Text to CFunc) and (bfuncs: Map of Text to BFunc) and (pending: mutable Seq of MixJob) and (names: mutable Map of Text to Text) and (out: mutable Seq of CStmt) -> CExpr:
+    Let bf be item cn of bfuncs.
+    Inspect bf:
+        When BFuncDef (bfn, bparams, btypes, bret, bstatics, bmutables, binvariants, bbody):
+            Let keys be a new Seq of Text.
+            Let mutable staticArgs be a new Seq of CVal.
+            Let mutable dynArgs be a new Seq of CExpr.
+            Let mutable ai be 1.
+            Repeat for a in cargs:
+                Let isS be item ai of bstatics.
+                If isS:
+                    Inspect a:
+                        When BStatic (sa):
+                            Let mutable aEnv be mixShallow(store).
+                            Let av be coreEval(sa, aEnv, funcs).
+                            If item ai of binvariants:
+                                Push "=" to keys.
+                            Otherwise:
+                                Push mixValKey(av) to keys.
+                            Push av to staticArgs.
+                        Otherwise:
+                            Push "?" to keys.
+                Otherwise:
+                    Push mixExpr(a, store, funcs, bfuncs, pending, names, out) to dynArgs.
+                Set ai to ai + 1.
+            Let specKey be mixSpecName(cn, keys).
+            If not (names contains specKey):
+                Let specIdx be length of names.
+                Let specFn be "{cn}__{specIdx}".
+                Set item specKey of names to specFn.
+                Push (a new MixJobR with fname cn and specName specFn and statics staticArgs) to pending.
+            Let resName be item specKey of names.
+            Return a new CCall with name resName and args dynArgs.
+
+## To mixUnfold (fname: Text) and (args: Seq of CExpr) and (store: mutable Map of Text to CVal) and (funcs: Map of Text to CFunc) and (bfuncs: Map of Text to BFunc) and (pending: mutable Seq of MixJob) and (names: mutable Map of Text to Text) and (out: mutable Seq of CStmt) -> MixOut:
+    Let bf be item fname of bfuncs.
+    Inspect bf:
+        When BFuncDef (ufn, uparams, utypes, uret, ustatics, umutables, uinvariants, ubody):
+            Let mutable uStore be a new Map of Text to CVal.
+            Let mutable ui be 1.
+            Repeat for up in uparams:
+                Let mutable uaEnv be mixShallow(store).
+                Set item up of uStore to coreEval(item ui of args, uaEnv, funcs).
+                Set ui to ui + 1.
+            Let uOut be mixBlock(ubody, uStore, funcs, bfuncs, pending, names, out).
+            Let mutable calleeStore be uStore.
+            Let mutable result be a new VNothing.
+            Inspect uOut:
+                When MixReturnedS (urs, uv):
+                    Set calleeStore to urs.
+                    Set result to uv.
+                When MixReturned (urd):
+                    Set calleeStore to urd.
+                When MixNext (unx):
+                    Set calleeStore to unx.
+                When MixBroke (ubk):
+                    Set calleeStore to ubk.
+                When MixHalted:
+                    Return uOut.
+            Let mutable wi be 1.
+            Repeat for wp in uparams:
+                If item wi of umutables:
+                    Inspect (item wi of args):
+                        When CVar (wv):
+                            Set item wv of store to item wp of calleeStore.
+                        Otherwise:
+                            Let notAPlace be true.
+                Set wi to wi + 1.
+            Return a new MixReturnedS with store store and result result.
+
+## To mixArms (arms: Seq of BArm) and (v: CVal) and (store0: Map of Text to CVal) and (funcs: Map of Text to CFunc) and (bfuncs: Map of Text to BFunc) and (pending: mutable Seq of MixJob) and (names: mutable Map of Text to Text) and (out: mutable Seq of CStmt) -> MixOut:
+    Let mutable tag be "".
+    Let mutable fieldVals be a new Seq of CVal.
+    Inspect v:
+        When VVariant (vt, vn, vf):
+            Set tag to vn.
+            Set fieldVals to vf.
+        When VMap (vm):
+            Let tagEntry be item "__tag" of vm.
+            Inspect tagEntry:
+                When VText (ts):
+                    Set tag to ts.
+                Otherwise:
+                    Let noTagText be true.
+            Let namesEntry be item "__fnames__" of vm.
+            Inspect namesEntry:
+                When VSeq (fnameVals):
+                    Repeat for fnv in fnameVals:
+                        Inspect fnv:
+                            When VText (fnText):
+                                Push (item fnText of vm) to fieldVals.
+                            Otherwise:
+                                Let noName be true.
+                Otherwise:
+                    Let noNames be true.
+        Otherwise:
+            Let noTag be true.
+    Repeat for arm in arms:
+        Inspect arm:
+            When BWhen (wn, wb, wbody):
+                If wn equals tag:
+                    Let mutable armStore be mixShallow(store0).
+                    Let mutable bi be 1.
+                    Repeat for bn in wb:
+                        If bi is at most (length of fieldVals):
+                            Set item bn of armStore to item bi of fieldVals.
+                        Set bi to bi + 1.
+                    Return mixBlock(wbody, armStore, funcs, bfuncs, pending, names, out).
+            When BOtherwise (obody):
+                Return mixBlock(obody, store0, funcs, bfuncs, pending, names, out).
+    Return a new MixNext with store store0.
+
+## To mixBlock (stmts: Seq of BStmt) and (store0: Map of Text to CVal) and (funcs: Map of Text to CFunc) and (bfuncs: Map of Text to BFunc) and (pending: mutable Seq of MixJob) and (names: mutable Map of Text to Text) and (out: mutable Seq of CStmt) -> MixOut:
+    Let mutable store be mixShallow(store0).
+    Repeat for s in stmts:
+        Inspect s:
+            When BSBlock (cs):
+                Let ran be coreExecBlock(cs, store, funcs).
+                Inspect ran:
+                    When CoreFail (bsFailMsg):
+                        Push (a new CFail with reason (a new CText with value bsFailMsg)) to out.
+                        Return a new MixHalted.
+                    Otherwise:
+                        Set store to coreOutEnv(ran).
+                Inspect ran:
+                    When CoreReturn (bsrv, bsre):
+                        Return a new MixReturnedS with store store and result bsrv.
+                    When CoreBreak (bsbe):
+                        Return a new MixBroke with store store.
+                    Otherwise:
+                        Let bsNext be true.
+            When BDLet (ln, le):
+                Let rle be mixExpr(le, store, funcs, bfuncs, pending, names, out).
+                Push (a new CLet with name ln and expr rle) to out.
+            When BDSet (sn, sexp):
+                Let rse be mixExpr(sexp, store, funcs, bfuncs, pending, names, out).
+                Push (a new CSet with name sn and expr rse) to out.
+            When BSIf (ic, it, ie):
+                Let mutable icEnv be mixShallow(store).
+                Let icv be coreEval(ic, icEnv, funcs).
+                Let mutable branchOut be a new MixNext with store store.
+                If mixIsTrue(icv):
+                    Set branchOut to mixBlock(it, store, funcs, bfuncs, pending, names, out).
+                Otherwise:
+                    Set branchOut to mixBlock(ie, store, funcs, bfuncs, pending, names, out).
+                Inspect branchOut:
+                    When MixNext (bns):
+                        Set store to bns.
+                    Otherwise:
+                        Return branchOut.
+            When BDIf (dc, dt, de):
+                Let rdc be mixExpr(dc, store, funcs, bfuncs, pending, names, out).
+                Let mutable thenOut be a new Seq of CStmt.
+                Let mutable elseOut be a new Seq of CStmt.
+                Let thenR be mixBlock(dt, store, funcs, bfuncs, pending, names, thenOut).
+                Let elseR be mixBlock(de, store, funcs, bfuncs, pending, names, elseOut).
+                Push (a new CIf with cond rdc and thenBlock thenOut and elseBlock elseOut) to out.
+            When BSWhile (wc, wb):
+                Let mutable wDone be false.
+                While not wDone:
+                    Let mutable wcEnv be mixShallow(store).
+                    Let wcv be coreEval(wc, wcEnv, funcs).
+                    If mixIsTrue(wcv):
+                        Let wOut be mixBlock(wb, store, funcs, bfuncs, pending, names, out).
+                        Inspect wOut:
+                            When MixNext (wns):
+                                Set store to wns.
+                            When MixBroke (wbk):
+                                Set store to wbk.
+                                Set wDone to true.
+                            Otherwise:
+                                Return wOut.
+                    Otherwise:
+                        Set wDone to true.
+            When BDWhile (dwc, dwb):
+                Let rdwc be mixExpr(dwc, store, funcs, bfuncs, pending, names, out).
+                Let mutable bodyOut be a new Seq of CStmt.
+                Let bodyR be mixBlock(dwb, store, funcs, bfuncs, pending, names, bodyOut).
+                Push (a new CWhile with cond rdwc and body bodyOut) to out.
+            When BSReturn (sre):
+                Let mutable sreEnv be mixShallow(store).
+                Let srv be coreEval(sre, sreEnv, funcs).
+                Return a new MixReturnedS with store store and result srv.
+            When BSCallLet (cln, clf, cla):
+                Let clOut be mixUnfold(clf, cla, store, funcs, bfuncs, pending, names, out).
+                Inspect clOut:
+                    When MixReturnedS (clStore, clv):
+                        Set item cln of store to clv.
+                    Otherwise:
+                        Return clOut.
+            When BSCallS (csf, csa):
+                Let csOut be mixUnfold(csf, csa, store, funcs, bfuncs, pending, names, out).
+                Inspect csOut:
+                    When MixHalted:
+                        Return csOut.
+                    Otherwise:
+                        Let csGoesOn be true.
+            When BSInspect (sit, sia):
+                Let mutable sitEnv be mixShallow(store).
+                Let sitv be coreEval(sit, sitEnv, funcs).
+                Let armOut be mixArms(sia, sitv, store, funcs, bfuncs, pending, names, out).
+                Inspect armOut:
+                    When MixNext (ans):
+                        Set store to ans.
+                    Otherwise:
+                        Return armOut.
+            When BSRepeat (rv, rc, rb):
+                Let mutable rcEnv be mixShallow(store).
+                Let rcv be coreEval(rc, rcEnv, funcs).
+                Let rItems be coreIterItems(rcv).
+                Repeat for rIt in rItems:
+                    Set item rv of store to rIt.
+                    Let rOut be mixBlock(rb, store, funcs, bfuncs, pending, names, out).
+                    Inspect rOut:
+                        When MixNext (rns):
+                            Set store to rns.
+                        When MixBroke (rbk):
+                            Set store to rbk.
+                            Break.
+                        Otherwise:
+                            Return rOut.
+            When BSRepeatRange (srv, srs, sre, srb):
+                Let mutable srsEnv be mixShallow(store).
+                Let srsv be coreEval(srs, srsEnv, funcs).
+                Let mutable sreEnv be mixShallow(store).
+                Let srev be coreEval(sre, sreEnv, funcs).
+                Inspect srsv:
+                    When VInt (srFrom):
+                        Inspect srev:
+                            When VInt (srTo):
+                                Let mutable srAt be srFrom.
+                                While srAt is at most srTo:
+                                    Set item srv of store to a new VInt with value srAt.
+                                    Let srOut be mixBlock(srb, store, funcs, bfuncs, pending, names, out).
+                                    Set srAt to srAt + 1.
+                                    Inspect srOut:
+                                        When MixNext (srns):
+                                            Set store to srns.
+                                        When MixBroke (srbk):
+                                            Set store to srbk.
+                                            Set srAt to srTo + 1.
+                                        Otherwise:
+                                            Return srOut.
+                            Otherwise:
+                                Let srSkipEnd be true.
+                    Otherwise:
+                        Let srSkipStart be true.
+            When BSBreak:
+                Return a new MixBroke with store store.
+            When BDFail (bfr):
+                Let rbfr be mixExpr(bfr, store, funcs, bfuncs, pending, names, out).
+                Push (a new CFail with reason rbfr) to out.
+                Return a new MixHalted.
+            When BDStmt (dst, dss):
+                Let dstOut be mixSubstStmt(dst, dss, store, funcs, out).
+                Push dstOut to out.
+                Inspect dstOut:
+                    When CFail (dstReason):
+                        Return a new MixHalted.
+                    Otherwise:
+                        Let dstGoesOn be true.
+            When BDCallLet (dcn, dcf, dca):
+                Let dcCall be mixSpecCall(dcf, dca, store, funcs, bfuncs, pending, names, out).
+                Push (a new CLet with name dcn and expr dcCall) to out.
+                If store contains dcn:
+                    Remove dcn from store.
+            When BDCallS (dsf, dsa):
+                Let dsCall be mixSpecCall(dsf, dsa, store, funcs, bfuncs, pending, names, out).
+                Inspect dsCall:
+                    When CCall (dsName, dsArgs):
+                        Push (a new CCallS with name dsName and args dsArgs) to out.
+                    Otherwise:
+                        Let dsSkip be true.
+            When BDRepeat (drv, drc, drb):
+                Let rdrc be mixExpr(drc, store, funcs, bfuncs, pending, names, out).
+                Let mutable drBody be a new Seq of CStmt.
+                Let drR be mixBlock(drb, store, funcs, bfuncs, pending, names, drBody).
+                Push (a new CRepeat with var drv and coll rdrc and body drBody) to out.
+            When BDRepeatRange (drrv, drrs, drre, drrb):
+                Let rdrrs be mixExpr(drrs, store, funcs, bfuncs, pending, names, out).
+                Let rdrre be mixExpr(drre, store, funcs, bfuncs, pending, names, out).
+                Let mutable drrBody be a new Seq of CStmt.
+                Let drrR be mixBlock(drrb, store, funcs, bfuncs, pending, names, drrBody).
+                Push (a new CRepeatRange with var drrv and start rdrrs and end rdrre and body drrBody) to out.
+            When BDInspect (dit, dia):
+                Let rdit be mixExpr(dit, store, funcs, bfuncs, pending, names, out).
+                Let mutable rArms be a new Seq of CMatchArm.
+                Repeat for da in dia:
+                    Inspect da:
+                        When BWhen (dwn, dwb, dwbody):
+                            Let mutable dwOut be a new Seq of CStmt.
+                            Let dwR be mixBlock(dwbody, store, funcs, bfuncs, pending, names, dwOut).
+                            Push (a new CWhen with variantName dwn and bindings dwb and body dwOut) to rArms.
+                        When BOtherwise (dobody):
+                            Let mutable doOut be a new Seq of CStmt.
+                            Let doR be mixBlock(dobody, store, funcs, bfuncs, pending, names, doOut).
+                            Push (a new COtherwise with body doOut) to rArms.
+                Push (a new CInspect with target rdit and arms rArms) to out.
+            When BDLift (dln, dlEmpty):
+                If store contains dln:
+                    Let dlVal be mixLiftAs(item dln of store, dlEmpty, funcs, out).
+                    Push (a new CLet with name dln and expr dlVal) to out.
+                    Remove dln from store.
+            When BDShow (she):
+                Let rshe be mixExpr(she, store, funcs, bfuncs, pending, names, out).
+                Push (a new CShow with expr rshe) to out.
+            When BDReturn (rte):
+                Let rrte be mixExpr(rte, store, funcs, bfuncs, pending, names, out).
+                Push (a new CReturn with expr rrte) to out.
+                Return a new MixReturned with store store.
+    Return a new MixNext with store store.
+
+## To mixSpecFunc (bf: BFunc) and (specName: Text) and (staticVals: Seq of CVal) and (funcs: Map of Text to CFunc) and (bfuncs: Map of Text to BFunc) and (pending: mutable Seq of MixJob) and (names: mutable Map of Text to Text) -> CFunc:
+    Inspect bf:
+        When BFuncDef (bfn, bparams, btypes, bret, bstatics, bmutables, binvariants, bbody):
+            Let mutable fStore be a new Map of Text to CVal.
+            Let mutable dynParams be a new Seq of Text.
+            Let mutable dynTypes be a new Seq of Text.
+            Let mutable pi be 1.
+            Let mutable si be 1.
+            Repeat for p in bparams:
+                If item pi of bstatics:
+                    Set item p of fStore to item si of staticVals.
+                    Set si to si + 1.
+                Otherwise:
+                    Push p to dynParams.
+                    Push (item pi of btypes) to dynTypes.
+                Set pi to pi + 1.
+            Let mutable fOut be a new Seq of CStmt.
+            Let fR be mixBlock(bbody, fStore, funcs, bfuncs, pending, names, fOut).
+            mixClosing(fR, bret, funcs, fOut).
+            Return a new CFuncDef with name specName and params dynParams and paramTypes dynTypes and returnType bret and body fOut.
+
+## To mixClosing (closing: MixOut) and (closingType: Text) and (funcs: Map of Text to CFunc) and (out: mutable Seq of CStmt):
+    Inspect closing:
+        When MixReturnedS (closingStore, closingValue):
+            Push (a new CReturn with expr (mixLiftAt(closingValue, closingType, funcs, out))) to out.
+        Otherwise:
+            Return.
+
+## To mixProgram (main: Seq of BStmt) and (store0: Map of Text to CVal) and (funcs: Map of Text to CFunc) and (bfuncs: Map of Text to BFunc) -> CProgram:
+    Let mutable pending be a new Seq of MixJob.
+    Let mutable names be a new Map of Text to Text.
+    Let mutable mainOut be a new Seq of CStmt.
+    Let mainR be mixBlock(main, store0, funcs, bfuncs, pending, names, mainOut).
+    Let mutable residualFuncs be a new Seq of CFunc.
+    Let mutable done be 0.
+    While done is less than (length of pending):
+        Set done to done + 1.
+        Let job be item done of pending.
+        Inspect job:
+            When MixJobR (fnName, specName, staticVals):
+                Repeat for (bfName, bf) in bfuncs:
+                    If bfName equals fnName:
+                        Push mixSpecFunc(bf, specName, staticVals, funcs, bfuncs, pending, names) to residualFuncs.
+    Return a new CProg with funcs residualFuncs and main mainOut.
+
+## To mixResidualText (mrProg: CProgram) -> Text:
+    Let mrNl be chr(10).
+    Let mutable mrOut be "".
+    Inspect mrProg:
+        When CProg (mrFuncs, mrMain):
+            Repeat for mrF in mrFuncs:
+                Let mrSrc be decompileFunc(mrF).
+                Set mrOut to "{mrOut}{mrSrc}{mrNl}".
+            Let mrMainSrc be decompileBlock(mrMain, 0).
+            Set mrOut to "{mrOut}## Main{mrNl}{mrMainSrc}".
+    Return mrOut.

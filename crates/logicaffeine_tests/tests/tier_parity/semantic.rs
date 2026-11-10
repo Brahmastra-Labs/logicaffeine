@@ -39,6 +39,17 @@ pub const SEMANTIC_PROBES: &[(&str, &str)] = &[
     ("index/swap_three_statements_from_the_back", "## Main\nLet mutable xs be [1, 2, 3].\nLet t be item 1 of xs.\nSet item 1 of xs to item -1 of xs.\nSet item -1 of xs to t.\nShow xs.\nShow t.\n"),
     ("index/compare_swap_from_the_back", "## Main\nLet mutable xs be [5, 2, 1].\nLet a be item 1 of xs.\nLet b be item -1 of xs.\nIf a is greater than b:\n    Set item 1 of xs to b.\n    Set item -1 of xs to a.\nShow xs.\nShow a.\n"),
     ("index/compare_swap_second_index_past_the_end", "## Main\nLet mutable xs be [5, 2, 1].\nLet a be item 1 of xs.\nLet b be item 9 of xs.\nIf b is less than a:\n    Set item 1 of xs to b.\n    Set item 9 of xs to a.\nShow xs.\n"),
+    // A map's entry is its key, item 1, and its value, item 2, counted from either end like any index; an index
+    // past both fails as any index past the end does.
+    ("index/read_a_map_entry", "## Main\nLet mutable m be a new Map of Text to Int.\nSet item \"a\" of m to 1.\nRepeat for entry in m:\n    Show item 1 of entry.\n    Show item 2 of entry.\n    Show item -1 of entry.\n    Show item -2 of entry.\n"),
+    ("index/read_an_int_map_entry", "## Main\nLet mutable m be a new Map of Int to Int.\nSet item 3 of m to 9.\nRepeat for entry in m:\n    Show (item 1 of entry) + (item 2 of entry).\n"),
+    ("index/read_a_map_entry_by_a_computed_index", "## Main\nLet mutable m be a new Map of Text to Int.\nSet item \"a\" of m to 1.\nLet mutable i be 0.\nRepeat for entry in m:\n    Set i to i + 2.\n    Show item i of entry.\n"),
+    ("index/read_a_map_entry_past_the_end", "## Main\nLet mutable m be a new Map of Text to Int.\nSet item \"a\" of m to 1.\nRepeat for entry in m:\n    Show item 3 of entry.\n"),
+    ("index/read_a_map_entry_holding_a_variant", "## A Shape is one of:\n    A Circle with radius Int.\n    A Square with side Int.\n\n## Main\nLet mutable m be a new Map of Text to Shape.\nSet item \"c\" of m to a new Circle with radius 2.\nRepeat for entry in m:\n    Show item 1 of entry.\n    Inspect item 2 of entry:\n        When Circle (radius):\n            Show radius.\n        When Square (side):\n            Show side.\n"),
+    // `and`/`or` take every operand's truth and answer a Bool; `& | xor` on two Bools answer a Bool — in any position,
+    // a declared Bool result or field included.
+    ("truth/bitwise_bools_in_a_bool_position", "## A Flag is one of:\n    A Mark with on Bool.\n\n## To both (a: Bool, b: Bool) -> Flag:\n    Return a new Mark with on (a & b).\n\n## To either (a: Bool, b: Bool) -> Bool:\n    Return a | b.\n\n## Main\nInspect both(true, false):\n    When Mark (on):\n        Show on.\nShow either(true, false).\nShow true xor true.\n"),
+    ("truth/logical_words_on_integers_in_a_bool_position", "## To both (x: Int, y: Int) -> Bool:\n    Return x and y.\n\n## Main\nShow both(6, 3).\nShow both(6, 0).\n"),
     // A counted loop the optimizer replaces with one step reads what the loop reads, stops where the loop
     // stops, and leaves its counter where the loop leaves it.
     ("loop/fill_then_read_the_counter", "## Main\nLet mutable v be a new Seq of Int.\nLet mutable i be 1.\nWhile i is at most 5:\n    Push 0 to v.\n    Set i to i + 1.\nShow i.\nShow length of v.\n"),

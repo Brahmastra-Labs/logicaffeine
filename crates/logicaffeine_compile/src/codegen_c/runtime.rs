@@ -1985,8 +1985,21 @@ static void map_i64_i64_set(Map_i64_i64 *m, int64_t key, int64_t val) {
 }
 
 /* The text of an integer a collection holds: an Int signed, a machine word (`word`) by its unsigned value. */
-__attribute__((unused)) static char *logos_int_text(int64_t v, int word) {
-    return word ? logos_dyn_sprintf("%" PRIu64, (uint64_t)v) : logos_dyn_sprintf("%" PRId64, v);
+static char *logos_date_to_string(int64_t days);
+static char *logos_moment_to_string(int64_t nanos);
+static char *logos_format_time_of_day(int64_t nanos_from_midnight);
+static char *logos_duration_to_string(int64_t nanos);
+/* One integer of a collection, shown as the collection reads it (`Ints::shown`): an Int, a word by its unsigned value,
+   a date, an instant, a time of day or a duration. */
+__attribute__((unused)) static char *logos_int_text(int64_t v, int shown) {
+    switch (shown) {
+        case 1: return logos_dyn_sprintf("%" PRIu64, (uint64_t)v);
+        case 2: return logos_date_to_string(v);
+        case 3: return logos_moment_to_string(v);
+        case 4: return logos_format_time_of_day(v);
+        case 5: return logos_duration_to_string(v);
+        default: return logos_dyn_sprintf("%" PRId64, v);
+    }
 }
 __attribute__((unused)) static char *map_i64_i64_to_string(Map_i64_i64 *m) {
     char *out = lc_gc_strdup("{"); int first = 1;
@@ -3118,6 +3131,20 @@ static int64_t logos_moment_add_span(int64_t nanos, int32_t months, int32_t days
     return z * LOGOS_NANOS_PER_DAY + (h * 3600 + mi * 60 + s) * LOGOS_NANOS_PER_SEC + ns;
 }
 
+/* base::temporal::months_between: the complete calendar months from instant `a` to instant `b`, signed — a month is
+   complete once `b` reaches `a` plus that many months under logos_moment_add_span's clamping. */
+__attribute__((unused)) static int64_t logos_months_between(int64_t a, int64_t b) {
+    if (b < a) return -logos_months_between(b, a);
+    int64_t ay, amo, ad, ah, ami, as, ans, by, bmo, bd, bh, bmi, bs, bns;
+    logos_civil_from_nanos(a, &ay, &amo, &ad, &ah, &ami, &as, &ans);
+    logos_civil_from_nanos(b, &by, &bmo, &bd, &bh, &bmi, &bs, &bns);
+    int64_t months = (by - ay) * 12 + (bmo - amo);
+    if (logos_moment_add_span(a, (int32_t)months, 0) > b) months -= 1;
+    return months;
+}
+/* base::temporal::years_between: the complete twelve-month periods from `a` to `b`. */
+__attribute__((unused)) static int64_t logos_years_between(int64_t a, int64_t b) { return logos_months_between(a, b) / 12; }
+
 /* Text of each temporal value, byte-identical to the interpreter's display: Date "YYYY-MM-DD", Moment
    "YYYY-MM-DD HH:MM", Time "HH:MM:SS[.frac]", Duration in its largest whole unit (`90s` is `1min`),
    Span "N years and N months and N days" (zero parts omitted, `0 days` when all are zero). */
@@ -3181,7 +3208,9 @@ static int64_t logos_today(void) {
 static int64_t logos_now(void) {
     const char *e = getenv("LOGOS_FIXED_NANOS");
     if (e) return (int64_t)atoll(e);
-    return (int64_t)time(NULL) * 1000000000LL;
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    return (int64_t)ts.tv_sec * 1000000000LL + (int64_t)ts.tv_nsec;
 }
 /* time.lg's `now()` — the Unix time in milliseconds from the real clock, as the interpreter reads it. */
 __attribute__((unused)) static int64_t logos_time_now(void) {

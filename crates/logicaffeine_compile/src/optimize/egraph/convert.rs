@@ -24,7 +24,7 @@ use crate::intern::{Interner, Symbol};
 use crate::optimize::writes::{pattern_symbols, CalleeGlobals, WriteSet};
 use crate::optimize::OracleFacts;
 
-use super::extract::{best_tree, best_tree_filtered, ExtractTree};
+use super::extract::{best_tree, ExtractTree, Extraction};
 use super::{rules, CompilerEGraph, CompilerENode, NodeId};
 
 pub struct Converter<'a> {
@@ -177,7 +177,9 @@ impl<'a> Converter<'a> {
             Expr::Literal(Literal::Float(f)) => {
                 (self.eg.add(CompilerENode::Float(f.to_bits())), true)
             }
-            Expr::Identifier(sym) if self.volatile.contains(&(sym.index() as u32)) => {
+            Expr::Identifier(sym)
+                if self.volatile.contains(&(sym.index() as u32)) || crate::optimize::is_clock_read(*sym) =>
+            {
                 self.opaque(expr)
             }
             Expr::Identifier(sym) => {
@@ -760,6 +762,7 @@ fn flush_run<'a>(
 
     cv.finish_facts();
     cv.eg.saturate(rule_set);
+    let extraction = Extraction::of(&mut cv.eg);
 
     let extract = |cv: &mut Converter<'a>, site: usize| -> &'a Expr<'a> {
         let rec = &sites[site];
@@ -773,7 +776,7 @@ fn flush_run<'a>(
             CompilerENode::Opaque(j) => (lo..hi).contains(&(j as usize)),
             _ => true,
         };
-        match best_tree_filtered(&mut cv.eg, rec.root, &admissible) {
+        match extraction.best_tree(rec.root, &admissible) {
             Some(tree) => {
                 let rebuilt = cv.tree_to_expr(&tree, expr_arena);
                 if expr_struct_eq(rebuilt, rec.original) {

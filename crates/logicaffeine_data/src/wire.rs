@@ -23,10 +23,24 @@ pub const T_TRUE: u8 = 2;
 pub const T_INT: u8 = 3;
 /// An IEEE-754 double, 8 little-endian bytes.
 pub const T_FLOAT: u8 = 4;
+/// A character: its scalar value as an unsigned varint.
+pub const T_CHAR: u8 = 5;
 /// A UTF-8 string: varint byte-length, then the bytes.
 pub const T_TEXT: u8 = 6;
+/// A duration: signed nanoseconds, zig-zag + varint.
+pub const T_DURATION: u8 = 7;
+/// A calendar date: signed days since 1970-01-01, zig-zag + varint.
+pub const T_DATE: u8 = 8;
+/// An instant: signed nanoseconds since 1970-01-01 at midnight, zig-zag + varint.
+pub const T_MOMENT: u8 = 9;
+/// A calendar span: signed months, then signed days, each zig-zag + varint.
+pub const T_SPAN: u8 = 10;
+/// A time of day: nanoseconds from midnight, zig-zag + varint.
+pub const T_TIME: u8 = 11;
 /// A heterogeneous list: varint element count, then each element (tagged).
 pub const T_LIST: u8 = 13;
+/// A map: varint entry count, then each key and its value (both tagged).
+pub const T_MAP: u8 = 16;
 /// An inductive/enum value: `type_name` string, `constructor` string, varint arg count, args.
 pub const T_INDUCTIVE: u8 = 18;
 
@@ -271,6 +285,87 @@ impl WireDecode for String {
     }
 }
 
+impl WireEncode for char {
+    fn wire_encode(&self, out: &mut Vec<u8>) {
+        out.push(T_CHAR);
+        write_uvarint(*self as u64, out);
+    }
+}
+impl WireDecode for char {
+    fn wire_decode(buf: &[u8], pos: &mut usize) -> Option<Self> {
+        expect_tag(buf, pos, T_CHAR)?;
+        char::from_u32(u32::try_from(read_uvarint(buf, pos)?).ok()?)
+    }
+}
+
+impl WireEncode for crate::temporal::LogosDuration {
+    fn wire_encode(&self, out: &mut Vec<u8>) {
+        out.push(T_DURATION);
+        write_uvarint(zigzag(self.0), out);
+    }
+}
+impl WireDecode for crate::temporal::LogosDuration {
+    fn wire_decode(buf: &[u8], pos: &mut usize) -> Option<Self> {
+        expect_tag(buf, pos, T_DURATION)?;
+        Some(Self(unzigzag(read_uvarint(buf, pos)?)))
+    }
+}
+
+impl WireEncode for crate::temporal::LogosDate {
+    fn wire_encode(&self, out: &mut Vec<u8>) {
+        out.push(T_DATE);
+        write_uvarint(zigzag(i64::from(self.0)), out);
+    }
+}
+impl WireDecode for crate::temporal::LogosDate {
+    fn wire_decode(buf: &[u8], pos: &mut usize) -> Option<Self> {
+        expect_tag(buf, pos, T_DATE)?;
+        Some(Self(i32::try_from(unzigzag(read_uvarint(buf, pos)?)).ok()?))
+    }
+}
+
+impl WireEncode for crate::temporal::LogosMoment {
+    fn wire_encode(&self, out: &mut Vec<u8>) {
+        out.push(T_MOMENT);
+        write_uvarint(zigzag(self.0), out);
+    }
+}
+impl WireDecode for crate::temporal::LogosMoment {
+    fn wire_decode(buf: &[u8], pos: &mut usize) -> Option<Self> {
+        expect_tag(buf, pos, T_MOMENT)?;
+        Some(Self(unzigzag(read_uvarint(buf, pos)?)))
+    }
+}
+
+impl WireEncode for crate::temporal::LogosSpan {
+    fn wire_encode(&self, out: &mut Vec<u8>) {
+        out.push(T_SPAN);
+        write_uvarint(zigzag(i64::from(self.months)), out);
+        write_uvarint(zigzag(i64::from(self.days)), out);
+    }
+}
+impl WireDecode for crate::temporal::LogosSpan {
+    fn wire_decode(buf: &[u8], pos: &mut usize) -> Option<Self> {
+        expect_tag(buf, pos, T_SPAN)?;
+        let months = i32::try_from(unzigzag(read_uvarint(buf, pos)?)).ok()?;
+        let days = i32::try_from(unzigzag(read_uvarint(buf, pos)?)).ok()?;
+        Some(Self { months, days })
+    }
+}
+
+impl WireEncode for crate::temporal::LogosTime {
+    fn wire_encode(&self, out: &mut Vec<u8>) {
+        out.push(T_TIME);
+        write_uvarint(zigzag(self.0), out);
+    }
+}
+impl WireDecode for crate::temporal::LogosTime {
+    fn wire_decode(buf: &[u8], pos: &mut usize) -> Option<Self> {
+        expect_tag(buf, pos, T_TIME)?;
+        Some(Self(unzigzag(read_uvarint(buf, pos)?)))
+    }
+}
+
 impl<T: WireEncode + ?Sized> WireEncode for Box<T> {
     fn wire_encode(&self, out: &mut Vec<u8>) {
         (**self).wire_encode(out);
@@ -324,6 +419,33 @@ impl<T: WireDecode> WireDecode for crate::types::LogosSeq<T> {
             v.push(T::wire_decode(buf, pos)?);
         }
         Some(crate::types::LogosSeq::from_vec(v))
+    }
+}
+
+// A `Map of K to V` field codegens as `LogosMap<K, V>`. Its entries go in insertion order — the order the map
+// iterates in, so part of its meaning; the peer codec decodes them in that order (its own canonical form sorts them).
+impl<K: WireEncode, V: WireEncode> WireEncode for crate::types::LogosMap<K, V> {
+    fn wire_encode(&self, out: &mut Vec<u8>) {
+        let inner = self.0.borrow();
+        out.push(T_MAP);
+        write_uvarint(inner.len() as u64, out);
+        for (k, v) in inner.iter() {
+            k.wire_encode(out);
+            v.wire_encode(out);
+        }
+    }
+}
+impl<K: WireDecode + Eq + std::hash::Hash, V: WireDecode> WireDecode for crate::types::LogosMap<K, V> {
+    fn wire_decode(buf: &[u8], pos: &mut usize) -> Option<Self> {
+        expect_tag(buf, pos, T_MAP)?;
+        let n = read_uvarint(buf, pos)? as usize;
+        let m = crate::types::LogosMap::with_capacity(n.min(1024));
+        for _ in 0..n {
+            let k = K::wire_decode(buf, pos)?;
+            let v = V::wire_decode(buf, pos)?;
+            m.insert(k, v);
+        }
+        Some(m)
     }
 }
 

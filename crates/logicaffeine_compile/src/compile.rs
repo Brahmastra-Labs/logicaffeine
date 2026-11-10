@@ -74,7 +74,7 @@
 //! // Returns Err: "x has already been given away"
 //! ```
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -92,7 +92,7 @@ use crate::arena_ctx::AstContext;
 use crate::ast::stmt::{
     BinaryOpKind, ClosureBody, Literal, Pattern, ReadSource, SelectBranch, StringPart,
 };
-use crate::ast::{Expr, MatchArm, Stmt, TypeExpr};
+use crate::ast::{Expr, Stmt, TypeExpr};
 use crate::codegen::{
     codegen_program, generate_c_header, generate_python_bindings, generate_typescript_bindings,
 };
@@ -100,7 +100,10 @@ use crate::diagnostic::{parse_rustc_json, translate_diagnostics, LogosError};
 use crate::drs::WorldState;
 use crate::error::ParseError;
 use crate::intern::Interner;
-use crate::lexer::Lexer;
+use crate::lexer::{
+    char_literal, date_literal, duration_literal, moment_literal, span_literal, text_literal, text_literal_body,
+    time_literal, Lexer,
+};
 use crate::parser::Parser;
 use crate::semantics::collections::with_reference_semantics;
 use crate::sourcemap::SourceMap;
@@ -161,8 +164,66 @@ pub fn interpret_program(source: &str) -> Result<String, ParseError> {
 /// dialects, the self-interpreter, a compiler a projection produced — inside the bootstrap scope
 /// ([`with_reference_semantics`]): those programs thread their state through `mutable` parameters and
 /// are written for the in-place writes of reference semantics. A user program never runs here.
+///
+/// It runs on the tree-walker, on a thread of its own ([`on_bootstrap_stack`]). A bootstrap program runs once per
+/// projection, and compiling the specializer's few thousand lines to bytecode costs several times the run itself.
 pub fn interpret_bootstrap(source: &str) -> Result<String, ParseError> {
-    with_reference_semantics(|| interpret_program(source))
+    let source = source.to_string();
+    on_bootstrap_stack(move || with_reference_semantics(|| run_on_the_tree_walker(&source)))
+}
+
+/// A bootstrap program run as an ordinary program: [`interpret_bootstrap`]'s run outside the bootstrap scope, under
+/// the language's value semantics — the host the host-agnostic proofs hold a bootstrap program to mean the same on.
+pub fn interpret_bootstrap_on_the_value_host(source: &str) -> Result<String, ParseError> {
+    let source = source.to_string();
+    on_bootstrap_stack(move || run_on_the_tree_walker(&source))
+}
+
+/// `source` run on the tree-walker under the semantics in force, its output lines joined.
+fn run_on_the_tree_walker(source: &str) -> Result<String, ParseError> {
+    let result = crate::ui_bridge::with_parsed_program(source, |parsed, interner| match parsed {
+        Ok((stmts, types, policies)) => crate::ui_bridge::run_treewalker(
+            stmts,
+            types,
+            policies,
+            interner,
+            crate::interpreter::needs_async(stmts, interner),
+            &[],
+        ),
+        Err(advice) => crate::interpreter::InterpreterResult {
+            lines: Vec::new(),
+            error: Some(advice),
+        },
+    });
+    match result.error {
+        Some(err) => Err(ParseError {
+            kind: crate::error::ParseErrorKind::Custom(err),
+            span: crate::token::Span::default(),
+        }),
+        None => Ok(result.lines.join("\n")),
+    }
+}
+
+/// The stack a bootstrap program runs on: an interpreter interpreting an interpreter recurses as deep as both.
+const BOOTSTRAP_STACK: usize = 1 << 30;
+
+/// `f` on a thread with [`BOOTSTRAP_STACK`] — the depth a bootstrap program reaches is its own, never its caller's —
+/// a panic in it resuming in the caller. In the browser, where a thread cannot be spawned, `f` runs here.
+fn on_bootstrap_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+    #[cfg(target_arch = "wasm32")]
+    {
+        f()
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::thread::Builder::new()
+            .name("bootstrap".to_string())
+            .stack_size(BOOTSTRAP_STACK)
+            .spawn(f)
+            .expect("a bootstrap program runs on a thread of its own")
+            .join()
+            .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+    }
 }
 
 /// Parse LOGOS source and execute it on the register bytecode VM, returning the
@@ -6554,38 +6615,60 @@ impl std::error::Error for CompileError {}
 /// Takes LOGOS source code (with or without `## Main` header) and returns
 /// LOGOS source code that constructs the equivalent CProgram data structure.
 /// The result defines a variable `prog` of type CProgram.
-pub fn encode_program_source(source: &str) -> Result<String, ParseError> {
-    let full_source = if source.contains("## Main") || source.contains("## To ") {
-        source.to_string()
+/// `program` as the language runs it: bare statements become its `## Main`, and the standard library functions it reaches
+/// are spliced in, as the tree-walker and a build splice them (`loader::apply_prelude`, pruned to what the program
+/// reaches). Every encoding of a user program reads this, so the Core IR holds every function the program calls.
+pub fn user_program_source(program: &str) -> String {
+    let full = if program.contains("## Main") || program.contains("## To ") {
+        program.to_string()
     } else {
-        format!("## Main\n{}", source)
+        format!("## Main\n{}", program)
     };
+    let spliced = crate::loader::apply_prelude(&full);
+    crate::loader::prune_unreachable_prelude_from(&full, &spliced)
+}
+
+/// `stmts` as every tier runs the program: `resolve_program`'s resolutions (exact or floored division, the real constants,
+/// each supertask to the statements that compute its end state, each `Pop` behind its check), read from `assembled`, the
+/// text they were parsed from. Every Core IR encoding goes through it, so the self-interpreter and the specializers
+/// receive the program the tree-walker runs.
+fn resolved_as_every_tier<'a>(
+    stmts: Vec<Stmt<'a>>,
+    assembled: &str,
+    opt_flags: &crate::optimization::OptimizationConfig,
+    interner: &mut Interner,
+    arenas: crate::ast_map::Arenas<'a>,
+) -> Vec<Stmt<'a>> {
+    let library = crate::loader::LibraryProvenance::of(assembled);
+    let mut run_cfg = crate::optimization::OptimizationConfig::from_env().merged(opt_flags);
+    run_cfg.normalize();
+    match crate::resolve_program::resolve_program(
+        &stmts,
+        arenas,
+        interner,
+        run_cfg.is_on(crate::optimization::Opt::Comptime),
+        library.functions(),
+    ) {
+        Some(resolved) => resolved.to_vec(),
+        None => stmts,
+    }
+}
+
+pub fn encode_program_source(source: &str) -> Result<String, ParseError> {
+    let full_source = user_program_source(source);
 
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(&full_source, &mut interner);
     let tokens = lexer.tokenize();
 
-    let type_registry = {
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
         let result = discovery.run_full();
-        result.types
+        (result.types, result.policies)
     };
 
     // Collect variant constructors before the parser takes ownership of type_registry
-    let mut variant_constructors: HashMap<String, Vec<String>> = HashMap::new();
-    for (_type_name, type_def) in type_registry.iter_types() {
-        if let crate::analysis::TypeDef::Enum { variants, .. } = type_def {
-            for variant in variants {
-                let vname = interner.resolve(variant.name).to_string();
-                let field_names: Vec<String> = variant
-                    .fields
-                    .iter()
-                    .map(|f| interner.resolve(f.name).to_string())
-                    .collect();
-                variant_constructors.insert(vname, field_names);
-            }
-        }
-    }
+    let variant_constructors = variant_ctors(&type_registry, &policy_registry, &interner);
 
     let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
@@ -6611,6 +6694,7 @@ pub fn encode_program_source(source: &str) -> Result<String, ParseError> {
         &type_expr_arena,
     );
 
+    let type_shapes = crate::core_ir_scope::type_shapes(&type_registry);
     let mut parser = crate::parser::Parser::new(
         tokens,
         &mut world_state,
@@ -6619,6 +6703,29 @@ pub fn encode_program_source(source: &str) -> Result<String, ParseError> {
         type_registry,
     );
     let stmts = parser.parse_program()?;
+    let opt_flags = parser.program_opt_flags();
+    drop(parser);
+    let stmts = resolved_as_every_tier(
+        stmts,
+        &full_source,
+        &opt_flags,
+        &mut interner,
+        crate::ast_map::Arenas {
+            exprs: &imperative_expr_arena,
+            stmts: &stmt_arena,
+            types: &type_expr_arena,
+        },
+    );
+    let stmts = crate::core_ir_scope::for_core_ir(
+        &stmts,
+        &mut interner,
+        crate::ast_map::Arenas {
+            exprs: &imperative_expr_arena,
+            stmts: &stmt_arena,
+            types: &type_expr_arena,
+        },
+        &type_shapes,
+    );
 
     let mut functions: Vec<(String, Vec<String>, Vec<String>, String, Vec<&Stmt>)> = Vec::new();
     let mut main_stmts: Vec<&Stmt> = Vec::new();
@@ -6657,7 +6764,6 @@ pub fn encode_program_source(source: &str) -> Result<String, ParseError> {
 
     let mut counter = 0usize;
     let mut output = String::new();
-    reset_inspect_otherwise_idx(); // deterministic `__inspectMatched_N` numbering, shared with the native builder
 
     // Build the funcMap directly (Map of Text to CFunc) with fixed name, plus a parallel
     // `encodedFuncSeq` (Seq of CFunc, declaration order) — the map has no meaning-preserving
@@ -6732,26 +6838,13 @@ pub fn encode_program_source_compact(source: &str) -> Result<String, ParseError>
     let mut lexer = Lexer::new(&full_source, &mut interner);
     let tokens = lexer.tokenize();
 
-    let type_registry = {
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
         let result = discovery.run_full();
-        result.types
+        (result.types, result.policies)
     };
 
-    let mut variant_constructors: HashMap<String, Vec<String>> = HashMap::new();
-    for (_type_name, type_def) in type_registry.iter_types() {
-        if let crate::analysis::TypeDef::Enum { variants, .. } = type_def {
-            for variant in variants {
-                let vname = interner.resolve(variant.name).to_string();
-                let field_names: Vec<String> = variant
-                    .fields
-                    .iter()
-                    .map(|f| interner.resolve(f.name).to_string())
-                    .collect();
-                variant_constructors.insert(vname, field_names);
-            }
-        }
-    }
+    let variant_constructors = variant_ctors(&type_registry, &policy_registry, &interner);
 
     let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
@@ -6777,6 +6870,7 @@ pub fn encode_program_source_compact(source: &str) -> Result<String, ParseError>
         &type_expr_arena,
     );
 
+    let type_shapes = crate::core_ir_scope::type_shapes(&type_registry);
     let mut parser = crate::parser::Parser::new(
         tokens,
         &mut world_state,
@@ -6785,6 +6879,29 @@ pub fn encode_program_source_compact(source: &str) -> Result<String, ParseError>
         type_registry,
     );
     let stmts = parser.parse_program()?;
+    let opt_flags = parser.program_opt_flags();
+    drop(parser);
+    let stmts = resolved_as_every_tier(
+        stmts,
+        &full_source,
+        &opt_flags,
+        &mut interner,
+        crate::ast_map::Arenas {
+            exprs: &imperative_expr_arena,
+            stmts: &stmt_arena,
+            types: &type_expr_arena,
+        },
+    );
+    let stmts = crate::core_ir_scope::for_core_ir(
+        &stmts,
+        &mut interner,
+        crate::ast_map::Arenas {
+            exprs: &imperative_expr_arena,
+            stmts: &stmt_arena,
+            types: &type_expr_arena,
+        },
+        &type_shapes,
+    );
 
     let mut functions: Vec<(String, Vec<String>, Vec<String>, String, Vec<&Stmt>)> = Vec::new();
     let mut main_stmts: Vec<&Stmt> = Vec::new();
@@ -6876,14 +6993,17 @@ pub fn encode_program_source_compact(source: &str) -> Result<String, ParseError>
 /// Returns an inline expression string for simple expressions (no Let variable needed).
 /// Returns None for complex expressions that require a Let variable.
 fn try_inline_expr(expr: &Expr, interner: &Interner) -> Option<String> {
+    if let Some((code, awaits)) = spelled_in_core_ir(expr, interner) {
+        return Some(format!("(a new CSpelled with code {} and awaits {})", text_literal(&code), text_literal(awaits)));
+    }
     match expr {
         Expr::Literal(lit) => match lit {
             Literal::Number(n) => Some(format!("(a new CInt with value {})", n)),
             Literal::Boolean(b) => Some(format!("(a new CBool with value {})", b)),
-            Literal::Text(s) => {
-                let text = interner.resolve(*s);
-                Some(format!("(a new CText with value \"{}\")", text))
-            }
+            Literal::Text(s) => Some(format!(
+                "(a new CText with value {})",
+                text_literal(interner.resolve(*s))
+            )),
             Literal::Float(f) => {
                 let fs = format!("{}", f);
                 let fs = if fs.contains('.') {
@@ -6893,12 +7013,15 @@ fn try_inline_expr(expr: &Expr, interner: &Interner) -> Option<String> {
                 };
                 Some(format!("(a new CFloat with value {})", fs))
             }
-            Literal::Nothing => Some("(a new CText with value \"nothing\")".to_string()),
-            _ => None,
+            Literal::Nothing => Some("(a new CNothing)".to_string()),
+            other => CoreAtom::of_literal(other).map(|atom| format!("({})", atom.construction())),
         },
         Expr::Identifier(sym) => {
             let name = interner.resolve(*sym);
-            Some(format!("(a new CVar with name \"{}\")", name))
+            match clock_read(name) {
+                Some(read) => Some(format!("(a new {read})")),
+                None => Some(format!("(a new CVar with name \"{}\")", name)),
+            }
         }
         Expr::Not { operand } => {
             if let Some(inner) = try_inline_expr(operand, interner) {
@@ -6917,7 +7040,7 @@ fn encode_expr_compact(
     counter: &mut usize,
     output: &mut String,
     interner: &Interner,
-    variants: &HashMap<String, Vec<String>>,
+    variants: &VCtors,
 ) -> String {
     // Try inline first
     if let Some(inline) = try_inline_expr(expr, interner) {
@@ -6932,31 +7055,7 @@ fn encode_expr_compact(
         Expr::BinaryOp { op, left, right } => {
             let left_var = encode_expr_compact(left, counter, output, interner, variants);
             let right_var = encode_expr_compact(right, counter, output, interner, variants);
-            let op_str = match op {
-                BinaryOpKind::Add => "+",
-                BinaryOpKind::Subtract => "-",
-                BinaryOpKind::Multiply => "*",
-                BinaryOpKind::Divide | BinaryOpKind::ExactDivide => "/",
-                BinaryOpKind::FloorDivide => "//",
-                BinaryOpKind::Modulo => "%",
-                BinaryOpKind::Eq => "==",
-                BinaryOpKind::NotEq => "!=",
-                BinaryOpKind::Lt => "<",
-                BinaryOpKind::Gt => ">",
-                BinaryOpKind::LtEq => "<=",
-                BinaryOpKind::GtEq => ">=",
-                BinaryOpKind::And => "&&",
-                BinaryOpKind::Or => "||",
-                BinaryOpKind::Concat => "+",
-                BinaryOpKind::SeqConcat => "followed by",
-                BinaryOpKind::ApproxEq => "is approximately",
-                BinaryOpKind::Pow => "**",
-                BinaryOpKind::BitXor => "^",
-                BinaryOpKind::BitAnd => "&",
-                BinaryOpKind::BitOr => "|",
-                BinaryOpKind::Shl => "<<",
-                BinaryOpKind::Shr => ">>",
-            };
+            let op_str = crate::semantics::operator_overloads::core_op_text(*op);
             output.push_str(&format!(
                 "Let {} be a new CBinOp with op \"{}\" and left {} and right {}.\n",
                 var, op_str, left_var, right_var
@@ -6964,7 +7063,7 @@ fn encode_expr_compact(
         }
         Expr::Call { function, args } => {
             let fn_name = interner.resolve(*function);
-            if let Some(field_names) = variants.get(fn_name) {
+            if let Some(field_names) = variants.get(fn_name).map(|ctor| &ctor.fields) {
                 let names_var = format!("nvNames_{}", *counter);
                 *counter += 1;
                 output.push_str(&format!("Let {} be a new Seq of Text.\n", names_var));
@@ -7042,14 +7141,15 @@ fn encode_expr_compact(
         }
         Expr::New {
             type_name,
+            type_args,
             init_fields,
-            ..
         } => {
             let tn = interner.resolve(*type_name);
+            let typed = collection_type_text(tn, type_args, interner);
             if tn == "Seq" || tn == "List" {
-                output.push_str(&format!("Let {} be a new CNewSeq.\n", var));
+                output.push_str(&format!("Let {} be a new CNewSeq with elementType {}.\n", var, text_literal(&typed)));
             } else if tn == "Set" {
-                output.push_str(&format!("Let {} be a new CNewSet.\n", var));
+                output.push_str(&format!("Let {} be a new CNewSet with elementType {}.\n", var, text_literal(&typed)));
             } else {
                 let names_var = format!("nvNames_{}", *counter);
                 *counter += 1;
@@ -7057,17 +7157,44 @@ fn encode_expr_compact(
                 let vals_var = format!("nvVals_{}", *counter);
                 *counter += 1;
                 output.push_str(&format!("Let {} be a new Seq of CExpr.\n", vals_var));
-                for (field_name, field_expr) in init_fields {
-                    let fname = interner.resolve(*field_name);
-                    output.push_str(&format!("Push \"{}\" to {}.\n", fname, names_var));
-                    let field_var =
-                        encode_expr_compact(field_expr, counter, output, interner, variants);
-                    output.push_str(&format!("Push {} to {}.\n", field_var, vals_var));
+                let is_map = tn == "Map" || tn.starts_with("Map ");
+                if !is_map {
+                    let written: Vec<String> =
+                        init_fields.iter().map(|(f, _)| interner.resolve(*f).to_string()).collect();
+                    for field in held_fields(tn, &written, variants) {
+                        let (fname, field_var) = match field {
+                            HeldField::Written(i) => {
+                                let field_var =
+                                    encode_expr_compact(init_fields[i].1, counter, output, interner, variants);
+                                (written[i].as_str(), field_var)
+                            }
+                            HeldField::Slot((fname, ftype)) => {
+                                (fname.as_str(), declared_default_src(ftype, counter, output))
+                            }
+                        };
+                        output.push_str(&format!("Push \"{}\" to {}.\n", fname, names_var));
+                        output.push_str(&format!("Push {} to {}.\n", field_var, vals_var));
+                    }
                 }
-                output.push_str(&format!(
-                    "Let {} be a new CNewVariant with tag \"{}\" and fnames {} and fvals {}.\n",
-                    var, tn, names_var, vals_var
-                ));
+                if is_map {
+                    output.push_str(&format!(
+                        "Let {} be a new CNew with typeName {} and fieldNames {} and fields {}.\n",
+                        var,
+                        text_literal(&typed),
+                        names_var,
+                        vals_var
+                    ));
+                } else if init_fields.is_empty() && variants.struct_fields(tn).is_none() {
+                    output.push_str(&format!(
+                        "Let {} be a new CNewVariant with tag \"{}\" and fnames {} and fvals {}.\n",
+                        var, tn, names_var, vals_var
+                    ));
+                } else {
+                    output.push_str(&format!(
+                        "Let {} be a new CNew with typeName \"{}\" and fieldNames {} and fields {}.\n",
+                        var, tn, names_var, vals_var
+                    ));
+                }
             }
         }
         Expr::InterpolatedString(parts) => {
@@ -7082,19 +7209,16 @@ fn encode_expr_compact(
                 for part in parts {
                     match part {
                         StringPart::Literal(sym) => {
-                            let text = interner.resolve(*sym);
+                            let text = text_literal(interner.resolve(*sym));
                             output.push_str(&format!(
-                                "Push a new CLiteralPart with value \"{}\" to {}.\n",
+                                "Push a new CLiteralPart with value {} to {}.\n",
                                 text, parts_var
                             ));
                         }
-                        StringPart::Expr { value, .. } => {
+                        StringPart::Expr { value, format_spec, .. } => {
                             let pv =
                                 encode_expr_compact(value, counter, output, interner, variants);
-                            output.push_str(&format!(
-                                "Push a new CExprPart with expr {} to {}.\n",
-                                pv, parts_var
-                            ));
+                            output.push_str(&string_part_src(&pv, *format_spec, &parts_var, interner));
                         }
                     }
                 }
@@ -7151,10 +7275,8 @@ fn encode_expr_compact(
             let params_var = format!("clp_{}", *counter);
             *counter += 1;
             output.push_str(&format!("Let {} be a new Seq of Text.\n", params_var));
-            let mut param_names = HashSet::new();
             for (sym, _) in params {
                 let name = interner.resolve(*sym);
-                param_names.insert(name.to_string());
                 output.push_str(&format!("Push \"{}\" to {}.\n", name, params_var));
             }
             let body_var = format!("clb_{}", *counter);
@@ -7172,21 +7294,13 @@ fn encode_expr_compact(
                     output.push_str(&format!("Push {} to {}.\n", ret_var, body_var));
                 }
                 ClosureBody::Block(stmts) => {
-                    for s in stmts.iter() {
+                    for s in spliced_spans(&stmts.iter().collect::<Vec<_>>()) {
                         let sv = encode_stmt_compact(s, counter, output, interner, variants);
                         output.push_str(&format!("Push {} to {}.\n", sv, body_var));
                     }
                 }
             }
-            let bound: HashSet<String> = param_names;
-            // Sort the captured free variables for a DETERMINISTIC encoding — a `HashSet`'s random
-            // iteration order would make the wire bytes vary run-to-run (breaking content-addressing
-            // AND the fast native-builder byte-identity). The capture set is order-independent
-            // semantically, so sorting is a pure improvement.
-            let mut free: Vec<String> = collect_free_vars_expr(expr, interner, &bound)
-                .into_iter()
-                .collect();
-            free.sort();
+            let free = closure_captures(expr, interner);
             let cap_var = format!("clc_{}", *counter);
             *counter += 1;
             output.push_str(&format!("Let {} be a new Seq of Text.\n", cap_var));
@@ -7253,13 +7367,7 @@ fn encode_expr_compact(
                 code_str.replace('\"', "\\\"")
             ));
         }
-        _ => {
-            // For unsupported expressions, use the non-compact version
-            output.push_str(&format!(
-                "Let {} be (a new CText with value \"unsupported\").\n",
-                var
-            ));
-        }
+        _ => return encode_expr_src(expr, counter, output, interner, variants),
     }
 
     var
@@ -7270,7 +7378,23 @@ fn encode_stmt_compact(
     counter: &mut usize,
     output: &mut String,
     interner: &Interner,
-    variants: &HashMap<String, Vec<String>>,
+    variants: &VCtors,
+) -> String {
+    let Some((root, path)) = write_place(stmt, interner) else {
+        return encode_written_stmt_compact(stmt, counter, output, interner, variants);
+    };
+    let inner = encode_written_stmt_compact(stmt, counter, output, interner, variants);
+    at_path_src(&root, &path, &inner, counter, output)
+}
+
+/// One statement as compact construction text, a write through a field path as the bare write (its place wraps it in
+/// [`encode_stmt_compact`]).
+fn encode_written_stmt_compact(
+    stmt: &Stmt,
+    counter: &mut usize,
+    output: &mut String,
+    interner: &Interner,
+    variants: &VCtors,
 ) -> String {
     let var = format!("s_{}", *counter);
     *counter += 1;
@@ -7335,10 +7459,7 @@ fn encode_stmt_compact(
                     var, expr_var
                 ));
             } else {
-                output.push_str(&format!(
-                    "Let {} be a new CReturn with expr (a new CText with value \"nothing\").\n",
-                    var
-                ));
+                output.push_str(&format!("Let {} be a new CReturn with expr (a new CNothing).\n", var));
             }
         }
         Stmt::Show { object, .. } => {
@@ -7353,20 +7474,18 @@ fn encode_stmt_compact(
             iterable,
             body,
         } => {
-            let var_str = match pattern {
-                Pattern::Identifier(sym) => interner.resolve(*sym).to_string(),
-                Pattern::Tuple(syms) => {
-                    if let Some(s) = syms.first() {
-                        interner.resolve(*s).to_string()
-                    } else {
-                        "item".to_string()
-                    }
-                }
-            };
+            let (var_str, components) = repeat_binders(pattern, interner);
             let coll_var = encode_expr_compact(iterable, counter, output, interner, variants);
             let body_stmts: Vec<&Stmt> = body.iter().collect();
-            let body_var =
-                encode_stmt_list_compact(&body_stmts, counter, output, interner, variants);
+            let body_var = encode_repeat_body_compact(
+                &components,
+                &var_str,
+                &body_stmts,
+                counter,
+                output,
+                interner,
+                variants,
+            );
             output.push_str(&format!(
                 "Let {} be a new CRepeat with var \"{}\" and coll {} and body {}.\n",
                 var, var_str, coll_var, body_var
@@ -7447,6 +7566,9 @@ fn encode_stmt_compact(
                     output.push_str(&format!("Push {} to {}.\n", arm_var, arms_var));
                 }
             }
+            for (variant, report) in uncovered_variants(arms, interner, variants) {
+                push_unhandled_arm_src(&variant, &report, &arms_var, counter, output);
+            }
             output.push_str(&format!(
                 "Let {} be a new CInspect with target {} and arms {}.\n",
                 var, target_var, arms_var
@@ -7466,106 +7588,91 @@ fn encode_stmt_list_compact(
     counter: &mut usize,
     output: &mut String,
     interner: &Interner,
-    variants: &HashMap<String, Vec<String>>,
+    variants: &VCtors,
+) -> String {
+    encode_repeat_body_compact(&[], "", stmts, counter, output, interner, variants)
+}
+
+/// [`encode_stmt_list_compact`] for a loop body: the statements that bind a tuple pattern's components (see
+/// [`repeat_binders`]) come first.
+fn encode_repeat_body_compact(
+    components: &[String],
+    loop_var: &str,
+    stmts: &[&Stmt],
+    counter: &mut usize,
+    output: &mut String,
+    interner: &Interner,
+    variants: &VCtors,
 ) -> String {
     let list_var = format!("stmts_{}", *counter);
     *counter += 1;
     output.push_str(&format!("Let {} be a new Seq of CStmt.\n", list_var));
-    for s in stmts {
+    for binder in tuple_binder_stmts(components, loop_var) {
+        output.push_str(&format!("Push {} to {}.\n", binder, list_var));
+    }
+    for s in spliced_spans(stmts) {
         let sv = encode_stmt_compact(s, counter, output, interner, variants);
         output.push_str(&format!("Push {} to {}.\n", sv, list_var));
     }
     list_var
 }
 
-fn collect_free_vars_expr<'a>(
-    expr: &'a Expr,
-    interner: &Interner,
-    bound: &HashSet<String>,
-) -> HashSet<String> {
-    let mut free = HashSet::new();
-    match expr {
-        Expr::Identifier(sym) => {
-            let name = interner.resolve(*sym).to_string();
-            if !bound.contains(&name) {
-                free.insert(name);
+/// `stmts` with each `During <span>:`, `Splice` and `Reversibly:` replaced by its body, which runs where it stands.
+fn spliced_spans<'s>(stmts: &[&'s Stmt<'s>]) -> Vec<&'s Stmt<'s>> {
+    let mut out = Vec::with_capacity(stmts.len());
+    for s in stmts {
+        match s {
+            Stmt::During { body, .. } | Stmt::Splice { body } | Stmt::Reversibly { body } => {
+                out.extend(spliced_spans(&body.iter().collect::<Vec<_>>()))
             }
+            _ => out.push(*s),
         }
-        Expr::BinaryOp { left, right, .. } => {
-            free.extend(collect_free_vars_expr(left, interner, bound));
-            free.extend(collect_free_vars_expr(right, interner, bound));
-        }
-        Expr::Not { operand } => {
-            free.extend(collect_free_vars_expr(operand, interner, bound));
-        }
-        Expr::Copy { expr: inner } => {
-            free.extend(collect_free_vars_expr(inner, interner, bound));
-        }
-        Expr::CallExpr { callee, args } => {
-            free.extend(collect_free_vars_expr(callee, interner, bound));
-            for a in args {
-                free.extend(collect_free_vars_expr(a, interner, bound));
-            }
-        }
-        Expr::Index { collection, index } => {
-            free.extend(collect_free_vars_expr(collection, interner, bound));
-            free.extend(collect_free_vars_expr(index, interner, bound));
-        }
-        Expr::InterpolatedString(parts) => {
-            for part in parts {
-                if let StringPart::Expr { value, .. } = part {
-                    free.extend(collect_free_vars_expr(value, interner, bound));
-                }
-            }
-        }
-        Expr::Closure { params, body, .. } => {
-            let mut inner_bound = bound.clone();
-            for (sym, _) in params {
-                inner_bound.insert(interner.resolve(*sym).to_string());
-            }
-            match body {
-                ClosureBody::Expression(e) => {
-                    free.extend(collect_free_vars_expr(e, interner, &inner_bound));
-                }
-                ClosureBody::Block(stmts) => {
-                    for s in stmts.iter() {
-                        free.extend(collect_free_vars_stmt(s, interner, &inner_bound));
-                    }
-                }
-            }
-        }
-        _ => {}
     }
-    free
+    out
 }
 
-fn collect_free_vars_stmt<'a>(
-    stmt: &'a Stmt,
-    interner: &Interner,
-    bound: &HashSet<String>,
-) -> HashSet<String> {
-    let mut free = HashSet::new();
-    match stmt {
-        Stmt::Let { var, value, .. } => {
-            free.extend(collect_free_vars_expr(value, interner, bound));
+/// How a `Repeat` pattern binds: the Core IR loop variable, and for a tuple pattern the names its components bind in
+/// order. A tuple pattern's loop variable holds the whole element (a map iterates as `(key, value)`), and the body
+/// opens by binding each component from it, so every name the pattern wrote is bound.
+fn repeat_binders(pattern: &Pattern, interner: &Interner) -> (String, Vec<String>) {
+    match pattern {
+        Pattern::Identifier(sym) => (interner.resolve(*sym).to_string(), Vec::new()),
+        Pattern::Tuple(syms) => {
+            let names: Vec<String> = syms.iter().map(|s| interner.resolve(*s).to_string()).collect();
+            (format!("{}__pair", names.join("_")), names)
         }
-        Stmt::Set { target, value, .. } => {
-            let n = interner.resolve(*target).to_string();
-            if !bound.contains(&n) {
-                free.insert(n);
-            }
-            free.extend(collect_free_vars_expr(value, interner, bound));
-        }
-        Stmt::Show { object, .. } => {
-            free.extend(collect_free_vars_expr(object, interner, bound));
-        }
-        Stmt::Return { value } => {
-            if let Some(v) = value {
-                free.extend(collect_free_vars_expr(v, interner, bound));
-            }
-        }
-        _ => {}
     }
+}
+
+/// The Core IR statements, as construction text, that bind a tuple pattern's components from its loop variable.
+fn tuple_binder_stmts(components: &[String], loop_var: &str) -> Vec<String> {
+    components
+        .iter()
+        .enumerate()
+        .map(|(i, name)| {
+            format!(
+                "(a new CLet with name \"{}\" and expr (a new CIndex with coll (a new CVar with name \"{}\") and idx (a new CInt with value {})))",
+                name,
+                loop_var,
+                i + 1
+            )
+        })
+        .collect()
+}
+
+/// The names a closure captures, sorted so every encoding of one closure is byte-identical: the engines' own
+/// capture set ([`crate::interpreter::Interpreter::free_vars_in_closure`]), so the Core IR captures exactly what the
+/// tree-walker and the VM capture.
+fn closure_captures(expr: &Expr, interner: &Interner) -> Vec<String> {
+    let Expr::Closure { params, body, .. } = expr else {
+        return Vec::new();
+    };
+    let mut free: Vec<String> = crate::interpreter::Interpreter::free_vars_in_closure(params, body)
+        .into_iter()
+        .map(|sym| interner.resolve(sym).to_string())
+        .collect();
+    free.sort();
+    free.dedup();
     free
 }
 
@@ -7574,7 +7681,7 @@ fn encode_expr_src(
     counter: &mut usize,
     output: &mut String,
     interner: &Interner,
-    variants: &HashMap<String, Vec<String>>,
+    variants: &VCtors,
 ) -> String {
     let var = format!("e_{}", *counter);
     *counter += 1;
@@ -7588,10 +7695,10 @@ fn encode_expr_src(
                 output.push_str(&format!("Let {} be a new CBool with value {}.\n", var, b));
             }
             Literal::Text(s) => {
-                let text = interner.resolve(*s);
                 output.push_str(&format!(
-                    "Let {} be a new CText with value \"{}\".\n",
-                    var, text
+                    "Let {} be a new CText with value {}.\n",
+                    var,
+                    text_literal(interner.resolve(*s))
                 ));
             }
             Literal::Float(f) => {
@@ -7606,67 +7713,30 @@ fn encode_expr_src(
                 };
                 output.push_str(&format!("Let {} be a new CFloat with value {}.\n", var, fs));
             }
-            Literal::Duration(nanos) => {
-                let millis = nanos / 1_000_000;
-                let amount_var = format!("e_{}", *counter);
-                *counter += 1;
-                output.push_str(&format!(
-                    "Let {} be a new CInt with value {}.\n",
-                    amount_var, millis
-                ));
-                output.push_str(&format!(
-                    "Let {} be a new CDuration with amount {} and unit \"milliseconds\".\n",
-                    var, amount_var
-                ));
-            }
             Literal::Nothing => {
-                output.push_str(&format!(
-                    "Let {} be a new CText with value \"nothing\".\n",
-                    var
-                ));
+                output.push_str(&format!("Let {} be a new CNothing.\n", var));
             }
-            _ => {
-                output.push_str(&format!(
-                    "Let {} be a new CText with value \"unsupported\".\n",
-                    var
-                ));
+            Literal::Duration(_)
+            | Literal::Char(_)
+            | Literal::Date(_)
+            | Literal::Moment(_)
+            | Literal::Span { .. }
+            | Literal::Time(_) => {
+                let atom = CoreAtom::of_literal(lit).expect("a temporal or character literal is an atom");
+                output.push_str(&format!("Let {var} be {}.\n", atom.construction()));
             }
         },
         Expr::Identifier(sym) => {
             let name = interner.resolve(*sym);
-            output.push_str(&format!(
-                "Let {} be a new CVar with name \"{}\".\n",
-                var, name
-            ));
+            match clock_read(name) {
+                Some(read) => output.push_str(&format!("Let {} be a new {}.\n", var, read)),
+                None => output.push_str(&format!("Let {} be a new CVar with name \"{}\".\n", var, name)),
+            }
         }
         Expr::BinaryOp { op, left, right } => {
             let left_var = encode_expr_src(left, counter, output, interner, variants);
             let right_var = encode_expr_src(right, counter, output, interner, variants);
-            let op_str = match op {
-                BinaryOpKind::Add => "+",
-                BinaryOpKind::Subtract => "-",
-                BinaryOpKind::Multiply => "*",
-                BinaryOpKind::Divide | BinaryOpKind::ExactDivide => "/",
-                BinaryOpKind::FloorDivide => "//",
-                BinaryOpKind::Modulo => "%",
-                BinaryOpKind::Eq => "==",
-                BinaryOpKind::NotEq => "!=",
-                BinaryOpKind::Lt => "<",
-                BinaryOpKind::Gt => ">",
-                BinaryOpKind::LtEq => "<=",
-                BinaryOpKind::GtEq => ">=",
-                BinaryOpKind::And => "&&",
-                BinaryOpKind::Or => "||",
-                BinaryOpKind::Concat => "+",
-                BinaryOpKind::SeqConcat => "followed by",
-                BinaryOpKind::ApproxEq => "is approximately",
-                BinaryOpKind::Pow => "**",
-                BinaryOpKind::BitXor => "^",
-                BinaryOpKind::BitAnd => "&",
-                BinaryOpKind::BitOr => "|",
-                BinaryOpKind::Shl => "<<",
-                BinaryOpKind::Shr => ">>",
-            };
+            let op_str = crate::semantics::operator_overloads::core_op_text(*op);
             output.push_str(&format!(
                 "Let {} be a new CBinOp with op \"{}\" and left {} and right {}.\n",
                 var, op_str, left_var, right_var
@@ -7681,7 +7751,7 @@ fn encode_expr_src(
         }
         Expr::Call { function, args } => {
             let fn_name = interner.resolve(*function);
-            if let Some(field_names) = variants.get(fn_name) {
+            if let Some(field_names) = variants.get(fn_name).map(|ctor| &ctor.fields) {
                 // Variant constructor call — encode as CNewVariant
                 let names_var = format!("nvNames_{}", *counter);
                 *counter += 1;
@@ -7765,14 +7835,15 @@ fn encode_expr_src(
         }
         Expr::New {
             type_name,
+            type_args,
             init_fields,
-            ..
         } => {
             let tn = interner.resolve(*type_name);
+            let typed = collection_type_text(tn, type_args, interner);
             if tn == "Seq" || tn == "List" {
-                output.push_str(&format!("Let {} be a new CNewSeq.\n", var));
+                output.push_str(&format!("Let {} be a new CNewSeq with elementType {}.\n", var, text_literal(&typed)));
             } else if tn == "Set" {
-                output.push_str(&format!("Let {} be a new CNewSet.\n", var));
+                output.push_str(&format!("Let {} be a new CNewSet with elementType {}.\n", var, text_literal(&typed)));
             } else if tn == "Map" || tn.starts_with("Map ") {
                 // Empty map creation — encode as CNew with "Map" type
                 let names_var = format!("nvNames_{}", *counter);
@@ -7782,10 +7853,13 @@ fn encode_expr_src(
                 *counter += 1;
                 output.push_str(&format!("Let {} be a new Seq of CExpr.\n", vals_var));
                 output.push_str(&format!(
-                    "Let {} be a new CNew with typeName \"Map\" and fieldNames {} and fields {}.\n",
-                    var, names_var, vals_var
+                    "Let {} be a new CNew with typeName {} and fieldNames {} and fields {}.\n",
+                    var,
+                    text_literal(&typed),
+                    names_var,
+                    vals_var
                 ));
-            } else if init_fields.is_empty() {
+            } else if init_fields.is_empty() && variants.struct_fields(tn).is_none() {
                 let names_var = format!("nvNames_{}", *counter);
                 *counter += 1;
                 output.push_str(&format!("Let {} be a new Seq of Text.\n", names_var));
@@ -7803,15 +7877,21 @@ fn encode_expr_src(
                 let vals_var = format!("nvVals_{}", *counter);
                 *counter += 1;
                 output.push_str(&format!("Let {} be a new Seq of CExpr.\n", vals_var));
-                for (field_name, field_expr) in init_fields {
-                    let fname = interner.resolve(*field_name);
+                let written: Vec<String> =
+                    init_fields.iter().map(|(f, _)| interner.resolve(*f).to_string()).collect();
+                for field in held_fields(tn, &written, variants) {
+                    let (fname, field_var) = match field {
+                        HeldField::Written(i) => {
+                            let field_var = encode_expr_src(init_fields[i].1, counter, output, interner, variants);
+                            (written[i].as_str(), field_var)
+                        }
+                        HeldField::Slot((fname, ftype)) => (fname.as_str(), declared_default_src(ftype, counter, output)),
+                    };
                     output.push_str(&format!("Push \"{}\" to {}.\n", fname, names_var));
-                    let field_var =
-                        encode_expr_src(field_expr, counter, output, interner, variants);
                     output.push_str(&format!("Push {} to {}.\n", field_var, vals_var));
                 }
                 output.push_str(&format!(
-                    "Let {} be a new CNewVariant with tag \"{}\" and fnames {} and fvals {}.\n",
+                    "Let {} be a new CNew with typeName \"{}\" and fieldNames {} and fields {}.\n",
                     var, tn, names_var, vals_var
                 ));
             }
@@ -7831,18 +7911,15 @@ fn encode_expr_src(
                 for part in parts {
                     match part {
                         StringPart::Literal(sym) => {
-                            let text = interner.resolve(*sym);
+                            let text = text_literal(interner.resolve(*sym));
                             output.push_str(&format!(
-                                "Push a new CLiteralPart with value \"{}\" to {}.\n",
+                                "Push a new CLiteralPart with value {} to {}.\n",
                                 text, parts_var
                             ));
                         }
-                        StringPart::Expr { value, .. } => {
+                        StringPart::Expr { value, format_spec, .. } => {
                             let pv = encode_expr_src(value, counter, output, interner, variants);
-                            output.push_str(&format!(
-                                "Push a new CExprPart with expr {} to {}.\n",
-                                pv, parts_var
-                            ));
+                            output.push_str(&string_part_src(&pv, *format_spec, &parts_var, interner));
                         }
                     }
                 }
@@ -7931,10 +8008,8 @@ fn encode_expr_src(
             let params_var = format!("clp_{}", *counter);
             *counter += 1;
             output.push_str(&format!("Let {} be a new Seq of Text.\n", params_var));
-            let mut param_names = HashSet::new();
             for (sym, _) in params {
                 let name = interner.resolve(*sym);
-                param_names.insert(name.to_string());
                 output.push_str(&format!("Push \"{}\" to {}.\n", name, params_var));
             }
             let body_var = format!("clb_{}", *counter);
@@ -7953,20 +8028,13 @@ fn encode_expr_src(
                 }
                 ClosureBody::Block(stmts) => {
                     for s in stmts.iter() {
-                        let sv = encode_stmt_src(s, counter, output, interner, variants);
-                        output.push_str(&format!("Push {} to {}.\n", sv, body_var));
+                        for sv in encode_stmts_src(s, counter, output, interner, variants) {
+                            output.push_str(&format!("Push {} to {}.\n", sv, body_var));
+                        }
                     }
                 }
             }
-            let bound: HashSet<String> = param_names;
-            // Sort the captured free variables for a DETERMINISTIC encoding — a `HashSet`'s random
-            // iteration order would make the wire bytes vary run-to-run (breaking content-addressing
-            // AND the fast native-builder byte-identity). The capture set is order-independent
-            // semantically, so sorting is a pure improvement.
-            let mut free: Vec<String> = collect_free_vars_expr(expr, interner, &bound)
-                .into_iter()
-                .collect();
-            free.sort();
+            let free = closure_captures(expr, interner);
             let cap_var = format!("clc_{}", *counter);
             *counter += 1;
             output.push_str(&format!("Let {} be a new Seq of Text.\n", cap_var));
@@ -8038,12 +8106,7 @@ fn encode_expr_src(
             // erased hint — no Core-IR node needed.
             return encode_expr_src(value, counter, output, interner, variants);
         }
-        _ => {
-            output.push_str(&format!(
-                "Let {} be a new CText with value \"unsupported\".\n",
-                var
-            ));
-        }
+        Expr::View(_) | Expr::Dom(_) => spelled_src(expr, &var, output, interner),
     }
 
     var
@@ -8054,7 +8117,7 @@ fn encode_stmt_src(
     counter: &mut usize,
     output: &mut String,
     interner: &Interner,
-    variants: &HashMap<String, Vec<String>>,
+    variants: &VCtors,
 ) -> String {
     let var = format!("s_{}", *counter);
     *counter += 1;
@@ -8078,17 +8141,18 @@ fn encode_stmt_src(
         }
         Stmt::Swap { a, b } => {
             // No dedicated CSwap in the PE self-representation; encode the observationally-equivalent
-            // temp-mediated swap as a CIf-always-true block (the device the Splice arm uses): a fresh
+            // temp-mediated swap as an always-taken CIf, whose block holds the temp: a fresh
             // `tmp := a; a := b; b := tmp`, all in existing CLet/CSet/CVar nodes.
             let (an, bn) = (interner.resolve(*a), interner.resolve(*b));
+            let tmp = swap_temp(an, bn);
             output.push_str(&format!("Let swapBlock_{var} be a new Seq of CStmt.\n"));
             output.push_str(&format!("Let swapVarA_{var} be a new CVar with name \"{an}\".\n"));
-            output.push_str(&format!("Let swapS1_{var} be a new CLet with name \"swaptmp_{var}\" and expr swapVarA_{var}.\n"));
+            output.push_str(&format!("Let swapS1_{var} be a new CLet with name \"{tmp}\" and expr swapVarA_{var}.\n"));
             output.push_str(&format!("Push swapS1_{var} to swapBlock_{var}.\n"));
             output.push_str(&format!("Let swapVarB_{var} be a new CVar with name \"{bn}\".\n"));
             output.push_str(&format!("Let swapS2_{var} be a new CSet with name \"{an}\" and expr swapVarB_{var}.\n"));
             output.push_str(&format!("Push swapS2_{var} to swapBlock_{var}.\n"));
-            output.push_str(&format!("Let swapVarT_{var} be a new CVar with name \"swaptmp_{var}\".\n"));
+            output.push_str(&format!("Let swapVarT_{var} be a new CVar with name \"{tmp}\".\n"));
             output.push_str(&format!("Let swapS3_{var} be a new CSet with name \"{bn}\" and expr swapVarT_{var}.\n"));
             output.push_str(&format!("Push swapS3_{var} to swapBlock_{var}.\n"));
             output.push_str(&format!("Let swapCond_{var} be a new CBool with value true.\n"));
@@ -8124,33 +8188,12 @@ fn encode_stmt_src(
                 var, cond_var, body_var
             ));
         }
-        Stmt::Splice { body } | Stmt::Reversibly { body } => {
-            // A Splice — and an output-transparent `Reversibly:` block — encodes as an always-taken
-            // CIf: observationally equivalent, because the body runs in the enclosing scope and its
-            // result is unchanged by the block wrapper (the reversible lowering is a VM-only concern
-            // this self-representation does not model).
-            let cond_var = format!("splice_cond_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!("Let {} be a new CBool with value true.\n", cond_var));
-            let body_stmts: Vec<&Stmt> = body.iter().collect();
-            let body_var = encode_stmt_list_src(&body_stmts, counter, output, interner, variants);
-            let empty_var = format!("emptyBlock_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!("Let {} be a new Seq of CStmt.\n", empty_var));
-            output.push_str(&format!(
-                "Let {} be a new CIf with cond {} and thenBlock {} and elseBlock {}.\n",
-                var, cond_var, body_var, empty_var
-            ));
-        }
         Stmt::Return { value } => {
             if let Some(expr) = value {
                 let expr_var = encode_expr_src(expr, counter, output, interner, variants);
                 output.push_str(&format!("Let {} be a new CReturn with expr {}.\n", var, expr_var));
             } else {
-                let nothing_var = format!("e_{}", *counter);
-                *counter += 1;
-                output.push_str(&format!("Let {} be a new CInt with value 0.\n", nothing_var));
-                output.push_str(&format!("Let {} be a new CReturn with expr {}.\n", var, nothing_var));
+                output.push_str(&format!("Let {} be a new CReturn with expr (a new CNothing).\n", var));
             }
         }
         Stmt::Show { object, .. } => {
@@ -8189,23 +8232,25 @@ fn encode_stmt_src(
             ));
         }
         Stmt::SetField { object, field, value } => {
-            let map_name = extract_ident_name(object, interner);
+            let target_name = extract_ident_name(object, interner);
             let field_name = interner.resolve(*field);
-            let key_var = format!("e_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!("Let {} be a new CText with value \"{}\".\n", key_var, field_name));
             let val_var = encode_expr_src(value, counter, output, interner, variants);
             output.push_str(&format!(
-                "Let {} be a new CMapSet with target \"{}\" and key {} and val {}.\n",
-                var, map_name, key_var, val_var
+                "Let {} be a new CSetField with target \"{}\" and field \"{}\" and val {}.\n",
+                var, target_name, field_name, val_var
             ));
         }
-        Stmt::Pop { collection, .. } => {
+        Stmt::Pop { collection, into } => {
             let coll_name = extract_ident_name(collection, interner);
-            output.push_str(&format!(
-                "Let {} be a new CPop with target \"{}\".\n",
-                var, coll_name
-            ));
+            match into {
+                Some(into) => output.push_str(&format!(
+                    "Let {} be a new CPopInto with target \"{}\" and into \"{}\".\n",
+                    var,
+                    coll_name,
+                    interner.resolve(*into)
+                )),
+                None => output.push_str(&format!("Let {} be a new CPop with target \"{}\".\n", var, coll_name)),
+            }
         }
         Stmt::Add { value, collection } => {
             let val_var = encode_expr_src(value, counter, output, interner, variants);
@@ -8239,7 +8284,7 @@ fn encode_stmt_src(
                 None => {
                     let msg_var = format!("e_{}", *counter);
                     *counter += 1;
-                    output.push_str(&format!("Let {} be a new CText with value \"assertion failed\".\n", msg_var));
+                    output.push_str(&format!("Let {} be a new CText with value \"Assertion failed\".\n", msg_var));
                     msg_var
                 }
             };
@@ -8252,13 +8297,9 @@ fn encode_stmt_src(
                 var, variant, cond_var, msg_var
             ));
         }
-        // `Fail with <reason>` is, in the core language, an enforced contract that never holds.
         Stmt::Fail { reason } => {
-            let cond_var = format!("e_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!("Let {} be a new CBool with value false.\n", cond_var));
-            let msg_var = encode_expr_src(reason, counter, output, interner, variants);
-            output.push_str(&format!("Let {} be a new CHardAssert with cond {} and msg {}.\n", var, cond_var, msg_var));
+            let reason_var = encode_expr_src(reason, counter, output, interner, variants);
+            output.push_str(&format!("Let {} be a new CFail with reason {}.\n", var, reason_var));
         }
         Stmt::Give { object, recipient } => {
             let expr_var = encode_expr_src(object, counter, output, interner, variants);
@@ -8308,16 +8349,29 @@ fn encode_stmt_src(
                 var, path_var, content_var
             ));
         }
-        Stmt::Check { source_text, .. } => {
-            let pred_var = format!("e_{}", *counter);
+        Stmt::Check { .. } => {
+            let (subject, object, capability, rule, source) = check_parts(stmt, interner).expect("a Check");
+            let alts_var = format!("alts_{}", *counter);
             *counter += 1;
-            output.push_str(&format!("Let {} be a new CBool with value true.\n", pred_var));
-            let msg_var = format!("e_{}", *counter);
-            *counter += 1;
-            output.push_str(&format!("Let {} be a new CText with value \"{}\".\n", msg_var, source_text.replace('\"', "\\\"")));
+            output.push_str(&format!("Let {} be a new Seq of CPolicyAlt.\n", alts_var));
+            for (type_name, node) in variants.policies.get(&(rule.clone(), capability)).into_iter().flatten() {
+                let condition = policy_src(node, counter, output);
+                output.push_str(&format!(
+                    "Push a new CPolicyCase with typeName {} and condition {} to {}.\n",
+                    text_literal(type_name),
+                    condition,
+                    alts_var
+                ));
+            }
             output.push_str(&format!(
-                "Let {} be a new CCheck with predicate {} and msg {}.\n",
-                var, pred_var, msg_var
+                "Let {} be a new CCheckPolicy with subject {} and object {} and capability {} and rule {} and alternatives {} and source {}.\n",
+                var,
+                text_literal(&subject),
+                text_literal(&object),
+                capability,
+                text_literal(&rule),
+                alts_var,
+                text_literal(&source)
             ));
         }
         Stmt::Assert { .. } => {
@@ -8394,12 +8448,13 @@ fn encode_stmt_src(
                 var, target_name, value_var
             ));
         }
-        Stmt::ResolveConflict { object, field, .. } => {
+        Stmt::ResolveConflict { object, field, value } => {
+            let value_var = encode_expr_src(value, counter, output, interner, variants);
             let target_name =
                 format!("{}'s {}", extract_ident_name(object, interner), interner.resolve(*field));
             output.push_str(&format!(
-                "Let {} be a new CResolve with target \"{}\".\n",
-                var, target_name
+                "Let {} be a new CResolveTo with target \"{}\" and value {}.\n",
+                var, target_name, value_var
             ));
         }
         Stmt::Sync { var: sync_var, topic } => {
@@ -8428,8 +8483,7 @@ fn encode_stmt_src(
                 let branch_var = format!("e_{}", *counter);
                 *counter += 1;
                 output.push_str(&format!("Let {} be a new Seq of CStmt.\n", branch_var));
-                let sv = encode_stmt_src(stmt, counter, output, interner, variants);
-                if !sv.is_empty() {
+                for sv in encode_stmts_src(stmt, counter, output, interner, variants) {
                     output.push_str(&format!("Push {} to {}.\n", sv, branch_var));
                 }
                 output.push_str(&format!("Push {} to {}.\n", branch_var, branches_var));
@@ -8448,8 +8502,7 @@ fn encode_stmt_src(
                 let branch_var = format!("e_{}", *counter);
                 *counter += 1;
                 output.push_str(&format!("Let {} be a new Seq of CStmt.\n", branch_var));
-                let sv = encode_stmt_src(stmt, counter, output, interner, variants);
-                if !sv.is_empty() {
+                for sv in encode_stmts_src(stmt, counter, output, interner, variants) {
                     output.push_str(&format!("Push {} to {}.\n", sv, branch_var));
                 }
                 output.push_str(&format!("Push {} to {}.\n", branch_var, branches_var));
@@ -8592,8 +8645,7 @@ fn encode_stmt_src(
                         *counter += 1;
                         output.push_str(&format!("Let {} be a new Seq of CStmt.\n", body_var));
                         for stmt in body.iter() {
-                            let sv = encode_stmt_src(stmt, counter, output, interner, variants);
-                            if !sv.is_empty() {
+                            for sv in encode_stmts_src(stmt, counter, output, interner, variants) {
                                 output.push_str(&format!("Push {} to {}.\n", sv, body_var));
                             }
                         }
@@ -8611,8 +8663,7 @@ fn encode_stmt_src(
                         *counter += 1;
                         output.push_str(&format!("Let {} be a new Seq of CStmt.\n", body_var));
                         for stmt in body.iter() {
-                            let sv = encode_stmt_src(stmt, counter, output, interner, variants);
-                            if !sv.is_empty() {
+                            for sv in encode_stmts_src(stmt, counter, output, interner, variants) {
                                 output.push_str(&format!("Push {} to {}.\n", sv, body_var));
                             }
                         }
@@ -8696,8 +8747,7 @@ fn encode_stmt_src(
             *counter += 1;
             output.push_str(&format!("Let {} be a new Seq of CStmt.\n", body_var));
             for stmt in body.iter() {
-                let sv = encode_stmt_src(stmt, counter, output, interner, variants);
-                if !sv.is_empty() {
+                for sv in encode_stmts_src(stmt, counter, output, interner, variants) {
                     output.push_str(&format!("Push {} to {}.\n", sv, body_var));
                 }
             }
@@ -8758,11 +8808,13 @@ fn encode_stmt_src(
         | Stmt::ExpectOutput { .. }
         | Stmt::AdvanceTime { .. }
         | Stmt::GivenFile { .. }
-        // Observation emission is not yet part of the projection (Wave 7/13);
-        // `During` is scope-transparent and its body is encoded by the caller's
-        // list walk, so both contribute no body encoding of their own.
+        // Observation emission is not yet part of the projection (Wave 7/13). `During`, `Splice` and `Reversibly:`
+        // run their bodies in the block they stand in, which every list walk splices them into, so none has an
+        // encoding of its own.
         | Stmt::Observe { .. }
         | Stmt::During { .. }
+        | Stmt::Splice { .. }
+        | Stmt::Reversibly { .. }
         | Stmt::ForAll { .. } => {
             return String::new();
         }
@@ -8771,216 +8823,80 @@ fn encode_stmt_src(
     var
 }
 
+/// An arm for an `Inspect`'s `variant` that no arm of the program covers, as construction text: it stops with the
+/// language's `report` (see [`uncovered_variants`]). Pushed onto `arms_var`.
+fn push_unhandled_arm_src(variant: &str, report: &str, arms_var: &str, counter: &mut usize, output: &mut String) {
+    let body_var = format!("stmtList_{}", *counter);
+    *counter += 1;
+    output.push_str(&format!("Let {} be a new Seq of CStmt.\n", body_var));
+    output.push_str(&format!(
+        "Push (a new CFail with reason (a new CText with value \"{}\")) to {}.\n",
+        report, body_var
+    ));
+    let arm_var = format!("arm_{}", *counter);
+    *counter += 1;
+    output.push_str(&format!(
+        "Let {} be a new CWhen with variantName \"{}\" and bindings (a new Seq of Text) and body {}.\n",
+        arm_var, variant, body_var
+    ));
+    output.push_str(&format!("Push {} to {}.\n", arm_var, arms_var));
+}
+
 fn encode_stmts_src(
     stmt: &Stmt,
     counter: &mut usize,
     output: &mut String,
     interner: &Interner,
-    variants: &HashMap<String, Vec<String>>,
+    variants: &VCtors,
 ) -> Vec<String> {
     match stmt {
         Stmt::Inspect { target, arms, .. } => {
-            let mut otherwise_stmts: Vec<&Stmt> = Vec::new();
-            let mut variant_arms: Vec<(&MatchArm, Vec<&Stmt>)> = Vec::new();
-
+            let target_var = encode_expr_src(target, counter, output, interner, variants);
+            let arms_var = format!("arms_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!("Let {} be a new Seq of CMatchArm.\n", arms_var));
             for arm in arms {
-                if arm.variant.is_none() {
-                    otherwise_stmts = arm.body.iter().collect();
-                } else {
-                    let body_refs: Vec<&Stmt> = arm.body.iter().collect();
-                    variant_arms.push((arm, body_refs));
-                }
-            }
-
-            if variant_arms.is_empty() {
-                let mut result = Vec::new();
-                for s in &otherwise_stmts {
-                    for v in encode_stmts_src(s, counter, output, interner, variants) {
-                        result.push(v);
-                    }
-                }
-                return result;
-            }
-
-            // Flat CIf encoding: each arm becomes an independent CIf with empty else.
-            // Since Inspect arms are mutually exclusive (exactly one tag matches),
-            // flat CIf is semantically equivalent to nested CIf chains but avoids
-            // deep nesting that the interpreter's inline CIf handler can't navigate.
-            let has_otherwise = !otherwise_stmts.is_empty();
-            let mut result = Vec::new();
-
-            // If there's an Otherwise block, track whether any arm matched
-            let matched_var_name = if has_otherwise {
-                // The flag name uses the DETERMINISTIC per-program Inspect-Otherwise index (shared with
-                // the native builder), NOT the global intermediate counter — so the fast builder can
-                // reproduce this desugaring byte-for-byte. The `counter` bump is kept so every OTHER
-                // (source-only, non-wire) intermediate name downstream is unchanged.
-                let name = format!("__inspectMatched_{}", next_inspect_otherwise_idx());
+                let body_stmts: Vec<&Stmt> = arm.body.iter().collect();
+                let body_var = encode_stmt_list_src(&body_stmts, counter, output, interner, variants);
+                let arm_var = format!("arm_{}", *counter);
                 *counter += 1;
-                let false_expr = format!("e_{}", *counter);
-                *counter += 1;
-                output.push_str(&format!(
-                    "Let {} be a new CBool with value false.\n",
-                    false_expr
-                ));
-                let let_stmt = format!("s_{}", *counter);
-                *counter += 1;
-                output.push_str(&format!(
-                    "Let {} be a new CLet with name \"{}\" and expr {}.\n",
-                    let_stmt, name, false_expr
-                ));
-                result.push(let_stmt);
-                Some(name)
-            } else {
-                None
-            };
-
-            // Each variant arm becomes: CIf(tag == "Variant", [bindings + body], [])
-            for (arm, body_stmts) in &variant_arms {
-                let variant_name = interner.resolve(arm.variant.unwrap());
-
-                // Condition: tag == "VariantName"
-                let tag_target = encode_expr_src(target, counter, output, interner, variants);
-                let tag_key = format!("e_{}", *counter);
-                *counter += 1;
-                output.push_str(&format!(
-                    "Let {} be a new CText with value \"__tag\".\n",
-                    tag_key
-                ));
-                let tag_get = format!("e_{}", *counter);
-                *counter += 1;
-                output.push_str(&format!(
-                    "Let {} be a new CMapGet with target {} and key {}.\n",
-                    tag_get, tag_target, tag_key
-                ));
-                let variant_text = format!("e_{}", *counter);
-                *counter += 1;
-                output.push_str(&format!(
-                    "Let {} be a new CText with value \"{}\".\n",
-                    variant_text, variant_name
-                ));
-                let cond_var = format!("e_{}", *counter);
-                *counter += 1;
-                output.push_str(&format!(
-                    "Let {} be a new CBinOp with op \"==\" and left {} and right {}.\n",
-                    cond_var, tag_get, variant_text
-                ));
-
-                // Then-block: [optionally set matched flag, bindings, body]
-                let then_list = format!("stmtList_{}", *counter);
-                *counter += 1;
-                output.push_str(&format!("Let {} be a new Seq of CStmt.\n", then_list));
-
-                // Set matched flag if needed
-                if let Some(ref mname) = matched_var_name {
-                    let true_expr = format!("e_{}", *counter);
-                    *counter += 1;
-                    output.push_str(&format!(
-                        "Let {} be a new CBool with value true.\n",
-                        true_expr
-                    ));
-                    let set_stmt = format!("s_{}", *counter);
-                    *counter += 1;
-                    output.push_str(&format!(
-                        "Let {} be a new CSet with name \"{}\" and expr {}.\n",
-                        set_stmt, mname, true_expr
-                    ));
-                    output.push_str(&format!("Push {} to {}.\n", set_stmt, then_list));
-                }
-
-                // Bindings
-                for (field_name, binding_name) in &arm.bindings {
-                    let field_str = interner.resolve(*field_name);
-                    let bind_str = interner.resolve(*binding_name);
-                    let bind_target = encode_expr_src(target, counter, output, interner, variants);
-                    let fkey = format!("e_{}", *counter);
-                    *counter += 1;
-                    output.push_str(&format!(
-                        "Let {} be a new CText with value \"{}\".\n",
-                        fkey, field_str
-                    ));
-                    let fget = format!("e_{}", *counter);
-                    *counter += 1;
-                    output.push_str(&format!(
-                        "Let {} be a new CMapGet with target {} and key {}.\n",
-                        fget, bind_target, fkey
-                    ));
-                    let bind_let = format!("s_{}", *counter);
-                    *counter += 1;
-                    output.push_str(&format!(
-                        "Let {} be a new CLet with name \"{}\" and expr {}.\n",
-                        bind_let, bind_str, fget
-                    ));
-                    output.push_str(&format!("Push {} to {}.\n", bind_let, then_list));
-                }
-
-                // Body statements (use encode_stmts_src for Inspect/Repeat)
-                for body_stmt in body_stmts {
-                    match body_stmt {
-                        Stmt::Inspect { .. } | Stmt::Repeat { .. } => {
-                            let vars =
-                                encode_stmts_src(body_stmt, counter, output, interner, variants);
-                            for v in vars {
-                                output.push_str(&format!("Push {} to {}.\n", v, then_list));
-                            }
+                match arm.variant {
+                    Some(variant_sym) => {
+                        let bindings_var = format!("bindings_{}", *counter);
+                        *counter += 1;
+                        output.push_str(&format!("Let {} be a new Seq of Text.\n", bindings_var));
+                        for (_, binding_name) in &arm.bindings {
+                            output.push_str(&format!(
+                                "Push \"{}\" to {}.\n",
+                                interner.resolve(*binding_name),
+                                bindings_var
+                            ));
                         }
-                        _ => {
-                            let bvar =
-                                encode_stmt_src(body_stmt, counter, output, interner, variants);
-                            if !bvar.is_empty() {
-                                output.push_str(&format!("Push {} to {}.\n", bvar, then_list));
-                            }
-                        }
+                        output.push_str(&format!(
+                            "Let {} be a new CWhen with variantName \"{}\" and bindings {} and body {}.\n",
+                            arm_var,
+                            interner.resolve(variant_sym),
+                            bindings_var,
+                            body_var
+                        ));
                     }
+                    None => output.push_str(&format!(
+                        "Let {} be a new COtherwise with body {}.\n",
+                        arm_var, body_var
+                    )),
                 }
-
-                // Empty else block
-                let empty_else = format!("stmtList_{}", *counter);
-                *counter += 1;
-                output.push_str(&format!("Let {} be a new Seq of CStmt.\n", empty_else));
-
-                // CIf node
-                let if_var = format!("s_{}", *counter);
-                *counter += 1;
-                output.push_str(&format!(
-                    "Let {} be a new CIf with cond {} and thenBlock {} and elseBlock {}.\n",
-                    if_var, cond_var, then_list, empty_else
-                ));
-
-                result.push(if_var);
+                output.push_str(&format!("Push {} to {}.\n", arm_var, arms_var));
             }
-
-            // Otherwise: CIf(CNot(__inspectMatched), otherwise_body, [])
-            if let Some(ref mname) = matched_var_name {
-                let matched_ref = format!("e_{}", *counter);
-                *counter += 1;
-                output.push_str(&format!(
-                    "Let {} be a new CVar with name \"{}\".\n",
-                    matched_ref, mname
-                ));
-                let not_matched = format!("e_{}", *counter);
-                *counter += 1;
-                output.push_str(&format!(
-                    "Let {} be a new CNot with inner {}.\n",
-                    not_matched, matched_ref
-                ));
-
-                let otherwise_block =
-                    encode_stmt_list_src(&otherwise_stmts, counter, output, interner, variants);
-                let empty_else = format!("stmtList_{}", *counter);
-                *counter += 1;
-                output.push_str(&format!("Let {} be a new Seq of CStmt.\n", empty_else));
-
-                let otherwise_if = format!("s_{}", *counter);
-                *counter += 1;
-                output.push_str(&format!(
-                    "Let {} be a new CIf with cond {} and thenBlock {} and elseBlock {}.\n",
-                    otherwise_if, not_matched, otherwise_block, empty_else
-                ));
-                result.push(otherwise_if);
+            for (variant, report) in uncovered_variants(arms, interner, variants) {
+                push_unhandled_arm_src(&variant, &report, &arms_var, counter, output);
             }
-
-            result
+            let inspect_var = format!("s_{}", *counter);
+            *counter += 1;
+            output.push_str(&format!(
+                "Let {} be a new CInspect with target {} and arms {}.\n",
+                inspect_var, target_var, arms_var
+            ));
+            vec![inspect_var]
         }
         Stmt::Repeat {
             pattern,
@@ -8988,24 +8904,22 @@ fn encode_stmts_src(
             body,
             ..
         } => {
-            let loop_var_name = match pattern {
-                Pattern::Identifier(sym) => interner.resolve(*sym).to_string(),
-                Pattern::Tuple(syms) => {
-                    if let Some(s) = syms.first() {
-                        interner.resolve(*s).to_string()
-                    } else {
-                        "item".to_string()
-                    }
-                }
-            };
+            let (loop_var_name, components) = repeat_binders(pattern, interner);
 
             // Range-based repeat: encode as CRepeatRange
             if let Expr::Range { start, end } = iterable {
                 let start_var = encode_expr_src(start, counter, output, interner, variants);
                 let end_var = encode_expr_src(end, counter, output, interner, variants);
                 let body_stmts: Vec<&Stmt> = body.iter().collect();
-                let body_var =
-                    encode_stmt_list_src(&body_stmts, counter, output, interner, variants);
+                let body_var = encode_repeat_body_src(
+                    &components,
+                    &loop_var_name,
+                    &body_stmts,
+                    counter,
+                    output,
+                    interner,
+                    variants,
+                );
                 let rr = format!("s_{}", *counter);
                 *counter += 1;
                 output.push_str(&format!(
@@ -9018,7 +8932,15 @@ fn encode_stmts_src(
             // Collection-based repeat: encode as CRepeat
             let coll_var = encode_expr_src(iterable, counter, output, interner, variants);
             let body_stmts: Vec<&Stmt> = body.iter().collect();
-            let body_var = encode_stmt_list_src(&body_stmts, counter, output, interner, variants);
+            let body_var = encode_repeat_body_src(
+                &components,
+                &loop_var_name,
+                &body_stmts,
+                counter,
+                output,
+                interner,
+                variants,
+            );
             let rep = format!("s_{}", *counter);
             *counter += 1;
             output.push_str(&format!(
@@ -9027,33 +8949,25 @@ fn encode_stmts_src(
             ));
             vec![rep]
         }
-        // A CRDT op through a struct field (`Add x to p's guests`, `Append x to d's lines`)
-        // — force the base struct dynamic FIRST, so the PE doesn't statically fold a struct
-        // it then mutates, then emit the op itself.
-        Stmt::Add { collection, .. }
-        | Stmt::Remove { collection, .. }
-        | Stmt::AppendToSequence {
-            sequence: collection,
-            ..
-        } => {
-            let mut result = Vec::new();
-            if let Some(fd) = emit_force_dynamic(collection, counter, output, interner) {
-                result.push(fd);
+        // `During <span>:` only names a span, and a `Splice` (a desugaring's statements) and a `Reversibly:` block
+        // add no scope: each body runs where it stands, in the enclosing block.
+        Stmt::During { body, .. } | Stmt::Splice { body } | Stmt::Reversibly { body } => {
+            let mut vars = Vec::new();
+            for inner in body.iter() {
+                vars.extend(encode_stmts_src(inner, counter, output, interner, variants));
             }
-            let v = encode_stmt_src(stmt, counter, output, interner, variants);
-            if !v.is_empty() {
-                result.push(v);
-            }
-            result
+            vars
         }
-        // A CRDT op that mutates the WHOLE struct (`Increase c's score`, `Merge b into a`) —
-        // force the struct's root variable dynamic first, so the PE doesn't fold a counter /
-        // register it then mutates.
-        Stmt::IncreaseCrdt { object, .. }
-        | Stmt::DecreaseCrdt { object, .. }
-        | Stmt::ResolveConflict { object, .. }
-        | Stmt::MergeCrdt { target: object, .. }
-        | Stmt::JoinCrdt { target: object, .. } => {
+        // A write through a field path (`Push x to b's items`, `Increase c's points by 1`) is the write wrapped in
+        // the place it writes: `CAtPath` (see `write_place`).
+        _ if write_place(stmt, interner).is_some() => {
+            let (root, path) = write_place(stmt, interner).expect("a field path");
+            let inner = encode_stmt_src(stmt, counter, output, interner, variants);
+            vec![at_path_src(&root, &path, &inner, counter, output)]
+        }
+        // A merge into a whole struct (`Merge b into a`) — force the struct's root variable dynamic first, so the PE
+        // doesn't fold a register it then mutates.
+        Stmt::MergeCrdt { target: object, .. } | Stmt::JoinCrdt { target: object, .. } => {
             let mut result = Vec::new();
             if let Some(fd) = emit_force_dynamic_struct(object, counter, output, interner) {
                 result.push(fd);
@@ -9080,11 +8994,28 @@ fn encode_stmt_list_src(
     counter: &mut usize,
     output: &mut String,
     interner: &Interner,
-    variants: &HashMap<String, Vec<String>>,
+    variants: &VCtors,
+) -> String {
+    encode_repeat_body_src(&[], "", stmts, counter, output, interner, variants)
+}
+
+/// [`encode_stmt_list_src`] for a loop body: the statements that bind a tuple pattern's components (see
+/// [`repeat_binders`]) come first.
+fn encode_repeat_body_src(
+    components: &[String],
+    loop_var: &str,
+    stmts: &[&Stmt],
+    counter: &mut usize,
+    output: &mut String,
+    interner: &Interner,
+    variants: &VCtors,
 ) -> String {
     let list_var = format!("stmtList_{}", *counter);
     *counter += 1;
     output.push_str(&format!("Let {} be a new Seq of CStmt.\n", list_var));
+    for binder in tuple_binder_stmts(components, loop_var) {
+        output.push_str(&format!("Push {} to {}.\n", binder, list_var));
+    }
 
     for stmt in stmts {
         for stmt_var in encode_stmts_src(stmt, counter, output, interner, variants) {
@@ -9113,28 +9044,58 @@ fn extract_ident_name(expr: &Expr, interner: &Interner) -> String {
     }
 }
 
-/// The ROOT variable a CRDT target mutates: `p's guests` → `p`, a bare `s` → `s`. The PE
-/// can't fold a struct it later mutates through a field, so when this differs from the
-/// surface target (i.e. the target IS a struct field) the encoder emits a [`CForceDynamic`]
-/// marker that forces `p` dynamic. Computed in Rust so the self-interpreter — which must
-/// compile to statically-typed Rust for self-application — never parses the field path.
-fn crdt_base_var(expr: &Expr, interner: &Interner) -> Option<String> {
-    match expr {
-        Expr::FieldAccess { object, .. } => Some(crdt_base_var_root(object, interner)),
+/// The clock read the name `name` is, whatever binds it: the language reads `now` and `today` as the clock even where a
+/// binding shadows them.
+fn clock_read(name: &str) -> Option<&'static str> {
+    match name {
+        "now" => Some("CTimeNow"),
+        "today" => Some("CDateToday"),
         _ => None,
     }
 }
 
-fn crdt_base_var_root(expr: &Expr, interner: &Interner) -> String {
+/// Where a write statement writes when that is a field path — `Push x to b's items`, `Set p's pos's x to 3`,
+/// `Increase c's points by 1` — as its root variable and the fields from the root to the place; `None` for a write to
+/// a plain variable, and for every other statement. The Core IR wraps such a write in `CAtPath`: the write keeps the
+/// place's spelling (`b's items`) as its target, the self-interpreter binds the place's value under that spelling,
+/// runs the write and writes the value back along the path, and a specializer forces the root dynamic. Computed here
+/// so the self-interpreter — which must compile to statically-typed Rust for self-application — never parses a path.
+fn write_place(stmt: &Stmt, interner: &Interner) -> Option<(String, Vec<String>)> {
+    let (target, last) = match stmt {
+        Stmt::Push { collection, .. }
+        | Stmt::Pop { collection, .. }
+        | Stmt::Add { collection, .. }
+        | Stmt::Remove { collection, .. }
+        | Stmt::SetIndex { collection, .. } => (*collection, None),
+        Stmt::AppendToSequence { sequence, .. } => (*sequence, None),
+        Stmt::MergeCrdt { target, .. } | Stmt::JoinCrdt { target, .. } => (*target, None),
+        Stmt::SetField { object, .. } => (*object, None),
+        Stmt::IncreaseCrdt { object, field, .. }
+        | Stmt::DecreaseCrdt { object, field, .. }
+        | Stmt::ResolveConflict { object, field, .. } => (*object, Some(*field)),
+        _ => return None,
+    };
+    let (root, mut path) = field_path(target, interner)?;
+    path.extend(last.map(|f| interner.resolve(f).to_string()));
+    (!path.is_empty()).then_some((root, path))
+}
+
+/// A variable or a chain of field reads from one, as the variable and the fields in order: `p's pos's x` is `p` and
+/// `[pos, x]`.
+fn field_path(expr: &Expr, interner: &Interner) -> Option<(String, Vec<String>)> {
     match expr {
-        Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
-        Expr::FieldAccess { object, .. } => crdt_base_var_root(object, interner),
-        _ => "unknown".to_string(),
+        Expr::Identifier(sym) => Some((interner.resolve(*sym).to_string(), Vec::new())),
+        Expr::FieldAccess { object, field } => {
+            let (root, mut path) = field_path(object, interner)?;
+            path.push(interner.resolve(*field).to_string());
+            Some((root, path))
+        }
+        _ => None,
     }
 }
 
-/// Emit a `CForceDynamic` node binding `base` and return its node var. Prepended before a
-/// CRDT op so the PE invalidates the (struct) binding before it can fold it.
+/// Emit a `CForceDynamic` node binding `base` and return its node var, prepended before a merge into a whole
+/// struct so the PE invalidates the binding before it can fold it.
 fn emit_force_dynamic_named(base: &str, counter: &mut usize, output: &mut String) -> String {
     let v = format!("s_{}", *counter);
     *counter += 1;
@@ -9145,20 +9106,8 @@ fn emit_force_dynamic_named(base: &str, counter: &mut usize, output: &mut String
     v
 }
 
-/// `CForceDynamic` for a COLLECTION op (`Add`/`Remove`/`Append`): only a struct-field target
-/// needs it (a bare-variable collection is one the PE already tracks). `None` for bare vars.
-fn emit_force_dynamic(
-    collection: &Expr,
-    counter: &mut usize,
-    output: &mut String,
-    interner: &Interner,
-) -> Option<String> {
-    let base = crdt_base_var(collection, interner)?;
-    Some(emit_force_dynamic_named(&base, counter, output))
-}
-
-/// `CForceDynamic` for a struct-MUTATING CRDT op (`Increase`/`Decrease`/`Resolve`/`Merge`):
-/// the whole struct is mutated, so its root variable is ALWAYS forced dynamic.
+/// `CForceDynamic` for a merge into a whole struct (`Merge b into a`): the whole struct is mutated, so its root
+/// variable is always forced dynamic.
 fn emit_force_dynamic_struct(
     object: &Expr,
     counter: &mut usize,
@@ -9166,11 +9115,7 @@ fn emit_force_dynamic_struct(
     interner: &Interner,
 ) -> Option<String> {
     match object {
-        Expr::Identifier(_) | Expr::FieldAccess { .. } => Some(emit_force_dynamic_named(
-            &crdt_base_var_root(object, interner),
-            counter,
-            output,
-        )),
+        Expr::Identifier(sym) => Some(emit_force_dynamic_named(interner.resolve(*sym), counter, output)),
         _ => None,
     }
 }
@@ -9514,17 +9459,18 @@ fn decompile_stmt(stmt: &Stmt, interner: &Interner, out: &mut String, indent: us
         } => {
             let var_name = match pattern {
                 Pattern::Identifier(sym) => interner.resolve(*sym).to_string(),
-                Pattern::Tuple(syms) => syms
-                    .iter()
-                    .map(|s| interner.resolve(*s).to_string())
-                    .collect::<Vec<_>>()
-                    .join(", "),
+                Pattern::Tuple(syms) => format!(
+                    "({})",
+                    syms.iter().map(|s| interner.resolve(*s).to_string()).collect::<Vec<_>>().join(", ")
+                ),
             };
-            let iter_str = decompile_expr(iterable, interner);
-            out.push_str(&format!(
-                "{}Repeat for {} in {}:\n",
-                pad, var_name, iter_str
-            ));
+            let source = match iterable {
+                Expr::Range { start, end } => {
+                    format!("from {} to {}", decompile_expr(start, interner), decompile_expr(end, interner))
+                }
+                other => format!("in {}", decompile_expr(other, interner)),
+            };
+            out.push_str(&format!("{}Repeat for {} {}:\n", pad, var_name, source));
             for s in body.iter() {
                 decompile_stmt(s, interner, out, indent + 1);
             }
@@ -9692,6 +9638,19 @@ fn decompile_stmt(stmt: &Stmt, interner: &Interner, out: &mut String, indent: us
     }
 }
 
+/// An operand of a binary operator as the program writes it: parenthesized when it is itself an operation, or a
+/// constructor ending in its type (`a new Seq of Int`), whose type would take the operator that follows.
+fn decompile_operand(expr: &Expr, interner: &Interner) -> String {
+    let construction = matches!(expr, Expr::New { .. } | Expr::NewVariant { .. });
+    let spelled_in_words =
+        matches!(expr, Expr::Literal(Literal::Moment(_) | Literal::Span { .. }) | Expr::Dom(_));
+    if matches!(expr, Expr::BinaryOp { .. }) || construction || spelled_in_words {
+        format!("({})", decompile_expr(expr, interner))
+    } else {
+        decompile_expr(expr, interner)
+    }
+}
+
 fn decompile_expr(expr: &Expr, interner: &Interner) -> String {
     match expr {
         Expr::Dom(q) => match q.selector() {
@@ -9709,27 +9668,19 @@ fn decompile_expr(expr: &Expr, interner: &Interner) -> String {
                     "false".to_string()
                 }
             }
-            Literal::Text(s) => format!("\"{}\"", interner.resolve(*s)),
+            Literal::Text(s) => text_literal(interner.resolve(*s)),
             Literal::Nothing => "nothing".to_string(),
-            Literal::Char(c) => format!("'{}'", c),
-            Literal::Duration(ns) => format!("{}", ns),
-            Literal::Date(days) => format!("{}", days),
-            Literal::Moment(ns) => format!("{}", ns),
-            Literal::Span { months, days } => format!("{} months {} days", months, days),
-            Literal::Time(ns) => format!("{}", ns),
+            Literal::Char(_)
+            | Literal::Duration(_)
+            | Literal::Date(_)
+            | Literal::Moment(_)
+            | Literal::Span { .. }
+            | Literal::Time(_) => CoreAtom::of_literal(lit).expect("a temporal or character literal is an atom").expression(),
         },
         Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
         Expr::BinaryOp { op, left, right } => {
-            let l = if matches!(left, Expr::BinaryOp { .. }) {
-                format!("({})", decompile_expr(left, interner))
-            } else {
-                decompile_expr(left, interner)
-            };
-            let r = if matches!(right, Expr::BinaryOp { .. }) {
-                format!("({})", decompile_expr(right, interner))
-            } else {
-                decompile_expr(right, interner)
-            };
+            let l = decompile_operand(left, interner);
+            let r = decompile_operand(right, interner);
             // Shift operations are introduced by bit-strength optimization.
             // Map back to equivalent multiply/divide for LOGOS source.
             if matches!(op, BinaryOpKind::Shl) {
@@ -9746,31 +9697,7 @@ fn decompile_expr(expr: &Expr, interner: &Interner) -> String {
                     return format!("{} / {}", l, divisor);
                 }
             }
-            let op_str = match op {
-                BinaryOpKind::Add => "+",
-                BinaryOpKind::Subtract => "-",
-                BinaryOpKind::Multiply => "*",
-                BinaryOpKind::Divide | BinaryOpKind::ExactDivide => "/",
-                BinaryOpKind::FloorDivide => "//",
-                BinaryOpKind::Modulo => "%",
-                BinaryOpKind::Eq => "equals",
-                BinaryOpKind::NotEq => "is not",
-                BinaryOpKind::Lt => "is less than",
-                BinaryOpKind::Gt => "is greater than",
-                BinaryOpKind::LtEq => "is at most",
-                BinaryOpKind::GtEq => "is at least",
-                BinaryOpKind::And => "and",
-                BinaryOpKind::Or => "or",
-                BinaryOpKind::Concat => "+",
-                BinaryOpKind::SeqConcat => "followed by",
-                BinaryOpKind::ApproxEq => "is approximately",
-                BinaryOpKind::Pow => "**",
-                BinaryOpKind::BitXor => "+",
-                BinaryOpKind::BitAnd => "&",
-                BinaryOpKind::BitOr => "|",
-                BinaryOpKind::Shl => "*",
-                BinaryOpKind::Shr => "/",
-            };
+            let op_str = crate::semantics::operator_overloads::surface_text(*op);
             format!("{} {} {}", l, op_str, r)
         }
         Expr::Not { operand } => {
@@ -9854,15 +9781,13 @@ fn decompile_expr(expr: &Expr, interner: &Interner) -> String {
             for part in parts {
                 match part {
                     StringPart::Literal(sym) => {
-                        result.push_str(&interner.resolve(*sym));
+                        result.push_str(&text_literal_body(interner.resolve(*sym)));
                     }
-                    StringPart::Expr { value, debug, .. } => {
+                    StringPart::Expr { value, debug, format_spec } => {
                         let expr_str = decompile_expr(value, interner);
-                        if *debug {
-                            result.push_str(&format!("{{{}=}}", expr_str));
-                        } else {
-                            result.push_str(&format!("{{{}}}", expr_str));
-                        }
+                        let spec = format_spec.map(|s| format!(":{}", interner.resolve(s))).unwrap_or_default();
+                        let label = if *debug { "=" } else { "" };
+                        result.push_str(&format!("{{{expr_str}{label}{spec}}}"));
                     }
                 }
             }
@@ -9980,6 +9905,29 @@ fn generic_separator(base: &str) -> &'static str {
     match base {
         "Map" | "HashMap" | "SharedMap" | "ORMap" => " to ",
         _ => " and ",
+    }
+}
+
+/// What `a new Seq of T`, `a new Set of T` and `a new Map of K to V` build, for the Core IR: a sequence's or a set's
+/// element type, and a map's whole type (`Map of Text to Int`), each as LOGOS writes it. A collection whose type the
+/// program leaves open is `Any`.
+fn collection_type_text(type_name: &str, type_args: &[TypeExpr], interner: &Interner) -> String {
+    match type_name {
+        "Seq" | "List" | "Set" => type_args
+            .first()
+            .map(|t| decompile_type_expr(t, interner))
+            .unwrap_or_else(|| "Any".to_string()),
+        _ => {
+            if type_args.len() == 2 {
+                format!(
+                    "Map of {} to {}",
+                    decompile_type_expr(&type_args[0], interner),
+                    decompile_type_expr(&type_args[1], interner)
+                )
+            } else {
+                type_name.to_string()
+            }
+        }
     }
 }
 
@@ -10139,7 +10087,9 @@ const CORE_TYPE_NAMES: &[&str] = &[
     "CProgram",
     "CProg",
     "CoreOut",
-    "CoreOutR",
+    "CoreNext",
+    "CoreReturn",
+    "CoreBreak",
     "PEState",
     "PEStateR",
     "PEMiniState",
@@ -11318,25 +11268,33 @@ const CORE_TYPES_FOR_PE: &str = r#"
     A CIndex with coll CExpr and idx CExpr.
     A CLen with target CExpr.
     A CMapGet with target CExpr and key CExpr.
-    A CNewSeq.
+    A CNewSeq with elementType Text.
     A CNewVariant with tag Text and fnames Seq of Text and fvals Seq of CExpr.
     A CList with items Seq of CExpr.
     A CRange with start CExpr and end CExpr.
     A CSlice with coll CExpr and startIdx CExpr and endIdx CExpr.
     A CCopy with target CExpr.
-    A CNewSet.
+    A CNewSet with elementType Text.
     A CContains with coll CExpr and elem CExpr.
     A CUnion with left CExpr and right CExpr.
     A CIntersection with left CExpr and right CExpr.
     A COptionSome with inner CExpr.
     A COptionNone.
+    A CNothing.
+    A CDeclaredDefault with typeName Text.
+    A CSpelled with code Text and awaits Text.
     A CTuple with items Seq of CExpr.
     A CNew with typeName Text and fieldNames Seq of Text and fields Seq of CExpr.
     A CFieldAccess with target CExpr and field Text.
     A CClosure with params Seq of Text and body Seq of CStmt and captured Seq of Text.
     A CCallExpr with target CExpr and args Seq of CExpr.
     A CInterpolatedString with parts Seq of CStringPart.
-    A CDuration with amount CExpr and unit Text.
+    A CDuration with value Duration.
+    A CDate with value Date.
+    A CMoment with value Moment.
+    A CSpan with value Span.
+    A CTime with value Time.
+    A CChar with value Char.
     A CTimeNow.
     A CDateToday.
     A CEscExpr with code Text.
@@ -11346,6 +11304,7 @@ const CORE_TYPES_FOR_PE: &str = r#"
 ## A CStringPart is one of:
     A CLiteralPart with value Text.
     A CExprPart with expr CExpr.
+    A CFormattedPart with expr CExpr and spec Text and form Text and size Int.
 
 ## A CStmt is one of:
     A CLet with name Text and expr CExpr.
@@ -11359,6 +11318,7 @@ const CORE_TYPES_FOR_PE: &str = r#"
     A CSetIdx with target Text and idx CExpr and val CExpr.
     A CMapSet with target Text and key CExpr and val CExpr.
     A CPop with target Text.
+    A CPopInto with target Text and into Text.
     A CRepeat with var Text and coll CExpr and body Seq of CStmt.
     A CRepeatRange with var Text and start CExpr and end CExpr and body Seq of CStmt.
     A CBreak.
@@ -11366,11 +11326,13 @@ const CORE_TYPES_FOR_PE: &str = r#"
     A CRemove with elem CExpr and target Text.
     A CForceDynamic with name Text.
     A CSetField with target Text and field Text and val CExpr.
+    A CAtPath with target Text and path Seq of Text and body Seq of CStmt.
     A CStructDef with name Text and fieldNames Seq of Text.
     A CInspect with target CExpr and arms Seq of CMatchArm.
     A CEnumDef with name Text and variants Seq of Text.
     A CRuntimeAssert with cond CExpr and msg CExpr.
     A CHardAssert with cond CExpr and msg CExpr.
+    A CFail with reason CExpr.
     A CGive with expr CExpr and target Text.
     A CEscStmt with code Text.
     A CSleep with duration CExpr.
@@ -11378,6 +11340,7 @@ const CORE_TYPES_FOR_PE: &str = r#"
     A CReadFile with path CExpr and target Text.
     A CWriteFile with path CExpr and content CExpr.
     A CCheck with predicate CExpr and msg CExpr.
+    A CCheckPolicy with subject Text and object Text and capability Bool and rule Text and alternatives Seq of CPolicyAlt and source Text.
     A CAssert with proposition CExpr.
     A CTrust with proposition CExpr and justification Text.
     A CRequire with dependency Text.
@@ -11387,6 +11350,7 @@ const CORE_TYPES_FOR_PE: &str = r#"
     A CDecrease with target Text and amount CExpr.
     A CAppendToSeq with target Text and value CExpr.
     A CResolve with target Text.
+    A CResolveTo with target Text and value CExpr.
     A CSync with target Text and channel CExpr.
     A CMount with target Text and path CExpr.
     A CConcurrent with branches Seq of Seq of CStmt.
@@ -11415,6 +11379,18 @@ const CORE_TYPES_FOR_PE: &str = r#"
     A CWhen with variantName Text and bindings Seq of Text and body Seq of CStmt.
     A COtherwise with body Seq of CStmt.
 
+## A CPolicyAlt is one of:
+    A CPolicyCase with typeName Text and condition CPolicy.
+
+## A CPolicy is one of:
+    A PFieldEquals with field Text and expected Text and literal Bool and asInt Int and isInt Bool and asBool Bool and isBool Bool.
+    A PFieldBool with field Text and value Bool.
+    A PFieldsEqual with subjectField Text and objectField Text.
+    A PAnd with left CPolicy and right CPolicy.
+    A POr with left CPolicy and right CPolicy.
+    A PFalse.
+    A PRecursive with predicate Text.
+
 ## A CFunc is one of:
     A CFuncDef with name Text and params Seq of Text and paramTypes Seq of Text and returnType Text and body Seq of CStmt.
 
@@ -11439,11 +11415,12 @@ const CORE_TYPES_FOR_PE: &str = r#"
     A VStruct with typeName Text and fields Map of Text to CVal.
     A VVariant with typeName Text and variantName Text and fields Seq of CVal.
     A VClosure with params Seq of Text and body Seq of CStmt and capturedEnv Map of Text to CVal.
-    A VDuration with millis Int.
-    A VDate with year Int and month Int and day Int.
-    A VMoment with millis Int.
-    A VSpan with startMillis Int and endMillis Int.
-    A VTime with hour Int and minute Int and second Int.
+    A VDuration with value Duration.
+    A VDate with value Date.
+    A VMoment with value Moment.
+    A VSpan with value Span.
+    A VTime with value Time.
+    A VChar with value Char.
     A VCrdt with kind Text and state Map of Text to CVal.
 "#;
 
@@ -11785,66 +11762,491 @@ pub fn core_interp_source() -> &'static str {
     include_str!("optimize/core_interp.logos")
 }
 
-/// The compile-once native partial evaluator's SOURCE: the PE engine + decompiler + a driver
-/// that reads its input `CProgram` from stdin (over the fast wire codec) instead of a baked-in
-/// constructor. Compiled ONCE (content-addressed on this text) with `WireEncode`/`WireDecode`
-/// emitted, it specializes any program handed to it as `program_to_core_wire_bytes` — the true
-/// Futamura "compiler as an artifact", at native speed. The driver body is identical to
-/// [`pe_combined_source`]'s (same transitive-decompile), only `encodedMain`/`encodedFuncMap`
-/// come from `readWireProgram()` rather than the encoded program text.
-/// The transitive-decompile driver logic shared by the resident-server PE (`pe_native_source`,
-/// terminal statement writes the residual to stdout) and the in-process cdylib PE
-/// (`pe_cdylib_source`, terminal statement `Return`s it). Everything up to that last statement is
-/// identical — computing `output`, the Jones-optimal residual source, from `encodedMain` +
-/// `encodedFuncMap`. Written at 0-base indent; the caller re-indents it under its enclosing arm.
+/// The offline specializer: a two-level program (`crate::optimize::mix_bta`) specialized by following its
+/// annotations alone, its static parts evaluated by [`core_interp_source`]. Its decisions are static in every
+/// self-application, so it is the specializer the textbook projections apply to itself.
+pub fn mix_source_text() -> &'static str {
+    include_str!("optimize/mix.logos")
+}
+
+/// The catalog the binding-time analysis reads constructors' fields from: the Core IR's, then `mix`'s.
+fn mix_catalog() -> String {
+    format!("{}\n{}", CORE_TYPES_FOR_PE, mix_source_text())
+}
+
+/// The type definitions of the programs a projection's residual is specialized from — `core_interp`'s outcomes, the
+/// decompiler's, `mix`'s two-level catalog, jobs and block outcomes — whose values the residual builds.
+fn mix_type_definitions() -> String {
+    let mut out = String::new();
+    for source in [core_interp_source(), decompile_source_text(), mix_source_text()] {
+        let mut in_type = false;
+        for line in source.lines() {
+            if line.starts_with("## A ") || line.starts_with("## An ") {
+                in_type = true;
+            } else if line.starts_with("## ") {
+                in_type = false;
+            }
+            if in_type {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+    }
+    out
+}
+
+/// Where the offline specializer runs: compiled once to native code, as the production specializer runs, or on the
+/// tree-walker, the semantic ground truth the native engine is held to.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum MixEngine {
+    Native,
+    TreeWalker,
+}
+
+impl MixEngine {
+    /// Native wherever a native engine can be built and loaded; the tree-walker in the browser.
+    pub fn default_engine() -> MixEngine {
+        if cfg!(target_arch = "wasm32") {
+            MixEngine::TreeWalker
+        } else {
+            MixEngine::Native
+        }
+    }
+}
+
+/// A specialization's static inputs: each name `mix` binds while specializing, with its value.
+type MixStore = Vec<(&'static str, crate::optimize::mix_bta::StoreEntry)>;
+
+/// The offline specializer applied, `[[mix]](program, store)`: `mix` specializes the two-level `program` with its
+/// static inputs bound by `store`, on `engine`. The residual is its functions, `## Main`, then its main block.
+fn mix_apply(
+    program: &crate::optimize::mix_bta::TwoLevelProgram,
+    store: &MixStore,
+    engine: MixEngine,
+) -> Result<String, String> {
+    let raw = match engine {
+        MixEngine::Native => mix_apply_native(program, store)?,
+        MixEngine::TreeWalker => {
+            let source = format!(
+                "{}\n{}\n{}\n{}\n{}\n{}\n## Main\nLet mixResidual be mixProgram(mixBuildMain(), mixBuildStore(), mixBuildFuncs(), mixBuildBFuncs()).\n{}",
+                CORE_TYPES_FOR_PE,
+                core_interp_source(),
+                decompile_source_text(),
+                mix_source_text(),
+                program.builders()?,
+                crate::optimize::mix_bta::store_builder("mixBuildStore", store, &mix_catalog())?,
+                MIX_PRINT_RESIDUAL
+            );
+            interpret_bootstrap(&source).map_err(|e| format!("mix failed: {}", describe_parse_error(&e)))?
+        }
+    };
+    Ok(raw.trim_end().to_string())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn mix_apply_native(_: &crate::optimize::mix_bta::TwoLevelProgram, _: &MixStore) -> Result<String, String> {
+    Err("the native offline specializer is not available in the browser".to_string())
+}
+
+/// [`mix_apply`] on the offline specializer compiled once to an in-process cdylib ([`build_native_mix_cdylib`]): the
+/// program and its store cross as wire bytes, the residual comes back as text.
+#[cfg(not(target_arch = "wasm32"))]
+fn mix_apply_native(program: &crate::optimize::mix_bta::TwoLevelProgram, store: &MixStore) -> Result<String, String> {
+    let bytes = program.mix_input_wire(store)?;
+    MIX_LIB.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        if slot.is_none() {
+            *slot = Some(NativeLib::load(&build_native_mix_cdylib()?, b"logos_mix_specialize")?);
+        }
+        slot.as_ref().expect("loaded").call(&bytes).map_err(|e| format!("mix failed: {e}"))
+    })
+}
+
+/// The driver a specialization run as a program ends with: the residual as `mixResidualText` prints it.
+const MIX_PRINT_RESIDUAL: &str = "Show mixResidualText(mixResidual).\n";
+
+/// The offline specializer as an in-process cdylib entry: `core_interp`, the decompiler and `mix`, with
+/// `mixSpecializeOnce`, exported for native, taking a two-level program and its store as one `MixInput` and
+/// returning the residual's text.
+pub fn mix_cdylib_source() -> String {
+    format!(
+        "{}\n{}\n{}\n{}\n## A MixInput is one of:\n    A MixIn with main Seq of BStmt and store Map of Text to CVal and funcs Map of Text to CFunc and bfuncs Map of Text to BFunc.\n\n## To mixSpecializeOnce (mixInput: MixInput) -> Text is exported for native:\n    Inspect mixInput:\n        When MixIn (inMain, inStore, inFuncs, inBFuncs):\n            Let inResidual be mixProgram(inMain, inStore, inFuncs, inBFuncs).\n            Return mixResidualText(inResidual).\n        Otherwise:\n            Return \"\".\n\n## Main\n    Let __x be 0.\n",
+        CORE_TYPES_FOR_PE,
+        core_interp_source(),
+        decompile_source_text(),
+        mix_source_text()
+    )
+}
+
+/// The FFI entry appended to the generated offline specializer: decode the `MixInput`, specialize, hand back the text.
+#[cfg(not(target_arch = "wasm32"))]
+fn mix_cdylib_shim() -> String {
+    native_engine_shim("logos_mix_specialize", "MixInput", "mixSpecializeOnce")
+}
+
+/// The offline specializer cdylib's `lib.rs`: [`mix_cdylib_source`] through the Rust emitter with the wire codec,
+/// under the reference collection semantics, followed by its FFI entry.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn native_mix_cdylib_lib_rs() -> Result<String, String> {
+    let generated = compile_bootstrap_engine(&mix_cdylib_source())
+        .map_err(|e| format!("native mix cdylib compile: {}", describe_parse_error(&e)))?
+        .rust_code;
+    Ok(format!("{generated}\n{}", mix_cdylib_shim()))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+thread_local! {
+    static NATIVE_MIX_CDYLIB: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
+    static MIX_LIB: std::cell::RefCell<Option<NativeLib>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Build (and cache) the offline specializer as an in-process cdylib exporting `logos_mix_specialize`,
+/// content-addressed on its source, shim and collection semantics.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn build_native_mix_cdylib() -> Result<std::path::PathBuf, String> {
+    if let Some(p) = NATIVE_MIX_CDYLIB.with(|c| c.borrow().clone()) {
+        if p.exists() {
+            return Ok(p);
+        }
+    }
+    let key = aot_cache_key(&format!("{}\n{}\n{BOOTSTRAP_SEMANTICS}", mix_cdylib_source(), mix_cdylib_shim()));
+    let so = build_logos_cdylib("logos_native_mix_cdylib", "logos_native_mix_lib", &format!("mix_{key}"), EngineBuild::Interpretive, native_mix_cdylib_lib_rs)?;
+    NATIVE_MIX_CDYLIB.with(|c| *c.borrow_mut() = Some(so.clone()));
+    Ok(so)
+}
+
+/// `definitions` followed by the lift types of their values ([`crate::optimize::mix_lift_types`]): the functions `mix`
+/// asks when it lifts a static value of the program they define.
+fn with_lift_types(definitions: String) -> String {
+    let types = crate::optimize::mix_lift_types::lift_types_source(&definitions);
+    format!("{definitions}\n{types}")
+}
+
+/// The self-interpreter's run of a program it reads from `progStmts`/`progFuncs`, with its lift types.
+fn self_interpreter_open_source() -> String {
+    format!(
+        "{}\n## Main\ncoreRun(progStmts, progFuncs, progArgs).\n",
+        with_lift_types(format!("{}\n{}", CORE_TYPES_FOR_PE, core_interp_source()))
+    )
+}
+
+/// `sint²`: the self-interpreter's run ([`self_interpreter_open_source`]) as a two-level program, the program it
+/// runs static.
+pub fn self_interpreter_two_level() -> Result<crate::optimize::mix_bta::TwoLevelProgram, String> {
+    let tree = program_to_core_tree(&self_interpreter_open_source())
+        .ok_or_else(|| "the self-interpreter is outside the native builder's coverage".to_string())?;
+    crate::optimize::mix_bta::annotate(&tree, &mix_catalog(), &["progStmts", "progFuncs", "progArgs"], &[])
+}
+
+/// `mix²`: the specializer's run on a two-level program it reads from `mixMain`, `mixFuncs` and `mixBFuncs` as a
+/// two-level program, that program static and the store it specializes with, `pStore`, dynamic.
+pub fn specializer_two_level() -> Result<crate::optimize::mix_bta::TwoLevelProgram, String> {
+    let run = format!(
+        "{}\n## Main\nLet mixResidual be mixProgram(mixMain, pStore, mixFuncs, mixBFuncs).\n{}",
+        with_lift_types(format!(
+            "{}\n{}\n{}\n{}",
+            CORE_TYPES_FOR_PE,
+            core_interp_source(),
+            decompile_source_text(),
+            mix_source_text()
+        )),
+        MIX_PRINT_RESIDUAL
+    );
+    let tree = program_to_core_tree(&run)
+        .ok_or_else(|| "the specializer's run is outside the native builder's coverage".to_string())?;
+    crate::optimize::mix_bta::annotate(&tree, &mix_catalog(), &["mixMain", "mixFuncs", "mixBFuncs"], &["pStore"])
+}
+
+/// A first projection of a program (`tree`, its `CProg`) that reads an input only when it runs is refused: the
+/// projection would read it while specializing. Its first projection keeps that input dynamic.
+fn refuse_run_time_input(tree: &CoreNode, arguments_dynamic: bool) -> Result<(), String> {
+    let functions: std::collections::HashSet<String> = match tree {
+        CoreNode::Ind(c, parts) if c == "CProg" => match parts.first() {
+            Some(CoreNode::List(fs)) => fs
+                .iter()
+                .filter_map(|f| match f {
+                    CoreNode::Ind(fc, fa) if fc == "CFuncDef" => match fa.first() {
+                        Some(CoreNode::Text(name)) => Some(name.clone()),
+                        _ => None,
+                    },
+                    _ => None,
+                })
+                .collect(),
+            _ => Default::default(),
+        },
+        _ => Default::default(),
+    };
+    match run_time_input(tree, &functions, arguments_dynamic) {
+        Some(input) => Err(format!(
+            "the program reads {input} when it runs: its first projection keeps that input dynamic, which the \
+             self-interpreter's specialization does not carry yet"
+        )),
+        None => Ok(()),
+    }
+}
+
+/// The first input a program reads only when it runs, in words, if it reads one: its arguments (unless
+/// `arguments_dynamic`: the specialization reads them as a run-time `args()`), the clock, the console or a file, or any
+/// builtin whose answer is not a function of its arguments (a random draw, the environment, the page, storage). The
+/// self-interpreter makes such a read where the program makes it, so specializing it to the program alone would make
+/// the read while specializing. A call by the name of one of the program's `functions` is the program's own. The offline
+/// binding-time analysis reads the same reads as dynamic in a program with a dynamic input.
+pub(crate) fn run_time_input(node: &CoreNode, functions: &std::collections::HashSet<String>, arguments_dynamic: bool) -> Option<String> {
+    use crate::semantics::builtins::{builtin_from_name, system_native, BuiltinEffect};
+    match node {
+        CoreNode::Ind(c, args) => {
+            let read = match c.as_str() {
+                "CTimeNow" | "CDateToday" => Some("the clock".to_string()),
+                "CReadConsole" => Some("the console".to_string()),
+                "CReadFile" => Some("a file".to_string()),
+                "CCall" | "CCallS" => match args.first() {
+                    Some(CoreNode::Text(name)) if functions.contains(name) => None,
+                    Some(CoreNode::Text(name)) if name == "args" => {
+                        (!arguments_dynamic).then(|| "its arguments (`args()`)".to_string())
+                    }
+                    Some(CoreNode::Text(name)) => {
+                        let arity = match args.get(1) {
+                            Some(CoreNode::List(a)) => a.len(),
+                            _ => 0,
+                        };
+                        builtin_from_name(name)
+                            .or_else(|| system_native(name, arity))
+                            .filter(|b| matches!(b.effect(), BuiltinEffect::Nondeterministic | BuiltinEffect::Effectful))
+                            .map(|_| format!("`{name}`"))
+                    }
+                    _ => None,
+                },
+                _ => None,
+            };
+            read.or_else(|| args.iter().find_map(|a| run_time_input(a, functions, arguments_dynamic)))
+        }
+        CoreNode::List(items) => items.iter().find_map(|a| run_time_input(a, functions, arguments_dynamic)),
+        _ => None,
+    }
+}
+
+/// `program` as the self-interpreter reads it: `progStmts`, its main block, and `progFuncs`, its functions by name,
+/// as its Core IR.
+fn program_store(program: &str) -> Result<MixStore, String> {
+    use crate::optimize::mix_bta::StoreEntry;
+    let tree = program_to_core_tree(&user_program_source(program))
+        .ok_or_else(|| "the program is outside the native builder's coverage".to_string())?;
+    refuse_run_time_input(&tree, false)?;
+    let CoreNode::Ind(c, mut parts) = tree else {
+        return Err("the program's Core IR is not a CProg".to_string());
+    };
+    if c != "CProg" || parts.len() != 2 {
+        return Err(format!("the program's Core IR is a `{c}`, not a CProg"));
+    }
+    let main = parts.pop().expect("two parts");
+    let CoreNode::List(funcs) = parts.pop().expect("two parts") else {
+        return Err("the program's functions are not a list".to_string());
+    };
+    let funcs: Vec<(String, CoreNode)> = funcs
+        .into_iter()
+        .filter_map(|f| match &f {
+            CoreNode::Ind(fc, fa) if fc == "CFuncDef" => match fa.first() {
+                Some(CoreNode::Text(name)) => Some((name.clone(), f.clone())),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    Ok(vec![
+        ("progStmts", StoreEntry::Value(main)),
+        ("progFuncs", StoreEntry::Map(funcs)),
+        ("progArgs", StoreEntry::Value(CoreNode::List(Vec::new()))),
+    ])
+}
+
+/// The first Futamura projection through the offline specializer, `[[mix]](sint², p)`: the self-interpreter
+/// specialized to `program`. The residual is decompiled Core IR.
+pub fn mix_projection1(program: &str) -> Result<String, String> {
+    mix_projection1_on(MixEngine::default_engine(), program)
+}
+
+/// [`mix_projection1`] with `mix` on `engine`.
+pub fn mix_projection1_on(engine: MixEngine, program: &str) -> Result<String, String> {
+    let residual = mix_apply(&self_interpreter_two_level()?, &program_store(program)?, engine)?;
+    Ok(prepend_type_definitions(program, residual))
+}
+
+/// The second Futamura projection through the offline specializer, `compiler = [[mix]](mix², sint²)`: the
+/// specializer specialized to the self-interpreter. The compiler's main reads the program to compile from `pStore`
+/// ([`run_mix_compiler`]).
+pub fn mix_projection2() -> Result<String, String> {
+    mix_projection2_on(MixEngine::default_engine())
+}
+
+/// [`mix_projection2`] with `mix` on `engine`.
+pub fn mix_projection2_on(engine: MixEngine) -> Result<String, String> {
+    mix_apply(&specializer_two_level()?, &self_interpreter_two_level()?.store_entries(), engine)
+}
+
+/// The third Futamura projection through the offline specializer, `cogen = [[mix]](mix², mix²)`: the specializer
+/// specialized to itself. Given a two-level program in `pStore` it prints that program's compiler
+/// ([`run_mix_cogen`]).
+pub fn mix_projection3() -> Result<String, String> {
+    mix_projection3_on(MixEngine::default_engine())
+}
+
+/// [`mix_projection3`] with `mix` on `engine`.
+pub fn mix_projection3_on(engine: MixEngine) -> Result<String, String> {
+    let mix2 = specializer_two_level()?;
+    mix_apply(&mix2, &mix2.store_entries(), engine)
+}
+
+/// A projection's residual whose main reads `pStore`, as the program it runs as with `store`: the type definitions
+/// of the programs it was specialized from, its functions, the store, then its main.
+fn mix_residual_run_source(residual: &str, store: &MixStore) -> Result<String, String> {
+    let (functions, main) = residual
+        .split_once("## Main\n")
+        .ok_or_else(|| "the residual has no `## Main`".to_string())?;
+    Ok(format!(
+        "{}\n{}\n{}\n{}\n## Main\nLet pStore be mixBuildStore().\n{}",
+        CORE_TYPES_FOR_PE,
+        mix_type_definitions(),
+        functions,
+        crate::optimize::mix_bta::store_builder("mixBuildStore", store, &mix_catalog())?,
+        main
+    ))
+}
+
+/// A projection's residual whose main reads `pStore`, run on the tree-walker with `store`.
+fn run_mix_residual(residual: &str, store: &MixStore) -> Result<String, String> {
+    let run = mix_residual_run_source(residual, store)?;
+    let raw = interpret_bootstrap(&run).map_err(|e| format!("the residual failed: {}", describe_parse_error(&e)))?;
+    Ok(raw.trim_end().to_string())
+}
+
+/// The program the compiler [`mix_projection2`] made runs as on `program`: any engine that runs it prints the
+/// program's first projection ([`run_mix_compiler`] runs it on the tree-walker).
+pub fn mix_compiler_run_source(compiler: &str, program: &str) -> Result<String, String> {
+    mix_residual_run_source(compiler, &program_store(program)?)
+}
+
+/// The compiler [`mix_projection2`] made, run on `program`: it prints the program's first projection.
+pub fn run_mix_compiler(compiler: &str, program: &str) -> Result<String, String> {
+    let residual = run_mix_residual(compiler, &program_store(program)?)?;
+    Ok(prepend_type_definitions(program, residual))
+}
+
+/// The compiler generator [`mix_projection3`] made, run on the self-interpreter's two-level program: it prints the
+/// self-interpreter's compiler.
+pub fn run_mix_cogen(cogen: &str) -> Result<String, String> {
+    run_mix_residual(cogen, &self_interpreter_two_level()?.store_entries())
+}
+
+/// The input a residual engine ([`residual_engine_source`]) takes: the store its main reads as `pStore`.
+const RESIDUAL_INPUT: &str = "## A ResidualInput is one of:\n    A ResidualIn with store Map of Text to CVal.\n";
+
+/// A projection's residual whose main reads `pStore` and shows its one answer, as an engine to compile once: the type
+/// definitions of the programs it was specialized from, its functions, and its main as `residualAnswer`, exported for
+/// native, which takes the store and returns the answer.
+pub fn residual_engine_source(residual: &str) -> Result<String, String> {
+    let (functions, main) = residual
+        .split_once("## Main\n")
+        .ok_or_else(|| "the residual has no `## Main`".to_string())?;
+    let statements: Vec<&str> = main.trim_end().lines().collect();
+    let (last, before) = statements.split_last().ok_or_else(|| "the residual's main is empty".to_string())?;
+    let answer = last
+        .strip_prefix("Show ")
+        .and_then(|a| a.strip_suffix('.'))
+        .ok_or_else(|| format!("the residual's main ends with `{last}`, not the `Show` of its answer"))?;
+    if let Some(shown) = before.iter().find(|l| l.trim_start().starts_with("Show ")) {
+        return Err(format!("the residual's main shows `{}` besides its answer", shown.trim()));
+    }
+    let mut body = String::new();
+    for statement in before {
+        body.push_str(&format!("            {statement}\n"));
+    }
+    body.push_str(&format!("            Return {answer}.\n"));
+    Ok(format!(
+        "{}\n{}\n{}\n{RESIDUAL_INPUT}\n## To residualAnswer (residualInput: ResidualInput) -> Text is exported for native:\n    Inspect residualInput:\n        When ResidualIn (pStore):\n{body}        Otherwise:\n            Return \"\".\n\n## Main\n    Let __x be 0.\n",
+        CORE_TYPES_FOR_PE,
+        mix_type_definitions(),
+        functions
+    ))
+}
+
+/// A projection's residual compiled once to native code ([`residual_engine_source`]) and loaded in process: each run
+/// hands it a store as wire bytes and takes back its answer.
+#[cfg(not(target_arch = "wasm32"))]
+struct NativeResidual {
+    lib: NativeLib,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl NativeResidual {
+    /// `residual`'s engine, built once and cached, content-addressed on its source, its FFI entry and the collection
+    /// semantics it compiles under.
+    fn build(residual: &str) -> Result<NativeResidual, String> {
+        let source = residual_engine_source(residual)?;
+        let shim = native_engine_shim("logos_residual_answer", "ResidualInput", "residualAnswer");
+        let key = aot_cache_key(&format!("{source}\n{shim}\n{BOOTSTRAP_SEMANTICS}"));
+        let so = build_logos_cdylib("logos_native_residual_cdylib", "logos_native_residual_lib", &format!("residual_{key}"), EngineBuild::Residual, || {
+            let generated = compile_bootstrap_engine(&source)
+                .map_err(|e| format!("native residual compile: {}", describe_parse_error(&e)))?
+                .rust_code;
+            Ok(format!("{generated}\n{shim}"))
+        })?;
+        Ok(NativeResidual { lib: NativeLib::load(&so, b"logos_residual_answer")? })
+    }
+
+    /// The residual's answer with `store` as `pStore`, as [`run_mix_residual`] gives it on the tree-walker.
+    fn run(&self, store: &MixStore) -> Result<String, String> {
+        let bytes = crate::optimize::mix_bta::residual_input_wire(store, &mix_catalog())?;
+        Ok(self.lib.call(&bytes).map_err(|e| format!("the residual failed: {e}"))?.trim_end().to_string())
+    }
+}
+
+/// The compiler [`mix_projection2`] made, compiled once to native code: [`NativeMixCompiler::compile`] runs it on a
+/// program as [`run_mix_compiler`] runs it on the tree-walker.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct NativeMixCompiler(NativeResidual);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl NativeMixCompiler {
+    /// `compiler` compiled to native code, built once and cached.
+    pub fn build(compiler: &str) -> Result<NativeMixCompiler, String> {
+        NativeResidual::build(compiler).map(NativeMixCompiler)
+    }
+
+    /// The compiler run on `program`: the program's first projection.
+    pub fn compile(&self, program: &str) -> Result<String, String> {
+        let residual = self.0.run(&program_store(program)?)?;
+        Ok(prepend_type_definitions(program, residual))
+    }
+}
+
+/// The compiler generator [`mix_projection3`] made, compiled to native code and run on the self-interpreter's
+/// two-level program, as [`run_mix_cogen`] runs it on the tree-walker: it prints the self-interpreter's compiler.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn run_native_mix_cogen(cogen: &str) -> Result<String, String> {
+    NativeResidual::build(cogen)?.run(&self_interpreter_two_level()?.store_entries())
+}
+
+/// The driver shared by the textbook first projection, the resident-server PE (`pe_native_source`, terminal statement
+/// writes the residual to stdout) and the in-process cdylib PE (`pe_cdylib_source`, terminal statement `Return`s it):
+/// specialize `encodedMain` against `encodedFuncMap`, then `peEmitProgram` emits the residual — every function it
+/// reaches once, each body and the main block through the specializer's finishing pass. Written at 0-base indent; the
+/// caller re-indents it under its enclosing arm.
 const PE_DRIVER_CORE: &str = r#"Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).
 Let residual be peBlock(encodedMain, state).
-Let nl be chr(10).
-Let mutable output be "".
-Let specFuncs be peFuncs(state).
-Let mutable allNames be collectCallNames(residual).
-Let mutable emitted be a new Map of Text to Bool.
-Let mutable changed be true.
-While changed:
-    Set changed to false.
-    Let mutable toAdd be a new Seq of Text.
-    Repeat for fnKey in allNames:
-        Let fkStr be "{fnKey}".
-        If emitted contains fkStr:
-            Let skipE be true.
-        Otherwise:
-            Set item fkStr of emitted to true.
-            Let fkStr2 be "{fnKey}".
-            If specFuncs contains fkStr2:
-                Let fdef be item fkStr2 of specFuncs.
-                Inspect fdef:
-                    When CFuncDef (fn0, ps0, pt0, rt0, body0):
-                        Let children be collectCallNames(body0).
-                        Repeat for child in children:
-                            Let childStr be "{child}".
-                            If not emitted contains childStr:
-                                Push child to toAdd.
-                                Set changed to true.
-                    Otherwise:
-                        Let skipF be true.
-    Repeat for ta in toAdd:
-        Push ta to allNames.
-Repeat for fnKey in allNames:
-    Let fkStr be "{fnKey}".
-    If specFuncs contains fkStr:
-        Let fdef be item fkStr of specFuncs.
-        Let funcSrc be decompileFunc(fdef).
-        If the length of funcSrc is greater than 0:
-            Set output to "{output}{funcSrc}{nl}".
-Let mainSrc be decompileBlock(residual, 0).
-Set output to "{output}## Main{nl}{mainSrc}"."#;
+Let output be peEmitProgram(residual, state)."#;
 
 /// The PE driver body with `last` appended as its terminal statement — the only line that differs
-/// between the stdout-writing server and the value-returning cdylib entry.
+/// between the stdout-writing server, the value-returning cdylib entry and the textbook projection.
 fn pe_driver_body(last: &str) -> String {
     format!("{PE_DRIVER_CORE}\n{last}")
 }
 
+/// The compile-once native partial evaluator's source: the PE engine + decompiler + a driver that reads its input
+/// `CProgram` from stdin (over the fast wire codec) instead of a baked-in constructor. Compiled once (content-addressed
+/// on this text) with `WireEncode`/`WireDecode` emitted, it specializes any program handed to it as
+/// `program_to_core_wire_bytes` — the Futamura "compiler as an artifact", at native speed. Its driver body is
+/// [`PE_DRIVER_CORE`]; only `encodedMain`/`encodedFuncMap` come from `readWireProgram()` rather than the encoded program
+/// text.
 pub fn pe_native_source() -> String {
     let core = CORE_TYPES_FOR_PE;
     let pe = pe_source_text();
@@ -11922,50 +12324,32 @@ use crate::interpreter::RuntimeValue;
 // interpreter path — so a gap is slower, never wrong. Residual-equivalence with the interpreter path
 // is locked by `native_pe_wire` + the `pe_jones_fuzz` corpus.
 
-/// The Core-IR ENUM a constructor belongs to — so the built value's `inductive_type` matches what
-/// the interpreter records (`a new CInt` → `Inductive{ inductive_type: "CExpr", constructor: "CInt" }`),
-/// making the native builder's wire bytes byte-identical to the interpreter path. The native decoder
-/// ignores this field, but matching it keeps every byte-level lock exact.
+/// The Core-IR enum a constructor belongs to, read from the catalog the encoders and the partial evaluator share
+/// ([`CORE_TYPES_FOR_PE`]) — so the built value's `inductive_type` is the one the interpreter records (`a new CInt` →
+/// `CExpr`) and the native builder's wire bytes match the interpreter path byte for byte. The native decoder ignores
+/// this field; matching it keeps every byte-level lock exact.
 fn cv_enum(ctor: &str) -> &'static str {
-    match ctor {
-        "CProg" => "CProgram",
-        "CFuncDef" => "CFunc",
-        "CLiteralPart" | "CExprPart" => "CStringPart",
-        "CInt"
-        | "CBool"
-        | "CText"
-        | "CFloat"
-        | "CVar"
-        | "CBinOp"
-        | "CNot"
-        | "CCall"
-        | "CIndex"
-        | "CLen"
-        | "CMapGet"
-        | "CList"
-        | "CTuple"
-        | "CRange"
-        | "CSlice"
-        | "CCopy"
-        | "CContains"
-        | "CUnion"
-        | "CIntersection"
-        | "COptionSome"
-        | "COptionNone"
-        | "CNewSeq"
-        | "CNewSet"
-        | "CNew"
-        | "CNewVariant"
-        | "CInterpolatedString"
-        | "CClosure"
-        | "CDuration"
-        | "CCallExpr"
-        | "CChunkAt"
-        | "CEscExpr"
-        | "CManifestOf" => "CExpr",
-        "CSelectRecv" | "CSelectTimeout" => "CSelectBranch",
-        _ => "CStmt",
-    }
+    static TABLE: std::sync::OnceLock<HashMap<&'static str, &'static str>> = std::sync::OnceLock::new();
+    let table = TABLE.get_or_init(|| {
+        let mut table = HashMap::new();
+        let mut current = "";
+        for line in CORE_TYPES_FOR_PE.lines() {
+            if let Some(rest) = line.strip_prefix("## A ") {
+                current = rest.split_whitespace().next().unwrap_or("");
+            } else if let Some(rest) = line.strip_prefix("    A ") {
+                let name = rest
+                    .split(|c: char| c == ' ' || c == '.')
+                    .next()
+                    .unwrap_or("");
+                table.insert(name, current);
+            }
+        }
+        table
+    });
+    table
+        .get(ctor)
+        .copied()
+        .unwrap_or_else(|| panic!("`{ctor}` is not a constructor of the Core IR catalog"))
 }
 
 fn cv_ind(ctor: &str, args: Vec<RuntimeValue>) -> RuntimeValue {
@@ -11985,35 +12369,415 @@ fn cv_list(items: Vec<RuntimeValue>) -> RuntimeValue {
 }
 
 /// The binary-operator spelling — IDENTICAL to `encode_expr_src`'s `op_str` (the residual re-parses it).
-fn cv_binop_str(op: BinaryOpKind) -> &'static str {
-    match op {
-        BinaryOpKind::Add => "+",
-        BinaryOpKind::Subtract => "-",
-        BinaryOpKind::Multiply => "*",
-        BinaryOpKind::Divide | BinaryOpKind::ExactDivide => "/",
-        BinaryOpKind::FloorDivide => "//",
-        BinaryOpKind::Modulo => "%",
-        BinaryOpKind::Eq => "==",
-        BinaryOpKind::NotEq => "!=",
-        BinaryOpKind::Lt => "<",
-        BinaryOpKind::Gt => ">",
-        BinaryOpKind::LtEq => "<=",
-        BinaryOpKind::GtEq => ">=",
-        BinaryOpKind::And => "&&",
-        BinaryOpKind::Or => "||",
-        BinaryOpKind::Concat => "+",
-        BinaryOpKind::SeqConcat => "followed by",
-        BinaryOpKind::ApproxEq => "is approximately",
-        BinaryOpKind::Pow => "**",
-        BinaryOpKind::BitXor => "^",
-        BinaryOpKind::BitAnd => "&",
-        BinaryOpKind::BitOr => "|",
-        BinaryOpKind::Shl => "<<",
-        BinaryOpKind::Shr => ">>",
+
+/// One of a program's enum variants as the encoders read it: the fields its constructor takes (a constructor call
+/// names them), its enum, and every variant of that enum.
+struct VariantCtor {
+    fields: Vec<String>,
+    enum_name: String,
+    siblings: Vec<String>,
+}
+
+/// A program's declarations as the encoders read them: its enum variants by name, each struct's fields with the type
+/// name each declares (`interpreter::declared_field_type`) in declaration order, and its policies.
+struct VCtors {
+    ctors: HashMap<String, VariantCtor>,
+    structs: HashMap<String, Vec<(String, String)>>,
+    /// For each predicate (`false`) or capability (`true`) a `## Policy` block names, every subject type that defines it
+    /// with its condition there, by type name.
+    policies: HashMap<(String, bool), Vec<(String, PolicyNode)>>,
+}
+
+/// A policy condition as the Core IR holds it for a subject of one type (`CPolicy`): each predicate it names resolved
+/// to that type's own condition, as `semantics::policy::evaluate_policy_condition` resolves it when it runs.
+#[derive(Clone)]
+enum PolicyNode {
+    /// The subject's field compared with the policy's text: as text, or — when the policy wrote no string literal —
+    /// as the Int or Bool the text reads as.
+    FieldEquals { field: String, expected: String, literal: bool, as_int: Option<i64>, as_bool: Option<bool> },
+    FieldBool { field: String, value: bool },
+    /// A subject field and an object field, compared as the language compares values.
+    FieldsEqual { subject_field: String, object_field: String },
+    And(Box<PolicyNode>, Box<PolicyNode>),
+    Or(Box<PolicyNode>, Box<PolicyNode>),
+    /// A predicate the subject's type does not define: it does not hold.
+    False,
+    /// A predicate met again inside its own condition.
+    Recursive(String),
+}
+
+/// `condition` for a subject of type `subject_type`, the predicates it names resolved through `policies`; `visiting`
+/// holds the predicates being resolved.
+fn policy_node(
+    condition: &crate::analysis::PolicyCondition,
+    policies: &crate::analysis::PolicyRegistry,
+    interner: &Interner,
+    subject_type: crate::intern::Symbol,
+    visiting: &mut Vec<crate::intern::Symbol>,
+) -> PolicyNode {
+    use crate::analysis::PolicyCondition as C;
+    match condition {
+        C::FieldEquals { field, value, is_string_literal } => {
+            let expected = interner.resolve(*value).to_string();
+            PolicyNode::FieldEquals {
+                field: interner.resolve(*field).to_string(),
+                as_int: expected.parse::<i64>().ok(),
+                as_bool: expected.parse::<bool>().ok(),
+                expected,
+                literal: *is_string_literal,
+            }
+        }
+        C::FieldBool { field, value } => PolicyNode::FieldBool { field: interner.resolve(*field).to_string(), value: *value },
+        C::ObjectFieldEquals { subject, field, .. } => PolicyNode::FieldsEqual {
+            subject_field: interner.resolve(*subject).to_string(),
+            object_field: interner.resolve(*field).to_string(),
+        },
+        C::SubjectFieldEqualsObjectField { subject_field, object_field, .. } => PolicyNode::FieldsEqual {
+            subject_field: interner.resolve(*subject_field).to_string(),
+            object_field: interner.resolve(*object_field).to_string(),
+        },
+        C::Or(left, right) => PolicyNode::Or(
+            Box::new(policy_node(left, policies, interner, subject_type, visiting)),
+            Box::new(policy_node(right, policies, interner, subject_type, visiting)),
+        ),
+        C::And(left, right) => PolicyNode::And(
+            Box::new(policy_node(left, policies, interner, subject_type, visiting)),
+            Box::new(policy_node(right, policies, interner, subject_type, visiting)),
+        ),
+        C::Predicate { predicate, .. } => {
+            if visiting.contains(predicate) {
+                return PolicyNode::Recursive(interner.resolve(*predicate).to_string());
+            }
+            let found = policies
+                .get_predicates(subject_type)
+                .and_then(|defs| defs.iter().find(|d| d.predicate_name == *predicate));
+            match found {
+                Some(def) => {
+                    visiting.push(*predicate);
+                    let node = policy_node(&def.condition, policies, interner, subject_type, visiting);
+                    visiting.pop();
+                    node
+                }
+                None => PolicyNode::False,
+            }
+        }
     }
 }
 
-type VCtors = std::collections::HashMap<String, Vec<String>>;
+/// Every predicate and capability `policies` defines, each with the subject types defining it and their conditions
+/// (see [`VCtors::policies`]); a type's first definition of a name is the one a `Check` reads, as the language reads it.
+fn policy_alternatives(
+    policies: &crate::analysis::PolicyRegistry,
+    interner: &Interner,
+) -> HashMap<(String, bool), Vec<(String, PolicyNode)>> {
+    let mut out: HashMap<(String, bool), Vec<(String, PolicyNode)>> = HashMap::new();
+    for (ty, defs) in policies.iter_predicates() {
+        let mut named: Vec<crate::intern::Symbol> = Vec::new();
+        for def in defs {
+            if named.contains(&def.predicate_name) {
+                continue;
+            }
+            named.push(def.predicate_name);
+            let node = policy_node(&def.condition, policies, interner, *ty, &mut vec![def.predicate_name]);
+            out.entry((interner.resolve(def.predicate_name).to_string(), false))
+                .or_default()
+                .push((interner.resolve(*ty).to_string(), node));
+        }
+    }
+    for (ty, defs) in policies.iter_capabilities() {
+        let mut named: Vec<crate::intern::Symbol> = Vec::new();
+        for def in defs {
+            if named.contains(&def.action) {
+                continue;
+            }
+            named.push(def.action);
+            let node = policy_node(&def.condition, policies, interner, *ty, &mut Vec::new());
+            out.entry((interner.resolve(def.action).to_string(), true))
+                .or_default()
+                .push((interner.resolve(*ty).to_string(), node));
+        }
+    }
+    for alternatives in out.values_mut() {
+        alternatives.sort_by(|a, b| a.0.cmp(&b.0));
+    }
+    out
+}
+
+/// A policy condition as construction text: its variable.
+fn policy_src(node: &PolicyNode, counter: &mut usize, output: &mut String) -> String {
+    let built = match node {
+        PolicyNode::FieldEquals { field, expected, literal, as_int, as_bool } => format!(
+            "a new PFieldEquals with field {} and expected {} and literal {} and asInt {} and isInt {} and asBool {} and isBool {}",
+            text_literal(field),
+            text_literal(expected),
+            literal,
+            as_int.unwrap_or(0),
+            as_int.is_some(),
+            as_bool.unwrap_or(false),
+            as_bool.is_some()
+        ),
+        PolicyNode::FieldBool { field, value } => format!("a new PFieldBool with field {} and value {value}", text_literal(field)),
+        PolicyNode::FieldsEqual { subject_field, object_field } => format!(
+            "a new PFieldsEqual with subjectField {} and objectField {}",
+            text_literal(subject_field),
+            text_literal(object_field)
+        ),
+        PolicyNode::And(left, right) | PolicyNode::Or(left, right) => {
+            let l = policy_src(left, counter, output);
+            let r = policy_src(right, counter, output);
+            let word = if matches!(node, PolicyNode::And(..)) { "PAnd" } else { "POr" };
+            format!("a new {word} with left {l} and right {r}")
+        }
+        PolicyNode::False => "a new PFalse".to_string(),
+        PolicyNode::Recursive(name) => format!("a new PRecursive with predicate {}", text_literal(name)),
+    };
+    let var = format!("pol_{}", *counter);
+    *counter += 1;
+    output.push_str(&format!("Let {var} be {built}.\n"));
+    var
+}
+
+/// [`policy_src`] on a [`CoreSink`].
+fn policy_core<S: CoreSink>(node: &PolicyNode) -> S::Val {
+    match node {
+        PolicyNode::FieldEquals { field, expected, literal, as_int, as_bool } => S::inductive(
+            "PFieldEquals",
+            vec![
+                S::text(field),
+                S::text(expected),
+                S::boolean(*literal),
+                S::int(as_int.unwrap_or(0)),
+                S::boolean(as_int.is_some()),
+                S::boolean(as_bool.unwrap_or(false)),
+                S::boolean(as_bool.is_some()),
+            ],
+        ),
+        PolicyNode::FieldBool { field, value } => S::inductive("PFieldBool", vec![S::text(field), S::boolean(*value)]),
+        PolicyNode::FieldsEqual { subject_field, object_field } => {
+            S::inductive("PFieldsEqual", vec![S::text(subject_field), S::text(object_field)])
+        }
+        PolicyNode::And(left, right) => S::inductive("PAnd", vec![policy_core::<S>(left), policy_core::<S>(right)]),
+        PolicyNode::Or(left, right) => S::inductive("POr", vec![policy_core::<S>(left), policy_core::<S>(right)]),
+        PolicyNode::False => S::inductive("PFalse", vec![]),
+        PolicyNode::Recursive(name) => S::inductive("PRecursive", vec![S::text(name)]),
+    }
+}
+
+/// The parts of a `Check` as the Core IR's `CCheckPolicy` holds them: its subject's and object's names, whether it asks
+/// a capability, the predicate or action it names, and its source text.
+fn check_parts(stmt: &Stmt, interner: &Interner) -> Option<(String, String, bool, String, String)> {
+    let Stmt::Check { subject, predicate, is_capability, object, source_text, .. } = stmt else {
+        return None;
+    };
+    Some((
+        interner.resolve(*subject).to_string(),
+        object.map(|o| interner.resolve(o).to_string()).unwrap_or_default(),
+        *is_capability,
+        interner.resolve(*predicate).to_string(),
+        source_text.to_string(),
+    ))
+}
+
+impl VCtors {
+    /// The enum variant named `variant`.
+    fn get(&self, variant: &str) -> Option<&VariantCtor> {
+        self.ctors.get(variant)
+    }
+
+    /// The fields of the struct named `name`, with their declared type names.
+    fn struct_fields(&self, name: &str) -> Option<&[(String, String)]> {
+        self.structs.get(name).map(Vec::as_slice)
+    }
+}
+
+/// Every enum variant and struct `registry` declares and every policy `policies` defines (see [`VCtors`]).
+fn variant_ctors(
+    registry: &crate::analysis::TypeRegistry,
+    policies: &crate::analysis::PolicyRegistry,
+    interner: &Interner,
+) -> VCtors {
+    let mut ctors = HashMap::new();
+    let mut structs = HashMap::new();
+    for (enum_name, def) in registry.iter_types() {
+        if let crate::analysis::TypeDef::Struct { fields, .. } = def {
+            structs.insert(
+                interner.resolve(*enum_name).to_string(),
+                fields
+                    .iter()
+                    .map(|f| {
+                        let ty = crate::interpreter::declared_field_type(&f.ty);
+                        (interner.resolve(f.name).to_string(), interner.resolve(ty).to_string())
+                    })
+                    .collect(),
+            );
+        }
+        if let crate::analysis::TypeDef::Enum { variants, .. } = def {
+            let siblings: Vec<String> = variants.iter().map(|v| interner.resolve(v.name).to_string()).collect();
+            for v in variants {
+                ctors.insert(
+                    interner.resolve(v.name).to_string(),
+                    VariantCtor {
+                        fields: v.fields.iter().map(|f| interner.resolve(f.name).to_string()).collect(),
+                        enum_name: interner.resolve(*enum_name).to_string(),
+                        siblings: siblings.clone(),
+                    },
+                );
+            }
+        }
+    }
+    VCtors { ctors, structs, policies: policy_alternatives(policies, interner) }
+}
+
+/// The fields of the struct a construction of `type_name` builds that it leaves out, with the type name each declares:
+/// each starts at its type's default, as the tree-walker starts it (`interpreter::default_for_declared_type`).
+fn omitted_fields<'v>(type_name: &str, given: &[String], ctors: &'v VCtors) -> Vec<&'v (String, String)> {
+    ctors
+        .struct_fields(type_name)
+        .map(|fields| fields.iter().filter(|(name, _)| !given.contains(name)).collect())
+        .unwrap_or_default()
+}
+
+/// `CAtPath` of the place `root`'s `path` around the encoded write `inner`, as construction text: its variable. The
+/// write is the place's block, so every engine runs it as it runs any block the program holds.
+fn at_path_src(root: &str, path: &[String], inner: &str, counter: &mut usize, output: &mut String) -> String {
+    let path_var = format!("path_{}", *counter);
+    *counter += 1;
+    output.push_str(&format!("Let {} be a new Seq of Text.\n", path_var));
+    for field in path {
+        output.push_str(&format!("Push \"{}\" to {}.\n", field, path_var));
+    }
+    let body_var = format!("body_{}", *counter);
+    *counter += 1;
+    output.push_str(&format!("Let {} be a new Seq of CStmt.\nPush {} to {}.\n", body_var, inner, body_var));
+    let at = format!("s_{}", *counter);
+    *counter += 1;
+    output.push_str(&format!(
+        "Let {} be a new CAtPath with target \"{}\" and path {} and body {}.\n",
+        at, root, path_var, body_var
+    ));
+    at
+}
+
+/// A format spec as the Core IR holds it beside its text: its form — `$` for currency, `.` for a precision, `>`, `<` or
+/// `^` for an alignment, a bare width aligning right as `>` — and its number of digits or width (0 for currency), as
+/// `semantics::format::apply_format_spec` reads the spec the parser accepted.
+fn spec_form(spec: &str) -> (&'static str, i64) {
+    let number = |digits: &str| digits.parse::<i64>().unwrap_or(0);
+    match spec.chars().next() {
+        Some('$') => ("$", 0),
+        Some('.') => (".", number(&spec[1..])),
+        Some('>') => (">", number(&spec[1..])),
+        Some('<') => ("<", number(&spec[1..])),
+        Some('^') => ("^", number(&spec[1..])),
+        _ => (">", number(spec)),
+    }
+}
+
+/// The construction text pushing an interpolation hole's part, its value `value_var`, to `parts_var`: a
+/// `CFormattedPart` when the hole names a format spec (`{x:.2}`), else a `CExprPart`.
+fn string_part_src(
+    value_var: &str,
+    format_spec: Option<crate::intern::Symbol>,
+    parts_var: &str,
+    interner: &Interner,
+) -> String {
+    match format_spec {
+        Some(spec) => {
+            let spec = interner.resolve(spec);
+            let (form, size) = spec_form(spec);
+            format!(
+                "Push a new CFormattedPart with expr {value_var} and spec {} and form {} and size {size} to {parts_var}.\n",
+                text_literal(spec),
+                text_literal(form)
+            )
+        }
+        None => format!("Push a new CExprPart with expr {value_var} to {parts_var}.\n"),
+    }
+}
+
+/// What the self-interpreter awaits to evaluate a view template or a question about the rendered page.
+pub const PAGE_AWAITS: &str = "a rendered page";
+
+/// What the Core IR holds as the program spelled it — an expression of a family the self-interpreter carries no
+/// value of yet — with what the self-interpreter awaits to evaluate it: `CSpelled with code and awaits`. A
+/// specializer keeps it residual and the decompiler prints its code, so a residual means what the program meant; the
+/// self-interpreter stops on it with what it awaits.
+fn spelled_in_core_ir(expr: &Expr, interner: &Interner) -> Option<(String, &'static str)> {
+    let awaits = match expr {
+        Expr::View(_) | Expr::Dom(_) => PAGE_AWAITS,
+        _ => return None,
+    };
+    Some((decompile_expr(expr, interner), awaits))
+}
+
+/// [`spelled_in_core_ir`] as construction text bound to `var`.
+fn spelled_src(expr: &Expr, var: &str, output: &mut String, interner: &Interner) {
+    let (code, awaits) = spelled_in_core_ir(expr, interner).expect("a spelled expression is one the Core IR spells");
+    output.push_str(&format!(
+        "Let {var} be a new CSpelled with code {} and awaits {}.\n",
+        text_literal(&code),
+        text_literal(awaits)
+    ));
+}
+
+/// A field of a construction as the Core IR holds it: the construction's own field at this position, or a slot it
+/// leaves to its declared type's default (`omitted_fields`: field name, declared type).
+enum HeldField<'v> {
+    Written(usize),
+    Slot(&'v (String, String)),
+}
+
+/// A construction's fields in the order the Core IR holds them: the written ones in their own order, each slot the
+/// construction leaves out placed before the first written field whose name follows its own — a record holds its
+/// fields by name, the order the language prints them in and `core_ir_scope` holds the written ones in.
+fn held_fields<'v>(type_name: &str, written: &[String], ctors: &'v VCtors) -> Vec<HeldField<'v>> {
+    let mut slots = omitted_fields(type_name, written, ctors);
+    slots.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut slots = slots.into_iter().peekable();
+    let mut held = Vec::with_capacity(written.len() + slots.len());
+    for (i, name) in written.iter().enumerate() {
+        while let Some(slot) = slots.next_if(|slot| slot.0 < *name) {
+            held.push(HeldField::Slot(slot));
+        }
+        held.push(HeldField::Written(i));
+    }
+    held.extend(slots.map(HeldField::Slot));
+    held
+}
+
+/// The Core IR expression a slot of declared type `type_name` starts at, as construction text: `CDeclaredDefault`, which
+/// every engine reads by the one table (`interpreter::declared_default`) and the decompiler leaves out, as the program
+/// did. Its variable.
+fn declared_default_src(type_name: &str, counter: &mut usize, output: &mut String) -> String {
+    let var = format!("e_{}", *counter);
+    *counter += 1;
+    output.push_str(&format!("Let {var} be a new CDeclaredDefault with typeName {}.\n", text_literal(type_name)));
+    var
+}
+
+/// [`declared_default_src`] on a [`CoreSink`].
+fn declared_default_core<S: CoreSink>(type_name: &str) -> S::Val {
+    S::inductive("CDeclaredDefault", vec![S::text(type_name)])
+}
+
+/// The variants an `Inspect` with these arms leaves to no arm, each with the language's report
+/// (`builtins::inspect_unhandled_message`): every variant of the enum its arms name that no arm names, when no arm is
+/// `Otherwise`. An encoder adds an arm per variant that stops with its report, as the VM compiler does, so every
+/// engine running the Core IR stops where the language does.
+fn uncovered_variants(arms: &[crate::ast::stmt::MatchArm], interner: &Interner, ctors: &VCtors) -> Vec<(String, String)> {
+    if arms.iter().any(|arm| arm.variant.is_none()) {
+        return Vec::new();
+    }
+    let named: Vec<String> = arms.iter().filter_map(|arm| arm.variant.map(|v| interner.resolve(v).to_string())).collect();
+    let Some(ctor) = named.iter().find_map(|n| ctors.get(n)) else {
+        return Vec::new();
+    };
+    ctor.siblings
+        .iter()
+        .filter(|v| !named.contains(v))
+        .map(|v| (v.clone(), crate::semantics::builtins::inspect_unhandled_message(&ctor.enum_name, v)))
+        .collect()
+}
 
 /// A backend for the Core-IR builder. ONE generic AST traversal (`expr_to_core` / `stmt_to_core` /
 /// `build_core`) drives EITHER the reference tree builder ([`TreeSink`] → a `RuntimeValue`, the form
@@ -12027,8 +12791,147 @@ trait CoreSink {
     fn boolean(b: bool) -> Self::Val;
     fn float(f: f64) -> Self::Val;
     fn text(s: &str) -> Self::Val;
+    fn atom(a: CoreAtom) -> Self::Val;
     fn list(items: Vec<Self::Val>) -> Self::Val;
     fn inductive(ctor: &str, args: Vec<Self::Val>) -> Self::Val;
+}
+
+/// A value of a family the Core IR holds as the language's own value, in the field `value` of its constant
+/// ([`CoreAtom::constructor`]): a duration, a calendar date, an instant, a calendar span, a time of day, a character.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CoreAtom {
+    Duration(i64),
+    Date(i32),
+    Moment(i64),
+    Span { months: i32, days: i32 },
+    Time(i64),
+    Char(char),
+}
+
+impl CoreAtom {
+    /// The atom a literal spells, `None` for a literal of another family.
+    pub fn of_literal(lit: &Literal) -> Option<CoreAtom> {
+        Some(match lit {
+            Literal::Duration(ns) => CoreAtom::Duration(*ns),
+            Literal::Date(days) => CoreAtom::Date(*days),
+            Literal::Moment(ns) => CoreAtom::Moment(*ns),
+            Literal::Span { months, days } => CoreAtom::Span { months: *months, days: *days },
+            Literal::Time(ns) => CoreAtom::Time(*ns),
+            Literal::Char(c) => CoreAtom::Char(*c),
+            _ => return None,
+        })
+    }
+
+    /// The Core IR constant that holds it.
+    pub fn constructor(self) -> &'static str {
+        match self {
+            CoreAtom::Duration(_) => "CDuration",
+            CoreAtom::Date(_) => "CDate",
+            CoreAtom::Moment(_) => "CMoment",
+            CoreAtom::Span { .. } => "CSpan",
+            CoreAtom::Time(_) => "CTime",
+            CoreAtom::Char(_) => "CChar",
+        }
+    }
+
+    /// The value as the tree-walker holds it.
+    pub fn runtime_value(self) -> RuntimeValue {
+        match self {
+            CoreAtom::Duration(ns) => RuntimeValue::Duration(ns),
+            CoreAtom::Date(days) => RuntimeValue::Date(days),
+            CoreAtom::Moment(ns) => RuntimeValue::Moment(ns),
+            CoreAtom::Span { months, days } => RuntimeValue::Span { months, days },
+            CoreAtom::Time(ns) => RuntimeValue::Time(ns),
+            CoreAtom::Char(c) => RuntimeValue::Char(c),
+        }
+    }
+
+    /// The language's expression for the value: its literal when one spells it, else literals and the language's own
+    /// arithmetic that evaluate to exactly it — a negative duration as one subtracted from `0ns`, an instant between
+    /// minutes as a minute and the nanoseconds from it, a time of day between minutes as the time of such an instant,
+    /// a date past a four-digit year by `makeDate`. A span's parts are spelled as the parser reads a count, modulo 2³².
+    pub fn expression(self) -> String {
+        const MINUTE: i64 = 60_000_000_000;
+        match self {
+            CoreAtom::Char(c) => char_literal(c),
+            CoreAtom::Duration(ns) => duration_literal(ns).unwrap_or_else(|| match ns.checked_neg() {
+                Some(magnitude) => format!("(0ns - {magnitude}ns)"),
+                None => format!("(0ns - {}ns - 1ns)", i64::MAX),
+            }),
+            CoreAtom::Date(days) => date_literal(days).unwrap_or_else(|| {
+                let (y, m, d) = logicaffeine_base::temporal::civil_from_days(i64::from(days));
+                format!("makeDate({y}, {m}, {d})")
+            }),
+            CoreAtom::Moment(ns) => moment_literal(ns).unwrap_or_else(|| {
+                let at_minute = |minute: i64| {
+                    moment_literal(minute).expect("every instant an i64 of nanoseconds holds falls in a four-digit year")
+                };
+                let past = ns.rem_euclid(MINUTE);
+                match ns.checked_sub(past) {
+                    Some(minute) => format!("({} + {past}ns)", at_minute(minute)),
+                    None => format!("({} - {}ns)", at_minute(ns + (MINUTE - past)), MINUTE - past),
+                }
+            }),
+            CoreAtom::Time(ns) => time_literal(ns).unwrap_or_else(|| {
+                let of_day = ns.rem_euclid(logicaffeine_base::temporal::NANOS_PER_DAY);
+                format!("time_of(1970-01-01 at 12:00am + {of_day}ns)")
+            }),
+            CoreAtom::Span { months, days } => span_literal(months, days).unwrap_or_else(|| match (months as u32, days as u32) {
+                (0, d) => format!("{d} days"),
+                (m, 0) => format!("{m} months"),
+                (m, d) => format!("{m} months and {d} days"),
+            }),
+        }
+    }
+
+    /// The self-interpreter's value holding it.
+    pub fn value_variant(self) -> &'static str {
+        match self {
+            CoreAtom::Duration(_) => "VDuration",
+            CoreAtom::Date(_) => "VDate",
+            CoreAtom::Moment(_) => "VMoment",
+            CoreAtom::Span { .. } => "VSpan",
+            CoreAtom::Time(_) => "VTime",
+            CoreAtom::Char(_) => "VChar",
+        }
+    }
+
+    /// Appends its wire bytes, as the peer codec writes the tree-walker's value of it.
+    pub fn write_wire(self, out: &mut Vec<u8>) {
+        use logicaffeine_data::wire::{write_uvarint, zigzag, T_CHAR, T_DATE, T_DURATION, T_MOMENT, T_SPAN, T_TIME};
+        match self {
+            CoreAtom::Duration(ns) => {
+                out.push(T_DURATION);
+                write_uvarint(zigzag(ns), out);
+            }
+            CoreAtom::Date(days) => {
+                out.push(T_DATE);
+                write_uvarint(zigzag(i64::from(days)), out);
+            }
+            CoreAtom::Moment(ns) => {
+                out.push(T_MOMENT);
+                write_uvarint(zigzag(ns), out);
+            }
+            CoreAtom::Span { months, days } => {
+                out.push(T_SPAN);
+                write_uvarint(zigzag(i64::from(months)), out);
+                write_uvarint(zigzag(i64::from(days)), out);
+            }
+            CoreAtom::Time(ns) => {
+                out.push(T_TIME);
+                write_uvarint(zigzag(ns), out);
+            }
+            CoreAtom::Char(c) => {
+                out.push(T_CHAR);
+                write_uvarint(u64::from(c), out);
+            }
+        }
+    }
+
+    /// The Core IR constant as construction text: `a new CMoment with value (<expression>)`.
+    pub fn construction(self) -> String {
+        format!("a new {} with value ({})", self.constructor(), self.expression())
+    }
 }
 
 /// Builds the reference `RuntimeValue` Core-IR tree (what `encode_value_raw` serializes).
@@ -12047,12 +12950,60 @@ impl CoreSink for TreeSink {
     fn text(s: &str) -> RuntimeValue {
         cv_text(s)
     }
+    fn atom(a: CoreAtom) -> RuntimeValue {
+        a.runtime_value()
+    }
     fn list(items: Vec<RuntimeValue>) -> RuntimeValue {
         cv_list(items)
     }
     fn inductive(ctor: &str, args: Vec<RuntimeValue>) -> RuntimeValue {
         cv_ind(ctor, args)
     }
+}
+
+/// A program's Core IR as a plain tree, for analyses written in Rust (the binding-time analysis the offline
+/// specializer reads): the same constructors, in the same order, as the other backends build.
+#[derive(Clone, Debug, PartialEq)]
+pub enum CoreNode {
+    Int(i64),
+    Bool(bool),
+    Float(f64),
+    Text(String),
+    Atom(CoreAtom),
+    List(Vec<CoreNode>),
+    Ind(String, Vec<CoreNode>),
+}
+
+struct NodeSink;
+impl CoreSink for NodeSink {
+    type Val = CoreNode;
+    fn int(n: i64) -> CoreNode {
+        CoreNode::Int(n)
+    }
+    fn boolean(b: bool) -> CoreNode {
+        CoreNode::Bool(b)
+    }
+    fn float(f: f64) -> CoreNode {
+        CoreNode::Float(f)
+    }
+    fn text(s: &str) -> CoreNode {
+        CoreNode::Text(s.to_string())
+    }
+    fn atom(a: CoreAtom) -> CoreNode {
+        CoreNode::Atom(a)
+    }
+    fn list(items: Vec<CoreNode>) -> CoreNode {
+        CoreNode::List(items)
+    }
+    fn inductive(ctor: &str, args: Vec<CoreNode>) -> CoreNode {
+        CoreNode::Ind(ctor.to_string(), args)
+    }
+}
+
+/// `program`'s Core IR as a [`CoreNode`] tree (`CProg(funcs, main)`), built by the one traversal the wire and
+/// tree encoders share. `None` if a construct is outside the native builder's coverage.
+pub fn program_to_core_tree(program: &str) -> Option<CoreNode> {
+    program_to_core::<NodeSink>(program)
 }
 
 /// Emits the wire bytes DIRECTLY — byte-for-byte what `encode_value_raw` (flat lists, structure off,
@@ -12086,6 +13037,11 @@ impl CoreSink for WireSink {
         let mut v = Vec::with_capacity(2 + s.len());
         v.push(logicaffeine_data::wire::T_TEXT);
         logicaffeine_data::wire::write_str(s, &mut v);
+        v
+    }
+    fn atom(a: CoreAtom) -> Vec<u8> {
+        let mut v = Vec::with_capacity(11);
+        a.write_wire(&mut v);
         v
     }
     fn list(items: Vec<Vec<u8>>) -> Vec<u8> {
@@ -12132,22 +13088,26 @@ fn expr_to_core<S: CoreSink>(expr: &Expr, interner: &Interner, vctors: &VCtors) 
             S::inductive("CText", vec![S::text(interner.resolve(*s))])
         }
         Expr::Literal(Literal::Float(f)) => S::inductive("CFloat", vec![S::float(*f)]),
-        // A duration literal (`1 seconds`, `500 milliseconds`) → `CDuration{amount = CInt(ms), unit}`,
-        // normalized to milliseconds exactly as the reference does (used by `Sleep` and `Select`'s
-        // `After …` timeout).
-        Expr::Literal(Literal::Duration(nanos)) => S::inductive(
-            "CDuration",
-            vec![
-                S::inductive("CInt", vec![S::int(nanos / 1_000_000)]),
-                S::text("milliseconds"),
-            ],
-        ),
-        Expr::Literal(Literal::Nothing) => S::inductive("CText", vec![S::text("nothing")]),
-        Expr::Identifier(sym) => S::inductive("CVar", vec![S::text(interner.resolve(*sym))]),
+        Expr::Literal(
+            lit @ (Literal::Duration(_)
+            | Literal::Char(_)
+            | Literal::Date(_)
+            | Literal::Moment(_)
+            | Literal::Span { .. }
+            | Literal::Time(_)),
+        ) => {
+            let atom = CoreAtom::of_literal(lit)?;
+            S::inductive(atom.constructor(), vec![S::atom(atom)])
+        }
+        Expr::Literal(Literal::Nothing) => S::inductive("CNothing", vec![]),
+        Expr::Identifier(sym) => match clock_read(interner.resolve(*sym)) {
+            Some(read) => S::inductive(read, Vec::new()),
+            None => S::inductive("CVar", vec![S::text(interner.resolve(*sym))]),
+        },
         Expr::BinaryOp { op, left, right } => S::inductive(
             "CBinOp",
             vec![
-                S::text(cv_binop_str(*op)),
+                S::text(crate::semantics::operator_overloads::core_op_text(*op)),
                 expr_to_core::<S>(left, interner, vctors)?,
                 expr_to_core::<S>(right, interner, vctors)?,
             ],
@@ -12157,7 +13117,7 @@ fn expr_to_core<S: CoreSink>(expr: &Expr, interner: &Interner, vctors: &VCtors) 
         }
         Expr::Call { function, args } => {
             let fn_name = interner.resolve(*function);
-            if let Some(field_names) = vctors.get(fn_name) {
+            if let Some(field_names) = vctors.get(fn_name).map(|ctor| &ctor.fields) {
                 // Variant constructor call → CNewVariant (field names from the type registry).
                 let mut fnames: Vec<S::Val> = Vec::with_capacity(args.len());
                 let mut fvals: Vec<S::Val> = Vec::with_capacity(args.len());
@@ -12266,10 +13226,18 @@ fn expr_to_core<S: CoreSink>(expr: &Expr, interner: &Interner, vctors: &VCtors) 
                         StringPart::Literal(sym) => {
                             S::inductive("CLiteralPart", vec![S::text(interner.resolve(*sym))])
                         }
-                        StringPart::Expr { value, .. } => S::inductive(
+                        StringPart::Expr { value, format_spec: None, .. } => S::inductive(
                             "CExprPart",
                             vec![expr_to_core::<S>(value, interner, vctors)?],
                         ),
+                        StringPart::Expr { value, format_spec: Some(spec), .. } => {
+                            let spec = interner.resolve(*spec);
+                            let (form, size) = spec_form(spec);
+                            S::inductive(
+                                "CFormattedPart",
+                                vec![expr_to_core::<S>(value, interner, vctors)?, S::text(spec), S::text(form), S::int(size)],
+                            )
+                        }
                     });
                 }
                 S::inductive("CInterpolatedString", vec![S::list(pvals)])
@@ -12295,43 +13263,51 @@ fn expr_to_core<S: CoreSink>(expr: &Expr, interner: &Interner, vctors: &VCtors) 
         }
         Expr::New {
             type_name,
+            type_args,
             init_fields,
-            ..
         } => {
             let tn = interner.resolve(*type_name);
+            let typed = collection_type_text(tn, type_args, interner);
             if tn == "Seq" || tn == "List" {
-                S::inductive("CNewSeq", vec![])
+                S::inductive("CNewSeq", vec![S::text(&typed)])
             } else if tn == "Set" {
-                S::inductive("CNewSet", vec![])
+                S::inductive("CNewSet", vec![S::text(&typed)])
             } else if tn == "Map" || tn.starts_with("Map ") {
                 S::inductive(
                     "CNew",
-                    vec![S::text("Map"), S::list(vec![]), S::list(vec![])],
+                    vec![S::text(&typed), S::list(vec![]), S::list(vec![])],
                 )
-            } else if init_fields.is_empty() {
+            } else if init_fields.is_empty() && vctors.struct_fields(tn).is_none() {
                 S::inductive(
                     "CNewVariant",
                     vec![S::text(tn), S::list(vec![]), S::list(vec![])],
                 )
             } else {
+                let written: Vec<String> =
+                    init_fields.iter().map(|(f, _)| interner.resolve(*f).to_string()).collect();
                 let mut fnames: Vec<S::Val> = Vec::with_capacity(init_fields.len());
                 let mut fvals: Vec<S::Val> = Vec::with_capacity(init_fields.len());
-                for (fname, fexpr) in init_fields {
-                    fnames.push(S::text(interner.resolve(*fname)));
-                    fvals.push(expr_to_core::<S>(fexpr, interner, vctors)?);
+                for field in held_fields(tn, &written, vctors) {
+                    match field {
+                        HeldField::Written(i) => {
+                            fnames.push(S::text(&written[i]));
+                            fvals.push(expr_to_core::<S>(init_fields[i].1, interner, vctors)?);
+                        }
+                        HeldField::Slot((fname, ftype)) => {
+                            fnames.push(S::text(fname));
+                            fvals.push(declared_default_core::<S>(ftype));
+                        }
+                    }
                 }
                 S::inductive("CNew", vec![S::text(tn), S::list(fnames), S::list(fvals)])
             }
         }
-        // Closure: params (Seq Text), body (Seq CStmt), captured free vars (Seq Text, SORTED to
-        // match the now-deterministic reference encoder). An expression body wraps as `CReturn e`.
+        // Closure: params (Seq Text), body (Seq CStmt), captured names ([`closure_captures`], the
+        // reference encoder's set). An expression body wraps as `CReturn e`.
         Expr::Closure { params, body, .. } => {
-            let mut bound: std::collections::HashSet<String> = std::collections::HashSet::new();
             let mut param_vals: Vec<S::Val> = Vec::with_capacity(params.len());
             for (sym, _) in params {
-                let name = interner.resolve(*sym);
-                bound.insert(name.to_string());
-                param_vals.push(S::text(name));
+                param_vals.push(S::text(interner.resolve(*sym)));
             }
             let body_vals: Vec<S::Val> = match body {
                 ClosureBody::Expression(e) => {
@@ -12340,23 +13316,9 @@ fn expr_to_core<S: CoreSink>(expr: &Expr, interner: &Interner, vctors: &VCtors) 
                         vec![expr_to_core::<S>(e, interner, vctors)?],
                     )]
                 }
-                ClosureBody::Block(stmts) => {
-                    let mut bv: Vec<S::Val> = Vec::with_capacity(stmts.len());
-                    for s in stmts.iter() {
-                        // The reference encodes body stmts with the single-stmt encoder, which
-                        // defers Inspect/Repeat to empty; fall back rather than replicate that quirk.
-                        if matches!(s, Stmt::Inspect { .. } | Stmt::Repeat { .. }) {
-                            return None;
-                        }
-                        bv.push(stmt_to_core::<S>(s, interner, vctors)?);
-                    }
-                    bv
-                }
+                ClosureBody::Block(stmts) => stmt_list_to_vec::<S>(&stmts.iter().collect::<Vec<_>>(), interner, vctors)?,
             };
-            let mut free: Vec<String> = collect_free_vars_expr(expr, interner, &bound)
-                .into_iter()
-                .collect();
-            free.sort();
+            let free = closure_captures(expr, interner);
             let cap_vals: Vec<S::Val> = free.iter().map(|fv| S::text(fv)).collect();
             S::inductive(
                 "CClosure",
@@ -12392,7 +13354,10 @@ fn expr_to_core<S: CoreSink>(expr: &Expr, interner: &Interner, vctors: &VCtors) 
         // (an ownership move / an allocation hint the interpreter erases).
         Expr::Give { value } => expr_to_core::<S>(value, interner, vctors)?,
         Expr::WithCapacity { value, .. } => expr_to_core::<S>(value, interner, vctors)?,
-        _ => return None,
+        Expr::View(_) | Expr::Dom(_) => {
+            let (code, awaits) = spelled_in_core_ir(expr, interner)?;
+            S::inductive("CSpelled", vec![S::text(&code), S::text(awaits)])
+        }
     })
 }
 
@@ -12432,16 +13397,20 @@ fn stmt_to_core<S: CoreSink>(stmt: &Stmt, interner: &Interner, vctors: &VCtors) 
             field,
             value,
         } => S::inductive(
-            "CMapSet",
+            "CSetField",
             vec![
                 S::text(&extract_ident_name(object, interner)),
-                S::inductive("CText", vec![S::text(interner.resolve(*field))]),
+                S::text(interner.resolve(*field)),
                 expr_to_core::<S>(value, interner, vctors)?,
             ],
         ),
-        Stmt::Pop { collection, .. } => S::inductive(
+        Stmt::Pop { collection, into: None } => S::inductive(
             "CPop",
             vec![S::text(&extract_ident_name(collection, interner))],
+        ),
+        Stmt::Pop { collection, into: Some(into) } => S::inductive(
+            "CPopInto",
+            vec![S::text(&extract_ident_name(collection, interner)), S::text(interner.resolve(*into))],
         ),
         Stmt::Give { object, recipient } => S::inductive(
             "CGive",
@@ -12469,21 +13438,15 @@ fn stmt_to_core<S: CoreSink>(stmt: &Stmt, interner: &Interner, vctors: &VCtors) 
                 expr_to_core::<S>(condition, interner, vctors)?,
                 match reason {
                     Some(r) => expr_to_core::<S>(r, interner, vctors)?,
-                    None => S::inductive("CText", vec![S::text("assertion failed")]),
+                    None => S::inductive("CText", vec![S::text("Assertion failed")]),
                 },
             ],
         ),
-        Stmt::Fail { reason } => S::inductive(
-            "CHardAssert",
-            vec![
-                S::inductive("CBool", vec![S::boolean(false)]),
-                expr_to_core::<S>(reason, interner, vctors)?,
-            ],
-        ),
+        Stmt::Fail { reason } => S::inductive("CFail", vec![expr_to_core::<S>(reason, interner, vctors)?]),
         Stmt::Return { value } => {
             let e = match value {
                 Some(v) => expr_to_core::<S>(v, interner, vctors)?,
-                None => S::inductive("CInt", vec![S::int(0)]),
+                None => S::inductive("CNothing", vec![]),
             };
             S::inductive("CReturn", vec![e])
         }
@@ -12536,15 +13499,29 @@ fn stmt_to_core<S: CoreSink>(stmt: &Stmt, interner: &Interner, vctors: &VCtors) 
             body,
             ..
         } => {
-            let loop_var = match pattern {
-                Pattern::Identifier(sym) => interner.resolve(*sym).to_string(),
-                Pattern::Tuple(syms) => syms
-                    .first()
-                    .map(|s| interner.resolve(*s).to_string())
-                    .unwrap_or_else(|| "item".to_string()),
-            };
+            let (loop_var, components) = repeat_binders(pattern, interner);
             let body_s: Vec<&Stmt> = body.iter().collect();
-            let body_v = stmt_list_to_core::<S>(&body_s, interner, vctors)?;
+            let mut body_vals: Vec<S::Val> = components
+                .iter()
+                .enumerate()
+                .map(|(i, name)| {
+                    S::inductive(
+                        "CLet",
+                        vec![
+                            S::text(name),
+                            S::inductive(
+                                "CIndex",
+                                vec![
+                                    S::inductive("CVar", vec![S::text(&loop_var)]),
+                                    S::inductive("CInt", vec![S::int((i + 1) as i64)]),
+                                ],
+                            ),
+                        ],
+                    )
+                })
+                .collect();
+            body_vals.extend(stmt_list_to_vec::<S>(&body_s, interner, vctors)?);
+            let body_v = S::list(body_vals);
             if let Expr::Range { start, end } = iterable {
                 S::inductive(
                     "CRepeatRange",
@@ -12642,26 +13619,18 @@ fn stmt_to_core<S: CoreSink>(stmt: &Stmt, interner: &Interner, vctors: &VCtors) 
             };
             S::inductive("CLaunchTask", vec![body, S::text(&handle_name)])
         }
-        // Concurrency: one branch (Seq of CStmt) per task. The reference encodes each task with the
-        // single-stmt encoder, which defers Inspect/Repeat to an EMPTY branch; rather than replicate
-        // that quirk, fall back the whole program if a task is one of those.
+        // Concurrency: one branch (Seq of CStmt) per task, the task's statements as the list walk encodes them.
         Stmt::Concurrent { tasks } => {
             let mut branches: Vec<S::Val> = Vec::with_capacity(tasks.len());
             for task in tasks.iter() {
-                if matches!(task, Stmt::Inspect { .. } | Stmt::Repeat { .. }) {
-                    return None;
-                }
-                branches.push(S::list(vec![stmt_to_core::<S>(task, interner, vctors)?]));
+                branches.push(S::list(stmt_list_to_vec::<S>(&[task], interner, vctors)?));
             }
             S::inductive("CConcurrent", vec![S::list(branches)])
         }
         Stmt::Parallel { tasks } => {
             let mut branches: Vec<S::Val> = Vec::with_capacity(tasks.len());
             for task in tasks.iter() {
-                if matches!(task, Stmt::Inspect { .. } | Stmt::Repeat { .. }) {
-                    return None;
-                }
-                branches.push(S::list(vec![stmt_to_core::<S>(task, interner, vctors)?]));
+                branches.push(S::list(stmt_list_to_vec::<S>(&[task], interner, vctors)?));
             }
             S::inductive("CParallel", vec![S::list(branches)])
         }
@@ -12758,13 +13727,27 @@ fn stmt_to_core<S: CoreSink>(stmt: &Stmt, interner: &Interner, vctors: &VCtors) 
             "CAssert",
             vec![S::inductive("CBool", vec![S::boolean(true)])],
         ),
-        Stmt::Check { source_text, .. } => S::inductive(
-            "CCheck",
-            vec![
-                S::inductive("CBool", vec![S::boolean(true)]),
-                S::inductive("CText", vec![S::text(source_text)]),
-            ],
-        ),
+        Stmt::Check { .. } => {
+            let (subject, object, capability, rule, source) = check_parts(stmt, interner)?;
+            let alternatives = vctors
+                .policies
+                .get(&(rule.clone(), capability))
+                .into_iter()
+                .flatten()
+                .map(|(type_name, node)| S::inductive("CPolicyCase", vec![S::text(type_name), policy_core::<S>(node)]))
+                .collect();
+            S::inductive(
+                "CCheckPolicy",
+                vec![
+                    S::text(&subject),
+                    S::text(&object),
+                    S::boolean(capability),
+                    S::text(&rule),
+                    S::list(alternatives),
+                    S::text(&source),
+                ],
+            )
+        }
         Stmt::Trust { justification, .. } => S::inductive(
             "CTrust",
             vec![
@@ -12778,18 +13761,6 @@ fn stmt_to_core<S: CoreSink>(stmt: &Stmt, interner: &Interner, vctors: &VCtors) 
         // Inline-native escape hatch.
         Stmt::Escape { code, .. } => {
             S::inductive("CEscStmt", vec![S::text(interner.resolve(*code))])
-        }
-        // `Splice` (unconditional inlined block) desugars to `CIf(true, body, [])`.
-        Stmt::Splice { body } => {
-            let body_refs: Vec<&Stmt> = body.iter().collect();
-            S::inductive(
-                "CIf",
-                vec![
-                    S::inductive("CBool", vec![S::boolean(true)]),
-                    stmt_list_to_core::<S>(&body_refs, interner, vctors)?,
-                    S::list(vec![]),
-                ],
-            )
         }
         // Task / actor control.
         Stmt::StopTask { handle } => S::inductive(
@@ -12813,13 +13784,12 @@ fn stmt_to_core<S: CoreSink>(stmt: &Stmt, interner: &Interner, vctors: &VCtors) 
             ],
         ),
         // CRDT conflict resolution (base struct forced dynamic at the list level, like Increase/Merge).
-        Stmt::ResolveConflict { object, field, .. } => S::inductive(
-            "CResolve",
-            vec![S::text(&format!(
-                "{}'s {}",
-                extract_ident_name(object, interner),
-                interner.resolve(*field)
-            ))],
+        Stmt::ResolveConflict { object, field, value } => S::inductive(
+            "CResolveTo",
+            vec![
+                S::text(&format!("{}'s {}", extract_ident_name(object, interner), interner.resolve(*field))),
+                expr_to_core::<S>(value, interner, vctors)?,
+            ],
         ),
         // Sync / mount.
         Stmt::Sync {
@@ -12915,8 +13885,109 @@ fn stmt_to_core<S: CoreSink>(stmt: &Stmt, interner: &Interner, vctors: &VCtors) 
                 S::text(interner.resolve(*pa_var)),
             ],
         ),
-        _ => return None,
+        Stmt::AwaitTask { handle, result } => S::inductive(
+            "CReceivePipe",
+            vec![
+                S::text(&match handle {
+                    Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
+                    _ => "task".to_string(),
+                }),
+                S::text(&result.map(|r| interner.resolve(r).to_string()).unwrap_or_else(|| "_await".to_string())),
+            ],
+        ),
+        Stmt::CloseChannel { channel } => {
+            S::inductive("CStopTask", vec![expr_to_core::<S>(channel, interner, vctors)?])
+        }
+        Stmt::Serve { port, handler: _ } => S::inductive(
+            "CListen",
+            vec![expr_to_core::<S>(port, interner, vctors)?, S::text("default")],
+        ),
+        Stmt::Swap { a, b } => {
+            let (an, bn) = (interner.resolve(*a), interner.resolve(*b));
+            let tmp = swap_temp(an, bn);
+            let var = |name: &str| S::inductive("CVar", vec![S::text(name)]);
+            let exchange = vec![
+                S::inductive("CLet", vec![S::text(&tmp), var(an)]),
+                S::inductive("CSet", vec![S::text(an), var(bn)]),
+                S::inductive("CSet", vec![S::text(bn), var(&tmp)]),
+            ];
+            S::inductive(
+                "CIf",
+                vec![S::inductive("CBool", vec![S::boolean(true)]), S::list(exchange), S::list(Vec::new())],
+            )
+        }
+        // A list walk encodes these as nothing before it asks (`encodes_to_nothing`), splices a `During` and wraps an
+        // `Inspect` itself; a caller holding one where no list walk does (a closure body, a task) has no encoding.
+        Stmt::FunctionDef { .. }
+        | Stmt::StructDef { .. }
+        | Stmt::Ui(_)
+        | Stmt::Fetch { .. }
+        | Stmt::GivenFetch { .. }
+        | Stmt::ServeFetches
+        | Stmt::Replay { .. }
+        | Stmt::ComponentDef(_)
+        | Stmt::DirectiveDef { .. }
+        | Stmt::RouteDef { .. }
+        | Stmt::MiddlewareDef { .. }
+        | Stmt::RedirectDef { .. }
+        | Stmt::Theorem(_)
+        | Stmt::Definition(_)
+        | Stmt::Axiom(_)
+        | Stmt::Theory(_)
+        | Stmt::Site(_)
+        | Stmt::TestDef { .. }
+        | Stmt::Expect { .. }
+        | Stmt::ExpectFail { .. }
+        | Stmt::ExpectOutput { .. }
+        | Stmt::AdvanceTime { .. }
+        | Stmt::GivenFile { .. }
+        | Stmt::Observe { .. }
+        | Stmt::ForAll { .. }
+        | Stmt::During { .. }
+        | Stmt::Splice { .. }
+        | Stmt::Reversibly { .. }
+        | Stmt::Inspect { .. } => return None,
     })
+}
+
+/// The statements a Core IR body holds nothing for, as `encode_stmt_src` drops them: declarations (functions and
+/// types are encoded at the program level; theorems, routes, components and the like have no run-time effect to
+/// specialize), `## Test` blocks and the test-only statements, observation, and property tests.
+fn encodes_to_nothing(stmt: &Stmt) -> bool {
+    matches!(
+        stmt,
+        Stmt::FunctionDef { .. }
+            | Stmt::StructDef { .. }
+            | Stmt::Ui(_)
+            | Stmt::Fetch { .. }
+            | Stmt::GivenFetch { .. }
+            | Stmt::ServeFetches
+            | Stmt::Replay { .. }
+            | Stmt::ComponentDef(_)
+            | Stmt::DirectiveDef { .. }
+            | Stmt::RouteDef { .. }
+            | Stmt::MiddlewareDef { .. }
+            | Stmt::RedirectDef { .. }
+            | Stmt::Theorem(_)
+            | Stmt::Definition(_)
+            | Stmt::Axiom(_)
+            | Stmt::Theory(_)
+            | Stmt::Site(_)
+            | Stmt::TestDef { .. }
+            | Stmt::Expect { .. }
+            | Stmt::ExpectFail { .. }
+            | Stmt::ExpectOutput { .. }
+            | Stmt::AdvanceTime { .. }
+            | Stmt::GivenFile { .. }
+            | Stmt::Observe { .. }
+            | Stmt::ForAll { .. }
+    )
+}
+
+/// The name a `Swap a and b` holds `a`'s value under while it exchanges the two, the same in every encoder: there
+/// is no `CSwap`, so the swap is `tmp := a; a := b; b := tmp` in an always-taken `CIf`.
+fn swap_temp(a: &str, b: &str) -> String {
+    format!("swaptmp_{a}_{b}")
 }
 
 /// A channel name: a plain identifier, else the literal `"pipe"` (mirrors `encode_stmt_src`).
@@ -12927,21 +13998,13 @@ fn pipe_ident_name(pipe: &Expr, interner: &Interner) -> String {
     }
 }
 
-/// A `Select` branch body: each statement via the SINGLE-statement encoder — the reference defers
-/// Inspect/Repeat to empty here, so fall back rather than replicate that quirk.
+/// A `Select` branch's or a zone's body, by the list walk.
 fn select_body_to_core<S: CoreSink>(
     body: &[Stmt],
     interner: &Interner,
     vctors: &VCtors,
 ) -> Option<S::Val> {
-    let mut items: Vec<S::Val> = Vec::with_capacity(body.len());
-    for s in body.iter() {
-        if matches!(s, Stmt::Inspect { .. } | Stmt::Repeat { .. }) {
-            return None;
-        }
-        items.push(stmt_to_core::<S>(s, interner, vctors)?);
-    }
-    Some(S::list(items))
+    stmt_list_to_core::<S>(&body.iter().collect::<Vec<_>>(), interner, vctors)
 }
 
 fn stmt_list_to_core<S: CoreSink>(
@@ -12952,9 +14015,9 @@ fn stmt_list_to_core<S: CoreSink>(
     Some(S::list(stmt_list_to_vec::<S>(stmts, interner, vctors)?))
 }
 
-/// Flatten a statement list into Core-IR nodes. Most statements map 1:1 via `stmt_to_core`; an
-/// `Inspect` DESUGARS in place ([`inspect_to_cif`]) into the exact flat `CIf` chain `encode_stmts_src`
-/// emits — so the PE folds a statically-known match to its single arm, Jones-optimally.
+/// Flatten a statement list into Core-IR nodes. Most statements map 1:1 via `stmt_to_core`; a write through a field
+/// path is wrapped in the place it writes (`CAtPath`), and a merge into a whole struct is preceded by the
+/// `CForceDynamic` of its root, as `encode_stmts_src` emits them.
 fn stmt_list_to_vec<S: CoreSink>(
     stmts: &[&Stmt],
     interner: &Interner,
@@ -12963,40 +14026,23 @@ fn stmt_list_to_vec<S: CoreSink>(
     let mut out: Vec<S::Val> = Vec::with_capacity(stmts.len());
     for s in stmts {
         match s {
-            Stmt::Inspect { .. } => inspect_to_cif::<S>(s, &mut out, interner, vctors)?,
-            // A CRDT op forces its base struct DYNAMIC first (so the PE cannot statically fold a
-            // struct it then mutates), THEN emits the op — a list-level transform mirroring
-            // `encode_stmts_src`. `crdt_base_var` is `None` for a plain-variable collection (a bare
-            // `Add x to s`), so those emit no force, exactly like the reference.
-            Stmt::Add { collection, .. } | Stmt::Remove { collection, .. } => {
-                if let Some(base) = crdt_base_var(collection, interner) {
-                    out.push(S::inductive("CForceDynamic", vec![S::text(&base)]));
-                }
-                out.push(stmt_to_core::<S>(s, interner, vctors)?);
+            Stmt::Inspect { .. } => out.push(inspect_to_core::<S>(s, interner, vctors)?),
+            Stmt::During { body, .. } | Stmt::Splice { body } | Stmt::Reversibly { body } => {
+                let inner: Vec<&Stmt> = body.iter().collect();
+                out.extend(stmt_list_to_vec::<S>(&inner, interner, vctors)?);
             }
-            Stmt::AppendToSequence { sequence, .. } => {
-                if let Some(base) = crdt_base_var(sequence, interner) {
-                    out.push(S::inductive("CForceDynamic", vec![S::text(&base)]));
-                }
-                out.push(stmt_to_core::<S>(s, interner, vctors)?);
-            }
-            Stmt::IncreaseCrdt { object, .. }
-            | Stmt::DecreaseCrdt { object, .. }
-            | Stmt::ResolveConflict { object, .. } => {
-                if matches!(object, Expr::Identifier(_) | Expr::FieldAccess { .. }) {
-                    out.push(S::inductive(
-                        "CForceDynamic",
-                        vec![S::text(&crdt_base_var_root(object, interner))],
-                    ));
-                }
-                out.push(stmt_to_core::<S>(s, interner, vctors)?);
+            _ if encodes_to_nothing(s) => {}
+            _ if write_place(s, interner).is_some() => {
+                let (root, path) = write_place(s, interner).expect("a field path");
+                let inner = stmt_to_core::<S>(s, interner, vctors)?;
+                out.push(S::inductive(
+                    "CAtPath",
+                    vec![S::text(&root), S::list(path.iter().map(|f| S::text(f)).collect()), S::list(vec![inner])],
+                ));
             }
             Stmt::MergeCrdt { target, .. } | Stmt::JoinCrdt { target, .. } => {
-                if matches!(target, Expr::Identifier(_) | Expr::FieldAccess { .. }) {
-                    out.push(S::inductive(
-                        "CForceDynamic",
-                        vec![S::text(&crdt_base_var_root(target, interner))],
-                    ));
+                if let Expr::Identifier(root) = target {
+                    out.push(S::inductive("CForceDynamic", vec![S::text(interner.resolve(*root))]));
                 }
                 out.push(stmt_to_core::<S>(s, interner, vctors)?);
             }
@@ -13006,147 +14052,47 @@ fn stmt_list_to_vec<S: CoreSink>(
     Some(out)
 }
 
-thread_local! {
-    /// Per-program index for the `Inspect`-with-`Otherwise` "did any arm match" flag. Reset at the
-    /// start of every full-program encode ([`program_to_core`] AND `encode_program_source`); both the
-    /// native builder and the interpreter reference increment it in the SAME traversal (functions in
-    /// source order, then main; DFS into bodies), so the Nth such Inspect is named `__inspectMatched_N`
-    /// identically in both — DETERMINISTIC and collision-free. (The reference formerly named it from
-    /// its global intermediate counter, whose value the value-based builder cannot reproduce; this
-    /// dedicated index is the reproducible replacement.)
-    static INSPECT_OTHERWISE_IDX: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
-}
-
-fn reset_inspect_otherwise_idx() {
-    INSPECT_OTHERWISE_IDX.with(|c| c.set(0));
-}
-
-/// The next `Inspect`-with-`Otherwise` flag index (post-increment). Called at the START of each such
-/// Inspect's desugaring in BOTH encoders, so a nested Inspect gets a strictly higher index than its
-/// enclosing one — no two live flags ever collide.
-pub fn next_inspect_otherwise_idx() -> usize {
-    INSPECT_OTHERWISE_IDX.with(|c| {
-        let v = c.get();
-        c.set(v + 1);
-        v
-    })
-}
-
-/// Desugar `Inspect target: When Variant(field→bind): body … [Otherwise: rest]` into the flat `CIf`
-/// chain `encode_stmts_src` produces, byte-for-byte. Each variant arm →
-/// `CIf(target's __tag == "Variant", [<set match flag if Otherwise>; binds; body], [])`; when the PE
-/// knows the variant it folds the comparison and keeps only the matching arm (zero dispatch =
-/// Jones-optimal). WITH an `Otherwise`, a `__inspectMatched_N` flag (N = [`next_inspect_otherwise_idx`],
-/// deterministic in both encoders) is declared false, set true in each arm, and checked negated to run
-/// the Otherwise body. An `Otherwise`-only inspect just inlines that body.
-fn inspect_to_cif<S: CoreSink>(
-    stmt: &Stmt,
-    out: &mut Vec<S::Val>,
-    interner: &Interner,
-    vctors: &VCtors,
-) -> Option<()> {
+/// `Inspect target: When Variant (bindings): body … Otherwise: rest` as one `CInspect`, its arms in source order and
+/// each arm's bindings as the pattern wrote them — the value `encode_stmts_src` builds.
+fn inspect_to_core<S: CoreSink>(stmt: &Stmt, interner: &Interner, vctors: &VCtors) -> Option<S::Val> {
     let Stmt::Inspect { target, arms, .. } = stmt else {
         return None;
     };
-    let has_otherwise = arms.iter().any(|a| a.variant.is_none());
-    let has_variant = arms.iter().any(|a| a.variant.is_some());
-
-    // No variant arms (empty or Otherwise-only): the reference inlines the Otherwise body directly.
-    if !has_variant {
-        for arm in arms {
-            if arm.variant.is_none() {
-                let body_refs: Vec<&Stmt> = arm.body.iter().collect();
-                out.extend(stmt_list_to_vec::<S>(&body_refs, interner, vctors)?);
-            }
-        }
-        return Some(());
-    }
-
-    // The match flag is created (and its index reserved) BEFORE the arms — so a nested Inspect in an
-    // arm/otherwise body gets a strictly higher index, exactly as the reference does.
-    let matched_name = if has_otherwise {
-        let name = format!("__inspectMatched_{}", next_inspect_otherwise_idx());
-        out.push(S::inductive(
-            "CLet",
-            vec![
-                S::text(&name),
-                S::inductive("CBool", vec![S::boolean(false)]),
-            ],
-        ));
-        Some(name)
-    } else {
-        None
-    };
-
+    let mut core_arms: Vec<S::Val> = Vec::with_capacity(arms.len());
     for arm in arms {
-        if arm.variant.is_none() {
-            continue;
-        }
-        let variant_name = interner.resolve(arm.variant.unwrap());
-        let tag_get = S::inductive(
-            "CMapGet",
-            vec![
-                expr_to_core::<S>(target, interner, vctors)?,
-                S::inductive("CText", vec![S::text("__tag")]),
-            ],
-        );
-        let cond = S::inductive(
-            "CBinOp",
-            vec![
-                S::text("=="),
-                tag_get,
-                S::inductive("CText", vec![S::text(variant_name)]),
-            ],
-        );
-        let mut then_items: Vec<S::Val> = Vec::new();
-        if let Some(ref mname) = matched_name {
-            then_items.push(S::inductive(
-                "CSet",
-                vec![
-                    S::text(mname),
-                    S::inductive("CBool", vec![S::boolean(true)]),
-                ],
-            ));
-        }
-        for (field_name, binding_name) in &arm.bindings {
-            let field_str = interner.resolve(*field_name);
-            let bind_str = interner.resolve(*binding_name);
-            let fget = S::inductive(
-                "CMapGet",
-                vec![
-                    expr_to_core::<S>(target, interner, vctors)?,
-                    S::inductive("CText", vec![S::text(field_str)]),
-                ],
-            );
-            then_items.push(S::inductive("CLet", vec![S::text(bind_str), fget]));
-        }
         let body_refs: Vec<&Stmt> = arm.body.iter().collect();
-        then_items.extend(stmt_list_to_vec::<S>(&body_refs, interner, vctors)?);
-        out.push(S::inductive(
-            "CIf",
-            vec![cond, S::list(then_items), S::list(vec![])],
-        ));
+        let body = stmt_list_to_core::<S>(&body_refs, interner, vctors)?;
+        core_arms.push(match arm.variant {
+            Some(variant) => S::inductive(
+                "CWhen",
+                vec![
+                    S::text(interner.resolve(variant)),
+                    S::list(
+                        arm.bindings
+                            .iter()
+                            .map(|(_, binding)| S::text(interner.resolve(*binding)))
+                            .collect(),
+                    ),
+                    body,
+                ],
+            ),
+            None => S::inductive("COtherwise", vec![body]),
+        });
     }
-
-    // Otherwise: `CIf(not __inspectMatched_N, otherwise_body, [])`.
-    if let Some(ref mname) = matched_name {
-        let not_matched = S::inductive("CNot", vec![S::inductive("CVar", vec![S::text(mname)])]);
-        let mut otherwise_body: Vec<&Stmt> = Vec::new();
-        for arm in arms {
-            if arm.variant.is_none() {
-                otherwise_body = arm.body.iter().collect();
-            }
-        }
-        let ow = stmt_list_to_core::<S>(&otherwise_body, interner, vctors)?;
-        out.push(S::inductive("CIf", vec![not_matched, ow, S::list(vec![])]));
+    for (variant, report) in uncovered_variants(arms, interner, vctors) {
+        let fail = S::inductive("CFail", vec![S::inductive("CText", vec![S::text(&report)])]);
+        core_arms.push(S::inductive("CWhen", vec![S::text(&variant), S::list(Vec::new()), S::list(vec![fail])]));
     }
-    Some(())
+    Some(S::inductive(
+        "CInspect",
+        vec![expr_to_core::<S>(target, interner, vctors)?, S::list(core_arms)],
+    ))
 }
 
 /// Whether the native Core-IR value builder covers `program` (the fast marshal path is taken, not
 /// the interpreter fallback). For test coverage assertions.
 pub fn program_covered_by_native_builder(program: &str) -> bool {
-    program_to_core_value(program).is_some()
+    program_to_core_value(&user_program_source(program)).is_some()
 }
 
 /// Build the whole `CProgram` value for `program` on the [`TreeSink`] backend, or `None` if it uses
@@ -13161,7 +14107,6 @@ fn program_to_core_value(program: &str) -> Option<RuntimeValue> {
 /// is uncovered. The parse (lex + discovery + `parse_program`) dominates; the sink chooses whether the
 /// build allocates a `RuntimeValue` tree + a second encode walk or emits bytes in one pass.
 fn program_to_core<S: CoreSink>(program: &str) -> Option<S::Val> {
-    reset_inspect_otherwise_idx(); // match the reference's deterministic `__inspectMatched_N` numbering
     let full_source = if program.contains("## Main") || program.contains("## To ") {
         program.to_string()
     } else {
@@ -13170,23 +14115,12 @@ fn program_to_core<S: CoreSink>(program: &str) -> Option<S::Val> {
     let mut interner = Interner::new();
     let mut lexer = Lexer::new(&full_source, &mut interner);
     let tokens = lexer.tokenize();
-    let type_registry = {
+    let (type_registry, policy_registry) = {
         let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        discovery.run_full().types
+        let result = discovery.run_full();
+        (result.types, result.policies)
     };
-    let mut vctors: VCtors = std::collections::HashMap::new();
-    for (_t, def) in type_registry.iter_types() {
-        if let crate::analysis::TypeDef::Enum { variants, .. } = def {
-            for v in variants {
-                let fnames: Vec<String> = v
-                    .fields
-                    .iter()
-                    .map(|f| interner.resolve(f.name).to_string())
-                    .collect();
-                vctors.insert(interner.resolve(v.name).to_string(), fnames);
-            }
-        }
-    }
+    let vctors = variant_ctors(&type_registry, &policy_registry, &interner);
     let mut world_state = WorldState::new();
     let expr_arena = Arena::new();
     let term_arena = Arena::new();
@@ -13209,6 +14143,7 @@ fn program_to_core<S: CoreSink>(program: &str) -> Option<S::Val> {
         &imperative_expr_arena,
         &type_expr_arena,
     );
+    let type_shapes = crate::core_ir_scope::type_shapes(&type_registry);
     let mut parser = crate::parser::Parser::new(
         tokens,
         &mut world_state,
@@ -13217,6 +14152,29 @@ fn program_to_core<S: CoreSink>(program: &str) -> Option<S::Val> {
         type_registry,
     );
     let stmts = parser.parse_program().ok()?;
+    let opt_flags = parser.program_opt_flags();
+    drop(parser);
+    let stmts = resolved_as_every_tier(
+        stmts,
+        &full_source,
+        &opt_flags,
+        &mut interner,
+        crate::ast_map::Arenas {
+            exprs: &imperative_expr_arena,
+            stmts: &stmt_arena,
+            types: &type_expr_arena,
+        },
+    );
+    let stmts = crate::core_ir_scope::for_core_ir(
+        &stmts,
+        &mut interner,
+        crate::ast_map::Arenas {
+            exprs: &imperative_expr_arena,
+            stmts: &stmt_arena,
+            types: &type_expr_arena,
+        },
+        &type_shapes,
+    );
     build_core::<S>(&stmts, &interner, &vctors)
 }
 
@@ -13294,7 +14252,7 @@ fn build_core<S: CoreSink>(stmts: &[Stmt], interner: &Interner, vctors: &VCtors)
 /// for a construct the native builder does not cover, run the constructor source on the tree-walker
 /// (`wireBytes`). Both are decoded identically by the native binary's generated `CProgram::wire_decode`.
 pub fn program_to_core_wire_bytes(program: &str) -> Result<Vec<u8>, String> {
-    if let Some(bytes) = program_to_core::<WireSink>(program) {
+    if let Some(bytes) = program_to_core::<WireSink>(&user_program_source(program)) {
         return Ok(bytes);
     }
     program_to_core_wire_bytes_via_interpreter(program)
@@ -13303,16 +14261,31 @@ pub fn program_to_core_wire_bytes(program: &str) -> Result<Vec<u8>, String> {
 /// The PARSE-FREE marshal: emit a program's Core-IR wire bytes directly from an ALREADY-PARSED AST,
 /// skipping the lex + discovery + `parse_program` that dominates [`program_to_core_wire_bytes`] (~90%
 /// of a specialization). An integrated caller that parsed the program once for compilation reuses that
-/// AST here to feed the native PE at a fraction of the cost. `variant_fields` maps each variant
-/// constructor name to its ordered field names (the caller derives it from its type registry, as
-/// `program_to_core` does). `None` if a construct is uncovered. Byte-identical to
-/// [`program_to_core_wire_bytes`] on the same program — same `build_core`/`WireSink` spine.
+/// AST here to feed the native PE at a fraction of the cost. `registry` and `policies` are the program's type and
+/// policy registries, whose declarations the encoding reads as `program_to_core` does. `None` if a construct is
+/// uncovered. Byte-identical to [`program_to_core_wire_bytes`] on the same program — same `build_core`/`WireSink` spine.
 pub fn stmts_to_core_wire_bytes(
     stmts: &[Stmt],
-    interner: &Interner,
-    variant_fields: &std::collections::HashMap<String, Vec<String>>,
+    interner: &mut Interner,
+    registry: &crate::analysis::TypeRegistry,
+    policies: &crate::analysis::PolicyRegistry,
 ) -> Option<Vec<u8>> {
-    build_core::<WireSink>(stmts, interner, variant_fields)
+    let vctors = variant_ctors(registry, policies, interner);
+    let exprs: Arena<Expr> = Arena::new();
+    let stmt_nodes: Arena<Stmt> = Arena::new();
+    let _facts = crate::optimize::facts::scope();
+    let types: Arena<TypeExpr> = Arena::new();
+    let scoped = crate::core_ir_scope::for_core_ir(
+        stmts,
+        interner,
+        crate::ast_map::Arenas {
+            exprs: &exprs,
+            stmts: &stmt_nodes,
+            types: &types,
+        },
+        &crate::core_ir_scope::TypeShapes::default(),
+    );
+    build_core::<WireSink>(&scoped, interner, &vctors)
 }
 
 /// The TWO-PASS marshal that [`program_to_core_wire_bytes`] replaced: build the full `RuntimeValue`
@@ -13321,7 +14294,7 @@ pub fn stmts_to_core_wire_bytes(
 /// (`WireSink` emits exactly what `encode_value_raw` would), and the single pass avoids the tree
 /// allocation + the second encode walk. `None` if a construct is uncovered.
 pub fn program_to_core_wire_bytes_two_pass(program: &str) -> Option<Vec<u8>> {
-    program_to_core::<TreeSink>(program).and_then(|v| encode_value_raw(&v).ok())
+    program_to_core::<TreeSink>(&user_program_source(program)).and_then(|v| encode_value_raw(&v).ok())
 }
 
 /// The REFERENCE marshal: always the interpreter path (construct the `CProgram` via the tree-walker,
@@ -13363,13 +14336,19 @@ thread_local! {
     static NATIVE_PE_BIN: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
 }
 
-/// The collection semantics every bootstrap program — the partial evaluator, its dialects, the
-/// self-interpreter, the decompiler, the wire encoder — runs and compiles under: reference, so the
-/// state it threads through `mutable` parameters is mutated in place
-/// ([`crate::semantics::collections::with_reference_semantics`]). Part of every cache key of a
-/// natively compiled bootstrap program, since the Rust it compiles to depends on it.
+/// The semantics every bootstrap program — the partial evaluator, its dialects, the self-interpreter, the decompiler,
+/// the wire encoder — compiles under ([`compile_bootstrap_engine`]): reference collections, so the state it threads
+/// through `mutable` parameters is mutated in place ([`crate::semantics::collections::with_reference_semantics`]), and
+/// blocking waits ([`crate::codegen::with_blocking_waits`]). Part of every cache key of a natively compiled bootstrap
+/// program, since the Rust it compiles to depends on it.
 #[cfg(not(target_arch = "wasm32"))]
-const BOOTSTRAP_SEMANTICS: &str = "collections: reference";
+const BOOTSTRAP_SEMANTICS: &str = "collections: reference; waits: block";
+
+/// A bootstrap program's Rust, with the wire codec, under [`BOOTSTRAP_SEMANTICS`].
+#[cfg(not(target_arch = "wasm32"))]
+fn compile_bootstrap_engine(source: &str) -> Result<CompileOutput, ParseError> {
+    with_reference_semantics(|| crate::codegen::with_blocking_waits(|| compile_program_full_with_wire(source)))
+}
 
 /// Build (once, content-addressed) the compile-once native PE binary and return its path. Keyed
 /// on the generated Rust of [`pe_native_source`] + toolchain, so the one-time rustc compile of the
@@ -13397,7 +14376,7 @@ pub fn build_native_pe_binary() -> Result<std::path::PathBuf, String> {
         NATIVE_PE_BIN.with(|c| *c.borrow_mut() = Some(bin.clone()));
         return Ok(bin);
     }
-    let rust = with_reference_semantics(|| compile_program_full_with_wire(&src))
+    let rust = compile_bootstrap_engine(&src)
         .map_err(|e| format!("native PE compile: {}", describe_parse_error(&e)))?
         .rust_code;
     std::fs::create_dir_all(proj.join("src")).map_err(|e| e.to_string())?;
@@ -13406,8 +14385,9 @@ pub fn build_native_pe_binary() -> Result<std::path::PathBuf, String> {
     std::fs::write(
         proj.join("Cargo.toml"),
         format!(
-            "[package]\nname=\"logos_native_pe\"\nversion=\"0.1.0\"\nedition=\"2021\"\n[dependencies]\nlogicaffeine-data={{path=\"{r}/crates/logicaffeine_data\"}}\nlogicaffeine-system={{path=\"{r}/crates/logicaffeine_system\",features=[\"full\"]}}\ntokio={{version=\"1\",features=[\"rt-multi-thread\",\"macros\"]}}\nserde={{version=\"1\",features=[\"derive\"]}}\nrayon=\"1\"\n[profile.release]\nopt-level=3\n",
-            r = root.display()
+            "[package]\nname=\"logos_native_pe\"\nversion=\"0.1.0\"\nedition=\"2021\"\n[dependencies]\nlogicaffeine-data={{path=\"{r}/crates/logicaffeine_data\"}}\nlogicaffeine-system={{path=\"{r}/crates/logicaffeine_system\",features=[\"full\"]}}\ntokio={{version=\"1\",features=[\"rt-multi-thread\",\"macros\"]}}\nserde={{version=\"1\",features=[\"derive\"]}}\nrayon=\"1\"\n{profile}",
+            r = root.display(),
+            profile = EngineBuild::Interpretive.profile()
         ),
     )
     .map_err(|e| e.to_string())?;
@@ -13525,48 +14505,27 @@ thread_local! {
     static NATIVE_PE_CDYLIB: std::cell::RefCell<Option<std::path::PathBuf>> = const { std::cell::RefCell::new(None) };
 }
 
-/// The in-process FFI shim appended to the generated PE engine to form the cdylib's `lib.rs`. It
-/// lives in the SAME crate-root module as the generated `pub enum CProgram` and the exported
-/// `pub fn peSpecializeOnce(CProgram) -> String`, so it can call both directly. `into_boxed_slice` gives
-/// an allocation with capacity EXACTLY == len, so `logos_pe_free` reconstructs the identical
-/// `Box<[u8]>` (reconstructing a `Vec` with cap==len would be UB if the allocator over-allocated).
+/// The in-process FFI entry appended to the generated PE engine to form the cdylib's `lib.rs`. It lives in the SAME
+/// crate-root module as the generated `pub enum CProgram` and the exported `pub fn peSpecializeOnce(CProgram) ->
+/// String`, so it calls both directly.
 #[cfg(not(target_arch = "wasm32"))]
-const PE_CDYLIB_SHIM: &str = r#"
-
-// ── in-process FFI entry (appended by build_native_pe_cdylib) ───────────────────────────────
-#[no_mangle]
-pub extern "C" fn logos_pe_specialize(ptr: *const u8, len: usize, out_len: *mut usize) -> *mut u8 {
-    let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
-    let prog = <CProgram as logicaffeine_data::wire::WireDecode>::wire_decode(bytes, &mut 0usize)
-        .expect("logos_pe_specialize: decode CProgram");
-    let out: String = peSpecializeOnce(prog);
-    let boxed: Box<[u8]> = out.into_bytes().into_boxed_slice();
-    let n = boxed.len();
-    unsafe { *out_len = n; }
-    Box::into_raw(boxed) as *mut u8
+fn pe_cdylib_shim() -> String {
+    native_engine_shim("logos_pe_specialize", "CProgram", "peSpecializeOnce")
 }
-
-#[no_mangle]
-pub extern "C" fn logos_pe_free(ptr: *mut u8, len: usize) {
-    if !ptr.is_null() {
-        unsafe { drop(Box::from_raw(std::slice::from_raw_parts_mut(ptr, len) as *mut [u8])); }
-    }
-}
-"#;
 
 /// The PE cdylib's `lib.rs`: [`pe_cdylib_source`] through the Rust emitter, under the reference
-/// collection semantics, followed by `PE_CDYLIB_SHIM`.
+/// collection semantics, followed by its FFI entry.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn native_pe_cdylib_lib_rs() -> Result<String, String> {
-    let generated = with_reference_semantics(|| compile_program_full_with_wire(&pe_cdylib_source()))
+    let generated = compile_bootstrap_engine(&pe_cdylib_source())
         .map_err(|e| format!("native PE cdylib compile: {}", describe_parse_error(&e)))?
         .rust_code;
-    Ok(format!("{generated}\n{PE_CDYLIB_SHIM}"))
+    Ok(format!("{generated}\n{}", pe_cdylib_shim()))
 }
 
 /// Build (and cache) the PE compiled as an IN-PROCESS cdylib exporting `logos_pe_specialize`.
 /// Mirrors [`build_native_pe_binary`] but emits a `cdylib` whose `lib.rs` is the generated PE engine
-/// ([`pe_cdylib_source`]) plus a hand-written `extern "C"` shim (`PE_CDYLIB_SHIM`) that decodes the
+/// ([`pe_cdylib_source`]) plus its `extern "C"` entry ([`native_engine_shim`]) that decodes the
 /// wire `CProgram` and calls `peSpecializeOnce` directly — so the caller loads it once and
 /// specializes with a plain function call, no process, no pipe. Content-addressed on the (stable)
 /// cdylib PE source + shim + toolchain, so warm calls skip rustc.
@@ -13580,28 +14539,67 @@ pub fn build_native_pe_cdylib() -> Result<std::path::PathBuf, String> {
     let src = pe_cdylib_source();
     // Key on the PE source, the FFI shim and the collection semantics the engine compiles under,
     // so changing any of them invalidates the on-disk cache.
-    let key = aot_cache_key(&format!("{src}\n{PE_CDYLIB_SHIM}\n{BOOTSTRAP_SEMANTICS}"));
-    let base = std::env::temp_dir().join("logos_native_pe_cdylib");
+    let key = aot_cache_key(&format!("{src}\n{}\n{BOOTSTRAP_SEMANTICS}", pe_cdylib_shim()));
+    let so = build_logos_cdylib("logos_native_pe_cdylib", "logos_native_pe_lib", &format!("pe_{key}"), EngineBuild::Interpretive, native_pe_cdylib_lib_rs)?;
+    NATIVE_PE_CDYLIB.with(|c| *c.borrow_mut() = Some(so.clone()));
+    Ok(so)
+}
+
+/// What a generated engine is, which decides how it is built. An interpretive engine (the offline specializer, the online
+/// one) runs its loops hot over every program it is handed, so it is optimized whole. A residual program the
+/// projections emit (the second projection's compiler, the third's compiler generator) is large straight-line code
+/// run once per program, so its build spreads over many codegen units at `opt-level=1` without link-time
+/// optimization: on the 245k-line compiler a quarter of the build's CPU, the compiler within 7% of its speed.
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum EngineBuild {
+    Interpretive,
+    Residual,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl EngineBuild {
+    /// The `[profile.release]` section of the engine's manifest.
+    pub(crate) fn profile(self) -> &'static str {
+        match self {
+            EngineBuild::Interpretive => "[profile.release]\nopt-level=3\n",
+            EngineBuild::Residual => "[profile.release]\nopt-level=1\ncodegen-units=256\nlto=\"off\"\n",
+        }
+    }
+}
+
+/// Build a generated LOGOS engine as a release cdylib named `crate_name`, in `<temp>/<dir>/<project>`, with the profile
+/// `build` gives it: `lib_rs` writes its `lib.rs` (the generated engine and its FFI shim) the first time; a project
+/// already built is reused.
+#[cfg(not(target_arch = "wasm32"))]
+fn build_logos_cdylib(
+    dir: &str,
+    crate_name: &str,
+    project: &str,
+    build: EngineBuild,
+    lib_rs: impl FnOnce() -> Result<String, String>,
+) -> Result<std::path::PathBuf, String> {
+    let base = std::env::temp_dir().join(dir);
     std::fs::create_dir_all(&base).map_err(|e| e.to_string())?;
-    let proj = base.join(format!("pe_{key}"));
+    let proj = base.join(project);
     let so = proj.join("target").join("release").join(format!(
-        "{}logos_native_pe_lib{}",
+        "{}{crate_name}{}",
         std::env::consts::DLL_PREFIX,
         std::env::consts::DLL_SUFFIX
     ));
     if so.exists() {
-        NATIVE_PE_CDYLIB.with(|c| *c.borrow_mut() = Some(so.clone()));
         return Ok(so);
     }
-    let lib_rs = native_pe_cdylib_lib_rs()?;
+    let lib_rs = lib_rs()?;
     std::fs::create_dir_all(proj.join("src")).map_err(|e| e.to_string())?;
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let root = manifest.parent().unwrap().parent().unwrap();
     std::fs::write(
         proj.join("Cargo.toml"),
         format!(
-            "[package]\nname=\"logos_native_pe_lib\"\nversion=\"0.1.0\"\nedition=\"2021\"\n[lib]\ncrate-type=[\"cdylib\"]\npath=\"src/lib.rs\"\n[dependencies]\nlogicaffeine-data={{path=\"{r}/crates/logicaffeine_data\"}}\nlogicaffeine-system={{path=\"{r}/crates/logicaffeine_system\",features=[\"full\"]}}\ntokio={{version=\"1\",features=[\"rt-multi-thread\",\"macros\"]}}\nserde={{version=\"1\",features=[\"derive\"]}}\nrayon=\"1\"\n[profile.release]\nopt-level=3\n",
-            r = root.display()
+            "[package]\nname=\"{crate_name}\"\nversion=\"0.1.0\"\nedition=\"2021\"\n[lib]\ncrate-type=[\"cdylib\"]\npath=\"src/lib.rs\"\n[dependencies]\nlogicaffeine-data={{path=\"{r}/crates/logicaffeine_data\"}}\nlogicaffeine-system={{path=\"{r}/crates/logicaffeine_system\",features=[\"full\"]}}\ntokio={{version=\"1\",features=[\"rt-multi-thread\",\"macros\"]}}\nserde={{version=\"1\",features=[\"derive\"]}}\nrayon=\"1\"\n{profile}",
+            r = root.display(),
+            profile = build.profile()
         ),
     )
     .map_err(|e| e.to_string())?;
@@ -13615,32 +14613,136 @@ pub fn build_native_pe_cdylib() -> Result<std::path::PathBuf, String> {
         .output()
         .map_err(|e| e.to_string())?;
     if !out.status.success() {
-        return Err(format!(
-            "native PE cdylib build failed:\n{}",
-            String::from_utf8_lossy(&out.stderr)
-        ));
+        return Err(format!("{crate_name} build failed:\n{}", String::from_utf8_lossy(&out.stderr)));
     }
     if so.exists() {
-        NATIVE_PE_CDYLIB.with(|c| *c.borrow_mut() = Some(so.clone()));
         Ok(so)
     } else {
-        Err("native PE cdylib missing after a successful build".into())
+        Err(format!("{crate_name} missing after a successful build"))
     }
 }
 
-/// The loaded PE cdylib for this thread: the `Library` kept alive alongside the raw entry-point
-/// pointers derived from it (valid for as long as the `Library` is not unloaded, which is exactly
-/// this struct's lifetime).
+/// What every in-process engine's cdylib carries beside its entry: the outcome a call hands the host — a status byte
+/// (0 the text, 1 the failure), then the text — and the free that reclaims it. The engine runs on a thread of its own
+/// with the stack its recursion needs; a failure reaches the host as its text, so the engine's panic hook stays
+/// silent. `into_boxed_slice` gives an allocation of capacity exactly its length, so `logos_native_free` reconstructs
+/// the identical `Box<[u8]>` (reconstructing a `Vec` with cap == len would be UB if the allocator over-allocated).
 #[cfg(not(target_arch = "wasm32"))]
-struct PeLib {
+const NATIVE_ENGINE_SHIM: &str = r#"
+fn logos_native_outcome(outcome: std::thread::Result<String>, out_len: *mut usize) -> *mut u8 {
+    let mut bytes = match outcome {
+        Ok(text) => {
+            let mut b = vec![0u8];
+            b.extend_from_slice(text.as_bytes());
+            b
+        }
+        Err(payload) => {
+            let msg = payload
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| payload.downcast_ref::<&str>().map(|s| s.to_string()))
+                .unwrap_or_else(|| "the native engine failed".to_string());
+            let mut b = vec![1u8];
+            b.extend_from_slice(msg.as_bytes());
+            b
+        }
+    };
+    bytes.shrink_to_fit();
+    let boxed: Box<[u8]> = bytes.into_boxed_slice();
+    let n = boxed.len();
+    unsafe { *out_len = n; }
+    Box::into_raw(boxed) as *mut u8
+}
+
+#[no_mangle]
+pub extern "C" fn logos_native_free(ptr: *mut u8, len: usize) {
+    if !ptr.is_null() {
+        unsafe { drop(Box::from_raw(std::slice::from_raw_parts_mut(ptr, len) as *mut [u8])); }
+    }
+}
+"#;
+
+/// The FFI entry of an engine generated from LOGOS, appended to its generated Rust: `symbol` decodes its wire bytes
+/// as one `input`, calls the engine's exported `function` on it and hands back the text it answers, with
+/// [`NATIVE_ENGINE_SHIM`].
+#[cfg(not(target_arch = "wasm32"))]
+fn native_engine_shim(symbol: &str, input: &str, function: &str) -> String {
+    format!(
+        r#"
+#[no_mangle]
+pub extern "C" fn {symbol}(ptr: *const u8, len: usize, out_len: *mut usize) -> *mut u8 {{
+    static QUIET: std::sync::Once = std::sync::Once::new();
+    QUIET.call_once(|| std::panic::set_hook(Box::new(|_| {{}})));
+    let bytes = unsafe {{ std::slice::from_raw_parts(ptr, len) }}.to_vec();
+    let outcome = std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {{
+            let input = <{input} as logicaffeine_data::wire::WireDecode>::wire_decode(&bytes, &mut 0usize)
+                .expect("{symbol}: decode {input}");
+            let out: String = {function}(input);
+            out
+        }})
+        .map_err(|e| Box::new(e.to_string()) as Box<dyn std::any::Any + Send>)
+        .and_then(|engine| engine.join());
+    logos_native_outcome(outcome, out_len)
+}}
+{NATIVE_ENGINE_SHIM}"#
+    )
+}
+
+/// A generated engine's cdylib loaded for this thread: the `Library` kept alive alongside the raw entry-point
+/// pointers derived from it (valid for as long as the `Library` is not unloaded, which is exactly this struct's
+/// lifetime). The entry takes wire bytes and returns a status byte (0 the text, 1 the failure it caught) and a text,
+/// in a buffer it owns until `free`.
+#[cfg(not(target_arch = "wasm32"))]
+struct NativeLib {
     _lib: libloading::Library,
-    specialize: unsafe extern "C" fn(*const u8, usize, *mut usize) -> *mut u8,
+    entry: unsafe extern "C" fn(*const u8, usize, *mut usize) -> *mut u8,
     free: unsafe extern "C" fn(*mut u8, usize),
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+impl NativeLib {
+    fn load(so: &std::path::Path, entry: &[u8]) -> Result<NativeLib, String> {
+        let free: &[u8] = b"logos_native_free";
+        let name = |sym: &[u8]| String::from_utf8_lossy(sym).into_owned();
+        // SAFETY: the cdylib was built from our own generated source; its exported symbols have exactly the
+        // signatures declared here, and the raw pointers are stored alongside the owning `Library` so they never
+        // outlive it.
+        unsafe {
+            let lib = libloading::Library::new(so).map_err(|e| format!("cdylib load {}: {e}", so.display()))?;
+            let entry_fn = *lib
+                .get::<unsafe extern "C" fn(*const u8, usize, *mut usize) -> *mut u8>(entry)
+                .map_err(|e| format!("dlsym {}: {e}", name(entry)))?;
+            let free_fn = *lib
+                .get::<unsafe extern "C" fn(*mut u8, usize)>(free)
+                .map_err(|e| format!("dlsym {}: {e}", name(free)))?;
+            Ok(NativeLib { _lib: lib, entry: entry_fn, free: free_fn })
+        }
+    }
+
+    fn call(&self, bytes: &[u8]) -> Result<String, String> {
+        let mut out_len: usize = 0;
+        // SAFETY: `bytes` is a live slice for the duration of the call; the callee writes `out_len` and returns a
+        // buffer of that length we own until `free`.
+        let p = unsafe { (self.entry)(bytes.as_ptr(), bytes.len(), &mut out_len as *mut usize) };
+        if p.is_null() {
+            return Err("the native engine returned a null result".into());
+        }
+        let out = unsafe { std::slice::from_raw_parts(p, out_len).to_vec() };
+        unsafe { (self.free)(p, out_len) };
+        let (status, text) = out.split_first().ok_or("the native engine returned no status")?;
+        let text = String::from_utf8(text.to_vec()).map_err(|e| format!("the native engine's result is not UTF-8: {e}"))?;
+        match status {
+            0 => Ok(text),
+            _ => Err(text),
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 thread_local! {
-    static PE_LIB: std::cell::RefCell<Option<PeLib>> = const { std::cell::RefCell::new(None) };
+    static PE_LIB: std::cell::RefCell<Option<NativeLib>> = const { std::cell::RefCell::new(None) };
 }
 
 /// Specialize `program` on the compile-once native PE, IN PROCESS: marshal it to wire bytes, hand
@@ -13655,41 +14757,9 @@ pub fn run_native_pe_inprocess(program: &str) -> Result<String, String> {
     let raw = PE_LIB.with(|cell| -> Result<String, String> {
         let mut slot = cell.borrow_mut();
         if slot.is_none() {
-            let so = build_native_pe_cdylib()?;
-            // SAFETY: the cdylib was just built from our own generated source; its exported symbols
-            // have exactly the signatures declared here, and the raw pointers are stored alongside
-            // the owning `Library` so they never outlive it.
-            unsafe {
-                let lib = libloading::Library::new(&so)
-                    .map_err(|e| format!("native PE cdylib load: {e}"))?;
-                let specialize: libloading::Symbol<
-                    unsafe extern "C" fn(*const u8, usize, *mut usize) -> *mut u8,
-                > = lib
-                    .get(b"logos_pe_specialize")
-                    .map_err(|e| format!("dlsym logos_pe_specialize: {e}"))?;
-                let free: libloading::Symbol<unsafe extern "C" fn(*mut u8, usize)> = lib
-                    .get(b"logos_pe_free")
-                    .map_err(|e| format!("dlsym logos_pe_free: {e}"))?;
-                let specialize = *specialize;
-                let free = *free;
-                *slot = Some(PeLib {
-                    _lib: lib,
-                    specialize,
-                    free,
-                });
-            }
+            *slot = Some(NativeLib::load(&build_native_pe_cdylib()?, b"logos_pe_specialize")?);
         }
-        let pl = slot.as_ref().unwrap();
-        let mut out_len: usize = 0;
-        // SAFETY: `bytes` is a live slice for the duration of the call; the callee writes `out_len`
-        // and returns a buffer of that length we own until `free`.
-        let p = unsafe { (pl.specialize)(bytes.as_ptr(), bytes.len(), &mut out_len as *mut usize) };
-        if p.is_null() {
-            return Err("native PE cdylib returned a null residual".into());
-        }
-        let residual_bytes = unsafe { std::slice::from_raw_parts(p, out_len).to_vec() };
-        unsafe { (pl.free)(p, out_len) };
-        String::from_utf8(residual_bytes).map_err(|e| format!("native PE residual not UTF-8: {e}"))
+        slot.as_ref().expect("loaded").call(&bytes)
     })?;
     let residual = finish_projection1_residual(raw)?;
     Ok(prepend_type_definitions(program, residual))
@@ -13851,6 +14921,142 @@ pub fn finish_projection1_residual(raw_residual: String) -> Result<String, Strin
     } else {
         Ok(format!("## Main\n{}", trimmed))
     }
+}
+
+/// The self-interpreter's run of `program`: [`core_interp_source`] and one `coreRun` of the program's encoding on the
+/// arguments the run is given. Run as it stands it is `[[sint]](p, args)`.
+pub fn self_interpreter_run_source(program: &str) -> Result<String, String> {
+    self_interpreter_run_on(program, "args()")
+}
+
+/// [`self_interpreter_run_source`] with the program's arguments `arguments`, a `Seq of Text` expression.
+fn self_interpreter_run_on(program: &str, arguments: &str) -> Result<String, String> {
+    let full_source = if program.contains("## Main") || program.contains("## To ") {
+        program.to_string()
+    } else {
+        format!("## Main\n{}", program)
+    };
+    let target = encode_program_source(&full_source).map_err(|e| describe_parse_error(&e))?;
+    Ok(format!(
+        "{}\n{}\n## Main\n{}\ncoreRun(encodedMain, encodedFuncMap, {arguments}).\n",
+        CORE_TYPES_FOR_PE,
+        core_interp_source(),
+        target
+    ))
+}
+
+/// The self-interpreter's run of `program` with `program_args` (the full argument vector, as [`tw_lines_with_args`]
+/// takes it): the encoded program executed by `core_interp` on the tree-walker in the bootstrap scope, every line it
+/// showed and the report it ended with. A program the encoder cannot read ends with the encoder's words.
+pub fn self_interpreter_lines(program: &str, program_args: &[String]) -> crate::interpreter::InterpreterResult {
+    let subject = match self_interpreter_run_source(program) {
+        Ok(subject) => subject,
+        Err(why) => {
+            return crate::interpreter::InterpreterResult {
+                lines: Vec::new(),
+                error: Some(why),
+            }
+        }
+    };
+    let program_args = program_args.to_vec();
+    on_bootstrap_stack(move || {
+        crate::concurrency::net_inbox::set_net_offline(true);
+        crate::ui_bridge::with_parsed_program(&subject, |parsed, interner| match parsed {
+            Ok((stmts, types, policies)) => {
+                let force_async = crate::interpreter::needs_async(stmts, interner);
+                with_reference_semantics(|| crate::ui_bridge::run_treewalker(stmts, types, policies, interner, force_async, &program_args))
+            }
+            Err(advice) => crate::interpreter::InterpreterResult {
+                lines: Vec::new(),
+                error: Some(advice),
+            },
+        })
+    })
+}
+
+/// The program [`textbook_projection1`] runs: the partial evaluator and the decompiler, given the self-interpreter's run
+/// of `program` on its run-time arguments (`args()`) as data, so the residual reads them when it runs. A program that
+/// reads another input only when it runs — the clock, the console, a file, a builtin whose answer is not a function of
+/// its arguments — is refused.
+pub fn textbook_projection1_subject_source(program: &str) -> Result<String, String> {
+    let tree = program_to_core_tree(&user_program_source(program))
+        .ok_or_else(|| "the program is outside the native builder's coverage".to_string())?;
+    refuse_run_time_input(&tree, true)?;
+    let subject = self_interpreter_run_on(program, "args()")?;
+    let encoded_subject = encode_program_source_compact(&subject).map_err(|e| {
+        format!(
+            "Failed to encode the interpreter's run of the program: {}",
+            describe_parse_error(&e)
+        )
+    })?;
+    Ok(format!(
+        "{}\n{}\n{}\n## Main\n{}\n{}",
+        CORE_TYPES_FOR_PE,
+        pe_source_text(),
+        decompile_source_text(),
+        encoded_subject,
+        pe_driver_body("Show output.")
+    ))
+}
+
+/// The first Futamura projection as Futamura defined it: the partial evaluator specializes the self-interpreter
+/// ([`core_interp_source`]) to `program`. The subject the specializer reads is the interpreter together with one call
+/// of it on the program's encoding, a constant, so every dispatch the interpreter makes on the program is a static one.
+/// The residual is the decompiled specialization: Jones-optimal when [`count_dispatch`] finds nothing of the
+/// interpreter in it and it prints what the program prints.
+pub fn textbook_projection1(program: &str) -> Result<String, String> {
+    let combined = textbook_projection1_subject_source(program)?;
+    let raw = interpret_bootstrap(&combined)
+        .map_err(|e| format!("PE execution failed: {}", describe_parse_error(&e)))?;
+    let residual = prepend_type_definitions(program, finish_projection1_residual(raw)?);
+    Ok(if holds_catalog_values(&residual) {
+        format!("{}\n{residual}", self_interpreter_catalog())
+    } else {
+        residual
+    })
+}
+
+/// The types the self-interpreter's values are made of: the Core IR catalog, and the sections `core_interp.logos`
+/// declares for itself (`CoreOut`).
+fn self_interpreter_catalog() -> &'static str {
+    static CATALOG: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    CATALOG.get_or_init(|| {
+        let mut catalog = core_types_for_pe_source().trim().to_string();
+        let mut keep = false;
+        for line in core_interp_source().lines() {
+            if line.starts_with("## ") {
+                keep = line.starts_with("## A ");
+                if keep {
+                    catalog.push_str("\n\n");
+                }
+            }
+            if keep && !line.trim().is_empty() {
+                catalog.push_str(line);
+                catalog.push('\n');
+            }
+        }
+        catalog
+    })
+}
+
+/// Every type and constructor the self-interpreter's catalog declares.
+fn catalog_names() -> &'static std::collections::HashSet<&'static str> {
+    static NAMES: std::sync::OnceLock<std::collections::HashSet<&'static str>> = std::sync::OnceLock::new();
+    NAMES.get_or_init(|| {
+        self_interpreter_catalog()
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("## A ").or_else(|| line.trim().strip_prefix("A ")))
+            .filter_map(|rest| rest.split(|c: char| !(c.is_alphanumeric() || c == '_')).next())
+            .filter(|name| !name.is_empty())
+            .collect()
+    })
+}
+
+/// Whether a residual still names a value of the self-interpreter's catalog (a `CVal`, a `CoreOut`): a specialization
+/// that kept some of the interpreter around a value it knew only in part, and so needs the catalog's types to run.
+fn holds_catalog_values(residual: &str) -> bool {
+    let names = catalog_names();
+    residual.split(|c: char| !(c.is_alphanumeric() || c == '_')).any(|word| names.contains(word))
 }
 
 /// Run genuine P2 on a specific target: PE(pe_source, pe_mini(target))

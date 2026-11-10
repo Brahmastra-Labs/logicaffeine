@@ -6194,10 +6194,12 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
-    /// `dst = (lhs <cmp> rhs) ? 1 : 0` for Int (Eq/NotEq also accept Bool operands).
+    /// `dst = (lhs <cmp> rhs) ? 1 : 0` for Int, for two moments (nanoseconds) and for two dates (days), each an i64
+    /// slot; Eq/NotEq also accept Bool operands.
     fn int_cmp(&mut self, cmp: &str, dst: u16, lhs: u16, rhs: u16, kinds: &[Kind]) -> Emit {
-        let ok = matches!(cmp, "eq" | "ne")
-            && self.all_kind(kinds, &[lhs, rhs], &[Kind::Int, Kind::Bool]);
+        let ok = (matches!(cmp, "eq" | "ne") && self.all_kind(kinds, &[lhs, rhs], &[Kind::Int, Kind::Bool]))
+            || self.all_kind(kinds, &[lhs, rhs], &[Kind::Moment])
+            || self.all_kind(kinds, &[lhs, rhs], &[Kind::Date]);
         if !ok {
             self.require(kinds, &[lhs, rhs], Kind::Int, "comparison on non-Int")?;
         }
