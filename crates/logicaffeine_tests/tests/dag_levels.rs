@@ -5,7 +5,9 @@
 //! Every level over two parameters up to a small depth is generated and each answer is checked
 //! against evaluating the level under every assignment of the parameters (zero-ness depends
 //! only on which parameters are zero, so assignments over {0, 1, 2} decide it), and against the
-//! general `≤` decision procedure.
+//! general `≤` decision procedure, itself checked pair by pair against every assignment over
+//! {0, …, 4} (a level of depth two adds at most two to a parameter, so a counterexample needs no
+//! larger value).
 
 use logicaffeine_kernel::dag::level::{LevelId, LevelNode, Levels};
 use logicaffeine_kernel::dag::name::{NameId, Names};
@@ -86,4 +88,50 @@ fn never_zero_means_nonzero_under_every_assignment() {
             assert!(semantic, "is_never_zero is sound on {:?}", ls.node(l));
         }
     }
+}
+
+#[test]
+fn leq_holds_exactly_when_it_holds_under_every_assignment() {
+    let mut names = Names::new();
+    let (u, v) = (names.dotted("u"), names.dotted("v"));
+    let mut ls = Levels::new();
+    let levels = all_levels(&mut ls, &[u, v], 2);
+    let shallow = all_levels(&mut ls, &[u, v], 1);
+    let mut pairs: Vec<(LevelId, LevelId)> = shallow
+        .iter()
+        .flat_map(|&a| shallow.iter().map(move |&b| (a, b)))
+        .collect();
+    let mut x = 0x5eed_1e7e_u64;
+    for _ in 0..30_000 {
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        let n = levels.len() as u64;
+        pairs.push((levels[(x % n) as usize], levels[((x >> 32) % n) as usize]));
+    }
+    let (mut holds, mut fails) = (0, 0);
+    for (a, b) in pairs {
+        let semantic = (0..5).all(|i| {
+            (0..5).all(|j| {
+                let at = |p: NameId| if p == u { i } else { j };
+                eval(&ls, a, &at) <= eval(&ls, b, &at)
+            })
+        });
+        assert_eq!(
+            ls.leq(a, b),
+            semantic,
+            "{:?} ≤ {:?}",
+            ls.node(a),
+            ls.node(b)
+        );
+        if semantic {
+            holds += 1
+        } else {
+            fails += 1
+        }
+    }
+    assert!(
+        holds > 3_000 && fails > 3_000,
+        "both answers are exercised ({holds} hold, {fails} fail)"
+    );
 }

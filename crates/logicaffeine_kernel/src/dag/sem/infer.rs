@@ -132,13 +132,13 @@ impl Sem<'_> {
                 self.k.s.names.display(n)
             )));
         };
-        let us = self.k.s.levels.get_list(ls).to_vec();
-        if c.lparams.len() != us.len() {
+        let given = self.k.s.levels.get_list(ls).len();
+        if c.lparams.len() != given {
             return Err(reject(format!(
                 "incorrect number of universe levels for '{}': {} expected, {} provided",
                 self.k.s.names.display(n),
                 c.lparams.len(),
-                us.len()
+                given
             )));
         }
         if check {
@@ -154,8 +154,9 @@ impl Sem<'_> {
                     self.k.s.names.display(n)
                 )));
             }
-            for l in &us {
-                self.check_level(*l)?;
+            for i in 0..given {
+                let l = self.k.s.levels.get_list(ls)[i];
+                self.check_level(l)?;
             }
         }
         self.const_type(n, ls)

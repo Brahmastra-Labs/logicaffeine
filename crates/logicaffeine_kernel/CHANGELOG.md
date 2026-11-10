@@ -36,6 +36,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Arena's large exports run 56 to 61), so Mathlib's persistent table is 2^28 slots where it was 2^29. The value
   engine's `memory_report` counts every store it holds, the frame index, substitution bases, wide-frame indices,
   contexts, loose-variable sets and recent-atoms memo among them.
+- `dag::level::Levels::leq` decides over an arena of nodes indexed by `u32`, kept in `Levels` between decisions, where
+  it built `Box`ed trees; `Levels::substitution` and `Levels::subst_list` build their lists in a `SmallVec`;
+  `dag::sem`'s constant inference reads the universe list in place; `dag::sem::value::Arena::args` returns a
+  `SmallVec<[V; 16]>`.
 
 ## [0.11.0] - 2026-11-02
 

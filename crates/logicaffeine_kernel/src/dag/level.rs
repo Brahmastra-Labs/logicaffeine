@@ -65,6 +65,8 @@ pub struct Levels {
     lists: Vec<Box<[LevelId]>>,
     list_index: FxMap<Box<[LevelId]>, LevelsId>,
     leq_memo: FxMap<(LevelId, LevelId), bool>,
+    /// The `≤` decision procedure's node arena, kept between decisions for its storage.
+    trees: Vec<T>,
     substs: Vec<Subst>,
     subst_index: FxMap<(LevelsId, LevelsId), SubstId>,
     subst_memo: FxMap<(LevelId, SubstId), LevelId>,
@@ -88,6 +90,7 @@ impl Levels {
             lists: Vec::new(),
             list_index: FxMap::default(),
             leq_memo: FxMap::default(),
+            trees: Vec::new(),
             substs: vec![Subst {
                 ps: Rc::from([]),
                 us: Rc::from([]),
@@ -296,7 +299,7 @@ impl Levels {
         if ps.is_empty() {
             return SubstId::IDENTITY;
         }
-        let own: Vec<LevelId> = ps.iter().map(|p| self.param(*p)).collect();
+        let own: smallvec::SmallVec<[LevelId; 8]> = ps.iter().map(|p| self.param(*p)).collect();
         let own = self.list(&own);
         if own == us {
             return SubstId::IDENTITY;
@@ -338,8 +341,12 @@ impl Levels {
         if let Some(&r) = self.subst_list_memo.get(&(ls, s)) {
             return r;
         }
-        let old = self.get_list(ls).to_vec();
-        let new: Vec<LevelId> = old.iter().map(|l| self.subst(*l, s)).collect();
+        let n = self.get_list(ls).len();
+        let mut new: smallvec::SmallVec<[LevelId; 8]> = smallvec::SmallVec::with_capacity(n);
+        for i in 0..n {
+            let l = self.get_list(ls)[i];
+            new.push(self.subst(l, s));
+        }
         let r = self.list(&new);
         self.subst_list_memo.insert((ls, s), r);
         r
@@ -409,10 +416,13 @@ impl Levels {
         if let Some(&r) = self.leq_memo.get(&(u, v)) {
             return r;
         }
-        let mut vars = Vec::new();
-        let a = self.tree(u, &mut vars);
-        let b = self.tree(v, &mut vars);
-        let r = decide_leq(&a, &b);
+        let mut ts = std::mem::take(&mut self.trees);
+        ts.clear();
+        let mut vars: smallvec::SmallVec<[NameId; 8]> = smallvec::SmallVec::new();
+        let a = self.tree(u, &mut vars, &mut ts);
+        let b = self.tree(v, &mut vars, &mut ts);
+        let r = decide_leq(&mut ts, a, b);
+        self.trees = ts;
         self.leq_memo.insert((u, v), r);
         r
     }
@@ -447,15 +457,18 @@ impl Levels {
         }
     }
 
-    fn tree(&self, l: LevelId, vars: &mut Vec<NameId>) -> T {
-        match self.node(l) {
+    /// `l` as a tree in `ts`, its parameters numbered in `vars`; the tree's root index.
+    fn tree(&self, l: LevelId, vars: &mut smallvec::SmallVec<[NameId; 8]>, ts: &mut Vec<T>) -> u32 {
+        let t = match self.node(l) {
             LevelNode::Zero | LevelNode::SProp => T::Zero,
-            LevelNode::Succ(a) => T::Succ(Box::new(self.tree(a, vars))),
+            LevelNode::Succ(a) => T::Succ(self.tree(a, vars, ts)),
             LevelNode::Max(a, b) => {
-                T::Max(Box::new(self.tree(a, vars)), Box::new(self.tree(b, vars)))
+                let a = self.tree(a, vars, ts);
+                T::Max(a, self.tree(b, vars, ts))
             }
             LevelNode::IMax(a, b) => {
-                T::IMax(Box::new(self.tree(a, vars)), Box::new(self.tree(b, vars)))
+                let a = self.tree(a, vars, ts);
+                T::IMax(a, self.tree(b, vars, ts))
             }
             LevelNode::Param(n) => {
                 let i = vars.iter().position(|v| *v == n).unwrap_or_else(|| {
@@ -464,127 +477,158 @@ impl Levels {
                 });
                 T::Var(i as u32)
             }
-        }
+        };
+        node(ts, t)
     }
 }
 
-/// A level over numbered variables, the working form of the decision procedure.
-#[derive(Clone, Debug, PartialEq)]
+/// A node of a level over numbered variables, the working form of the decision procedure. A
+/// decision builds its trees in one arena of nodes, children by index, whose storage the next
+/// decision reuses.
+#[derive(Copy, Clone, Debug, PartialEq)]
 enum T {
     Zero,
-    Succ(Box<T>),
-    Max(Box<T>, Box<T>),
-    IMax(Box<T>, Box<T>),
+    Succ(u32),
+    Max(u32, u32),
+    IMax(u32, u32),
     Var(u32),
 }
 
-impl T {
-    fn never_zero(&self) -> bool {
-        match self {
-            T::Zero | T::Var(_) => false,
-            T::Succ(_) => true,
-            T::Max(a, b) => a.never_zero() || b.never_zero(),
-            T::IMax(_, b) => b.never_zero(),
-        }
-    }
+fn node(ts: &mut Vec<T>, t: T) -> u32 {
+    ts.push(t);
+    (ts.len() - 1) as u32
+}
 
-    fn is_zero(&self) -> bool {
-        match self {
-            T::Zero => true,
-            T::Succ(_) | T::Var(_) => false,
-            T::Max(a, b) => a.is_zero() && b.is_zero(),
-            T::IMax(_, b) => b.is_zero(),
-        }
-    }
-
-    /// Resolves every `imax` whose right side is decidedly zero or nonzero.
-    fn simp(self) -> T {
-        match self {
-            T::Succ(a) => T::Succ(Box::new(a.simp())),
-            T::Max(a, b) => T::Max(Box::new(a.simp()), Box::new(b.simp())),
-            T::IMax(a, b) => {
-                let b = b.simp();
-                if b.is_zero() {
-                    T::Zero
-                } else if b.never_zero() {
-                    T::Max(Box::new(a.simp()), Box::new(b))
-                } else {
-                    T::IMax(Box::new(a.simp()), Box::new(b))
-                }
-            }
-            t => t,
-        }
-    }
-
-    /// A variable whose vanishing would make some remaining `imax` vanish.
-    fn split_candidate(&self) -> Option<u32> {
-        match self {
-            T::Zero | T::Var(_) => None,
-            T::Succ(a) => a.split_candidate(),
-            T::Max(a, b) => a.split_candidate().or_else(|| b.split_candidate()),
-            T::IMax(a, b) => b
-                .zero_relevant()
-                .or_else(|| a.split_candidate())
-                .or_else(|| b.split_candidate()),
-        }
-    }
-
-    fn zero_relevant(&self) -> Option<u32> {
-        match self {
-            T::Var(v) => Some(*v),
-            T::Zero | T::Succ(_) => None,
-            T::Max(a, b) => a.zero_relevant().or_else(|| b.zero_relevant()),
-            T::IMax(_, b) => b.zero_relevant(),
-        }
-    }
-
-    fn subst(&self, v: u32, to_zero: bool) -> T {
-        match self {
-            T::Var(w) if *w == v => {
-                if to_zero {
-                    T::Zero
-                } else {
-                    T::Succ(Box::new(T::Var(v)))
-                }
-            }
-            T::Succ(a) => T::Succ(Box::new(a.subst(v, to_zero))),
-            T::Max(a, b) => T::Max(Box::new(a.subst(v, to_zero)), Box::new(b.subst(v, to_zero))),
-            T::IMax(a, b) => T::IMax(Box::new(a.subst(v, to_zero)), Box::new(b.subst(v, to_zero))),
-            t => t.clone(),
-        }
-    }
-
-    /// `max(c, vᵢ + kᵢ …)` for an `imax`-free level: (constant, per-variable offsets).
-    fn flatten(&self, k: u64, c: &mut u64, vars: &mut Vec<(u32, u64)>) {
-        match self {
-            T::Zero => *c = (*c).max(k),
-            T::Succ(a) => a.flatten(k + 1, c, vars),
-            T::Max(a, b) => {
-                a.flatten(k, c, vars);
-                b.flatten(k, c, vars);
-            }
-            T::Var(v) => {
-                *c = (*c).max(k);
-                match vars.iter_mut().find(|(w, _)| w == v) {
-                    Some(e) => e.1 = e.1.max(k),
-                    None => vars.push((*v, k)),
-                }
-            }
-            T::IMax(..) => unreachable!("flatten requires an imax-free level"),
-        }
+fn never_zero(ts: &[T], i: u32) -> bool {
+    match ts[i as usize] {
+        T::Zero | T::Var(_) => false,
+        T::Succ(_) => true,
+        T::Max(a, b) => never_zero(ts, a) || never_zero(ts, b),
+        T::IMax(_, b) => never_zero(ts, b),
     }
 }
 
-fn decide_leq(a: &T, b: &T) -> bool {
-    let (a, b) = (a.clone().simp(), b.clone().simp());
-    if let Some(v) = a.split_candidate().or_else(|| b.split_candidate()) {
-        return decide_leq(&a.subst(v, true), &b.subst(v, true))
-            && decide_leq(&a.subst(v, false), &b.subst(v, false));
+fn is_zero(ts: &[T], i: u32) -> bool {
+    match ts[i as usize] {
+        T::Zero => true,
+        T::Succ(_) | T::Var(_) => false,
+        T::Max(a, b) => is_zero(ts, a) && is_zero(ts, b),
+        T::IMax(_, b) => is_zero(ts, b),
     }
-    let (mut ca, mut va) = (0, Vec::new());
-    a.flatten(0, &mut ca, &mut va);
-    let (mut cb, mut vb) = (0, Vec::new());
-    b.flatten(0, &mut cb, &mut vb);
+}
+
+/// Resolves every `imax` whose right side is decidedly zero or nonzero.
+fn simp(ts: &mut Vec<T>, i: u32) -> u32 {
+    match ts[i as usize] {
+        T::Succ(a) => {
+            let a = simp(ts, a);
+            node(ts, T::Succ(a))
+        }
+        T::Max(a, b) => {
+            let a = simp(ts, a);
+            let b = simp(ts, b);
+            node(ts, T::Max(a, b))
+        }
+        T::IMax(a, b) => {
+            let b = simp(ts, b);
+            if is_zero(ts, b) {
+                node(ts, T::Zero)
+            } else if never_zero(ts, b) {
+                let a = simp(ts, a);
+                node(ts, T::Max(a, b))
+            } else {
+                let a = simp(ts, a);
+                node(ts, T::IMax(a, b))
+            }
+        }
+        T::Zero | T::Var(_) => i,
+    }
+}
+
+/// A variable whose vanishing would make some remaining `imax` vanish.
+fn split_candidate(ts: &[T], i: u32) -> Option<u32> {
+    match ts[i as usize] {
+        T::Zero | T::Var(_) => None,
+        T::Succ(a) => split_candidate(ts, a),
+        T::Max(a, b) => split_candidate(ts, a).or_else(|| split_candidate(ts, b)),
+        T::IMax(a, b) => zero_relevant(ts, b)
+            .or_else(|| split_candidate(ts, a))
+            .or_else(|| split_candidate(ts, b)),
+    }
+}
+
+fn zero_relevant(ts: &[T], i: u32) -> Option<u32> {
+    match ts[i as usize] {
+        T::Var(v) => Some(v),
+        T::Zero | T::Succ(_) => None,
+        T::Max(a, b) => zero_relevant(ts, a).or_else(|| zero_relevant(ts, b)),
+        T::IMax(_, b) => zero_relevant(ts, b),
+    }
+}
+
+/// `i` with variable `v` replaced by zero (`to_zero`) or by its successor.
+fn subst(ts: &mut Vec<T>, i: u32, v: u32, to_zero: bool) -> u32 {
+    match ts[i as usize] {
+        T::Var(w) if w == v => {
+            if to_zero {
+                node(ts, T::Zero)
+            } else {
+                let x = node(ts, T::Var(v));
+                node(ts, T::Succ(x))
+            }
+        }
+        T::Succ(a) => {
+            let a = subst(ts, a, v, to_zero);
+            node(ts, T::Succ(a))
+        }
+        T::Max(a, b) => {
+            let a = subst(ts, a, v, to_zero);
+            let b = subst(ts, b, v, to_zero);
+            node(ts, T::Max(a, b))
+        }
+        T::IMax(a, b) => {
+            let a = subst(ts, a, v, to_zero);
+            let b = subst(ts, b, v, to_zero);
+            node(ts, T::IMax(a, b))
+        }
+        T::Zero | T::Var(_) => i,
+    }
+}
+
+/// `max(c, vᵢ + kᵢ …)` for an `imax`-free level: (constant, per-variable offsets).
+fn flatten(ts: &[T], i: u32, k: u64, c: &mut u64, vars: &mut smallvec::SmallVec<[(u32, u64); 8]>) {
+    match ts[i as usize] {
+        T::Zero => *c = (*c).max(k),
+        T::Succ(a) => flatten(ts, a, k + 1, c, vars),
+        T::Max(a, b) => {
+            flatten(ts, a, k, c, vars);
+            flatten(ts, b, k, c, vars);
+        }
+        T::Var(v) => {
+            *c = (*c).max(k);
+            match vars.iter_mut().find(|(w, _)| *w == v) {
+                Some(e) => e.1 = e.1.max(k),
+                None => vars.push((v, k)),
+            }
+        }
+        T::IMax(..) => unreachable!("flatten requires an imax-free level"),
+    }
+}
+
+fn decide_leq(ts: &mut Vec<T>, a: u32, b: u32) -> bool {
+    let (a, b) = (simp(ts, a), simp(ts, b));
+    if let Some(v) = split_candidate(ts, a).or_else(|| split_candidate(ts, b)) {
+        let (a0, b0) = (subst(ts, a, v, true), subst(ts, b, v, true));
+        if !decide_leq(ts, a0, b0) {
+            return false;
+        }
+        let (a1, b1) = (subst(ts, a, v, false), subst(ts, b, v, false));
+        return decide_leq(ts, a1, b1);
+    }
+    let (mut ca, mut va) = (0, smallvec::SmallVec::new());
+    flatten(ts, a, 0, &mut ca, &mut va);
+    let (mut cb, mut vb) = (0, smallvec::SmallVec::new());
+    flatten(ts, b, 0, &mut cb, &mut vb);
     let floor_b = vb.iter().fold(cb, |m, (_, k)| m.max(*k));
     ca <= floor_b
         && va

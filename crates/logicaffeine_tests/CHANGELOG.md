@@ -42,6 +42,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   destructured whole, and names each part once); `dag::sem`'s `memory_controls` (a session's report counts every
   store); `dag::export`'s `size_controls` (each of the Arena's large exports reserves the persistent table its
   expressions need, and the estimate covers it within a tenth).
+- `dag_levels::leq_holds_exactly_when_it_holds_under_every_assignment`: the `≤` decision procedure against every
+  assignment over {0, …, 4}, on every pair of depth-one levels over two parameters and 30,000 pairs of depth-two ones.
+- `dag_level_allocation`: a counting global allocator, by thread: deciding 4,000 orders of levels, finding a known
+  substitution and substituting into 3,000 lists allocate only as a memo grows.
 
 ### Changed
 - The Arena corpus at lean-kernel-arena `8139f284`: 247 cases, the 11 new ones (six `bugs/` rejects, `other/inductive-undeclared-universe` and four `corner-cases/`) vendored by `scripts/lean/arena-crown/vendor-corpus.py` from the official archive or from the corner cases rebuilt byte-identical at `d7f74a9e`; a regenerated export is now looked for in every round held, newest first, and `cedar`, re-exported at every round since, keeps its regenerated export with the new digests in its evidence. `arena_corpus_lock`, `arena_entry_lock`, the Arena README, the rehearsal and the scoreboard pin the round.

@@ -52,6 +52,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   value engine holds. The Arena entry checks Mathlib in 407.18 G instructions (from 409.15), `init` in 18.01 G (from
   18.16) and `std` in 31.02 G (from 31.22) (`logicaffeine_kernel`; locked by its `dag::sem` and `dag::export` unit
   tests).
+- **The value engine decides universe levels without allocating.** Deciding `u ≤ v` builds its trees in one arena of
+  nodes that the next decision reuses, where it boxed every node; a known substitution is found, and a substitution
+  into a list is built, on the stack; a constant's inference reads its universe list in place; a spine's arguments are
+  copied into a buffer of sixteen. The Arena entry checks Mathlib in 402.37 G instructions (from 407.26), `init` in
+  17.97 G (from 18.01), `std` in 30.94 G (from 31.02) and `init-prelude` in 2.2% fewer (`logicaffeine_kernel`; locked
+  by `dag_levels` and `dag_level_allocation`).
 
 ### Fixed
 

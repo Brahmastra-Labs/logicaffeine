@@ -686,7 +686,7 @@ impl Arena {
 
     /// The arguments of a spine, first to last.
     #[inline]
-    pub fn args(&self, s: Sp) -> smallvec::SmallVec<[V; 8]> {
+    pub fn args(&self, s: Sp) -> smallvec::SmallVec<[V; 16]> {
         smallvec::SmallVec::from_slice(self.spine(s))
     }
 
