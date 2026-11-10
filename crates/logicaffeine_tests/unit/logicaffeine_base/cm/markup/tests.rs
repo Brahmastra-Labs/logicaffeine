@@ -1,5 +1,15 @@
 use super::*;
 
+impl Markup {
+    fn place(&self) -> Place {
+        self.place
+    }
+
+    fn depth(&self) -> usize {
+        self.open.len()
+    }
+}
+
 fn fed(text: &[u8]) -> Markup {
     let mut m = Markup::new();
     for &b in text {

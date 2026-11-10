@@ -890,6 +890,31 @@ fn a_table_of_any_line_count_spreads_hashes_over_every_line_and_tells_a_lines_ha
 }
 
 #[test]
+fn a_second_nibble_check_tells_apart_check_bytes_that_differ_in_their_lowest_bit() {
+    // Two second-nibble hashes alike but in bit 16, their check byte's lowest bit (2 against 3): they share a line,
+    // and the check must still tell them apart, so the second takes a bucket of its own.
+    let mut t = ContextTable::new(1);
+    let (h1, h2) = (0xABCD_EF01_0002_1111u64, 0xABCD_EF01_0003_1111u64);
+    assert_eq!(t.second_line(h1), t.second_line(h2));
+    let b = t.second_bucket(h1);
+    t.set_state(false, b, 1, 0x25);
+    let b = t.second_bucket(h2);
+    assert_eq!(t.state(false, b, 1), 0, "the second hash gets a bucket of its own");
+    let b = t.second_bucket(h1);
+    assert_eq!(t.state(false, b, 1), 0x25, "and the first keeps its histories");
+    // Only zero, the empty bucket's mark, is not a check: every other byte value is one.
+    let checks: std::collections::BTreeSet<u8> = (0..256u64)
+        .map(|v| {
+            let mut t = ContextTable::new(1);
+            let b = t.second_bucket(0xABCD_EF01_0000_1111 | v << 16);
+            t.second[b.line as usize][0]
+        })
+        .collect();
+    assert_eq!(checks.len(), 255);
+    assert!(!checks.contains(&0));
+}
+
+#[test]
 fn a_bit_history_keeps_its_last_three_bits_in_order() {
     let walk = |bits: &[u8]| bits.iter().fold(0u8, |s, &b| next_state(s, b == 1));
     // The same counts reached in another order are another history.
@@ -988,6 +1013,470 @@ fn a_stationary_order_one_source_codes_within_a_sliver_of_its_entropy_rate() {
 fn weight_sets_chosen_by_the_byte_three_back_learn_which_lag_repeats() {
     let per_byte = bits_per_byte(&lag_source(&mut Mix(0x4C41_47)));
     assert!(per_byte < 1.652, "{per_byte:.5} bits a byte");
+}
+
+#[test]
+fn the_match_contexts_tell_one_prediction_apart_by_the_bytes_before_it() {
+    // Two inputs whose match predicts the same byte at the same length, after another last byte and so another
+    // order-3 context: the first match context is the same for both, the other two are not.
+    let fed = |text: &[u8]| {
+        let mut m = Model::coded(text.len(), Level::Max, None, Vec::new(), Vec::new(), Vec::new());
+        let mut meter = CostMeter(0);
+        for &b in text {
+            m.code_byte(&mut meter, b);
+        }
+        m
+    };
+    let a = fed(b"0123456789abcdefghIJklmn=0123456789abcdefghI");
+    let b = fed(b"0123456789abcdefghXJklmn=0123456789abcdefghX");
+    for m in [&a, &b] {
+        assert!(m.match_len > 0, "the second copy is matched");
+        assert_eq!(m.history[m.match_ptr], b'J', "and the match predicts J");
+    }
+    assert_eq!(a.match_len, b.match_len);
+    assert_eq!(a.base[MATCHED], b.base[MATCHED], "one prediction at one length band");
+    assert_ne!(a.base[MATCHED + 1], b.base[MATCHED + 1], "after another byte");
+    assert_ne!(a.base[MATCHED + 2], b.base[MATCHED + 2], "in another order-3 context");
+}
+
+/// Phrases of a fixed list, each word a function of the phrase's first word and its place in it; phrases joined by a
+/// comma or a full stop.
+fn phrase_list(rng: &mut Mix) -> Vec<u8> {
+    let word = |rng: &mut Mix| {
+        let len = 3 + rng.next() % 5;
+        (0..len).map(|_| b'a' + (rng.next() % 26) as u8).collect::<Vec<u8>>()
+    };
+    let vocab: Vec<Vec<u8>> = (0..64).map(|_| word(rng)).collect();
+    let table: Vec<Vec<usize>> = (0..64).map(|_| (0..6).map(|_| (rng.next() % 64) as usize).collect()).collect();
+    let mut out = Vec::new();
+    while out.len() < 1 << 17 {
+        let first = (rng.next() % 64) as usize;
+        let len = 2 + (rng.next() % 4) as usize;
+        let words: Vec<&[u8]> = std::iter::once(first).chain(table[first][..len].iter().copied()).map(|w| vocab[w].as_slice()).collect();
+        out.extend(words.join(&b' '));
+        out.extend_from_slice(if rng.next() % 3 != 0 { b", " } else { b". " });
+    }
+    out.truncate(1 << 17);
+    out
+}
+
+#[test]
+fn a_phrase_says_what_follows_its_start() {
+    // Each word follows from its phrase's first word and its place in the phrase; what precedes the phrase is noise.
+    let per_byte = bits_per_byte(&phrase_list(&mut Mix(0x504852)));
+    assert!(per_byte < 0.379, "{per_byte:.5} bits a byte");
+}
+
+#[test]
+fn the_prose_contexts_are_live_only_where_text_is_prose() {
+    // A table of numbers is text, but too few of its bytes are letters for the prose contexts; words turn them on.
+    let fed = |text: &[u8]| {
+        let mut m = Model::coded(text.len(), Level::Max, None, Vec::new(), Vec::new(), Vec::new());
+        let mut meter = CostMeter(0);
+        for &b in text {
+            m.code_byte(&mut meter, b);
+        }
+        m
+    };
+    let prose_live = |m: &Model| (0..m.live_n).any(|k| (TEXT + PROSE..TEXT + TEXTS).contains(&m.ids[usize::from(m.live[k])]));
+    let table: Vec<u8> = (0..400).flat_map(|i| format!("{i:5} {:7.3}\n", f64::from(i) * 0.37).into_bytes()).collect();
+    let t = fed(&table);
+    assert!(t.text_on, "a table of numbers is text");
+    assert!(!prose_live(&t), "but not prose");
+    let p = fed(&wordy_text(4000, 7));
+    assert!(p.text_on && prose_live(&p), "words are");
+}
+
+/// Lines of twenty random letters, each either a copy of the line above or new, one in two.
+fn copied_lines(rng: &mut Mix) -> Vec<u8> {
+    let fresh = |rng: &mut Mix| (0..20).map(|_| b'a' + (rng.next() % 26) as u8).collect::<Vec<u8>>();
+    let mut line = fresh(rng);
+    let mut out = Vec::new();
+    while out.len() < 1 << 17 {
+        if rng.next() % 2 != 0 {
+            line = fresh(rng);
+        }
+        out.extend_from_slice(&line);
+        out.push(b'\n');
+    }
+    out.truncate(1 << 17);
+    out
+}
+
+#[test]
+fn a_line_that_has_matched_the_one_above_goes_on_matching_it() {
+    // Each line copies the one above or is new; a few letters in, the run matched so far says which.
+    let per_byte = bits_per_byte(&copied_lines(&mut Mix(0x434F50)));
+    assert!(per_byte < 2.305, "{per_byte:.5} bits a byte");
+}
+
+/// A tar of `files` as GNU tar writes it (checksums `%06o\0 `), and where each header starts.
+fn tar_of(files: &[(String, Vec<u8>)]) -> (Vec<u8>, Vec<usize>) {
+    let mut out = Vec::new();
+    let mut heads = Vec::new();
+    for (name, data) in files {
+        heads.push(out.len());
+        let mut h = vec![0u8; 512];
+        h[..name.len()].copy_from_slice(name.as_bytes());
+        h[100..108].copy_from_slice(b"0000644\0");
+        h[108..124].copy_from_slice(b"0001750\00001750\0");
+        h[124..136].copy_from_slice(format!("{:011o}\0", data.len()).as_bytes());
+        h[136..148].copy_from_slice(format!("{:011o}\0", 0o7345216734 + heads.len() * 97).as_bytes());
+        h[148..156].fill(b' ');
+        h[156] = b'0';
+        h[257..265].copy_from_slice(b"ustar  \0");
+        h[265..270].copy_from_slice(b"jerry");
+        h[297..302].copy_from_slice(b"samba");
+        let sum: u32 = h.iter().map(|&b| u32::from(b)).sum();
+        h[148..156].copy_from_slice(format!("{sum:06o}\0 ").as_bytes());
+        out.extend(h);
+        out.extend_from_slice(data);
+        out.resize(out.len().div_ceil(512) * 512, 0);
+    }
+    out.resize(out.len() + 1024, 0);
+    (out, heads)
+}
+
+/// A ZIP archive of deflated `entries` with every field as a writer puts it, and where its CRC-32s, sizes and offsets
+/// sit (each four bytes).
+fn zip_of(entries: &[(String, Vec<u8>)]) -> (Vec<u8>, Vec<usize>) {
+    let p6 = super::deflate::Params { level: 6, mem_level: 8, window_bits: 15 };
+    let (mut out, mut central, mut fields) = (Vec::new(), Vec::new(), Vec::new());
+    let mut central_fields = Vec::new();
+    for (i, (name, raw)) in entries.iter().enumerate() {
+        let body = super::deflate::deflate(raw, p6);
+        let values = [streams::crc32(raw), body.len() as u32, raw.len() as u32];
+        let offset = out.len() as u32;
+        out.extend_from_slice(b"PK\x03\x04\x14\x00\x00\x00\x08\x00");
+        out.extend_from_slice(&(0x2CBF_6E21u32 + 2 * i as u32).to_le_bytes());
+        fields.extend([out.len(), out.len() + 4, out.len() + 8]);
+        values.iter().for_each(|v| out.extend_from_slice(&v.to_le_bytes()));
+        out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        out.extend_from_slice(&[0, 0]);
+        out.extend_from_slice(name.as_bytes());
+        out.extend_from_slice(&body);
+        central.extend_from_slice(b"PK\x01\x02\x14\x03\x14\x00\x00\x00\x08\x00");
+        central.extend_from_slice(&(0x2CBF_6E21u32 + 2 * i as u32).to_le_bytes());
+        central_fields.extend([central.len(), central.len() + 4, central.len() + 8]);
+        values.iter().for_each(|v| central.extend_from_slice(&v.to_le_bytes()));
+        central.extend_from_slice(&(name.len() as u16).to_le_bytes());
+        central.extend_from_slice(&[0; 8]);
+        central.extend_from_slice(&0x81A4_0000u32.to_le_bytes());
+        central_fields.push(central.len());
+        central.extend_from_slice(&offset.to_le_bytes());
+        central.extend_from_slice(name.as_bytes());
+    }
+    let cd = out.len();
+    fields.extend(central_fields.iter().map(|&f| cd + f));
+    out.extend_from_slice(&central);
+    out.extend_from_slice(b"PK\x05\x06\0\0\0\0");
+    out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(central.len() as u32).to_le_bytes());
+    out.extend_from_slice(&(cd as u32).to_le_bytes());
+    out.extend_from_slice(&[0, 0]);
+    (out, fields)
+}
+
+/// A greyscale PNG `width` by `height`: `IHDR`, a `tEXt`, its image data in one `IDAT`, `IEND`.
+fn png_file(width: usize, height: usize) -> Vec<u8> {
+    let chunk = |out: &mut Vec<u8>, kind: &[u8], body: &[u8]| {
+        out.extend_from_slice(&(body.len() as u32).to_be_bytes());
+        let start = out.len();
+        out.extend_from_slice(kind);
+        out.extend_from_slice(body);
+        let crc = streams::crc32(&out[start..]);
+        out.extend_from_slice(&crc.to_be_bytes());
+    };
+    let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+    let mut ihdr = (width as u32).to_be_bytes().to_vec();
+    ihdr.extend_from_slice(&(height as u32).to_be_bytes());
+    ihdr.extend_from_slice(&[8, 0, 0, 0, 0]);
+    chunk(&mut out, b"IHDR", &ihdr);
+    chunk(&mut out, b"tEXt", b"Comment\0logo");
+    let rows: Vec<u8> = (0..height).flat_map(|y| std::iter::once(0).chain((0..width).map(move |x| ((x * 7 + y * 3) % 253) as u8))).collect();
+    let mut z = zlib(&rows);
+    z.extend_from_slice(&streams::adler32(&rows).to_be_bytes());
+    chunk(&mut out, b"IDAT", &z);
+    chunk(&mut out, b"IEND", &[]);
+    out
+}
+
+/// A ZIP archive of one stored entry.
+fn stored_jar(name: &str, data: &[u8]) -> Vec<u8> {
+    let mut out = b"PK\x03\x04\x0A\x00\x00\x00\x00\x00\x21\x6E\xBF\x2C".to_vec();
+    for v in [streams::crc32(data), data.len() as u32, data.len() as u32] {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+    out.extend_from_slice(&[0, 0]);
+    out.extend_from_slice(name.as_bytes());
+    out.extend_from_slice(data);
+    let cd = out.len();
+    out.extend_from_slice(b"PK\x01\x02\x14\x03\x0A\x00\x00\x00\x00\x00\x21\x6E\xBF\x2C");
+    for v in [streams::crc32(data), data.len() as u32, data.len() as u32] {
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    out.extend_from_slice(&(name.len() as u16).to_le_bytes());
+    out.extend_from_slice(&[0; 12]);
+    out.extend_from_slice(&[0; 4]);
+    out.extend_from_slice(name.as_bytes());
+    let size = out.len() - cd;
+    out.extend_from_slice(b"PK\x05\x06\0\0\0\0\x01\x00\x01\x00");
+    out.extend_from_slice(&(size as u32).to_le_bytes());
+    out.extend_from_slice(&(cd as u32).to_le_bytes());
+    out.extend_from_slice(&[0, 0]);
+    out
+}
+
+/// A gzip member of `raw` with its CRC-32 and length.
+fn gzip_member(raw: &[u8]) -> Vec<u8> {
+    let mut g = vec![0x1F, 0x8B, 8, 0, 0, 0, 0, 0, 0, 3];
+    g.extend(super::deflate::gzip(raw, 6));
+    g.extend_from_slice(&streams::crc32(raw).to_le_bytes());
+    g.extend_from_slice(&(raw.len() as u32).to_le_bytes());
+    g
+}
+
+fn source_files(n: usize, seed: u64) -> Vec<(String, Vec<u8>)> {
+    (0..n).map(|i| (format!("samba-2.2.3a/source/lib/util_{i:02}.c"), wordy_text(300 + 41 * i, seed + i as u64))).collect()
+}
+
+/// What the record of blanked fields may cost over the same bytes with the fields zeroed, for the inputs below: it
+/// costs 7, 6 and 9 bytes, where the model paying for the fields costs 49, 498 and 190.
+const TAR_SLACK: usize = 12;
+const JAR_SLACK: usize = 12;
+const TRAILER_SLACK: usize = 14;
+
+/// `compress(data)` against `compress(zeroed)`, where `zeroed` holds the blanks in place of the fields: the model codes
+/// the two alike, so the fields cost only the record naming them.
+fn fields_cost(data: &[u8], zeroed: &[u8]) -> (usize, usize) {
+    let z = round_trips(data);
+    (z.len(), compress(zeroed).len())
+}
+
+#[test]
+fn a_tar_s_checksums_cost_the_model_nothing() {
+    let (t, heads) = tar_of(&source_files(60, 300));
+    let mut zeroed = t.clone();
+    for &h in &heads {
+        zeroed[h + 148..h + 154].fill(b'0');
+    }
+    let (with, base) = fields_cost(&t, &zeroed);
+    assert!(with <= base + TAR_SLACK, "{with} bytes, {base} with the checksums zeroed");
+}
+
+#[test]
+fn a_jar_s_crcs_sizes_and_offsets_cost_the_model_nothing() {
+    let entries: Vec<(String, Vec<u8>)> = (0..40).map(|i| (format!("content/navigator/pane{i:02}.js"), wordy_text(400 + 91 * i, 400 + i as u64))).collect();
+    let (jar, fields) = zip_of(&entries);
+    let mut zeroed = jar.clone();
+    for &f in &fields {
+        zeroed[f..f + 4].fill(0);
+    }
+    let (with, base) = fields_cost(&jar, &zeroed);
+    assert!(with <= base + JAR_SLACK, "{with} bytes, {base} with the CRCs, sizes and offsets zeroed");
+}
+
+#[test]
+fn zlib_and_gzip_trailers_cost_the_model_nothing() {
+    let mut data = b"%PDF-1.4\n".to_vec();
+    let mut trailers = Vec::new();
+    for i in 0..30 {
+        data.extend_from_slice(format!("{} 0 obj\n<< /Filter /FlateDecode >>\nstream\n", i + 1).as_bytes());
+        let raw = wordy_text(700 + 53 * i, 500 + i as u64);
+        data.extend(zlib(&raw));
+        trailers.push((data.len(), 4));
+        data.extend_from_slice(&streams::adler32(&raw).to_be_bytes());
+        data.extend_from_slice(b"\nendstream\nendobj\n");
+    }
+    for i in 0..5 {
+        let member = gzip_member(&wordy_text(3000 + 400 * i, 600 + i as u64));
+        trailers.push((data.len() + member.len() - 8, 8));
+        data.extend(member);
+    }
+    let mut zeroed = data.clone();
+    for &(at, n) in &trailers {
+        zeroed[at..at + n].fill(0);
+    }
+    let (with, base) = fields_cost(&data, &zeroed);
+    assert!(with <= base + TRAILER_SLACK, "{with} bytes, {base} with the trailers zeroed");
+}
+
+#[test]
+fn every_level_s_fields_are_blanked_and_restored() {
+    // A tar holding a jar, a gzip member of another tar holding a jar and a zlib stream, and a jar holding a PNG as it
+    // is: archives at the first and second levels, an image inside an archive, trailers, and both tars' headers.
+    let jar = zip_of(&[("a.js".to_string(), wordy_text(5000, 701)), ("b.css".to_string(), wordy_text(3000, 702))]).0;
+    let mut pdf = b"stream\n".to_vec();
+    let raw = wordy_text(4000, 703);
+    pdf.extend(zlib(&raw));
+    pdf.extend_from_slice(&streams::adler32(&raw).to_be_bytes());
+    let inner = tar_of(&[("inner/b.jar".to_string(), jar.clone()), ("inner/doc.pdf".to_string(), pdf)]).0;
+    let skin = stored_jar("skin/logo.png", &png_file(48, 40));
+    let outer = tar_of(&[
+        ("a.jar".to_string(), jar),
+        ("inner.tar.gz".to_string(), gzip_member(&inner)),
+        ("skin.jar".to_string(), skin),
+        ("notes".to_string(), wordy_text(2000, 704)),
+    ])
+    .0;
+    let z = round_trips(&outer);
+    let mut at = 0;
+    read_uvarint(&z, &mut at).unwrap();
+    assert_eq!(z[at + 1] & (FILTER_FIELDS | FILTER_NESTED), FILTER_FIELDS | FILTER_NESTED);
+    let r = represent(&outer, usize::MAX);
+    assert!(r.fields.archives[0].any() && r.fields.archives[1].any(), "{:?}", r.fields.archives);
+    assert!(r.fields.trailers.iter().flatten().filter(|&&c| c != 0).count() >= 2, "the gzip member's and the zlib stream's");
+    assert!(r.fields.images[0].any(), "the PNG stored in a jar, restored before the jar's CRC is computed over it");
+    assert_eq!(r.fields.tar.found - r.fields.tar.kept.len(), 6, "both tars' headers");
+}
+
+#[test]
+fn a_fields_record_the_decoder_must_not_trust_is_refused() {
+    let (t, _) = tar_of(&source_files(10, 800));
+    let z = compress(&t);
+    let mut at = 0;
+    read_uvarint(&z, &mut at).unwrap();
+    let f = at + 1;
+    assert_eq!(z[f], FILTER_FIELDS, "the record alone in its block");
+    let mut pos = f + 1;
+    let head = read_packed(&z, &mut pos, t.len()).unwrap();
+    let with = |h: &[u8]| {
+        let mut out = z[..f + 1].to_vec();
+        write_packed(h, &mut out);
+        out.extend_from_slice(&z[pos..]);
+        out
+    };
+    assert_eq!(with(&head), z);
+    assert_eq!(head, vec![0, 0, 0, 0, 10, 0], "no archive, no image; ten tar headers, none kept");
+    for (bad, what) in [
+        (vec![0, 0, 0, 0, 11, 0], "a header more"),
+        (vec![0, 0, 0, 0, 9, 0], "a header fewer"),
+        (vec![1, 0, 0, 0, 10, 0], "an archive that is not there"),
+        (vec![0, 0, 1, 0, 10, 0], "an image that is not there"),
+        (vec![0, 0, 0, 0, 10, 1, 10], "a kept index past the found"),
+        (vec![0, 0, 0, 0, 10], "cut short"),
+        (vec![0, 0, 0, 0, 10, 0, 0], "a byte past the record"),
+    ] {
+        assert!(decompress(&with(&bad), t.len()).is_none(), "{what}");
+    }
+    let mut unflagged = z.clone();
+    unflagged[f] = 0;
+    assert_ne!(decompress(&unflagged, t.len()).as_deref(), Some(&t[..]), "without its flag the record is not read and the checksums stay blank");
+}
+
+/// C-like source: functions of statements (a call checked and returned on, an assignment from a call, a bare call, a
+/// comment) over a fixed set of identifiers with underscores and digits, calls nested in arguments, the body indented
+/// by tabs — where a statement's `;`, a call's `(` and `)` and an argument's `,` follow from the identifiers and the
+/// brackets open.
+fn c_source(rng: &mut Mix) -> Vec<u8> {
+    const FUNCS: [&str; 12] = [
+        "prs_uint32", "smb_io_unistr2", "init_samr_q_query", "talloc_zero", "DEBUG", "memset", "fstrcpy", "prs_align",
+        "make_rpc_hdr", "SIVAL", "get_policy_hnd", "string_to_sid",
+    ];
+    const VARS: [&str; 10] = ["ps", "depth", "q_u", "r_u", "mem_ctx", "info", "num_entries", "sid", "status", "buf2"];
+    fn call(rng: &mut Mix, out: &mut Vec<u8>, nest: u32) {
+        out.extend_from_slice(FUNCS[(rng.next() % 12) as usize].as_bytes());
+        out.push(b'(');
+        for i in 0..1 + rng.next() % 3 {
+            if i > 0 {
+                out.extend_from_slice(b", ");
+            }
+            match rng.next() % 5 {
+                0 if nest < 2 => call(rng, out, nest + 1),
+                1 => {
+                    out.push(b'&');
+                    out.extend_from_slice(VARS[(rng.next() % 10) as usize].as_bytes());
+                }
+                2 => out.extend_from_slice((rng.next() % 64).to_string().as_bytes()),
+                _ => out.extend_from_slice(VARS[(rng.next() % 10) as usize].as_bytes()),
+            }
+        }
+        out.push(b')');
+    }
+    let mut out = Vec::new();
+    while out.len() < 1 << 17 {
+        out.extend_from_slice(b"BOOL ");
+        call(rng, &mut out, 2);
+        out.extend_from_slice(b"\n{\n");
+        for _ in 0..3 + rng.next() % 8 {
+            out.push(b'\t');
+            match rng.next() % 4 {
+                0 => {
+                    out.extend_from_slice(b"if (!");
+                    call(rng, &mut out, 0);
+                    out.extend_from_slice(b")\n\t\treturn False;\n");
+                }
+                1 => {
+                    out.extend_from_slice(VARS[(rng.next() % 10) as usize].as_bytes());
+                    out.extend_from_slice(b" = ");
+                    call(rng, &mut out, 0);
+                    out.extend_from_slice(b";\n");
+                }
+                2 => {
+                    call(rng, &mut out, 0);
+                    out.extend_from_slice(b";\n");
+                }
+                _ => {
+                    out.extend_from_slice(b"/* ");
+                    out.extend_from_slice(VARS[(rng.next() % 10) as usize].as_bytes());
+                    out.extend_from_slice(b" (see ");
+                    out.extend_from_slice(FUNCS[(rng.next() % 12) as usize].as_bytes());
+                    out.extend_from_slice(b") */\n");
+                }
+            }
+        }
+        out.extend_from_slice(b"\treturn True;\n}\n\n");
+    }
+    out.truncate(1 << 17);
+    out
+}
+
+#[test]
+fn a_c_function_s_punctuation_follows_from_its_identifiers_and_brackets() {
+    let per_byte = bits_per_byte(&c_source(&mut Mix(0x434F_4445)));
+    assert!(per_byte < 0.5804, "{per_byte:.5} bits a byte");
+}
+
+/// Chapters of sentences: common words, and six names each chapter brings, every name beginning with one of eight
+/// two-letter prefixes all chapters share — so a name's first letters say which word follows only by which of them
+/// came last.
+fn chapter_names(rng: &mut Mix) -> Vec<u8> {
+    const COMMON: [&str; 16] = [
+        "the", "and", "said", "to", "of", "was", "her", "his", "at", "with", "then", "came", "saw", "left", "told", "met",
+    ];
+    const PREFIXES: [&str; 8] = ["ka", "mo", "be", "si", "lu", "ra", "te", "do"];
+    let mut out = Vec::new();
+    while out.len() < 1 << 17 {
+        let names: Vec<String> = (0..6)
+            .map(|_| {
+                let tail: String = (0..6 + rng.next() % 5).map(|_| (b'a' + (rng.next() % 26) as u8) as char).collect();
+                format!("{}{tail}", PREFIXES[(rng.next() % 8) as usize])
+            })
+            .collect();
+        for _ in 0..15 {
+            for w in 0..6 + rng.next() % 6 {
+                if w > 0 {
+                    out.push(b' ');
+                }
+                if rng.next() % 2 == 0 {
+                    out.extend_from_slice(names[(rng.next() % 6) as usize].as_bytes());
+                } else {
+                    out.extend_from_slice(COMMON[(rng.next() % 16) as usize].as_bytes());
+                }
+            }
+            out.extend_from_slice(b".\n");
+        }
+    }
+    out.truncate(1 << 17);
+    out
+}
+
+#[test]
+fn a_repeated_name_is_predicted_from_its_first_letters() {
+    let per_byte = bits_per_byte(&chapter_names(&mut Mix(0x434F_4D50)));
+    assert!(per_byte < 0.9720, "{per_byte:.5} bits a byte");
 }
 
 #[test]
@@ -1164,4 +1653,68 @@ fn nested_markup(rng: &mut Mix) -> Vec<u8> {
 fn a_closing_tag_is_spelled_by_the_element_it_closes() {
     let per_byte = bits_per_byte(&nested_markup(&mut Mix(0x4E45_5354)));
     assert!(per_byte < 0.88, "{per_byte:.5} bits a byte");
+}
+
+fn lead_of(line: &[u8]) -> Lead {
+    let mut lead = Lead::default();
+    for &b in line {
+        lead.push(b);
+    }
+    lead
+}
+
+#[test]
+fn a_line_s_leading_number_is_read_after_its_spaces() {
+    assert_eq!(lead_of(b"  155001 C 0").value(), Some(155_001));
+    assert_eq!(lead_of(b"155001").value(), Some(155_001));
+    assert_eq!(lead_of(b"  M  END").value(), None, "a line that leads with a letter has no leading number");
+    assert_eq!(lead_of(b"12 34").value(), Some(12), "only the first digit run");
+    assert!(lead_of(b"x").done);
+}
+
+#[test]
+fn an_expected_leading_number_keys_its_next_digit_and_whether_the_line_agrees() {
+    let expected = b"155002";
+    let key = |line: &[u8]| lead_of(line).expect(expected);
+    assert_eq!(key(b"  "), ((u64::from(b'1') << 1) << 8 | 1) << 8 | 2, "the first digit, nothing read, two spaces");
+    assert_eq!(key(b"1550"), ((u64::from(b'0') << 1) << 8 | 4 << 1 | 1) << 8);
+    assert_eq!(key(b"1551"), ((u64::from(b'0') << 1) << 8 | 4 << 1) << 8, "the line has left the expectation");
+    assert_eq!(key(b"155002"), (1 << 8 | 6 << 1 | 1) << 8, "past the expected digits");
+    assert_eq!(key(b"155002 "), 0, "the leading number is over");
+    assert_eq!(lead_of(b"  ").expect(b""), 0, "no expectation");
+}
+
+/// Records that each open with an ID one above the last (one in sixteen skips one); the rest of every record is the
+/// same two lines.
+fn numbered_records(rng: &mut Mix) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut id = 155_000u64;
+    while out.len() < 1 << 17 {
+        out.extend_from_slice(format!("{id}\n  M  END\n$$$$\n").as_bytes());
+        id += if rng.next() % 16 == 0 { 2 } else { 1 };
+    }
+    out.truncate(1 << 17);
+    out
+}
+
+#[test]
+fn a_record_s_id_is_expected_one_above_the_last() {
+    let per_byte = bits_per_byte(&numbered_records(&mut Mix(0x4944_5245)));
+    assert!(per_byte < 0.029, "{per_byte:.5} bits a byte");
+}
+
+#[test]
+fn a_table_whose_entries_hold_e8_bytes_is_not_x86_code() {
+    // Every 16-byte entry carries `E8 FF FF FF 00`: a near-looking call whose operand repeats as written, so its
+    // absolute targets would all differ — the data sections of compiled code look like this.
+    let mut rng = Mix(41);
+    let mut table = Vec::new();
+    while table.len() < 200_000 {
+        table.extend_from_slice(&(rng.next() as u32 & 0xFFFF).to_le_bytes());
+        table.extend_from_slice(&[0xE8, 0xFF, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00]);
+        table.extend_from_slice(&(rng.next() as u32).to_le_bytes());
+    }
+    assert!(branch_blocks(&table).iter().all(|&b| !b), "{:?}", branch_blocks(&table));
+    assert!(branch_blocks(&x86_like(200_000, 31)).iter().filter(|&&b| b).count() >= 2, "code calling 64 functions still is");
+    round_trips(&table);
 }

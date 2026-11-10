@@ -58,17 +58,9 @@ impl Markup {
         Self { place: Place::Text, name: 0, closing: false, empty: false, attr: 0, attrs: 0, quote: 0, fresh: false, open: Vec::new(), closed: 0, run: 0 }
     }
 
-    pub fn place(&self) -> Place {
-        self.place
-    }
-
     /// The innermost open element (0 when none).
     pub fn top(&self) -> u64 {
         self.open.last().copied().unwrap_or(0)
-    }
-
-    pub fn depth(&self) -> usize {
-        self.open.len()
     }
 
     fn end_tag(&mut self) {

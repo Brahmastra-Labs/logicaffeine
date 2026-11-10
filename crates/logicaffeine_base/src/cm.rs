@@ -33,10 +33,15 @@ use crate::entropy::{hash2, hash3, prefetch, stretch, AdaptiveProb, Apm, BitIo, 
 mod tests;
 
 mod alpha;
+mod code;
+mod completion;
+mod derived;
 mod dmc;
+mod lines;
 mod lstm;
 mod markup;
 mod ols;
+mod prose;
 mod residual;
 pub mod deflate;
 pub mod lzw;
@@ -52,10 +57,12 @@ const SPARSE: [&[usize]; 3] = [&[2], &[3], &[2, 4]];
 const WORD: usize = ORDERS.len();
 /// The word-bigram context: the current word together with the one before it.
 const BIGRAM: usize = WORD + 1 + SPARSE.len();
-/// The match context: the byte the match model predicts, with its length band — so the bit histories
-/// learn what a predicted byte is actually followed by, not only how often the match is right.
+/// The match contexts: the byte the match model predicts with its length band, then with the last byte too, and
+/// with the order-3 context — so the bit histories learn what a predicted byte is actually followed by, and where,
+/// not only how often the match is right.
 const MATCHED: usize = BIGRAM + 1;
-const RECORD: usize = MATCHED + 1;
+const MATCHES: usize = 3;
+const RECORD: usize = MATCHED + MATCHES;
 /// Record contexts: the byte one record up with its column, and the bytes one and two records up.
 const RECORDS: usize = 2;
 /// Line contexts: the byte one line up with the one right of it and the previous byte, the bytes one and two
@@ -74,10 +81,26 @@ const INDIRECT: usize = COLUMN + COLUMNS;
 /// the current word's case; the words that followed the previous word, and the previous two, last time; and the
 /// markup around the text ([`markup`]): the tag's name with the innermost open element, that element with the one
 /// last closed, the tag with its attribute, the two innermost elements with the last byte, and the depth with the
-/// bytes since the last bracket.
+/// bytes since the last bracket; and the number a line is expected to lead with — the one that led the line after an
+/// equal line, plus one, and the one that led the line after a line of the same shape, again and plus one.
 const INDIRECTS: usize = 10;
 const TEXT: usize = INDIRECT + INDIRECTS;
-const TEXTS: usize = 35;
+/// The prose contexts ([`prose`]), after the others: the sentence's words before the current one, the phrase, the
+/// word's letter pattern, the open quote or bracket, the section's keyword, the paragraph, the line's first byte and the
+/// groups of the last bytes.
+/// The line contexts ([`lines`]), before the prose ones: the run of bytes this line has matched the line above, the
+/// previous line's length with the column, the columns where the lines above agree, the column with the last bytes, and
+/// the line so far.
+const LINES: usize = 38;
+/// The code contexts ([`code`]), after the line ones and before the prose ones: identifiers whole, the brackets open
+/// around them, the classes of the last tokens and the punctuation lately, a line's indentation and first identifier,
+/// and whether a comment or a string is open.
+const CODE: usize = LINES + lines::CONTEXTS;
+const PROSE: usize = CODE + code::CONTEXTS;
+/// The completion contexts ([`completion`]), last, inside the prose gate: the byte that followed the word so far
+/// last time, with how often it came again.
+const COMPLETION: usize = PROSE + prose::CONTEXTS;
+const TEXTS: usize = COMPLETION + completion::CONTEXTS;
 /// Word-successor tables: the word that followed a word (and a word pair) the last time.
 const NEXT_WORDS: usize = 1 << 16;
 /// Word-recurrence table size: where each word (by hash) last ended.
@@ -134,7 +157,7 @@ const PDF: usize = IMAGE8 + IMAGE8S;
 const PDFS: usize = 5;
 const SLOTS: usize = CONTEXTS + if IMAGES > CODES + IMAGE8S + PDFS { IMAGES } else { CODES + IMAGE8S + PDFS };
 /// The LSTM at `Max` ([`lstm`]): cells a layer, layers, and the bytes between its training steps.
-const LSTM_CELLS: usize = 96;
+const LSTM_CELLS: usize = 160;
 const LSTM_LAYERS: usize = 2;
 const LSTM_HORIZON: usize = 20;
 /// The LSTM's stretched probability in bands of 128, keying the first APM with the partial byte.
@@ -247,6 +270,9 @@ fn is_binary_context(id: usize) -> bool {
 /// again below `TEXT_OFF` (the gap keeps it from flickering at a boundary).
 const TEXT_ON: u32 = 56;
 const TEXT_OFF: u32 = 48;
+/// The prose contexts are live once this many of the last 64 bytes are letters, and off again below `PROSE_OFF`.
+const PROSE_ON: u32 = 24;
+const PROSE_OFF: u32 = 16;
 
 #[inline]
 fn is_text_byte(b: u8) -> bool {
@@ -391,10 +417,11 @@ fn seeded_maps() -> &'static [AdaptiveProb; 256] {
 /// The first nibble's table holds three 21-byte buckets a line: a 16-bit check, the 15 bit histories of the
 /// nibble's bit tree, and the context's byte history (the last three bytes that followed it, how many of those
 /// exist, and how many times running the latest did). The second nibble's holds four 16-byte buckets a line: a
-/// check byte and the 15 histories. A line is the hash's place in the table by multiply-shift (its high bits), the
-/// checks come from its low bits. A bucket whose check belongs to another context is cleared before use, so a
-/// colliding context starts fresh instead of inheriting a stranger's history; on a miss the bucket whose most-used
-/// history (the nibble's first decision) has seen the fewest bits is the one taken.
+/// check byte (any of its 255 nonzero values; zero marks an empty bucket) and the 15 histories. A line is the hash's
+/// place in the table by multiply-shift (its high bits), the checks come from its low bits. A bucket whose check
+/// belongs to another context is cleared before use, so a colliding context starts fresh instead of inheriting a
+/// stranger's history; on a miss the bucket whose most-used history (the nibble's first decision) has seen the
+/// fewest bits is the one taken.
 struct ContextTable {
     first: Vec<[u8; 64]>,
     second: Vec<[u8; 16]>,
@@ -480,7 +507,7 @@ impl ContextTable {
 
     fn second_bucket(&mut self, h: u64) -> BucketAt {
         let line = self.second_line(h);
-        let check = (h >> 16) as u8 | 1;
+        let check = ((h >> 16) as u8).max(1);
         let mut victim = line;
         let mut least = u8::MAX;
         for i in line..line + 4 {
@@ -636,6 +663,10 @@ struct Model {
     live_mask: [u64; MASK_WORDS],
     /// How many of the last 64 bytes were text, and whether the text group is on.
     texty: u32,
+    lettery: u32,
+    prose_on: bool,
+    /// How many of the text group's slots (its last) are the prose contexts.
+    prose_slots: usize,
     text_on: bool,
     special_on: bool,
     /// Where the x86 (or 16-bit image) slots end and the image-region slots (`exe_end..allocated`) begin.
@@ -765,6 +796,14 @@ struct Model {
     /// The current line so far and the whole previous line, hashed.
     line_hash: u64,
     prev_line_hash: u64,
+    /// Line shapes (digits folded), and per line the leading number seen after a line of that hash or shape.
+    line_shape: u64,
+    prev_line_shape: u64,
+    lead: Lead,
+    after_line: Vec<u64>,
+    after_shape: Vec<u64>,
+    /// The three expected leading numbers of this line, as digits.
+    expected_leads: [Vec<u8>; 3],
     next_after: Vec<u64>,
     next_after2: Vec<u64>,
     /// Open brackets and quotes, innermost lowest, and how deep.
@@ -775,6 +814,8 @@ struct Model {
     word_positions: Vec<u32>,
     /// Where the text sits in its markup.
     markup: markup::Markup,
+    /// Where the text sits in its prose.
+    prose: prose::Prose,
     /// How long ago (log2) the previous word occurred before its latest occurrence.
     word_gap: u64,
     sentence_first: u64,
@@ -794,6 +835,12 @@ struct Model {
     line_start: usize,
     prev_line_start: usize,
     prev2_line_start: usize,
+    /// Where the byte sits in its line, against the lines above.
+    lines: lines::Lines,
+    /// Where the byte sits in source code.
+    code: code::Code,
+    /// What each word prefix went on with last time.
+    completion: completion::Completion,
     followed1: Vec<u32>,
     followed2: Vec<u16>,
     /// What followed the top five bits of three bytes, the top four of four, and two letters (case-folded).
@@ -866,6 +913,9 @@ impl Model {
                 bits => (1 << bits) - 1,
             }),
             texty: 0,
+            lettery: 0,
+            prose_on: false,
+            prose_slots: chosen.iter().filter(|&&c| (TEXT + PROSE..TEXT + TEXTS).contains(&c)).count(),
             text_on: false,
             special_on: image.is_some(),
             exe_end,
@@ -962,6 +1012,12 @@ impl Model {
             gaps: [0; 2],
             line_hash: 0,
             prev_line_hash: 0,
+            line_shape: 0,
+            prev_line_shape: 0,
+            lead: Lead::default(),
+            after_line: vec![0; 1 << 12],
+            after_shape: vec![0; 1 << 12],
+            expected_leads: [Vec::new(), Vec::new(), Vec::new()],
             next_after: vec![0; NEXT_WORDS],
             next_after2: vec![0; NEXT_WORDS],
             nest: 0,
@@ -969,6 +1025,7 @@ impl Model {
             since_punct: 0,
             word_positions: vec![0; WORD_POSITIONS],
             markup: markup::Markup::new(),
+            prose: prose::Prose::new(),
             word_gap: 0,
             sentence_first: 0,
             in_sentence_words: 0,
@@ -982,6 +1039,9 @@ impl Model {
             line_start: 0,
             prev_line_start: 0,
             prev2_line_start: 0,
+            lines: lines::Lines::new(),
+            code: code::Code::new(),
+            completion: completion::Completion::new(),
             followed1: vec![0; 256],
             followed2: vec![0; 1 << 16],
             followed3: vec![0; 1 << 15],
@@ -1610,7 +1670,8 @@ impl Model {
         };
         add(0..self.always, &mut self.live);
         if self.text_on {
-            add(self.always..self.text_end, &mut self.live);
+            let end = if self.prose_on { self.text_end } else { self.text_end - self.prose_slots };
+            add(self.always..end, &mut self.live);
         } else if self.image.is_none() {
             add(self.text_end..self.generic, &mut self.live);
         }
@@ -1665,6 +1726,7 @@ impl Model {
         }
         self.history.push(byte);
         let n = self.history.len();
+        self.completion.update(self.word, &self.history);
         if byte.is_ascii_alphabetic() {
             if self.word == 0 {
                 self.case = u64::from(byte.is_ascii_uppercase());
@@ -1728,10 +1790,24 @@ impl Model {
             self.gaps[0] = hash2(self.gaps[0], u64::from(if byte == b'\n' { b' ' } else { byte }));
         }
         if byte == b'\n' {
+            // The line just ended led with `lead`: remember it under the line before it, then expect the next line's.
+            if let Some(v) = self.lead.value() {
+                self.after_line[self.prev_line_hash as usize & 0xFFF] = v + 1;
+                self.after_shape[self.prev_line_shape as usize & 0xFFF] = v + 1;
+            }
             self.prev_line_hash = self.line_hash;
             self.line_hash = 0;
+            self.prev_line_shape = self.line_shape;
+            self.line_shape = 0;
+            self.lead = Lead::default();
+            let by_line = self.after_line[self.prev_line_hash as usize & 0xFFF];
+            let by_shape = self.after_shape[self.prev_line_shape as usize & 0xFFF];
+            let digits = |stored: u64, add: u64| if stored == 0 { Vec::new() } else { (stored - 1 + add).to_string().into_bytes() };
+            self.expected_leads = [digits(by_line, 1), digits(by_shape, 0), digits(by_shape, 1)];
         } else {
             self.line_hash = hash2(self.line_hash, u64::from(byte));
+            self.line_shape = hash2(self.line_shape, u64::from(if byte.is_ascii_digit() { b'0' } else { byte }));
+            self.lead.push(byte);
         }
         for (j, &order) in ORDERS.iter().enumerate() {
             let start = n.saturating_sub(order);
@@ -1773,6 +1849,28 @@ impl Model {
         let above_right = line_byte(self.prev_line_start, self.line_start, col + 1);
         let above_left = if col > 0 { line_byte(self.prev_line_start, self.line_start, col - 1) } else { 0 };
         let above2 = line_byte(self.prev2_line_start, self.prev_line_start, col);
+        let around = lines::Around {
+            column: col,
+            above,
+            above_left,
+            above2,
+            previous_length: (self.line_start - self.prev_line_start) as u64,
+            previous2_length: (self.prev_line_start - self.prev2_line_start) as u64,
+            line_start: self.line_start as u64,
+            classes: self.shape & 0x1FF,
+            capital: (self.since_upper as usize) < col,
+        };
+        self.lines.update(byte, byte_class(byte), &around);
+        for (i, &key) in self.lines.contexts(byte, byte_class(byte), &around).iter().enumerate() {
+            self.base[TEXT + LINES + i] = key;
+        }
+        self.code.update(byte, self.history.len().checked_sub(2).map_or(0, |i| self.history[i]));
+        for (i, &key) in self.code.contexts(byte).iter().enumerate() {
+            self.base[TEXT + CODE + i] = key;
+        }
+        for (i, &key) in self.completion.contexts(self.word, self.word_len, &self.history).iter().enumerate() {
+            self.base[TEXT + COMPLETION + i] = key;
+        }
         let c2 = n.checked_sub(2).map_or(0, |i| u64::from(self.history[i]));
         self.base[COLUMN] = hash3(0x434F_4C31, above << 9 | above_right, u64::from(byte));
         self.base[COLUMN + 1] = hash3(0x434F_4C32, above << 9 | above2, col.min(255) as u64);
@@ -1866,9 +1964,17 @@ impl Model {
         self.base[TEXT + 28] = hash3(0x534B_3133, self.word << 8 | c1, hash2(self.prev_word, self.word3));
         self.base[TEXT + 29] = hash3(0x534B_3233, self.word << 8 | c1, hash2(self.word2, self.word3));
         self.base[TEXT + 25] = hash3(0x4C4F_4341, (n >> 10) as u64, self.tokens[0] << 8 | c1);
+        for (k, expected) in self.expected_leads.iter().enumerate() {
+            let key = self.lead.expect(expected);
+            self.base[TEXT + 35 + k] = hash3(0x5355_4343 + k as u64, key, 0);
+        }
         self.markup.update(byte);
         for (i, &key) in self.markup.contexts().iter().enumerate() {
             self.base[TEXT + 30 + i] = hash3(0x4D41_524B + i as u64, key, if i == 3 { c1 } else { 0 });
+        }
+        self.prose.update(byte);
+        for (i, &key) in self.prose.contexts(byte, c2 as u8, self.letters & 0xFFFF, self.gaps[0], self.word_gap).iter().enumerate() {
+            self.base[TEXT + PROSE + i] = key;
         }
         let c1 = usize::from(byte);
         let at = |back: usize| n.checked_sub(back).map_or(0usize, |i| usize::from(self.history[i]));
@@ -1939,6 +2045,8 @@ impl Model {
             _ => 3,
         };
         self.base[MATCHED] = hash3(0x4D41_5443, predicted, band);
+        self.base[MATCHED + 1] = hash3(0x4D41_5444, predicted << 8 | u64::from(byte), band);
+        self.base[MATCHED + 2] = hash3(0x4D41_5445, predicted, self.base[2]);
         if let Some(image) = self.image {
             self.image_contexts(image);
         } else if !self.exe.is_empty() {
@@ -1957,6 +2065,11 @@ impl Model {
             self.texty -= u32::from(is_text_byte(self.history[n - 65]));
         }
         self.text_on = if self.text_on { self.texty >= TEXT_OFF } else { self.texty >= TEXT_ON };
+        self.lettery += u32::from(byte.is_ascii_alphabetic());
+        if n > 64 {
+            self.lettery -= u32::from(self.history[n - 65].is_ascii_alphabetic());
+        }
+        self.prose_on = if self.prose_on { self.lettery >= PROSE_OFF } else { self.lettery >= PROSE_ON };
         self.relive();
         // Every context's run slot and first-nibble line are known now and read at the next bit: start all the
         // fetches at once, so the misses overlap instead of queueing one after another.
@@ -1964,6 +2077,45 @@ impl Model {
             let j = usize::from(self.live[k]);
             self.table.prefetch_first(hash2(self.slot_hash(j), 1));
         }
+    }
+}
+
+/// A line's leading number as it is read: the spaces before it, its digits, and whether it is over.
+#[derive(Default)]
+struct Lead {
+    spaces: u32,
+    digits: Vec<u8>,
+    done: bool,
+}
+
+impl Lead {
+    fn push(&mut self, b: u8) {
+        if self.done {
+            return;
+        }
+        if b.is_ascii_digit() && self.digits.len() < 18 {
+            self.digits.push(b);
+        } else if b == b' ' && self.digits.is_empty() {
+            self.spaces += 1;
+        } else {
+            self.done = true;
+        }
+    }
+
+    fn value(&self) -> Option<u64> {
+        (!self.digits.is_empty()).then(|| self.digits.iter().fold(0u64, |v, &d| v * 10 + u64::from(d - b'0')))
+    }
+
+    /// The key of the next byte under an expected leading number: its next digit, how far in, and whether the digits
+    /// so far agree; 0 once the leading number is over or with no expectation.
+    fn expect(&self, expected: &[u8]) -> u64 {
+        if self.done || expected.is_empty() {
+            return 0;
+        }
+        let at = self.digits.len();
+        let agrees = expected.starts_with(&self.digits);
+        let next = expected.get(at).copied().map_or(1, |d| u64::from(d) << 1);
+        (next << 8 | (at.min(31) as u64) << 1 | u64::from(agrees)) << 8 | u64::from(self.spaces.min(255))
     }
 }
 
@@ -2007,6 +2159,7 @@ const FILTER_IMAGE16: u8 = 2;
 const FILTER_STREAMS: u8 = 4;
 const FILTER_ALPHA: u8 = 8;
 const FILTER_NESTED: u8 = 16;
+const FILTER_FIELDS: u8 = 32;
 
 /// How many levels of streams are opened in all: a stream's, then the streams its decoded bytes hold (a ZIP entry's
 /// GIF image), and one level more.
@@ -2083,23 +2236,32 @@ fn image_residuals(data: &mut [u8], image: Image, forward: bool) {
     }
 }
 
-/// The blocks whose `E8`/`E9` (call/jump rel32) opcodes look like x86 code: most operands are near targets.
+/// The blocks whose `E8`/`E9` (call/jump rel32) opcodes look like x86 code: most operands are near targets, and as
+/// absolute targets they repeat more than as written — a program calls the same functions from many places, while a
+/// data table whose bytes only look like calls repeats its operands as written and scatters their targets.
 fn branch_blocks(data: &[u8]) -> Vec<bool> {
     let blocks = data.len().div_ceil(1 << BRANCH_BLOCK_LOG);
     let mut near = vec![0usize; blocks];
     let mut all = vec![0usize; blocks];
+    let mut written: Vec<std::collections::HashSet<u32>> = vec![std::collections::HashSet::new(); blocks];
+    let mut targets = written.clone();
     let mut i = 0;
     while i + 5 <= data.len() {
         if data[i] == 0xE8 || data[i] == 0xE9 {
             let b = i >> BRANCH_BLOCK_LOG;
             all[b] += 1;
-            near[b] += usize::from(data[i + 4] == 0 || data[i + 4] == 0xFF);
+            if data[i + 4] == 0 || data[i + 4] == 0xFF {
+                near[b] += 1;
+                let operand = u32::from_le_bytes([data[i + 1], data[i + 2], data[i + 3], data[i + 4]]);
+                written[b].insert(operand);
+                targets[b].insert(operand.wrapping_add(i as u32 + 5) & 0x1FF_FFFF);
+            }
             i += 5;
         } else {
             i += 1;
         }
     }
-    (0..blocks).map(|b| near[b] >= BRANCH_MIN && near[b] * 2 >= all[b]).collect()
+    (0..blocks).map(|b| near[b] >= BRANCH_MIN && near[b] * 2 >= all[b] && targets[b].len() < written[b].len()).collect()
 }
 
 /// Rewrite the near targets of `E8`/`E9` (call, jump) and `0F 80..8F` (conditional jump) in the switched-on blocks
@@ -2174,15 +2336,22 @@ fn read_packed(buf: &[u8], pos: &mut usize, len: usize) -> Option<Vec<u8>> {
 }
 
 /// The streams a header names for an original of `len` bytes under `filters` — the first level's, the deeper levels',
-/// and the bytes the model then codes. `None` when the block is malformed, a level is empty or opens past what the
-/// original may, or bytes follow the last level: refused here, before any modeling.
-fn read_streams(buf: &[u8], pos: &mut usize, len: usize, filters: u8) -> Option<(Vec<streams::Stream>, Vec<Vec<streams::Stream>>, usize)> {
-    if filters & FILTER_STREAMS == 0 {
-        return Some((Vec::new(), Vec::new(), len));
+/// the bytes the model then codes, and the fields blanked ([`derived`]; none blanked without [`FILTER_FIELDS`]).
+/// `None` when the block is malformed, a level is empty or opens past what the original may, or bytes follow the
+/// record: refused here, before any modeling.
+fn read_streams(buf: &[u8], pos: &mut usize, len: usize, filters: u8) -> Option<(Vec<streams::Stream>, Vec<Vec<streams::Stream>>, usize, derived::Record)> {
+    let unblanked = |levels: &[&[streams::Stream]]| derived::Record {
+        archives: vec![derived::Marks::default(); levels.len() + 1],
+        images: vec![derived::Marks::default(); levels.len() + 1],
+        trailers: levels.iter().map(|l| vec![derived::TRAILER_NONE; l.len()]).collect(),
+        tar: derived::Marks::default(),
+    };
+    if filters & (FILTER_STREAMS | FILTER_FIELDS) == 0 {
+        return Some((Vec::new(), Vec::new(), len, unblanked(&[])));
     }
     let head = read_packed(buf, pos, len)?;
     let mut at = 0;
-    let (found, mut body_len) = streams::read_header(&head, &mut at, len)?;
+    let (found, mut body_len) = if filters & FILTER_STREAMS != 0 { streams::read_header(&head, &mut at, len)? } else { (Vec::new(), len) };
     let mut deeper = Vec::new();
     if filters & FILTER_NESTED != 0 {
         let count = usize::try_from(read_uvarint(&head, &mut at)?).ok()?;
@@ -2198,7 +2367,14 @@ fn read_streams(buf: &[u8], pos: &mut usize, len: usize, filters: u8) -> Option<
             body_len = opened;
         }
     }
-    (at == head.len()).then_some((found, deeper, body_len))
+    let levels: Vec<&[streams::Stream]> = if filters & FILTER_STREAMS != 0 { std::iter::once(&found[..]).chain(deeper.iter().map(Vec::as_slice)).collect() } else { Vec::new() };
+    let record = if filters & FILTER_FIELDS != 0 {
+        let counts: Vec<usize> = levels.iter().map(|l| l.len()).collect();
+        derived::read_record(&head, &mut at, &counts, streams::expansion_bound(len))?
+    } else {
+        unblanked(&levels)
+    };
+    (at == head.len()).then_some((found, deeper, body_len, record))
 }
 
 /// The most header bytes a byte of the original can need, every level's streams and their cuts together.
@@ -2240,8 +2416,8 @@ pub fn cost_profile(data: &[u8], level: Level) -> (Vec<u8>, Vec<u32>) {
 }
 
 /// Compress `data` at [`Level::Max`]: its length; the level; the filters applied (a flags byte: reproducible
-/// DEFLATE streams opened up, then either a 16-bit image's residuals or the x86 branch filter) and each one's
-/// header; then the arithmetic-coded bits of the filtered bytes.
+/// DEFLATE streams opened up, container fields their bytes determine blanked, then either a 16-bit image's residuals
+/// or the x86 branch filter) and each one's header; then the arithmetic-coded bits of the filtered bytes.
 pub fn compress(data: &[u8]) -> Vec<u8> {
     compress_with(data, Level::Max, usize::MAX)
 }
@@ -2257,16 +2433,22 @@ pub fn compress_with(data: &[u8], level: Level, max_modeled: usize) -> Vec<u8> {
         | u8::from(r.image.is_some()) * FILTER_IMAGE16
         | u8::from(!r.exe.is_empty()) * FILTER_BRANCH
         | u8::from(!r.alpha.is_empty()) * FILTER_ALPHA
-        | u8::from(!r.deeper.is_empty()) * FILTER_NESTED;
+        | u8::from(!r.deeper.is_empty()) * FILTER_NESTED
+        | u8::from(r.fields.any()) * FILTER_FIELDS;
     out.push(filters);
-    if !r.streams.is_empty() {
+    if !r.streams.is_empty() || r.fields.any() {
         let mut head = Vec::new();
-        streams::write_header(&r.streams, &mut head);
+        if !r.streams.is_empty() {
+            streams::write_header(&r.streams, &mut head);
+        }
         if !r.deeper.is_empty() {
             write_uvarint(r.deeper.len() as u64, &mut head);
             for level in &r.deeper {
                 streams::write_header(level, &mut head);
             }
+        }
+        if r.fields.any() {
+            derived::write_record(&r.fields, &mut head);
         }
         write_packed(&head, &mut out);
     }
@@ -2286,12 +2468,15 @@ pub fn compress_with(data: &[u8], level: Level, max_modeled: usize) -> Vec<u8> {
     out
 }
 
-/// What the model is shown: the reproducible DEFLATE streams opened up (within `max_modeled` bytes), then a
-/// 16-bit image's residuals or, in the blocks that look like x86 code, absolute branch targets.
+/// What the model is shown: the reproducible DEFLATE streams opened up (within `max_modeled` bytes), the container
+/// fields their bytes determine blanked, then a 16-bit image's residuals or, in the blocks that look like x86 code,
+/// absolute branch targets.
 struct Representation {
     streams: Vec<streams::Stream>,
     /// The streams found inside opened ones, level by level.
     deeper: Vec<Vec<streams::Stream>>,
+    /// The fields blanked, level by level.
+    fields: derived::Record,
     image: Option<Image>,
     /// The branch filter's blocks, empty when no block is switched on.
     exe: Vec<bool>,
@@ -2303,7 +2488,13 @@ struct Representation {
 }
 
 fn represent(data: &[u8], max_modeled: usize) -> Representation {
-    let mut found = streams::find(data);
+    // Each level's archives, then its images, are blanked before its streams are found, and each level's trailers once
+    // it is opened; the decoder undoes them in the reverse order.
+    let mut original = data.to_vec();
+    let mut archives = vec![derived::blank_archives(&mut original)];
+    let mut pngs = vec![derived::blank_images(&mut original)];
+    let mut trailers = Vec::new();
+    let mut found = streams::find(&original);
     let mut modeled = data.len();
     found.retain(|s| {
         let grown = modeled - s.compressed + s.raw;
@@ -2313,7 +2504,15 @@ fn represent(data: &[u8], max_modeled: usize) -> Representation {
         }
         keep
     });
-    let mut body = if found.is_empty() { data.to_vec() } else { streams::open(data, &found) };
+    let mut body = if found.is_empty() {
+        original
+    } else {
+        let mut opened = streams::open(&original, &found);
+        trailers.push(derived::blank_trailers(&mut opened, &found));
+        archives.push(derived::blank_archives(&mut opened));
+        pngs.push(derived::blank_images(&mut opened));
+        opened
+    };
     let mut deeper: Vec<Vec<streams::Stream>> = Vec::new();
     let budget = max_modeled.max(data.len()).min(streams::expansion_bound(data.len()));
     while !found.is_empty() && deeper.len() + 1 < NESTED_LEVELS {
@@ -2333,8 +2532,13 @@ fn represent(data: &[u8], max_modeled: usize) -> Representation {
             break;
         }
         body = streams::open(&body, &level);
+        trailers.push(derived::blank_trailers(&mut body, &level));
+        archives.push(derived::blank_archives(&mut body));
+        pngs.push(derived::blank_images(&mut body));
         deeper.push(level);
     }
+    let tar = derived::blank_tar(&mut body);
+    let fields = derived::Record { archives, images: pngs, trailers, tar };
     let image = detect_image16(&body);
     let mut exe = if image.is_some() { Vec::new() } else { branch_blocks(&body) };
     // A stream's code is modeled as x86 or as DEC Alpha, whichever covers more of it.
@@ -2357,7 +2561,7 @@ fn represent(data: &[u8], max_modeled: usize) -> Representation {
         alpha::filter(&mut body, &alpha, true);
     }
     let regions = all_regions(&found, &deeper);
-    Representation { streams: found, deeper, image, exe, alpha, regions, body }
+    Representation { streams: found, deeper, fields, image, exe, alpha, regions, body }
 }
 
 /// Decompress a [`compress`] stream. `None` when its declared length exceeds `max_len` (checked before any model
@@ -2377,13 +2581,13 @@ pub fn decompress_within(buf: &[u8], max_len: usize, max_modeled: usize) -> Opti
     let level = Level::from_byte(*buf.get(pos)?)?;
     let filters = *buf.get(pos + 1)?;
     pos += 2;
-    if filters & !(FILTER_BRANCH | FILTER_IMAGE16 | FILTER_STREAMS | FILTER_ALPHA | FILTER_NESTED) != 0
+    if filters & !(FILTER_BRANCH | FILTER_IMAGE16 | FILTER_STREAMS | FILTER_ALPHA | FILTER_NESTED | FILTER_FIELDS) != 0
         || (filters & (FILTER_BRANCH | FILTER_IMAGE16 | FILTER_ALPHA)).count_ones() > 1
         || (filters & FILTER_NESTED != 0 && filters & FILTER_STREAMS == 0)
     {
         return None;
     }
-    let (found, deeper, body_len) = read_streams(buf, &mut pos, len, filters)?;
+    let (found, deeper, body_len, fields) = read_streams(buf, &mut pos, len, filters)?;
     if body_len > max_modeled.max(len) {
         return None;
     }
@@ -2421,11 +2625,15 @@ pub fn decompress_within(buf: &[u8], max_len: usize, max_modeled: usize) -> Opti
     if let Some(img) = image {
         image_residuals(&mut out, img, false);
     }
-    for level in deeper.iter().rev() {
+    derived::restore_tar(&mut out, &fields.tar)?;
+    let levels: Vec<&[streams::Stream]> = if filters & FILTER_STREAMS != 0 { std::iter::once(&found[..]).chain(deeper.iter().map(Vec::as_slice)).collect() } else { Vec::new() };
+    derived::restore_images(&mut out, &fields.images[levels.len()])?;
+    derived::restore_archives(&mut out, &fields.archives[levels.len()])?;
+    for (j, level) in levels.iter().enumerate().rev() {
+        derived::restore_trailers(&mut out, level, &fields.trailers[j])?;
         out = streams::close(&out, level)?;
+        derived::restore_images(&mut out, &fields.images[j])?;
+        derived::restore_archives(&mut out, &fields.archives[j])?;
     }
-    if found.is_empty() {
-        return Some(out);
-    }
-    streams::close(&out, &found).filter(|original| original.len() == len)
+    (out.len() == len).then_some(out)
 }

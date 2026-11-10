@@ -100,7 +100,7 @@ fn png_rows(data: &[u8], at: usize) -> (u32, u8) {
 
 const PNG_SIGNATURE: &[u8; 8] = b"\x89PNG\r\n\x1a\n";
 
-fn crc32(bytes: &[u8]) -> u32 {
+pub(super) fn crc32(bytes: &[u8]) -> u32 {
     static TABLE: std::sync::OnceLock<[u32; 256]> = std::sync::OnceLock::new();
     let table = TABLE.get_or_init(|| {
         std::array::from_fn(|n| (0..8).fold(n as u32, |c, _| if c & 1 == 1 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 }))
@@ -108,7 +108,7 @@ fn crc32(bytes: &[u8]) -> u32 {
     !bytes.iter().fold(!0u32, |c, &b| table[((c ^ u32::from(b)) & 0xFF) as usize] ^ (c >> 8))
 }
 
-fn adler32(bytes: &[u8]) -> u32 {
+pub(super) fn adler32(bytes: &[u8]) -> u32 {
     let (mut a, mut b) = (1u32, 0u32);
     for chunk in bytes.chunks(5552) {
         for &x in chunk {

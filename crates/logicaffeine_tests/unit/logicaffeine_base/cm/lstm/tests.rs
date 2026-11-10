@@ -329,3 +329,36 @@ impl Lstm {
         loss
     }
 }
+
+#[test]
+fn the_adam_rate_falls_with_the_steps_to_its_floor() {
+    assert_eq!(learning_rate(0), LEARNING_RATE);
+    let at_half_life = learning_rate(RATE_STEPS as u32);
+    assert!((at_half_life * 2f32.sqrt() - LEARNING_RATE).abs() < 1e-7, "{at_half_life} after {RATE_STEPS} steps");
+    let mut last = LEARNING_RATE;
+    for t in (0..4_000_000u32).step_by(10_007) {
+        let rate = learning_rate(t);
+        assert!(rate <= last && rate >= RATE_FLOOR, "step {t}: {rate} after {last}");
+        last = rate;
+    }
+    assert_eq!(learning_rate(u32::MAX), RATE_FLOOR, "a long file trains at the floor");
+}
+
+#[test]
+fn each_trained_window_is_one_step_down_the_rate() {
+    let steps = |n: usize| {
+        let mut net = Lstm::new(16, 2, 7).in_place();
+        for i in 0..n {
+            net.update(b"abcdefg"[i % 7]);
+        }
+        net.settle();
+        // Between windows the trainer is home; once a window has trained, it waits in the window's result.
+        match (&net.trainer, &net.pending) {
+            (Some(trainer), _) => trainer.t,
+            (None, Pending::Ready(done)) => done.trainer.t,
+            _ => panic!("the trainer is home or in the last window's result"),
+        }
+    };
+    let (once, twice) = (steps(140), steps(280));
+    assert!(once > 0 && twice + 1 >= 2 * once, "{once} steps after 140 bytes, {twice} after 280");
+}

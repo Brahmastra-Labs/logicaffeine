@@ -38,8 +38,15 @@ const NODES: usize = 255;
 /// How sure a bit's unit may be: its probability stays in `[P_MIN, 1 − P_MIN]`.
 const P_MIN: f32 = 1.0 / 65536.0;
 
-/// The learning rate of an Adam step.
+/// The learning rate of the first Adam step, the steps over which it falls by a factor of `sqrt(2)`, and its floor.
 const LEARNING_RATE: f32 = 0.005;
+const RATE_STEPS: f32 = 20_000.0;
+const RATE_FLOOR: f32 = 0.0005;
+
+/// The Adam rate of step `t` (from 1): `LEARNING_RATE / sqrt(1 + t / RATE_STEPS)`, at least `RATE_FLOOR`.
+fn learning_rate(t: u32) -> f32 {
+    (LEARNING_RATE / (1.0 + t as f32 / RATE_STEPS).sqrt()).max(RATE_FLOOR)
+}
 
 /// The input gates' initial bias: a fresh cell keeps most of its content.
 const INPUT_BIAS: f32 = -1.0;
@@ -329,7 +336,8 @@ impl Gradient {
 /// What trains the network: the master weights, Adam's moments, and the gradient's buffers.
 #[derive(Clone)]
 struct Trainer {
-    rate: f32,
+    /// Adam steps taken.
+    t: u32,
     master: Params,
     symbol_moments: Vec<Moments>,
     weight_moments: Vec<Moments>,
@@ -347,19 +355,21 @@ impl Trainer {
         self.grad.backward(ran_on, steps);
         self.beta1_t *= BETA1;
         self.beta2_t *= BETA2;
+        self.t += 1;
+        let rate = learning_rate(self.t);
         let (c1, c2) = (1.0 - self.beta1_t, 1.0 - self.beta2_t);
         let h3 = 3 * self.master.cells;
         let grad = &self.grad;
         for l in 0..self.master.layers.len() {
             for &s in &grad.touched[l] {
                 let row = usize::from(s) * h3..(usize::from(s) + 1) * h3;
-                self.symbol_moments[l].step(&mut self.master.layers[l].symbol, &grad.symbol[l], row, self.rate, c1, c2);
+                self.symbol_moments[l].step(&mut self.master.layers[l].symbol, &grad.symbol[l], row, rate, c1, c2);
             }
             let all = 0..self.master.layers[l].weights.len();
-            self.weight_moments[l].step(&mut self.master.layers[l].weights, &grad.weights[l], all, self.rate, c1, c2);
+            self.weight_moments[l].step(&mut self.master.layers[l].weights, &grad.weights[l], all, rate, c1, c2);
         }
         let all = 0..self.master.output.len();
-        self.output_moments.step(&mut self.master.output, &grad.output, all, self.rate, c1, c2);
+        self.output_moments.step(&mut self.master.output, &grad.output, all, rate, c1, c2);
         self.grad.clear(self.master.cells);
     }
 }
@@ -479,7 +489,7 @@ impl Lstm {
         let mut current = Step::new(&params);
         params.forward(0, &zero.h, &zero.c, &mut current);
         let trainer = Trainer {
-            rate: LEARNING_RATE,
+            t: 0,
             symbol_moments: params.layers.iter().map(|l| Moments::new(l.symbol.len())).collect(),
             weight_moments: params.layers.iter().map(|l| Moments::new(l.weights.len())).collect(),
             output_moments: Moments::new(params.output.len()),
