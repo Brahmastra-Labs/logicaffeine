@@ -10,9 +10,11 @@ usage: scoreboard.py <checker> [--live DIR] [--filter SUBSTR] [--skip-heavy] [--
                                 [--commit]
 
 --commit writes the committed ratchet (benchmarks/results/lean-kernel-arena/): scoreboard.json and
-ceilings.json. A ceiling (per-test instructions, 1% above the measurement) belongs to the exact
-input it was measured on (its SHA-256) and only ever falls on those bytes: a commit that would
-raise one is refused, as is one with a wrong verdict. A test the Arena re-exported starts a fresh
+ceilings.json. A test's ceilings (its instructions, 1% and 10,000 above the measurement, and its
+peak resident memory, 2% and 8 MiB above it) belong to the exact input they were measured on (its
+SHA-256) and only ever fall on those bytes: a commit that would raise one is refused, as is one with
+a wrong verdict. The absolute slack is the noise floor of a small test, whose count moves by
+thousands with where the loader and libc land from one run and one build to the next. A test the Arena re-exported starts a fresh
 ceiling, and the first-place floor is re-based when the live revision moves, since both then
 compare against different inputs and a different field. Tests not measured are listed explicitly;
 `arena_scoreboard_lock` pins which may be absent.
@@ -193,6 +195,12 @@ def main():
 
 
 RATCHET = os.path.join(ROOT, "benchmarks", "results", "lean-kernel-arena")
+CEILINGS_SCHEMA = "logos-arena-ceilings/3"
+# What a measurement may grow by before it is a regression: a large test's instructions are exact to
+# ±0.04%, a small one's move by thousands with the loader's and libc's alignment; a peak resident set
+# moves by pages and, on the smallest tests, by the process's own startup.
+INSTRUCTION_FLOOR = 10_000
+SLACK = {"instructions": lambda x: int(x * 1.01) + INSTRUCTION_FLOOR, "max_rss_kb": lambda kb: int(kb * 1.02) + 8192}
 
 
 def commit(live, tests, ours, checker_sha, extra, firsts):
@@ -204,21 +212,30 @@ def commit(live, tests, ours, checker_sha, extra, firsts):
     cpath = os.path.join(RATCHET, "ceilings.json")
     revision = live["meta"]["git_revision"]
     old = json.load(open(cpath)) if os.path.exists(cpath) else {}
-    if old.get("schema") != "logos-arena-ceilings/2":
+    # Schema 2 held instruction ceilings alone, 1% above the best measurement: they carry over with the
+    # absolute floor schema 3 adds (once), and peak memory gets its first ceilings.
+    if old.get("schema") not in ("logos-arena-ceilings/2", CEILINGS_SCHEMA):
         old = {}
-    ceilings = {n: c for n, c in old.get("ceilings", {}).items() if n in tests and c["input_sha256"] == tests[n]["sha256"]}
+    ceilings = {n: dict(c) for n, c in old.get("ceilings", {}).items() if n in tests and c["input_sha256"] == tests[n]["sha256"]}
+    if old.get("schema") == "logos-arena-ceilings/2":
+        for c in ceilings.values():
+            c["instructions"] += INSTRUCTION_FLOOR
     raised = []
     for n, r in ours.items():
         if r["status"] != "correct" or not r.get("instructions"):
             continue
-        new = int(r["instructions"] * 1.01) + 1
-        prev = ceilings.get(n, {}).get("instructions")
-        if prev is not None and r["instructions"] > prev:
-            raised.append(f"{n}: {r['instructions']:,} > ceiling {prev:,}")
+        if r.get("max_rss_kb") is None:
+            raised.append(f"{n}: no peak memory measured")
             continue
-        ceilings[n] = {"input_sha256": tests[n]["sha256"], "instructions": new if prev is None else min(prev, new)}
+        prev = ceilings.get(n, {})
+        over = [f"{n}: {k} {r[k]:,} > ceiling {prev[k]:,}" for k in SLACK if prev.get(k) is not None and r[k] > prev[k]]
+        if over:
+            raised += over
+            continue
+        ceilings[n] = {"input_sha256": tests[n]["sha256"],
+                       **{k: grow(r[k]) if prev.get(k) is None else min(prev[k], grow(r[k])) for k, grow in SLACK.items()}}
     if raised:
-        print("refusing to commit: instruction regressions\n  " + "\n  ".join(raised))
+        print("refusing to commit: regressions\n  " + "\n  ".join(raised))
         return 1
     # Merge into the committed board: tests not re-measured keep their committed results.
     bpath = os.path.join(RATCHET, "scoreboard.json")
@@ -246,7 +263,7 @@ def commit(live, tests, ours, checker_sha, extra, firsts):
         "results": {n: merged[n] for n in measured},
     }
     json.dump(board, open(os.path.join(RATCHET, "scoreboard.json"), "w"), indent=1, sort_keys=True)
-    json.dump({"schema": "logos-arena-ceilings/2", "live_revision": revision,
+    json.dump({"schema": CEILINGS_SCHEMA, "live_revision": revision,
                "ceilings": dict(sorted(ceilings.items())), "first_place_floor": floor},
               open(cpath, "w"), indent=1, sort_keys=True)
     print(f"committed: {len(measured)} measured, first on {firsts} (floor {floor}), not measured: {not_measured}")

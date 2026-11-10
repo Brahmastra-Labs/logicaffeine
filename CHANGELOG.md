@@ -58,6 +58,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   copied into a buffer of sixteen. The Arena entry checks Mathlib in 402.37 G instructions (from 407.26), `init` in
   17.97 G (from 18.01), `std` in 30.94 G (from 31.02) and `init-prelude` in 2.2% fewer (`logicaffeine_kernel`; locked
   by `dag_levels` and `dag_level_allocation`).
+- **The Lean Kernel Arena scoreboard holds each test's peak memory to a ceiling, as it holds its instructions.**
+  `scripts/lean/arena-crown/scoreboard.py --commit` refuses a run that raises any test's peak resident memory more than
+  2% and 8 MiB above its committed ceiling, and an instruction ceiling is now 1% and 10,000 above the measurement, the
+  noise floor of a small test, whose count moves by thousands with where the loader and libc land;
+  `arena_scoreboard_lock` holds every committed measurement to both ceilings (`logos-arena-ceilings/3`). The board,
+  measured on the value engine above, checks Mathlib in 402.37 G instructions at a 7.88 GiB peak (from 409.15 G and
+  9.06 GiB), navier-stokes-euler at 3.72 GiB (from 4.16), cslib at 4.47 (from 4.59), `std` at 2.83 (from 2.98) and
+  `init` at 2.72 (from 2.84), every verdict correct and first on 234 of the 247 tests.
 
 ### Fixed
 

@@ -4,9 +4,10 @@
 //! exactly as the Arena does (instructions under `perf stat`) and writes
 //! `benchmarks/results/lean-kernel-arena/{scoreboard,ceilings}.json`. This lock holds the
 //! committed state to its promises: every measured verdict is correct, no test exceeds its
-//! instruction ceiling, the first-place count never falls below its floor, and only the tests
-//! pinned here may be missing from the measurement. A measurement and its ceiling belong to the
-//! exact input bytes they were taken on: the corpus case's SHA-256 at the pinned revision.
+//! instruction ceiling or its peak-memory ceiling, the first-place count never falls below its
+//! floor, and only the tests pinned here may be missing from the measurement. A measurement and its
+//! ceilings belong to the exact input bytes they were taken on: the corpus case's SHA-256 at the
+//! pinned revision.
 
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -29,7 +30,7 @@ fn the_scoreboard_is_measured_against_the_pinned_live_revision() {
     let ceilings = json("benchmarks/results/lean-kernel-arena/ceilings.json");
     let corpus = json("crates/logicaffeine_tests/tests/fixtures/arena_corpus/manifest.json");
     assert_eq!(board["schema"], "logos-arena-scoreboard/1");
-    assert_eq!(ceilings["schema"], "logos-arena-ceilings/2");
+    assert_eq!(ceilings["schema"], "logos-arena-ceilings/3");
     assert_eq!(
         board["live_revision"], corpus["revision"],
         "scoreboard and corpus pin the same Arena revision"
@@ -57,7 +58,7 @@ fn corpus_digests() -> std::collections::BTreeMap<String, String> {
 }
 
 #[test]
-fn every_measured_verdict_is_correct_and_within_its_ceiling() {
+fn every_measured_verdict_is_correct_and_within_its_ceilings() {
     let board = json("benchmarks/results/lean-kernel-arena/scoreboard.json");
     let ceilings = json("benchmarks/results/lean-kernel-arena/ceilings.json");
     let digests = corpus_digests();
@@ -88,6 +89,16 @@ fn every_measured_verdict_is_correct_and_within_its_ceiling() {
         assert!(
             instr <= limit,
             "{name}: {instr} instructions exceeds its ceiling {limit}"
+        );
+        let peak = r["max_rss_kb"]
+            .as_u64()
+            .unwrap_or_else(|| panic!("{name} has no peak memory"));
+        let peak_limit = ceiling["max_rss_kb"]
+            .as_u64()
+            .unwrap_or_else(|| panic!("{name} has no peak-memory ceiling"));
+        assert!(
+            peak <= peak_limit,
+            "{name}: a peak of {peak} KiB exceeds its ceiling {peak_limit} KiB"
         );
     }
     let firsts = board["first_place"].as_u64().unwrap();
