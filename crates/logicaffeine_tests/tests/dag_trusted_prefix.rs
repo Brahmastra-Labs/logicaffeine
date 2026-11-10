@@ -1,8 +1,9 @@
 //! A trusted prefix: the declarations before an index are admitted as the export states them,
 //! unchecked, so that one declaration deep in a large export can be measured without re-checking
 //! everything before it. Such a run claims nothing — every outcome is a decline, a failure among
-//! the checked declarations included — and the primitives, quotients and primitive inductive
-//! blocks are checked regardless, so the validated literal operations match a full run.
+//! the checked declarations included — and the quotient's constants and every declaration or
+//! inductive block taking a primitive's or a quotient's name are checked regardless, so the
+//! validated literal operations and the installed quotient match a full run.
 
 use logicaffeine_kernel::dag::export::{DeclMeter, Observe};
 use logicaffeine_kernel::dag::{check_export_observed, Verdict};
@@ -11,13 +12,17 @@ use std::io::BufReader;
 use std::path::PathBuf;
 use std::rc::Rc;
 
-fn corpus(path: &str) -> Vec<u8> {
+fn fixture(path: &str) -> Vec<u8> {
     std::fs::read(
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/arena_corpus")
+            .join("tests/fixtures")
             .join(path),
     )
     .unwrap()
+}
+
+fn corpus(path: &str) -> Vec<u8> {
+    fixture(&format!("arena_corpus/{path}"))
 }
 
 /// The declarations an export states, counted from its records without the kernel: one per `axiom`,
@@ -146,4 +151,35 @@ fn primitives_are_validated_even_inside_the_trusted_prefix() {
         trusted.checked.iter().all(|n| n != "Nat.le"),
         "an ordinary declaration inside the prefix is not checked"
     );
+}
+
+#[test]
+fn a_quotients_names_are_checked_even_inside_the_trusted_prefix() {
+    for (path, declared, rule) in [
+        (
+            "quotient_forgery/axiom-quot-mk.ndjson",
+            "Quot.mk",
+            "'Quot.mk' is the quotient's constructor",
+        ),
+        (
+            "crafted/bad/quotient-lift-named-in-a-mutual-block.ndjson",
+            "f",
+            "'Quot.lift' is the quotient's lift",
+        ),
+        (
+            "crafted/bad/quotient-ctor-named-by-a-constructor.ndjson",
+            "T",
+            "'Quot.mk' is the quotient's constructor",
+        ),
+    ] {
+        let text = fixture(path);
+        let everything = declarations(&text) as u64;
+        let r = run(text, everything);
+        declines_with(&r, rule);
+        assert!(
+            r.checked.iter().any(|n| n == declared),
+            "{path}: the declaration taking a quotient's name is checked though trusted: {:?}",
+            r.checked
+        );
+    }
 }

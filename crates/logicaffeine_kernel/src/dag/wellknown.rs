@@ -1,5 +1,6 @@
 //! Names the kernel gives meaning to, interned once so every test is an id compare.
 
+use super::env::QuotKind;
 use super::name::{NameId, Names};
 
 /// One quotient's four constants: its former, constructor, lift and induction principle.
@@ -9,6 +10,23 @@ pub struct QuotNames {
     pub mk: NameId,
     pub lift: NameId,
     pub ind: NameId,
+}
+
+impl QuotNames {
+    /// The member of kind `kind`.
+    pub fn member(&self, kind: QuotKind) -> NameId {
+        match kind {
+            QuotKind::Type => self.ty,
+            QuotKind::Ctor => self.mk,
+            QuotKind::Lift => self.lift,
+            QuotKind::Ind => self.ind,
+        }
+    }
+
+    /// The kind of the member named `n`, if one is.
+    pub fn kind_of(&self, n: NameId) -> Option<QuotKind> {
+        QuotKind::ALL.into_iter().find(|k| self.member(*k) == n)
+    }
 }
 
 #[derive(Clone)]
@@ -181,6 +199,13 @@ impl WellKnown {
             lift: self.quot_lift,
             ind: self.quot_ind,
         }
+    }
+
+    /// Every quotient the theory admits: its own, and the one a kernel installs where there is one.
+    pub fn quotients(&self) -> impl Iterator<Item = QuotNames> {
+        [Some(self.quot_names()), self.installed_quot]
+            .into_iter()
+            .flatten()
     }
 
     /// The names Lean's kernel treats as primitive: declaring one is only allowed in its

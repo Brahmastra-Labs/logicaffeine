@@ -3,7 +3,7 @@
 
 use super::value::{ConstKind, Elim, EnvId, Head, Sp, VId, Val};
 use super::Nbe;
-use crate::dag::env::{Kind, QuotKind, RecInfo};
+use crate::dag::env::{Kind, RecInfo};
 use crate::dag::error::{KResult, KernelFailure};
 use crate::dag::level::{LevelId, LevelsId};
 use crate::dag::name::NameId;
@@ -393,39 +393,30 @@ impl Nbe<'_> {
     // ---- quotients ----
 
     fn quot_reduce(&mut self, n: NameId, spine: Sp) -> KResult<Option<VId>> {
-        let kind = match self.k.env.get(n).map(|c| c.kind.clone()) {
-            Some(Kind::Quot(k)) => k,
-            _ => return Ok(None),
-        };
-        let (mk_pos, arg_pos) = match kind {
-            QuotKind::Lift => (5, 3),
-            QuotKind::Ind => (4, 3),
-            _ => return Ok(None),
+        let Some(rule) = self.k.env.quot_rule(n) else {
+            return Ok(None);
         };
         let elims = self.st.arena.spine_elims(spine);
         let n_apps = elims
             .iter()
             .take_while(|e| matches!(e, Elim::App(_)))
             .count();
-        if n_apps <= mk_pos {
+        if n_apps <= rule.major {
             return Ok(None);
         }
         let arg = |i: usize| match elims[i] {
             Elim::App(a) => a,
             Elim::Proj(..) => unreachable!(),
         };
-        let mk = self.whnf(arg(mk_pos))?;
+        let mk = self.whnf(arg(rule.major))?;
         let Val::Neutral {
-            head: Head::Const(ConstKind::Quot, mkn, _),
+            head: Head::Const(_, mkn, _),
             spine: mks,
         } = self.st.arena.get(mk)
         else {
             return Ok(None);
         };
-        if !matches!(
-            self.k.env.get(mkn).map(|c| &c.kind),
-            Some(Kind::Quot(QuotKind::Ctor))
-        ) {
+        if !self.k.env.is_quot_mk(&rule, mkn) {
             return Ok(None);
         }
         let Some(mkargs) = self.st.arena.spine_args(mks) else {
@@ -434,8 +425,8 @@ impl Nbe<'_> {
         if mkargs.len() != 3 {
             return Ok(None);
         }
-        let r = self.apply(arg(arg_pos), mkargs[2])?;
-        self.apply_elims(r, &elims[mk_pos + 1..]).map(Some)
+        let r = self.apply(arg(rule.fun), mkargs[2])?;
+        self.apply_elims(r, &elims[rule.major + 1..]).map(Some)
     }
 
     // ---- recursors ----

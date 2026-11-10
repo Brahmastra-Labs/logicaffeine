@@ -85,8 +85,9 @@ pub struct Observe {
     /// Told about every declaration the kernel checks.
     pub meter: Option<Box<dyn DeclMeter>>,
     /// The declarations before this index are admitted as the export states them, unchecked —
-    /// except the primitives, the quotient and any inductive block declaring a primitive, which are
-    /// checked so that the literal operations validated match a full run. A diagnostic for
+    /// except the quotient's constants and any declaration or inductive block taking a primitive's
+    /// or a quotient's name, which are checked so that the literal operations validated and the
+    /// quotient installed match a full run. A diagnostic for
     /// measuring declarations deep in an export without re-checking its prefix: a run with a
     /// trusted prefix claims nothing, and always declines.
     pub trust_before: u64,

@@ -953,29 +953,25 @@ impl Kernel {
         let Some((fname, _)) = self.s.const_head(e) else {
             return Ok(None);
         };
-        let Some(&q) = self
-            .env
-            .quotients
-            .iter()
-            .find(|q| q.lift == fname || q.ind == fname)
-        else {
+        let Some(rule) = self.env.quot_rule(fname) else {
             return Ok(None);
         };
-        let (mk_pos, arg_pos) = if fname == q.lift { (5, 3) } else { (4, 3) };
         let (_, args) = self.s.app_args(e);
-        if mk_pos >= args.len() {
+        if rule.major >= args.len() {
             return Ok(None);
         }
-        let mk = self.whnf(args[mk_pos])?;
-        if !self.is_app_of_arity(mk, q.mk, 3) {
+        let mk = self.whnf(args[rule.major])?;
+        let headed_by_mk =
+            matches!(self.s.const_head(mk), Some((m, _)) if self.env.is_quot_mk(&rule, m));
+        if !headed_by_mk || self.s.app_num_args(mk) != 3 {
             return Ok(None);
         }
         let Node::App(_, mk_arg) = self.s.node(mk) else {
             unreachable!()
         };
-        let mut r = self.s.app(args[arg_pos], mk_arg);
-        if mk_pos + 1 < args.len() {
-            r = self.s.mk_app_n(r, &args[mk_pos + 1..]);
+        let mut r = self.s.app(args[rule.fun], mk_arg);
+        if rule.major + 1 < args.len() {
+            r = self.s.mk_app_n(r, &args[rule.major + 1..]);
         }
         Ok(Some(r))
     }
@@ -2046,10 +2042,7 @@ impl Kernel {
     }
 
     pub fn quot_kind(&self, n: NameId) -> Option<QuotKind> {
-        match self.env.get(n)?.kind {
-            Kind::Quot(k) => Some(k),
-            _ => None,
-        }
+        self.env.quot_kind(n)
     }
 }
 

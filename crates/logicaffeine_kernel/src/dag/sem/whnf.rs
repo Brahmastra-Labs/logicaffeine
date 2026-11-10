@@ -8,7 +8,7 @@
 
 use super::value::{Head, Kind, Sp, Val, V};
 use super::{reject, Sem};
-use crate::dag::env::{Kind as CKind, QuotKind, RecInfo};
+use crate::dag::env::{Kind as CKind, RecInfo};
 use crate::dag::error::KResult;
 use crate::dag::expr::StrId;
 use crate::dag::level::{LevelId, LevelsId};
@@ -25,14 +25,6 @@ impl Sem<'_> {
                 _ => None,
             },
             _ => None,
-        }
-    }
-
-    #[inline]
-    pub(crate) fn is_const_app_of(&self, v: V, n: NameId, arity: usize) -> bool {
-        match self.const_app(v) {
-            Some((m, _, _, sp)) => m == n && self.st.arena.spine_len(sp) == arity,
-            None => false,
         }
     }
 
@@ -383,35 +375,23 @@ impl Sem<'_> {
         let Some((n, _, _, spine)) = self.const_app(v) else {
             return Ok(None);
         };
-        let (mk_pos, arg_pos) = match self.k.env.get(n).map(|c| &c.kind) {
-            Some(CKind::Quot(QuotKind::Lift)) => (5, 3),
-            Some(CKind::Quot(QuotKind::Ind)) => (4, 3),
-            _ => return Ok(None),
+        let Some(rule) = self.k.env.quot_rule(n) else {
+            return Ok(None);
         };
         let args = self.st.arena.args(spine);
-        if mk_pos >= args.len() {
+        if rule.major >= args.len() {
             return Ok(None);
         }
-        let Some(q) = self
-            .k
-            .env
-            .quotients
-            .iter()
-            .find(|q| q.lift == n || q.ind == n)
-            .copied()
-        else {
+        let mk = self.whnf(args[rule.major])?;
+        let Some((m, _, _, mks)) = self.const_app(mk) else {
             return Ok(None);
         };
-        let mk = self.whnf(args[mk_pos])?;
-        if !self.is_const_app_of(mk, q.mk, 3) {
+        if !self.k.env.is_quot_mk(&rule, m) || self.st.arena.spine_len(mks) != 3 {
             return Ok(None);
         }
-        let Val::Neu { spine: mks, .. } = self.st.arena.get(mk) else {
-            unreachable!()
-        };
         let mk_arg = self.st.arena.spine_arg(mks, 2);
-        let r = self.apply(args[arg_pos], mk_arg)?;
-        self.apply_all(r, &args[mk_pos + 1..]).map(Some)
+        let r = self.apply(args[rule.fun], mk_arg)?;
+        self.apply_all(r, &args[rule.major + 1..]).map(Some)
     }
 
     // ---- recursors ----

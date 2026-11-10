@@ -49,6 +49,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `interface::lean::native_decide`'s `export_controls` (an export without a native decision is read as exported,
   uncopied; only each leaf's line is replaced, by its re-derivation; the kernel core accepts the re-derived export and
   refuses the export as exported) and `pipeline::native_controls::the_kernel_core_rechecks_the_native_result_as_the_logos_kernel_read_it`.
+- `dag_quotient_integrity`: a quotient's constants are its own, in every engine of the `dag` core. The two exports of
+  Lean Kernel Arena issue #39 (`fixtures/quotient_forgery/`, byte for byte as reported) are rejected by their rules, and
+  by the `Term` kernel's importer. Over the Arena's own `130_quotLiftReduction`, each member restated as an ordinary
+  axiom in its place, declared before the quotient, or declared again after it is rejected by its rule, as are records
+  in an order their canonical types do not allow; the lift before the constructor is admitted. The official package is
+  admitted and computes. With one admitted quotient constant restated as an axiom behind the kernel's back, the
+  quotient left installed, the lift no longer computes. Under `nbe` the closure-conversion configurations run too
+  (`run-opt-in-feature-tests.sh`).
+- `dag_crafted` decides every crafted case in the substitution engine, the value engine and both at once, holds
+  `fixtures/crafted/` to exactly what `craft-cases.py --out DIR` writes, and `craft-cases.py` builds Lean's `Eq` and
+  quotient: a control package whose theorem checks only where the lift computes, an export using `Quot.mk` with no
+  quotient declared (admitted, as Lean admits it), and ten forgeries — each member as an axiom, `Quot` as a
+  definition, `Quot.mk` declared first, `Quot.ind` before `Quot.mk`, a constructor, an inductive type and a mutual
+  block's later member taking a quotient's name — each rejected by its rule.
+- `dag_trusted_prefix::a_quotients_names_are_checked_even_inside_the_trusted_prefix`: an axiom, an inductive's
+  constructor and a mutual block's later member taking a quotient's name are checked inside a trusted prefix.
 
 ### Changed
 - The Arena corpus at lean-kernel-arena `8139f284`: 247 cases, the 11 new ones (six `bugs/` rejects, `other/inductive-undeclared-universe` and four `corner-cases/`) vendored by `scripts/lean/arena-crown/vendor-corpus.py` from the official archive or from the corner cases rebuilt byte-identical at `d7f74a9e`; a regenerated export is now looked for in every round held, newest first, and `cedar`, re-exported at every round since, keeps its regenerated export with the new digests in its evidence. `arena_corpus_lock`, `arena_entry_lock`, the Arena README, the rehearsal and the scoreboard pin the round.

@@ -65,7 +65,8 @@ section() {
 
 section "logicaffeine-kernel/nbe"
 cargo nextest run -p logicaffeine-tests --features nbe --profile full --cargo-profile test-opt --run-ignored all \
-  --test dag_nbe_checker --test dag_nbe_differential --test dag_dual_agreement -E "$BASELINE_FILTER" "$@" || STATUS=1
+  --test dag_nbe_checker --test dag_nbe_differential --test dag_dual_agreement --test dag_quotient_integrity \
+  -E "$BASELINE_FILTER" "$@" || STATUS=1
 
 section "logicaffeine-system/io-uring"
 cargo nextest run -p logicaffeine-tests --features io-uring --profile full --cargo-profile test-opt --run-ignored all \

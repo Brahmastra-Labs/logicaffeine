@@ -60,6 +60,15 @@ impl Decl {
         }
     }
 
+    /// Every name the declaration declares: each member's, for a mutual block.
+    pub fn names(&self) -> impl Iterator<Item = NameId> + '_ {
+        let (one, block) = match self {
+            Decl::Mutual(ds) => (None, ds.as_slice()),
+            d => (Some(d.name()), &[][..]),
+        };
+        one.into_iter().chain(block.iter().map(|d| d.header.name))
+    }
+
     /// The export's record kind for this declaration (`mutual` for a block held until complete).
     pub fn kind_name(&self) -> &'static str {
         match self {
@@ -74,20 +83,48 @@ impl Decl {
 }
 
 impl Kernel {
+    /// The name of a declaration other than a quotient constant: not declared yet, a primitive's
+    /// only in its canonical form, and no begun quotient's.
     pub fn check_name(&self, n: NameId, allow_primitive: bool) -> KResult<()> {
-        if self.env.contains(n) {
-            return Err(KernelFailure::reject(format!(
-                "'{}' has already been declared",
-                self.s.names.display(n)
-            )));
-        }
+        self.check_fresh(n)?;
         if !allow_primitive && self.theory == Theory::Lean && self.wk.primitives().contains(&n) {
             return Err(KernelFailure::reject(format!(
                 "unexpected declaration of the primitive '{}' in a non-canonical form",
                 self.s.names.display(n)
             )));
         }
+        if let Some(kind) = self.quotient_claim(n) {
+            return Err(KernelFailure::reject(format!(
+                "'{}' is the quotient's {}: only a quotient declaration may declare it",
+                self.s.names.display(n),
+                kind.role()
+            )));
+        }
         Ok(())
+    }
+
+    fn check_fresh(&self, n: NameId) -> KResult<()> {
+        if self.env.contains(n) {
+            return Err(KernelFailure::reject(format!(
+                "'{}' has already been declared",
+                self.s.names.display(n)
+            )));
+        }
+        Ok(())
+    }
+
+    /// The kind `n` holds in a quotient that has begun, one of whose constants a quotient
+    /// declaration has admitted. Lean's kernel declares a quotient's four constants in one step,
+    /// so from the first of them on the four names are the quotient's alone; until then they are
+    /// names like any other.
+    fn quotient_claim(&self, n: NameId) -> Option<QuotKind> {
+        self.wk.quotients().find_map(|q| {
+            let kind = q.kind_of(n)?;
+            QuotKind::ALL
+                .iter()
+                .any(|k| self.env.has_quot_member(&q, *k))
+                .then_some(kind)
+        })
     }
 
     pub fn check_duplicate_lparams(&self, ps: &[NameId]) -> KResult<()> {
@@ -162,16 +199,22 @@ impl Kernel {
     }
 
     /// Whether `d` may be admitted unchecked in a trusted-prefix run (see
-    /// [`super::export::Observe::trust_before`]): anything but a primitive or the quotient.
+    /// [`super::export::Observe::trust_before`]): anything but a quotient constant or a declaration
+    /// that takes a primitive's or a quotient's name.
     pub fn may_trust(&self, d: &Decl) -> bool {
-        !matches!(d, Decl::Quot { .. }) && !self.wk.primitives().contains(&d.name())
+        !matches!(d, Decl::Quot { .. }) && d.names().all(|n| !self.checked_though_trusted(n))
     }
 
     /// Whether an inductive block declaring `claimed` may be admitted unchecked: none of its
-    /// constants is a primitive.
+    /// constants takes a primitive's or a quotient's name.
     pub fn may_trust_block(&self, claimed: &[Const]) -> bool {
-        let prims = self.wk.primitives();
-        claimed.iter().all(|c| !prims.contains(&c.name))
+        claimed.iter().all(|c| !self.checked_though_trusted(c.name))
+    }
+
+    /// Whether a declaration of `n` is checked inside a trusted prefix all the same: `n` is a
+    /// primitive's name or a quotient's.
+    fn checked_though_trusted(&self, n: NameId) -> bool {
+        self.wk.primitives().contains(&n) || self.wk.quotients().any(|q| q.kind_of(n).is_some())
     }
 
     /// Admits `d` as the export states it, without checking it (trusted-prefix runs only).
@@ -540,28 +583,39 @@ impl Kernel {
             .map_err(|e| e.in_declaration(self.s.names.display(name)))
     }
 
+    /// One quotient constant, admitted against the members of its quotient already declared, each
+    /// of which must be the quotient's own of its kind: the per-record form of Lean's `init_quot`,
+    /// which declares all four at once over names nothing else holds. The quotient computes once
+    /// all four are admitted.
     fn add_quot(&mut self, h: Header, kind: QuotKind, eq: NameId) -> KResult<()> {
-        let named = |set: &QuotNames| match kind {
-            QuotKind::Type => set.ty,
-            QuotKind::Ctor => set.mk,
-            QuotKind::Lift => set.lift,
-            QuotKind::Ind => set.ind,
-        };
-        let set = [Some(self.wk.quot_names()), self.wk.installed_quot]
-            .into_iter()
-            .flatten()
-            .find(|set| named(set) == h.name)
+        let set = self
+            .wk
+            .quotients()
+            .find(|set| set.member(kind) == h.name)
             .ok_or_else(|| {
                 KernelFailure::reject("quotient declaration with a non-canonical name")
             })?;
-        if kind != QuotKind::Type && !self.env.contains(set.ty) {
-            return Err(KernelFailure::reject(format!(
-                "quotient constant declared before '{}'",
-                self.s.names.display(set.ty)
-            )));
+        for k in QuotKind::ALL {
+            let m = set.member(k);
+            if m != h.name && self.env.contains(m) && !self.env.has_quot_member(&set, k) {
+                return Err(KernelFailure::reject(format!(
+                    "'{}' is declared, but not as the quotient's {}",
+                    self.s.names.display(m),
+                    k.role()
+                )));
+            }
+        }
+        for k in kind.named_members() {
+            let m = set.member(*k);
+            if !self.env.contains(m) {
+                return Err(KernelFailure::reject(format!(
+                    "quotient constant declared before '{}'",
+                    self.s.names.display(m)
+                )));
+            }
         }
         self.with_decl(h.lparams.clone(), Safety::Safe, |k| {
-            k.check_name(h.name, false)?;
+            k.check_fresh(h.name)?;
             k.check_duplicate_lparams(&h.lparams)?;
             k.check_eq_type(eq)?;
             let canonical = k.quot_canonical(kind, &h.lparams, set, eq)?;
@@ -583,9 +637,9 @@ impl Kernel {
             ty: h.ty,
             kind: Kind::Quot(kind),
         });
-        if [set.ty, set.mk, set.lift, set.ind]
+        if QuotKind::ALL
             .iter()
-            .all(|n| self.env.contains(*n))
+            .all(|k| self.env.has_quot_member(&set, *k))
             && !self.env.quotients.contains(&set)
         {
             self.env.quotients.push(set);

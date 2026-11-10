@@ -2,6 +2,7 @@
 
 use super::expr::ExprId;
 use super::name::NameId;
+use super::wellknown::QuotNames;
 use std::rc::Rc;
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -37,6 +38,39 @@ pub enum QuotKind {
     Ctor,
     Lift,
     Ind,
+}
+
+impl QuotKind {
+    pub const ALL: [QuotKind; 4] = [QuotKind::Type, QuotKind::Ctor, QuotKind::Lift, QuotKind::Ind];
+
+    /// What the constant is to its quotient, as a refusal names it.
+    pub fn role(self) -> &'static str {
+        match self {
+            QuotKind::Type => "type",
+            QuotKind::Ctor => "constructor",
+            QuotKind::Lift => "lift",
+            QuotKind::Ind => "induction principle",
+        }
+    }
+
+    /// The members of its quotient the constant's canonical type names, which are declared first.
+    pub fn named_members(self) -> &'static [QuotKind] {
+        match self {
+            QuotKind::Type => &[],
+            QuotKind::Ctor | QuotKind::Lift => &[QuotKind::Type],
+            QuotKind::Ind => &[QuotKind::Type, QuotKind::Ctor],
+        }
+    }
+}
+
+/// A quotient eliminator's computation rule, `lift f h (mk a) ⟶ f a` and `ind h (mk a) ⟶ h a`: the
+/// position of the major premise, the position of the function the rule applies to the constructor's
+/// argument, and the constructor the major premise must be headed by.
+#[derive(Copy, Clone, Debug)]
+pub struct QuotRule {
+    pub major: usize,
+    pub fun: usize,
+    pub mk: NameId,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -168,8 +202,9 @@ pub struct Env {
     consts: Vec<Option<Rc<Const>>>,
     pub count: usize,
     pub quot_init: bool,
-    /// Every quotient installed whole, in the order its last constant arrived.
-    pub quotients: Vec<super::wellknown::QuotNames>,
+    /// Every quotient installed whole, each member admitted as its own kind, in the order its last
+    /// constant arrived.
+    pub quotients: Vec<QuotNames>,
     /// Declarations present only while another is checked (a recursive definition's own header,
     /// an inductive family's working declarations). Nothing derived from them may be cached
     /// beyond that check: a nested family's auxiliary name can recur with another meaning.
@@ -243,6 +278,44 @@ impl Env {
             Kind::Rec(r) => Some(r),
             _ => None,
         }
+    }
+
+    /// The kind of `n`, when a quotient declaration admitted it.
+    #[inline]
+    pub fn quot_kind(&self, n: NameId) -> Option<QuotKind> {
+        match self.get(n)?.kind {
+            Kind::Quot(k) => Some(k),
+            _ => None,
+        }
+    }
+
+    /// Whether `q`'s member of kind `kind` is admitted, as that member.
+    pub fn has_quot_member(&self, q: &QuotNames, kind: QuotKind) -> bool {
+        self.quot_kind(q.member(kind)) == Some(kind)
+    }
+
+    /// The computation rule of `n`, when `n` is the lift or the induction principle of a quotient
+    /// installed whole, admitted as that eliminator.
+    #[inline]
+    pub fn quot_rule(&self, n: NameId) -> Option<QuotRule> {
+        let q = self.quotients.iter().find(|q| q.lift == n || q.ind == n)?;
+        let (kind, major) = if n == q.lift {
+            (QuotKind::Lift, 5)
+        } else {
+            (QuotKind::Ind, 4)
+        };
+        (self.quot_kind(n) == Some(kind)).then_some(QuotRule {
+            major,
+            fun: 3,
+            mk: q.mk,
+        })
+    }
+
+    /// Whether `m` is the constructor `rule` computes on: its quotient's own, admitted as the
+    /// constructor.
+    #[inline]
+    pub fn is_quot_mk(&self, rule: &QuotRule, m: NameId) -> bool {
+        m == rule.mk && self.quot_kind(m) == Some(QuotKind::Ctor)
     }
 
     /// A non-recursive inductive with one constructor and no indices: the types with struct-η.

@@ -46,6 +46,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `interface::lean::native_decide::NativeDecisions::rederived_export`: the export with each leaf's record replaced by
   its re-derivation and every other line as exported. The pipeline's independent recheck hands it to the kernel core,
   which decides the proof the LOGOS kernel decided.
+- **A quotient's four constants are its own in the `dag` core.** Lean's kernel declares `Quot`, `Quot.mk`, `Quot.lift`
+  and `Quot.ind` in one step over names nothing else holds; an export states them as four records. The core computed
+  `Quot.lift f h (Quot.mk r a) ⟶ f a` on any application of the name `Quot.mk` to three arguments, and admitted the
+  other records once the name `Quot` was declared by anything, so an ordinary axiom named `Quot.mk` proved `False` and an
+  ordinary definition named `Quot` proved `0 = 1`, in every engine (Lean Kernel Arena issue #39, `bugs/axiom-quot-mk`
+  and `bugs/forged-quot-type`). Now each record is admitted only when every member of its quotient already declared
+  is that quotient's own constant of its kind (`'Quot' is declared, but not as the quotient's type`), and after the
+  members its canonical type names (`Quot.ind` after `Quot.mk`). From the first record on, the four names are the
+  quotient's alone, refused to every other declaration: axiom, definition, theorem, opaque, any member of a mutual
+  block, inductive type or constructor (`'Quot.mk' is the quotient's constructor: only a quotient declaration may
+  declare it`). A quotient installs, and computes, only once all four are admitted as their own kinds, and the
+  computation rule matches the eliminator and the constructor by kind as well as by name in the substitution, value
+  and NbE engines (`Env::quot_rule`, `Env::is_quot_mk`); the NbE engine now waits, as the other two do, for the quotient
+  to be installed whole. As in Lean, an export that declares no quotient may still use the names for ordinary
+  constants. A trusted-prefix run checks every declaration that takes a quotient's name.
 
 ## [0.11.0] - 2026-11-02
 

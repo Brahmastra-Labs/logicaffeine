@@ -158,6 +158,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   recheck decides the export with each native decision re-derived, the proof the LOGOS kernel checked; handed the
   export as exported, it met the `Lean.ofReduceBool` step only Lean's compiler can check and refused what the LOGOS
   kernel accepted (`logicaffeine_kernel`).
+- **The Lean checker's quotient cannot be forged.** An export may state the quotient's four constants (`Quot`,
+  `Quot.mk`, `Quot.lift`, `Quot.ind`) only as the quotient's own: `logos-kernel` and the `dag` core computed the lift on
+  an ordinary axiom named `Quot.mk`, accepting a closed proof of `False`, and admitted `Quot.mk` and `Quot.ind` over an
+  ordinary definition named `Quot`, accepting `0 = 1` (Lean Kernel Arena issue #39: `bugs/axiom-quot-mk`,
+  `bugs/forged-quot-type`). Each quotient record is admitted only beside its quotient's own constants and after the
+  ones its type names; from the first one on, no other declaration may take any of the four names, as in Lean, whose
+  kernel declares all four at once; and the lift and the induction principle compute only on the quotient's own
+  constructor, in every engine (`logicaffeine_kernel`). Locked by `dag_quotient_integrity`, `dag_crafted` and
+  `dag_trusted_prefix`.
 
 ## [0.11.0] - 2026-11-02
 

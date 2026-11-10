@@ -55,6 +55,102 @@
    "path": "bad/mutual-mismatched-universes.ndjson",
    "rejected_by": "same universe parameters",
    "targets": "check.rs: add_mutual (one universe list per block)"
+  },
+  {
+   "description": "`Eq`, then `Quot`, `Quot.mk`, `Quot.lift` and `Quot.ind` by their own records with their canonical types, `quotLiftReduction : Quot.lift f h (Quot.mk r a) = f a` by `Eq.refl` (it checks only where the lift computes) and `inductive T : Prop | T.intro`. The control every quotient case below differs from.",
+   "name": "quotient-package",
+   "outcome": "good",
+   "path": "good/quotient-package.ndjson",
+   "rejected_by": null,
+   "targets": "check.rs: add_quot; the quotient's computation rule in every engine"
+  },
+  {
+   "description": "`Quot.mk` an ordinary axiom with the canonical type, in place of its record: once `Quot` is declared the quotient's four names are its own, as Lean's kernel declares all four at once. Admitted, it would let the lift compute on whatever the axiom builds (Arena `bugs/axiom-quot-mk`).",
+   "name": "quotient-ctor-as-axiom",
+   "outcome": "bad",
+   "path": "bad/quotient-ctor-as-axiom.ndjson",
+   "rejected_by": "'Quot.mk' is the quotient's constructor",
+   "targets": "check.rs: check_name (a begun quotient owns its names)"
+  },
+  {
+   "description": "`Quot.lift` an ordinary axiom with the canonical type, in place of its record.",
+   "name": "quotient-lift-as-axiom",
+   "outcome": "bad",
+   "path": "bad/quotient-lift-as-axiom.ndjson",
+   "rejected_by": "'Quot.lift' is the quotient's lift",
+   "targets": "check.rs: check_name (a begun quotient owns its names)"
+  },
+  {
+   "description": "`Quot.ind` an ordinary axiom with the canonical type, in place of its record.",
+   "name": "quotient-ind-as-axiom",
+   "outcome": "bad",
+   "path": "bad/quotient-ind-as-axiom.ndjson",
+   "rejected_by": "'Quot.ind' is the quotient's induction principle",
+   "targets": "check.rs: check_name (a begun quotient owns its names)"
+  },
+  {
+   "description": "`Quot` an ordinary axiom with the canonical type, in place of its record: no quotient has begun, so the axiom is admitted, and `Quot.mk`'s record then finds the name taken by a constant that is not the quotient's type.",
+   "name": "quotient-type-as-axiom",
+   "outcome": "bad",
+   "path": "bad/quotient-type-as-axiom.ndjson",
+   "rejected_by": "'Quot' is declared, but not as the quotient's type",
+   "targets": "check.rs: add_quot (each member declared is the quotient's own)"
+  },
+  {
+   "description": "`def Quot {\u03b1 : Sort u} (r : \u03b1 \u2192 \u03b1 \u2192 Prop) : Sort u := \u03b1`, then the other three records: read over this definition `Quot.ind` would cover every inhabitant of `\u03b1` (Arena `bugs/forged-quot-type`).",
+   "name": "quotient-type-as-definition",
+   "outcome": "bad",
+   "path": "bad/quotient-type-as-definition.ndjson",
+   "rejected_by": "'Quot' is declared, but not as the quotient's type",
+   "targets": "check.rs: add_quot (each member declared is the quotient's own)"
+  },
+  {
+   "description": "`axiom Quot.mk : Prop` before any quotient record, then the package: an ordinary constant may take a quotient's name while no quotient is declared (see `quotient-names-without-a-quotient`), but the quotient cannot then be declared over it.",
+   "name": "quotient-ctor-declared-first",
+   "outcome": "bad",
+   "path": "bad/quotient-ctor-declared-first.ndjson",
+   "rejected_by": "'Quot.mk' is declared, but not as the quotient's constructor",
+   "targets": "check.rs: add_quot (each member declared is the quotient's own)"
+  },
+  {
+   "description": "`Eq` and `axiom Quot.mk : Prop`, with no quotient record anywhere: Lean's kernel admits an ordinary constant of that name while the quotient is not declared, and so does this one.",
+   "name": "quotient-names-without-a-quotient",
+   "outcome": "good",
+   "path": "good/quotient-names-without-a-quotient.ndjson",
+   "rejected_by": null,
+   "targets": "check.rs: check_name (only a begun quotient owns its names)"
+  },
+  {
+   "description": "The package with `Quot.ind`'s record before `Quot.mk`'s: the induction principle's type names the constructor, which is not declared yet.",
+   "name": "quotient-ind-before-ctor",
+   "outcome": "bad",
+   "path": "bad/quotient-ind-before-ctor.ndjson",
+   "rejected_by": "quotient constant declared before 'Quot.mk'",
+   "targets": "check.rs: add_quot (the constants a canonical type names come first)"
+  },
+  {
+   "description": "After `Quot`'s record, `inductive T : Prop | Quot.mk : T`: a constructor of another inductive may not take the quotient constructor's name.",
+   "name": "quotient-ctor-named-by-a-constructor",
+   "outcome": "bad",
+   "path": "bad/quotient-ctor-named-by-a-constructor.ndjson",
+   "rejected_by": "'Quot.mk' is the quotient's constructor",
+   "targets": "inductive.rs: check_name on constructors"
+  },
+  {
+   "description": "After the records of `Quot`, `Quot.mk` and `Quot.lift`, `inductive Quot.ind : Prop | Quot.ind.intro`: an inductive type may not take the induction principle's name.",
+   "name": "quotient-ind-named-by-an-inductive",
+   "outcome": "bad",
+   "path": "bad/quotient-ind-named-by-an-inductive.ndjson",
+   "rejected_by": "'Quot.ind' is the quotient's induction principle",
+   "targets": "inductive.rs: check_name on inductive types"
+  },
+  {
+   "description": "After `Quot`'s and `Quot.mk`'s records, the mutual unsafe pair `f : Prop := Quot.lift` and `Quot.lift : Prop := f` (`mutual-unsafe-pair`'s shape): no member of a block, the first or a later one, may take the lift's name.",
+   "name": "quotient-lift-named-in-a-mutual-block",
+   "outcome": "bad",
+   "path": "bad/quotient-lift-named-in-a-mutual-block.ndjson",
+   "rejected_by": "'Quot.lift' is the quotient's lift",
+   "targets": "check.rs: check_name on every member of a mutual block"
   }
  ],
  "schema": "logos-crafted-cases/1"
