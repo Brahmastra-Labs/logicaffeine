@@ -148,6 +148,10 @@ opt-level = 2
 opt-level = 2
 [profile.test-opt.package.logicaffeine-runtime]
 opt-level = 2
+# The context mixer (`cm`, and `describe`'s entropy-coded columns) is CPU-bound inside the base crate: its tests and
+# the wire codec's that run it would take minutes unoptimized.
+[profile.test-opt.package.logicaffeine-base]
+opt-level = 2
 # Every dependency too: a heavy test is as often CPU-bound inside one (the WebAssembly interpreter `wasmi`, a codec a
 # lock races ours against) as inside the libraries above. MEASURED 2026-10-22, wasm_heap_soak_lock: the million-turn
 # soak spent its time in wasmi's unoptimized stack accessors, 1,515-1,800 s in the gate (terminated at the 30-min
