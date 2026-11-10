@@ -157,13 +157,9 @@ fn column_tag_name_covers_the_structural_vocabulary() {
 #[test]
 fn wire_tag_namespace_has_no_scalar_vs_column_collision() {
     use logicaffeine_base::describe;
-    // The `describe` column tags that marshal references ONLY through the `describe::` path
-    // (they have NO marshal-local same-named const), so nothing pins them into range here.
-    let externally_referenced_column_tags: &[(&str, u8)] = &[
-        ("describe::T_INTS_LRECUR", describe::T_INTS_LRECUR),
-        ("describe::T_INTS_LFSR", describe::T_INTS_LFSR),
-        ("describe::T_INTS_FCSR", describe::T_INTS_FCSR),
-    ];
+    // Every `describe` column tag, from the table the leaf crate publishes — so a tag added there is
+    // covered here without anyone remembering to list it.
+    let externally_referenced_column_tags: &[(&str, u8)] = describe::COLUMN_TAGS;
     // Every marshal-local scalar/aggregate tag that decodes to a NON-column value — these are the
     // arms a colliding column tag would be stolen by.
     let scalar_tags: &[(&str, u8)] = &[
@@ -194,6 +190,10 @@ fn wire_tag_namespace_has_no_scalar_vs_column_collision() {
         ("T_TUPLE", T_TUPLE),
         ("T_SHARED_DEF", T_SHARED_DEF),
         ("T_SHARED_REF", T_SHARED_REF),
+        ("T_EXACT", T_EXACT),
+        ("T_SCALED", T_SCALED),
+        ("T_DEPENDS", T_DEPENDS),
+        ("T_CONVERGING", T_CONVERGING),
     ];
     for &(cname, ctag) in externally_referenced_column_tags {
         for &(sname, stag) in scalar_tags {
@@ -5803,6 +5803,7 @@ fn negotiated_send_uses_all_knobs_within_the_receivers_surface() {
         use_type_id: false,
         may_send_computed: true,
         compression: WireCompression::Zstd,
+        may_use_cm: true,
         peer_max_bytes: 1 << 20,
     };
     let enc =
@@ -7883,4 +7884,274 @@ fn a_real_a_function_defines_is_never_sent() {
     let pi = RuntimeValue::ExactReal(Rc::new(ExactReal::pi()));
     assert!(materialize(&pi).is_ok(), "a computable real of exact forms is a payload");
     assert!(native_encode(&pi, &mut Vec::new()).is_ok(), "a computable real of exact forms crosses the wire");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Number-theoretic and entropy-coded column forms on the wire (the `Auto` menu).
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// SplitMix64 — deterministic, nonlinear test data.
+struct Mix(u64);
+
+impl Mix {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    fn below(&mut self, n: u64) -> i64 {
+        (self.next() % n) as i64
+    }
+}
+
+fn auto_wire(v: &RuntimeValue) -> Vec<u8> {
+    with_structure(WireStructure::Auto, || {
+        message_to_wire_with("", v, WireCodec::Native, WireIntegrity::Raw).expect("encodes")
+    })
+}
+
+/// The same encode at the `Max` effort level, where the column menu adds the entropy-coded form.
+fn max_wire(v: &RuntimeValue) -> Vec<u8> {
+    with_compression_level(WireCompressionLevel::Max, || auto_wire(v))
+}
+
+fn wire_floats(bytes: &[u8]) -> Vec<f64> {
+    let (_, v) = message_from_wire(bytes).expect("decodes");
+    let RuntimeValue::List(l) = v else { panic!("a list") };
+    let values = l.borrow().to_values();
+    values.into_iter().map(|x| match x {
+        RuntimeValue::Float(f) => f,
+        other => panic!("a float, got {other:?}"),
+    }).collect()
+}
+
+fn wire_ints(bytes: &[u8]) -> Vec<i64> {
+    let (_, v) = message_from_wire(bytes).expect("decodes");
+    let RuntimeValue::List(l) = v else { panic!("a list") };
+    let values = l.borrow().to_values();
+    values.into_iter().map(|x| match x {
+        RuntimeValue::Int(i) => i,
+        other => panic!("an int, got {other:?}"),
+    }).collect()
+}
+
+#[test]
+fn a_decimal_float_column_ships_as_its_integer_column_under_auto() {
+    let mut rng = Mix(21);
+    let mut k = 215i64;
+    let v: Vec<f64> = (0..20_000).map(|_| { k += rng.below(5) - 2; k as f64 / 10.0 }).collect();
+    // The structural menu already ships the integer column; the Max effort level entropy-codes it.
+    for (level, bytes) in [("default", auto_wire(&floats_list(v.clone()))), ("max", max_wire(&floats_list(v.clone())))] {
+        assert_eq!(describe_columns(&bytes), vec!["decimal floats".to_string()], "{level}");
+        let back = wire_floats(&bytes);
+        assert!(back.iter().zip(&v).all(|(a, b)| a.to_bits() == b.to_bits()) && back.len() == v.len(), "{level}");
+    }
+    let structural = auto_wire(&floats_list(v.clone())).len();
+    let full = max_wire(&floats_list(v.clone())).len();
+    assert!(structural * 4 < v.len() * 8, "default: {structural} B for {} decimal doubles", v.len());
+    assert!(full < v.len() / 2, "max: {full} B for {} decimal doubles — under half a byte each", v.len());
+}
+
+#[test]
+fn full_precision_floats_take_the_bits_form_when_it_is_smaller() {
+    // Draws from a pool of 300 full-precision doubles: no decimal exponent fits, no closed form fits,
+    // but the bit patterns recur, so the integer menu over the patterns wins.
+    let mut rng = Mix(22);
+    let pool: Vec<f64> = (0..300).map(|_| f64::from_bits(0x4040_0000_0000_0000 | (rng.next() >> 14))).collect();
+    let v: Vec<f64> = (0..20_000).map(|_| pool[rng.below(300) as usize]).collect();
+    let bytes = auto_wire(&floats_list(v.clone()));
+    assert_eq!(describe_columns(&bytes), vec!["float bits".to_string()]);
+    let back = wire_floats(&bytes);
+    assert!(back.iter().zip(&v).all(|(a, b)| a.to_bits() == b.to_bits()) && back.len() == v.len());
+    assert!(bytes.len() * 4 < v.len() * 8, "{} B for {} recurring doubles", bytes.len(), v.len());
+}
+
+#[test]
+fn the_decimal_and_bits_forms_write_the_canonical_nan() {
+    let decimal = |nan: f64| {
+        let mut v: Vec<f64> = (0..4_000).map(|i| (i % 731) as f64 / 100.0).collect();
+        v[17] = nan;
+        v[2_500] = nan;
+        v
+    };
+    let mut rng = Mix(23);
+    let pool: Vec<f64> = (0..200).map(|_| f64::from_bits(0x4040_0000_0000_0000 | (rng.next() >> 14))).collect();
+    let picks: Vec<usize> = (0..4_000).map(|_| rng.below(200) as usize).collect();
+    let bits = |nan: f64| {
+        let mut v: Vec<f64> = picks.iter().map(|&i| pool[i]).collect();
+        v[40] = nan;
+        v
+    };
+    let nans = [-f64::NAN, f64::from_bits(0x7FF8_0000_0000_0001), f64::from_bits(0xFFF0_0000_0000_0001), f64::from_bits(u64::MAX)];
+    for (name, make, form) in [("decimal", &decimal as &dyn Fn(f64) -> Vec<f64>, "decimal floats"), ("bits", &bits, "float bits")] {
+        let want = auto_wire(&floats_list(make(f64::NAN)));
+        assert_eq!(describe_columns(&want), vec![form.to_string()], "{name}: the column takes the {form} form");
+        for nan in nans {
+            assert_eq!(auto_wire(&floats_list(make(nan))), want, "{name}: NaN {:#x} encodes its own bits", nan.to_bits());
+        }
+        let back = wire_floats(&want);
+        assert_eq!(back[if name == "decimal" { 17 } else { 40 }].to_bits(), f64::NAN.to_bits());
+    }
+}
+
+#[test]
+fn an_int_column_with_a_common_factor_ships_factored() {
+    let mut rng = Mix(24);
+    let mut t = 1_672_531_200i64;
+    let v: Vec<i64> = (0..20_000).map(|_| { t += rng.below(90) - 30; t * 1_000_000 }).collect();
+    let bytes = auto_wire(&ints_list(v.clone()));
+    assert_eq!(describe_columns(&bytes), vec!["common-multiple".to_string()]);
+    assert_eq!(wire_ints(&bytes), v);
+}
+
+#[test]
+fn a_skewed_int_column_ships_entropy_coded() {
+    let mut rng = Mix(25);
+    let v: Vec<i64> = (0..20_000).map(|_| { let mut k = 0; while rng.next() % 1000 >= 50 { k += 1; } k }).collect();
+    let bytes = max_wire(&ints_list(v.clone()));
+    assert_eq!(describe_columns(&bytes), vec!["entropy-coded".to_string()]);
+    assert_ne!(describe_columns(&auto_wire(&ints_list(v.clone()))), vec!["entropy-coded".to_string()], "only at Max");
+    assert_eq!(wire_ints(&bytes), v);
+    // h(0.05)/0.05 ≈ 5.73 bits a value; the column must land near it, not at a byte a value.
+    assert!(bytes.len() * 8 < v.len() * 6, "{} B for {} geometric draws", bytes.len(), v.len());
+}
+
+#[test]
+fn a_receiver_refuses_a_column_past_its_element_budget_whatever_its_form() {
+    // A monotone column takes a delta form, a byte column the raw byte form: both decode under a budget
+    // that admits them and are refused under one that does not.
+    let monotone: Vec<i64> = (0..2_000).map(|i| i * 3 + (i % 7)).collect();
+    let bytes_col: Vec<i64> = { let mut rng = Mix(26); (0..2_000).map(|_| rng.below(256)).collect() };
+    for v in [monotone, bytes_col] {
+        let wire = auto_wire(&ints_list(v.clone()));
+        let tight = ReceiveLimits { max_elements: 1_999, ..DEFAULT_RECEIVE_LIMITS };
+        let enough = ReceiveLimits { max_elements: 2_000, ..DEFAULT_RECEIVE_LIMITS };
+        assert!(with_receive_limits(tight, || message_from_wire(&wire)).is_none(), "{:?}: refused past the budget", describe_columns(&wire));
+        assert_eq!(with_receive_limits(enough, || wire_ints(&wire)), v);
+    }
+}
+
+#[test]
+fn column_tag_name_names_the_number_theoretic_and_entropy_coded_forms() {
+    use logicaffeine_base::describe;
+    for (tag, want) in [
+        (describe::T_INTS_MULT, "common-multiple"),
+        (describe::T_INTS_CM, "entropy-coded"),
+        (describe::T_FLOATS_DECIMAL, "decimal floats"),
+        (describe::T_FLOATS_BITS, "float bits"),
+    ] {
+        assert_eq!(column_tag_name(tag), want, "tag {tag}");
+    }
+    for &(name, tag) in describe::COLUMN_TAGS {
+        assert_ne!(column_tag_name(tag), "value", "{name} ({tag}) has no plain-words name");
+    }
+}
+
+#[test]
+fn smallest_searches_the_max_effort_level_and_never_loses_to_a_single_dial() {
+    // `Smallest` now tries every compressor at the Max level too and the entropy-coded column form, so it
+    // is never larger than any single dial at either level — and on a skewed column it is the CM form.
+    let mut rng = Mix(27);
+    let v: Vec<i64> = (0..20_000).map(|_| { let mut k = 0; while rng.next() % 1000 >= 50 { k += 1; } k }).collect();
+    let value = ints_list(v.clone());
+    let best = message_to_wire_best("", &value, WireGoal::Smallest).unwrap();
+    for level in [WireCompressionLevel::Balanced, WireCompressionLevel::Max] {
+        for comp in [WireCompression::None, WireCompression::Deflate, WireCompression::Lz4, WireCompression::Zstd] {
+            let single = with_compression_level(level, || {
+                with_compression_codec(comp, || with_structure(WireStructure::Auto, || message_to_wire("", &value).unwrap()))
+            });
+            assert!(best.len() <= single.len(), "{level:?} {comp:?}: {} > {}", best.len(), single.len());
+        }
+    }
+    assert_eq!(wire_ints(&best), v);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The context-mixing byte codec (`WireCompression::Cm`, header codec id 3).
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn prose(n: usize) -> String {
+    const WORDS: [&str; 20] = [
+        "the", "receiver", "decodes", "every", "column", "exactly", "as", "it", "was", "written", "and", "a",
+        "sender", "chooses", "the", "smallest", "form", "that", "round", "trips",
+    ];
+    let mut rng = Mix(41);
+    let mut out = String::with_capacity(n + 16);
+    while out.len() < n {
+        out.push_str(WORDS[rng.below(WORDS.len() as u64) as usize]);
+        out.push(if rng.below(11) == 0 { '\n' } else { ' ' });
+    }
+    out
+}
+
+#[test]
+fn the_context_mixing_codec_round_trips_through_the_wire_header() {
+    let text = RuntimeValue::Text(Rc::new(prose(60_000)));
+    let wire = with_compression_codec(WireCompression::Cm, || message_to_wire_with("p", &text, WireCodec::Native, WireIntegrity::Checked).unwrap());
+    let (_, compression, _) = unframe(&wire).expect("frames");
+    assert_eq!(compression, WireCompression::Cm, "codec id 3 on the header");
+    let (from, back) = message_from_wire(&wire).expect("decodes");
+    assert_eq!(from, "p");
+    assert!(matches!(back, RuntimeValue::Text(t) if *t == prose(60_000)));
+    let zstd = with_compression_level(WireCompressionLevel::Max, || {
+        with_compression_codec(WireCompression::Zstd, || message_to_wire_with("p", &text, WireCodec::Native, WireIntegrity::Checked).unwrap())
+    });
+    assert!(wire.len() < zstd.len(), "context mixing {} B vs zstd at its max level {} B", wire.len(), zstd.len());
+}
+
+#[test]
+fn the_context_mixing_codec_refuses_a_body_past_its_decode_budget() {
+    // A context-mixing decode costs about a microsecond a byte, so its output is capped well below the
+    // general decompression budget: the sender never uses it past the cap, and a receiver refuses a frame
+    // that claims more.
+    let big = vec![b'a'; MAX_CM_DECODE_BYTES + 1];
+    assert!(compress_body(WireCompression::Cm, &big).is_none(), "the sender keeps CM to bodies within the cap");
+    let mut forged = Vec::new();
+    write_uvarint((MAX_CM_DECODE_BYTES + 1) as u64, &mut forged);
+    forged.extend_from_slice(&[0u8; 16]);
+    assert!(decompress_body(WireCompression::Cm, &forged).is_none(), "a frame claiming more is refused before decoding");
+    let small = b"within the budget".repeat(100);
+    let (used, z) = compress_body(WireCompression::Cm, &small).unwrap();
+    assert_eq!(used, WireCompression::Cm);
+    assert_eq!(decompress_body(WireCompression::Cm, &z).as_deref(), Some(small.as_slice()));
+}
+
+#[test]
+fn smallest_reaches_the_context_mixing_codec_at_the_max_level() {
+    let text = RuntimeValue::Text(Rc::new(prose(40_000)));
+    let best = message_to_wire_best("", &text, WireGoal::Smallest).unwrap();
+    let (_, compression, _) = unframe(&best).unwrap();
+    assert_eq!(compression, WireCompression::Cm, "on prose the context-mixing codec is the smallest");
+    let (_, back) = message_from_wire(&best).unwrap();
+    assert!(matches!(back, RuntimeValue::Text(t) if *t == prose(40_000)));
+}
+
+#[test]
+fn negotiation_keeps_zstd_the_default_and_advertises_context_mixing_separately() {
+    // CM is a spend-CPU-for-size codec, so a negotiated send never defaults to it; the feature bit only
+    // tells a sender the receiver can decode it.
+    let both = PeerProfile::default();
+    let neg = negotiate(&both, &both);
+    assert_eq!(neg.compression, WireCompression::Zstd);
+    assert!(neg.may_use_cm);
+    let without = PeerProfile { features: both.features & !FEAT_CM, ..both };
+    assert!(!negotiate(&both, &without).may_use_cm);
+    assert!(!negotiate(&both, &PeerProfile::conservative()).may_use_cm);
+    assert_eq!(decode_peer_profile(&encode_peer_profile(&both)), Some(both), "the bit survives the handshake");
+}
+
+#[test]
+fn the_column_name_table_names_each_tag_once_and_each_name_once() {
+    use std::collections::HashSet;
+    let tags: HashSet<u8> = COLUMN_TAG_NAMES.iter().map(|&(t, _)| t).collect();
+    let names: HashSet<&str> = COLUMN_TAG_NAMES.iter().map(|&(_, n)| n).collect();
+    assert_eq!(tags.len(), COLUMN_TAG_NAMES.len(), "a tag appears twice in COLUMN_TAG_NAMES");
+    assert_eq!(names.len(), COLUMN_TAG_NAMES.len(), "two tags share a name in COLUMN_TAG_NAMES");
+    assert!(!names.contains("value"), "the generic fallback is not an encoding's name");
+    for &(tag, name) in COLUMN_TAG_NAMES {
+        assert_eq!(column_tag_name(tag), name);
+    }
 }

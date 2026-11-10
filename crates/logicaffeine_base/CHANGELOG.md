@@ -6,6 +6,98 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **`describe` searches representations, not only generators.** `T_INTS_MULT` describes a column sharing a common
+  factor with its minimum by its quotients (NYC taxi timestamps, whole seconds held in microseconds: 26.1 → 12.2 bits a
+  value, under pcodec's 12.5). `T_INTS_CXOR` splits wide bit patterns at their high bits and XORs each value's low bits
+  against the last value that shared them, the split chosen by encoded size on a prefix (POI coordinates: 47.3 → 41.4
+  bits a value, under xz's 43.2). `T_INTS_CM` is the entropy-coded form: whole-value predictors (order-2 and order-1
+  followers, the previous value, a move-to-front cache of recent values) gated by their running hit rates, then sign,
+  bit length and mantissa under a context-mixing model with a full-prefix trie, plus a lean adaptive-order-0 variant
+  for independent columns (TPC-H `l_quantity` 5.65 bits a value, entropy-floor columns within 0.1% of pcodec).
+- **Float columns describe as integers.** `emit_decimal_float_column` (`T_FLOATS_DECIMAL`) ships the exponent `e` under
+  which the values are the correctly rounded `k / 10^e`, raw exceptions verbatim, and `k` through the integer menu;
+  `emit_float_bits_column` (`T_FLOATS_BITS`) ships the IEEE-754 bit patterns as an integer column;
+  `decode_float_column_body` inverts both bit for bit. On the ALP corpus sample (30 datasets) the two forms are the
+  smallest of any codec measured on every dataset: 12.67 bits a value against pcodec's 15.42 and xz's 15.63.
+- `Menu` (`Structural` by default, `Full`) and the scoped `with_menu` set how much a description searches; the
+  entropy-coded form and the conditional-XOR split run only under `Full`, so a latency-bound caller pays for neither.
+  `describe_int_seq` searches the full menu. `COLUMN_TAGS` lists every column tag this module writes.
+- **`entropy`**: a carry-less binary arithmetic coder (`Encoder`, `Decoder`, the `BitIo` trait that drives one model
+  in both directions) that takes `P(1)` as a 32-bit fraction (`encode_fine`, `decode_fine`, `BitIo::code_fine`; the
+  12-bit `encode`/`decode`/`code` are it at `p12 · 2²⁰`, byte for byte), `squash`/`stretch`, `AdaptiveProb`, `HashedProbs` and `ProbBuckets` (64-byte buckets, one cache
+  line per group of decisions), a gated logistic `Mixer`, the two-layer `Mixer2` (16-bit weights, its dot product and
+  update SSE2 multiply-adds on x86-64 and the same integer arithmetic elsewhere, a dead zone that skips negligible
+  updates), an `Apm`, a `Calibration` (per context and 12-bit probability, the zeros and ones that followed it, read
+  back as a 32-bit probability), the integer coding cost `cost`, and `prefetch` — all integer arithmetic, so predictions are
+  bit-identical on every machine. Bucketing the entropy-coded column's contexts made it about ten times faster at the
+  same size.
+- **`cm`**: context-mixing compression of byte streams. The encoder first changes the representation where a byte model
+  cannot see the structure, each change exactly reversible and named in the header: DEFLATE streams (ZIP entries, gzip
+  members, zlib streams, PNG image data stitched from its `IDAT` chunks) and GIF image data are opened to their decoded
+  bytes when they re-compress to the same bytes, under zlib's settings or the block rules gzip and InfoZIP's zip follow
+  (`cm::streams`) — streams inside opened ones too, three levels deep, and a GIF also when its encoder flushed one more
+  zero byte after the end code or ended matches early where its dictionary had lost a string (the pixels where it did
+  are listed in the header), a GIF image's indices renumbered by the luma of its colour table so that close colours are
+  close numbers in every image, the streams' headers, every level's, themselves entropy-coded under the fast model; a
+  16-bit image, found by its byte parity and row width, becomes the residuals of an adaptive least-squares predictor
+  over ten causal neighbours (`cm::ols`); x86 code, in 64 KiB blocks, gets its near call and jump targets (`E8`/`E9` and
+  `0F 80..8F`) made absolute, the low three bytes most significant first; DEC Alpha code (an ECOFF object's code
+  sections exactly, from its section table, and elsewhere the blocks its opcodes give away) gets what it computes from
+  its own address made absolute — call targets, call hints, the global pointer each procedure and call site rebuilds —
+  and each format's fields reordered so what decides the rest comes first (an operate's function, then its destination),
+  every word most significant byte first (`cm::alpha`). The model then codes one bit at a time from order-1 to order-16,
+  sparse, word, word-pair and word-triple, token (numbers read as words, and the bytes between tokens), record, line,
+  indirect and word-successor contexts, the markup around text (a tag's name with the innermost open element, so a
+  closing tag spells the element it closes, an attribute with its tag, the elements around the text between tags;
+  `cm::markup`'s tracker), the text inside a PDF's text objects, contexts from an image's neighbours (a GIF's palette
+  indices, which name colours, under exact neighbourhoods near and far, each image its own, and weight sets chosen by
+  which neighbours match), and contexts from an instruction decoder's view of x86 code or from a DEC Alpha instruction's
+  neighbours, the instructions that last wrote its registers, the registers last touched and the last six opcodes; the
+  text contexts are live only after text, the image and code ones only in an image or a code block. Each context's bit
+  history (its counts of zeros and ones and its last three bits in order) and last bytes share one cache line per
+  nibble, in one table every context draws on, so a context that meets many distinct histories takes the room one that
+  meets few leaves; each gives four predictions, and orders 1 and 2 also learn their own probabilities directly (order 1
+  at a slow and a fast rate). The binary contexts include a chart (for each value of a bit field of the byte before
+  last, the bytes that last surrounded it), the byte a record's 4-byte field predicts (the same field one record up,
+  moved by the delta its bytes so far show, so offsets and addresses growing from record to record carry exactly), the
+  place in an aligned 8-byte word with the bytes around it, and the bytes one and two similarity periods back (the lag
+  whose bytes have differed least); outside text, eight predictors of the next byte (the last byte, the bytes a 16-bit
+  and a 32-bit word back, the byte a period back, their extrapolations, the gradient) each give the distribution of
+  their residuals in the current activity bucket (`cm::residual`). Beside them run ten dynamic-Markov machines —
+  bit-level state machines that start as the 256 order-1 byte trees and clone a state when one incoming transition
+  carries most of its traffic, so they learn their own variable-order contexts (12 bytes a state; the fast ones start
+  over when full, at their own times, the slow ones keep growing). At `Level::Max` a long short-term memory network
+  reads the bytes too (`cm::lstm`): two layers of 96 cells with coupled input and forget gates, predicting the next byte
+  a bit at a time through 255 logistic units (one per partial byte), learning online by backpropagation through time and
+  an Adam step every 20 bytes — on a worker thread one window behind, or in place where there are no threads, with the
+  same result — all in `f32` arithmetic of one fixed order, so it predicts the same bits on every machine; its
+  probability is a mixer input and, in 32 bands, keys the first probability map. A two-layer mixer with fifteen
+  weight-set selectors (among them a record's column over the whole record, how the partial byte agrees with the byte
+  one record up, and the place in a 4-byte word) combines everything, each weight set's step settling from the full
+  learning rate toward three eighths of it as the set is chosen again and again (half way after 4,096 choices), six
+  probability maps refine the result, each point of a map's curve stepping by the reciprocal of its own update count, up
+  to 255 (quick while a context is young, settled once it is old; the last map keyed on the model's recent misses), a
+  final mixer weighs them per partial byte and per band of how long the model has been right, and two calibrations per
+  bit position — of the final probability and of the refinements' average, joined by the geometric mean of their
+  probabilities of the other bit when they lean the same way — give the coder a 32-bit one, so a near-certain bit costs
+  what it is worth rather than the 0.00035 bits a 12-bit probability allows. `Level::Fast` (orders 1–6, the word and the
+  match model) and `Level::Max` are named in the header. `compress`/`compress_with`, `decompress`/`decompress_within`
+  (which also caps the bytes the model codes), `cost_profile` (every modeled byte's cost, exact to the coder's: an
+  entropy profile).
+- `cm::deflate`: a DEFLATE decoder and an encoder byte-exact with zlib at every level, memory level and window (192
+  reference digests from zlib 1.3 in its tests) and with gzip at every level (72 from gzip 1.12, whose block rules
+  InfoZIP's zip shares); `cm::lzw`: GIF's LZW both ways, with the matches an encoder ended early (`cuts`, `encode_cut`);
+  `cm::x86`: an x86 instruction-length decoder that names the field and instruction of every byte and what each
+  instruction does (sixteen kinds, from the opcode maps; a group opcode's from its ModRM reg field).
+
+### Fixed
+
+- Every `describe` column form checks its element count against `max_elements` before expanding: `T_BYTES`,
+  `T_INTS_DELTA`, `T_INTS_DOD`, `T_INTS_FOR` (a width-0 body expanded a claimed count with no bytes behind it),
+  `T_INTS_DICT` (likewise for a one-entry dictionary) and `T_INTS_RLE` (capped at 2²⁸ rather than the budget) did not.
+
 ## [0.11.0] - 2026-11-02
 
 ### Added

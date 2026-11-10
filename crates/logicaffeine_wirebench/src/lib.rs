@@ -459,6 +459,7 @@ fn compression_word(c: WireCompression) -> &'static str {
         WireCompression::Deflate => "deflate",
         WireCompression::Lz4 => "lz4",
         WireCompression::Zstd => "zstd",
+        WireCompression::Cm => "context mixing",
     }
 }
 

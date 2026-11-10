@@ -4,9 +4,12 @@
 //! menu of closed-form generators — affine (`base + i·stride`), geometric (`base · ratioⁱ`), a
 //! degree-≤4 polynomial (finite-difference seeds), a periodic block, a sparse dominant-value form, a
 //! sandboxed [`GenExpr`] generator, and the columnar fallbacks (delta, delta-of-delta,
-//! frame-of-reference bit-pack, run-length, dictionary, raw byte column, plain zig-zag varint). Each
-//! candidate is a complete self-delimiting byte string; [`consider`] keeps the smallest, so the
-//! result is **never larger than plain varint**.
+//! frame-of-reference bit-pack, run-length, dictionary, raw byte column, plain zig-zag varint), a
+//! common-multiple factoring that describes the quotients instead, and an arithmetic-coded form whose
+//! context-mixing model pays `−log₂ p` bits for what the closed forms can only reject. Each candidate
+//! is a complete self-delimiting byte string; [`consider`] keeps the smallest, so the result is
+//! **never larger than plain varint**. A float column whose every value is a decimal `k / 10^e`
+//! describes as that integer column ([`emit_decimal_float_column`]).
 //!
 //! [`describe_int_seq`] is a *computable upper bound on the Kolmogorov complexity* of the sequence
 //! over this description language, and [`decode_int_seq`] is its exact inverse — decode reproduces
@@ -16,6 +19,10 @@
 //! `WireStructure::Auto` int columns; it lives here in the leaf crate so both the wire codec and the
 //! proof layer share one implementation of the format. The crate has no I/O and no receiver policy,
 //! so the DoS bound (`max_elements`) is a **parameter**, supplied by each caller.
+
+use crate::entropy::{
+    cost, hash2, hash3, stretch, AdaptiveProb, Apm, BitIo, Decoder, Encoder, HashedProbs, Mixer, ProbBuckets,
+};
 
 // ---- Tuning + format constants -------------------------------------------------------------
 
@@ -74,6 +81,37 @@ pub const T_INTS_SPARSE: u8 = 67; // dominant value + (delta-index, value) excep
 pub const T_INTS_LRECUR: u8 = 82; // constant-coefficient linear recurrence: order + coeffs + seeds
 pub const T_INTS_LFSR: u8 = 83; // GF(2) LFSR: byte count + linear complexity L + L feedback taps + L seed bits
 pub const T_INTS_FCSR: u8 = 84; // 2-adic FCSR: byte count + rational p/q (p then q, each sign+len+LE bytes)
+pub const T_INTS_MULT: u8 = 90; // count + base + common factor g + the quotient column (v = base + g·q)
+pub const T_INTS_CM: u8 = 91; // count + predictor + arithmetic-coded residuals under a context-mixing model
+pub const T_FLOATS_DECIMAL: u8 = 92; // count + exponent e + raw exceptions + the integer column k (v = k / 10^e)
+pub const T_FLOATS_BITS: u8 = 93; // the IEEE-754 bit patterns as an integer column (v = from_bits(k))
+pub const T_INTS_CXOR: u8 = 94; // count + split + high column + low column XOR'd against the last value sharing its high bits
+
+/// Every column tag this module writes, by name: the `describe` half of the shared wire tag namespace, so
+/// a collision check covers each tag without a hand-kept list.
+pub const COLUMN_TAGS: &[(&str, u8)] = &[
+    ("T_INTS", T_INTS),
+    ("T_INTS_AFFINE", T_INTS_AFFINE),
+    ("T_INTS_DELTA", T_INTS_DELTA),
+    ("T_INTS_DOD", T_INTS_DOD),
+    ("T_INTS_FOR", T_INTS_FOR),
+    ("T_INTS_RLE", T_INTS_RLE),
+    ("T_INTS_DICT", T_INTS_DICT),
+    ("T_INTS_POLY", T_INTS_POLY),
+    ("T_GEN", T_GEN),
+    ("T_BYTES", T_BYTES),
+    ("T_INTS_GEOMETRIC", T_INTS_GEOMETRIC),
+    ("T_INTS_PERIODIC", T_INTS_PERIODIC),
+    ("T_INTS_SPARSE", T_INTS_SPARSE),
+    ("T_INTS_LRECUR", T_INTS_LRECUR),
+    ("T_INTS_LFSR", T_INTS_LFSR),
+    ("T_INTS_FCSR", T_INTS_FCSR),
+    ("T_INTS_MULT", T_INTS_MULT),
+    ("T_INTS_CM", T_INTS_CM),
+    ("T_FLOATS_DECIMAL", T_FLOATS_DECIMAL),
+    ("T_FLOATS_BITS", T_FLOATS_BITS),
+    ("T_INTS_CXOR", T_INTS_CXOR),
+];
 
 // ---- Varint / zig-zag primitives -----------------------------------------------------------
 
@@ -2192,6 +2230,881 @@ pub fn consider(best: &mut Vec<u8>, cand: Vec<u8>) {
     }
 }
 
+// ---- How much of the menu a description searches ------------------------------------------
+
+/// How much of the menu a description searches: the closed forms, packings and factorings, or those
+/// plus the entropy-coded form. The entropy-coded form is the smallest on most real data and costs about
+/// thirty model decisions an element to encode and to decode, so a caller on a latency-bound path keeps
+/// to the structural menu and a caller spending CPU for size asks for the full one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Menu {
+    Structural,
+    Full,
+}
+
+thread_local! {
+    static MENU: std::cell::Cell<Menu> = const { std::cell::Cell::new(Menu::Structural) };
+}
+
+/// The menu descriptions on this thread search (structural unless a caller asked for more).
+pub fn menu() -> Menu {
+    MENU.with(std::cell::Cell::get)
+}
+
+/// Run `f` with descriptions searching `menu`, restoring the previous menu afterwards — on unwind too.
+pub fn with_menu<T>(menu: Menu, f: impl FnOnce() -> T) -> T {
+    struct Restore(Menu);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            MENU.with(|m| m.set(self.0));
+        }
+    }
+    let _restore = Restore(MENU.with(|m| m.replace(menu)));
+    f()
+}
+
+// ---- Conditional XOR ----------------------------------------------------------------------
+//
+// A column of 64-bit patterns splits at `split` high bits. The high column is described as itself; each
+// value's low bits are XOR'd against the last value whose high bits were the same, or kept as they are
+// when no earlier value shared them. A value recurring under its prefix leaves a zero low part, a nearby
+// value only the bits where it differs — full-precision coordinates, identifiers and hashes with shared
+// prefixes become two easy columns. The decoder reads the high column first, so it knows each value's
+// reference before it needs it.
+
+/// Below this many values the two child columns' headers outweigh what the split can find.
+const CXOR_MIN_ELEMENTS: usize = 256;
+/// The split is offered only when the cost estimate predicts at least this fraction saved (percent).
+const CXOR_MIN_GAIN: u64 = 5;
+/// …and only for wide patterns: splitting at 20–44 high bits means nothing for values that never reach
+/// them (an average bit length below this).
+const CXOR_MIN_WIDTH: u64 = 40;
+/// The splits scored exactly, and the prefix they are scored on: the estimate gates the transform, but
+/// it prices the high column at its order-0 entropy while the entropy-coded form does far better on a
+/// recurring prefix, so the split itself is chosen by real encoded size (a contiguous prefix keeps the
+/// locality the coder lives on, and picks the same split as the whole column).
+const CXOR_SPLITS: [u32; 7] = [20, 24, 28, 32, 36, 40, 44];
+const CXOR_SAMPLE: usize = 8192;
+
+thread_local! {
+    /// Whether the column being described is a conditional-XOR child, which does not split again.
+    static IN_CXOR: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// A fast, deterministic hasher for the prefix tables (keys are already well mixed by the split).
+#[derive(Default)]
+struct PrefixHasher(u64);
+
+impl std::hash::Hasher for PrefixHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0.rotate_left(5) ^ u64::from(b)).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+        }
+    }
+    fn write_u64(&mut self, x: u64) {
+        self.0 = (self.0 ^ x).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(29);
+    }
+}
+
+type PrefixMap<V> = std::collections::HashMap<u64, V, std::hash::BuildHasherDefault<PrefixHasher>>;
+
+fn cxor_mask(split: u32) -> u64 {
+    (1u64 << (64 - split)) - 1
+}
+
+/// The high and low columns of the split at `split` high bits (`1..=63`).
+fn cxor_split_columns(bits: &[u64], split: u32) -> (Vec<i64>, Vec<i64>) {
+    let (shift, mask) = (64 - split, cxor_mask(split));
+    let mut last: PrefixMap<u64> = PrefixMap::default();
+    let mut hi = Vec::with_capacity(bits.len());
+    let mut lo = Vec::with_capacity(bits.len());
+    for &x in bits {
+        let h = x >> shift;
+        let low = match last.insert(h, x) {
+            Some(y) => (x ^ y) & mask,
+            None => x & mask,
+        };
+        hi.push(h as i64);
+        lo.push(low as i64);
+    }
+    (hi, lo)
+}
+
+/// The cheapest estimated split description in bits, next to the unsplit column's: the high column at
+/// its order-0 entropy plus every low part at its bit length, minimized over splits `8..=56` in steps of
+/// four. An encoder-side gate only — the decoder reads the split.
+fn cxor_estimate(bits: &[u64]) -> (u64, u64) {
+    let n = bits.len() as f64;
+    let plain: u64 = bits.iter().map(|&x| u64::from(65 - x.leading_zeros())).sum();
+    let mut best = u64::MAX;
+    for split in (8..=56).step_by(4) {
+        let (shift, mask) = (64 - split, cxor_mask(split));
+        let mut last: PrefixMap<u64> = PrefixMap::default();
+        let mut counts: PrefixMap<u32> = PrefixMap::default();
+        let mut low_bits = 0u64;
+        for &x in bits {
+            let h = x >> shift;
+            *counts.entry(h).or_insert(0) += 1;
+            let low = last.insert(h, x).map_or(x & mask, |y| (x ^ y) & mask);
+            low_bits += u64::from(65 - low.leading_zeros());
+        }
+        let entropy: f64 = counts.values().map(|&c| f64::from(c) * (n / f64::from(c)).log2()).sum();
+        best = best.min(entropy as u64 + low_bits);
+    }
+    (best, plain)
+}
+
+/// The conditional-XOR form of a column of bit patterns at `split` high bits (tag included); each child
+/// column goes through the full menu, without splitting again.
+pub fn conditional_xor_encode(bits: &[u64], split: u32) -> Vec<u8> {
+    let (hi, lo) = cxor_split_columns(bits, split);
+    let mut out = vec![T_INTS_CXOR];
+    write_uvarint(bits.len() as u64, &mut out);
+    out.push(split as u8);
+    let prev = IN_CXOR.with(|c| c.replace(true));
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            IN_CXOR.with(|c| c.set(self.0));
+        }
+    }
+    let _restore = Restore(prev);
+    emit_best_int_column(&hi, &mut out);
+    emit_best_int_column(&lo, &mut out);
+    out
+}
+
+fn cxor_join(hi: &[i64], lo: &[i64], split: u32) -> Option<Vec<i64>> {
+    let (shift, mask) = (64 - split, cxor_mask(split));
+    let mut last: PrefixMap<u64> = PrefixMap::default();
+    let mut out = Vec::with_capacity(hi.len().min(PREALLOC_CAP));
+    for (&h, &l) in hi.iter().zip(lo) {
+        let (h, l) = (h as u64, l as u64);
+        if h >> split != 0 || l & !mask != 0 {
+            return None;
+        }
+        let x = (h << shift) | last.get(&h).map_or(l, |&y| (l ^ y) & mask);
+        last.insert(h, x);
+        out.push(x as i64);
+    }
+    Some(out)
+}
+
+// ---- Common-multiple factoring ------------------------------------------------------------
+
+/// The column minimum and the gcd of every value's distance from it, when that gcd exceeds one: then
+/// `v = base + g·q` with every quotient `q` exact. Distances are taken in `u64` (wrapping), so a column
+/// spanning the whole `i64` range factors exactly.
+pub fn detect_common_multiple(v: &[i64]) -> Option<(i64, u64)> {
+    if v.len() < 2 {
+        return None;
+    }
+    let base = *v.iter().min()?;
+    let mut g = 0u64;
+    for &x in v {
+        g = gcd_u64(g, (x as u64).wrapping_sub(base as u64));
+        if g == 1 {
+            return None;
+        }
+    }
+    (g > 1).then_some((base, g))
+}
+
+fn gcd_u64(mut a: u64, mut b: u64) -> u64 {
+    while b != 0 {
+        (a, b) = (b, a % b);
+    }
+    a
+}
+
+// ---- The entropy-coded column ----------------------------------------------------------------
+//
+// Each value is first offered to three whole-value predictors — what followed the last two values the
+// last time they occurred, what followed the last value, and the last value itself — and one learned
+// decision per distinct guess says whether it is right. A value none of them guessed becomes a residual
+// against a predictor (the value itself, the previous value, or the line through the previous two),
+// zig-zagged to `u`, and `u` is coded as its bit length `k` (seven binary decisions down a tree) and then
+// its bits below the leading one, most significant first. Every decision is predicted by adaptive cells
+// under several contexts — the tree node, the last two lengths, the last value, the last two values, the
+// mantissa prefix, and the whole prefix so far (a trie of every value already seen, so a recurring value
+// costs what its frequency says) — mixed by a gated logistic mixer and recalibrated by an APM.
+
+/// Work units an entropy-coded element charges against the decode budget: each costs about thirty
+/// model decisions, so a small payload cannot demand a long decode.
+pub const CM_WORK_PER_ELEMENT: u64 = 8;
+/// The default receiver's element budget: the entropy-coded form is offered only for columns that a
+/// default receiver will accept.
+const CM_OFFER_BUDGET: u64 = 1 << 24;
+/// Below this many values the model has nothing to learn from and the plain forms win.
+const CM_MIN_ELEMENTS: usize = 32;
+/// Residual predictors: 0 = the value itself, 1 = the previous value, 2 = the line through the previous
+/// two. Modes `CM_LEAN + p` code the same residual under the lean model: one adaptive cell per decision
+/// (the bit-length tree node, the whole mantissa prefix), no mixing — the adaptive order-0 distribution of
+/// the residual, which is what an independent, identically distributed column needs and nothing more.
+const CM_LEAN: u8 = 4;
+const CM_MODES: [u8; 6] = [0, 1, 2, CM_LEAN, CM_LEAN + 1, CM_LEAN + 2];
+/// The lean model's cells settle at this rate: the stationary estimate an i.i.d. column wants.
+const CM_LIMIT_LEAN: u32 = 1023;
+/// Mantissa bits this far below the leading one keep two predictions (their position, and the whole
+/// prefix); above it they get the full context set.
+const CM_DEEP: u32 = 20;
+/// How many leading mantissa bits the short-prefix contexts distinguish.
+const CM_PREFIX_DEPTH: u32 = 12;
+const CM_INPUTS: usize = 7;
+/// Mixer weight sets: one per bit-length tree node; per mantissa position band × length band ×
+/// whole-prefix confidence; per deep length band × confidence; per guess predictor × record.
+const CM_K_SETS: usize = 128;
+const CM_DEEP_SETS: usize = CM_K_SETS + 16 * 5 * 4;
+const CM_FLAG_SETS: usize = CM_DEEP_SETS + 5 * 4;
+const CM_RECENT_SETS: usize = CM_FLAG_SETS + CM_PREDICTORS * 16;
+const CM_RANK_SETS: usize = CM_RECENT_SETS + 16;
+const CM_SIGN_SETS: usize = CM_RANK_SETS + CM_RECENT;
+const CM_MIX_SETS: usize = CM_SIGN_SETS + 65;
+const CM_K_APM: usize = 128 * 17;
+const CM_DEEP_APM: usize = CM_K_APM + 65 * 16;
+const CM_FLAG_APM: usize = CM_DEEP_APM + 65 * 4;
+const CM_RECENT_APM: usize = CM_FLAG_APM + CM_PREDICTORS * 16 * 2;
+const CM_RANK_APM: usize = CM_RECENT_APM + 16;
+const CM_SIGN_APM: usize = CM_RANK_APM + CM_RECENT * 9;
+const CM_APM_CONTEXTS: usize = CM_SIGN_APM + 65 * 2;
+const CM_LIMIT_DIRECT: u32 = 255;
+const CM_LIMIT_HASHED: u32 = 127;
+/// Whole-value predictors: order-2 follower, order-1 follower, previous value.
+const CM_PREDICTORS: usize = 3;
+/// How many distinct recent values the move-to-front cache holds (a rank is one byte).
+const CM_RECENT: usize = 256;
+/// The encoder takes the recency path only when the residual is this many bits longer than the rank.
+const CM_RECENT_MARGIN: u32 = 10;
+/// A whole-value predictor (or the recency cache) spends a decision only while its running hit rate is
+/// above this (12-bit). A rejected guess keeps its probability inside the residual coding — the coder
+/// cannot exclude it — so on data where a predictor is rarely right every decision it spends is overhead.
+const CM_GATE: u16 = 600;
+
+/// Offsets of the two directly indexed bit-length tables inside [`IntCm::direct`]: by tree node, and by
+/// node and the last length.
+const CM_K0: usize = 0;
+const CM_K1: usize = CM_K0 + 128;
+const CM_SIGN: usize = CM_K1 + 65 * 128;
+const CM_DIRECT: usize = CM_SIGN + 65 * 2;
+
+/// Where one mixer input's prediction comes from: a directly indexed cell, a cell of a bucket (the
+/// bit-length tree and the mantissa, whose contexts are fixed for a group of decisions), a cell the
+/// misc table hashes per decision (the few decisions a value makes outside those walks), or nothing.
+#[derive(Clone, Copy)]
+enum Cell {
+    Direct(usize),
+    Bucketed(usize),
+    Hashed(u64),
+    Off,
+}
+
+struct IntCm {
+    direct: Vec<AdaptiveProb>,
+    buckets: ProbBuckets,
+    misc: HashedProbs,
+    order2: Vec<(u32, i64)>,
+    order1: Vec<(u32, i64)>,
+    match_mask: usize,
+    runs: [u32; CM_PREDICTORS],
+    hit_rate: [AdaptiveProb; CM_PREDICTORS + 1],
+    recent: Vec<i64>,
+    last_rank: u32,
+    mixer: Mixer,
+    apm: Apm,
+    v1: i64,
+    v2: i64,
+    kh1: u32,
+    kh2: u32,
+    /// Whether the last nonzero residual was negative.
+    negative: bool,
+    lean: bool,
+    /// Per (bit length, mantissa position): what the lean model's adaptive cells have cost there, and
+    /// what coding those bits flat (one bit each) would have cost. Where the cells have not paid for
+    /// themselves — deep positions whose prefixes recur too rarely to learn — the bits go flat.
+    spent: Vec<(u32, u32)>,
+}
+
+impl IntCm {
+    fn new(n: usize, lean: bool) -> Self {
+        let lg = usize::BITS - n.max(1).leading_zeros();
+        let bucket_bits = (lg + 2).clamp(12, 18);
+        let misc_bits = (lg + 2).clamp(12, 18);
+        let match_bits = (lg + 1).clamp(10, 20);
+        Self {
+            direct: vec![AdaptiveProb::new(); CM_DIRECT],
+            buckets: ProbBuckets::new(bucket_bits),
+            misc: HashedProbs::new(misc_bits),
+            order2: vec![(0, 0); 1 << match_bits],
+            order1: vec![(0, 0); 1 << match_bits],
+            match_mask: (1 << match_bits) - 1,
+            runs: [0; CM_PREDICTORS],
+            hit_rate: [AdaptiveProb::new(); CM_PREDICTORS + 1],
+            recent: Vec::with_capacity(CM_RECENT),
+            last_rank: CM_RECENT as u32,
+            mixer: Mixer::new(CM_INPUTS, CM_MIX_SETS),
+            apm: Apm::new(CM_APM_CONTEXTS),
+            v1: 0,
+            v2: 0,
+            kh1: 0,
+            kh2: 0,
+            negative: false,
+            lean,
+            spent: if lean { vec![(0, 0); 65 * 64] } else { Vec::new() },
+        }
+    }
+
+    /// A lean decision: the one cell's prediction, coded and trained with no mixing.
+    #[inline]
+    fn decide_lean<I: BitIo>(&mut self, io: &mut I, bit: bool, cell: Cell) -> bool {
+        let p = self.cell_p(cell).unwrap_or(2048);
+        let bit = io.code(bit, p);
+        self.train(cell, bit, CM_LIMIT_LEAN);
+        bit
+    }
+
+    #[inline]
+    fn cell_p(&mut self, c: Cell) -> Option<u16> {
+        match c {
+            Cell::Direct(i) => Some(self.direct[i].p()),
+            Cell::Bucketed(i) => Some(self.buckets.cell(i).p()),
+            Cell::Hashed(h) => Some(self.misc.cell(h).p()),
+            Cell::Off => None,
+        }
+    }
+
+    #[inline]
+    fn train(&mut self, c: Cell, bit: bool, limit: u32) {
+        match c {
+            Cell::Direct(i) => self.direct[i].update_with_limit(bit, limit),
+            Cell::Bucketed(i) => self.buckets.cell(i).update_with_limit(bit, limit),
+            Cell::Hashed(h) => self.misc.cell(h).update_with_limit(bit, limit),
+            Cell::Off => {}
+        }
+    }
+
+    /// Mix six context predictions (plus a bias), refine through the APM, code one decision, and train
+    /// everything that predicted it.
+    #[inline]
+    fn decide<I: BitIo>(&mut self, io: &mut I, bit: bool, cells: [Cell; 6], set: usize, apm_ctx: usize) -> bool {
+        for (i, &c) in cells.iter().enumerate() {
+            let logit = self.cell_p(c).map_or(0, stretch);
+            self.mixer.set(i, logit);
+        }
+        self.mixer.set(6, 256);
+        let pm = self.mixer.mix(set);
+        let pa = self.apm.refine(pm, apm_ctx);
+        let p = ((u32::from(pm) + 3 * u32::from(pa)) / 4) as u16;
+        let bit = io.code(bit, p);
+        for c in cells {
+            let limit = if matches!(c, Cell::Direct(_)) { CM_LIMIT_DIRECT } else { CM_LIMIT_HASHED };
+            self.train(c, bit, limit);
+        }
+        self.mixer.update(bit);
+        self.apm.update(bit);
+        bit
+    }
+
+    /// Code the bit length `k ∈ 0..=64` down a seven-level tree. A decoder may read a corrupt `k > 64`;
+    /// the caller refuses it. Each hashed context holds the walk in two buckets: the first four levels in
+    /// one, the last three in a second chosen by the first four's outcome.
+    fn code_k<I: BitIo>(&mut self, io: &mut I, k: u32) -> u32 {
+        let (kh1, kh2) = (self.kh1 as usize, self.kh2 as usize);
+        let contexts = [
+            hash2(0xA3, (kh1 * 65 + kh2) as u64),
+            hash2(0xA1, self.v1 as u64),
+            hash3(0xA2, self.v1 as u64, self.v2 as u64),
+        ];
+        let mut bases = contexts.map(|c| self.buckets.bucket(c));
+        let mut node = 1usize;
+        let mut slot = 1usize;
+        for b in (0..7).rev() {
+            let bit = (k >> b) & 1 == 1;
+            if b == 2 {
+                bases = contexts.map(|c| self.buckets.bucket(hash2(c, node as u64)));
+                slot = 1;
+            }
+            if self.lean {
+                let bit = self.decide_lean(io, bit, Cell::Direct(CM_K0 + node));
+                node = node * 2 + usize::from(bit);
+                continue;
+            }
+            let cells = [
+                Cell::Direct(CM_K0 + node),
+                Cell::Direct(CM_K1 + kh1 * 128 + node),
+                Cell::Bucketed(bases[0] + slot),
+                Cell::Bucketed(bases[1] + slot),
+                Cell::Bucketed(bases[2] + slot),
+                Cell::Off,
+            ];
+            let bit = self.decide(io, bit, cells, node, node * 17 + (kh1 >> 2));
+            node = node * 2 + usize::from(bit);
+            slot = slot * 2 + usize::from(bit);
+        }
+        (node - 128) as u32
+    }
+
+    /// Code whether a nonzero residual of bit length `k` is negative. Coded after the magnitude, so an
+    /// all-positive column learns its sign once instead of paying for it in the magnitude's lowest bit.
+    fn code_sign<I: BitIo>(&mut self, io: &mut I, k: u32, negative: bool) -> bool {
+        let at = CM_SIGN + k as usize * 2 + usize::from(self.negative);
+        if self.lean {
+            return self.decide_lean(io, negative, Cell::Direct(at));
+        }
+        let last = u64::from(self.negative);
+        let cells = [
+            Cell::Direct(at),
+            Cell::Hashed(hash3(0xD1, last, u64::from(self.kh1) * 65 + u64::from(k))),
+            Cell::Hashed(hash3(0xD2, self.v1 as u64, u64::from(k))),
+            Cell::Hashed(hash3(0xD3, hash2(self.v1 as u64, self.v2 as u64), u64::from(k))),
+            Cell::Off,
+            Cell::Off,
+        ];
+        self.decide(io, negative, cells, CM_SIGN_SETS + k as usize, CM_SIGN_APM + k as usize * 2 + usize::from(self.negative))
+    }
+
+    /// Code the `k − 1` bits of `u` below its leading one, most significant first. Every context holds a
+    /// nibble of the walk in one bucket, chosen at the nibble's first bit and indexed by the nibble's bits
+    /// so far.
+    fn code_mantissa<I: BitIo>(&mut self, io: &mut I, k: u32, u: u64) -> u64 {
+        let hv1 = self.v1 as u64;
+        let hv2 = hash2(self.v1 as u64, self.v2 as u64);
+        let kb = k as usize / 16;
+        let mut val = 1u64;
+        // Bucket bases, per context: deep position, whole prefix, short prefix, with one length, with two
+        // lengths, with the last value, with the last two values.
+        let mut bases = [0usize; 7];
+        let mut slot = 1usize;
+        for j in (0..k - 1).rev() {
+            let pos = k - 2 - j;
+            let bit = (u >> j) & 1 == 1;
+            if pos % 4 == 0 {
+                let at = u64::from(k) << 8 | u64::from(pos);
+                let prefix = if pos <= CM_PREFIX_DEPTH { val } else { val >> (pos - CM_PREFIX_DEPTH) };
+                let short = hash3(0xB0, at, prefix);
+                let with_k1 = hash2(short, u64::from(self.kh1));
+                let keys = [
+                    hash2(0xB6, at),
+                    hash3(0xB5, at, val),
+                    short,
+                    with_k1,
+                    hash2(with_k1, u64::from(self.kh2)),
+                    hash2(short, hv1),
+                    hash2(short, hv2),
+                ];
+                bases = keys.map(|h| self.buckets.bucket(h));
+                slot = 1;
+            }
+            let whole = bases[1] + slot;
+            let bit = if self.lean {
+                let at = k as usize * 64 + pos.min(63) as usize;
+                let p = self.buckets.cell(whole).p();
+                let (adaptive, flat) = self.spent[at];
+                let bit = io.code(bit, if adaptive < flat { p } else { 2048 });
+                self.buckets.cell(whole).update_with_limit(bit, CM_LIMIT_LEAN);
+                self.spent[at] = (adaptive.saturating_add(cost(bit, p)), flat.saturating_add(256));
+                bit
+            } else {
+                // How often this exact prefix has been walked: zero means a value never seen before, so
+                // the whole-prefix prediction is noise; any more and it is a recurring value's own path.
+                let seen = self.buckets.cell(whole).count().min(3) as usize;
+                if pos >= CM_DEEP {
+                    let cells = [
+                        Cell::Bucketed(bases[0] + slot),
+                        Cell::Bucketed(whole),
+                        Cell::Off,
+                        Cell::Off,
+                        Cell::Off,
+                        Cell::Off,
+                    ];
+                    let set = CM_DEEP_SETS + kb.min(4) * 4 + seen;
+                    self.decide(io, bit, cells, set, CM_DEEP_APM + k as usize * 4 + seen)
+                } else {
+                    let shallow = pos < CM_PREFIX_DEPTH;
+                    let cells = [
+                        Cell::Bucketed(bases[2] + slot),
+                        Cell::Bucketed(bases[3] + slot),
+                        Cell::Bucketed(bases[4] + slot),
+                        if shallow { Cell::Off } else { Cell::Bucketed(whole) },
+                        Cell::Bucketed(bases[5] + slot),
+                        Cell::Bucketed(bases[6] + slot),
+                    ];
+                    let seen = if shallow { 0 } else { seen };
+                    let set = CM_K_SETS + (pos.min(15) as usize * 5 + kb.min(4)) * 4 + seen;
+                    self.decide(io, bit, cells, set, CM_K_APM + k as usize * 16 + pos.min(15) as usize)
+                }
+            };
+            val = (val << 1) | u64::from(bit);
+            slot = slot * 2 + usize::from(bit);
+        }
+        val
+    }
+
+    /// Code whether whole-value predictor `j`'s guess `g` is right, under the same breadth of context
+    /// the residual bits get: the predictor's recent record, the last lengths, the last values, and the
+    /// guessed value itself (some values recur in place, others never do).
+    fn code_guess<I: BitIo>(&mut self, io: &mut I, hit: bool, j: usize, g: i64, agree: bool) -> bool {
+        let run = self.runs[j].min(15) as usize;
+        let jt = j as u64;
+        let record = self.runs.iter().fold(0u64, |acc, &r| acc * 4 + u64::from(r.min(3)));
+        let cells = [
+            Cell::Hashed(hash3(0xE0, jt, (run * 2 + usize::from(agree)) as u64)),
+            Cell::Hashed(hash3(0xE1, jt, u64::from(self.kh1) * 65 + u64::from(self.kh2))),
+            Cell::Hashed(hash3(0xE2, jt, self.v1 as u64)),
+            Cell::Hashed(hash3(0xE3, jt, g as u64)),
+            Cell::Hashed(hash3(0xE4, jt, hash2(self.v1 as u64, self.v2 as u64))),
+            Cell::Hashed(hash3(0xE5, jt, record)),
+        ];
+        let apm_ctx = CM_FLAG_APM + (j * 16 + run) * 2 + usize::from(agree);
+        self.decide(io, hit, cells, CM_FLAG_SETS + j * 16 + run, apm_ctx)
+    }
+
+    /// Code whether the value is one of the last [`CM_RECENT`] distinct values, and if so its
+    /// move-to-front rank (8 decisions down a tree): the value-level form of an LZ repeat distance, so a
+    /// value that recurs a few distinct values later costs about the logarithm of that gap.
+    fn code_recent<I: BitIo>(&mut self, io: &mut I, rank: Option<usize>) -> Option<Option<usize>> {
+        if self.recent.is_empty() {
+            return Some(None);
+        }
+        let last = (self.last_rank.min(CM_RECENT as u32) as usize).min(255);
+        let last_band = (usize::BITS - last.leading_zeros()) as usize;
+        let rec = self.runs.iter().fold(0u64, |acc, &r| acc * 4 + u64::from(r.min(3)));
+        let cells = [
+            Cell::Hashed(hash2(0xF0, last_band as u64)),
+            Cell::Hashed(hash2(0xF1, u64::from(self.kh1) * 65 + u64::from(self.kh2))),
+            Cell::Hashed(hash2(0xF2, self.v1 as u64)),
+            Cell::Hashed(hash2(0xF3, rec)),
+            Cell::Hashed(hash3(0xF4, self.v1 as u64, self.v2 as u64)),
+            Cell::Hashed(hash2(0xF5, self.recent.len().min(CM_RECENT) as u64 / 16)),
+        ];
+        let hit = self.decide(io, rank.is_some(), cells, CM_RECENT_SETS + last_band, CM_RECENT_APM + last_band);
+        if !hit {
+            return Some(None);
+        }
+        let r = rank.unwrap_or(0);
+        let mut node = 1usize;
+        for b in (0..8).rev() {
+            let bit = (r >> b) & 1 == 1;
+            let n = node as u64;
+            let cells = [
+                Cell::Hashed(hash2(0xF6, n)),
+                Cell::Hashed(hash3(0xF7, n, last_band as u64)),
+                Cell::Hashed(hash3(0xF8, n, u64::from(self.kh1))),
+                Cell::Hashed(hash3(0xF9, n, self.v1 as u64)),
+                Cell::Hashed(hash3(0xFA, n, rec)),
+                Cell::Off,
+            ];
+            let bit = self.decide(io, bit, cells, CM_RANK_SETS + node, CM_RANK_APM + node * 9 + last_band.min(8));
+            node = node * 2 + usize::from(bit);
+        }
+        let r = node - 256;
+        (r < self.recent.len()).then_some(Some(r))
+    }
+
+    /// Code one value (on a decoder `v` is ignored and the decoded value returned). `None` only for a
+    /// corrupt stream that decodes a bit length past 64.
+    fn code_value<I: BitIo>(&mut self, io: &mut I, mode: u8, v: i64) -> Option<i64> {
+        let (v1, v2) = (self.v1, self.v2);
+        let h2 = hash3(0xC0, v1 as u64, v2 as u64);
+        let h1 = hash2(0xC1, v1 as u64);
+        let (s2, c2) = (h2 as usize & self.match_mask, (h2 >> 32) as u32 | 1);
+        let (s1, c1) = (h1 as usize & self.match_mask, (h1 >> 32) as u32 | 1);
+        let guesses = [
+            (self.order2[s2].0 == c2).then_some(self.order2[s2].1),
+            (self.order1[s1].0 == c1).then_some(self.order1[s1].1),
+            Some(v1),
+        ];
+        let mut value = None;
+        for j in 0..if self.lean { 0 } else { CM_PREDICTORS } {
+            let Some(g) = guesses[j] else { continue };
+            if guesses[..j].contains(&Some(g)) || self.hit_rate[j].p() < CM_GATE {
+                continue;
+            }
+            let hit = self.code_guess(io, v == g, j, g, guesses[j + 1..].contains(&Some(g)));
+            if hit {
+                value = Some(g);
+                break;
+            }
+        }
+        let pred = match mode % CM_LEAN {
+            0 => 0,
+            1 => v1,
+            _ => v1.wrapping_mul(2).wrapping_sub(v2),
+        };
+        let mut rank = None;
+        if !self.lean && value.is_none() && self.hit_rate[CM_PREDICTORS].p() >= CM_GATE {
+            // The recency path is the encoder's choice, not a fact about the value: a recent value whose
+            // residual is short anyway (a small step) is cheaper sent as that residual than as a rank.
+            let residual_bits = 64 - zigzag(v.wrapping_sub(pred)).leading_zeros();
+            let r = self
+                .recent
+                .iter()
+                .position(|&x| x == v)
+                .filter(|&r| residual_bits > 64 - (r as u64 + 1).leading_zeros() + CM_RECENT_MARGIN);
+            if let Some(r) = self.code_recent(io, r)? {
+                rank = Some(r);
+                value = Some(self.recent[r]);
+            }
+        }
+        let value = match value {
+            Some(x) => x,
+            None => {
+                // Sign and magnitude, not zig-zag: a zig-zagged column's sign sits in the lowest
+                // magnitude bit, where the deep, rarely shared prefixes never learn it.
+                let r = v.wrapping_sub(pred);
+                let m = r.unsigned_abs();
+                let k = self.code_k(io, 64 - m.leading_zeros());
+                let m = match k {
+                    0 => 0,
+                    1 => 1,
+                    2..=64 => self.code_mantissa(io, k, m),
+                    _ => return None,
+                };
+                if m == 0 {
+                    pred
+                } else {
+                    let negative = self.code_sign(io, k, r < 0);
+                    self.negative = negative;
+                    let r = m as i64;
+                    pred.wrapping_add(if negative { r.wrapping_neg() } else { r })
+                }
+            }
+        };
+        for ((run, rate), g) in self.runs.iter_mut().zip(&mut self.hit_rate).zip(guesses) {
+            *run = if g == Some(value) { *run + 1 } else { 0 };
+            rate.update_with_limit(g == Some(value), CM_LIMIT_DIRECT);
+        }
+        let in_recent = rank.is_some() || self.recent.contains(&value);
+        self.hit_rate[CM_PREDICTORS].update_with_limit(in_recent, CM_LIMIT_DIRECT);
+        self.kh2 = self.kh1;
+        self.kh1 = 64 - value.wrapping_sub(pred).unsigned_abs().leading_zeros();
+        self.order2[s2] = (c2, value);
+        self.order1[s1] = (c1, value);
+        let at = rank.or_else(|| self.recent.iter().position(|&x| x == value));
+        self.last_rank = at.map_or(CM_RECENT as u32, |r| r as u32);
+        match at {
+            Some(r) => {
+                self.recent[..=r].rotate_right(1);
+            }
+            None => {
+                if self.recent.len() == CM_RECENT {
+                    self.recent.pop();
+                }
+                self.recent.insert(0, value);
+            }
+        }
+        self.v2 = v1;
+        self.v1 = value;
+        Some(value)
+    }
+}
+
+fn cm_payload(v: &[i64], mode: u8) -> Vec<u8> {
+    let mut model = IntCm::new(v.len(), mode >= CM_LEAN);
+    let mut enc = Encoder::new();
+    for &x in v {
+        model.code_value(&mut enc, mode, x);
+    }
+    enc.finish()
+}
+
+/// Above twice this many values the modes are ranked on a prefix of this length, and only the best two
+/// run over the whole column — the ranking a prefix gives is the whole column's, at a fraction of the work.
+const CM_MODE_SAMPLE: usize = 8192;
+const CM_MODES_KEPT: usize = 2;
+
+/// The entropy-coded form of `v` (tag included): the smallest over the predictor modes (all of them for a
+/// short column; the two a prefix ranks best for a long one).
+pub fn cm_encode_int_column(v: &[i64]) -> Vec<u8> {
+    let mut modes = CM_MODES.to_vec();
+    if v.len() > 2 * CM_MODE_SAMPLE {
+        let sample = &v[..CM_MODE_SAMPLE];
+        modes.sort_by_cached_key(|&m| cm_payload(sample, m).len());
+        modes.truncate(CM_MODES_KEPT);
+    }
+    let mut best: Option<Vec<u8>> = None;
+    for mode in modes {
+        let payload = cm_payload(v, mode);
+        let mut c = vec![T_INTS_CM];
+        write_uvarint(v.len() as u64, &mut c);
+        c.push(mode);
+        write_uvarint(payload.len() as u64, &mut c);
+        c.extend_from_slice(&payload);
+        if best.as_ref().map_or(true, |b| c.len() < b.len()) {
+            best = Some(c);
+        }
+    }
+    best.expect("CM_MODES > 0")
+}
+
+fn cm_decode_body(buf: &[u8], pos: &mut usize, max_elements: usize) -> Option<Vec<i64>> {
+    let n = bounded(read_uvarint(buf, pos)?, max_elements)?;
+    charge_work((n as u64).saturating_mul(CM_WORK_PER_ELEMENT), max_elements)?;
+    let mode = *buf.get(*pos)?;
+    *pos += 1;
+    if !CM_MODES.contains(&mode) {
+        return None;
+    }
+    let len = read_uvarint(buf, pos)? as usize;
+    let payload = buf.get(*pos..pos.checked_add(len)?)?;
+    *pos += len;
+    let mut model = IntCm::new(n, mode >= CM_LEAN);
+    let mut dec = Decoder::new(payload);
+    let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
+    for _ in 0..n {
+        v.push(model.code_value(&mut dec, mode, 0)?);
+    }
+    Some(v)
+}
+
+// ---- Decimal float columns -------------------------------------------------------------------
+
+/// `10^e` for `e ≤ 22` — every one exactly representable, so `k / 10^e` with an exact `k` is the
+/// correctly rounded decimal and a decoder reproduces it bit for bit.
+const POW10: [f64; 23] = [
+    1e0, 1e1, 1e2, 1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9, 1e10, 1e11, 1e12, 1e13, 1e14, 1e15, 1e16, 1e17, 1e18, 1e19,
+    1e20, 1e21, 1e22,
+];
+/// The largest decimal exponent the encoder searches.
+const MAX_DECIMAL_EXP: usize = 18;
+/// `|k|` must stay below 2^53 so it is an exact double.
+const EXACT_INT_BOUND: f64 = 9_007_199_254_740_992.0;
+
+/// The integer `k` with `bits(k / 10^e) == bits(x)`, if one exists.
+#[inline]
+fn decimal_digits(x: f64, e: usize) -> Option<i64> {
+    let k = (x * POW10[e]).round();
+    if !(k.abs() < EXACT_INT_BOUND) {
+        return None;
+    }
+    let k = k as i64;
+    ((k as f64 / POW10[e]).to_bits() == x.to_bits()).then_some(k)
+}
+
+/// The decimal form of a float column: the exponent `e` under which the most values are exactly
+/// `k / 10^e`, the rest kept verbatim as exceptions, and the `k` column described by the full integer
+/// menu. `None` when fewer than half the values are decimal at any exponent (the form cannot win).
+pub fn emit_decimal_float_column(v: &[f64]) -> Option<Vec<u8>> {
+    if v.is_empty() {
+        return None;
+    }
+    // Each value's smallest exact exponent; a value exact at `e` stays exact at any larger exponent
+    // whose `k` is still exact, so coverage is (almost) cumulative and the histogram picks `e`.
+    let mut first_exact = [0usize; MAX_DECIMAL_EXP + 2];
+    for &x in v {
+        let e = (0..=MAX_DECIMAL_EXP).find(|&e| decimal_digits(x, e).is_some()).unwrap_or(MAX_DECIMAL_EXP + 1);
+        first_exact[e] += 1;
+    }
+    let mut covered = 0usize;
+    let mut best_e = 0usize;
+    let mut best_cover = 0usize;
+    for (e, &c) in first_exact.iter().enumerate().take(MAX_DECIMAL_EXP + 1) {
+        covered += c;
+        if covered > best_cover {
+            best_cover = covered;
+            best_e = e;
+        }
+    }
+    if best_cover * 2 < v.len() {
+        return None;
+    }
+    let mut ks = Vec::with_capacity(v.len());
+    let mut exceptions: Vec<(usize, u64)> = Vec::new();
+    let mut last = 0i64;
+    for (i, &x) in v.iter().enumerate() {
+        match decimal_digits(x, best_e) {
+            Some(k) => {
+                ks.push(k);
+                last = k;
+            }
+            None => {
+                ks.push(last);
+                exceptions.push((i, x.to_bits()));
+            }
+        }
+    }
+    let mut out = vec![T_FLOATS_DECIMAL];
+    write_uvarint(v.len() as u64, &mut out);
+    out.push(best_e as u8);
+    write_uvarint(exceptions.len() as u64, &mut out);
+    let mut prev = 0usize;
+    for &(i, bits) in &exceptions {
+        write_uvarint((i - prev) as u64, &mut out);
+        prev = i;
+        out.extend_from_slice(&bits.to_le_bytes());
+    }
+    emit_best_int_column(&ks, &mut out);
+    Some(out)
+}
+
+/// The raw-bits form of a float column: each value's IEEE-754 bit pattern, described by the full integer
+/// menu. For full-precision floats no decimal exponent fits, but the patterns still carry structure — a
+/// shared sign and exponent, recurring values, a sorted order — that the integer forms see.
+pub fn emit_float_bits_column(v: &[f64]) -> Option<Vec<u8>> {
+    if v.is_empty() {
+        return None;
+    }
+    let bits: Vec<i64> = v.iter().map(|x| x.to_bits() as i64).collect();
+    let mut out = vec![T_FLOATS_BITS];
+    emit_best_int_column(&bits, &mut out);
+    Some(out)
+}
+
+/// Decode one float column whose tag byte has already been read as `tag`; `None` for a non-float tag
+/// or a corrupt/hostile body. `max_elements` bounds the count and the inner integer column's work.
+pub fn decode_float_column_body(
+    tag: u8,
+    buf: &[u8],
+    pos: &mut usize,
+    max_elements: usize,
+    depth: u32,
+) -> Option<Vec<f64>> {
+    if depth == 0 {
+        DECODE_WORK.with(|c| c.set(0));
+    }
+    if depth >= DECODE_MAX_DEPTH {
+        return None;
+    }
+    if tag == T_FLOATS_BITS {
+        let inner_tag = *buf.get(*pos)?;
+        *pos += 1;
+        let bits = decode_int_column_body(inner_tag, buf, pos, max_elements, depth + 1)?;
+        return Some(bits.into_iter().map(|b| f64::from_bits(b as u64)).collect());
+    }
+    if tag != T_FLOATS_DECIMAL {
+        return None;
+    }
+    let n = bounded(read_uvarint(buf, pos)?, max_elements)?;
+    let e = usize::from(*buf.get(*pos)?);
+    *pos += 1;
+    let scale = *POW10.get(e)?;
+    let num_exc = bounded(read_uvarint(buf, pos)?, n)?;
+    let mut exceptions = Vec::with_capacity(num_exc.min(PREALLOC_CAP));
+    let mut idx = 0usize;
+    for _ in 0..num_exc {
+        idx = idx.checked_add(read_uvarint(buf, pos)? as usize)?;
+        if idx >= n {
+            return None;
+        }
+        let bits = u64::from_le_bytes(buf.get(*pos..pos.checked_add(8)?)?.try_into().ok()?);
+        *pos += 8;
+        exceptions.push((idx, bits));
+    }
+    let inner_tag = *buf.get(*pos)?;
+    *pos += 1;
+    let ks = decode_int_column_body(inner_tag, buf, pos, max_elements, depth + 1)?;
+    if ks.len() != n {
+        return None;
+    }
+    let mut v: Vec<f64> = ks.iter().map(|&k| k as f64 / scale).collect();
+    for (i, bits) in exceptions {
+        v[i] = f64::from_bits(bits);
+    }
+    Some(v)
+}
+
 // ---- The description engine (encode) -------------------------------------------------------
 
 /// Build every applicable column encoding and append the smallest to `out`. The plain-varint
@@ -2287,6 +3200,18 @@ pub fn emit_best_int_column(v: &[i64], out: &mut Vec<u8>) {
 
     consider(&mut best, dict_encode(v));
 
+    // Number theory before statistics: a column whose every value shares a factor with its minimum
+    // (whole seconds stored in microseconds, prices on a cent grid) describes the quotients instead.
+    let factored = detect_common_multiple(v);
+    if let Some((base, g)) = factored {
+        let q: Vec<i64> = v.iter().map(|&x| ((x as u64).wrapping_sub(base as u64) / g) as i64).collect();
+        let mut c = vec![T_INTS_MULT];
+        write_uvarint(v.len() as u64, &mut c);
+        write_uvarint(zigzag(base), &mut c);
+        write_uvarint(g, &mut c);
+        emit_best_int_column(&q, &mut c);
+        consider(&mut best, c);
+    }
     // LAST RESORT — the LFSR attack: if this is a small byte column that NOTHING above compressed (it
     // looks random), run Berlekamp–Massey. A keystream from a short LFSR collapses to `O(L)` bits even
     // though every other generator sees noise. Gated by size and by "nothing else worked", so the
@@ -2326,15 +3251,42 @@ pub fn emit_best_int_column(v: &[i64], out: &mut Vec<u8>) {
         }
     }
 
+    // Representation search: split the patterns at their high bits and XOR each value's low bits against
+    // the last value that shared them — offered when the estimate predicts the split pays.
+    if menu() == Menu::Full && v.len() >= CXOR_MIN_ELEMENTS && !IN_CXOR.with(std::cell::Cell::get) {
+        let bits: Vec<u64> = v.iter().map(|&x| x as u64).collect();
+        let (est, plain) = cxor_estimate(&bits);
+        if plain >= CXOR_MIN_WIDTH * bits.len() as u64 && est * 100 <= plain * (100 - CXOR_MIN_GAIN) {
+            let sample = &bits[..bits.len().min(CXOR_SAMPLE)];
+            let split = CXOR_SPLITS
+                .into_iter()
+                .min_by_key(|&s| conditional_xor_encode(sample, s).len())
+                .expect("CXOR_SPLITS is not empty");
+            consider(&mut best, conditional_xor_encode(&bits, split));
+        }
+    }
+
+    // Statistics last: the entropy-coded form, after every structural form (the last-resort attacks
+    // above fire only when nothing structural compressed the column, and a statistical coder shaving a
+    // few bytes must not hide a register). Offered only for a column a default receiver accepts; a
+    // factored column's quotients were already offered it, so the unfactored column skips it.
+    if menu() == Menu::Full
+        && factored.is_none()
+        && v.len() >= CM_MIN_ELEMENTS
+        && (v.len() as u64).saturating_mul(CM_WORK_PER_ELEMENT) <= CM_OFFER_BUDGET
+    {
+        consider(&mut best, cm_encode_int_column(v));
+    }
+
     out.extend_from_slice(&best);
 }
 
 /// The **computable upper bound on Kolmogorov complexity** of `v` over this description language:
-/// the shortest self-delimiting program (from the generator menu) that reproduces `v`. The returned
-/// bytes are a re-checkable witness — [`decode_int_seq`] reproduces `v` exactly.
+/// the shortest self-delimiting program (from the full menu) that reproduces `v`. The returned bytes are
+/// a re-checkable witness — [`decode_int_seq`] reproduces `v` exactly.
 pub fn describe_int_seq(v: &[i64]) -> Vec<u8> {
     let mut out = Vec::new();
-    emit_best_int_column(v, &mut out);
+    with_menu(Menu::Full, || emit_best_int_column(v, &mut out));
     out
 }
 
@@ -2550,14 +3502,14 @@ pub fn decode_int_column_body(
         }
         // Byte column: read the count, widen each raw byte to an Int.
         T_BYTES => {
-            let n = read_uvarint(buf, pos)? as usize;
+            let n = bounded(read_uvarint(buf, pos)?, max_elements)?;
             let raw = buf.get(*pos..pos.checked_add(n)?)?;
             *pos += n;
             raw.iter().map(|&b| b as i64).collect()
         }
         // Delta column: cumulative-sum the zig-zag differences.
         T_INTS_DELTA => {
-            let n = read_uvarint(buf, pos)? as usize;
+            let n = bounded(read_uvarint(buf, pos)?, max_elements)?;
             let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
             if n > 0 {
                 let mut cur = unzigzag(read_uvarint(buf, pos)?);
@@ -2571,7 +3523,7 @@ pub fn decode_int_column_body(
         }
         // Delta-of-delta column: double cumulative sum (the inverse of `dod_encode`).
         T_INTS_DOD => {
-            let n = read_uvarint(buf, pos)? as usize;
+            let n = bounded(read_uvarint(buf, pos)?, max_elements)?;
             let mut v = Vec::with_capacity(n.min(PREALLOC_CAP));
             if n > 0 {
                 let first = unzigzag(read_uvarint(buf, pos)?);
@@ -2591,7 +3543,7 @@ pub fn decode_int_column_body(
         }
         // Frame-of-reference column: unpack the bit-packed residuals, add the minimum.
         T_INTS_FOR => {
-            let n = read_uvarint(buf, pos)? as usize;
+            let n = bounded(read_uvarint(buf, pos)?, max_elements)?;
             let min = unzigzag(read_uvarint(buf, pos)?);
             let width = *buf.get(*pos)?;
             *pos += 1;
@@ -2620,7 +3572,7 @@ pub fn decode_int_column_body(
             for _ in 0..runs {
                 let val = unzigzag(read_uvarint(buf, pos)?);
                 let len = read_uvarint(buf, pos)? as usize;
-                if v.len().checked_add(len)? > RLE_MAX_TOTAL {
+                if v.len().checked_add(len)? > max_elements.min(RLE_MAX_TOTAL) {
                     return None;
                 }
                 v.resize(v.len() + len, val);
@@ -2629,12 +3581,12 @@ pub fn decode_int_column_body(
         }
         // Dictionary column: read the distinct values, map the bit-packed indices back through them.
         T_INTS_DICT => {
-            let d = read_uvarint(buf, pos)? as usize;
+            let d = bounded(read_uvarint(buf, pos)?, max_elements)?;
             let mut dict = Vec::with_capacity(d.min(PREALLOC_CAP));
             for _ in 0..d {
                 dict.push(unzigzag(read_uvarint(buf, pos)?));
             }
-            let n = read_uvarint(buf, pos)? as usize;
+            let n = bounded(read_uvarint(buf, pos)?, max_elements)?;
             let iw = *buf.get(*pos)?;
             *pos += 1;
             if iw > 64 {
@@ -2655,6 +3607,44 @@ pub fn decode_int_column_body(
                 }
             }
             v
+        }
+        // Common-multiple column: decode the quotient column, scale it back onto the base.
+        T_INTS_MULT => {
+            let n = bounded(read_uvarint(buf, pos)?, max_elements)?;
+            let base = unzigzag(read_uvarint(buf, pos)?);
+            let g = read_uvarint(buf, pos)?;
+            if g < 2 || depth >= DECODE_MAX_DEPTH {
+                return None;
+            }
+            let inner_tag = *buf.get(*pos)?;
+            *pos += 1;
+            let q = decode_int_column_body(inner_tag, buf, pos, max_elements, depth + 1)?;
+            if q.len() != n {
+                return None;
+            }
+            q.iter().map(|&x| base.wrapping_add((x as u64).wrapping_mul(g) as i64)).collect()
+        }
+        // Entropy-coded column: replay the same model the encoder ran, decision by decision.
+        T_INTS_CM => cm_decode_body(buf, pos, max_elements)?,
+        // Conditional-XOR column: the high column, the low column, then each value rebuilt against the
+        // last value that shared its high bits.
+        T_INTS_CXOR => {
+            let n = bounded(read_uvarint(buf, pos)?, max_elements)?;
+            let split = u32::from(*buf.get(*pos)?);
+            *pos += 1;
+            if !(1..=63).contains(&split) || depth >= DECODE_MAX_DEPTH {
+                return None;
+            }
+            let hi_tag = *buf.get(*pos)?;
+            *pos += 1;
+            let hi = decode_int_column_body(hi_tag, buf, pos, max_elements, depth + 1)?;
+            let lo_tag = *buf.get(*pos)?;
+            *pos += 1;
+            let lo = decode_int_column_body(lo_tag, buf, pos, max_elements, depth + 1)?;
+            if hi.len() != n || lo.len() != n {
+                return None;
+            }
+            cxor_join(&hi, &lo, split)?
         }
         _ => return None,
     })

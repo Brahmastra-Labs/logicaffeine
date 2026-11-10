@@ -1068,6 +1068,7 @@ pub fn message_to_wire_best(
                 WireCompression::Deflate,
                 WireCompression::Lz4,
                 WireCompression::Zstd,
+                WireCompression::Cm,
             ],
         ),
     }
@@ -1083,7 +1084,13 @@ fn smallest_over(
     value: &RuntimeValue,
     compressions: &[WireCompression],
 ) -> Result<Vec<u8>, String> {
+    let integrity = current_integrity();
     let mut best: Option<Vec<u8>> = None;
+    let mut keep = |bytes: Vec<u8>| {
+        if best.as_ref().map_or(true, |b| bytes.len() < b.len()) {
+            best = Some(bytes);
+        }
+    };
     // Structure-sharing dimension: if the SAME subtree is reached more than once, Rc-dedup ships it
     // ONCE + backrefs. It competes as just another bake-off candidate (each is a single dedup-scoped
     // encode, so the per-encode id table never leaks across passes), so it wins ONLY when it actually
@@ -1093,35 +1100,81 @@ fn smallest_over(
     } else {
         &[false]
     };
-    for num in [
-        WireNumerics::Varint,
-        WireNumerics::Fixed,
-        WireNumerics::GroupVarint,
-    ] {
-        for st in [
-            WireStructure::Off,
-            WireStructure::Affine,
-            WireStructure::Auto,
+    // Each shape (numerics × structure × float coding × dedup × effort level) is encoded ONCE and every
+    // allowed compressor is tried on that one body; dials a value never reaches (numerics on a float
+    // column) give identical bodies, which are compressed only once.
+    let mut tried: std::collections::HashSet<(usize, u64, bool)> = std::collections::HashSet::new();
+    // Bodies for the context-mixing codec, with what zstd made of each: it runs after every other candidate
+    // is known (see below).
+    let mut cm_candidates: Vec<(usize, Vec<u8>)> = Vec::new();
+    for level in [WireCompressionLevel::Balanced, WireCompressionLevel::Max] {
+        for num in [
+            WireNumerics::Varint,
+            WireNumerics::Fixed,
+            WireNumerics::GroupVarint,
         ] {
-            for fl in [WireFloats::Memcpy, WireFloats::XorDelta] {
-                for &comp in compressions {
+            for st in [
+                WireStructure::Off,
+                WireStructure::Affine,
+                WireStructure::Auto,
+            ] {
+                // The `Auto` column menu chooses every int column's form itself and never reads the numeric
+                // dial, so under `Auto` the other numerics would re-run the costliest encode for an identical
+                // body.
+                if st == WireStructure::Auto && num != WireNumerics::Varint {
+                    continue;
+                }
+                for fl in [WireFloats::Memcpy, WireFloats::XorDelta] {
                     for &dedup in dedup_opts {
-                        let bytes = with_dedup(dedup, || {
-                            with_numerics(num, || {
-                                with_structure(st, || {
-                                    with_floats(fl, || {
-                                        with_compression_codec(comp, || {
-                                            message_to_wire(from, value)
-                                        })
-                                    })
+                        let body = with_compression_level(level, || {
+                            with_dedup(dedup, || {
+                                with_numerics(num, || {
+                                    with_structure(st, || with_floats(fl, || native_body(from, value)))
                                 })
                             })
                         })?;
-                        if best.as_ref().map_or(true, |b| bytes.len() < b.len()) {
-                            best = Some(bytes);
+                        if !tried.insert((body.len(), fnv1a_64(&body), level == WireCompressionLevel::Max)) {
+                            continue;
+                        }
+                        // The uncompressed body is always a candidate: it is what any compressor that
+                        // fails to shrink the body falls back to.
+                        keep(frame(WireCodec::Native, integrity, WireCompression::None, body.clone()));
+                        let mut zstd_len = None;
+                        for &comp in compressions {
+                            if comp == WireCompression::Cm {
+                                continue;
+                            }
+                            if let Some((used, z)) =
+                                with_compression_level(level, || compress_body(comp, &body))
+                            {
+                                if used == WireCompression::Zstd {
+                                    zstd_len = Some(z.len());
+                                }
+                                if z.len() < body.len() {
+                                    keep(frame(WireCodec::Native, integrity, used, z));
+                                }
+                            }
+                        }
+                        if level == WireCompressionLevel::Max && compressions.contains(&WireCompression::Cm) {
+                            cm_candidates.push((zstd_len.unwrap_or(body.len()), body));
                         }
                     }
                 }
+            }
+        }
+    }
+    // Context mixing, the Max-effort compressor, runs last and only on bodies that can still win: it gains a
+    // fraction over zstd on the same body, so a body whose zstd form is more than a quarter larger than the
+    // best candidate so far cannot become the smallest.
+    for (zstd_len, body) in cm_candidates {
+        let best_len = best.as_ref().map_or(usize::MAX, Vec::len);
+        if zstd_len.saturating_mul(4) > best_len.saturating_mul(5) {
+            continue;
+        }
+        if let Some((used, z)) = compress_body(WireCompression::Cm, &body) {
+            let framed = frame(WireCodec::Native, integrity, used, z);
+            if framed.len() < best_len {
+                best = Some(framed);
             }
         }
     }
@@ -1269,6 +1322,8 @@ pub const FEAT_TYPE_ID: u32 = 1 << 3;
 pub const FEAT_COMPUTED: u32 = 1 << 4;
 /// The peer can reconstruct FEC / erasure-coded redundant frames.
 pub const FEAT_FEC: u32 = 1 << 5;
+/// The peer decodes the context-mixing codec ([`WireCompression::Cm`]).
+pub const FEAT_CM: u32 = 1 << 6;
 
 /// A peer's PUBLISHED acceptance surface — the single declarative object it EXPOSES to the other side
 /// AND that its own decoder ENFORCES. Declare it once: it is both advertised (in the handshake) and the
@@ -1292,7 +1347,7 @@ impl Default for PeerProfile {
         Self {
             limits: ReceiveLimits::default(),
             registry_epoch: 0,
-            features: FEAT_DEFLATE | FEAT_LZ4 | FEAT_ZSTD | FEAT_TYPE_ID | FEAT_COMPUTED | FEAT_FEC,
+            features: FEAT_DEFLATE | FEAT_LZ4 | FEAT_ZSTD | FEAT_TYPE_ID | FEAT_COMPUTED | FEAT_FEC | FEAT_CM,
         }
     }
 }
@@ -1368,8 +1423,11 @@ pub struct Negotiated {
     /// Ship a computed function — only when the receiver both accepts computed sends and advertises the
     /// capability. (The receiver still gates INVOCATION through its acceptance contracts.)
     pub may_send_computed: bool,
-    /// The strongest compression BOTH peers understand (`None` if they share none).
+    /// The strongest compression BOTH peers understand (`None` if they share none). Never the
+    /// context-mixing codec: a negotiated send is the everyday path, and CM spends CPU for size.
     pub compression: WireCompression,
+    /// Both peers decode the context-mixing codec, so a sender asked for its smallest form may use it.
+    pub may_use_cm: bool,
     /// The receiver's byte budget — keep each message under this so it is not refused.
     pub peer_max_bytes: usize,
 }
@@ -1396,6 +1454,7 @@ pub fn negotiate(mine: &PeerProfile, theirs: &PeerProfile) -> Negotiated {
             && mine.registry_epoch == theirs.registry_epoch,
         may_send_computed: theirs.limits.accept_computed && both(FEAT_COMPUTED),
         compression,
+        may_use_cm: both(FEAT_CM),
         peer_max_bytes: theirs.limits.max_bytes,
     }
 }
@@ -1436,14 +1495,7 @@ pub fn message_to_wire_with(
 ) -> Result<Vec<u8>, String> {
     let mut body = match codec {
         // Single pass straight from the live value — no intermediate trees.
-        WireCodec::Native => {
-            // A small base capacity covers the envelope + a scalar/short message
-            // without a realloc; the packed-array arms reserve their own bulk.
-            let mut out = Vec::with_capacity(from.len() + 32);
-            write_str(from, &mut out);
-            native_encode(value, &mut out)?;
-            out
-        }
+        WireCodec::Native => native_body(from, value)?,
         // JSON goes through the serde mirror (interop, not the speed path).
         WireCodec::Json => {
             let payload = materialize(value).map_err(|MarshalError::NotSendable(t)| {
@@ -1469,6 +1521,23 @@ pub fn message_to_wire_with(
         }
     }
     Ok(frame(codec, integrity, compression, body))
+}
+
+/// The native message body — the sender, then the value — encoded under the dials in scope. The column
+/// menu follows the compression level: `Max` (spend CPU for size) adds the entropy-coded column form, any
+/// other level keeps to the structural menu.
+fn native_body(from: &str, value: &RuntimeValue) -> Result<Vec<u8>, String> {
+    // A small base capacity covers the envelope + a scalar/short message without a realloc; the
+    // packed-array arms reserve their own bulk.
+    let mut out = Vec::with_capacity(from.len() + 32);
+    write_str(from, &mut out);
+    let menu = if compression_level() == WireCompressionLevel::Max {
+        describe::Menu::Full
+    } else {
+        describe::Menu::Structural
+    };
+    describe::with_menu(menu, || native_encode(value, &mut out))?;
+    Ok(out)
 }
 
 /// Decode a wire message (from [`message_to_wire`]) into `(sender, value)`,
@@ -1510,51 +1579,59 @@ pub fn message_from_wire(bytes: &[u8]) -> Option<(String, RuntimeValue)> {
     }
 }
 
-/// The plain-words name of the structural encoding a column tag selects — the codec's own
-/// dial vocabulary, for surfacing *which* encoding actually won (benchmarks, docs, debug).
-/// A non-column or unknown tag reads as the generic `"value"`.
+/// Every column encoding the codec can select, by tag, with its plain-words name — the codec's own dial
+/// vocabulary, for surfacing *which* encoding actually won (benchmarks, docs, debug). One table: the name
+/// a message reports and the vocabulary a reader checks it against are the same list.
+pub const COLUMN_TAG_NAMES: &[(u8, &str)] = &[
+    (T_INTS, "varint"),
+    (T_INTS_FIXED, "fixed (memcpy)"),
+    (T_INTS_GV, "group-varint"),
+    (T_INTS_ALIGNED, "fixed-aligned"),
+    (T_INTS_AFFINE, "affine (base,stride,n)"),
+    (T_INTS_DELTA, "delta"),
+    (T_INTS_DOD, "delta-of-delta"),
+    (T_INTS_FOR, "FOR bit-pack"),
+    (T_INTS_RLE, "run-length"),
+    (T_INTS_DICT, "dictionary"),
+    (T_INTS_POLY, "polynomial"),
+    (T_INTS_GEOMETRIC, "geometric"),
+    (T_INTS_PERIODIC, "periodic"),
+    (T_INTS_SPARSE, "sparse"),
+    (T_GEN, "generator"),
+    (T_BYTES, "byte column"),
+    (describe::T_INTS_LRECUR, "linear-recurrence"),
+    (describe::T_INTS_LFSR, "LFSR"),
+    (describe::T_INTS_FCSR, "FCSR"),
+    (describe::T_INTS_MULT, "common-multiple"),
+    (describe::T_INTS_CM, "entropy-coded"),
+    (describe::T_FLOATS_DECIMAL, "decimal floats"),
+    (describe::T_FLOATS_BITS, "float bits"),
+    (describe::T_INTS_CXOR, "conditional-xor"),
+    (T_FLOATS, "memcpy floats"),
+    (T_FLOATS_XOR, "xor-delta floats"),
+    (T_FLOATS_CONST, "constant floats"),
+    (T_FLOATS_AFFINE, "affine floats"),
+    (T_FLOATS_SPARSE, "sparse floats"),
+    (T_FLOATS_PERIODIC, "periodic floats"),
+    (T_FLOATS_GEOMETRIC, "geometric floats"),
+    (T_FLOATS_ALIGNED, "aligned floats"),
+    (T_BOOLS, "bit-packed bools"),
+    (T_BOOLS_PERIODIC, "periodic bools"),
+    (T_BOOLS_RLE, "run-length bools"),
+    (T_STRINGS, "flat strings"),
+    (T_STRINGS_TEMPLATE, "templated strings"),
+    (T_STRINGS_FRONT, "front-coded strings"),
+    (T_STRINGS_AFFIX, "affix strings"),
+    (T_STRINGS_DICT, "dictionary strings"),
+    (T_SET_INTS, "int set (column menu)"),
+    (T_SET_STRINGS, "string set (front-coded)"),
+    (T_MAP_INTKEY, "int-keyed map (columnar)"),
+];
+
+/// The plain-words name of the structural encoding a column tag selects (see [`COLUMN_TAG_NAMES`]). A
+/// non-column or unknown tag reads as the generic `"value"`.
 fn column_tag_name(tag: u8) -> &'static str {
-    match tag {
-        T_INTS => "varint",
-        T_INTS_FIXED => "fixed (memcpy)",
-        T_INTS_GV => "group-varint",
-        T_INTS_ALIGNED => "fixed-aligned",
-        T_INTS_AFFINE => "affine (base,stride,n)",
-        T_INTS_DELTA => "delta",
-        T_INTS_DOD => "delta-of-delta",
-        T_INTS_FOR => "FOR bit-pack",
-        T_INTS_RLE => "run-length",
-        T_INTS_DICT => "dictionary",
-        T_INTS_POLY => "polynomial",
-        T_INTS_GEOMETRIC => "geometric",
-        T_INTS_PERIODIC => "periodic",
-        T_INTS_SPARSE => "sparse",
-        T_GEN => "generator",
-        T_BYTES => "byte column",
-        describe::T_INTS_LRECUR => "linear-recurrence",
-        describe::T_INTS_LFSR => "LFSR",
-        describe::T_INTS_FCSR => "FCSR",
-        T_FLOATS => "memcpy floats",
-        T_FLOATS_XOR => "xor-delta floats",
-        T_FLOATS_CONST => "constant floats",
-        T_FLOATS_AFFINE => "affine floats",
-        T_FLOATS_SPARSE => "sparse floats",
-        T_FLOATS_PERIODIC => "periodic floats",
-        T_FLOATS_GEOMETRIC => "geometric floats",
-        T_FLOATS_ALIGNED => "aligned floats",
-        T_BOOLS => "bit-packed bools",
-        T_BOOLS_PERIODIC => "periodic bools",
-        T_BOOLS_RLE => "run-length bools",
-        T_STRINGS => "flat strings",
-        T_STRINGS_TEMPLATE => "templated strings",
-        T_STRINGS_FRONT => "front-coded strings",
-        T_STRINGS_AFFIX => "affix strings",
-        T_STRINGS_DICT => "dictionary strings",
-        T_SET_INTS => "int set (column menu)",
-        T_SET_STRINGS => "string set (front-coded)",
-        T_MAP_INTKEY => "int-keyed map (columnar)",
-        _ => "value",
-    }
+    COLUMN_TAG_NAMES.iter().find(|&&(t, _)| t == tag).map_or("value", |&(_, name)| name)
 }
 
 /// Name the structural encoding of each column in a native wire message — the codec
@@ -3485,7 +3562,16 @@ pub enum WireCompression {
     /// Zstandard — the best ratio. Native uses the C encoder; the browser cannot
     /// encode it (falls back to lz4) but decodes it via the pure-Rust `ruzstd`.
     Zstd,
+    /// Context mixing (`logicaffeine_base::cm` at its fast level) — a smaller body than any of the above on
+    /// text and structured bytes, at a few hundred kilobytes a second each way. Pure Rust, so every target
+    /// encodes and decodes it; bodies are kept within [`MAX_CM_DECODE_BYTES`].
+    Cm,
 }
+
+/// The largest body the context-mixing codec carries, and the most bytes its model may code. Its decode costs
+/// several microseconds a byte, so the cap — not the general decompression budget — bounds what a small frame
+/// can make a receiver spend: a few seconds at most.
+pub const MAX_CM_DECODE_BYTES: usize = 1 << 20;
 
 /// The 2-bit on-wire id for a codec (header bits 2-3). `None`/`Deflate` share id 0;
 /// `None` is distinguished by `H_COMPRESSED` being unset.
@@ -3494,6 +3580,7 @@ fn compression_id(c: WireCompression) -> u8 {
         WireCompression::None | WireCompression::Deflate => 0,
         WireCompression::Lz4 => 1,
         WireCompression::Zstd => 2,
+        WireCompression::Cm => 3,
     }
 }
 
@@ -3590,6 +3677,8 @@ fn compress_body(codec: WireCompression, body: &[u8]) -> Option<(WireCompression
                 Some((WireCompression::Lz4, lz4_flex::compress_prepend_size(body)))
             }
         }
+        WireCompression::Cm => (body.len() <= MAX_CM_DECODE_BYTES)
+            .then(|| (WireCompression::Cm, logicaffeine_base::cm::compress_with(body, logicaffeine_base::cm::Level::Fast, MAX_CM_DECODE_BYTES))),
     }
 }
 
@@ -3603,6 +3692,7 @@ pub fn best_compressed_len(body: &[u8]) -> usize {
         WireCompression::Deflate,
         WireCompression::Lz4,
         WireCompression::Zstd,
+        WireCompression::Cm,
     ]
     .into_iter()
     .filter_map(|c| compress_body(c, body).map(|(_, z)| z.len()))
@@ -3692,6 +3782,8 @@ fn decompress_body(codec: WireCompression, body: &[u8]) -> Option<Vec<u8>> {
                 zstd_decode_ruzstd(body)
             }
         }
+        // The length prefix is checked against the cap before any model is built or bit decoded.
+        WireCompression::Cm => logicaffeine_base::cm::decompress_within(body, MAX_CM_DECODE_BYTES, MAX_CM_DECODE_BYTES),
     }
 }
 
@@ -4824,7 +4916,17 @@ fn encode_list_repr(repr: &ListRepr, out: &mut Vec<u8>) -> Result<(), String> {
             } else {
                 None
             };
-            if let Some(c) = [sparse, xor, geometric, periodic]
+            // A column of decimals (`k / 10^e`) describes as its integer column `k`; any other column can
+            // still describe as its bit patterns. Both go through the full integer menu, so both see the
+            // number-theoretic and entropy-coded forms. They read the column with every NaN made the
+            // canonical one, as every other float encoding writes it.
+            let (decimal, bits) = if st == WireStructure::Auto {
+                let canon: Vec<f64> = v.iter().map(|&x| canonical_f64(x)).collect();
+                (describe::emit_decimal_float_column(&canon), describe::emit_float_bits_column(&canon))
+            } else {
+                (None, None)
+            };
+            if let Some(c) = [sparse, xor, geometric, periodic, decimal, bits]
                 .into_iter()
                 .flatten()
                 .min_by_key(Vec::len)
@@ -5835,7 +5937,10 @@ fn native_decode(buf: &[u8], pos: &mut usize) -> Option<RuntimeValue> {
         | T_INTS_DICT
         | describe::T_INTS_LRECUR
         | describe::T_INTS_LFSR
-        | describe::T_INTS_FCSR => {
+        | describe::T_INTS_FCSR
+        | describe::T_INTS_MULT
+        | describe::T_INTS_CM
+        | describe::T_INTS_CXOR => {
             // The Auto column menu decodes through the shared engine (single source of the format);
             // the receiver's element budget is threaded in so the DoS gate is unchanged.
             let v =
@@ -6015,6 +6120,12 @@ fn native_decode(buf: &[u8], pos: &mut usize) -> Option<RuntimeValue> {
             for i in 0..n {
                 v.push(block[i % p]);
             }
+            RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Floats(v))))
+        }
+        // Decimal and bit-pattern float columns: an integer column underneath, decoded by the shared
+        // engine under the receiver's element budget.
+        describe::T_FLOATS_DECIMAL | describe::T_FLOATS_BITS => {
+            let v = describe::decode_float_column_body(tag, buf, pos, receive_limits().max_elements, 0)?;
             RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Floats(v))))
         }
         // Geometric float column: replay `base · ratio^i` with the SAME `cur *= ratio` accumulation
@@ -6866,7 +6977,7 @@ fn unframe_with(bytes: &[u8], verify: bool) -> Option<(WireCodec, WireCompressio
             0 => WireCompression::Deflate,
             1 => WireCompression::Lz4,
             2 => WireCompression::Zstd,
-            _ => return None, // a reserved codec id
+            _ => WireCompression::Cm,
         }
     };
     let body = if h & H_CHECKED != 0 {

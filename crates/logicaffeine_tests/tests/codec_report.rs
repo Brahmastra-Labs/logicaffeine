@@ -7,6 +7,7 @@
 //! the field contract the front-end deserializes against. Size assertions are deterministic;
 //! the speed assertion (capnp gated) uses the same-run ratio the superiority lock-ins use.
 
+use logicaffeine_compile::concurrency::marshal::COLUMN_TAG_NAMES;
 use logicaffeine_wirebench::{build_report, CodecReport};
 
 /// Tiny iter count: the SIZE fields are deterministic regardless of timing, so a small
@@ -180,51 +181,14 @@ fn json_shape_matches_front_end_contract() {
 fn best_rows_report_the_dials_that_won() {
     use std::collections::HashSet;
     let report = build_report(TEST_ITERS);
-    // The encodings `describe_columns` can name (mirrors marshal::column_tag_name). A record
-    // column reads `"field: encoding"`; a single column is the bare encoding.
-    let known: HashSet<&str> = [
-        "varint",
-        "fixed (memcpy)",
-        "group-varint",
-        "fixed-aligned",
-        "affine (base,stride,n)",
-        "delta",
-        "delta-of-delta",
-        "FOR bit-pack",
-        "run-length",
-        "dictionary",
-        "polynomial",
-        "geometric",
-        "periodic",
-        "sparse",
-        "generator",
-        "byte column",
-        "linear-recurrence",
-        "LFSR",
-        "FCSR",
-        "memcpy floats",
-        "xor-delta floats",
-        "constant floats",
-        "affine floats",
-        "sparse floats",
-        "periodic floats",
-        "geometric floats",
-        "aligned floats",
-        "bit-packed bools",
-        "periodic bools",
-        "run-length bools",
-        "flat strings",
-        "templated strings",
-        "front-coded strings",
-        "affix strings",
-        "dictionary strings",
-        "int set (column menu)",
-        "string set (front-coded)",
-        "int-keyed map (columnar)",
-        "value",
-    ]
-    .into_iter()
-    .collect();
+    // The encodings `describe_columns` can name: the codec's own table, plus the generic `"value"` a
+    // non-column tag reads as. A record column reads `"field: encoding"`; a single column is the bare
+    // encoding.
+    let known: HashSet<&str> = COLUMN_TAG_NAMES
+        .iter()
+        .map(|&(_, name)| name)
+        .chain(["value"])
+        .collect();
     let compression_words: HashSet<&str> = ["none", "deflate", "lz4", "zstd"].into_iter().collect();
 
     for s in report.scenarios.iter().filter(|s| {

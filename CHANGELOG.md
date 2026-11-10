@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **The wire codec's size bake-off searches representations and entropy-codes what is left.** Floats describe as
+  their decimal integers or their bit patterns, a common factor is divided out, wide patterns split at their high bits
+  and XOR against the last value sharing them, and the residual is arithmetic-coded under a context-mixing model; a
+  context-mixing byte codec joins deflate, lz4 and zstd. Measured against pcodec 1.1 (level 12), xz -9 and ALP's
+  published results: smallest on all 30 ALP float datasets of a fixed sample (12.67 bits a value vs pcodec 15.42 and
+  xz 15.63) and on the TPC-H and NYC-taxi integer columns in total (134.2 vs pcodec 135.0). On general bytes,
+  `logicaffeine_base::cm` at `Level::Max` codes the first MiB of each Silesia file, every one decoded and checked, in
+  0.633 of xz -9e's bytes and 1.011× paq8px v217 -8's (0.926× on mozilla, 0.943× on mr). The wire's new forms run at
+  `WireCompressionLevel::Max` and `Send smallest`; the default send path is unchanged.
+
 - **The CI workflows run on your own machine before they run on GitHub.** `scripts/run-ci-locally.py` executes
   `.github/workflows/test.yml` itself, and `release.yml` as the dispatch that releases a pushed tag: each job in its
   own Docker container built from its label's image under `scripts/test/ci-runner/` (ubuntu:24.04 or ubuntu:22.04 with

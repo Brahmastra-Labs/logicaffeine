@@ -182,6 +182,7 @@ fn best_and_auto_fold_in_dedup_when_sharing_is_present() {
         use_type_id: false,
         may_send_computed: false,
         compression: WireCompression::None,
+        may_use_cm: false,
         peer_max_bytes: 1 << 20,
     };
     let nbytes =

@@ -4,10 +4,12 @@
 pub mod algebraic;
 pub mod arena;
 pub mod closure;
+pub mod cm;
 pub mod complex_algebraic;
 pub mod describe;
 pub mod dimension;
 pub mod elimination;
+pub mod entropy;
 pub mod error;
 pub mod exact_codec;
 pub mod exact_real;

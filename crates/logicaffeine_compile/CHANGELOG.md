@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `WireCompression::Cm` (header codec id 3): the context-mixing byte codec at its fast level, pure Rust on every
+  target, bodies and the bytes its model codes kept within `MAX_CM_DECODE_BYTES` (1 MiB) so a small frame cannot
+  demand more than a few seconds of decode. `FEAT_CM` advertises it and
+  `Negotiated::may_use_cm` reports both peers decode it; a negotiated send still defaults to zstd.
+  `best_compressed_len` grants a competitor the same codec, so wirebench's fair fight stays fair.
+- The `Auto` float column bake-off adds the decimal (`T_FLOATS_DECIMAL`) and bit-pattern (`T_FLOATS_BITS`) forms, read
+  from the column with every NaN canonical; int columns decode `T_INTS_MULT`, `T_INTS_CM` and `T_INTS_CXOR`.
+- The column menu follows the compression level: `WireCompressionLevel::Max` searches `describe`'s full menu (the
+  entropy-coded and conditional-XOR forms), every other level the structural one, so the default send path is as
+  fast as before.
+- `message_to_wire_best(Smallest)` searches the Max level too and the context-mixing codec there, and encodes each
+  shape once, trying every compressor on that one body (dials a value never reaches give identical bodies, compressed
+  once; under `Auto` the numeric dial is skipped, since the column menu never reads it): smaller and fewer encode
+  passes. Context mixing runs last, only on bodies whose zstd form is within a quarter of the best candidate.
+
 ### Changed
 
 - `codegen_c::from_program`: a closure body's captured values take the kinds every `MakeClosure` that builds it stores
@@ -48,6 +65,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `theorem_certificate`, `compile_theorem_for_ui`) refuse it as a presupposition failure when the other premises are
   consistent and refute the presupposition, each refutation found by `prove_certify_check_bounded` at depth 12 and
   checked by the kernel, and none searched for unless the premises refute each other at all.
+- A receiver refuses a byte, delta, delta-of-delta, bit-pack, dictionary or run-length int column claiming more
+  elements than its `ReceiveLimits::max_elements`; a tiny compressed frame could expand those past the budget.
 
 ## [0.11.0] - 2026-11-02
 

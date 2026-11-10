@@ -994,3 +994,364 @@ fn pseudorandom_round_trips_and_is_never_larger_than_varint() {
         "never worse than the varint baseline"
     );
 }
+
+// ---- Entropy-coded and number-theoretic column forms --------------------------------------------
+
+/// SplitMix64 — deterministic, nonlinear (xorshift is GF(2)-linear and the LFSR rung would see through it).
+struct Mix(u64);
+
+impl Mix {
+    fn next(&mut self) -> u64 {
+        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = self.0;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+
+    fn below(&mut self, n: u64) -> i64 {
+        (self.next() % n) as i64
+    }
+
+    /// Failures before the first success at success probability `p_permille / 1000`.
+    fn geometric(&mut self, p_permille: u64) -> i64 {
+        let mut k = 0;
+        while self.next() % 1000 >= p_permille {
+            k += 1;
+        }
+        k
+    }
+}
+
+#[test]
+fn a_common_multiple_is_factored_out_before_the_column_is_described() {
+    // Whole seconds stored in microseconds, in jittered arrival order: every value shares the factor 10⁶,
+    // which no frame-of-reference or delta form can see. Shipping the quotients must cost what the
+    // quotients alone cost, plus the base and the factor.
+    let mut rng = Mix(3);
+    let mut t = 1_672_531_200i64;
+    let v: Vec<i64> = (0..20_000)
+        .map(|_| {
+            t += rng.below(90) - 30;
+            t * 1_000_000
+        })
+        .collect();
+    roundtrips(&v);
+    let min = *v.iter().min().unwrap();
+    let quotients: Vec<i64> = v.iter().map(|&x| (x - min) / 1_000_000).collect();
+    let enc = describe_int_seq(&v);
+    assert_eq!(enc[0], T_INTS_MULT, "the factored form wins");
+    assert!(
+        enc.len() <= describe_int_seq(&quotients).len() + 24,
+        "factored {} B vs the quotients' own {} B",
+        enc.len(),
+        describe_int_seq(&quotients).len()
+    );
+}
+
+#[test]
+fn factoring_is_exact_across_the_whole_i64_range() {
+    roundtrips(&[i64::MIN, i64::MAX - 1, 0, -2, 2]);
+    roundtrips(&[i64::MIN, i64::MAX]);
+    roundtrips(&[-9_000, -3_000, 3_000, 9_000, 0, -6_000]);
+    roundtrips(&[i64::MAX, i64::MAX - 7, i64::MAX - 14]);
+    let mut rng = Mix(9);
+    let v: Vec<i64> = (0..3_000).map(|_| (rng.below(2_000_001) - 1_000_000) * 360).collect();
+    roundtrips(&v);
+}
+
+#[test]
+fn the_entropy_coded_column_codes_an_iid_source_near_its_entropy() {
+    // Geometric draws at p = 0.05: H = h(p)/p ≈ 5.73 bits a value. Bit-packing pays the full width of the
+    // largest draw; varint pays a byte for most. The entropy-coded column must land within a few percent
+    // of the entropy itself.
+    let mut rng = Mix(1);
+    let n = 50_000usize;
+    let v: Vec<i64> = (0..n).map(|_| rng.geometric(50)).collect();
+    roundtrips(&v);
+    let enc = describe_int_seq(&v);
+    assert_eq!(enc[0], T_INTS_CM, "the entropy-coded column wins on a skewed iid source");
+    let p: f64 = 0.05;
+    let h = -(p * p.log2() + (1.0 - p) * (1.0 - p).log2()) / p;
+    let bits = enc.len() as f64 * 8.0;
+    assert!(bits <= n as f64 * h * 1.04 + 512.0, "{bits} bits vs entropy {:.0}", n as f64 * h);
+}
+
+#[test]
+fn the_entropy_coded_column_learns_long_range_repetition() {
+    // A 4,000-value random block repeated five times: the period is past the periodic detector's reach and
+    // the block has 4,000 distinct values, so no closed form or dictionary helps. A coder that predicts the
+    // whole value that followed the last two (measured: 1.08×) ships four repeats in the slack; order-2
+    // contexts on the bits alone (1.21×) do not.
+    let mut rng = Mix(2);
+    let block: Vec<i64> = (0..4_000).map(|_| rng.below(1_000_000)).collect();
+    let v: Vec<i64> = block.iter().copied().cycle().take(20_000).collect();
+    roundtrips(&v);
+    let once = describe_int_seq(&block).len();
+    let all = describe_int_seq(&v).len();
+    assert!(all * 100 < once * 112, "five copies cost {all} B; one copy alone costs {once} B");
+}
+
+#[test]
+fn the_entropy_coded_column_round_trips_every_shape() {
+    let mut rng = Mix(4);
+    let shapes: Vec<Vec<i64>> = vec![
+        (0..5_000).map(|_| rng.next() as i64).collect(),
+        (0..5_000).map(|_| rng.below(7)).collect(),
+        (0..5_000).map(|_| rng.geometric(200) - rng.geometric(200)).collect(),
+        (0..5_000).map(|i| (i as i64) * 3 + rng.below(5)).collect(),
+        (0..5_000).map(|_| [i64::MIN, i64::MAX, 0, -1][rng.below(4) as usize]).collect(),
+        (0..5_000).map(|_| rng.geometric(10) << 20).collect(),
+        (0..5_000).map(|i| if i % 50 == 0 { rng.next() as i64 } else { 17 }).collect(),
+    ];
+    for v in &shapes {
+        roundtrips(v);
+        let cm = cm_encode_int_column(v);
+        assert_eq!(cm[0], T_INTS_CM);
+        assert_eq!(decode_int_seq(&cm).as_deref(), Some(v.as_slice()), "the CM form itself round-trips");
+    }
+    for v in [vec![], vec![5], vec![i64::MIN], vec![0, i64::MAX]] {
+        assert_eq!(decode_int_seq(&cm_encode_int_column(&v)), Some(v));
+    }
+}
+
+#[test]
+fn a_mutated_entropy_coded_column_never_panics() {
+    let mut rng = Mix(6);
+    let v: Vec<i64> = (0..600).map(|_| rng.geometric(30)).collect();
+    let enc = cm_encode_int_column(&v);
+    for cut in 0..enc.len() {
+        let _ = decode_int_seq(&enc[..cut]);
+    }
+    for _ in 0..600 {
+        let mut m = enc.clone();
+        let i = rng.below(m.len() as u64) as usize;
+        m[i] ^= 1 << rng.below(8);
+        let _ = decode_int_seq(&m);
+    }
+}
+
+#[test]
+fn every_int_column_refuses_a_count_past_the_element_budget() {
+    // For every column tag, a well-formed body claiming `limit + 1` elements is refused before anything is
+    // expanded, and the same body claiming exactly `limit` decodes — so each refusal is the budget, not a
+    // malformed body. The generator-free forms matter as much as the generators: a width-0 bit-pack or a
+    // one-entry dictionary is a few bytes that would otherwise expand without bound.
+    const LIMIT: usize = 1_000;
+    let uv = |x: u64| {
+        let mut o = Vec::new();
+        write_uvarint(x, &mut o);
+        o
+    };
+    let bodies: Vec<(&str, u8, Box<dyn Fn(usize) -> Vec<u8>>)> = vec![
+        ("ints", T_INTS, Box::new(move |n| [uv((n as u64) << 1), vec![0; n]].concat())),
+        ("affine", T_INTS_AFFINE, Box::new(move |n| [uv(0), uv(2), uv(n as u64)].concat())),
+        ("geometric", T_INTS_GEOMETRIC, Box::new(move |n| [uv(2), uv(4), uv(n as u64)].concat())),
+        ("periodic", T_INTS_PERIODIC, Box::new(move |n| [uv(n as u64), vec![T_INTS], uv(2 << 1), vec![3, 4]].concat())),
+        ("sparse", T_INTS_SPARSE, Box::new(move |n| [uv(0), uv(n as u64), uv(0)].concat())),
+        ("poly", T_INTS_POLY, Box::new(move |n| [vec![1], uv(n as u64), uv(0), uv(2)].concat())),
+        ("bytes", T_BYTES, Box::new(move |n| [uv(n as u64), vec![7; n]].concat())),
+        ("delta", T_INTS_DELTA, Box::new(move |n| [uv(n as u64), vec![0; n]].concat())),
+        ("dod", T_INTS_DOD, Box::new(move |n| [uv(n as u64), vec![0; n]].concat())),
+        ("for, width 0", T_INTS_FOR, Box::new(move |n| [uv(n as u64), uv(10), vec![0]].concat())),
+        ("rle", T_INTS_RLE, Box::new(move |n| [uv(1), uv(10), uv(n as u64)].concat())),
+        ("dict, index width 0", T_INTS_DICT, Box::new(move |n| [uv(1), uv(10), uv(n as u64), vec![0]].concat())),
+        ("mult", T_INTS_MULT, Box::new(move |n| [uv(n as u64), uv(0), uv(3), vec![T_INTS_AFFINE], uv(0), uv(2), uv(n as u64)].concat())),
+        ("conditional xor", T_INTS_CXOR, Box::new(move |n| {
+            [uv(n as u64), vec![32], vec![T_INTS_AFFINE], uv(0), uv(0), uv(n as u64), vec![T_INTS_AFFINE], uv(0), uv(0), uv(n as u64)].concat()
+        })),
+    ];
+    for (name, tag, body) in &bodies {
+        let at = body(LIMIT);
+        let mut pos = 0;
+        let ok = decode_int_column_body(*tag, &at, &mut pos, LIMIT, 0);
+        assert_eq!(ok.as_ref().map(Vec::len), Some(LIMIT), "{name}: a body at the budget decodes");
+        let past = body(LIMIT + 1);
+        let mut pos = 0;
+        assert!(
+            decode_int_column_body(*tag, &past, &mut pos, LIMIT, 0).is_none(),
+            "{name}: a body past the budget is refused"
+        );
+    }
+    // The entropy-coded column spends about thirty model decisions on every element, so it charges
+    // `CM_WORK_PER_ELEMENT` work units each: a few kilobytes of payload cannot demand seconds of decode.
+    let cm_limit = LIMIT / CM_WORK_PER_ELEMENT as usize;
+    let cm_at = cm_encode_int_column(&vec![5; cm_limit]);
+    let cm_past = cm_encode_int_column(&vec![5; cm_limit + 1]);
+    let mut pos = 1;
+    assert_eq!(decode_int_column_body(T_INTS_CM, &cm_at, &mut pos, LIMIT, 0).map(|v| v.len()), Some(cm_limit));
+    let mut pos = 1;
+    assert!(decode_int_column_body(T_INTS_CM, &cm_past, &mut pos, LIMIT, 0).is_none(), "cm: past the work budget");
+}
+
+// ---- Decimal float columns ----------------------------------------------------------------------
+
+fn decode_floats(enc: &[u8]) -> Option<Vec<f64>> {
+    let mut pos = 1;
+    let v = decode_float_column_body(*enc.first()?, enc, &mut pos, 1 << 28, 0)?;
+    (pos == enc.len()).then_some(v)
+}
+
+fn same_bits(a: &[f64], b: &[f64]) -> bool {
+    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
+}
+
+#[test]
+fn decimal_floats_ship_as_scaled_integers() {
+    // A temperature trace at one decimal place: every double is the correctly rounded k/10, so the column
+    // is an integer column in disguise.
+    let mut rng = Mix(12);
+    let mut k = 215i64;
+    let v: Vec<f64> = (0..20_000)
+        .map(|_| {
+            k += rng.below(5) - 2;
+            k as f64 / 10.0
+        })
+        .collect();
+    let structural = emit_decimal_float_column(&v).expect("a decimal column takes the decimal form");
+    assert_eq!(structural[0], T_FLOATS_DECIMAL);
+    assert!(same_bits(&decode_floats(&structural).unwrap(), &v));
+    assert!(structural.len() * 4 < v.len() * 8, "structural menu: {} B for {} doubles", structural.len(), v.len());
+    let full = with_menu(Menu::Full, || emit_decimal_float_column(&v)).unwrap();
+    assert!(same_bits(&decode_floats(&full).unwrap(), &v));
+    assert!(full.len() * 16 < v.len() * 8, "full menu: {} B for {} doubles", full.len(), v.len());
+}
+
+#[test]
+fn decimal_floats_keep_every_special_value_bit_exact() {
+    let mut v: Vec<f64> = (0..5_000).map(|i| (i % 977) as f64 / 100.0).collect();
+    let specials = [
+        -0.0,
+        f64::from_bits(0x7FF8_0000_0000_1234),
+        f64::from_bits(0xFFF0_0000_0000_0001),
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::from_bits(1),
+        f64::MAX,
+        f64::MIN_POSITIVE,
+        0.1 + 0.2,
+        1e22,
+        9_007_199_254_740_993.0,
+        -123_456_789.123_456_79,
+    ];
+    for (j, &s) in specials.iter().enumerate() {
+        v[j * 397 + 11] = s;
+    }
+    let enc = emit_decimal_float_column(&v).expect("mostly decimal");
+    assert!(same_bits(&decode_floats(&enc).unwrap(), &v), "every special value survives bit-for-bit");
+}
+
+#[test]
+fn full_precision_floats_do_not_take_the_decimal_form() {
+    let mut rng = Mix(13);
+    let v: Vec<f64> = (0..5_000).map(|_| f64::from_bits(rng.next() >> 2 | 0x3FF0_0000_0000_0000)).collect();
+    assert!(emit_decimal_float_column(&v).is_none(), "no decimal exponent covers random mantissas");
+    assert!(emit_decimal_float_column(&[]).is_none());
+}
+
+#[test]
+fn a_mutated_decimal_float_column_never_panics_and_respects_the_budget() {
+    let v: Vec<f64> = (0..1_000).map(|i| (i * 7 % 1_000) as f64 / 8.0).collect();
+    let enc = emit_decimal_float_column(&v).unwrap();
+    for cut in 0..enc.len() {
+        let _ = decode_floats(&enc[..cut]);
+    }
+    let mut rng = Mix(14);
+    for _ in 0..600 {
+        let mut m = enc.clone();
+        let i = rng.below(m.len() as u64) as usize;
+        m[i] ^= 1 << rng.below(8);
+        let _ = decode_floats(&m);
+    }
+    let mut pos = 1;
+    assert!(decode_float_column_body(T_FLOATS_DECIMAL, &enc, &mut pos, 999, 0).is_none(), "1000 > budget 999");
+}
+
+#[test]
+fn the_structural_menu_never_runs_the_entropy_coder() {
+    // The default menu is the cheap one: a column the full menu entropy-codes describes structurally until
+    // a caller asks for the full menu, and the scope restores the default afterwards.
+    let mut rng = Mix(15);
+    let v: Vec<i64> = (0..5_000).map(|_| rng.geometric(50)).collect();
+    assert_eq!(menu(), Menu::Structural);
+    let mut structural = Vec::new();
+    emit_best_int_column(&v, &mut structural);
+    assert_ne!(structural[0], T_INTS_CM);
+    let mut full = Vec::new();
+    with_menu(Menu::Full, || emit_best_int_column(&v, &mut full));
+    assert_eq!(full[0], T_INTS_CM);
+    assert!(full.len() < structural.len());
+    assert_eq!(menu(), Menu::Structural, "the scope restores the default");
+    let _ = std::panic::catch_unwind(|| with_menu(Menu::Full, || panic!("inside")));
+    assert_eq!(menu(), Menu::Structural, "and restores it on unwind");
+}
+
+// ---- Conditional XOR: the high bits first, the low bits against the last value that shared them -----
+
+/// Bit patterns shaped like full-precision coordinates: points around 200 sites (so their high bits
+/// cluster on each site's prefix), a third of them recurring at an arbitrary distance — the POI shape.
+fn clustered_patterns(n: usize, seed: u64) -> Vec<i64> {
+    let mut rng = Mix(seed);
+    let sites: Vec<f64> = (0..200).map(|_| 30.0 + (rng.next() % 2_000_000) as f64 / 100_000.0).collect();
+    let mut out: Vec<i64> = Vec::with_capacity(n);
+    for _ in 0..n {
+        if !out.is_empty() && rng.next() % 100 < 34 {
+            let j = (rng.next() % out.len() as u64) as usize;
+            out.push(out[j]);
+        } else {
+            let site = sites[(rng.next() % sites.len() as u64) as usize];
+            let x = site + (rng.next() % 1_000_003) as f64 * 1e-9;
+            out.push(x.to_bits() as i64);
+        }
+    }
+    out
+}
+
+#[test]
+fn conditional_xor_describes_recurring_values_under_shared_prefixes() {
+    let v = clustered_patterns(12_000, 31);
+    roundtrips(&v);
+    let enc = describe_int_seq(&v);
+    assert_eq!(enc[0], T_INTS_CXOR, "the conditional-xor form wins on clustered, recurring patterns");
+    // On real coordinates the margin is large (POI: 41.2 against 47.3 bits a value) and the corpus
+    // ratchet holds it; here the lock is that the split is chosen and strictly beats the entropy-coded
+    // column on its own.
+    let cm = cm_encode_int_column(&v).len();
+    assert!(enc.len() < cm, "conditional xor {} B vs the entropy-coded column alone {cm} B", enc.len());
+}
+
+#[test]
+fn conditional_xor_round_trips_every_split_and_extreme() {
+    let mut rng = Mix(32);
+    let shapes: Vec<Vec<i64>> = vec![
+        clustered_patterns(3_000, 33),
+        (0..3_000).map(|_| rng.next() as i64).collect(),
+        (0..3_000).map(|i| [i64::MIN, i64::MAX, 0, -1, 1][i % 5]).collect(),
+        (0..3_000).map(|_| (rng.next() % 7) as i64 * (1 << 40)).collect(),
+    ];
+    for v in &shapes {
+        let bits: Vec<u64> = v.iter().map(|&x| x as u64).collect();
+        for split in [4u32, 8, 20, 32, 44, 60] {
+            let enc = conditional_xor_encode(&bits, split);
+            assert_eq!(enc[0], T_INTS_CXOR);
+            assert_eq!(decode_int_seq(&enc).as_deref(), Some(v.as_slice()), "split {split}");
+        }
+    }
+}
+
+#[test]
+fn a_mutated_conditional_xor_column_never_panics() {
+    let v = clustered_patterns(800, 34);
+    let bits: Vec<u64> = v.iter().map(|&x| x as u64).collect();
+    let enc = conditional_xor_encode(&bits, 32);
+    for cut in 0..enc.len() {
+        let _ = decode_int_seq(&enc[..cut]);
+    }
+    let mut rng = Mix(35);
+    for _ in 0..600 {
+        let mut m = enc.clone();
+        let i = rng.below(m.len() as u64) as usize;
+        m[i] ^= 1 << rng.below(8);
+        let _ = decode_int_seq(&m);
+    }
+}
