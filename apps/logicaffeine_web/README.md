@@ -84,7 +84,8 @@ feed the `guide_review` deck.
 **Learn** (`/learn`) walks the curriculum as a roadmap of short lessons; **Benchmarks** (`/benchmarks`)
 shows LOGOS against other languages with a live optimization-toggle tree, backed by
 `logicaffeine_compile::optimization::{REGISTRY, OptimizationConfig}`, that re-compiles
-Rust in the browser.
+Rust in the browser, and in its other tabs the SAT solver with the EDA engines on it (model
+checking, bounded model checking, rewriting, counting, cryptanalysis) and the wire codec against their counterparts.
 
 The curriculum assets live under `assets/curriculum/`, one directory per era
 (`01_first-steps`, `02_building-blocks`, `03_expanding-horizons`, `04_mastery`), each

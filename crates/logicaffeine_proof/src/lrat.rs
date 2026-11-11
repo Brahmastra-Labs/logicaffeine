@@ -7,8 +7,11 @@
 //! thousands of clauses cannot pay a learned clause. [`refutation`] instead finds each clause's LRAT hint chain
 //! (Cruz-Filipe et al., 2017) with two watched literals (Moskewicz et al., *Chaff*, 2001), walking the trace
 //! backward from the empty clause, the `drat-trim` order (Wetzler, Heule & Hunt, 2014): a learned clause no later
-//! step uses is never checked and never shipped. [`check`] replays a proof in time linear in its hints, and
-//! [`Lrat::to_text`] prints the standard LRAT text that [`crate::proof_emit::check_lrat`] and `cake_lpr` read.
+//! step uses is never checked and never shipped. The unit-propagation fixpoint of the clauses before each step is
+//! propagated once, as the trace is read forward, and cut back as the walk passes each clause, so a chain costs the
+//! propagation of its own negation, not of everything the formula forces. [`check`] replays a proof in time linear in
+//! its hints, and [`Lrat::to_text`] prints the standard LRAT text that [`crate::proof_emit::check_lrat`] and
+//! `cake_lpr` read.
 //! [`derivation`] trims the same way back from any target clauses of a log, not only the empty one — what one
 //! incremental solver derives across many queries — and [`check_derivation`] replays it and finds each target.
 //!
@@ -85,14 +88,17 @@ pub fn derivation(num_vars: usize, original: &[Vec<Lit>], log: &[Vec<Lit>], targ
     if original.iter().chain(log).flatten().any(|l| l.var() as usize >= num_vars) || targets.iter().any(|&t| t >= log.len()) {
         return None;
     }
-    let mut db = Propagator::new(num_vars, original.iter().chain(log));
+    let mut db = Trimmer::new(num_vars);
+    for c in original.iter().chain(log) {
+        db.attach(c);
+    }
     let mut needed = vec![false; n + log.len()];
     for &t in targets {
         needed[n + t] = true;
     }
     let mut chains: Vec<Option<Vec<u64>>> = vec![None; log.len()];
     for j in (0..log.len()).rev() {
-        db.deactivate(n + j);
+        db.withdraw(n + j);
         if !needed[n + j] {
             continue;
         }
@@ -210,9 +216,9 @@ enum Shape {
     Tautology,
 }
 
-/// A clause database for repeated RUP queries: two watched literals a clause, clauses switched off one by one as the
-/// backward walk passes them, every query starting from an empty assignment.
-struct Propagator {
+/// A clause database for repeated RUP queries: two watched literals a clause, clauses switched on and off by a flag
+/// in any order (as a forward checker adds and deletes them), every query starting from an empty assignment.
+pub(crate) struct Propagator {
     /// Each clause with its repeated literals merged; a watched clause keeps its two watches in front.
     clauses: Vec<Vec<Lit>>,
     shape: Vec<Shape>,
@@ -235,7 +241,7 @@ fn widx(l: Lit) -> usize {
 }
 
 impl Propagator {
-    fn new<'a>(num_vars: usize, clauses: impl Iterator<Item = &'a Vec<Lit>>) -> Propagator {
+    pub(crate) fn new<'a>(num_vars: usize, clauses: impl Iterator<Item = &'a Vec<Lit>>) -> Propagator {
         let mut p = Propagator {
             clauses: Vec::new(),
             shape: Vec::new(),
@@ -282,8 +288,17 @@ impl Propagator {
         p
     }
 
-    fn deactivate(&mut self, ci: usize) {
+    pub(crate) fn deactivate(&mut self, ci: usize) {
         self.active[ci] = false;
+    }
+
+    pub(crate) fn activate(&mut self, ci: usize) {
+        self.active[ci] = true;
+    }
+
+    /// Whether `¬c` propagates to a conflict over the active clauses: `c` is RUP.
+    pub(crate) fn refutes(&mut self, c: &[Lit]) -> bool {
+        self.chain(c).is_some()
     }
 
     fn val(&self, l: Lit) -> i8 {
@@ -401,6 +416,309 @@ impl Propagator {
             if r != 0 {
                 needed.push((self.pos[v], r - 1));
                 stack.extend(self.clauses[r - 1].iter().map(|l| l.var() as usize));
+            }
+        }
+        for v in marked {
+            self.seen[v] = false;
+        }
+        needed.sort_unstable();
+        let mut chain: Vec<u64> = needed.into_iter().map(|(_, r)| r as u64 + 1).collect();
+        chain.push(ci as u64 + 1);
+        chain
+    }
+}
+
+/// A watch on a clause of a [`Trimmer`]: the clause, and another of its literals checked first, a true one leaving
+/// the clause unread. A binary clause's other literal is all of it, so the watch decides it without reading it.
+#[derive(Clone, Copy)]
+struct Watch {
+    blocker: Lit,
+    clause: u32,
+    binary: bool,
+}
+
+/// The clause database of a backward trim, propagated once: the formula and then each log clause attached in order
+/// against the unit-propagation fixpoint of the clauses before it, the fixpoint kept on a trail. Withdrawing the last
+/// clause still attached cuts the trail back to where its attachment found it, so the fixpoint is always that of the
+/// clauses attached, and a query propagates only its own negation on top of it. The clauses' literals lie end to end
+/// in one arena, and a watch on a withdrawn clause is dropped the first time propagation meets it: clauses leave last
+/// first, so a clause is attached exactly when its number is below the count still attached.
+struct Trimmer {
+    /// Every clause's literals with its repeated ones merged, a watched clause's two watches in front.
+    lits: Vec<Lit>,
+    /// Clause `ci`'s literals are `lits[start[ci]..start[ci + 1]]`.
+    start: Vec<usize>,
+    /// The clauses still attached: those numbered below.
+    live: usize,
+    /// Per literal, the watches on the clauses watching it: visited when the literal becomes false.
+    watches: Vec<Vec<Watch>>,
+    value: Vec<i8>,
+    /// Per variable, the clause that forced it plus one (0 when a query assumed it, or unset).
+    reason: Vec<usize>,
+    /// Per variable, its place on the trail.
+    pos: Vec<usize>,
+    trail: Vec<Lit>,
+    seen: Vec<bool>,
+    /// Per variable, the sign a clause being read holds it with (0 for none).
+    sign: Vec<i8>,
+    /// Per clause, the trail's length when it was attached.
+    marks: Vec<usize>,
+    /// Once the fixpoint conflicts: the clause it conflicts in, and the clause whose attachment made it.
+    conflict: Option<(usize, usize)>,
+}
+
+impl Trimmer {
+    fn new(num_vars: usize) -> Trimmer {
+        Trimmer {
+            lits: Vec::new(),
+            start: vec![0],
+            live: 0,
+            watches: vec![Vec::new(); num_vars * 2],
+            value: vec![0; num_vars],
+            reason: vec![0; num_vars],
+            pos: vec![0; num_vars],
+            trail: Vec::new(),
+            seen: vec![false; num_vars],
+            sign: vec![0; num_vars],
+            marks: Vec::new(),
+            conflict: None,
+        }
+    }
+
+    fn clause(&self, ci: usize) -> &[Lit] {
+        &self.lits[self.start[ci]..self.start[ci + 1]]
+    }
+
+    fn val(&self, l: Lit) -> i8 {
+        let v = self.value[l.var() as usize];
+        if l.is_positive() {
+            v
+        } else {
+            -v
+        }
+    }
+
+    fn assign(&mut self, l: Lit, reason: usize) {
+        let v = l.var() as usize;
+        self.value[v] = if l.is_positive() { 1 } else { -1 };
+        self.reason[v] = reason;
+        self.pos[v] = self.trail.len();
+        self.trail.push(l);
+    }
+
+    /// Unassign the trail past its first `len` literals.
+    fn cut(&mut self, len: usize) {
+        for i in len..self.trail.len() {
+            let v = self.trail[i].var() as usize;
+            self.value[v] = 0;
+            self.reason[v] = 0;
+        }
+        self.trail.truncate(len);
+    }
+
+    /// The literals of `c`, each once, and whether it holds a literal beside its negation.
+    fn merged(&mut self, c: &[Lit]) -> (Vec<Lit>, bool) {
+        let mut lits: Vec<Lit> = Vec::with_capacity(c.len());
+        let mut tautology = false;
+        for &l in c {
+            let s = if l.is_positive() { 1 } else { -1 };
+            match self.sign[l.var() as usize] {
+                0 => {
+                    self.sign[l.var() as usize] = s;
+                    lits.push(l);
+                }
+                held if held == s => {}
+                _ => tautology = true,
+            }
+        }
+        for l in &lits {
+            self.sign[l.var() as usize] = 0;
+        }
+        (lits, tautology)
+    }
+
+    /// Add clause `c` and carry the fixpoint through it: its watches the two literals the trail leaves least false
+    /// (true, then open, then false latest), and a clause the trail leaves unit or false forcing its literal or making
+    /// the conflict. Once the fixpoint conflicts a clause is only watched, and withdrawing back past the conflict
+    /// withdraws it first.
+    fn attach(&mut self, c: &[Lit]) {
+        let ci = self.marks.len();
+        let (mut lits, tautology) = self.merged(c);
+        self.marks.push(self.trail.len());
+        self.live = ci + 1;
+        if tautology {
+            self.lits.extend(&lits);
+            self.start.push(self.lits.len());
+            return;
+        }
+        let rank = |t: &Trimmer, l: Lit| match t.val(l) {
+            1 => (0, 0),
+            0 => (1, 0),
+            _ => (2, usize::MAX - t.pos[l.var() as usize]),
+        };
+        lits.sort_by_key(|&l| rank(self, l));
+        if lits.len() >= 2 {
+            let binary = lits.len() == 2;
+            self.watches[widx(lits[0])].push(Watch { blocker: lits[1], clause: ci as u32, binary });
+            self.watches[widx(lits[1])].push(Watch { blocker: lits[0], clause: ci as u32, binary });
+        }
+        let first = lits.first().copied();
+        let unit = lits.len() == 1 || lits.len() >= 2 && self.val(lits[1]) == -1;
+        self.lits.extend(&lits);
+        self.start.push(self.lits.len());
+        if self.conflict.is_some() {
+            return;
+        }
+        match first {
+            None => self.conflict = Some((ci, ci)),
+            Some(l) if unit => match self.val(l) {
+                1 => {}
+                -1 => self.conflict = Some((ci, ci)),
+                _ => {
+                    let head = self.trail.len();
+                    self.assign(l, ci + 1);
+                    if let Some(k) = self.propagate(head) {
+                        self.conflict = Some((k, ci));
+                    }
+                }
+            },
+            Some(_) => {}
+        }
+    }
+
+    /// Withdraw clause `ci`, the last still attached: the fixpoint cut back to the clauses before it.
+    fn withdraw(&mut self, ci: usize) {
+        debug_assert_eq!(ci + 1, self.live, "clauses are withdrawn last first");
+        self.live = ci;
+        if self.conflict.is_some_and(|(_, made)| made >= ci) {
+            self.conflict = None;
+        }
+        self.cut(self.marks[ci]);
+    }
+
+    /// Propagate the trail from place `head` over the attached clauses: the clause a conflict falsifies, if one does.
+    fn propagate(&mut self, mut head: usize) -> Option<usize> {
+        while head < self.trail.len() {
+            let falsified = self.trail[head].negated();
+            head += 1;
+            let mut ws = std::mem::take(&mut self.watches[widx(falsified)]);
+            let mut conflict = None;
+            let mut i = 0;
+            while i < ws.len() {
+                let w = ws[i];
+                let ci = w.clause as usize;
+                if ci >= self.live {
+                    ws.swap_remove(i);
+                    continue;
+                }
+                if self.val(w.blocker) == 1 {
+                    i += 1;
+                    continue;
+                }
+                if w.binary {
+                    if self.val(w.blocker) == -1 {
+                        conflict = Some(ci);
+                        break;
+                    }
+                    self.assign(w.blocker, ci + 1);
+                    i += 1;
+                    continue;
+                }
+                let (s, e) = (self.start[ci], self.start[ci + 1]);
+                if self.lits[s] == falsified {
+                    self.lits.swap(s, s + 1);
+                }
+                let first = self.lits[s];
+                ws[i].blocker = first;
+                if self.val(first) == 1 {
+                    i += 1;
+                    continue;
+                }
+                if let Some(k) = (s + 2..e).find(|&k| self.val(self.lits[k]) != -1) {
+                    self.lits.swap(s + 1, k);
+                    let watched = self.lits[s + 1];
+                    self.watches[widx(watched)].push(Watch { blocker: first, clause: ci as u32, binary: false });
+                    ws.swap_remove(i);
+                    continue;
+                }
+                if self.val(first) == -1 {
+                    conflict = Some(ci);
+                    break;
+                }
+                self.assign(first, ci + 1);
+                i += 1;
+            }
+            self.watches[widx(falsified)] = ws;
+            if conflict.is_some() {
+                return conflict;
+            }
+        }
+        None
+    }
+
+    /// The hint chain that refutes `¬c` over the attached clauses, or `None` when propagation stops short of a
+    /// conflict, the trail left as it was. A literal of `¬c` the fixpoint already holds is taken as `¬c`'s own, never
+    /// by the clause that forced it, which `¬c` satisfies; a literal of `c` the fixpoint holds closes the chain at the
+    /// clause that forced it, the one forced first, whose reasons hold no other; and a fixpoint that conflicts closes it
+    /// at its conflict.
+    fn chain(&mut self, c: &[Lit]) -> Option<Vec<u64>> {
+        let (c, tautology) = self.merged(c);
+        if tautology {
+            return Some(Vec::new());
+        }
+        let base = self.trail.len();
+        let mut taken: Vec<(usize, usize)> = Vec::new();
+        for &l in &c {
+            let v = l.var() as usize;
+            if self.val(l.negated()) == 1 && self.reason[v] != 0 {
+                taken.push((v, self.reason[v]));
+                self.reason[v] = 0;
+            }
+        }
+        let held = c.iter().copied().filter(|&l| self.val(l) == 1).min_by_key(|l| self.pos[l.var() as usize]);
+        let result = match held {
+            Some(l) => {
+                let v = l.var() as usize;
+                let forced = self.reason[v] - 1;
+                taken.push((v, self.reason[v]));
+                self.reason[v] = 0;
+                Some(self.explain(forced))
+            }
+            None => match self.conflict {
+                Some((k, _)) => Some(self.explain(k)),
+                None => {
+                    for &l in &c {
+                        if self.val(l) == 0 {
+                            self.assign(l.negated(), 0);
+                        }
+                    }
+                    self.propagate(base).map(|k| self.explain(k))
+                }
+            },
+        };
+        self.cut(base);
+        for (v, r) in taken {
+            self.reason[v] = r;
+        }
+        result
+    }
+
+    /// The reasons behind every literal of the conflict clause `ci`, in trail order, then `ci` itself.
+    fn explain(&mut self, ci: usize) -> Vec<u64> {
+        let mut needed: Vec<(usize, usize)> = Vec::new();
+        let mut stack: Vec<usize> = self.clause(ci).iter().map(|l| l.var() as usize).collect();
+        let mut marked: Vec<usize> = Vec::new();
+        while let Some(v) = stack.pop() {
+            if self.seen[v] {
+                continue;
+            }
+            self.seen[v] = true;
+            marked.push(v);
+            let r = self.reason[v];
+            if r != 0 {
+                needed.push((self.pos[v], r - 1));
+                let (s, e) = (self.start[r - 1], self.start[r]);
+                stack.extend(self.lits[s..e].iter().map(|l| l.var() as usize));
             }
         }
         for v in marked {

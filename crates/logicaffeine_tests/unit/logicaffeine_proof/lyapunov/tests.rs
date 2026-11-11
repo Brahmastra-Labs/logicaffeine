@@ -1643,3 +1643,194 @@ fn find_generators_contributes_signed_cross_symmetry() {
     );
     assert!(broken >= 1, "the break stays satisfiable");
 }
+
+/// `extract_xor` is the gadget extraction at its width bound of twelve, on every family the collapse engine reads
+/// and on random gadget mixtures, in a canonical order: two calls on one formula give one system.
+#[test]
+fn extract_xor_is_the_gadgets_of_at_most_twelve_variables() {
+    let mut formulas: Vec<(usize, Vec<Vec<Lit>>)> = Vec::new();
+    for seed in [1u64, 7, 42, 100] {
+        let (_, cnf, _) = families::tseitin_expander(12, seed);
+        formulas.push((cnf.num_vars, cnf.clauses));
+    }
+    let (php, _) = families::php(5);
+    formulas.push((php.num_vars, php.clauses));
+    // One 13-variable gadget (4096 clauses) is past the bound; its 12-variable sub-gadget is not.
+    let wide: Vec<Vec<Lit>> = (0u32..1 << 13).filter(|m| m.count_ones() % 2 == 0).map(|m| (0..13).map(|i| Lit::new(i, m & (1 << i) == 0)).collect()).collect();
+    let narrow: Vec<Vec<Lit>> = (0u32..1 << 12).filter(|m| m.count_ones() % 2 == 1).map(|m| (0..12).map(|i| Lit::new(i + 20, m & (1 << i) == 0)).collect()).collect();
+    formulas.push((40, wide.iter().chain(&narrow).cloned().collect()));
+    for (num_vars, clauses) in &formulas {
+        let eqs = extract_xor(*num_vars, clauses);
+        assert_eq!(eqs, crate::xorsat::xor_gadgets(*num_vars, clauses, 12));
+        assert_eq!(eqs, extract_xor(*num_vars, clauses), "the order is canonical");
+    }
+    let last = extract_xor(40, &formulas.last().unwrap().1);
+    assert_eq!(last, vec![XorEquation::new((20..32).collect::<Vec<usize>>(), false)], "only the twelve-variable gadget is read");
+}
+
+/// The algebraic potential as first written, by dense elimination: the pivots still to find after each pivot, and
+/// whether a `0 = 1` row appears.
+fn dense_gaussian_potential(equations: &[XorEquation], num_vars: usize) -> (Vec<u64>, bool) {
+    let mut rows: Vec<(Vec<bool>, bool)> = equations
+        .iter()
+        .map(|eq| {
+            let mut lhs = vec![false; num_vars];
+            for &v in &eq.vars {
+                if v < num_vars {
+                    lhs[v] ^= true;
+                }
+            }
+            (lhs, eq.rhs)
+        })
+        .collect();
+    let mut trajectory = Vec::new();
+    let mut remaining = num_vars as u64;
+    let mut used = vec![false; rows.len()];
+    for col in 0..num_vars {
+        if let Some(pr) = (0..rows.len()).find(|&r| !used[r] && rows[r].0[col]) {
+            used[pr] = true;
+            let pivot = rows[pr].clone();
+            for r in 0..rows.len() {
+                if r != pr && rows[r].0[col] {
+                    for (a, b) in rows[r].0.iter_mut().zip(&pivot.0) {
+                        *a ^= *b;
+                    }
+                    rows[r].1 ^= pivot.1;
+                }
+            }
+            remaining -= 1;
+            trajectory.push(remaining);
+        }
+    }
+    let reached = rows.iter().any(|(lhs, rhs)| !lhs.iter().any(|&b| b) && *rhs);
+    if reached {
+        trajectory.push(0);
+    }
+    if trajectory.is_empty() {
+        trajectory.push(remaining);
+    }
+    (trajectory, reached)
+}
+
+/// The algebraic potential is the dense elimination's, trajectory and goal alike, on systems consistent and not.
+#[test]
+fn the_gaussian_potential_is_the_dense_eliminations() {
+    let mut state = 0x1A9u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let (mut reached, mut open) = (0usize, 0usize);
+    for round in 0..3000u64 {
+        let num_vars = 1 + (next() % 24) as usize;
+        let m = (next() % 36) as usize;
+        let eqs: Vec<XorEquation> = (0..m)
+            .map(|_| {
+                let width = (next() % 5) as usize;
+                let vars: Vec<usize> = (0..width).map(|_| (next() % (num_vars as u64 + 2)) as usize).collect();
+                XorEquation::new(vars, next() & 1 == 0)
+            })
+            .collect();
+        let got = gaussian_lyapunov(&eqs, num_vars);
+        assert_eq!(got, dense_gaussian_potential(&eqs, num_vars), "round {round}: n={num_vars} m={m}");
+        if got.1 {
+            reached += 1;
+        } else {
+            open += 1;
+        }
+    }
+    assert!(reached >= 300 && open >= 300, "both outcomes are exercised: {reached} reached, {open} open");
+}
+
+/// The potential of a 250,000-equation chain of equivalences closed into a contradiction — ~10¹⁶ dense steps — comes
+/// within a minute unoptimized on a loaded box: it costs the system's sparsity.
+#[test]
+fn the_gaussian_potential_costs_the_sparsity_of_the_system() {
+    let n = 250_000usize;
+    let mut eqs: Vec<XorEquation> = (0..n - 1).map(|i| XorEquation::new(vec![i, i + 1], false)).collect();
+    eqs.push(XorEquation::new(vec![0, n - 1], true));
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(gaussian_lyapunov(&eqs, n));
+    });
+    let (trajectory, reached) = rx.recv_timeout(std::time::Duration::from_secs(60)).expect("the potential costs the system's sparsity");
+    assert!(reached);
+    assert_eq!(trajectory.len(), n);
+    assert_eq!(trajectory[..3], [n as u64 - 1, n as u64 - 2, n as u64 - 3]);
+    assert_eq!(*trajectory.last().unwrap(), 0);
+}
+
+/// The item-swap prefilter of measure synthesis declines only swaps that are no symmetry: a variable and its image
+/// under the swap of items 0 and 1 must occur in as many clauses with each sign. Locked on random formulas over
+/// every grid shape, and on pigeonhole and clique colouring, whose swaps it must pass.
+#[test]
+fn the_item_swap_prefilter_declines_only_non_symmetries() {
+    let mut state = 0x5A4Bu64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let mut declined = 0usize;
+    for round in 0..4000u64 {
+        let num_vars = 2 + (next() % 12) as usize;
+        let m = (next() % 14) as usize;
+        let mut formula: Vec<Vec<Lit>> = (0..m)
+            .map(|_| (0..1 + next() % 3).map(|_| Lit::new((next() % num_vars as u64) as u32, next() & 1 == 0)).collect())
+            .collect();
+        if next() % 3 == 0 {
+            let bins = 1 + (next() % (num_vars as u64 / 2).max(1)) as usize;
+            let swap = swap_items(num_vars, bins, 0, 1);
+            let images: Vec<Vec<Lit>> = formula.iter().map(|c| swap.apply_clause(c)).collect();
+            formula.extend(images);
+        }
+        let occurrences = SignedOccurrences::of(num_vars, &formula);
+        for bins in 1..num_vars {
+            if num_vars % bins != 0 || num_vars / bins <= bins {
+                continue;
+            }
+            if !occurrences.admit_item_swap(bins) {
+                declined += 1;
+                assert!(!perm_is_automorphism(&formula, &swap_items(num_vars, bins, 0, 1)), "round {round}: bins {bins}");
+            }
+        }
+    }
+    assert!(declined >= 1000, "{declined} swaps declined");
+    let (php, _) = families::php(6);
+    let bins = 5;
+    assert!(SignedOccurrences::of(php.num_vars, &php.clauses).admit_item_swap(bins));
+    assert!(synthesize_measure(php.num_vars, &php.clauses).is_some());
+}
+
+/// The covering collapse claims what its theorem gives: after the descent, the empty clause by unit propagation.
+/// A formula symmetric under the item swap whose residual still needs search — random 3-SAT over a 20 × 15 grid at
+/// the threshold, closed under swapping items 0 and 1 — is declined at once, not searched to its end.
+#[test]
+fn a_collapse_whose_residual_needs_search_is_declined_without_searching() {
+    let (items, bins) = (20usize, 15usize);
+    let n = items * bins;
+    let mut state = 0x5EA2u64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let swap = swap_items(n, bins, 0, 1);
+    let mut formula: Vec<Vec<Lit>> = Vec::new();
+    for _ in 0..(4.26 * n as f64) as usize {
+        let c: Vec<Lit> = (0..3).map(|_| Lit::new((next() % n as u64) as u32, next() & 1 == 0)).collect();
+        formula.push(swap.apply_clause(&c));
+        formula.push(c);
+    }
+    assert!(perm_is_automorphism(&formula, &swap), "the formula is symmetric under the item swap");
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(solve_by_measure_synthesis(n, &formula).is_some());
+    });
+    let collapsed = rx.recv_timeout(std::time::Duration::from_secs(60)).expect("the collapse is checked by propagation, not search");
+    assert!(!collapsed, "no descent of a random formula reaches a conflict by propagation alone");
+}

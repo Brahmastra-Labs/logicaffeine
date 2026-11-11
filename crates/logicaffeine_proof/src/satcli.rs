@@ -14,9 +14,8 @@ use std::path::Path;
 
 use crate::cdcl::Lit;
 use crate::dimacs;
-use crate::proof::ProofStep;
 use crate::proof_emit;
-use crate::solve::{solve_structured, Answer, Route};
+use crate::solve::{certified_proof, solve_structured, Answer, Solved};
 
 /// Run the solver on `input`, writing the solution to `out` and comments /
 /// diagnostics to `err`. When `proof_path` is given and the verdict is
@@ -67,77 +66,27 @@ pub fn run(
         Answer::Unsat => {
             let _ = writeln!(out, "s UNSATISFIABLE");
             if let Some(path) = proof_path {
-                write_proof(
-                    err,
-                    path,
-                    solved.via,
-                    cnf.num_vars,
-                    &cnf.clauses,
-                    &solved.proof,
-                );
+                write_proof(err, path, cnf.num_vars, &cnf.clauses, &solved);
             }
             20
         }
     }
 }
 
-/// Compile an algebraic route's refutation (GF(2) parity or GF(p) modular) to DRAT resolvent steps,
-/// or `None` if the resolution route blows past its budget (then the verdict stands on the native
-/// algebraic certificate, but no clausal proof is exported — see [`crate::xor_drat`]).
-fn algebraic_drat(via: Route, num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Vec<ProofStep>> {
-    use crate::xor_drat::{emit_modp_drat, emit_xor_drat};
-    let resolvents = match via {
-        Route::Parity => {
-            let eqs = crate::lyapunov::extract_xor(num_vars, clauses);
-            let refutation = match crate::xorsat::solve(&eqs, num_vars) {
-                crate::xorsat::XorOutcome::Unsat(s) => s,
-                crate::xorsat::XorOutcome::Sat(_) => return None,
-            };
-            emit_xor_drat(&eqs, &refutation)?
-        }
-        Route::ModP => emit_modp_drat(num_vars, clauses)?,
-        _ => return None,
-    };
-    Some(resolvents.into_iter().map(ProofStep::Rup).collect())
-}
-
-/// Write the UNSAT certificate: DRAT for a RUP-only proof (the CDCL route), DPR for a proof that
-/// carries PR symmetry steps (the symmetry route), or the algebraic GF(2)/GF(p) bridge compiled to
-/// DRAT (the parity / mod-p routes). The internal solve already verified it.
-fn write_proof(
-    err: &mut dyn Write,
-    path: &Path,
-    via: Route,
-    num_vars: usize,
-    clauses: &[Vec<Lit>],
-    steps: &[ProofStep],
-) {
+/// Write the UNSAT proof [`certified_proof`] gives, checked against the formula alone: DRAT for RUP additions, DPR
+/// when it carries PR steps whose witnesses reduce to assignments, else Heule's `.sr` for `sr2drat`. A route with no
+/// clausal proof gets a note saying what its verdict rests on.
+fn write_proof(err: &mut dyn Write, path: &Path, num_vars: usize, clauses: &[Vec<Lit>], solved: &Solved) {
     let display = path.display();
-    // Parity / mod-p routes certify internally with a native algebraic witness and carry no clausal
-    // steps; compile their linear-dependency refutation to a strict DRAT proof on demand.
-    if matches!(via, Route::Parity | Route::ModP) {
-        match algebraic_drat(via, num_vars, clauses) {
-            Some(alg) => match proof_emit::emit_drat(num_vars, clauses, &alg) {
-                Ok(drat) => {
-                    if let Err(e) = std::fs::write(path, drat) {
-                        let _ = writeln!(err, "c error: cannot write proof {display}: {e}");
-                    } else {
-                        let _ = writeln!(err, "c proof: DRAT via the {via:?} algebraic bridge — verify with `drat-trim {display}`");
-                    }
-                }
-                Err(e) => {
-                    let _ = writeln!(err, "c warning: algebraic proof not RUP-emittable ({e:?}) — verified internally");
-                }
-            },
-            None => {
-                let _ = writeln!(
-                    err,
-                    "c warning: {via:?} DRAT exceeded the resolution budget (would blow up) — verdict certified internally only"
-                );
-            }
-        }
+    let via = solved.via;
+    let Some(steps) = certified_proof(num_vars, clauses, solved) else {
+        let _ = writeln!(
+            err,
+            "c note: no clausal proof written — the {via:?} route's verdict rests on its own certificate, which has no clausal form here"
+        );
         return;
-    }
+    };
+    let steps = steps.as_slice();
     if let Ok(drat) = proof_emit::emit_drat(num_vars, clauses, steps) {
         if let Err(e) = std::fs::write(path, drat) {
             let _ = writeln!(err, "c error: cannot write proof {display}: {e}");
@@ -161,10 +110,7 @@ fn write_proof(
             }
         }
         Err(e) => {
-            let _ = writeln!(
-                err,
-                "c warning: proof not exportable ({e:?}) — verified internally"
-            );
+            let _ = writeln!(err, "c warning: the checked proof has no standard text form here ({e:?})");
         }
     }
 }

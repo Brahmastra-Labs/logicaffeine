@@ -41,6 +41,7 @@ mod bars;
 mod charts;
 mod codec;
 mod data;
+mod eda;
 mod interp;
 mod jit_code;
 mod language;
@@ -50,6 +51,7 @@ use self::bars::*;
 use self::charts::*;
 use self::codec::*;
 use self::data::*;
+use self::eda::*;
 use self::interp::*;
 use self::jit_code::*;
 use self::language::*;
@@ -63,6 +65,10 @@ mod tests;
 #[cfg(test)]
 #[path = "../../../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/pages/benchmarks/solver_data_guard.rs"]
 mod solver_data_guard;
+
+#[cfg(test)]
+#[path = "../../../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/pages/benchmarks/eda_data_guard.rs"]
+mod eda_data_guard;
 
 const BENCHMARKS_STYLE: &str = include_str!("style.css");
 
@@ -1813,6 +1819,7 @@ fn BenchmarksLoaded() -> Element {
             if bench_tab() == BenchTab::Solver {
                 div { class: "bench-content",
                     SolverSection {}
+                    EdaSection {}
                 }
             }
             if bench_tab() == BenchTab::Codec {

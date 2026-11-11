@@ -432,3 +432,36 @@ fn the_bsgs_backend_decides_automorphism_membership() {
         "a non-automorphism variable swap must be rejected"
     );
 }
+
+#[test]
+fn a_rigid_random_formula_refines_to_discrete_and_has_no_generators() {
+    let cnf = crate::families::random_3sat(3000, 12_000, 0x51D);
+    let start = std::time::Instant::now();
+    let gens = find_generators(cnf.num_vars, &cnf.clauses);
+    assert!(gens.is_empty(), "a random formula of this size has no symmetry");
+    assert!(start.elapsed().as_secs() < 60, "refinement alone decides it ({:?})", start.elapsed());
+}
+
+#[test]
+fn disjoint_copies_of_a_formula_have_the_wreath_product_group() {
+    // PHP(3) (3 pigeons, 2 holes) has |Aut| = 3!·2! = 12; k disjoint copies have 12^k · k!.
+    let (base_vars, base) = {
+        let (cnf, _) = crate::families::php(3);
+        (cnf.num_vars, cnf.clauses)
+    };
+    assert_eq!(aut_order(base_vars, &base), 12);
+    for k in 2..=4usize {
+        let mut clauses: Vec<Vec<Lit>> = Vec::new();
+        for copy in 0..k {
+            let shift = (copy * base_vars) as u32;
+            for c in &base {
+                clauses.push(c.iter().map(|l| Lit::new(l.var() + shift, l.is_positive())).collect());
+            }
+        }
+        let factorial: u128 = (1..=k as u128).product();
+        assert_eq!(aut_order(k * base_vars, &clauses), 12u128.pow(k as u32) * factorial, "{k} copies");
+        for g in find_generators(k * base_vars, &clauses) {
+            assert!(perm_is_automorphism(&clauses, &g));
+        }
+    }
+}

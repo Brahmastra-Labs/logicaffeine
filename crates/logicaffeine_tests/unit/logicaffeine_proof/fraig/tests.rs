@@ -468,3 +468,269 @@ fn the_simulation_holds_the_nodes_the_pairs_reach_and_no_other() {
     let both = e.sim.signature(lhs.node()).0 == e.sim.signature(rhs.node()).0;
     assert!(both, "two equal sums simulate alike");
 }
+
+fn xorshift(seed: u64) -> impl FnMut() -> u64 {
+    let mut state = seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1;
+    move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    }
+}
+
+/// A random circuit over `inputs` inputs and `latches` latches: each gate an And, Or or Xor of two earlier nodes.
+fn random_sequential(seed: u64, inputs: usize, latches: usize, gates: usize) -> Aig {
+    let mut next = xorshift(seed);
+    let mut g = Aig::new();
+    let mut lits: Vec<AigLit> = (0..inputs).map(|i| named(&mut g, &format!("x{i}"))).collect();
+    for k in 0..latches {
+        let l = g.add_latch(Some(format!("q{k}")), crate::aig::Init::Zero);
+        lits.push(g.latch_lit(l));
+    }
+    for _ in 0..gates {
+        let a = lits[(next() % lits.len() as u64) as usize].with_phase(next() & 1 == 1);
+        let b = lits[(next() % lits.len() as u64) as usize].with_phase(next() & 1 == 1);
+        let c = match next() % 3 {
+            0 => g.and(a, b),
+            1 => g.or(a, b),
+            _ => g.xor(a, b),
+        };
+        lits.push(c);
+    }
+    g
+}
+
+/// A random circuit of mostly conjunctions over `inputs` inputs and `latches` latches, so that many of its nodes are
+/// rarely set and look alike under random patterns without being alike.
+fn rarely_set(seed: u64, inputs: usize, latches: usize, gates: usize) -> Aig {
+    let mut next = xorshift(seed);
+    let mut g = Aig::new();
+    let mut lits: Vec<AigLit> = (0..inputs).map(|i| named(&mut g, &format!("x{i}"))).collect();
+    for k in 0..latches {
+        let l = g.add_latch(Some(format!("q{k}")), crate::aig::Init::Zero);
+        lits.push(g.latch_lit(l));
+    }
+    for _ in 0..gates {
+        let a = lits[(next() % lits.len() as u64) as usize].with_phase(next() % 8 == 0);
+        let b = lits[(next() % lits.len() as u64) as usize].with_phase(next() % 8 == 0);
+        let c = if next() % 6 == 0 { g.xor(a, b) } else { g.and(a, b) };
+        lits.push(c);
+    }
+    g
+}
+
+#[test]
+fn a_node_is_found_the_first_node_joined_with_its_signature_through_every_counterexample() {
+    // Conjunctions over many inputs are alike under the first random words without being alike, and counterexamples
+    // drawn mostly true set them, so classes of several nodes split, across fills and words folded away; every class
+    // is found against the definition: the first node joined whose signature over every pattern so far is the node's.
+    let mut changed = 0;
+    for seed in 0..8u64 {
+        let g = rarely_set(seed, 16, 2, 160);
+        let nodes: Vec<u32> = (0..g.num_nodes() as u32).collect();
+        let mut sim = Sim::random(&g, 1 + seed as usize % 2, seed, nodes.clone());
+        let mut next = xorshift(seed + 100);
+        let mut joined: Vec<u32> = Vec::new();
+        let mut patterns = 0;
+        let classes = |sim: &Sim, joined: &[u32]| -> Vec<Option<u32>> {
+            let signature: Vec<Vec<u64>> = nodes.iter().map(|&n| sim.signature(n).0).collect();
+            nodes.iter().map(|&n| joined.iter().copied().find(|&m| signature[m as usize] == signature[n as usize])).collect()
+        };
+        let check = |sim: &Sim, expected: &[Option<u32>], when: &str| {
+            for &n in &nodes {
+                assert_eq!(sim.class_of(n), expected[n as usize], "seed {seed}, {when}: node {n}");
+            }
+        };
+        for &n in &nodes {
+            if next() % 4 != 0 {
+                sim.join(n);
+                joined.push(n);
+                check(&sim, &classes(&sim, &joined), &format!("node {n} joined"));
+            }
+            for _ in 0..next() % 4 {
+                let before = classes(&sim, &joined);
+                let inputs: Vec<bool> = (0..g.inputs().len()).map(|_| next() % 8 != 0).collect();
+                let latches: Vec<bool> = (0..g.latches().len()).map(|_| next() % 8 != 0).collect();
+                sim.add(&g, &inputs, &latches);
+                patterns += 1;
+                let values = g.eval(&inputs, &latches);
+                let (word, bit) = (sim.words - 1, sim.used - 1);
+                for &m in &nodes {
+                    let (signature, phase) = sim.signature(m);
+                    let simulated = (signature[word] >> bit & 1 == 1) ^ phase;
+                    assert_eq!(simulated, values[m as usize], "seed {seed}, pattern {patterns}: node {m} simulates as it evaluates");
+                }
+                let after = classes(&sim, &joined);
+                changed += joined.iter().filter(|&&m| before[m as usize] != after[m as usize]).count();
+                check(&sim, &after, &format!("pattern {patterns}"));
+            }
+        }
+        assert!(patterns > 130, "seed {seed}: the counterexamples fill more than two words ({patterns})");
+    }
+    assert!(changed > 20, "classes of several joined nodes split ({changed} nodes left the class they were in)");
+}
+
+#[test]
+fn a_class_a_node_joins_is_split_by_the_next_counterexample_that_tells_its_nodes_apart() {
+    // Two conjunctions of twelve inputs, one with an input complemented: random patterns all but never set either, so
+    // the second joins the first's class, and the pattern setting the first tells them apart, whether it lands in a
+    // fresh word, at the end of the word the joining happened in, or after that word is full.
+    let mut g = Aig::new();
+    let x = word(&mut g, "x", 12);
+    let p = x[1..].iter().fold(x[0], |acc, &v| g.and(acc, v));
+    let mut flipped = x.clone();
+    flipped[11] = !flipped[11];
+    let q = flipped[1..].iter().fold(flipped[0], |acc, &v| g.and(acc, v));
+    let nodes: Vec<u32> = (0..g.num_nodes() as u32).collect();
+    for before in [0, 63, 64] {
+        let mut sim = Sim::random(&g, 1, 5, nodes.clone());
+        assert_eq!(sim.signature(p.node()).0, sim.signature(q.node()).0, "the two look alike");
+        for _ in 0..before {
+            sim.add(&g, &[false; 12], &[]);
+        }
+        sim.join(p.node());
+        sim.join(q.node());
+        assert_eq!(sim.class_of(q.node()), Some(p.node()), "{before} patterns before: the second joins the first");
+        sim.add(&g, &[true; 12], &[]);
+        assert_eq!(sim.class_of(p.node()), Some(p.node()), "{before} patterns before");
+        assert_eq!(sim.class_of(q.node()), Some(q.node()), "{before} patterns before: the pattern tells them apart");
+    }
+}
+
+#[test]
+fn a_counterexample_simulates_one_word_of_each_node_however_many_words_there_are() {
+    let (g, pairs) = adders_beside_a_multiplier(12, true);
+    for words in [1, 16, 64] {
+        let mut e = Engine::new(&g, &pairs, &Options { sim_words: words, ..Options::default() });
+        let cone = e.stats.cone as u64;
+        assert_eq!(e.sim.simulated, cone * words as u64, "words {words}: the random words simulate each node a word each");
+        for k in 1..=130u64 {
+            let inputs: Vec<bool> = (0..g.inputs().len() as u64).map(|i| (i * 7 + k * 3) % 5 < 2).collect();
+            e.sim.add(&g, &inputs, &[]);
+            assert_eq!(e.sim.simulated, cone * (words as u64 + k), "words {words}: counterexample {k} simulates one word");
+        }
+    }
+}
+
+/// Two conjunctions of `width` inputs, a chain against a balanced tree, and the chain against a tree with one input
+/// complemented: nodes random patterns all but never set, alike under simulation until counterexamples tell them apart.
+fn wide_ands(width: usize) -> (Aig, Aig) {
+    let mut l = Aig::new();
+    let x = word(&mut l, "x", width);
+    let chain = x[1..].iter().fold(x[0], |acc, &v| l.and(acc, v));
+    l.add_output(chain, Some("y".into()));
+    l.add_output(chain, Some("z".into()));
+    let mut r = Aig::new();
+    let x = word(&mut r, "x", width);
+    fn tree(g: &mut Aig, leaves: &[AigLit]) -> AigLit {
+        match leaves {
+            [one] => *one,
+            _ => {
+                let (a, b) = leaves.split_at(leaves.len() / 2);
+                let (a, b) = (tree(g, a), tree(g, b));
+                g.and(a, b)
+            }
+        }
+    }
+    let y = tree(&mut r, &x);
+    let mut flipped = x.clone();
+    flipped[width / 2] = !flipped[width / 2];
+    let z = tree(&mut r, &flipped);
+    r.add_output(y, Some("y".into()));
+    r.add_output(z, Some("z".into()));
+    (l, r)
+}
+
+#[test]
+fn a_decision_simulates_a_word_of_each_node_for_each_random_word_and_each_counterexample() {
+    let (l, r) = wide_ands(24);
+    let opts = Options::default();
+    let report = equivalent(&l, &r, &opts).unwrap();
+    let s = &report.stats;
+    assert_eq!(report.verdicts[0].1, Verdict::Equal, "{:?}", report.verdicts);
+    assert!(matches!(report.verdicts[1].1, Verdict::Differ { .. }), "{:?}", report.verdicts);
+    assert!(report.check(), "{s:?}");
+    assert!(s.counterexamples > 0, "the conjunctions' nodes are alike under random patterns: {s:?}");
+    assert_eq!(s.simulated, s.cone as u64 * (opts.sim_words + s.counterexamples) as u64, "{s:?}");
+}
+
+#[test]
+fn a_model_costs_a_query_its_cone_not_the_solver() {
+    // A solver holding two multipliers' cones answers a query on two inputs' conjunction against their disjunction,
+    // which differ, by deciding within that cone of four nodes and assigning nothing past it, in each of its two solves.
+    let width = 6;
+    let mut g = Aig::new();
+    let (a, b) = (word(&mut g, "a", width), word(&mut g, "b", width));
+    let p = multiplier(&mut g, &a, &b);
+    let q = multiplier(&mut g, &b, &a);
+    let (x, y) = (named(&mut g, "x"), named(&mut g, "y"));
+    let (and, or) = (g.and(x, y), g.or(x, y));
+    let pairs: Vec<(AigLit, AigLit)> = p.iter().copied().zip(q.iter().copied()).chain([(and, or)]).collect();
+    let mut e = Engine::new(&g, &pairs, &Options::default());
+    for &(l, r) in &pairs[..width] {
+        for side in [l, r] {
+            assert!(matches!(e.prove(side, AigLit::FALSE, 0), Proved::Differ(..)), "a product bit can be set");
+        }
+    }
+    let held = e.nodes.len();
+    assert!(held > 100, "the solver holds the multipliers ({held} variables)");
+    let (before, propagated) = (e.solver.decisions(), e.solver.propagations());
+    assert!(matches!(e.prove(and, or, 0), Proved::Differ(..)));
+    let (decided, assigned) = (e.solver.decisions() - before, e.solver.propagations() - propagated);
+    assert!(decided <= 4, "{decided} decisions, the solver holding {held} variables");
+    assert!(assigned <= 2 * 4, "{assigned} assignments, the solver holding {held} variables");
+}
+
+#[test]
+fn a_model_is_checked_on_the_two_cones_alone_and_as_the_circuit_evaluates() {
+    for seed in 0..20u64 {
+        let g = random_sequential(seed, 6, 2, 120);
+        let top = AigLit::new(g.num_nodes() as u32 - 1, false);
+        let mut e = Engine::new(&g, &[(top, !top)], &Options::default());
+        let mut next = xorshift(seed + 7);
+        for _ in 0..30 {
+            let mut pick = || AigLit::new((next() % g.num_nodes() as u64) as u32, next() & 1 == 1);
+            let (a, b) = (pick(), pick());
+            let inputs: Vec<bool> = (0..g.inputs().len()).map(|_| next() & 1 == 1).collect();
+            let latches: Vec<bool> = (0..g.latches().len()).map(|_| next() & 1 == 1).collect();
+            let values = g.eval(&inputs, &latches);
+            let apart = Aig::value(&values, a) != Aig::value(&values, b);
+            assert_eq!(e.separates(&inputs, &latches, a, b), apart, "seed {seed}: {a:?} against {b:?}");
+            let cone: HashSet<u32> = g.cone(&[a, b]).into_iter().collect();
+            for n in 0..g.num_nodes() as u32 {
+                assert_eq!(e.met[n as usize] == e.walk, cone.contains(&n), "seed {seed}: node {n} looked at only in the cones");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_counterexample_draws_the_inputs_its_query_leaves_open_and_still_separates_the_pair() {
+    // Two inputs' conjunction against their disjunction beside thirty inputs no query reads: every counterexample sets
+    // the two as the solver's model does and draws the thirty, both values among them, the same draws for the same seed.
+    let mut g = Aig::new();
+    let (x, y) = (named(&mut g, "x"), named(&mut g, "y"));
+    let rest = word(&mut g, "r", 30);
+    let (and, or) = (g.and(x, y), g.or(x, y));
+    let wide = rest.iter().fold(AigLit::TRUE, |acc, &r| g.and(acc, r));
+    g.add_output(wide, Some("w".into()));
+    let draws = |seed: u64| -> Vec<Vec<bool>> {
+        let mut e = Engine::new(&g, &[(and, or)], &Options { seed, ..Options::default() });
+        (0..20)
+            .map(|_| match e.prove(and, or, 0) {
+                Proved::Differ(inputs, _) => {
+                    let values = g.eval(&inputs, &[]);
+                    assert_ne!(Aig::value(&values, and), Aig::value(&values, or), "the counterexample separates the pair");
+                    inputs
+                }
+                other => panic!("the two differ: {:?}", matches!(other, Proved::Equal(_))),
+            })
+            .collect()
+    };
+    let first = draws(7);
+    let open: Vec<bool> = first.iter().flat_map(|inputs| inputs[2..].to_vec()).collect();
+    assert!(open.iter().any(|&v| v) && open.iter().any(|&v| !v), "the open inputs are drawn, not fixed");
+    assert_eq!(draws(7), first, "the same seed draws the same counterexamples");
+    assert_ne!(draws(8), first, "another seed draws others");
+}

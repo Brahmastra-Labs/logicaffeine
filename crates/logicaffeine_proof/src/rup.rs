@@ -51,13 +51,13 @@ fn certified_from_cnf(mut cnf: Cnf, goal: &ProofExpr) -> Option<Verdict> {
     cnf.assert_neg(goal)?;
     let num_vars = cnf.num_vars();
     // Hand the clauses straight to the solver (one copy, inside the solver) — the RUP check
-    // reads them back via `original_clauses()`, so the clause set is never copied again.
+    // reads them back via `original_clauses()`.
     let mut solver = cnf.into_solver();
     match solver.solve() {
         SolveResult::Sat(_) => Some(Verdict::NotEntailed),
         SolveResult::Unsat => {
             let learned: Vec<Vec<Lit>> = solver.learned().iter().map(|c| c.lits.clone()).collect();
-            if check_refutation(num_vars, solver.original_clauses(), &learned) {
+            if check_refutation(num_vars, &solver.original_clauses(), &learned) {
                 Some(Verdict::Entailed)
             } else {
                 None // solver said UNSAT, the trusted checker can't confirm → fail closed
@@ -71,6 +71,8 @@ fn certified_from_cnf(mut cnf: Cnf, goal: &ProofExpr) -> Option<Verdict> {
 /// clause is RUP). Returns `false` if any step does not check — so a corrupted or bogus
 /// trace is rejected.
 pub fn check_refutation(num_vars: usize, original: &[Vec<Lit>], learned: &[Vec<Lit>]) -> bool {
+    // The clauses may name variables past `num_vars`: the variables a preprocessing step introduced.
+    let num_vars = original.iter().chain(learned).flatten().map(|l| l.var() as usize + 1).max().unwrap_or(0).max(num_vars);
     let mut db: Vec<Vec<Lit>> = original.to_vec();
     for c in learned {
         if !is_rup(num_vars, &db, c) {

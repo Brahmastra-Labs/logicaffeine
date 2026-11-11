@@ -13,7 +13,10 @@
 //!
 //! Usage:  cargo run --release -p logicaffeine-proof --example arena_bench -- [instances_dir]
 //! Env:    ARENA_TIMEOUT=<secs>  ARENA_CAP=<per-category cap>
-//!         OURS_BIN  KISSAT_BIN  CADICAL_BIN   (paths; absent binaries are skipped; the defaults are the
+//!         ARENA_CLOCK=cpu|wall   cpu (the default) limits and times each run in CPU seconds — `prlimit --cpu` and the
+//!         child's rusage — so a shared, loaded box ranks every engine alike; a wall backstop of four times the
+//!         limit catches a run that sleeps. wall is the competition's wall-clock `timeout`, for a silent box.
+//!         OURS_BIN  KISSAT_BIN  CADICAL_BIN  CMS_BIN   (paths; absent binaries are skipped; the defaults are the
 //!         builds under `$SATBENCH_EXT`, else `<repo>/external/solvers`)
 //! Out:    benchmarks/results/arena/sat.json  + a summary table on stdout.
 
@@ -67,6 +70,10 @@ fn main() {
         .cloned()
         .unwrap_or_else(|| "benchmarks/arena/instances/sat".to_string());
     let timeout_s: f64 = env_f64("ARENA_TIMEOUT", 10.0);
+    let clock = match std::env::var("ARENA_CLOCK").as_deref() {
+        Ok("wall") => Clock::Wall,
+        _ => Clock::Cpu,
+    };
     let cap: usize = env_f64("ARENA_CAP", 4.0) as usize;
 
     let candidates = [
@@ -78,6 +85,10 @@ fn main() {
         (
             "cadical",
             env_str("CADICAL_BIN", &external_solver("cadical/build/cadical")),
+        ),
+        (
+            "cryptominisat",
+            env_str("CMS_BIN", &external_solver("cryptominisat/build/cryptominisat5")),
         ),
     ];
     let solvers: Vec<Solver> = candidates
@@ -97,12 +108,13 @@ fn main() {
     }
 
     eprintln!(
-        "arena=sat  solvers=[{}]  timeout={timeout_s}s  cap/category={cap}  instances={}",
+        "arena=sat  solvers=[{}]  timeout={timeout_s}s ({})  cap/category={cap}  instances={}",
         solvers
             .iter()
             .map(|s| s.name)
             .collect::<Vec<_>>()
             .join(", "),
+        clock.as_str(),
         instances.len()
     );
 
@@ -135,7 +147,7 @@ fn main() {
         let mut definite: Vec<(&str, Verdict)> = Vec::new();
         let mut per_solver: Vec<(&str, Outcome)> = Vec::new();
         for s in &solvers {
-            let (verdict, seconds, stdout) = run_one(&s.bin, &inst.path, timeout_s);
+            let (verdict, seconds, stdout) = run_one(&s.bin, &inst.path, timeout_s, clock);
             let verified = if s.name == "ours" {
                 match verdict {
                     Verdict::Sat => Some(model_satisfies(&stdout, &cnf)),
@@ -217,6 +229,7 @@ fn main() {
         &skipped,
         &rows,
         timeout_s,
+        clock,
         cap,
     );
 }
@@ -317,24 +330,65 @@ fn collect_instances(root: &str, cap: usize) -> Vec<Instance> {
     out
 }
 
-/// Run `bin` on `cnf` under a wall-clock `timeout`, returning (verdict, seconds, stdout).
-fn run_one(bin: &str, cnf: &Path, timeout_s: f64) -> (Verdict, f64, String) {
-    let mut cmd = Command::new("timeout");
-    cmd.arg("-k")
-        .arg("2")
-        .arg(format!("{timeout_s}"))
-        .arg(bin)
-        .arg(cnf);
+/// How a run is limited and timed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Clock {
+    /// CPU seconds: a CPU-time rlimit, the child's user plus system time.
+    Cpu,
+    /// Wall-clock seconds under `timeout(1)`.
+    Wall,
+}
+
+impl Clock {
+    fn as_str(self) -> &'static str {
+        match self {
+            Clock::Cpu => "cpu",
+            Clock::Wall => "wall",
+        }
+    }
+}
+
+/// Run `bin` on `cnf` within `timeout_s` on `clock`, returning (verdict, seconds, stdout).
+fn run_one(bin: &str, cnf: &Path, timeout_s: f64, clock: Clock) -> (Verdict, f64, String) {
+    let rusage = std::env::temp_dir().join(format!("arena-rusage-{}.txt", std::process::id()));
+    let mut cmd = match clock {
+        Clock::Wall => {
+            let mut c = Command::new("timeout");
+            c.arg("-k").arg("2").arg(format!("{timeout_s}"));
+            c
+        }
+        Clock::Cpu => {
+            let mut c = Command::new("/usr/bin/time");
+            c.arg("-f").arg("%U %S").arg("-o").arg(&rusage);
+            c.arg("timeout").arg("-k").arg("2").arg(format!("{}", timeout_s * 4.0 + 10.0));
+            c.arg("prlimit").arg(format!("--cpu={}", timeout_s.ceil() as u64));
+            c
+        }
+    };
+    cmd.arg(bin).arg(cnf);
     cmd.stdin(Stdio::null());
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::null());
     let t = Instant::now();
     let out = cmd.output();
-    let seconds = t.elapsed().as_secs_f64();
+    let wall = t.elapsed().as_secs_f64();
+    let seconds = match clock {
+        Clock::Wall => wall,
+        Clock::Cpu => std::fs::read_to_string(&rusage)
+            .ok()
+            .and_then(|text| {
+                let line = text.lines().last()?;
+                let mut fields = line.split_whitespace().map(|f| f.parse::<f64>().ok());
+                Some(fields.next()?? + fields.next()??)
+            })
+            .unwrap_or(wall),
+    };
+    let _ = std::fs::remove_file(&rusage);
     match out {
         Ok(o) => {
-            // `timeout(1)` exits 124 on TERM, 137 (128+SIGKILL) when -k escalates.
-            if matches!(o.status.code(), Some(124) | Some(137)) {
+            // `timeout(1)` exits 124 on TERM and 137 (128+SIGKILL) when -k escalates; a CPU rlimit kills with
+            // SIGKILL (137) or SIGXCPU (152).
+            if matches!(o.status.code(), Some(124) | Some(137) | Some(152)) || seconds >= timeout_s {
                 return (Verdict::Timeout, timeout_s, String::new());
             }
             let s = String::from_utf8_lossy(&o.stdout).into_owned();
@@ -402,13 +456,13 @@ fn print_summary(
     let total: usize = cat_count.values().sum();
     println!("\n=== arena: SAT  ({total} instances, timeout {timeout_s}s, PAR-2) ===\n");
     println!(
-        "{:<10} {:>7} {:>5} {:>6} {:>8} {:>10} {:>9}",
+        "{:<14} {:>7} {:>5} {:>6} {:>8} {:>10} {:>9}",
         "solver", "solved", "sat", "unsat", "timeout", "PAR-2", "verified"
     );
     for s in solvers {
         let st = &summary[s.name];
         println!(
-            "{:<10} {:>6}/{} {:>5} {:>6} {:>8} {:>10.1} {:>9}",
+            "{:<14} {:>6}/{} {:>5} {:>6} {:>8} {:>10.1} {:>9}",
             s.name,
             st.solved,
             total,
@@ -427,14 +481,14 @@ fn print_summary(
     println!("\nper category (solved / total):");
     print!("{:<20}", "category");
     for s in solvers {
-        print!(" {:>10}", s.name);
+        print!(" {:>13}", s.name);
     }
     println!();
     for (cat, n) in cat_count {
         print!("{:<20}", truncate(cat, 20));
         for s in solvers {
             let solved = cat_solved.get(&(cat.clone(), s.name)).copied().unwrap_or(0);
-            print!(" {:>10}", format!("{solved}/{n}"));
+            print!(" {:>13}", format!("{solved}/{n}"));
         }
         println!();
     }
@@ -461,12 +515,14 @@ fn write_json(
     skipped: &[String],
     rows: &[String],
     timeout_s: f64,
+    clock: Clock,
     cap: usize,
 ) {
     let mut s = String::new();
     s.push_str("{\n");
     s.push_str("  \"arena\": \"sat\",\n");
     s.push_str(&format!("  \"timeout_s\": {timeout_s},\n"));
+    s.push_str(&format!("  \"clock\": \"{}\",\n", clock.as_str()));
     s.push_str(&format!("  \"cap_per_category\": {cap},\n"));
     s.push_str(&format!(
         "  \"solvers\": [{}],\n",

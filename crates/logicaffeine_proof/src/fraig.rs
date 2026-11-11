@@ -5,11 +5,13 @@
 //! learns later ones keep (Mishchenko, Chatterjee, Brayton & Een, *Improvements to combinational equivalence
 //! checking*, ICCAD 2006, the scheme of ABC's `&cec`). The solver holds the clauses of the miter's formula ([`formula`]:
 //! the Tseitin clauses of every And node, node `k` the variable `k`) only for the cones its queries have asked about,
-//! encoded as each query needs them, and decides only on those nodes, so a query's search stays in its cone. Its
-//! variables are numbered as it meets them, so a solver is as large as what it was asked, and once it has
-//! [`Options::recycle`] of them a fresh one replaces it. It holds the reduced graph, not the miter:
-//! each node defined over its fan-ins' representatives (`n ↔ rep(x) ∧ rep(y)`, logged the first time a solver needs
-//! it), so the logic two sides share once merged is one variable to it and no chain of equalities.
+//! encoded as each query needs them. It decides by justification ([`Solver::set_justifying`]): a query sets only what
+//! its assumptions need justified and answers with that part of the circuit, which evaluation extends to a model of
+//! the formula, so its search and its model cost that part, not the solver. Its variables are numbered as it meets
+//! them, so a solver is as large as what it was asked, and once it has [`Options::recycle`] of them a fresh one
+//! replaces it. It holds the reduced graph, not the miter: each node defined over its fan-ins' representatives
+//! (`n ↔ rep(x) ∧ rep(y)`, logged the first time a solver needs it), so the logic two sides share once merged is one
+//! variable to it and no chain of equalities.
 //!
 //! The sweep runs in node order, each node with a representative literal. A node whose fan-ins' representatives make
 //! a constant, a copy of one of them, or the pair an earlier node has, is that constant, copy or node, with no solver
@@ -52,7 +54,9 @@ pub struct Options {
     pub rounds: usize,
     /// How many classes a node is put against before it stays apart.
     pub attempts: usize,
-    /// The variables a solver holds before a fresh one replaces it.
+    /// The variables a solver holds before a fresh one replaces it. A query's search and model are the part of the
+    /// circuit its assumptions need, whatever the solver holds, so the bound is one of memory: a fresh solver costs the
+    /// encoding of every cone asked of it again.
     pub recycle: usize,
     /// How many clauses a solver's part of the log holds before what nothing a later clause can name is let go, and
     /// beyond twice what each collection leaves.
@@ -70,7 +74,7 @@ impl Default for Options {
             final_budget: 0,
             attempts: 4,
             rounds: 3,
-            recycle: 100_000,
+            recycle: 1_000_000,
             collect: 100_000,
             progress: None,
         }
@@ -107,6 +111,9 @@ pub struct Stats {
     pub conflicts: u64,
     /// The solves by the conflicts each took: none, at most 10, at most 100, at most 1000, more.
     pub by_conflicts: [usize; 5],
+    /// Words of node values simulated: a word of each node the sweep passes for every random word and every
+    /// counterexample.
+    pub simulated: u64,
     /// Clauses the solvers learned, those the log let go (nothing a later clause could name rested on them), the
     /// clauses and hints the log holds, and the steps of the derivation the claims reach.
     pub learned: usize,
@@ -220,6 +227,7 @@ fn sweep_round(aig: &Aig, pairs: &[(AigLit, AigLit)], opts: &Options, round: usi
     e.sync();
     e.report(opts);
     e.stats.log = e.log.len();
+    e.stats.simulated = e.sim.simulated;
     e.stats.conflicts += e.solver.conflicts();
     let proof = e.derivation(&claims);
     e.stats.proof = proof.steps.len();
@@ -227,22 +235,52 @@ fn sweep_round(aig: &Aig, pairs: &[(AigLit, AigLit)], opts: &Options, round: usi
 }
 
 /// Simulation values: `words` 64-bit words for each node simulated (the nodes the pairs reach: no other is ever asked
-/// for), the last word filling with counterexamples.
+/// for), held word by word, the last word filling with counterexamples; and the classes of the nodes joined, nodes
+/// alike on every pattern so far, each class's representative the first node to join it.
+///
+/// A class is found by its group, the rows alike on every word but a pending last one (an id for each such signature),
+/// and within its group by a tree that splits on the bits of the pending word telling the group's classes apart. A
+/// counterexample writes one pattern of the pending word: it simulates that word of each row and looks only at the
+/// classes of more than one node, splitting those it tells apart. A class of one node stays where it is, since the
+/// splits above it are on patterns already written, which no later counterexample writes again. A full pending word
+/// is folded into the groups when the next one begins.
 struct Sim {
     words: usize,
+    /// Word `w` of input `k` at `w * inputs + k`, and of latch `k` at `w * latches + k`.
     inputs: Vec<u64>,
     latches: Vec<u64>,
-    /// The nodes simulated in increasing order, and each node's row of values (`u32::MAX` for one not simulated).
+    /// The nodes simulated in increasing order, and each node's row (`u32::MAX` for one not simulated).
     nodes: Vec<u32>,
     row: Vec<u32>,
+    /// Word `w` of row `i` at `w * rows + i`.
     values: Vec<u64>,
-    /// Patterns of the last word taken by counterexamples (64 once it is full).
+    /// Patterns of the last word taken by counterexamples (64 once it is full), and the words folded into the groups:
+    /// every word, or all but the pending last.
     used: usize,
+    folded: usize,
+    /// Row-words simulated: a word of every row for each random word and each counterexample.
+    simulated: u64,
+    /// Each row's group, each group's tree (`NONE` while no node of it has joined), and the trees' branches.
+    group: Vec<u32>,
+    roots: Vec<u32>,
+    tree: Vec<Branch>,
+    /// The classes of more than one node, by branch.
+    crowded: Vec<u32>,
+}
+
+/// No branch.
+const NONE: u32 = u32::MAX;
+
+/// A branch of a group's tree: a split on one bit of the pending word, its children by that bit's value, or a class,
+/// its nodes in the order they joined. Either hangs from `parent`, or is its group's root.
+enum Branch {
+    Split { bit: u32, children: [u32; 2], parent: u32 },
+    Class { members: Vec<u32>, parent: u32 },
 }
 
 impl Sim {
-    /// Random values for every input and latch, the same whichever nodes are simulated, and `nodes` (closed under
-    /// fan-in, in increasing order) simulated over them.
+    /// Random values for every input and latch, each one's words drawn in turn, the same whichever nodes are simulated,
+    /// and `nodes` (closed under fan-in, in increasing order) simulated over them, no node joined.
     fn random(aig: &Aig, words: usize, seed: u64, nodes: Vec<u32>) -> Sim {
         let mut state = seed;
         let mut next = || {
@@ -252,73 +290,254 @@ impl Sim {
             z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
             z ^ (z >> 31)
         };
-        let inputs: Vec<u64> = (0..aig.inputs().len() * words).map(|_| next()).collect();
-        let latches: Vec<u64> = (0..aig.latches().len() * words).map(|_| next()).collect();
+        let mut draw = |count: usize| {
+            let mut out = vec![0u64; count * words];
+            for k in 0..count {
+                for w in 0..words {
+                    out[w * count + k] = next();
+                }
+            }
+            out
+        };
+        let inputs = draw(aig.inputs().len());
+        let latches = draw(aig.latches().len());
         let mut row = vec![u32::MAX; aig.num_nodes()];
         for (i, &n) in nodes.iter().enumerate() {
             row[n as usize] = i as u32;
         }
-        let mut sim = Sim { words, inputs, latches, nodes, row, values: Vec::new(), used: 64 };
-        sim.run(aig);
+        let rows = nodes.len();
+        let mut sim = Sim {
+            words,
+            inputs,
+            latches,
+            nodes,
+            row,
+            values: vec![0; rows * words],
+            used: 64,
+            folded: 0,
+            simulated: 0,
+            group: vec![0; rows],
+            roots: Vec::new(),
+            tree: Vec::new(),
+            crowded: Vec::new(),
+        };
+        for w in 0..words {
+            sim.simulate(aig, w);
+            sim.fold();
+        }
         sim
     }
 
-    /// Simulate the nodes held over the inputs' and latches' values.
-    fn run(&mut self, aig: &Aig) {
-        let words = self.words;
-        let mut v = vec![0u64; self.nodes.len() * words];
-        for (i, &n) in self.nodes.iter().enumerate() {
-            match aig.node(n) {
-                Node::False => {}
-                Node::Input(k) => v[i * words..(i + 1) * words].copy_from_slice(&self.inputs[k * words..(k + 1) * words]),
-                Node::Latch(k) => v[i * words..(i + 1) * words].copy_from_slice(&self.latches[k * words..(k + 1) * words]),
+    /// Simulate word `w` of every row over the inputs' and latches' word `w`.
+    fn simulate(&mut self, aig: &Aig, w: usize) {
+        let rows = self.nodes.len();
+        let (inputs, latches) = (self.inputs.len() / self.words, self.latches.len() / self.words);
+        let base = w * rows;
+        for i in 0..rows {
+            self.values[base + i] = match aig.node(self.nodes[i]) {
+                Node::False => 0,
+                Node::Input(k) => self.inputs[w * inputs + k],
+                Node::Latch(k) => self.latches[w * latches + k],
                 Node::And(a, b) => {
-                    let (ra, rb) = (self.row[a.node() as usize] as usize, self.row[b.node() as usize] as usize);
-                    let (ma, mb) = (if a.is_complemented() { !0 } else { 0 }, if b.is_complemented() { !0 } else { 0 });
-                    for w in 0..words {
-                        v[i * words + w] = (v[ra * words + w] ^ ma) & (v[rb * words + w] ^ mb);
-                    }
+                    let side = |l: AigLit| {
+                        let mask = (l.is_complemented() as u64).wrapping_neg();
+                        self.values[base + self.row[l.node() as usize] as usize] ^ mask
+                    };
+                    side(a) & side(b)
                 }
-            }
+            };
         }
-        self.values = v;
+        self.simulated += rows as u64;
     }
 
-    /// Add one assignment and simulate again: a fresh word carrying it in every pattern, or the next free pattern of
-    /// the last word.
+    /// Add one assignment: a fresh word carrying it in every pattern (the pending word before it folded first), or the
+    /// next free pattern of the last word; simulate that word and split the classes it tells apart.
     fn add(&mut self, aig: &Aig, inputs: &[bool], latches: &[bool]) {
-        if self.used == 64 {
-            let grow = |old: &[u64], values: &[bool], words: usize| -> Vec<u64> {
-                let mut out = Vec::with_capacity(values.len() * (words + 1));
-                for (i, &v) in values.iter().enumerate() {
-                    out.extend_from_slice(&old[i * words..(i + 1) * words]);
-                    out.push(if v { !0 } else { 0 });
-                }
-                out
-            };
-            self.inputs = grow(&self.inputs, inputs, self.words);
-            self.latches = grow(&self.latches, latches, self.words);
+        let bit = if self.used == 64 {
+            if self.folded < self.words {
+                self.fold();
+            }
+            let fill = |v: &bool| if *v { !0 } else { 0 };
+            self.inputs.extend(inputs.iter().map(fill));
+            self.latches.extend(latches.iter().map(fill));
             self.words += 1;
+            self.values.resize(self.nodes.len() * self.words, 0);
             self.used = 1;
+            0
         } else {
-            let (words, bit) = (self.words, self.used);
+            let (w, bit) = (self.words - 1, self.used);
             for (store, values) in [(&mut self.inputs, inputs), (&mut self.latches, latches)] {
-                for (i, &v) in values.iter().enumerate() {
-                    let cell = &mut store[i * words + words - 1];
+                for (k, &v) in values.iter().enumerate() {
+                    let cell = &mut store[w * values.len() + k];
                     *cell = (*cell & !(1 << bit)) | ((v as u64) << bit);
                 }
             }
             self.used += 1;
-        }
-        self.run(aig);
+            bit as u32
+        };
+        self.simulate(aig, self.words - 1);
+        self.refine(bit);
     }
 
-    /// A node's signature with its phase normalised (complemented so the first pattern reads 0), and that phase.
+    /// Fold the next word into the groups: two rows share a group exactly when they did and are alike on it. Every
+    /// class becomes the root of its new group, of which it is the one class.
+    fn fold(&mut self) {
+        let w = self.folded;
+        let mut ids: HashMap<(u32, u64), u32> = HashMap::new();
+        for i in 0..self.nodes.len() {
+            let fresh = ids.len() as u32;
+            self.group[i] = *ids.entry((self.group[i], self.normal(w, i))).or_insert(fresh);
+        }
+        self.folded += 1;
+        let classes: Vec<Vec<u32>> = std::mem::take(&mut self.tree)
+            .into_iter()
+            .filter_map(|b| match b {
+                Branch::Class { members, .. } => Some(members),
+                Branch::Split { .. } => None,
+            })
+            .collect();
+        self.roots = vec![NONE; ids.len()];
+        for members in classes {
+            let g = self.group[self.row[members[0] as usize] as usize] as usize;
+            debug_assert_eq!(self.roots[g], NONE, "a class is the one class of its group");
+            self.roots[g] = self.branch(Branch::Class { members, parent: NONE });
+        }
+        self.crowded = (0..self.tree.len() as u32).filter(|&b| self.members(b).len() > 1).collect();
+    }
+
+    /// Word `w` of row `i` with the row's phase normalised (complemented so its first pattern reads 0).
+    fn normal(&self, w: usize, i: usize) -> u64 {
+        self.values[w * self.nodes.len() + i] ^ (self.values[i] & 1).wrapping_neg()
+    }
+
+    /// Row `i`'s pending word, normalised; 0 while every word is folded.
+    fn pending(&self, i: usize) -> u64 {
+        if self.folded < self.words {
+            self.normal(self.words - 1, i)
+        } else {
+            0
+        }
+    }
+
+    /// Whether node `n` is complemented in its signature: its first pattern reads 1.
+    fn phase(&self, n: u32) -> bool {
+        self.values[self.row[n as usize] as usize] & 1 == 1
+    }
+
+    /// A node's signature with its phase normalised, and that phase.
     fn signature(&self, n: u32) -> (Vec<u64>, bool) {
-        let at = self.row[n as usize] as usize;
-        let row = &self.values[at * self.words..(at + 1) * self.words];
-        let phase = row[0] & 1 == 1;
-        (row.iter().map(|&w| if phase { !w } else { w }).collect(), phase)
+        let i = self.row[n as usize] as usize;
+        ((0..self.words).map(|w| self.normal(w, i)).collect(), self.phase(n))
+    }
+
+    fn branch(&mut self, b: Branch) -> u32 {
+        self.tree.push(b);
+        self.tree.len() as u32 - 1
+    }
+
+    fn members(&self, b: u32) -> &[u32] {
+        match &self.tree[b as usize] {
+            Branch::Class { members, .. } => members,
+            Branch::Split { .. } => &[],
+        }
+    }
+
+    /// The class row `i`'s pending word leads to in its group's tree, if a node of the group has joined: the row's
+    /// class if the class's pending word is the row's, and otherwise none is.
+    fn leaf(&self, i: usize) -> Option<u32> {
+        let mut at = self.roots[self.group[i] as usize];
+        if at == NONE {
+            return None;
+        }
+        let word = self.pending(i);
+        loop {
+            match &self.tree[at as usize] {
+                Branch::Split { bit, children, .. } => at = children[(word >> bit & 1) as usize],
+                Branch::Class { .. } => return Some(at),
+            }
+        }
+    }
+
+    /// The first node to join the class of node `n`'s signature, if one has.
+    fn class_of(&self, n: u32) -> Option<u32> {
+        let i = self.row[n as usize] as usize;
+        let first = self.members(self.leaf(i)?)[0];
+        let found = (self.pending(self.row[first as usize] as usize) == self.pending(i)).then_some(first);
+        debug_assert!(found.is_none_or(|r| self.signature(r).0 == self.signature(n).0), "a class's nodes are alike");
+        found
+    }
+
+    /// Node `n` joins the class of its signature, last; a class of its own, hung where its tree tells it apart, if it
+    /// is the first.
+    fn join(&mut self, n: u32) {
+        let i = self.row[n as usize] as usize;
+        let Some(at) = self.leaf(i) else {
+            let g = self.group[i] as usize;
+            self.roots[g] = self.branch(Branch::Class { members: vec![n], parent: NONE });
+            return;
+        };
+        let (theirs, mine) = (self.pending(self.row[self.members(at)[0] as usize] as usize), self.pending(i));
+        if theirs == mine {
+            let Branch::Class { members, .. } = &mut self.tree[at as usize] else { unreachable!("a leaf is a class") };
+            members.push(n);
+            if members.len() == 2 {
+                self.crowded.push(at);
+            }
+            return;
+        }
+        let bit = (theirs ^ mine).trailing_zeros();
+        let alone = self.branch(Branch::Class { members: vec![n], parent: NONE });
+        self.hang(at, alone, bit, mine >> bit & 1);
+    }
+
+    /// Split where class `at` hangs on `bit`: `other` the child on side `side`, `at` on the other.
+    fn hang(&mut self, at: u32, other: u32, bit: u32, side: u64) {
+        let parent = match &self.tree[at as usize] {
+            Branch::Split { parent, .. } | Branch::Class { parent, .. } => *parent,
+        };
+        let mut children = [at; 2];
+        children[side as usize] = other;
+        let split = self.branch(Branch::Split { bit, children, parent });
+        for child in [at, other] {
+            match &mut self.tree[child as usize] {
+                Branch::Split { parent, .. } | Branch::Class { parent, .. } => *parent = split,
+            }
+        }
+        if parent == NONE {
+            let g = self.group[self.row[self.members(at)[0] as usize] as usize] as usize;
+            self.roots[g] = split;
+        } else if let Branch::Split { children, .. } = &mut self.tree[parent as usize] {
+            for c in children.iter_mut().filter(|c| **c == at) {
+                *c = split;
+            }
+        }
+    }
+
+    /// Split every class of more than one node that the pattern just written at `bit` tells apart: the nodes reading
+    /// there what its first node does stay, the others leave, in order, for a class of their own.
+    fn refine(&mut self, bit: u32) {
+        for at in std::mem::take(&mut self.crowded) {
+            let Branch::Class { members, .. } = &mut self.tree[at as usize] else {
+                unreachable!("a crowded branch is a class")
+            };
+            let members = std::mem::take(members);
+            let read = |m: u32| self.pending(self.row[m as usize] as usize) >> bit & 1;
+            let first = read(members[0]);
+            let (stay, leave): (Vec<u32>, Vec<u32>) = members.into_iter().partition(|&m| read(m) == first);
+            let Branch::Class { members, .. } = &mut self.tree[at as usize] else { unreachable!() };
+            *members = stay;
+            if members.len() > 1 {
+                self.crowded.push(at);
+            }
+            if !leave.is_empty() {
+                let crowded = leave.len() > 1;
+                let other = self.branch(Branch::Class { members: leave, parent: NONE });
+                if crowded {
+                    self.crowded.push(other);
+                }
+                self.hang(at, other, bit, first ^ 1);
+            }
+        }
     }
 }
 
@@ -360,6 +579,12 @@ struct Engine<'a> {
     /// Per node, the current solver's variable for it plus one (0: none yet), and whether its definition is held.
     local: Vec<u32>,
     defined: Vec<bool>,
+    /// Per node, the last evaluation of a model that met it, that evaluation's number, and the node's value in it.
+    met: Vec<u32>,
+    walk: u32,
+    value: Vec<bool>,
+    /// The state the values a model leaves open are drawn from.
+    fill: u64,
     /// Per variable of the current solver, its node.
     nodes: Vec<u32>,
     recycle: usize,
@@ -410,6 +635,10 @@ impl<'a> Engine<'a> {
             lemmas: vec![None; aig.num_nodes()],
             local: vec![0; aig.num_nodes()],
             defined: vec![false; aig.num_nodes()],
+            met: vec![0; aig.num_nodes()],
+            walk: 0,
+            value: vec![false; aig.num_nodes()],
+            fill: !opts.seed,
             nodes: Vec::new(),
             recycle: opts.recycle.max(1),
             repr: (0..aig.num_nodes() as u32).map(|n| AigLit::new(n, false)).collect(),
@@ -491,17 +720,17 @@ impl<'a> Engine<'a> {
         self.solver.set_lrat(true);
         self.solver.set_next_clause_id(LEARNED_IDS);
         self.solver.set_decision_vars(&[]);
+        self.solver.set_justifying(true);
         let zero = self.var(0);
         self.solver.add_clause_with_id(vec![Lit::neg(zero)], 1);
         self.defined[0] = true;
         self.stats.solvers += 1;
     }
 
-    /// The current solver's variable for node `n`, made a decision variable the first time it is asked for.
+    /// The current solver's variable for node `n`, made the first time it is asked for.
     fn var(&mut self, n: u32) -> u32 {
         if self.local[n as usize] == 0 {
             let v = self.solver.add_vars(1);
-            self.solver.add_decision_vars(&[v]);
             self.local[n as usize] = v as u32 + 1;
             self.nodes.push(n);
         }
@@ -644,11 +873,12 @@ impl<'a> Engine<'a> {
     }
 
     /// Give the solver the definitions of every node of the reduced cones of `roots` it does not hold yet: each node's
-    /// three clauses over its fan-ins' representatives, logged with their chains the first time a solver needs them.
+    /// three clauses over its fan-ins' representatives, logged with their chains the first time a solver needs them,
+    /// and the node its gate.
     fn encode(&mut self, roots: &[AigLit]) {
         let mut stack: Vec<u32> = roots.iter().map(|l| l.node()).collect();
         while let Some(n) = stack.pop() {
-            self.var(n);
+            let v = self.var(n) as usize;
             if std::mem::replace(&mut self.defined[n as usize], true) {
                 continue;
             }
@@ -671,6 +901,8 @@ impl<'a> Engine<'a> {
                 for id in ids {
                     self.give(id);
                 }
+                let (a, b) = (self.to_local(lit(rx)), self.to_local(lit(ry)));
+                self.solver.set_gate(v, a, b);
                 stack.push(rx.node());
                 stack.push(ry.node());
             }
@@ -683,6 +915,7 @@ impl<'a> Engine<'a> {
             let mut so_far = self.stats.clone();
             so_far.conflicts += self.solver.conflicts();
             so_far.log = self.log.len();
+            so_far.simulated = self.sim.simulated;
             (p.report)(&so_far);
         }
     }
@@ -724,12 +957,9 @@ impl<'a> Engine<'a> {
                     ids[k] = self.push(vec![lit(x).negated(), lit(y).negated()], hints, false);
                     self.give(ids[k]);
                 }
-                BudgetedResult::Sat(model) => {
-                    let value = |n: u32| self.local[n as usize] > 0 && model[self.local[n as usize] as usize - 1];
-                    let inputs: Vec<bool> = self.aig.inputs().iter().map(|p| value(p.lit.node())).collect();
-                    let latches: Vec<bool> = (0..self.aig.latches().len()).map(|j| value(self.aig.latch_lit(j).node())).collect();
-                    let values = self.aig.eval(&inputs, &latches);
-                    return if Aig::value(&values, a) != Aig::value(&values, b) {
+                BudgetedResult::Sat(_) => {
+                    let (inputs, latches) = self.counterexample();
+                    return if self.separates(&inputs, &latches, a, b) {
                         Proved::Differ(inputs, latches)
                     } else {
                         Proved::Unknown("the solver's model does not separate the pair".into())
@@ -739,6 +969,62 @@ impl<'a> Engine<'a> {
             }
         }
         Proved::Equal(ids)
+    }
+
+    /// The inputs and latches of the solver's model, each one it left open (of a part of the circuit the query did not
+    /// need) drawn at random: any value of it keeps the model one, and a drawn one tells more classes apart than a value
+    /// fixed for every counterexample.
+    fn counterexample(&mut self) -> (Vec<bool>, Vec<bool>) {
+        let ports: Vec<u32> = (self.aig.inputs().iter().map(|p| p.lit.node()))
+            .chain((0..self.aig.latches().len()).map(|j| self.aig.latch_lit(j).node()))
+            .collect();
+        let mut inputs = Vec::with_capacity(ports.len());
+        for n in ports {
+            let held = self.local[n as usize].checked_sub(1).and_then(|v| self.solver.value(v as usize));
+            inputs.push(held.unwrap_or_else(|| self.draw()));
+        }
+        let latches = inputs.split_off(self.aig.inputs().len());
+        (inputs, latches)
+    }
+
+    /// A random bit, from the state the options' seed began.
+    fn draw(&mut self) -> bool {
+        self.fill = self.fill.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = self.fill;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        (z ^ (z >> 31)) & 1 == 1
+    }
+
+    /// Whether `a` and `b` differ under the inputs and latches given: the miter's cones of the two evaluated, the rest
+    /// of it never looked at.
+    fn separates(&mut self, inputs: &[bool], latches: &[bool], a: AigLit, b: AigLit) -> bool {
+        if self.walk == u32::MAX {
+            self.met.fill(0);
+            self.walk = 0;
+        }
+        self.walk += 1;
+        let mut stack: Vec<(u32, bool)> = vec![(a.node(), false), (b.node(), false)];
+        while let Some((n, expanded)) = stack.pop() {
+            let node = self.aig.node(n);
+            if expanded {
+                let Node::And(x, y) = node else { unreachable!("only an And is expanded") };
+                let side = |l: AigLit, value: &[bool]| value[l.node() as usize] ^ l.is_complemented();
+                self.value[n as usize] = side(x, &self.value) && side(y, &self.value);
+                continue;
+            }
+            if std::mem::replace(&mut self.met[n as usize], self.walk) == self.walk {
+                continue;
+            }
+            match node {
+                Node::False => self.value[n as usize] = false,
+                Node::Input(k) => self.value[n as usize] = inputs[k],
+                Node::Latch(k) => self.value[n as usize] = latches[k],
+                Node::And(x, y) => stack.extend([(n, true), (x.node(), false), (y.node(), false)]),
+            }
+        }
+        let read = |l: AigLit| self.value[l.node() as usize] ^ l.is_complemented();
+        read(a) != read(b)
     }
 
     /// What node `n` is by structure: a constant, one of its fan-ins' representatives, or the representative of the
@@ -766,9 +1052,6 @@ impl<'a> Engine<'a> {
 
     fn sweep(&mut self, opts: &Options, budget: u64) {
         let aig = self.aig;
-        // Each simulation class by its normalised signature, its representative the first node seen with it.
-        let mut classes: HashMap<Vec<u64>, u32> = HashMap::new();
-        let mut reps: Vec<u32> = Vec::new();
         for n in 0..aig.num_nodes() as u32 {
             if !self.reached[n as usize] {
                 continue;
@@ -786,18 +1069,10 @@ impl<'a> Engine<'a> {
             }
             let candidate = matches!(aig.node(n), Node::And(..)) && !self.shared.contains(&n);
             let mut attempts = 0;
-            loop {
-                let (key, phase) = self.sim.signature(n);
-                let Some(&r) = classes.get(&key) else {
-                    classes.insert(key, n);
-                    break;
-                };
-                if !candidate || attempts == opts.attempts {
-                    break;
-                }
+            while candidate && attempts < opts.attempts {
+                let Some(r) = self.sim.class_of(n) else { break };
                 attempts += 1;
-                let (_, phase_r) = self.sim.signature(r);
-                let target = AigLit::new(r, phase ^ phase_r);
+                let target = AigLit::new(r, self.sim.phase(n) ^ self.sim.phase(r));
                 match self.prove(AigLit::new(n, false), target, budget) {
                     Proved::Equal(ids) => {
                         self.lemmas[n as usize] = Some(ids);
@@ -808,10 +1083,6 @@ impl<'a> Engine<'a> {
                     Proved::Differ(inputs, latches) => {
                         self.stats.counterexamples += 1;
                         self.sim.add(aig, &inputs, &latches);
-                        classes.clear();
-                        for &m in &reps {
-                            classes.entry(self.sim.signature(m).0).or_insert(m);
-                        }
                     }
                     Proved::Unknown(_) => {
                         self.stats.unknown += 1;
@@ -820,7 +1091,7 @@ impl<'a> Engine<'a> {
                 }
             }
             if self.repr[n as usize] == AigLit::new(n, false) {
-                reps.push(n);
+                self.sim.join(n);
             }
         }
     }

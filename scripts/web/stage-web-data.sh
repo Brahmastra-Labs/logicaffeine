@@ -6,6 +6,7 @@
 # derives that /data directory from the single sources of truth in the repo:
 #
 #   benchmarks/results/{latest,solvers,latest-codec,latest-interp}.json
+#   benchmarks/results/eda/{mc,bmc,rewrite,count}.json, benchmarks/results/arena/crypto.json -> eda-*.json (the EDA section)
 #   benchmarks/results/latest-jit-code.json -> the machine code the JIT emitted for each benchmark, disassembled
 #   benchmarks/programs/<id>/*            -> bench-sources.json (11 languages per benchmark)
 #   benchmarks/profile/flamegraphs.pdf   -> the downloadable CPU-profile chart
@@ -63,6 +64,11 @@ for f in latest.json solvers.json latest-codec.json latest-interp.json; do
     [ "$RESULTS" != benchmarks/results ] && echo "stage-web-data: $f from benchmarks/results ($RESULTS has none)"
   fi
 done
+cp benchmarks/results/eda/mc.json "$STAGE/eda-mc.json"
+cp benchmarks/results/eda/bmc.json "$STAGE/eda-bmc.json"
+cp benchmarks/results/eda/rewrite.json "$STAGE/eda-rewrite.json"
+cp benchmarks/results/eda/count.json "$STAGE/eda-count.json"
+cp benchmarks/results/arena/crypto.json "$STAGE/eda-crypto.json"
 cp apps/logicaffeine_web/privacy.html "$STAGE/privacy.html"
 cp apps/logicaffeine_web/terms.html "$STAGE/terms.html"
 cp crates/logicaffeine_lexicon/assets/lexicon.json "$STAGE/lexicon.json"

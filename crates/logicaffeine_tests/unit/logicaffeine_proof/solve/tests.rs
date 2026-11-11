@@ -3108,3 +3108,351 @@ fn ramsey_symmetric_attack_is_measured() {
         );
     }
 }
+
+/// The almost-symmetry route's UNSAT verdict carries its proof — the certified breaks, then the learned clauses —
+/// and the proof checks against the formula alone. The sweep keeps only formulas unit propagation does not refute
+/// by itself, where an empty proof would not check.
+#[test]
+fn the_almost_symmetry_route_returns_a_checked_proof() {
+    let mut nontrivial = 0;
+    for seed in 0..400u64 {
+        let mut s = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+        let mut next = || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            s
+        };
+        let nv = 5usize;
+        let f: Vec<Vec<Lit>> = (0..16)
+            .map(|_| {
+                let mut c: Vec<Lit> = Vec::new();
+                while c.len() < 2 {
+                    let l = Lit::new((next() % nv as u64) as u32, next() & 1 == 0);
+                    if !c.iter().any(|m| m.var() == l.var()) {
+                        c.push(l);
+                    }
+                }
+                c
+            })
+            .collect();
+        if crate::rup::check_refutation(nv, &f, &[]) {
+            continue;
+        }
+        let Some(u) = almost_symmetry_solve(nv, &f) else { continue };
+        if !matches!(u.answer, Answer::Unsat) {
+            continue;
+        }
+        assert!(crate::pr::check_pr_refutation(nv, &f, &u.proof), "seed {seed}: the route's proof refutes the formula");
+        nontrivial += 1;
+    }
+    assert!(nontrivial >= 10, "only {nontrivial} refutations needed more than unit propagation");
+}
+
+/// A deterministic xorshift stream for the route sweeps below.
+fn route_stream(seed: u64) -> impl FnMut() -> u64 {
+    let mut s = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    move || {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        s
+    }
+}
+
+/// `width`-literal clauses over `nv` variables, distinct variables within a clause.
+fn random_clauses(next: &mut dyn FnMut() -> u64, nv: usize, m: usize, width: usize) -> Vec<Vec<Lit>> {
+    (0..m)
+        .map(|_| {
+            let mut c: Vec<Lit> = Vec::new();
+            while c.len() < width {
+                let l = Lit::new((next() % nv as u64) as u32, next() & 1 == 0);
+                if !c.iter().any(|x| x.var() == l.var()) {
+                    c.push(l);
+                }
+            }
+            c
+        })
+        .collect()
+}
+
+fn lemmas(steps: &[ProofStep]) -> Vec<Vec<Lit>> {
+    steps.iter().map(|s| s.clause().to_vec()).collect()
+}
+
+/// Every 2-SAT refutation carries its proof — the units `(¬x)` then `(x)` for the variable whose component holds
+/// both literals — and the proof replays against the formula alone.
+#[test]
+fn two_sat_refutations_carry_their_two_rup_units() {
+    let mut refuted = 0;
+    for seed in 0..300u64 {
+        let mut next = route_stream(seed);
+        let nv = 3 + (seed % 6) as usize;
+        let f = random_clauses(&mut next, nv, 2 * nv + (seed % 4) as usize, 2);
+        let s = solve_structured(nv, &f);
+        if s.via == Route::TwoSat && matches!(s.answer, Answer::Unsat) {
+            assert_eq!(s.proof.len(), 2, "seed {seed}: (¬x) and (x)");
+            assert!(crate::rup::check_refutation(nv, &f, &lemmas(&s.proof)), "seed {seed}: the units replay");
+            refuted += 1;
+        }
+    }
+    assert!(refuted >= 30, "only {refuted} 2-SAT refutations in the sweep");
+}
+
+/// Every refutation the exporting routes give comes with a proof checked against the formula alone: 2-SAT, Horn
+/// (unit propagation alone, so the empty stream), parity on Tseitin expanders and GF(3) on mod-3 Tseitin through the
+/// resolution bridge. Pigeonhole has no polynomial clausal proof: its verdict rests on the Hall witness, and
+/// `certified_proof` says so with `None`.
+#[test]
+fn certified_proofs_check_against_the_formula_alone_on_every_exporting_route() {
+    let mut seen: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let mut check = |nv: usize, f: &[Vec<Lit>], expect: Route| {
+        let s = solve_structured(nv, f);
+        assert!(matches!(s.answer, Answer::Unsat));
+        assert_eq!(s.via, expect, "the family is decided by the route under test");
+        let proof = certified_proof(nv, f, &s).unwrap_or_else(|| panic!("{expect:?} exports a proof"));
+        assert!(crate::pr::check_pr_refutation(nv, f, &proof), "{expect:?}: the proof refutes the formula");
+        seen.insert(format!("{expect:?}"));
+    };
+    check(2, &[vec![Lit::pos(0), Lit::pos(1)], vec![Lit::neg(0), Lit::pos(1)], vec![Lit::pos(0), Lit::neg(1)], vec![Lit::neg(0), Lit::neg(1)]], Route::TwoSat);
+    check(3, &[vec![Lit::pos(0)], vec![Lit::neg(0), Lit::pos(1)], vec![Lit::neg(0), Lit::neg(1), Lit::pos(2)], vec![Lit::neg(2), Lit::neg(1)]], Route::Horn);
+    let (_, tseitin, _) = crate::families::tseitin_expander(8, 7);
+    check(tseitin.num_vars, &tseitin.clauses, Route::Parity);
+    let (_, mod3, _) = crate::families::mod_p_tseitin_expander(6, 3, 5);
+    check(mod3.num_vars, &mod3.clauses, Route::ModP);
+    assert_eq!(seen.len(), 4);
+
+    let (php, _) = crate::families::php(6);
+    let s = solve_structured(php.num_vars, &php.clauses);
+    assert_eq!(s.via, Route::Pigeonhole);
+    assert!(certified_proof(php.num_vars, &php.clauses, &s).is_none(), "the Hall verdict has no clausal proof to give");
+    let sat = solve_structured(2, &[vec![Lit::pos(0), Lit::pos(1)]]);
+    assert!(certified_proof(2, &[vec![Lit::pos(0), Lit::pos(1)]], &sat).is_none(), "a SAT verdict has no refutation");
+}
+
+/// The CDCL routes search over the formula and the clauses mined from it, so their raw learned-clause stream may
+/// lean on a Gaussian-derived clause that is implied but not RUP. `certified_proof` always returns a proof that
+/// checks against the formula alone — re-derived when the raw stream does not. Instances: parity chains over half the
+/// variables with random clauses over all of them.
+#[test]
+fn the_cdcl_routes_certified_proof_checks_when_mined_clauses_carried_the_search() {
+    let (mut refuted, mut rederived) = (0, 0);
+    for seed in 0..120u64 {
+        let mut next = route_stream(seed ^ 0xD2D2);
+        let nv = 20usize;
+        let mut f: Vec<Vec<Lit>> = Vec::new();
+        for _ in 0..6 {
+            let mut vars: Vec<u32> = Vec::new();
+            while vars.len() < 3 {
+                let v = (next() % (nv / 2) as u64) as u32;
+                if !vars.contains(&v) {
+                    vars.push(v);
+                }
+            }
+            let parity = next() & 1 == 1;
+            for mask in 0u32..8 {
+                if (mask.count_ones() % 2 == 1) == parity {
+                    continue;
+                }
+                f.push(vars.iter().enumerate().map(|(i, &v)| Lit::new(v, mask >> i & 1 == 0)).collect());
+            }
+        }
+        f.extend(random_clauses(&mut next, nv, 82, 3));
+        let s = solve_structured(nv, &f);
+        if !matches!(s.answer, Answer::Unsat) || !matches!(s.via, Route::Cdcl | Route::HybridXor) {
+            continue;
+        }
+        refuted += 1;
+        let proof = certified_proof(nv, &f, &s).expect("a CDCL route always has a proof of the formula itself");
+        assert!(crate::pr::check_pr_refutation(nv, &f, &proof), "seed {seed}: the certified proof refutes the formula");
+        if !crate::rup::check_refutation(nv, &f, &lemmas(&s.proof)) {
+            rederived += 1;
+        }
+    }
+    assert!(refuted >= 20, "only {refuted} CDCL-route refutations in the sweep");
+    eprintln!("{rederived} of {refuted} raw streams leaned on a mined clause and were re-derived");
+}
+
+/// The CLI writes only checked proofs: a parity refutation's DRAT parses back and refutes the formula, and for a
+/// pigeonhole verdict no file is written and the note says what the verdict rests on.
+#[test]
+fn the_cli_writes_a_checked_proof_or_says_why_it_cannot() {
+    let dir = std::env::temp_dir().join(format!("logos_cli_proof_{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (_, tseitin, _) = crate::families::tseitin_expander(8, 7);
+    let cnf_path = dir.join("tseitin.cnf");
+    std::fs::write(&cnf_path, crate::dimacs::print(&tseitin)).unwrap();
+    let proof_path = dir.join("tseitin.drat");
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    let code = crate::satcli::run(&cnf_path, Some(&proof_path), false, &mut out, &mut err);
+    assert_eq!(code, 20);
+    let text = std::fs::read_to_string(&proof_path).expect("a proof was written");
+    let steps = crate::proof_emit::parse_dpr(&text).expect("the proof parses");
+    assert!(crate::pr::check_pr_refutation(tseitin.num_vars, &tseitin.clauses, &steps), "the written proof refutes");
+
+    let (php, _) = crate::families::php(6);
+    let php_path = dir.join("php.cnf");
+    std::fs::write(&php_path, crate::dimacs::print(&php)).unwrap();
+    let php_proof = dir.join("php.drat");
+    let (mut out, mut err) = (Vec::new(), Vec::new());
+    assert_eq!(crate::satcli::run(&php_path, Some(&php_proof), false, &mut out, &mut err), 20);
+    assert!(!php_proof.exists(), "no proof file for a verdict with no clausal proof");
+    let note = String::from_utf8_lossy(&err);
+    assert!(note.contains("rests on its own certificate"), "the note says what the verdict rests on: {note}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The covering gate passes every formula the matching and cutting-plane recognizers can refute: on a formula with
+/// a clause neither all-positive nor a binary exclusion, both decline, so the dispatcher skips building their view.
+#[test]
+fn the_covering_gate_passes_every_formula_matching_or_cutting_planes_refutes() {
+    let mut state = 0xC0FEu64;
+    let mut next = move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    };
+    let (mut refuted, mut gated) = (0usize, 0usize);
+    for round in 0..3000u64 {
+        let pigeons = 2 + (next() % 4) as usize;
+        let holes = 1 + (next() % pigeons as u64) as usize;
+        let var = |p: usize, h: usize| (p * holes + h) as u32;
+        let mut clauses: Vec<Vec<Lit>> = (0..pigeons).map(|p| (0..holes).map(|h| Lit::pos(var(p, h))).collect()).collect();
+        for h in 0..holes {
+            for p in 0..pigeons {
+                for q in p + 1..pigeons {
+                    if next() % 12 != 0 {
+                        clauses.push(vec![Lit::neg(var(p, h)), Lit::neg(var(q, h))]);
+                    }
+                }
+            }
+        }
+        let n = (pigeons * holes) as u64;
+        for _ in 0..next() % 3 {
+            let width = 1 + (next() % 3) as usize;
+            clauses.push((0..width).map(|_| Lit::new((next() % n) as u32, next() % 3 == 0)).collect());
+        }
+        let expr = cnf_to_expr(&clauses).expect("no clause is empty");
+        let read = crate::pigeonhole::decide_pigeonhole_unsat(&expr) || crate::pseudo_boolean::refute_clausal(&expr);
+        if read {
+            refuted += 1;
+            assert!(covering_shaped(&clauses), "round {round}: a refuted covering passes the gate");
+        }
+        if !covering_shaped(&clauses) {
+            gated += 1;
+        }
+    }
+    assert!(refuted >= 300 && gated >= 300, "both sides are exercised: {refuted} refuted, {gated} gated off");
+}
+
+/// The dispatcher's specialists decide the families they exist for after the gate as before: pigeonhole by matching,
+/// a parity contradiction by Gaussian elimination on the clauses, each with the route that names it.
+#[test]
+fn the_specialist_chain_keeps_its_routes_through_the_gate() {
+    let (cnf, _) = php(7);
+    let solved = structured_prefix(cnf.num_vars, &cnf.clauses).expect("PHP(7) is decided by a specialist");
+    assert!(matches!(solved.answer, Answer::Unsat));
+    assert_eq!(solved.via, Route::Pigeonhole);
+    // x0 ⊕ x1 ⊕ x2 = 1, x0 ⊕ x1 = 0 and x2 = 0, as their gadgets (each clause forbids the assignment `mask`), beside
+    // a clause on other variables: no 2-SAT, Horn, sparse or covering formula, and inconsistent over GF(2).
+    let gadget = |vars: &[u32], rhs: bool| -> Vec<Vec<Lit>> {
+        (0u32..1 << vars.len())
+            .filter(|mask| (mask.count_ones() % 2 == 1) != rhs)
+            .map(|mask| vars.iter().enumerate().map(|(i, &v)| Lit::new(v, mask & (1 << i) == 0)).collect())
+            .collect()
+    };
+    let mut clauses = gadget(&[0, 1, 2], true);
+    clauses.extend(gadget(&[0, 1], false));
+    clauses.extend(gadget(&[2], false));
+    clauses.push(vec![Lit::pos(3), Lit::neg(4), Lit::pos(5)]);
+    let solved = structured_prefix(6, &clauses).expect("an inconsistent parity system is decided by a specialist");
+    assert!(matches!(solved.answer, Answer::Unsat));
+    assert_eq!(solved.via, Route::Parity);
+}
+
+#[test]
+fn the_cdcl_route_eliminates_past_what_bound_zero_allows() {
+    // Random 3-SAT near the threshold: at the route's bound its preprocessing eliminates more than at bound 0, and the
+    // route still decides each formula with a checked model or a refutation that checks.
+    let mut rng: u64 = 0x2C1B_3C6D_46A8_E5F1;
+    let mut next = || {
+        rng ^= rng << 13;
+        rng ^= rng >> 7;
+        rng ^= rng << 17;
+        rng
+    };
+    let (mut at_zero, mut at_route) = (0, 0);
+    for _ in 0..12 {
+        let n = 120;
+        let clauses: Vec<Vec<Lit>> = (0..(n as f64 * 4.2) as usize)
+            .map(|_| (0..3).map(|_| Lit::new((next() % n as u64) as u32, next() % 2 == 0)).collect())
+            .collect();
+        at_zero += crate::preprocess::preprocess(n, &clauses, &crate::preprocess::Options::default()).eliminated;
+        at_route += crate::preprocess::preprocess(
+            n,
+            &clauses,
+            &crate::preprocess::Options { bound: ROUTE_ELIMINATION_BOUND, ..Default::default() },
+        )
+        .eliminated;
+        let solved = cdcl_fallback(n, &clauses);
+        match &solved.answer {
+            Answer::Sat(m) => assert!(clauses.iter().all(|c| c.iter().any(|l| m[l.var() as usize] == l.is_positive()))),
+            Answer::Unsat => assert!(crate::pr::check_pr_refutation_fast(n, &clauses, &solved.proof), "the route's proof refutes"),
+        }
+    }
+    assert!(at_route > at_zero + 12, "the route's bound eliminates past bound 0's: {at_route} against {at_zero}");
+}
+
+#[test]
+fn the_hybrid_route_lets_go_of_a_theory_that_refutes_nothing() {
+    // x0 ⊕ x1 = 1 over a trail that keeps to it: weighed at its first XOR_WEIGHED_EVERY calls with no refutation,
+    // the theory is let go, and from then on answers a violating trail with a fixpoint.
+    let eqs = [crate::xorsat::XorEquation::new(vec![0, 1], true)];
+    let mut theory = Retiring { live: WatchedXor::new(2, &eqs), retired: false };
+    use crate::cdcl::Theory;
+    for call in 0..XOR_WEIGHED_EVERY {
+        assert!(!theory.retired, "call {call}: not weighed before {XOR_WEIGHED_EVERY}");
+        let trail = if call % 2 == 0 { vec![Lit::pos(0)] } else { vec![Lit::pos(0), Lit::neg(1)] };
+        assert!(theory.propagate(&trail).iter().all(|c| !c.is_empty()));
+    }
+    assert!(theory.retired, "no refutation in {XOR_WEIGHED_EVERY} calls");
+    assert!(theory.propagate(&[Lit::pos(0), Lit::pos(1)]).is_empty(), "let go, it reports nothing");
+    assert_eq!(theory.live.calls(), XOR_WEIGHED_EVERY, "and is no longer called");
+}
+
+#[test]
+fn the_hybrid_route_keeps_a_theory_that_refutes() {
+    // The same equation, its trail violating it once in every few hundred calls: past every weighing it stays, and a
+    // violating trail is refuted.
+    let eqs = [crate::xorsat::XorEquation::new(vec![0, 1], true)];
+    let mut theory = Retiring { live: WatchedXor::new(2, &eqs), retired: false };
+    use crate::cdcl::Theory;
+    for call in 0..4 * XOR_WEIGHED_EVERY {
+        let trail = if call % 500 == 0 { vec![Lit::pos(0), Lit::pos(1)] } else { vec![Lit::pos(0), Lit::neg(1)] };
+        theory.propagate(&trail);
+    }
+    assert!(!theory.retired, "{} refutations in {} calls", theory.live.refutations(), theory.live.calls());
+    assert!(!theory.propagate(&[Lit::pos(0), Lit::pos(1)]).is_empty());
+}
+
+#[test]
+fn the_hybrid_route_decides_planted_cipher_instances() {
+    // SHA-1's compression cut to 18 steps with 128 block bits given, where the route's theory refutes almost nothing
+    // and is let go, and Trivium recovered from 300 keystream bits with 160 state bits given, where it refutes often:
+    // each instance through the route, its model checked by recomputing the cipher.
+    let sha1 = crate::cipher::Sha1Preimage::new(18, 128, 0);
+    let solved = solve_structured(sha1.cnf.num_vars, &sha1.cnf.clauses);
+    assert_eq!(solved.via, Route::HybridXor);
+    match solved.answer {
+        Answer::Sat(model) => assert!(sha1.check(&model), "the model's block is a preimage"),
+        Answer::Unsat => panic!("the planted block is a preimage"),
+    }
+    let trivium = crate::cipher::TriviumRecovery::new(300, 160, 0);
+    let solved = solve_structured(trivium.cnf.num_vars, &trivium.cnf.clauses);
+    assert_eq!(solved.via, Route::HybridXor);
+    match solved.answer {
+        Answer::Sat(model) => assert!(trivium.check(&model), "the model's state yields the keystream"),
+        Answer::Unsat => panic!("the planted state yields the keystream"),
+    }
+}

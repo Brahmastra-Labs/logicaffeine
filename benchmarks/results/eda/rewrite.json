@@ -1,0 +1,39 @@
+{
+  "arena": "rewrite",
+  "corpus": "EPFL combinational suite (arithmetic, random_control)",
+  "date": "2026-11-07",
+  "cpu": "Intel(R) Core(TM) i9-14900K",
+  "clock": "cpu",
+  "timeout_s": 60,
+  "abc": "yosys-abc",
+  "abc_version": "Yosys 0.33 (git sha1 2584903a060)",
+  "engines": ["ours", "abc_rewrite_x4", "abc_resyn2"],
+  "summary": {
+    "input": {"designs": 20, "ands": 462884},
+    "ours": {"designs": 20, "ands": 425711, "seconds": 40.94},
+    "abc_rewrite_x4": {"designs": 20, "ands": 437182, "seconds": 28.82},
+    "abc_resyn2": {"designs": 19, "ands": 213303, "seconds": 80.55}
+  },
+  "designs": [
+    {"name": "adder", "input": 1020, "ours": {"ands": 893, "seconds": 0.02, "cec": "equal"}, "abc_rewrite_x4": {"ands": 1020, "seconds": 0.07}, "abc_resyn2": {"ands": 1019, "seconds": 0.07}},
+    {"name": "bar", "input": 3336, "ours": {"ands": 3141, "seconds": 0.08, "cec": "equal"}, "abc_rewrite_x4": {"ands": 3141, "seconds": 0.12}, "abc_resyn2": {"ands": 3141, "seconds": 0.17}},
+    {"name": "div", "input": 57247, "ours": {"ands": 40937, "seconds": 6.37, "cec": "equal"}, "abc_rewrite_x4": {"ands": 41026, "seconds": 2.54}, "abc_resyn2": {"ands": 40772, "seconds": 3.38}},
+    {"name": "hyp", "input": 214335, "ours": {"ands": 211348, "seconds": 21.91, "cec": "timeout"}, "abc_rewrite_x4": {"ands": 214274, "seconds": 15.52}, "abc_resyn2": {"ands": null, "seconds": 60.00}},
+    {"name": "log2", "input": 32060, "ours": {"ands": 29695, "seconds": 4.47, "cec": "equal"}, "abc_rewrite_x4": {"ands": 31543, "seconds": 2.62}, "abc_resyn2": {"ands": 29370, "seconds": 3.18}},
+    {"name": "max", "input": 2865, "ours": {"ands": 2862, "seconds": 0.06, "cec": "equal"}, "abc_rewrite_x4": {"ands": 2865, "seconds": 0.08}, "abc_resyn2": {"ands": 2834, "seconds": 0.14}},
+    {"name": "multiplier", "input": 27062, "ours": {"ands": 24552, "seconds": 1.14, "cec": "equal"}, "abc_rewrite_x4": {"ands": 26853, "seconds": 1.99}, "abc_resyn2": {"ands": 24556, "seconds": 3.23}},
+    {"name": "sin", "input": 5416, "ours": {"ands": 5159, "seconds": 0.47, "cec": "equal"}, "abc_rewrite_x4": {"ands": 5330, "seconds": 0.29}, "abc_resyn2": {"ands": 5039, "seconds": 0.53}},
+    {"name": "sqrt", "input": 24618, "ours": {"ands": 18480, "seconds": 1.69, "cec": "equal"}, "abc_rewrite_x4": {"ands": 19439, "seconds": 1.52}, "abc_resyn2": {"ands": 19437, "seconds": 2.76}},
+    {"name": "square", "input": 18484, "ours": {"ands": 17559, "seconds": 0.93, "cec": "equal"}, "abc_rewrite_x4": {"ands": 18323, "seconds": 1.44}, "abc_resyn2": {"ands": 16623, "seconds": 2.35}},
+    {"name": "arbiter", "input": 11839, "ours": {"ands": 11839, "seconds": 0.13, "cec": "equal"}, "abc_rewrite_x4": {"ands": 11839, "seconds": 0.40}, "abc_resyn2": {"ands": 11839, "seconds": 0.85}},
+    {"name": "cavlc", "input": 693, "ours": {"ands": 683, "seconds": 0.02, "cec": "equal"}, "abc_rewrite_x4": {"ands": 691, "seconds": 0.05}, "abc_resyn2": {"ands": 662, "seconds": 0.06}},
+    {"name": "ctrl", "input": 174, "ours": {"ands": 110, "seconds": 0.00, "cec": "equal"}, "abc_rewrite_x4": {"ands": 134, "seconds": 0.03}, "abc_resyn2": {"ands": 108, "seconds": 0.03}},
+    {"name": "dec", "input": 304, "ours": {"ands": 304, "seconds": 0.00, "cec": "equal"}, "abc_rewrite_x4": {"ands": 304, "seconds": 0.04}, "abc_resyn2": {"ands": 304, "seconds": 0.05}},
+    {"name": "i2c", "input": 1342, "ours": {"ands": 1289, "seconds": 0.03, "cec": "equal"}, "abc_rewrite_x4": {"ands": 1309, "seconds": 0.07}, "abc_resyn2": {"ands": 1162, "seconds": 0.10}},
+    {"name": "int2float", "input": 260, "ours": {"ands": 220, "seconds": 0.00, "cec": "equal"}, "abc_rewrite_x4": {"ands": 221, "seconds": 0.03}, "abc_resyn2": {"ands": 214, "seconds": 0.05}},
+    {"name": "mem_ctrl", "input": 46836, "ours": {"ands": 46556, "seconds": 2.63, "cec": "equal"}, "abc_rewrite_x4": {"ands": 46733, "seconds": 1.24}, "abc_resyn2": {"ands": 45614, "seconds": 2.28}},
+    {"name": "priority", "input": 978, "ours": {"ands": 805, "seconds": 0.04, "cec": "equal"}, "abc_rewrite_x4": {"ands": 810, "seconds": 0.07}, "abc_resyn2": {"ands": 676, "seconds": 0.07}},
+    {"name": "router", "input": 257, "ours": {"ands": 244, "seconds": 0.00, "cec": "equal"}, "abc_rewrite_x4": {"ands": 254, "seconds": 0.03}, "abc_resyn2": {"ands": 177, "seconds": 0.03}},
+    {"name": "voter", "input": 13758, "ours": {"ands": 9035, "seconds": 0.95, "cec": "equal"}, "abc_rewrite_x4": {"ands": 11073, "seconds": 0.67}, "abc_resyn2": {"ands": 9756, "seconds": 1.22}}
+  ]
+}

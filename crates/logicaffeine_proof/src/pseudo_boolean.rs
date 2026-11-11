@@ -428,11 +428,6 @@ use crate::cdcl::Lit;
 /// residual cardinality core, where Gaussian elimination handles the parity and cardinality propagation
 /// handles the counting, but neither is a refutation by itself.
 ///
-/// Pair it with the stateless [`crate::xor_engine::XorEngine`], not the incremental
-/// [`crate::xor_engine::IncXor`]: `IncXor`'s trail-sync matches by variable but not value, so a
-/// backtrack-then-flip leaves its matrix stale — correct whenever a clausal XOR encoding backs it (the
-/// dispatcher's case), but unsound in a pure-theory fusion with no Boolean clauses to mask it.
-///
 /// **Soundness** rests on the cardinality reason clause: for `Σ ℓ ≥ k` over `n` literals, ANY `n − k + 1`
 /// of them form a clause entailed by the constraint (at most `n − k` of the literals can be false, so any
 /// `n − k + 1` contain a true one). Hence when more than `n − k` are false, `n − k + 1` false literals are

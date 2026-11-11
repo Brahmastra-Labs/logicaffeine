@@ -29,7 +29,7 @@ use std::collections::HashSet;
 use crate::cdcl::{BudgetedResult, Lit, SolveResult, Solver};
 use crate::lyapunov::{auto_collapse, extract_xor, AutoCollapse};
 use crate::proof::ProofStep;
-use crate::xor_engine::IncXor;
+use crate::xor_engine::{IncXor, WatchedXor};
 use crate::xorsat::XorOutcome;
 use crate::ProofExpr;
 
@@ -96,7 +96,7 @@ pub enum Route {
     Cdcl,
 }
 
-/// The verdict; a model on SAT, with any UNSAT certificate carried in [`Solved::proof`].
+/// The verdict; a model on SAT, with any UNSAT proof the route carries in [`Solved::proof`].
 #[derive(Clone, Debug)]
 pub enum Answer {
     Sat(Vec<bool>),
@@ -108,8 +108,11 @@ pub enum Answer {
 pub struct Solved {
     pub answer: Answer,
     pub via: Route,
-    /// UNSAT certificate as a proof stream where one exists (RUP for the CDCL route); empty for the
-    /// polynomial specialists, which certify internally.
+    /// The UNSAT proof the route carries at no extra cost: the CDCL route's preprocessing steps and learned
+    /// clauses, the hybrid-XOR route's learned clauses (over the formula and the short clauses Gaussian
+    /// elimination implies, so not always checkable against the formula alone), 2-SAT's two RUP units, the covering collapse's and the symmetry routes' PR streams. Empty for a specialist whose verdict
+    /// rests on its own certificate (see [`certified_proof`] for which are re-checked). [`certified_proof`] gives a
+    /// proof checked against the formula alone.
     pub proof: Vec<ProofStep>,
     /// CDCL conflicts spent (0 whenever a specialist collapsed the instance without search).
     pub conflicts: u64,
@@ -138,30 +141,39 @@ pub fn solve_structured(num_vars: usize, clauses: &[Vec<Lit>]) -> Solved {
 /// needed). Public so callers that only want the O(clauses) specialist verdict — e.g. a per-node
 /// cofactor-DAG leaf check — can skip the expensive CDCL search entirely.
 pub fn structured_prefix(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Solved> {
-    // 1. 2-SAT: a complete polynomial decision procedure with a model.
+    // 1. 2-SAT: a complete polynomial decision procedure. The model is re-checked; the refutation — `x` and `¬x`
+    //    in one strongly connected component — is re-derived by reachability and carried as the RUP steps `(¬x)`,
+    //    `(x)`: each implication chain is unit propagation. A certificate that does not re-check declines onward.
     if let Some(binary) = as_two_sat(clauses) {
-        return Some(match crate::twosat::solve(&binary, num_vars) {
-            crate::twosat::TwoSatOutcome::Sat(model) => Solved {
-                answer: Answer::Sat(model),
-                via: Route::TwoSat,
-                proof: Vec::new(),
-                conflicts: 0,
-            },
-            crate::twosat::TwoSatOutcome::Unsat(_) => Solved::unsat(Route::TwoSat),
-        });
+        match crate::twosat::solve(&binary, num_vars) {
+            crate::twosat::TwoSatOutcome::Sat(model) if crate::twosat::satisfies(&binary, &model) => {
+                return Some(Solved { answer: Answer::Sat(model), via: Route::TwoSat, proof: Vec::new(), conflicts: 0 });
+            }
+            crate::twosat::TwoSatOutcome::Unsat(x) if crate::twosat::is_refutation(&binary, num_vars, x) => {
+                let x = x as u32;
+                return Some(Solved {
+                    answer: Answer::Unsat,
+                    via: Route::TwoSat,
+                    proof: vec![ProofStep::Rup(vec![Lit::neg(x)]), ProofStep::Rup(vec![Lit::pos(x)])],
+                    conflicts: 0,
+                });
+            }
+            _ => {}
+        }
     }
 
-    // 2. Horn: linear least-model / forward-chaining refutation.
+    // 2. Horn: the least model by forward chaining, re-checked, or the refutation, re-derived. A Horn formula with
+    //    no model is refuted by unit propagation alone, so the empty stream is its proof.
     if let Some(horn) = as_horn(clauses) {
-        return Some(match crate::hornsat::solve(&horn, num_vars) {
-            crate::hornsat::HornOutcome::Sat(model) => Solved {
-                answer: Answer::Sat(model),
-                via: Route::Horn,
-                proof: Vec::new(),
-                conflicts: 0,
-            },
-            crate::hornsat::HornOutcome::Unsat(_) => Solved::unsat(Route::Horn),
-        });
+        match crate::hornsat::solve(&horn, num_vars) {
+            crate::hornsat::HornOutcome::Sat(model) if crate::hornsat::satisfies(&horn, &model) => {
+                return Some(Solved { answer: Answer::Sat(model), via: Route::Horn, proof: Vec::new(), conflicts: 0 });
+            }
+            crate::hornsat::HornOutcome::Unsat(r) if crate::hornsat::is_refutation(&horn, num_vars, &r) => {
+                return Some(Solved::unsat(Route::Horn));
+            }
+            _ => {}
+        }
     }
 
     // 3. LLL: satisfiability from sparsity. If the local-lemma condition holds a model is guaranteed;
@@ -188,15 +200,20 @@ pub fn structured_prefix(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Solved
         }
     }
 
-    // 4-6. Polynomial UNSAT recognizers over the formula's ProofExpr view.
-    if let Some(expr) = cnf_to_expr(clauses) {
-        if crate::pigeonhole::decide_pigeonhole_unsat(&expr) {
-            return Some(Solved::unsat(Route::Pigeonhole));
+    // 4-6. Polynomial UNSAT recognizers. Matching and cutting planes read a covering over the formula's ProofExpr
+    //      view, built only when the formula is one; parity reads the clauses.
+    if clauses.iter().all(|c| !c.is_empty()) {
+        if covering_shaped(clauses) {
+            if let Some(expr) = cnf_to_expr(clauses) {
+                if crate::pigeonhole::decide_pigeonhole_unsat(&expr) {
+                    return Some(Solved::unsat(Route::Pigeonhole));
+                }
+                if crate::pseudo_boolean::refute_clausal(&expr) {
+                    return Some(Solved::unsat(Route::CuttingPlanes));
+                }
+            }
         }
-        if crate::pseudo_boolean::refute_clausal(&expr) {
-            return Some(Solved::unsat(Route::CuttingPlanes));
-        }
-        if crate::xorsat::refute_via_parity(&expr) {
+        if crate::xorsat::refute_via_parity_clauses(num_vars, clauses) {
             return Some(Solved::unsat(Route::Parity));
         }
     }
@@ -218,9 +235,13 @@ pub fn structured_prefix(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Solved
     }
 
     // 6. Covering / algebraic collapse: auto-discover the symmetry or parity that flattens it.
+    // A covering collapse carries its PR refutation, already checked; the cardinality and parity collapses rest on
+    // the descent reaching its goal.
     match auto_collapse(num_vars, clauses) {
         AutoCollapse::None => {}
-        // Any recognized collapse (covering symmetry, parity, cardinality, …) is a certified UNSAT.
+        AutoCollapse::Geometric { ranked, .. } => {
+            return Some(Solved { answer: Answer::Unsat, via: Route::Collapse, proof: ranked.steps, conflicts: 0 });
+        }
         _ => return Some(Solved::unsat(Route::Collapse)),
     }
 
@@ -235,7 +256,10 @@ pub fn structured_prefix(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Solved
     //     no cheaper recognizer caught — the ordered-field cut beyond the linear/parity engines (it
     //     closes integrality gaps GF(2) cannot see). Sound and bounded (num_vars ≤ 6). A certified-
     //     specialist backstop; the standalone engine (`crate::sos`) is where its degree-2 power lives.
-    if num_vars <= 6 && crate::sos::sos_refutes(num_vars, clauses) {
+    if num_vars <= 6
+        && crate::sos::sos_certificate(num_vars, clauses)
+            .is_some_and(|cert| crate::sos::check_sos_certificate(num_vars, clauses, &cert))
+    {
         return Some(Solved::unsat(Route::Sos));
     }
 
@@ -244,10 +268,14 @@ pub fn structured_prefix(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Solved
     //      Nullstellensatz degree 3: their symmetry is *already fully broken* (0 underbroken), so no
     //      symmetry route can touch them — the only remaining lens is the deeper algebraic one. Small-core
     //      gated (num_vars ≤ 12) so the fast router stays bounded; sound (a genuine degree-d NS refutation).
+    //      The verdict is re-checked by the full-degree partition-of-unity certificate, cheap at this size.
     if num_vars <= 12 {
         for d in 2..=num_vars.min(3) {
             if crate::polycalc::nullstellensatz_refutes(num_vars, clauses, d) {
-                return Some(Solved::unsat(Route::Nullstellensatz));
+                if matches!(crate::polycalc::build_ns_certificate(num_vars, clauses), Ok(cert) if cert.verify(clauses)) {
+                    return Some(Solved::unsat(Route::Nullstellensatz));
+                }
+                break;
             }
         }
     }
@@ -327,16 +355,56 @@ fn exact_cover_route(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Solved> {
     None
 }
 
-/// The authoritative CDCL fallback — enriched with the mined clause bundle: every structure-mining
-/// contributor's implied no-goods, unioned into the formula so CDCL inherits the discovered structure.
-/// Sound (only implied clauses) and never-worse.
+/// The clauses the CDCL route's preprocessing lets an elimination add beyond those it removes. On an exact cover, each
+/// variable in four exactly-one constraints, no variable eliminates at bound 0 and a sixth of them at 4. On the SAT
+/// Competition 2024 sample at 60 s the route decides 57 of 62 formulas at bound 4 against 47 at 0 (PAR-2 1049 against
+/// 2320), among them all ten of its tilings, nine of which bound 0 does not decide; on the SATLIB and structured arena
+/// it decides the same 108 of 133.
+const ROUTE_ELIMINATION_BOUND: usize = 4;
+
+/// The CDCL route: the formula preprocessed ([`crate::preprocess`]: level-0 units, congruence closure, equivalent
+/// literals, subsumption, bounded variable addition and elimination), then the CDCL core on the simplified formula,
+/// over its variables and those bounded variable addition introduced. Every clause the simplified formula keeps or
+/// derives follows from the formula or, over an introduced variable, is redundant for it, so the formula and the
+/// simplified one are satisfiable together, and a model of the simplified one extends back to a model of the
+/// formula. The proof is the preprocessing steps (RUP and PR additions, deletions) followed by the search's learned
+/// clauses. An extended model is
+/// checked against the formula; one that failed would be a preprocessing defect, and the formula is then decided by
+/// the core on the formula itself ([`cdcl_on_the_formula`]). An elimination may add up to [`ROUTE_ELIMINATION_BOUND`]
+/// clauses beyond those it removes.
 fn cdcl_fallback(num_vars: usize, clauses: &[Vec<Lit>]) -> Solved {
+    let options = crate::preprocess::Options { factor: true, bound: ROUTE_ELIMINATION_BOUND, ..Default::default() };
+    let pre = crate::preprocess::preprocess(num_vars, clauses, &options);
+    if pre.unsat {
+        return Solved { answer: Answer::Unsat, via: Route::Cdcl, proof: pre.steps, conflicts: 0 };
+    }
+    let mut solver = Solver::new(pre.num_vars);
+    for c in &pre.clauses {
+        solver.add_clause(c.clone());
+    }
+    match solver.solve() {
+        SolveResult::Sat(mut model) => {
+            pre.extend(&mut model);
+            model.truncate(num_vars);
+            if clauses.iter().all(|c| c.iter().any(|l| model[l.var() as usize] == l.is_positive())) {
+                return Solved { answer: Answer::Sat(model), via: Route::Cdcl, proof: Vec::new(), conflicts: solver.conflicts() };
+            }
+            debug_assert!(false, "a model of the preprocessed formula failed to extend to the formula");
+            cdcl_on_the_formula(num_vars, clauses)
+        }
+        SolveResult::Unsat => {
+            let mut proof = pre.steps;
+            proof.extend(solver.learned().iter().map(|lc| ProofStep::Rup(lc.lits.clone())));
+            Solved { answer: Answer::Unsat, via: Route::Cdcl, proof, conflicts: solver.conflicts() }
+        }
+    }
+}
+
+/// The CDCL core on the formula itself, with no preprocessing.
+fn cdcl_on_the_formula(num_vars: usize, clauses: &[Vec<Lit>]) -> Solved {
     let mut solver = Solver::new(num_vars);
     for c in clauses {
         solver.add_clause(c.clone());
-    }
-    for c in mine_clauses(num_vars, clauses) {
-        solver.add_clause(c);
     }
     match solver.solve() {
         SolveResult::Sat(model) => Solved {
@@ -2084,75 +2152,51 @@ pub fn almost_symmetry_pairs(
 }
 
 /// Decide via **almost-symmetry breaking** (conditional). A transposition `σ = (a,b)` that breaks only a
-/// few clauses is an automorphism of `F` minus those clauses, so it maps a model `m` of `F` to a model of
-/// `F` *exactly when* `σ(m)` also satisfies the broken clauses — equivalently when `m` satisfies their
-/// images `σ(B)`. We therefore add the **guarded** break `(⋀ σ(B)) → (a@0 ≤ b@0)`, encoded with a
-/// reification `z_c ↔ c` per image clause. Sound: where the guard holds, both `m` and `σ(m)` are models and
-/// the ordering keeps one; where it does not, `m` is untouched. We break the single almost-symmetry with
-/// the fewest broken clauses (composing partial breaks can be unsound), so a SAT model is re-checked and an
-/// UNSAT verdict is faithful. `None` when no transposition breaks few enough clauses.
+/// few clauses is a partial symmetry: it maps a model `m` of `F` to a model *exactly when* `m` satisfies the
+/// images `σ(B)` of the broken clauses. [`crate::sym_certify::conditional_symmetry_breaks`] adds the guarded
+/// break `(⋀ σ(B)) → (a ≤ b)` of every such transposition, each clause a substitution-redundant PR step checked
+/// against the database before it, so the breaks of several transpositions compose. A SAT model is re-checked
+/// against `F`; an UNSAT verdict carries the PR breaks and the learned clauses as its proof, checked against
+/// `F` alone, and falls back to a plain CDCL refutation of `F` should that check fail. `None` when no
+/// transposition breaks few enough clauses.
 fn almost_symmetry_solve(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Solved> {
     if num_vars == 0 || num_vars > 20 || clauses.len() > 256 {
         return None;
     }
-    let mut pairs = almost_symmetry_pairs(num_vars, clauses, 2);
-    if pairs.is_empty() {
+    if almost_symmetry_pairs(num_vars, clauses, 2).is_empty() {
         return None;
     }
-    // The fewest-broken almost-symmetry: most often active, and we break exactly one for soundness.
-    pairs.sort_by_key(|(_, _, imgs)| imgs.len());
-    let (a, b, images) = &pairs[0];
-
-    let mut aux = num_vars as u32;
-    let mut extra: Vec<Vec<Lit>> = Vec::new();
-    let mut guard_neg: Vec<Lit> = Vec::new();
-    for img in images {
-        let z = aux;
-        aux += 1;
-        // z ↔ (img is satisfied): (each literal → z) and (z → the clause).
-        for &l in img {
-            extra.push(vec![l.negated(), Lit::pos(z)]);
-        }
-        let mut zc = vec![Lit::neg(z)];
-        zc.extend(img.iter().copied());
-        extra.push(zc);
-        guard_neg.push(Lit::neg(z));
-    }
-    // (⋀ images) → (a ≤ b)   ≡   [⋁ ¬z_c] ∨ ¬a ∨ b
-    let mut guarded = guard_neg;
-    guarded.push(Lit::neg(*a as u32));
-    guarded.push(Lit::pos(*b as u32));
-    extra.push(guarded);
-
-    let mut solver = Solver::new(aux as usize);
-    for c in clauses {
-        solver.add_clause(c.clone());
-    }
-    for c in &extra {
+    let breaks = crate::sym_certify::conditional_symmetry_breaks(num_vars, clauses, 2);
+    let mut solver = Solver::new(num_vars);
+    for c in &breaks.db {
         solver.add_clause(c.clone());
     }
     match solver.solve() {
-        SolveResult::Sat(model) => {
-            let projected: Vec<bool> = model[..num_vars].to_vec();
-            clauses
-                .iter()
-                .all(|c| {
-                    c.iter()
-                        .any(|l| projected[l.var() as usize] == l.is_positive())
-                })
-                .then_some(Solved {
-                    answer: Answer::Sat(projected),
-                    via: Route::AlmostSymmetry,
-                    proof: Vec::new(),
-                    conflicts: solver.conflicts(),
-                })
+        SolveResult::Sat(model) => clauses
+            .iter()
+            .all(|c| c.iter().any(|l| model[l.var() as usize] == l.is_positive()))
+            .then_some(Solved {
+                answer: Answer::Sat(model),
+                via: Route::AlmostSymmetry,
+                proof: Vec::new(),
+                conflicts: solver.conflicts(),
+            }),
+        SolveResult::Unsat => {
+            let mut proof = breaks.steps;
+            proof.extend(solver.learned().iter().map(|lc| ProofStep::Rup(lc.lits.clone())));
+            if !crate::pr::check_pr_refutation(num_vars, clauses, &proof) {
+                proof = crate::sdcl::plain_cdcl_refutation(num_vars, clauses);
+                if !crate::pr::check_pr_refutation(num_vars, clauses, &proof) {
+                    return None;
+                }
+            }
+            Some(Solved {
+                answer: Answer::Unsat,
+                via: Route::AlmostSymmetry,
+                proof,
+                conflicts: solver.conflicts(),
+            })
         }
-        SolveResult::Unsat => Some(Solved {
-            answer: Answer::Unsat,
-            via: Route::AlmostSymmetry,
-            proof: Vec::new(),
-            conflicts: solver.conflicts(),
-        }),
     }
 }
 
@@ -3984,13 +4028,8 @@ fn modp_route(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Solved> {
     if modp::is_prime(rec.modulus) {
         // Prime modulus: the proven field engine.
         match modp::solve(&rec.equations, rec.num_vars, rec.modulus) {
-            ModpOutcome::Unsat(combo) => {
-                debug_assert!(
-                    modp::is_refutation(&rec.equations, rec.num_vars, rec.modulus, &combo),
-                    "the recovered GF(p) refutation must re-check"
-                );
-                Some(Solved::unsat(Route::ModP))
-            }
+            ModpOutcome::Unsat(combo) => modp::is_refutation(&rec.equations, rec.num_vars, rec.modulus, &combo)
+                .then(|| Solved::unsat(Route::ModP)),
             ModpOutcome::Sat(assign) => Some(Solved {
                 answer: Answer::Sat(build_model(&assign)?),
                 via: Route::ModP,
@@ -4002,13 +4041,8 @@ fn modp_route(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Solved> {
         // Composite modulus: CRT over the prime-power components, the ℤ/m ring engine.
         use crate::modm::{self, ModmOutcome};
         match modm::solve(&rec.equations, rec.num_vars, rec.modulus)? {
-            ModmOutcome::Unsat { modulus, combo } => {
-                debug_assert!(
-                    modm::is_refutation(&rec.equations, rec.num_vars, modulus, &combo),
-                    "the recovered ℤ/m refutation must re-check"
-                );
-                Some(Solved::unsat(Route::ModM))
-            }
+            ModmOutcome::Unsat { modulus, combo } => modm::is_refutation(&rec.equations, rec.num_vars, modulus, &combo)
+                .then(|| Solved::unsat(Route::ModM)),
             ModmOutcome::Sat(assign) => Some(Solved {
                 answer: Answer::Sat(build_model(&assign)?),
                 via: Route::ModM,
@@ -4019,6 +4053,51 @@ fn modp_route(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Solved> {
     }
 }
 
+/// Whether `steps` refute `clauses` alone. A stream of RUP additions is checked by trimmed LRAT
+/// ([`crate::lrat::refutation`], watched-literal propagation); one with PR steps by
+/// [`crate::pr::check_pr_refutation_fast`].
+fn refutes(num_vars: usize, clauses: &[Vec<Lit>], steps: &[ProofStep]) -> bool {
+    let rup_only: Option<Vec<Vec<Lit>>> = steps
+        .iter()
+        .map(|s| match s {
+            ProofStep::Rup(c) => Some(c.clone()),
+            _ => None,
+        })
+        .collect();
+    match rup_only {
+        Some(lemmas) => crate::lrat::refutation(num_vars, clauses, &lemmas).is_some(),
+        None => crate::pr::check_pr_refutation_fast(num_vars, clauses, steps),
+    }
+}
+
+/// **A proof of an UNSAT verdict, checked against the formula alone**, or `None` when the route has no clausal
+/// proof to give. The proof [`Solved::proof`] carries is used when it checks. The hybrid-XOR route's may not: its
+/// search ran over the formula and the short clauses Gaussian elimination implied, which are implied but not RUP.
+/// A CDCL-family route whose proof does not check is given a fresh CDCL refutation of the formula itself. The parity and GF(p) routes
+/// compile their linear refutations to resolution ([`crate::xor_drat`]), within that bridge's budget. The other
+/// specialists have no polynomial clausal proof, and their verdicts rest on their own certificates: a Hall witness,
+/// an exact-cover or ℤ/m combination, an SoS or Nullstellensatz certificate, each re-checked before the route
+/// returned; a cutting-plane sum; a collapse's descent. Whatever is returned has been checked here.
+pub fn certified_proof(num_vars: usize, clauses: &[Vec<Lit>], solved: &Solved) -> Option<Vec<ProofStep>> {
+    if !matches!(solved.answer, Answer::Unsat) {
+        return None;
+    }
+    if refutes(num_vars, clauses, &solved.proof) {
+        return Some(solved.proof.clone());
+    }
+    let candidate: Vec<ProofStep> = match solved.via {
+        Route::Parity => {
+            let eqs = extract_xor(num_vars, clauses);
+            let XorOutcome::Unsat(subset) = crate::xorsat::solve(&eqs, num_vars) else { return None };
+            crate::xor_drat::emit_xor_drat(&eqs, &subset)?.into_iter().map(ProofStep::Rup).collect()
+        }
+        Route::ModP => crate::xor_drat::emit_modp_drat(num_vars, clauses)?.into_iter().map(ProofStep::Rup).collect(),
+        Route::Cdcl | Route::HybridXor | Route::Incompressible => crate::sdcl::plain_cdcl_refutation(num_vars, clauses),
+        _ => return None,
+    };
+    refutes(num_vars, clauses, &candidate).then_some(candidate)
+}
+
 /// **The clause-bundle pass.** Run every structure-mining contributor and union the *implied* clauses
 /// (no-goods) they discover. Each contributor's soundness contract: every returned clause is implied
 /// by the formula, so the union preserves the solution set — a sound, never-worse enrichment that lets
@@ -4027,7 +4106,7 @@ fn modp_route(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Solved> {
 pub fn mine_clauses(num_vars: usize, clauses: &[Vec<Lit>]) -> Vec<Vec<Lit>> {
     let mut seen: HashSet<Vec<i64>> = clauses.iter().map(|c| canon(c)).collect();
     let mut pool = Vec::new();
-    let mut add =
+    let add =
         |bundle: Vec<Vec<Lit>>, pool: &mut Vec<Vec<Lit>>, seen: &mut HashSet<Vec<i64>>| {
             for c in bundle {
                 if seen.insert(canon(&c)) {
@@ -4147,6 +4226,13 @@ fn as_horn(clauses: &[Vec<Lit>]) -> Option<Vec<crate::hornsat::HornClause>> {
 
 /// Build the conjunction-of-disjunctions [`ProofExpr`] the pigeonhole/cutting-plane/parity detectors
 /// read (atoms named `v{index}`). `None` if any clause is empty (handled by the CDCL fallback).
+/// Whether every clause is all-positive or a binary exclusion `¬a ∨ ¬b`: the only clauses the matching
+/// ([`crate::pigeonhole::decide_pigeonhole_unsat`]) and cutting-plane ([`crate::pseudo_boolean::refute_clausal`])
+/// recognizers read, so on any other formula both decline.
+fn covering_shaped(clauses: &[Vec<Lit>]) -> bool {
+    clauses.iter().all(|c| c.iter().all(|l| l.is_positive()) || (c.len() == 2 && c.iter().all(|l| !l.is_positive())))
+}
+
 fn cnf_to_expr(clauses: &[Vec<Lit>]) -> Option<ProofExpr> {
     let atom = |l: &Lit| {
         let a = ProofExpr::Atom(format!("v{}", l.var()));
@@ -4204,10 +4290,10 @@ fn balanced(
 /// GF(2) witness so search starts on the solution manifold. CDCL remains the authoritative decider, so
 /// adding implied clauses + a phase hint can only help. `None` when not XOR-heavy.
 ///
-/// (The full incremental DPLL(XOR) engine — live Gaussian during search, [`crate::xor_engine::IncXor`]
-/// — is built and proven correct against a brute-force + differential oracle, and is the decisive
-/// lever for *UNSAT* parity. On *satisfiable* parity-learning it needs a watch-based bit-packed matrix
-/// to beat this clause-mining path; that is the remaining perf work for par32-scale.)
+/// The search itself runs with the equations as a watched Gauss–Jordan theory
+/// ([`crate::xor_engine::WatchedXor`]), so every assignment the linear system forces is propagated, and
+/// every one it refutes is a conflict, at the fixpoint it arises in. A SAT model is re-checked against the
+/// clauses (fail-closed).
 fn hybrid_xor(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Solved> {
     if num_vars == 0 {
         return None;
@@ -4245,27 +4331,28 @@ fn hybrid_xor(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Solved> {
         solver.set_initial_phase(&witness);
     }
     let result = if xor_live() {
-        // DPLL(XOR): run the live incremental Gaussian engine as a theory. Optionally restrict CDCL's
-        // decisions to the kernel — the free variables the linear system leaves undetermined — so the
-        // pivots are forced by Gaussian propagation rather than branched on (the search then ranges
-        // only over the true degrees of freedom).
-        let live = IncXor::new(num_vars, &eqs);
+        // DPLL(XOR): the watched Gauss–Jordan matrix as a theory. Optionally restrict CDCL's decisions to
+        // the kernel — the variables the reduced system leaves non-basic — so the basic ones are forced by
+        // Gaussian propagation rather than branched on.
+        let live = WatchedXor::new(num_vars, &eqs);
         if xor_kernel() {
-            let decisions = live.decision_vars();
-            solver.set_decision_vars(&decisions);
+            solver.set_decision_vars(&live.decision_vars());
         }
-        let mut theories: Vec<Box<dyn crate::cdcl::Theory>> = vec![Box::new(live)];
+        let mut theories: Vec<Box<dyn crate::cdcl::Theory>> = vec![Box::new(Retiring { live, retired: false })];
         solver.solve_with(&mut theories)
     } else {
         solver.solve()
     };
     match result {
-        SolveResult::Sat(model) => Some(Solved {
-            answer: Answer::Sat(model),
-            via: Route::HybridXor,
-            proof: Vec::new(),
-            conflicts: solver.conflicts(),
-        }),
+        SolveResult::Sat(model) => clauses
+            .iter()
+            .all(|c| c.iter().any(|l| model[l.var() as usize] == l.is_positive()))
+            .then_some(Solved {
+                answer: Answer::Sat(model),
+                via: Route::HybridXor,
+                proof: Vec::new(),
+                conflicts: solver.conflicts(),
+            }),
         SolveResult::Unsat => {
             let proof = solver
                 .learned()
@@ -4339,20 +4426,80 @@ fn fused_modular_solve(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<Solved> 
     }
 }
 
-/// Whether to run the live incremental DPLL(XOR) engine during search (vs. clause-mining + phase
-/// seeding only). Gated by `LOGOS_XOR_LIVE` while we A/B it against the mining path at par-scale.
+/// Whether [`hybrid_xor`] searches with the watched Gauss–Jordan theory, or with the mined clauses and the seeded
+/// phases alone. Default on; `LOGOS_XOR_LIVE=0` turns it off, for an A/B.
+/// The calls after which, and after every further run of as many, the hybrid route weighs its Gauss–Jordan theory.
+const XOR_WEIGHED_EVERY: u64 = 4096;
+
+/// The refutations in a thousand calls below which the hybrid route lets its Gauss–Jordan theory go.
+const XOR_KEPT_PER_MILLE: u64 = 1;
+
+/// The hybrid route's Gauss–Jordan theory, let go once it stops paying. The route keeps every clause of the formula,
+/// the equations' own among them, so what the theory forces the clauses force too, a step at a time; what it alone
+/// finds early is a refutation, a contradiction among rows no single clause holds. Weighed every
+/// [`XOR_WEIGHED_EVERY`] calls, it stays while at least [`XOR_KEPT_PER_MILLE`] in a thousand of its calls have ended
+/// in one. On a parity formula most calls refute; on the adders of an ARX cipher, where the matrix spans thousands of
+/// rows and costs most of the search's time, almost none do. Let go, it answers every call with a fixpoint, and the
+/// literals it forced before are still explained by its matrices as they stood.
+struct Retiring {
+    live: WatchedXor,
+    retired: bool,
+}
+
+impl Retiring {
+    fn weigh(&mut self) {
+        let calls = self.live.calls();
+        if calls % XOR_WEIGHED_EVERY == 0 && self.live.refutations() * 1000 < calls * XOR_KEPT_PER_MILLE {
+            self.retired = true;
+        }
+    }
+}
+
+impl crate::cdcl::Theory for Retiring {
+    fn propagate(&mut self, trail: &[Lit]) -> Vec<Vec<Lit>> {
+        if self.retired {
+            return Vec::new();
+        }
+        let out = self.live.propagate(trail);
+        self.weigh();
+        out
+    }
+
+    fn propagate_kept(&mut self, trail: &[Lit], kept: usize) -> Vec<Vec<Lit>> {
+        if self.retired {
+            return Vec::new();
+        }
+        let out = self.live.propagate_kept(trail, kept);
+        self.weigh();
+        out
+    }
+
+    fn propagate_lazily(&mut self, trail: &[Lit], kept: usize, forced: &mut Vec<(Lit, u32)>) -> Vec<Vec<Lit>> {
+        if self.retired {
+            return Vec::new();
+        }
+        let out = self.live.propagate_lazily(trail, kept, forced);
+        self.weigh();
+        out
+    }
+
+    fn explain(&mut self, token: u32, clause: &mut Vec<Lit>) {
+        self.live.explain(token, clause);
+    }
+}
+
 fn xor_live() -> bool {
     std::env::var("LOGOS_XOR_LIVE")
         .map(|s| s != "0" && !s.is_empty())
-        .unwrap_or(false)
+        .unwrap_or(true)
 }
 
-/// Whether to restrict CDCL's decisions to the kernel (non-pivot) variables under the live engine.
-/// Default on; `LOGOS_XOR_KERNEL=0` lets VSIDS branch on every variable (Gaussian as pure propagator).
+/// Whether the theory's search decides only the variables the reduced system leaves non-basic. Default off: on the
+/// parity-learning family it took more conflicts than deciding every variable. `LOGOS_XOR_KERNEL=1` turns it on.
 fn xor_kernel() -> bool {
     std::env::var("LOGOS_XOR_KERNEL")
         .map(|s| s != "0" && !s.is_empty())
-        .unwrap_or(true)
+        .unwrap_or(false)
 }
 
 /// Whether to seed CDCL's phases with the GF(2) witness. Default on; `LOGOS_XOR_SEED=0` disables it.

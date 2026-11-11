@@ -360,3 +360,147 @@ fn recover_declines_on_inputs_that_are_not_a_one_hot_encoding() {
         "an incomplete at-most-one must not be mistaken for a one-hot group"
     );
 }
+
+/// Gauss–Jordan elimination over `GF(p)` on dense rows, as the solver was first written: whether the system is
+/// consistent, and its rank. The reference for the sparse eliminator.
+fn dense_consistency_and_rank(equations: &[ModpEquation], num_vars: usize, p: u64) -> (bool, usize) {
+    let mut rows: Vec<(Vec<u64>, u64)> = equations
+        .iter()
+        .map(|eq| {
+            let mut c = vec![0u64; num_vars];
+            for &(v, a) in &eq.coeffs {
+                if v < num_vars {
+                    c[v] = (c[v] + a % p) % p;
+                }
+            }
+            (c, eq.rhs % p)
+        })
+        .collect();
+    let inv = |a: u64| (1..p).find(|&b| a * b % p == 1).unwrap();
+    let mut rank = 0;
+    for col in 0..num_vars {
+        let Some(sel) = (rank..rows.len()).find(|&r| rows[r].0[col] != 0) else { continue };
+        rows.swap(rank, sel);
+        let f = inv(rows[rank].0[col]);
+        for v in 0..num_vars {
+            rows[rank].0[v] = rows[rank].0[v] * f % p;
+        }
+        rows[rank].1 = rows[rank].1 * f % p;
+        let pivot = rows[rank].clone();
+        for (r, row) in rows.iter_mut().enumerate() {
+            if r != rank && row.0[col] != 0 {
+                let g = row.0[col];
+                for v in 0..num_vars {
+                    row.0[v] = (row.0[v] + p * p - g * pivot.0[v] % p) % p;
+                }
+                row.1 = (row.1 + p * p - g * pivot.1 % p) % p;
+            }
+        }
+        rank += 1;
+    }
+    (rows.iter().all(|(c, r)| c.iter().any(|&x| x != 0) || *r == 0), rank)
+}
+
+fn random_modp_system(state: &mut u64, num_vars: usize, m: usize, p: u64) -> Vec<ModpEquation> {
+    let mut eqs = Vec::with_capacity(m);
+    while eqs.len() < m {
+        if splitmix(state) % 6 == 0 {
+            let len = 2 + (splitmix(state) % 5) as usize;
+            let start = (splitmix(state) % num_vars as u64) as usize;
+            for i in 0..len {
+                let a = 1 + splitmix(state) % (p - 1);
+                let b = 1 + splitmix(state) % (p - 1);
+                eqs.push(ModpEquation::new(vec![((start + i) % num_vars, a), ((start + i + 1) % num_vars, b)], splitmix(state) % p));
+            }
+            continue;
+        }
+        let width = [0usize, 1, 1, 2, 2, 2, 3, 3, 3, 4, 5][(splitmix(state) % 11) as usize];
+        let mut coeffs: Vec<(usize, u64)> = (0..width).map(|_| ((splitmix(state) % num_vars as u64) as usize, splitmix(state) % (2 * p))).collect();
+        if !coeffs.is_empty() && splitmix(state) % 8 == 0 {
+            coeffs.push((coeffs[0].0, splitmix(state) % p));
+        }
+        if splitmix(state) % 12 == 0 {
+            coeffs.push((num_vars + (splitmix(state) % 3) as usize, 1));
+        }
+        eqs.push(ModpEquation::new(coeffs, splitmix(state) % (2 * p)));
+    }
+    eqs.truncate(m);
+    eqs
+}
+
+/// The eliminator decides every system as dense Gauss–Jordan does over the same prime, at the same rank: a
+/// consistent one with an assignment that satisfies each congruence, an inconsistent one with a combination that
+/// re-checks, naming each equation once, in order, with a multiplier in `1..p`.
+#[test]
+fn elimination_over_gf_p_decides_as_dense_gauss_jordan_at_its_rank() {
+    for &p in &[2u64, 3, 5, 7, 11, 13] {
+        let mut state = 0xE11A ^ p;
+        let (mut sat, mut unsat) = (0usize, 0usize);
+        for round in 0..1200u64 {
+            let num_vars = 1 + (splitmix(&mut state) % 20) as usize;
+            let m = (splitmix(&mut state) % 30) as usize;
+            let eqs = random_modp_system(&mut state, num_vars, m, p);
+            let (consistent, dense_rank) = dense_consistency_and_rank(&eqs, num_vars, p);
+            assert_eq!(rank(&eqs, num_vars, p), dense_rank, "p={p} round {round}");
+            match solve(&eqs, num_vars, p) {
+                ModpOutcome::Sat(a) => {
+                    assert!(consistent, "p={p} round {round}: a model of an inconsistent system");
+                    assert_eq!(a.len(), num_vars);
+                    assert!(a.iter().all(|&x| x < p) && satisfies(&eqs, &a, p), "p={p} round {round}");
+                    sat += 1;
+                }
+                ModpOutcome::Unsat(combo) => {
+                    assert!(!consistent, "p={p} round {round}: a refutation of a consistent system");
+                    assert!(is_refutation(&eqs, num_vars, p, &combo), "p={p} round {round}: the combination re-checks");
+                    assert!(combo.windows(2).all(|w| w[0].0 < w[1].0) && combo.iter().all(|&(_, k)| (1..p).contains(&k)), "p={p} round {round}");
+                    unsat += 1;
+                }
+            }
+        }
+        assert!(sat >= 200 && unsat >= 200, "p={p}: both verdicts are exercised: {sat} consistent, {unsat} inconsistent");
+    }
+}
+
+/// A dense random system over `GF(3)` fills in under elimination and is still decided as Gauss–Jordan decides it.
+#[test]
+fn a_system_over_gf_p_that_fills_in_is_decided_as_dense_gauss_jordan() {
+    let mut state = 0xF1113;
+    for round in 0..6u64 {
+        let num_vars = 120 + (splitmix(&mut state) % 60) as usize;
+        let m = num_vars - 15 + (splitmix(&mut state) % 30) as usize;
+        let eqs: Vec<ModpEquation> = (0..m)
+            .map(|_| {
+                let coeffs: Vec<(usize, u64)> = (0..3 + splitmix(&mut state) % 4).map(|_| ((splitmix(&mut state) % num_vars as u64) as usize, 1 + splitmix(&mut state) % 2)).collect();
+                ModpEquation::new(coeffs, splitmix(&mut state) % 3)
+            })
+            .collect();
+        let (consistent, dense_rank) = dense_consistency_and_rank(&eqs, num_vars, 3);
+        assert_eq!(rank(&eqs, num_vars, 3), dense_rank, "round {round}");
+        match solve(&eqs, num_vars, 3) {
+            ModpOutcome::Sat(a) => assert!(consistent && satisfies(&eqs, &a, 3), "round {round}"),
+            ModpOutcome::Unsat(c) => assert!(!consistent && is_refutation(&eqs, num_vars, 3, &c), "round {round}"),
+        }
+    }
+}
+
+/// Elimination over `GF(p)` costs the system's sparsity: a 200,000-congruence chain `x_i − x_{i+1} ≡ c_i (mod 3)`
+/// closed into a contradiction, ~10¹⁶ dense steps, is refuted with a combination that re-checks within a minute
+/// unoptimized on a loaded box.
+#[test]
+fn elimination_over_gf_p_costs_the_sparsity_of_the_system() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let n = 200_000usize;
+        let mut eqs: Vec<ModpEquation> = (0..n - 1).map(|i| ModpEquation::new(vec![(i, 1), (i + 1, 2)], (i % 3) as u64)).collect();
+        let total = (0..n - 1).map(|i| (i % 3) as u64).sum::<u64>() % 3;
+        // The chain sums to x_0 − x_{n−1} ≡ total; the closing congruence demands total + 1.
+        eqs.push(ModpEquation::new(vec![(0, 1), (n - 1, 2)], (total + 1) % 3));
+        let outcome = solve(&eqs, n, 3);
+        let _ = tx.send((eqs, n, outcome));
+    });
+    let (eqs, n, outcome) = rx.recv_timeout(std::time::Duration::from_secs(60)).expect("elimination over GF(3) costs the system's sparsity");
+    match outcome {
+        ModpOutcome::Unsat(combo) => assert!(is_refutation(&eqs, n, 3, &combo)),
+        ModpOutcome::Sat(_) => panic!("the closed chain is inconsistent"),
+    }
+}

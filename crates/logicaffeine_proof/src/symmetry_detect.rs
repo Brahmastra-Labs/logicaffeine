@@ -45,16 +45,12 @@ pub fn perm_is_automorphism(clauses: &[Vec<Lit>], sigma: &Perm) -> bool {
     if moved.iter().all(|&m| !m) {
         return true;
     }
-    let set: std::collections::HashSet<Vec<u32>> = clauses.iter().map(|c| clause_key(c)).collect();
-    for c in clauses {
-        let touches_support = c
-            .iter()
-            .any(|l| (l.var() as usize) < nv && moved[l.var() as usize]);
-        if touches_support && !set.contains(&clause_key(&sigma.apply_clause(c))) {
-            return false;
-        }
-    }
-    true
+    // σ permutes its support among itself, so a clause touching the support maps to a clause touching it: only those
+    // clauses need a key.
+    let touching: Vec<&Vec<Lit>> =
+        clauses.iter().filter(|c| c.iter().any(|l| (l.var() as usize) < nv && moved[l.var() as usize])).collect();
+    let set: std::collections::HashSet<Vec<u32>> = touching.iter().map(|c| clause_key(c)).collect();
+    touching.iter().all(|c| set.contains(&clause_key(&sigma.apply_clause(c))))
 }
 
 /// An **incrementally-maintained** clause database for fast repeated automorphism checks.
@@ -358,6 +354,17 @@ impl AutomorphismIndex {
 // literal or to a clause of a different length. The literal-vertex index is exactly the packed
 // `Lit` code (`2*var + sign`), so the literal half of a graph automorphism reads off as a [`Perm`].
 //
+// The search is nauty's (McKay & Piperno, *Practical graph isomorphism II*, 2014) over an ordered partition kept as
+// contiguous cells of one array, refined to an equitable partition by neighbor counts against splitter cells in a
+// canonical order (each piece of a split ordered by its count), so refinement costs `O((V + E) log V)` and commutes
+// with every automorphism. The first path individualizes, level by level, the first vertex of the first non-singleton
+// cell down to a discrete leaf. Then, deepest level first, each other vertex `w` of a level's cell that is not yet in
+// the orbit of the first path's vertex there is individualized instead, and its subtree is searched for a leaf
+// equivalent to the first; a branch whose partition shape (cell lengths in position order) differs from the first
+// path's at the same depth holds no such leaf and is pruned at once. A generator found at level `k` or below fixes
+// the first path's vertices above `k`, so its orbits may prune level `k`: one generator per orbit point and level is
+// a strong generating set (the Schreier–Sims coset argument), so the generators span the whole group.
+//
 // Soundness rests entirely on [`perm_is_automorphism`]: every candidate the search proposes is
 // re-verified before it is returned, so a bug in the (intricate) search can only cost
 // completeness, never soundness.
@@ -369,50 +376,219 @@ pub fn find_generators(num_vars: usize, clauses: &[Vec<Lit>]) -> Vec<Perm> {
         return Vec::new();
     }
     let (adj, init_colors) = build_graph(num_vars, clauses);
-    let adj_sorted: Vec<Vec<usize>> = adj
-        .iter()
-        .map(|a| {
-            let mut s = a.clone();
-            s.sort_unstable();
-            s
-        })
-        .collect();
-    let base = refine(&adj, &init_colors);
-    let mut ctx = Search {
-        adj: &adj,
-        adj_sorted: &adj_sorted,
-        init_colors: &init_colors,
-        num_vars,
-        clauses,
-        parent: (0..adj.len()).collect(),
-        first_leaf: None,
-        gens: Vec::new(),
-        seen: std::collections::HashSet::new(),
-        budget: 500_000,
-    };
-    ctx.search(base);
-    ctx.gens
+    let mut search = Search::new(&adj, &init_colors, num_vars, clauses);
+    search.run();
+    search.gens
 }
 
-/// Search state threaded through the individualization-refinement recursion.
+/// An ordered partition of the graph's vertices: the cells are contiguous ranges of `elems`, each named by its start
+/// position, whose `cell_len` entry holds its length.
+#[derive(Clone)]
+struct Partition {
+    elems: Vec<u32>,
+    pos: Vec<u32>,
+    cell_of: Vec<u32>,
+    cell_len: Vec<u32>,
+}
+
+impl Partition {
+    /// The partition of the vertices by `colors`, the cells in increasing color.
+    fn by_colors(colors: &[u32]) -> Partition {
+        let v = colors.len();
+        let mut elems: Vec<u32> = (0..v as u32).collect();
+        elems.sort_by_key(|&u| (colors[u as usize], u));
+        let mut part = Partition { elems, pos: vec![0; v], cell_of: vec![0; v], cell_len: vec![0; v] };
+        let mut start = 0;
+        for i in 0..v {
+            let u = part.elems[i] as usize;
+            part.pos[u] = i as u32;
+            if i > 0 && colors[u] != colors[part.elems[i - 1] as usize] {
+                part.cell_len[start] = (i - start) as u32;
+                start = i;
+            }
+            part.cell_of[u] = start as u32;
+        }
+        if v > 0 {
+            part.cell_len[start] = (v - start) as u32;
+        }
+        part
+    }
+
+    fn cell_starts(&self) -> Vec<u32> {
+        let mut starts = Vec::new();
+        let mut i = 0;
+        while i < self.elems.len() {
+            starts.push(i as u32);
+            i += self.cell_len[i] as usize;
+        }
+        starts
+    }
+
+    fn is_discrete(&self) -> bool {
+        self.cell_starts().len() == self.elems.len()
+    }
+
+    /// The cell lengths in position order: equal for two partitions on the way to equivalent leaves.
+    fn shape(&self) -> Vec<u32> {
+        self.cell_starts().iter().map(|&s| self.cell_len[s as usize]).collect()
+    }
+
+    /// The first cell with more than one vertex.
+    fn target(&self) -> Option<Vec<u32>> {
+        let mut i = 0;
+        while i < self.elems.len() {
+            let len = self.cell_len[i] as usize;
+            if len > 1 {
+                return Some(self.elems[i..i + len].to_vec());
+            }
+            i += len;
+        }
+        None
+    }
+
+    /// Refine to the coarsest equitable partition finer than this one, splitting from the cells in `queue`.
+    fn refine(&mut self, adj: &[Vec<usize>], mut queue: std::collections::VecDeque<u32>, count: &mut [u32]) {
+        let mut queued = vec![false; self.elems.len()];
+        for &c in &queue {
+            queued[c as usize] = true;
+        }
+        let mut touched_cells: Vec<u32> = Vec::new();
+        let mut cell_touched = vec![false; self.elems.len()];
+        let mut touched: Vec<u32> = Vec::new();
+        while let Some(splitter) = queue.pop_front() {
+            queued[splitter as usize] = false;
+            let (s, len) = (splitter as usize, self.cell_len[splitter as usize] as usize);
+            let members: Vec<u32> = self.elems[s..s + len].to_vec();
+            for &x in &members {
+                for &y in &adj[x as usize] {
+                    if count[y] == 0 {
+                        touched.push(y as u32);
+                        let c = self.cell_of[y];
+                        if !cell_touched[c as usize] {
+                            cell_touched[c as usize] = true;
+                            touched_cells.push(c);
+                        }
+                    }
+                    count[y] += 1;
+                }
+            }
+            touched_cells.sort_unstable();
+            for &c in &touched_cells {
+                let (cs, clen) = (c as usize, self.cell_len[c as usize] as usize);
+                if clen == 1 {
+                    continue;
+                }
+                let mut block: Vec<u32> = self.elems[cs..cs + clen].to_vec();
+                block.sort_by_key(|&u| (count[u as usize], u));
+                if count[block[0] as usize] == count[block[clen - 1] as usize] {
+                    continue;
+                }
+                let mut pieces: Vec<(usize, usize)> = Vec::new();
+                let mut piece_start = 0;
+                for i in 1..=clen {
+                    if i == clen || count[block[i] as usize] != count[block[i - 1] as usize] {
+                        pieces.push((cs + piece_start, i - piece_start));
+                        piece_start = i;
+                    }
+                }
+                for (i, &u) in block.iter().enumerate() {
+                    self.elems[cs + i] = u;
+                    self.pos[u as usize] = (cs + i) as u32;
+                }
+                let largest = pieces.iter().enumerate().max_by_key(|(k, &(_, l))| (l, std::cmp::Reverse(*k))).map(|(k, _)| k).unwrap();
+                let was_queued = queued[cs];
+                for (k, &(ps, pl)) in pieces.iter().enumerate() {
+                    self.cell_len[ps] = pl as u32;
+                    for &u in &self.elems[ps..ps + pl] {
+                        self.cell_of[u as usize] = ps as u32;
+                    }
+                    if (was_queued || k != largest) && !queued[ps] {
+                        queued[ps] = true;
+                        queue.push_back(ps as u32);
+                    }
+                }
+            }
+            for &y in &touched {
+                count[y as usize] = 0;
+            }
+            for &c in &touched_cells {
+                cell_touched[c as usize] = false;
+            }
+            touched.clear();
+            touched_cells.clear();
+        }
+    }
+
+    /// Individualize `u`: make it a singleton at the front of its cell, then refine.
+    fn individualize(&self, adj: &[Vec<usize>], u: u32, count: &mut [u32]) -> Partition {
+        let mut part = self.clone();
+        let c = part.cell_of[u as usize] as usize;
+        let len = part.cell_len[c] as usize;
+        let at = part.pos[u as usize] as usize;
+        part.elems.swap(c, at);
+        let moved = part.elems[at];
+        part.pos[moved as usize] = at as u32;
+        part.pos[u as usize] = c as u32;
+        part.cell_len[c] = 1;
+        part.cell_len[c + 1] = (len - 1) as u32;
+        for &w in &part.elems[c + 1..c + len] {
+            part.cell_of[w as usize] = (c + 1) as u32;
+        }
+        let queue: std::collections::VecDeque<u32> = [c as u32].into_iter().collect();
+        part.refine(adj, queue, count);
+        part
+    }
+}
+
+/// Search state: the graph, the first path, the generators and their orbits.
 struct Search<'a> {
     adj: &'a [Vec<usize>],
-    adj_sorted: &'a [Vec<usize>],
+    adj_sorted: Vec<Vec<usize>>,
     init_colors: &'a [u32],
     num_vars: usize,
     clauses: &'a [Vec<Lit>],
-    /// Union-find over graph vertices, for orbit pruning (orbits only grow as generators appear).
+    /// Union-find over graph vertices: the orbits of the generators found so far.
     parent: Vec<usize>,
-    /// The first discrete leaf reached — the reference labeling all later leaves compare against.
-    first_leaf: Option<Vec<u32>>,
+    /// The first path: the partition at each depth, the vertex individualized there, and each partition's shape.
+    path: Vec<Partition>,
+    chosen: Vec<u32>,
+    shapes: Vec<Vec<u32>>,
+    first_leaf: Vec<u32>,
     gens: Vec<Perm>,
-    /// Dedup of emitted generators by their literal-image codes.
     seen: std::collections::HashSet<Vec<u32>>,
-    /// A node budget guarding against blow-up on highly symmetric inputs (sound if exhausted).
+    count: Vec<u32>,
+    /// Partitions refined in subtree searches: a budget guarding against blow-up (sound if exhausted).
     budget: usize,
 }
 
-impl Search<'_> {
+impl<'a> Search<'a> {
+    fn new(adj: &'a [Vec<usize>], init_colors: &'a [u32], num_vars: usize, clauses: &'a [Vec<Lit>]) -> Search<'a> {
+        let adj_sorted = adj
+            .iter()
+            .map(|a| {
+                let mut s = a.clone();
+                s.sort_unstable();
+                s
+            })
+            .collect();
+        Search {
+            adj,
+            adj_sorted,
+            init_colors,
+            num_vars,
+            clauses,
+            parent: (0..adj.len()).collect(),
+            path: Vec::new(),
+            chosen: Vec::new(),
+            shapes: Vec::new(),
+            first_leaf: Vec::new(),
+            gens: Vec::new(),
+            seen: std::collections::HashSet::new(),
+            count: vec![0; adj.len()],
+            budget: 500_000,
+        }
+    }
+
     fn find(&mut self, mut x: usize) -> usize {
         while self.parent[x] != x {
             self.parent[x] = self.parent[self.parent[x]];
@@ -428,86 +604,106 @@ impl Search<'_> {
         }
     }
 
-    fn search(&mut self, coloring: Vec<u32>) {
-        if self.budget == 0 {
-            return;
+    /// Lay the first path, then search each level's alternatives, deepest level first.
+    fn run(&mut self) {
+        let mut part = Partition::by_colors(self.init_colors);
+        let all: std::collections::VecDeque<u32> = part.cell_starts().into_iter().collect();
+        part.refine(self.adj, all, &mut self.count);
+        loop {
+            self.shapes.push(part.shape());
+            let Some(cell) = part.target() else { break };
+            let u = cell[0];
+            let next = part.individualize(self.adj, u, &mut self.count);
+            self.path.push(part);
+            self.chosen.push(u);
+            part = next;
         }
-        self.budget -= 1;
-        match target_cell(&coloring) {
-            None => self.visit_leaf(coloring),
-            Some(cell) => {
-                // Explore one representative per orbit: always the first, then any not yet in the
-                // orbit (under generators found so far) of an explored representative.
-                let mut explored: Vec<usize> = Vec::new();
-                for (i, &u) in cell.iter().enumerate() {
-                    if i > 0 {
-                        let ru = self.find(u);
-                        if explored.iter().any(|&r| self.find(r) == ru) {
-                            continue;
-                        }
-                    }
-                    explored.push(u);
-                    let child = individualize(self.adj, &coloring, u);
-                    self.search(child);
+        self.first_leaf = part.elems.clone();
+        for level in (0..self.chosen.len()).rev() {
+            let cell = self.path[level].target().expect("a first-path partition has a target cell");
+            let anchor = self.chosen[level] as usize;
+            for &w in &cell {
+                if self.budget == 0 {
+                    return;
+                }
+                let (rw, ra) = (self.find(w as usize), self.find(anchor));
+                if rw == ra {
+                    continue;
+                }
+                let child = self.path[level].individualize(self.adj, w, &mut self.count);
+                if let Some(leaf) = self.equivalent_leaf(child, level + 1) {
+                    self.accept(&leaf);
                 }
             }
         }
     }
 
-    fn visit_leaf(&mut self, leaf: Vec<u32>) {
-        let ref0 = match &self.first_leaf {
-            None => {
-                self.first_leaf = Some(leaf);
-                return;
-            }
-            Some(r) => r.clone(),
-        };
-        let Some((vperm, lperm)) = self.candidate(&ref0, &leaf) else {
-            return;
-        };
-        let key = perm_key(self.num_vars, &lperm);
-        if !lperm.is_identity()
-            && !self.seen.contains(&key)
-            && perm_is_automorphism(self.clauses, &lperm)
-        {
-            self.seen.insert(key);
-            for u in 0..vperm.len() {
-                self.union(u, vperm[u]);
-            }
-            self.gens.push(lperm);
+    /// A leaf below `part` (at `depth`) whose labeling relates to the first leaf by a graph automorphism.
+    fn equivalent_leaf(&mut self, part: Partition, depth: usize) -> Option<Vec<u32>> {
+        if self.budget == 0 {
+            return None;
         }
+        self.budget -= 1;
+        if depth >= self.shapes.len() || part.shape() != self.shapes[depth] {
+            return None;
+        }
+        if part.is_discrete() {
+            return self.relates(&part.elems).then(|| part.elems.clone());
+        }
+        let cell = part.target()?;
+        for &x in &cell {
+            let child = part.individualize(self.adj, x, &mut self.count);
+            if let Some(leaf) = self.equivalent_leaf(child, depth + 1) {
+                return Some(leaf);
+            }
+        }
+        None
     }
 
-    /// From the reference labeling `ref0` and another discrete `leaf`, form the vertex permutation
-    /// `g(u) = leaf⁻¹(ref0(u))` and, if it preserves colors and adjacency, read off its literal
-    /// part as a [`Perm`]. Returns `None` if the leaves are not related by a graph automorphism.
-    fn candidate(&self, ref0: &[u32], leaf: &[u32]) -> Option<(Vec<usize>, Perm)> {
-        let v = ref0.len();
-        let mut leaf_inv = vec![0usize; v];
-        for (u, &r) in leaf.iter().enumerate() {
-            leaf_inv[r as usize] = u;
+    /// The vertex map from the first leaf to `leaf`, position by position.
+    fn vertex_map(&self, leaf: &[u32]) -> Vec<usize> {
+        let mut g = vec![0usize; leaf.len()];
+        for (i, &u) in self.first_leaf.iter().enumerate() {
+            g[u as usize] = leaf[i] as usize;
         }
-        let g: Vec<usize> = (0..v).map(|u| leaf_inv[ref0[u] as usize]).collect();
-        for u in 0..v {
+        g
+    }
+
+    /// Whether `leaf` relates to the first leaf by a color- and adjacency-preserving vertex map.
+    fn relates(&self, leaf: &[u32]) -> bool {
+        let g = self.vertex_map(leaf);
+        (0..g.len()).all(|u| {
             if self.init_colors[u] != self.init_colors[g[u]] {
-                return None;
+                return false;
             }
             let mut mapped: Vec<usize> = self.adj[u].iter().map(|&w| g[w]).collect();
             mapped.sort_unstable();
-            if mapped != self.adj_sorted[g[u]] {
-                return None;
-            }
+            mapped == self.adj_sorted[g[u]]
+        })
+    }
+
+    /// Record the automorphism to `leaf`: its literal part, when it is one and passes the soundness gate, becomes a
+    /// generator, and its vertex orbits join.
+    fn accept(&mut self, leaf: &[u32]) {
+        let g = self.vertex_map(leaf);
+        for u in 0..g.len() {
+            self.union(u, g[u]);
         }
         let nlit = 2 * self.num_vars;
         let mut images = Vec::with_capacity(self.num_vars);
         for var in 0..self.num_vars {
             let gv = g[2 * var];
             if gv >= nlit {
-                return None;
+                return;
             }
             images.push(Lit::new((gv / 2) as u32, gv % 2 == 0));
         }
-        Some((g, Perm::from_images(images)))
+        let lperm = Perm::from_images(images);
+        let key = perm_key(self.num_vars, &lperm);
+        if !lperm.is_identity() && !self.seen.contains(&key) && perm_is_automorphism(self.clauses, &lperm) {
+            self.seen.insert(key);
+            self.gens.push(lperm);
+        }
     }
 }
 
@@ -571,56 +767,6 @@ fn build_graph(num_vars: usize, clauses: &[Vec<Lit>]) -> (Vec<Vec<usize>>, Vec<u
         a.dedup();
     }
     (adj, color)
-}
-
-/// Color refinement to an equitable partition (1-dimensional Weisfeiler–Leman), canonicalized to
-/// dense ranks `0..k` deterministically (sorted by `(color, sorted neighbor colors)`).
-fn refine(adj: &[Vec<usize>], colors: &[u32]) -> Vec<u32> {
-    let v = adj.len();
-    let mut cur = colors.to_vec();
-    loop {
-        let sigs: Vec<(u32, Vec<u32>)> = (0..v)
-            .map(|u| {
-                let mut nb: Vec<u32> = adj[u].iter().map(|&w| cur[w]).collect();
-                nb.sort_unstable();
-                (cur[u], nb)
-            })
-            .collect();
-        let mut order: Vec<usize> = (0..v).collect();
-        order.sort_by(|&a, &b| sigs[a].cmp(&sigs[b]));
-        let mut new = vec![0u32; v];
-        let mut rank = 0u32;
-        for i in 0..v {
-            if i > 0 && sigs[order[i]] != sigs[order[i - 1]] {
-                rank += 1;
-            }
-            new[order[i]] = rank;
-        }
-        if new == cur {
-            return new;
-        }
-        cur = new;
-    }
-}
-
-/// Individualize vertex `u` (make it a singleton in its cell) and re-refine.
-fn individualize(adj: &[Vec<usize>], colors: &[u32], u: usize) -> Vec<u32> {
-    let mut c = colors.to_vec();
-    c[u] = u32::MAX;
-    refine(adj, &c)
-}
-
-/// The first non-singleton color class (the branching target), or `None` if the coloring is
-/// discrete (every vertex its own color).
-fn target_cell(colors: &[u32]) -> Option<Vec<usize>> {
-    let maxc = *colors.iter().max().unwrap();
-    for c in 0..=maxc {
-        let members: Vec<usize> = (0..colors.len()).filter(|&u| colors[u] == c).collect();
-        if members.len() > 1 {
-            return Some(members);
-        }
-    }
-    None
 }
 
 /// A `Perm`'s identity key: the packed code of each variable's positive-literal image.

@@ -129,60 +129,16 @@ pub fn lyapunov_of_symmetry(ranked: &RankedRefutation) -> Option<LyapunovCertifi
 /// symmetry collapse certifies the parity collapse — different physics, one potential descending to
 /// the goal.
 pub fn gaussian_lyapunov(equations: &[XorEquation], num_vars: usize) -> (Vec<u64>, bool) {
-    // Each equation is a GF(2) row: a bitset over `num_vars` plus the rhs bit (stored at index nv).
-    let words = (num_vars + 1 + 63) / 64;
-    let bit = |row: &mut [u64], i: usize| row[i / 64] ^= 1u64 << (i % 64);
-    let get = |row: &[u64], i: usize| (row[i / 64] >> (i % 64)) & 1 == 1;
-    let mut rows: Vec<Vec<u64>> = equations
-        .iter()
-        .map(|eq| {
-            let mut r = vec![0u64; words];
-            for &v in &eq.vars {
-                if v < num_vars {
-                    bit(&mut r, v);
-                }
-            }
-            if eq.rhs {
-                bit(&mut r, num_vars); // the rhs lives at column `num_vars`
-            }
-            r
-        })
-        .collect();
-
-    // The potential: number of variable-columns not yet pivoted out, descending as we eliminate.
-    let mut trajectory: Vec<u64> = Vec::new();
-    let mut remaining = num_vars as u64;
-    let mut used = vec![false; rows.len()];
-
-    for col in 0..num_vars {
-        // Find an unused row with a 1 in this column — the pivot — and eliminate the column from all
-        // other rows.
-        let pivot = (0..rows.len()).find(|&r| !used[r] && get(&rows[r], col));
-        if let Some(pr) = pivot {
-            used[pr] = true;
-            let pivot_row = rows[pr].clone();
-            for r in 0..rows.len() {
-                if r != pr && get(&rows[r], col) {
-                    for w in 0..words {
-                        rows[r][w] ^= pivot_row[w];
-                    }
-                }
-            }
-            remaining -= 1;
-            trajectory.push(remaining);
-        }
-    }
-    // After full reduction, an inconsistent system exposes a row that is all-zero in the variables
-    // but `1` in the rhs column — the `0 = 1` contradiction. That is the goal; the potential bottoms
-    // out there.
-    let reached_goal = rows
-        .iter()
-        .any(|r| (0..num_vars).all(|v| !get(r, v)) && get(r, num_vars));
+    // The potential after each pivot depends only on how many pivots there are: the system's rank, counted by the
+    // sparse eliminator. The goal is the inconsistent system's `0 = 1` row.
+    let elimination = crate::xorsat::eliminate(equations, num_vars);
+    let reached_goal = matches!(elimination.outcome, crate::xorsat::XorOutcome::Unsat(_));
+    let mut trajectory: Vec<u64> = (1..=elimination.rank as u64).map(|pivots| num_vars as u64 - pivots).collect();
     if reached_goal {
         trajectory.push(0);
     }
     if trajectory.is_empty() {
-        trajectory.push(remaining);
+        trajectory.push(num_vars as u64);
     }
     (trajectory, reached_goal)
 }
@@ -198,6 +154,40 @@ pub struct CollapsingMeasure {
 
 /// The item-swap permutation over an `items × bins` layout: exchange items `a` and `b` (every bin of
 /// one ↔ the same bin of the other). The candidate Lyapunov generator.
+/// How many of the formula's distinct clauses hold each variable positively and negatively. A symmetry maps the
+/// clause set onto itself, so it preserves these counts: a swap moving a variable onto one counted differently is no
+/// symmetry, and the counts decline it before any clause is mapped.
+struct SignedOccurrences {
+    positive: Vec<u32>,
+    negative: Vec<u32>,
+}
+
+impl SignedOccurrences {
+    fn of(num_vars: usize, formula: &[Vec<Lit>]) -> SignedOccurrences {
+        let mut keys: Vec<Vec<u32>> = formula.iter().map(|c| crate::symmetry_detect::clause_key(c)).collect();
+        keys.sort_unstable();
+        keys.dedup();
+        let (mut positive, mut negative) = (vec![0u32; num_vars], vec![0u32; num_vars]);
+        for code in keys.iter().flatten() {
+            let v = (code / 2) as usize;
+            if v < num_vars {
+                if code % 2 == 0 {
+                    positive[v] += 1;
+                } else {
+                    negative[v] += 1;
+                }
+            }
+        }
+        SignedOccurrences { positive, negative }
+    }
+
+    /// Whether swapping items 0 and 1 of the `bins`-column grid ([`swap_items`]) keeps every moved variable's counts —
+    /// necessary for the swap to be a symmetry.
+    fn admit_item_swap(&self, bins: usize) -> bool {
+        (0..bins).all(|b| self.positive[b] == self.positive[bins + b] && self.negative[b] == self.negative[bins + b])
+    }
+}
+
 fn swap_items(num_vars: usize, bins: usize, a: usize, b: usize) -> Perm {
     Perm::from_images(
         (0..num_vars)
@@ -219,7 +209,9 @@ fn swap_items(num_vars: usize, bins: usize, a: usize, b: usize) -> Perm {
 /// Drive the steered Heule descent over a discovered `items × bins` covering layout: `bins + 1`
 /// items are a tight pigeonhole, so force them out of the bins one at a time, each `¬var(i, bin)`
 /// certified by "swap item `i` with the last active item." Returns the ranked refutation; every step
-/// is PR-self-checked, so a layout that is not really a covering problem simply fails to refute.
+/// is PR-self-checked, and the refutation stands only when the formula with its breaks conflicts by unit
+/// propagation alone — the descent's level 0 — so a layout that is not really a covering problem fails to refute
+/// at the cost of the descent, never of a search.
 pub fn covering_collapse(
     num_vars: usize,
     formula: &[Vec<Lit>],
@@ -250,20 +242,9 @@ pub fn covering_collapse(
         }
     }
 
-    let mut solver = Solver::new(num_vars);
-    for c in &db {
-        solver.add_clause(c.clone());
-    }
-    let refuted = match solver.solve() {
-        SolveResult::Sat(_) => false,
-        SolveResult::Unsat => {
-            for lc in solver.learned() {
-                steps.push(ProofStep::Rup(lc.lits.clone()));
-                ranks.push(1);
-            }
-            crate::pr::check_pr_refutation_fast(num_vars, formula, &steps)
-        }
-    };
+    // The descent has reached level 0 when the clauses with its breaks refute by unit propagation alone; a residual
+    // that needs search is no collapse, and the route declines rather than searching it.
+    let refuted = crate::rup::is_rup(num_vars, &db, &[]) && crate::pr::check_pr_refutation_fast(num_vars, formula, &steps);
 
     RankedRefutation {
         refuted,
@@ -276,6 +257,7 @@ pub fn covering_collapse(
 /// cheap pre-filter (one automorphism check per candidate factorization). Returns the first such
 /// measure in the `items > bins` (unsatisfiable) direction, or `None`.
 pub fn synthesize_measure(num_vars: usize, formula: &[Vec<Lit>]) -> Option<CollapsingMeasure> {
+    let occurrences = SignedOccurrences::of(num_vars, formula);
     for bins in 1..num_vars {
         if num_vars % bins != 0 {
             continue;
@@ -284,7 +266,7 @@ pub fn synthesize_measure(num_vars: usize, formula: &[Vec<Lit>]) -> Option<Colla
         if items <= bins {
             continue; // need more items than bins for a pigeonhole contradiction
         }
-        if perm_is_automorphism(formula, &swap_items(num_vars, bins, 0, 1)) {
+        if occurrences.admit_item_swap(bins) && perm_is_automorphism(formula, &swap_items(num_vars, bins, 0, 1)) {
             return Some(CollapsingMeasure { items, bins });
         }
     }
@@ -299,6 +281,7 @@ pub fn solve_by_measure_synthesis(
     num_vars: usize,
     formula: &[Vec<Lit>],
 ) -> Option<(CollapsingMeasure, RankedRefutation)> {
+    let occurrences = SignedOccurrences::of(num_vars, formula);
     for bins in 1..num_vars {
         if num_vars % bins != 0 {
             continue;
@@ -307,7 +290,7 @@ pub fn solve_by_measure_synthesis(
         if items <= bins {
             continue;
         }
-        if !perm_is_automorphism(formula, &swap_items(num_vars, bins, 0, 1)) {
+        if !occurrences.admit_item_swap(bins) || !perm_is_automorphism(formula, &swap_items(num_vars, bins, 0, 1)) {
             continue;
         }
         let ranked = covering_collapse(num_vars, formula, items, bins);
@@ -604,51 +587,11 @@ pub fn compose_collapses(
 
 /// Recover the XOR (parity) constraints latent in a CNF: a constraint `x₁⊕…⊕x_k = b` is encoded by
 /// exactly the `2^(k-1)` clauses over `{x₁,…,x_k}` whose negated-literal count has one fixed parity.
-/// We group clauses by their variable set and emit an [`XorEquation`] for each group that is exactly
-/// such a gadget. Sound: every emitted equation is logically equivalent to a clause group present in
-/// the formula, so a refutation of the extracted (sub)system implies the formula is UNSAT.
+/// These are [`crate::xorsat::xor_gadgets`] of at most twelve variables. Sound: every emitted equation is
+/// logically equivalent to a clause group present in the formula, so a refutation of the extracted
+/// (sub)system implies the formula is UNSAT.
 pub fn extract_xor(num_vars: usize, clauses: &[Vec<Lit_>]) -> Vec<XorEquation> {
-    use std::collections::HashMap;
-    let mut groups: HashMap<Vec<usize>, Vec<u32>> = HashMap::new(); // var-set → neg-parities
-    let mut members: HashMap<Vec<usize>, Vec<Vec<u32>>> = HashMap::new(); // var-set → sign patterns
-    for c in clauses {
-        let mut vs: Vec<usize> = c.iter().map(|l| l.var() as usize).collect();
-        vs.sort_unstable();
-        vs.dedup();
-        if vs.len() != c.len() || vs.iter().any(|&v| v >= num_vars) {
-            continue; // skip tautological / malformed clauses
-        }
-        let neg = c.iter().filter(|l| !l.is_positive()).count() as u32;
-        groups.entry(vs.clone()).or_default().push(neg % 2);
-        // a canonical sign pattern (sorted by var) to dedup identical clauses
-        let mut sig: Vec<u32> = c
-            .iter()
-            .map(|l| l.var() * 2 + u32::from(!l.is_positive()))
-            .collect();
-        sig.sort_unstable();
-        members.entry(vs).or_default().push(sig);
-    }
-    let mut eqs = Vec::new();
-    for (vars, parities) in groups {
-        let k = vars.len();
-        if k == 0 || k > 12 {
-            continue;
-        }
-        let expected = 1usize << (k - 1);
-        // exactly 2^(k-1) clauses, all with the same negated-parity, and all distinct.
-        if parities.len() != expected || !parities.iter().all(|&p| p == parities[0]) {
-            continue;
-        }
-        let mut sigs = members[&vars].clone();
-        sigs.sort();
-        sigs.dedup();
-        if sigs.len() != expected {
-            continue; // not all-distinct ⇒ not a clean XOR gadget
-        }
-        let b = 1 - parities[0]; // negated-parity p ⇒ XOR rhs = 1 - p
-        eqs.push(XorEquation::new(vars, b == 1));
-    }
-    eqs
+    crate::xorsat::xor_gadgets(num_vars, clauses, 12)
 }
 
 /// Recover a bipartite covering structure from opaque clauses — the cardinality analogue of

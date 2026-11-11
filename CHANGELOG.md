@@ -98,6 +98,73 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   byte the one an uncached compile writes (`samba_exam_fusion_report_lock`, `samba_exam_unit_use_lock`,
   `samba_exam_certificate_lock`, `samba_exam_recompile_lock`).
 
+- **SAT: a faster CDCL core, stable-mode phases with local search, and preprocessing.** `logicaffeine-proof` stores
+  clauses in one flat arena under eight-byte watchers with a value per literal (the same search in half the cycles on
+  random 3-SAT at the threshold); follows target and best phases in stable mode and rephases on Kissat's schedule,
+  whose walking steps run the new ProbSAT walker (`walk`) — random 3-SAT at n = 400–600 that timed out now solves in
+  seconds; tries Kissat's lucky phases before search; offers Kissat's tiered learned-clause reduction, a
+  move-to-front queue and chronological backtracking as options; counts models exactly (`count`); finds symmetry
+  generators by a nauty-style search; and gains `preprocess` (units,
+  equivalent-literal substitution, subsumption, bounded variable elimination through AND/XOR gate definitions, every
+  step RUP-logged, models restored from a reconstruction stack), which the default CDCL route of `solve` now runs
+  first, now with congruence closure over AND, XOR and if-then-else gates (each merge RUP-proved), which refutes
+  equivalence-checking miters before search, bounded variable addition (factoring, its definitions logged as PR
+  steps), and without the mined clause bundle, which lost wherever it changed a run. Proofs with deletions and PR
+  steps are checked and exported by a forward watched-literal checker. The dispatcher's specialist chain, which spent from a second to over four minutes on SAT Competition
+  instances before CDCL began, costs what each formula's structure allows: sparse Markowitz GF(2) elimination
+  (`xorsat::eliminate`, `rank`), XOR gadgets found by sorting (`xorsat::xor_gadgets`), the local-lemma degree counted
+  only up to its bound, and the matching and cutting-plane recognizers run only on coverings. Gauss–Jordan elimination
+  runs inside the search (`xor_engine::WatchedXor`, a watched bit matrix whose propagation is complete), its
+  propagations explained off the clause database and on demand: on SATLIB's par32 parity-learning family, which
+  Kissat does not decide within 120 s, the hybrid-XOR route takes 119.4 s CPU over forty runs against CryptoMiniSat's
+  296.3 s. A solve
+  with restricted decisions no longer answers with a default value for a variable propagation left open, and
+  `IncXor` syncs to the trail by literal. Compacting the clause database no longer reads a stale reason past a
+  shrunken database. The CDCL route's eliminations may add four clauses each, where they added none (the SAT
+  Competition 2024 sample at 60 s: 57 of 62 decided against 47), and the core can bump reason-side literals. A search
+  pauses and resumes (`Solver::begin`, `resume`), and `portfolio` races configurations of the core on threads with a
+  winner that never depends on timing. The core decides by justification over a circuit's gates as an option
+  (`Solver::set_gate`, `set_justifying`), and on it the certified sweeper `fraig` decides the EPFL combinational suite
+  against its `resyn2` optimizations in 6.32 s of CPU, all 20 circuits, against 210.02 s for ABC's `&cec`. A refutation
+  under assumptions names the assumptions it rests on (`Solver::unsat_core`), a justifying search carries clauses beside
+  the gates that it makes true itself (`Solver::add_side_clause`), and the portfolio's searches share their units and
+  binaries between rounds (60 of the sample's 62 decided, PAR-2 769, against 59 apart). Certified engines stand on the
+  core: `cube`, cube-and-conquer whose answer never depends on timing; `pdr`, property-directed reachability over AIGER
+  circuits cut to their cones of influence, on justifying solvers that hold only the gates their queries read, with
+  counterexamples to generalization and the constraints assumed in lifting, every invariant and run checked, the
+  invariant conjunct by conjunct over the logic it reads, the step encoded by a cover with cuts of up to four leaves,
+  k-induction asked at each frame it opens, and a large circuit decided on localization abstractions (`localize`: the
+  latches a tied bounded model check's refutations rest on kept, the rest free) and each cone first reduced by its
+  signal correspondence (`scorr`) (149 of HWMCC'24's 319 designs within 60 s of CPU, each verdict the competition's,
+  against 115 for ABC's `pdr` given each design as AIGER 1.9 describes it, and 122 for the competition's best within 60
+  s of CPU over all its threads); `mc`, which races it against bounded model checking (`itp::bmc`, which unrolls only
+  what its questions read and encodes each clock by a cover with cuts of up to six leaves, a small cone asked a window
+  of 64 clocks a query by turns: 45 runs within 60 s of CPU on the designs the competition did not find safe, against 41
+  for ABC's `bmc3`) for a certificate that never depends on which finished first (135 within 60 s of wall time); and
+  `atpg`, stuck-at test generation whose untestable faults carry LRAT proofs. `mc_check` and `atpg_check` run them from
+  the command line. `rewrite` rewrites and-inverter graphs in place by exact synthesis, counting the logic the graph
+  already holds, from a shipped library of the circuits of all 222 NPN classes of four inputs, each result proven equal
+  by `fraig`: the EPFL suite to 425,711 And nodes, against 437,182 for ABC's `rewrite` run four times and 424,633 for
+  its ten-command `resyn2` script. `count` counts on an incremental engine with clause learning, after preprocessing
+  that keeps the count, branching along the tree decomposition a min-degree elimination makes (36 of the 2024 model
+  counting competition's 200 formulas within 60 s, against 30 before). `cipher` makes planted cryptanalysis instances of
+  reduced-round SHA-1 and Trivium for the crypto arena, and the hybrid-XOR route lets its Gauss–Jordan theory go once it
+  stops refuting. `eda_bench` (`benchmarks/eda/run-eda.sh`) runs the EDA arenas — model checking on HWMCC'24 against
+  ABC's `pdr`, bounded model checking on its designs the competition did not find safe against ABC's `bmc3` (45 runs
+  against 41), rewriting EPFL against ABC's `rewrite` and `resyn2`, counting MCC 2024 — into `benchmarks/results/eda/`,
+  which the benchmarks page's SAT Solver tab shows. `arena_bench` ranks engines by CPU time by default and races
+  CryptoMiniSat; `benchmarks/arena/fetch-satcomp.sh` samples a SAT Competition main track from GBD with each instance's
+  known verdict, and `select-solvable.sh` keeps what a reference solver decides within a budget.
+
+- **SAT: interpolation, kernel-checked refutations, partial symmetries, and the research algebra in the product.**
+  `logicaffeine-proof` gains Craig interpolants from its own LRAT refutations (`interpolate`) and unbounded safety of
+  AIGER circuits by interpolation with checked invariants and replaying counterexamples (`itp`); SAT refutations as
+  kernel developments both kernels check, the linear-algebra routes' verdicts among them (`kernel_refutation`);
+  substitution redundancy for partial symmetries (`Witness::PartialSymmetry`), the model groupoid, and composable
+  certified conditional symmetry breaking; and `polycalc_gfp`, `polycalc_zm`, `orbit_stability` and `res_width`. The
+  2-SAT, Horn, parity, GF(p)/ℤ/m, SoS and Nullstellensatz routes re-check their certificates in release builds, and
+  the SAT command line writes only proofs checked against the formula (`solve::certified_proof`).
+
 
 
 

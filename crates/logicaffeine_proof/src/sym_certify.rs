@@ -608,6 +608,105 @@ pub fn certified_unsat_auto(num_vars: usize, formula: &[Vec<Lit>]) -> CertifiedR
     }
 }
 
+/// The breaks [`conditional_symmetry_breaks`] certified: the database with them added, the PR steps that justify them
+/// (each a [`Witness::PartialSymmetry`]), and the transpositions they came from, one entry per added clause.
+#[derive(Clone, Debug)]
+/// What [`conditional_symmetry_breaks`] added to a formula.
+pub struct ConditionalBreaks {
+    /// The formula followed by every accepted break, in the order they were certified.
+    pub db: Vec<Vec<Lit>>,
+    /// One [`ProofStep::Pr`] per accepted break, each witnessed by [`Witness::PartialSymmetry`].
+    pub steps: Vec<ProofStep>,
+    /// The transposition `(a, b)` behind each step, in step order.
+    pub pairs: Vec<(usize, usize)>,
+}
+
+/// The transposition of variables `a` and `b` over `num_vars` variables.
+fn transposition(num_vars: usize, a: usize, b: usize) -> Perm {
+    Perm::from_images(
+        (0..num_vars)
+            .map(|v| Lit::pos(if v == a { b } else if v == b { a } else { v } as u32))
+            .collect(),
+    )
+}
+
+/// The most clauses one transposition's guard may expand to (one per choice of a literal from each broken image).
+const MAX_GUARD_CLAUSES: usize = 64;
+
+/// **Certified conditional symmetry breaking.** A transposition `σ = (a b)` that maps every clause of `formula` but a
+/// few onto clauses of it ([`crate::solve::almost_symmetry_pairs`]) is a partial symmetry: it carries a model `τ` to a
+/// model exactly when `τ` satisfies the images `E₁ … E_r` of the clauses it breaks. The break keeps `x_a ≤ x_b` where
+/// that guard holds, `(E₁ ∧ … ∧ E_r) → (¬x_a ∨ x_b)`, as the clauses `¬e₁ ∨ … ∨ ¬e_r ∨ ¬x_a ∨ x_b`, one per choice of a
+/// literal `e_j` from each `E_j`. Each clause is added only once [`is_pr`] accepts it with the witness
+/// [`Witness::PartialSymmetry`]`(σ)` against the database so far: under its negation each `e_j` holds, so each broken
+/// image is satisfied, and every other image is a clause of the formula. Because every check is against every break
+/// before it, the breaks of different transpositions compose — what the single uncertified guarded break could not.
+/// By [`crate::groupoid::ModelGroupoid`], every component of the model groupoid keeps a model.
+pub fn conditional_symmetry_breaks(num_vars: usize, formula: &[Vec<Lit>], max_broken: usize) -> ConditionalBreaks {
+    let mut db: Vec<Vec<Lit>> = formula.to_vec();
+    let mut steps: Vec<ProofStep> = Vec::new();
+    let mut pairs: Vec<(usize, usize)> = Vec::new();
+    for (a, b, images) in crate::solve::almost_symmetry_pairs(num_vars, formula, max_broken) {
+        let product: usize = images.iter().map(|e| e.len().max(1)).product();
+        if images.iter().any(|e| e.is_empty()) || product > MAX_GUARD_CLAUSES {
+            continue;
+        }
+        let sigma = transposition(num_vars, a, b);
+        let mut choice = vec![0usize; images.len()];
+        loop {
+            let mut clause: Vec<Lit> = images.iter().zip(&choice).map(|(e, &k)| e[k].negated()).collect();
+            clause.push(Lit::neg(a as u32));
+            clause.push(Lit::pos(b as u32));
+            clause.sort_by_key(|l| (l.var(), l.is_positive()));
+            clause.dedup();
+            let tautology = clause.windows(2).any(|w| w[0].var() == w[1].var());
+            if !tautology {
+                let witness = Witness::PartialSymmetry(sigma.clone());
+                if is_pr(num_vars, &db, &clause, &witness) {
+                    db.push(clause.clone());
+                    steps.push(ProofStep::Pr { clause, witness });
+                    pairs.push((a, b));
+                }
+            }
+            let mut j = 0;
+            while j < choice.len() {
+                choice[j] += 1;
+                if choice[j] < images[j].len() {
+                    break;
+                }
+                choice[j] = 0;
+                j += 1;
+            }
+            if j == choice.len() {
+                break;
+            }
+        }
+    }
+    ConditionalBreaks { db, steps, pairs }
+}
+
+/// Refute `formula` with certified conditional symmetry breaking: add the breaks of
+/// [`conditional_symmetry_breaks`], solve, append the learned clauses as RUP steps, and check the whole stream
+/// against `formula` alone.
+pub fn certified_unsat_conditional(num_vars: usize, formula: &[Vec<Lit>], max_broken: usize) -> CertifiedRefutation {
+    let ConditionalBreaks { db, mut steps, .. } = conditional_symmetry_breaks(num_vars, formula, max_broken);
+    let sbp_clauses = steps.len();
+    let mut solver = Solver::new(num_vars);
+    for c in &db {
+        solver.add_clause(c.clone());
+    }
+    let refuted = match solver.solve() {
+        SolveResult::Sat(_) => false,
+        SolveResult::Unsat => {
+            for lc in solver.learned() {
+                steps.push(ProofStep::Rup(lc.lits.clone()));
+            }
+            check_pr_refutation(num_vars, formula, &steps)
+        }
+    };
+    CertifiedRefutation { refuted, sbp_clauses, steps }
+}
+
 #[cfg(test)]
 #[path = "../../logicaffeine_tests/unit/logicaffeine_proof/sym_certify/tests.rs"]
 mod tests;

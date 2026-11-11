@@ -179,7 +179,7 @@ pub fn try_assignment_witness(
                 None
             }
         }
-        Witness::Substitution(sigma) => {
+        Witness::Substitution(sigma) | Witness::PartialSymmetry(sigma) => {
             // The image of the falsified cube under σ — the textbook reduction.
             let canon_w: Vec<Lit> = clause.iter().map(|&l| sigma.apply(l).negated()).collect();
             if accept(&canon_w) {
@@ -215,31 +215,28 @@ pub fn emit_drat(
     original: &[Vec<Lit>],
     steps: &[ProofStep],
 ) -> Result<String, EmitError> {
-    let mut db: Vec<Vec<Lit>> = original.to_vec();
+    let mut forward = crate::pr::Forward::new(num_vars, original, steps);
     let mut out = String::new();
     for (i, step) in steps.iter().enumerate() {
         match step {
             ProofStep::Rup(c) => {
-                if !crate::rup::is_rup(num_vars, &db, c) {
+                if !forward.rup(c) {
                     return Err(EmitError::StepNotRup { index: i });
                 }
                 push_clause(&mut out, c);
                 out.push('\n');
-                db.push(c.clone());
+                forward.admit();
             }
             ProofStep::Delete(c) => {
                 out.push_str("d ");
                 push_clause(&mut out, c);
                 out.push('\n');
-                let key = canon(c);
-                if let Some(pos) = db.iter().position(|d| canon(d) == key) {
-                    db.swap_remove(pos);
-                }
+                forward.delete(c);
             }
             ProofStep::Pr { .. } => return Err(EmitError::PrInRupOnlyFormat { index: i }),
         }
     }
-    if !crate::rup::is_rup(num_vars, &db, &[]) {
+    if !forward.rup(&[]) {
         return Err(EmitError::EmptyClauseNotRup);
     }
     out.push_str("0\n");
@@ -258,21 +255,26 @@ pub fn emit_dpr(
     original: &[Vec<Lit>],
     steps: &[ProofStep],
 ) -> Result<String, EmitError> {
-    let mut db: Vec<Vec<Lit>> = original.to_vec();
+    let num_vars = crate::pr::proof_vars(num_vars, original, steps);
+    let mut forward = crate::pr::Forward::new(num_vars, original, steps);
     let mut out = String::new();
     for (i, step) in steps.iter().enumerate() {
         match step {
             ProofStep::Rup(c) => {
-                if !crate::rup::is_rup(num_vars, &db, c) {
+                if !forward.rup(c) {
                     return Err(EmitError::StepNotRup { index: i });
                 }
                 push_clause(&mut out, c);
                 out.push('\n');
-                db.push(c.clone());
+                forward.admit();
             }
             ProofStep::Pr { clause, witness } => {
-                let omega = try_assignment_witness(num_vars, &db, clause, witness)
-                    .ok_or(EmitError::RequiresSubstitutionRedundancy { index: i })?;
+                let omega = match witness {
+                    Witness::Assignment(w) if forward.pr(clause, witness) => w.clone(),
+                    Witness::Assignment(_) => return Err(EmitError::RequiresSubstitutionRedundancy { index: i }),
+                    _ => try_assignment_witness(num_vars, &forward.present(), clause, witness)
+                        .ok_or(EmitError::RequiresSubstitutionRedundancy { index: i })?,
+                };
                 // The witness must lead with the clause's first literal (the pivot): pick a
                 // literal of C that ω satisfies and float it to the front of both.
                 let pivot = clause
@@ -292,20 +294,17 @@ pub fn emit_dpr(
                     out.push(' ');
                 }
                 out.push_str("0\n");
-                db.push(clause.clone());
+                forward.admit();
             }
             ProofStep::Delete(c) => {
                 out.push_str("d ");
                 push_clause(&mut out, c);
                 out.push('\n');
-                let key = canon(c);
-                if let Some(pos) = db.iter().position(|d| canon(d) == key) {
-                    db.swap_remove(pos);
-                }
+                forward.delete(c);
             }
         }
     }
-    if !crate::rup::is_rup(num_vars, &db, &[]) {
+    if !forward.rup(&[]) {
         return Err(EmitError::EmptyClauseNotRup);
     }
     out.push_str("0\n");
@@ -340,6 +339,7 @@ pub fn emit_sr(
     original: &[Vec<Lit>],
     steps: &[ProofStep],
 ) -> Result<String, EmitError> {
+    let num_vars = crate::pr::proof_vars(num_vars, original, steps);
     let mut out = String::new();
     write_sr(&mut out, num_vars, original, steps)?;
     Ok(out)
@@ -395,7 +395,7 @@ pub fn write_sr<W: core::fmt::Write>(
                         w.write_str("0\n")?;
                         db.push(clause.clone());
                     }
-                    Witness::Substitution(sigma) => {
+                    Witness::Substitution(sigma) | Witness::PartialSymmetry(sigma) => {
                         let pivot = *clause.first().ok_or(EmitError::StepNotRup { index: i })?;
                         // **Witness decomposition (sr2drat convention).** sr2drat wants the lemma's pivot
                         // variable held by the assignment ω, with σ permuting only the *other* variables

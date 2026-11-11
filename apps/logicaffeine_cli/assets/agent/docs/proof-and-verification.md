@@ -141,6 +141,19 @@ k-induction (`prove_invariant`), counterexample search, and vacuity (`check_vacu
 needs no external solver, it runs in the browser: it is the engine behind Studio's
 [Hardware mode](studio-and-learn.md) in-browser proving (Z3 stays a native-only backend).
 
+On and-inverter graphs read from AIGER files the same core decides hardware safety with certificates
+checked apart from the search: `pdr` (property-directed reachability on justifying solvers, each
+frame's solver holding only the gates its queries read), `itp` (interpolation), `itp::bmc` (a
+shortest run within a bound) and `mc`, a race of PDR and BMC whose answer never depends on which
+finished first. A safe verdict is an inductive invariant whose three obligations `itp::check_invariant`
+establishes by LRAT proofs an independent checker replays (`itp::check_induction` certifies
+k-induction the same way); an unsafe one is a run that replays by simulation. `mc_check` runs them on
+AIGER files. The core also proves circuits equal by SAT sweeping (`fraig`), rewrites them by exact
+synthesis with each result proven equal (`rewrite`) and generates stuck-at tests whose untestable
+faults carry refutations (`atpg`). `eda_bench` (`benchmarks/eda/run-eda.sh`) measures them against
+ABC on the HWMCC'24 bit-level track and the EPFL suite, and the model counter on the model counting
+competition, for the benchmarks page's SAT Solver tab.
+
 A theorem is written in English as a named block of `Given:` premises and a `Prove:` goal:
 
 ```logos

@@ -1026,3 +1026,93 @@ fn auto_is_deterministic() {
     );
     assert_eq!(a.steps.len(), b.steps.len());
 }
+
+/// A deterministic SplitMix64 stream for the sweeps below.
+fn splitmix(seed: u64) -> impl FnMut() -> u64 {
+    let mut state = seed;
+    move || {
+        state = state.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        let mut z = state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    }
+}
+
+/// Random formulas with conditional symmetries: every certified break is accepted by the checker against the
+/// database built so far, in order, and the breaks keep satisfiability. Across the sweep, breaks of two different
+/// transpositions compose in one formula — what the single guarded break could not do.
+#[test]
+fn conditional_breaks_check_in_order_and_compose_across_transpositions() {
+    let mut composed = 0;
+    for seed in 0..300u64 {
+        let mut next = splitmix(seed ^ 0xC0DE);
+        let nv = 5 + (seed % 3) as usize;
+        let f: Vec<Vec<Lit>> = (0..nv + 2)
+            .map(|_| {
+                let mut c: Vec<Lit> = Vec::new();
+                while c.len() < 2 + (next() % 2) as usize {
+                    let l = Lit::new((next() % nv as u64) as u32, next() & 1 == 0);
+                    if !c.iter().any(|m| m.var() == l.var()) {
+                        c.push(l);
+                    }
+                }
+                c
+            })
+            .collect();
+        let breaks = conditional_symmetry_breaks(nv, &f, 2);
+        let mut db = f.clone();
+        for step in &breaks.steps {
+            let ProofStep::Pr { clause, witness } = step else { panic!("breaks are PR steps") };
+            assert!(matches!(witness, Witness::PartialSymmetry(_)));
+            assert!(is_pr(nv, &db, clause, witness), "seed {seed}: a break fails its check in place");
+            db.push(clause.clone());
+        }
+        assert_eq!(db, breaks.db, "seed {seed}: the database is the formula and the breaks, in order");
+        let sat = |cs: &[Vec<Lit>]| {
+            (0u32..1 << nv).any(|m| cs.iter().all(|c| c.iter().any(|l| ((m >> l.var()) & 1 == 1) == l.is_positive())))
+        };
+        assert_eq!(sat(&f), sat(&breaks.db), "seed {seed}: satisfiability kept");
+        let mut distinct = breaks.pairs.clone();
+        distinct.sort_unstable();
+        distinct.dedup();
+        if distinct.len() >= 2 {
+            composed += 1;
+        }
+    }
+    assert!(composed >= 10, "only {composed} formulas composed breaks of two transpositions");
+}
+
+/// The refutation built on conditional breaks checks against the formula alone; a satisfiable formula is never
+/// refuted.
+#[test]
+fn conditional_refutations_check_against_the_formula_alone() {
+    let (mut refuted, mut with_breaks) = (0, 0);
+    for seed in 0..300u64 {
+        let mut next = splitmix(seed ^ 0xFACE);
+        let nv = 5;
+        let f: Vec<Vec<Lit>> = (0..16)
+            .map(|_| {
+                let mut c: Vec<Lit> = Vec::new();
+                while c.len() < 2 {
+                    let l = Lit::new((next() % nv as u64) as u32, next() & 1 == 0);
+                    if !c.iter().any(|m| m.var() == l.var()) {
+                        c.push(l);
+                    }
+                }
+                c
+            })
+            .collect();
+        let sat = (0u32..1 << nv).any(|m| f.iter().all(|c| c.iter().any(|l| ((m >> l.var()) & 1 == 1) == l.is_positive())));
+        let r = certified_unsat_conditional(nv, &f, 2);
+        assert_eq!(r.refuted, !sat, "seed {seed}: refuted exactly when unsatisfiable");
+        if r.refuted {
+            assert!(check_pr_refutation(nv, &f, &r.steps), "seed {seed}: the stream checks");
+            refuted += 1;
+            if r.sbp_clauses > 0 {
+                with_breaks += 1;
+            }
+        }
+    }
+    assert!(refuted >= 50 && with_breaks >= 10, "{refuted} refuted, {with_breaks} with breaks");
+}

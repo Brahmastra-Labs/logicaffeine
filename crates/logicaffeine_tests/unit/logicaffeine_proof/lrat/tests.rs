@@ -321,3 +321,189 @@ fn a_cdcl_trace_and_its_lemmas_derive_what_the_solver_concluded() {
     assert!(check_derivation(vars, &cnf, &proof, &[Vec::new()]));
     assert!(check(vars, &cnf, &proof), "a derivation of the empty clause is a refutation");
 }
+
+/// A fixed-seed random formula rich in short clauses over `vars` variables: units, binaries and ternaries in turn.
+fn short_clauses(seed: u64, vars: u32, clauses: usize) -> Vec<Vec<Lit>> {
+    let mut s = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+    let mut next = || {
+        s ^= s << 13;
+        s ^= s >> 7;
+        s ^= s << 17;
+        s
+    };
+    (0..clauses)
+        .map(|k| {
+            let width = [1, 2, 2, 3, 3, 3, 3][k % 7];
+            (0..width).map(|_| Lit::new((next() % vars as u64) as u32, next() & 1 == 0)).collect()
+        })
+        .collect()
+}
+
+#[test]
+fn a_log_clause_whose_negation_holds_a_literal_the_formula_forces_leaves_that_literal_s_reason_out() {
+    // x0, x0 ⇒ x1, x1 ∧ y ∧ w ⇒ z, x1 ∧ z ⇒ ¬y. The formula alone forces x1; (¬x1 ∨ ¬y ∨ ¬w) is RUP through the last two
+    // clauses with x1 its negation's own. A chain that took x1 from (¬x0 ∨ x1) would hint a clause the negation already
+    // satisfies.
+    let f = vec![vec![p(0)], vec![n(0), p(1)], vec![n(1), n(2), n(3), p(4)], vec![n(1), n(4), n(2)]];
+    let log = vec![vec![n(1), n(2), n(3)]];
+    let proof = derivation(5, &f, &log, &[0]).expect("RUP");
+    let mut hints = proof.steps[0].hints.clone();
+    hints.sort_unstable();
+    assert_eq!(hints, vec![3, 4], "the two clauses the conflict needs, and nothing that forced x1");
+    assert!(check_derivation(5, &f, &proof, &log));
+}
+
+#[test]
+fn a_log_clause_holding_a_literal_the_formula_forces_closes_at_the_clause_that_forced_it() {
+    // x0, x0 ⇒ x1, x1 ⇒ ¬x3, x1 ∧ x2 ⇒ x3: the formula forces ¬x2, so (¬x2) and (x1 ∨ ¬x2) are RUP, each refuted at
+    // the clause that forced its literal.
+    let f = vec![vec![p(0)], vec![n(0), p(1)], vec![n(1), n(3)], vec![n(1), n(2), p(3)]];
+    let log = vec![vec![n(2)], vec![p(1), n(2)]];
+    let proof = derivation(4, &f, &log, &[0, 1]).expect("RUP");
+    assert!(check_derivation(4, &f, &proof, &log));
+    assert_eq!(proof.steps[0].hints.last(), Some(&4), "¬x2 was forced by (¬x1 ∨ ¬x2 ∨ x3)");
+    assert_eq!(proof.steps[1].hints.last(), Some(&2), "x1 was forced by (¬x0 ∨ x1)");
+}
+
+#[test]
+fn a_log_clause_holding_two_literals_the_formula_forces_closes_at_the_one_forced_first() {
+    // (¬x1) forces ¬x1, then (x1 ∨ ¬x0) forces ¬x0: the log clause (¬x0 ∨ ¬x1) holds both. Its negation sets x0 and x1,
+    // so the chain closes at (¬x1), the clause that forced the earlier of them; one through (x1 ∨ ¬x0), whose reason
+    // (¬x1) the negation falsifies first, does not replay.
+    let f = vec![vec![n(1)], vec![p(1), n(0)]];
+    let log = vec![vec![n(0), n(1)]];
+    let proof = derivation(2, &f, &log, &[0]).expect("RUP");
+    assert_eq!(proof.steps[0].hints, vec![1], "the unit that forced ¬x1 first");
+    assert!(check_derivation(2, &f, &proof, &log));
+}
+
+#[test]
+fn once_the_formula_conflicts_every_log_clause_is_derived_from_the_conflict() {
+    // x0, x0 ⇒ x1, x1 ⇒ x2, x1 ⇒ ¬x2: the formula refutes itself by propagation, so every clause is RUP, a negation that
+    // holds x2 taking it as its own.
+    let f = vec![vec![p(0)], vec![n(0), p(1)], vec![n(1), p(2)], vec![n(1), n(2)]];
+    let log = vec![vec![n(2), p(3)], vec![p(3)], vec![n(0), n(3)], Vec::new()];
+    let proof = derivation(4, &f, &log, &[0, 1, 2, 3]).expect("everything follows from a contradiction");
+    assert!(check_derivation(4, &f, &proof, &log));
+    assert!(check(4, &f, &proof));
+}
+
+#[test]
+fn random_formulas_rich_in_units_trim_to_proofs_that_check() {
+    // Random 3-CNF near the threshold beside units and binaries: propagation decides much of each before any learned
+    // clause, the fixpoint a trim starts every chain from, and the search learns the rest. Every refutation checks and
+    // agrees with the naive replay, and so does every derivation of a learned clause in the middle of the trace.
+    let (mut refuted, mut middles) = (0, 0);
+    for seed in 1..=300u64 {
+        let vars = 30 + (seed % 21) as u32;
+        let mut cnf = random_3cnf(seed, vars, (vars as usize) * 4);
+        cnf.extend(short_clauses(seed ^ 0x5555, vars, (vars as usize) / 3));
+        let Some(learned) = solve(vars as usize, &cnf) else { continue };
+        refuted += 1;
+        let proof = refutation(vars as usize, &cnf, &learned);
+        assert_eq!(proof.is_some(), check_refutation(vars as usize, &cnf, &learned), "seed {seed}");
+        let proof = proof.unwrap();
+        assert!(check(vars as usize, &cnf, &proof), "seed {seed}");
+        assert!(check_lrat(vars as usize, &cnf, &proof.to_text()), "seed {seed}");
+        if learned.len() >= 2 {
+            let mid = learned.len() / 2;
+            let part = derivation(vars as usize, &cnf, &learned, &[mid]).expect("a learned clause is RUP in its place");
+            assert!(check_derivation(vars as usize, &cnf, &part, &[learned[mid].clone()]), "seed {seed}");
+            middles += 1;
+        }
+    }
+    assert!(refuted >= 150 && middles >= 20, "{refuted} refuted, {middles} derived from the middle");
+}
+
+#[test]
+fn a_trim_propagates_what_the_formula_forces_once_not_once_a_learned_clause() {
+    // A random 3-CNF core of 200 variables, each clause guarded by t, which the units force through (u) and (¬u ∨ t),
+    // beside 50,000 units that force two literals each: the fixpoint holds 150,000 literals, and every chain of the
+    // core's thousands of learned clauses rests on t alone. Propagating the fixpoint afresh for each learned clause
+    // costs minutes; once, well under a second.
+    let (v, noise) = (200u32, 50_000u32);
+    let (u, t, first) = (v, v + 1, v + 2);
+    let mut cnf: Vec<Vec<Lit>> = random_3cnf(7, v, 5 * v as usize);
+    for c in &mut cnf {
+        c.push(n(t));
+    }
+    for i in 0..noise {
+        let x = first + 3 * i;
+        cnf.extend([vec![p(x)], vec![n(x), p(x + 1)], vec![n(x), p(x + 2)]]);
+    }
+    cnf.extend([vec![p(u)], vec![n(u), p(t)]]);
+    let vars = (first + 3 * noise) as usize;
+    let learned = solve(vars, &cnf).expect("the core is unsatisfiable");
+    assert!(learned.len() >= 1000, "a trace long enough to mean something: {}", learned.len());
+    let started = std::time::Instant::now();
+    let proof = refutation(vars, &cnf, &learned).expect("a refutation");
+    let took = started.elapsed();
+    assert!(check(vars, &cnf, &proof));
+    assert!(took < std::time::Duration::from_secs(5), "{} learned clauses trimmed in {took:?}", learned.len());
+}
+
+/// The unit-propagation fixpoint of `clauses` by rescanning them all until nothing changes: the literals it sets, or
+/// `None` when it falsifies a clause.
+fn fixpoint(num_vars: usize, clauses: &[Vec<Lit>]) -> Option<std::collections::BTreeSet<(u32, bool)>> {
+    let mut value: Vec<Option<bool>> = vec![None; num_vars];
+    loop {
+        let mut changed = false;
+        for c in clauses {
+            if c.iter().any(|l| value[l.var() as usize] == Some(l.is_positive())) {
+                continue;
+            }
+            let mut open: Vec<Lit> = c.iter().copied().filter(|l| value[l.var() as usize].is_none()).collect();
+            open.dedup();
+            open.sort_by_key(|l| (l.var(), l.is_positive()));
+            open.dedup();
+            match open.as_slice() {
+                [] => return None,
+                [u] => {
+                    value[u.var() as usize] = Some(u.is_positive());
+                    changed = true;
+                }
+                _ => {}
+            }
+        }
+        if !changed {
+            return Some(value.iter().enumerate().filter_map(|(v, b)| b.map(|b| (v as u32, b))).collect());
+        }
+    }
+}
+
+/// What the trimmer holds: its trail's literals, or `None` once its fixpoint conflicts.
+fn held(t: &Trimmer) -> Option<std::collections::BTreeSet<(u32, bool)>> {
+    match t.conflict {
+        Some(_) => None,
+        None => Some(t.trail.iter().map(|l| (l.var(), l.is_positive())).collect()),
+    }
+}
+
+#[test]
+fn the_trimmer_holds_the_fixpoint_of_the_clauses_attached_and_withdrawing_cuts_it_back() {
+    // Random formulas rich in units: after each clause is attached the trail is the fixpoint of the clauses so far, or
+    // the conflict is; after each is withdrawn, last first, the fixpoint of those left; and a chain asked on the way
+    // leaves the trail as it found it.
+    let (mut conflicted, mut forced) = (0, 0);
+    for seed in 1..=200u64 {
+        let vars = 6 + (seed % 9) as u32;
+        let clauses = short_clauses(seed, vars, (vars as usize) * 3);
+        let mut t = Trimmer::new(vars as usize);
+        for i in 0..clauses.len() {
+            t.attach(&clauses[i]);
+            assert_eq!(held(&t), fixpoint(vars as usize, &clauses[..=i]), "seed {seed}: attached {}", i + 1);
+        }
+        conflicted += usize::from(t.conflict.is_some());
+        for i in (0..clauses.len()).rev() {
+            t.withdraw(i);
+            let want = fixpoint(vars as usize, &clauses[..i]);
+            assert_eq!(held(&t), want, "seed {seed}: {i} left");
+            forced += want.as_ref().map_or(0, |w| w.len());
+            let before = held(&t);
+            let probe = [Lit::new((seed as u32 + i as u32) % vars, i % 2 == 0)];
+            let _ = t.chain(&probe);
+            assert_eq!(held(&t), before, "seed {seed}: a chain moved the trail");
+        }
+    }
+    assert!(conflicted >= 50 && forced >= 1000, "{conflicted} formulas conflicted, {forced} literals forced");
+}

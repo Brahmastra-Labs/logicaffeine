@@ -71,86 +71,268 @@ fn inv(a: u64, p: u64) -> u64 {
     powm(a, p - 2, p)
 }
 
-/// Decide a mod-`p` linear system by Gaussian elimination over `GF(p)`. Returns a satisfying
-/// assignment, or an inconsistency-witnessing combination of the original equations. `p` must be prime.
+/// Decide a mod-`p` linear system by elimination over `GF(p)`. Returns a satisfying assignment, or an
+/// inconsistency-witnessing combination of the original equations. `p` must be prime.
 pub fn solve(equations: &[ModpEquation], num_vars: usize, p: u64) -> ModpOutcome {
-    let m = equations.len();
-    // Each row carries its variable coefficients, its rhs, and its provenance (how it is built from the
-    // original equations — a coefficient per original equation). All arithmetic is mod p.
-    let mut coeff: Vec<Vec<u64>> = Vec::with_capacity(m);
-    let mut rhs: Vec<u64> = Vec::with_capacity(m);
-    let mut prov: Vec<Vec<u64>> = Vec::with_capacity(m);
-    for (i, eq) in equations.iter().enumerate() {
-        let mut c = vec![0u64; num_vars];
-        for &(v, a) in &eq.coeffs {
-            if v < num_vars {
-                c[v] = add(c[v], a, p);
-            }
-        }
-        coeff.push(c);
-        rhs.push(eq.rhs % p);
-        let mut pr = vec![0u64; m];
-        pr[i] = 1 % p;
-        prov.push(pr);
-    }
+    eliminate(equations, num_vars, p).1
+}
 
-    let mut pivot_col_of_row: Vec<usize> = Vec::new();
-    let mut row = 0usize;
-    for col in 0..num_vars {
-        let Some(sel) = (row..coeff.len()).find(|&r| coeff[r][col] != 0) else {
-            continue;
-        };
-        coeff.swap(row, sel);
-        rhs.swap(row, sel);
-        prov.swap(row, sel);
-        // Normalize the pivot row so its pivot coefficient is 1.
-        let factor = inv(coeff[row][col], p);
-        for v in 0..num_vars {
-            coeff[row][v] = mul(coeff[row][v], factor, p);
-        }
-        rhs[row] = mul(rhs[row], factor, p);
-        for k in 0..m {
-            prov[row][k] = mul(prov[row][k], factor, p);
-        }
-        // Eliminate this column from every other row.
-        for r in 0..coeff.len() {
-            if r != row && coeff[r][col] != 0 {
-                let f = coeff[r][col];
-                for v in 0..num_vars {
-                    coeff[r][v] = sub(coeff[r][v], mul(f, coeff[row][v], p), p);
-                }
-                rhs[r] = sub(rhs[r], mul(f, rhs[row], p), p);
-                for k in 0..m {
-                    prov[r][k] = sub(prov[r][k], mul(f, prov[row][k], p), p);
+/// The rank of a mod-`p` linear system over `0..num_vars`: how many of its congruences are linearly independent over
+/// `GF(p)`. `p` must be prime.
+pub fn rank(equations: &[ModpEquation], num_vars: usize, p: u64) -> usize {
+    eliminate(equations, num_vars, p).0
+}
+
+/// The sparsest active column's row count past which the rest of an elimination runs on dense rows.
+const DENSE_WEIGHT: usize = 24;
+
+/// Eliminate a mod-`p` system: its rank, and an assignment (free variables 0) or a refutation. Each congruence is a
+/// row of `(variable, coefficient)`, a variable's coefficients summed mod `p` and a variable past `num_vars` ignored.
+///
+/// The elimination is [`crate::xorsat::eliminate`]'s over `GF(p)`: Markowitz pivoting — the active column in fewest
+/// active rows, on the shortest of its rows — with each other row holding the column reduced by `row −= f · pivot`,
+/// `f` the ratio of their coefficients there, and the pivot retired unchanged; a filled-in remainder runs on dense
+/// rows. Each reduction is logged, so replaying the log backwards from a `0 ≡ r` row (`w[pivot] −= f · w[row]`) gives
+/// the multiplier of every original congruence in it; the assignment back-substitutes the retired rows in reverse.
+fn eliminate(equations: &[ModpEquation], num_vars: usize, p: u64) -> (usize, ModpOutcome) {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+    let m = equations.len();
+    let mut rows: Vec<Vec<(u32, u64)>> = equations
+        .iter()
+        .map(|eq| {
+            let mut terms: Vec<(u32, u64)> =
+                eq.coeffs.iter().filter(|&&(v, _)| v < num_vars).map(|&(v, a)| (v as u32, a % p)).collect();
+            terms.sort_unstable_by_key(|&(v, _)| v);
+            let mut row: Vec<(u32, u64)> = Vec::with_capacity(terms.len());
+            for (v, a) in terms {
+                match row.last_mut() {
+                    Some(last) if last.0 == v => last.1 = add(last.1, a, p),
+                    _ => row.push((v, a)),
                 }
             }
+            row.retain(|&(_, a)| a != 0);
+            row
+        })
+        .collect();
+    let mut rhs: Vec<u64> = equations.iter().map(|eq| eq.rhs % p).collect();
+    let mut active: Vec<bool> = rows.iter().map(|r| !r.is_empty()).collect();
+    let mut contradiction: Option<Vec<(usize, u64)>> =
+        (0..m).find(|&i| rows[i].is_empty() && rhs[i] != 0).map(|i| vec![(i, 1)]);
+    let mut holders: Vec<Vec<u32>> = vec![Vec::new(); num_vars];
+    let mut weight = vec![0usize; num_vars];
+    for (i, row) in rows.iter().enumerate() {
+        for &(c, _) in row {
+            holders[c as usize].push(i as u32);
+            weight[c as usize] += 1;
         }
-        pivot_col_of_row.push(col);
-        row += 1;
-        if row == coeff.len() {
+    }
+    let mut queue: BinaryHeap<Reverse<(usize, u32)>> =
+        (0..num_vars).filter(|&c| weight[c] > 0).map(|c| Reverse((weight[c], c as u32))).collect();
+    let coefficient = |row: &[(u32, u64)], c: u32| row.binary_search_by_key(&c, |&(v, _)| v).ok().map(|k| row[k].1);
+    let mut retired: Vec<(usize, u32)> = Vec::new();
+    let mut reductions: Vec<(u32, u32, u64)> = Vec::new();
+    let mut filled_in = false;
+    while let Some(Reverse((w, c))) = queue.pop() {
+        let col = c as usize;
+        if weight[col] != w || w == 0 {
+            continue;
+        }
+        if w > DENSE_WEIGHT {
+            filled_in = true;
             break;
         }
+        let mut with: Vec<u32> = std::mem::take(&mut holders[col])
+            .into_iter()
+            .filter(|&r| active[r as usize] && coefficient(&rows[r as usize], c).is_some())
+            .collect();
+        with.sort_unstable();
+        with.dedup();
+        debug_assert_eq!(with.len(), w, "a column's weight counts its active rows");
+        let pivot = *with.iter().min_by_key(|&&r| (rows[r as usize].len(), r)).expect("a column of positive weight has a row") as usize;
+        active[pivot] = false;
+        let pivot_row = std::mem::take(&mut rows[pivot]);
+        let lead_inverse = inv(coefficient(&pivot_row, c).expect("the pivot row holds its column"), p);
+        for &(other, _) in &pivot_row {
+            weight[other as usize] -= 1;
+            if other != c && weight[other as usize] > 0 {
+                queue.push(Reverse((weight[other as usize], other)));
+            }
+        }
+        for &r in &with {
+            let r = r as usize;
+            if r == pivot {
+                continue;
+            }
+            let before = std::mem::take(&mut rows[r]);
+            let f = mul(coefficient(&before, c).expect("a holder holds its column"), lead_inverse, p);
+            let mut reduced = Vec::with_capacity(before.len() + pivot_row.len());
+            let (mut i, mut j) = (0, 0);
+            while i < before.len() || j < pivot_row.len() {
+                match (before.get(i), pivot_row.get(j)) {
+                    (Some(&(a, x)), Some(&(b, y))) if a == b => {
+                        let z = sub(x, mul(f, y, p), p);
+                        if z == 0 {
+                            weight[a as usize] -= 1;
+                            if a != c && weight[a as usize] > 0 {
+                                queue.push(Reverse((weight[a as usize], a)));
+                            }
+                        } else {
+                            reduced.push((a, z));
+                        }
+                        i += 1;
+                        j += 1;
+                    }
+                    (Some(&(a, x)), Some(&(b, _))) if a < b => {
+                        reduced.push((a, x));
+                        i += 1;
+                    }
+                    (Some(&(a, x)), None) => {
+                        reduced.push((a, x));
+                        i += 1;
+                    }
+                    (_, Some(&(b, y))) => {
+                        reduced.push((b, sub(0, mul(f, y, p), p)));
+                        weight[b as usize] += 1;
+                        holders[b as usize].push(r as u32);
+                        queue.push(Reverse((weight[b as usize], b)));
+                        j += 1;
+                    }
+                    (None, None) => unreachable!(),
+                }
+            }
+            rhs[r] = sub(rhs[r], mul(f, rhs[pivot], p), p);
+            reductions.push((r as u32, pivot as u32, f));
+            if reduced.is_empty() {
+                active[r] = false;
+                if rhs[r] != 0 && contradiction.is_none() {
+                    contradiction = Some(vec![(r, 1)]);
+                }
+            }
+            rows[r] = reduced;
+        }
+        rows[pivot] = pivot_row;
+        retired.push((pivot, c));
+    }
+    let mut rank = retired.len();
+    let dense = filled_in.then(|| {
+        let core: Vec<usize> = (0..m).filter(|&r| active[r]).collect();
+        let dense = DenseModp::eliminate(&core, &rows, &rhs, num_vars, p, contradiction.is_none());
+        rank += dense.retired.len();
+        if contradiction.is_none() {
+            contradiction = dense.contradiction.clone();
+        }
+        dense
+    });
+    let outcome = match contradiction {
+        Some(root) => {
+            let mut weight_of = vec![0u64; m];
+            for (r, k) in root {
+                weight_of[r] = add(weight_of[r], k, p);
+            }
+            for &(target, source, f) in reductions.iter().rev() {
+                let w = weight_of[target as usize];
+                if w != 0 {
+                    weight_of[source as usize] = sub(weight_of[source as usize], mul(f, w, p), p);
+                }
+            }
+            ModpOutcome::Unsat((0..m).filter(|&i| weight_of[i] != 0).map(|i| (i, weight_of[i])).collect())
+        }
+        None => {
+            let mut value = vec![0u64; num_vars];
+            if let Some(dense) = &dense {
+                dense.back_substitute(&mut value, p);
+            }
+            for &(r, c) in retired.iter().rev() {
+                let row = &rows[r];
+                let rest = row.iter().filter(|&&(o, _)| o != c).fold(0, |acc, &(o, a)| add(acc, mul(a, value[o as usize], p), p));
+                let lead = coefficient(row, c).expect("a retired row holds its pivot");
+                value[c as usize] = mul(sub(rhs[r], rest, p), inv(lead, p), p);
+            }
+            ModpOutcome::Sat(value)
+        }
+    };
+    (rank, outcome)
+}
+
+/// The dense phase of [`eliminate`]: the core rows over the core's own columns, eliminated forward — each other row
+/// holding the pivot's column reduced by the pivot, the pivot then retired.
+struct DenseModp {
+    /// The core's columns, by dense index.
+    columns: Vec<u32>,
+    /// The retired rows in pivot order: the row, its rhs, its pivot's dense index.
+    retired: Vec<(Vec<u64>, u64, usize)>,
+    /// The core rows (by global index) and multipliers summing to `0 ≡ r ≠ 0`, when the core is inconsistent and
+    /// one was asked for.
+    contradiction: Option<Vec<(usize, u64)>>,
+}
+
+impl DenseModp {
+    fn eliminate(core: &[usize], rows: &[Vec<(u32, u64)>], rhs: &[u64], num_vars: usize, p: u64, want_refutation: bool) -> DenseModp {
+        let mut index = vec![u32::MAX; num_vars];
+        let mut columns: Vec<u32> = Vec::new();
+        for &r in core {
+            for &(c, _) in &rows[r] {
+                if index[c as usize] == u32::MAX {
+                    index[c as usize] = columns.len() as u32;
+                    columns.push(c);
+                }
+            }
+        }
+        let mut dense: Vec<(Vec<u64>, u64, Vec<u64>)> = core
+            .iter()
+            .enumerate()
+            .map(|(k, &r)| {
+                let mut lhs = vec![0u64; columns.len()];
+                for &(c, a) in &rows[r] {
+                    lhs[index[c as usize] as usize] = a;
+                }
+                let mut proof = vec![0u64; if want_refutation { core.len() } else { 0 }];
+                if want_refutation {
+                    proof[k] = 1;
+                }
+                (lhs, rhs[r], proof)
+            })
+            .collect();
+        let mut live: Vec<usize> = (0..dense.len()).collect();
+        let mut retired = Vec::new();
+        for col in 0..columns.len() {
+            let Some(at) = live.iter().position(|&k| dense[k].0[col] != 0) else { continue };
+            let pivot = live.swap_remove(at);
+            let (lhs, value, proof) = std::mem::take(&mut dense[pivot]);
+            let lead_inverse = inv(lhs[col], p);
+            for &k in &live {
+                if dense[k].0[col] != 0 {
+                    let f = mul(dense[k].0[col], lead_inverse, p);
+                    for (x, &y) in dense[k].0.iter_mut().zip(&lhs) {
+                        *x = sub(*x, mul(f, y, p), p);
+                    }
+                    dense[k].1 = sub(dense[k].1, mul(f, value, p), p);
+                    for (x, &y) in dense[k].2.iter_mut().zip(&proof) {
+                        *x = sub(*x, mul(f, y, p), p);
+                    }
+                }
+            }
+            retired.push((lhs, value, col));
+        }
+        let contradiction = live
+            .iter()
+            .find(|&&k| dense[k].1 != 0 && dense[k].0.iter().all(|&x| x == 0))
+            .filter(|_| want_refutation)
+            .map(|&k| dense[k].2.iter().enumerate().filter(|&(_, &x)| x != 0).map(|(j, &x)| (core[j], x)).collect());
+        DenseModp { columns, retired, contradiction }
     }
 
-    // An all-zero row with a nonzero rhs is `0 ≡ nonzero` — a refutation; its provenance is the combo.
-    for r in 0..coeff.len() {
-        if coeff[r].iter().all(|&x| x == 0) && rhs[r] != 0 {
-            let combo: Vec<(usize, u64)> = prov[r]
+    fn back_substitute(&self, value: &mut [u64], p: u64) {
+        for (lhs, rhs, pivot) in self.retired.iter().rev() {
+            let rest = lhs
                 .iter()
                 .enumerate()
-                .filter(|&(_, &m)| m != 0)
-                .map(|(i, &m)| (i, m))
-                .collect();
-            return ModpOutcome::Unsat(combo);
+                .filter(|&(k, &a)| k != *pivot && a != 0)
+                .fold(0, |acc, (k, &a)| add(acc, mul(a, value[self.columns[k] as usize], p), p));
+            value[self.columns[*pivot] as usize] = mul(sub(*rhs, rest, p), inv(lhs[*pivot], p), p);
         }
     }
-
-    // Consistent: free variables take 0, each pivot variable takes its (reduced) rhs.
-    let mut assignment = vec![0u64; num_vars];
-    for (r, &col) in pivot_col_of_row.iter().enumerate() {
-        assignment[col] = rhs[r];
-    }
-    ModpOutcome::Sat(assignment)
 }
 
 /// The **complete solution space** of a `GF(p)` linear system `A x = b`, in symmetry-broken form: one

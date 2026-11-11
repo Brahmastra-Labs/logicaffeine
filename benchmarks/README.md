@@ -166,7 +166,8 @@ benchmarks/
 │   ├── main_word64.lg    # Integer benchmarks: the Word64 variant, locked byte-identical to main.lg
 │   ├── sizes.txt         # The sizes run.sh sweeps (space-separated)
 │   └── expected_<n>.txt  # Reference output per size
-├── arena/                # SAT competition arena: instance fetch/generation and proof generation
+├── arena/                # SAT competition arena: instance fetch/generation and proof generation, the crypto arena
+├── eda/                  # The EDA arenas (run-eda.sh): model checking, BMC, rewriting, counting → results/eda/*.json
 ├── sat/                  # Pinned external solver builds and the SAT benchmark driver
 ├── parity/               # The stdlib parity ledger and its benchmarks (PARITY_LEDGER.md)
 ├── profile/              # Profiles of the interpreter tiers (folded stacks, flamegraphs)
@@ -176,6 +177,8 @@ benchmarks/
 └── results/
     ├── latest.json       # The published run's data, embedded by the web frontend
     ├── latest-interp.json, latest-codec.json, solvers.json   # The interpreter, codec and solver runs
+    ├── arena/            # The SAT arenas (sat.json, scale.json) and the crypto arena (crypto.json)
+    ├── eda/              # mc.json, rewrite.json, count.json: the EDA section of the benchmarks page
     ├── charts/           # The README charts + headlines.json (readme_benchmark_numbers_lock)
     ├── history/v*.json   # One snapshot per release
     └── local.json        # run-quick.sh output (never clobbers latest.json)

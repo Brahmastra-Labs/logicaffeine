@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **The benchmarks page's SAT Solver tab has an EDA section.** Model checking on HWMCC'24 against ABC's pdr, ABC given
+  each design as AIGER 1.9 describes it, with the competition's own solvers counted within the same limit from its
+  results table, in real seconds and in CPU seconds over all their threads; bounded model checking on the designs of the
+  track the competition did not find safe against ABC's bmc3; logic rewriting on the EPFL suite against ABC's rewrite
+  and resyn2; exact model counting on the 2024 model counting competition's first track; and the cryptanalysis arena
+  against Kissat, CaDiCaL and CryptoMiniSat. It reads `benchmarks/results/eda/*.json` and `results/arena/crypto.json`,
+  staged into `/data` for the browser, and `eda_data_guard` holds every summary it shows to the rows it comes from, the
+  read each arena records of ABC to one that frees every latch free to start anywhere before it folds, and the page to
+  both clocks' counts.
+
 ### Changed
 - The web bundle builds for size (`[profile.wasm-release]` opt-level `s`): at opt-level 3 the main wasm was 27.4 MiB, over Cloudflare Pages' 25 MiB per-file limit, and the deploy failed at the upload; at `s` it is 20.8 MiB, inside the `[web]` budget. The in-browser interpreter is built for size with it.
 

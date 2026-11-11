@@ -15,6 +15,8 @@
 //! not claim to have built an ∞-groupoid — only the 1-truncation that the present theory occupies,
 //! and the precise statement of what climbing would mean.
 
+use std::collections::HashMap;
+
 use crate::cdcl::Lit;
 use crate::proof::Perm;
 
@@ -133,6 +135,111 @@ impl ActionGroupoid {
     pub fn orbit_size(&self, a: u32) -> usize {
         let reps = self.orbits();
         reps.iter().filter(|&&r| r == reps[a as usize]).count()
+    }
+}
+
+/// `τ ∘ σ` on an assignment held as a bitmask: variable `v` takes the value `τ` gives the literal `σ(+v)`. This is the
+/// model a substitution-redundant clause leaves in place of a model `τ` it removes.
+pub fn pull_back(nv: usize, sigma: &Perm, tau: u32) -> u32 {
+    let mut out = 0u32;
+    for v in 0..nv {
+        let img = sigma.apply(Lit::pos(v as u32));
+        let val = (tau >> img.var()) & 1 == 1;
+        if val == img.is_positive() {
+            out |= 1 << v;
+        }
+    }
+    out
+}
+
+fn satisfies(clauses: &[Vec<Lit>], a: u32) -> bool {
+    clauses
+        .iter()
+        .all(|c| c.iter().any(|l| ((a >> l.var()) & 1 == 1) == l.is_positive()))
+}
+
+/// The **model groupoid** of a formula under literal mappings that need not be symmetries of it. Its objects are the
+/// formula's models; a mapping `σ` relates a model `τ` to the model `τ ∘ σ` ([`pull_back`]) whenever that is a model
+/// too. A mapping that is an automorphism relates every model to one (the action groupoid's orbits, restricted to the
+/// models); a *partial* symmetry relates only the models where it happens to carry a model to a model, which is what a
+/// conditional symmetry is. `π₀` is the set of connected components.
+///
+/// Substitution-redundant breaking with partial symmetries (a [`crate::proof::Witness::PartialSymmetry`] step)
+/// removes a model `τ` only with `τ ∘ σ` surviving in its place, in the same component; by induction over the steps,
+/// every component that held a model still holds one. [`ModelGroupoid::kept_in_every_component`] checks exactly that,
+/// by enumeration, so the claim is testable rather than argued. Small `nv` only: it enumerates `2^nv` assignments.
+pub struct ModelGroupoid {
+    models: Vec<u32>,
+    component: Vec<usize>,
+    count: usize,
+}
+
+impl ModelGroupoid {
+    /// The groupoid of the models of `clauses` over `nv ≤ 24` variables under `maps`.
+    pub fn new(nv: usize, clauses: &[Vec<Lit>], maps: &[Perm]) -> ModelGroupoid {
+        assert!(nv <= 24, "the model groupoid enumerates 2^nv assignments");
+        let models: Vec<u32> = (0..1u32 << nv).filter(|&a| satisfies(clauses, a)).collect();
+        let index: HashMap<u32, usize> = models.iter().enumerate().map(|(i, &m)| (m, i)).collect();
+        let mut parent: Vec<usize> = (0..models.len()).collect();
+        fn find(parent: &mut [usize], x: usize) -> usize {
+            let mut r = x;
+            while parent[r] != r {
+                r = parent[r];
+            }
+            let mut c = x;
+            while parent[c] != r {
+                let next = parent[c];
+                parent[c] = r;
+                c = next;
+            }
+            r
+        }
+        for (i, &m) in models.iter().enumerate() {
+            for sigma in maps {
+                if let Some(&j) = index.get(&pull_back(nv, sigma, m)) {
+                    let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+                    if ri != rj {
+                        parent[ri.max(rj)] = ri.min(rj);
+                    }
+                }
+            }
+        }
+        let roots: Vec<usize> = (0..models.len()).map(|i| find(&mut parent, i)).collect();
+        let mut id_of: HashMap<usize, usize> = HashMap::new();
+        let component: Vec<usize> = roots
+            .iter()
+            .map(|&r| {
+                let next = id_of.len();
+                *id_of.entry(r).or_insert(next)
+            })
+            .collect();
+        ModelGroupoid { models, count: id_of.len(), component }
+    }
+
+    /// The models, increasing as bitmasks.
+    pub fn models(&self) -> &[u32] {
+        &self.models
+    }
+
+    /// `|π₀|`: the number of components.
+    pub fn num_components(&self) -> usize {
+        self.count
+    }
+
+    /// The component a model lies in; `None` for an assignment that is not a model.
+    pub fn component_of(&self, model: u32) -> Option<usize> {
+        self.models.binary_search(&model).ok().map(|i| self.component[i])
+    }
+
+    /// Whether every component keeps a model that also satisfies `extra`, the clauses symmetry breaking added.
+    pub fn kept_in_every_component(&self, extra: &[Vec<Lit>]) -> bool {
+        let mut kept = vec![false; self.count];
+        for (i, &m) in self.models.iter().enumerate() {
+            if satisfies(extra, m) {
+                kept[self.component[i]] = true;
+            }
+        }
+        kept.into_iter().all(|k| k)
     }
 }
 

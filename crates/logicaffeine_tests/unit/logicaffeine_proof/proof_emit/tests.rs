@@ -389,3 +389,130 @@ fn try_assignment_witness_is_sound_on_php_substitutions() {
     );
     eprintln!("PHP(4): {reduced} steps reduced to PR, {sr_only} remained irreducibly SR");
 }
+
+/// A refutation carrying partial-symmetry steps, emitted as `.sr`, expanded by `sr2drat` and verified by `drat-trim`
+/// against the original formula. Gated on `$SR2DRAT` and `$DRAT_TRIM`.
+#[test]
+fn external_sr2drat_drat_trim_certifies_partial_symmetry_steps() {
+    let (Ok(sr2drat), Ok(drat_trim)) = (std::env::var("SR2DRAT"), std::env::var("DRAT_TRIM")) else {
+        eprintln!("SR2DRAT/DRAT_TRIM unset — skipping external partial-symmetry cross-check");
+        return;
+    };
+    let mut verified = 0;
+    for seed in 0..400u64 {
+        let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        let nv = 5usize;
+        let clauses: Vec<Vec<Lit>> = (0..16)
+            .map(|_| {
+                let mut c: Vec<Lit> = Vec::new();
+                while c.len() < 2 {
+                    let l = Lit::new((next() % nv as u64) as u32, next() & 1 == 0);
+                    if !c.iter().any(|m| m.var() == l.var()) {
+                        c.push(l);
+                    }
+                }
+                c
+            })
+            .collect();
+        let r = crate::sym_certify::certified_unsat_conditional(nv, &clauses, 2);
+        let carries_partial = r.steps.iter().any(|s| {
+            matches!(s, ProofStep::Pr { witness: Witness::PartialSymmetry(_), .. })
+        });
+        if !r.refuted || !carries_partial {
+            continue;
+        }
+        let cnf = crate::dimacs::DimacsCnf { num_vars: nv, clauses: clauses.clone() };
+        let sr = emit_sr(nv, &clauses, &r.steps).expect("emits .sr");
+        let cnf_path = temp_write(&format!("logos_partial_sr_{seed}.cnf"), &crate::dimacs::print(&cnf));
+        let sr_path = temp_write(&format!("logos_partial_sr_{seed}.sr"), &sr);
+        let drat_path = cnf_path.with_extension("drat");
+        let drat = std::process::Command::new(&sr2drat).arg(&cnf_path).arg(&sr_path).output().expect("run sr2drat");
+        std::fs::write(&drat_path, &drat.stdout).expect("write expanded DRAT");
+        let out = std::process::Command::new(&drat_trim).arg(&cnf_path).arg(&drat_path).output().expect("run drat-trim");
+        let s = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        assert!(
+            s.contains("VERIFIED") && !s.contains("NOT VERIFIED"),
+            "seed {seed}: sr2drat→drat-trim must VERIFY the partial-symmetry proof; got:\n{s}"
+        );
+        verified += 1;
+        if verified == 5 {
+            break;
+        }
+    }
+    assert!(verified >= 1, "no refutation in the sweep carried a partial-symmetry step");
+}
+
+/// A refutation whose preprocessing introduced variables is emitted as DPR over them: each PR line leads its clause
+/// and its witness with the same pivot, the introduced variable.
+#[test]
+fn a_dpr_proof_naming_introduced_variables_is_emitted_pivot_first() {
+    use crate::cdcl::{SolveResult, Solver};
+    let mut formula: Vec<Vec<Lit>> = Vec::new();
+    for a in 0..8u32 {
+        for b in a + 1..8 {
+            formula.push(vec![Lit::neg(a), Lit::neg(b)]);
+        }
+    }
+    formula.push(vec![Lit::pos(0), Lit::pos(1), Lit::pos(2)]);
+    formula.push(vec![Lit::pos(3), Lit::pos(4), Lit::pos(5)]);
+    let options = crate::preprocess::Options { factor: true, eliminate: false, ..Default::default() };
+    let pre = crate::preprocess::preprocess(8, &formula, &options);
+    let mut proof = pre.steps.clone();
+    if !pre.unsat {
+        let mut s = Solver::new(pre.num_vars);
+        for c in &pre.clauses {
+            s.add_clause(c.clone());
+        }
+        assert_eq!(s.solve(), SolveResult::Unsat);
+        proof.extend(s.learned().iter().map(|lc| ProofStep::Rup(lc.lits.clone())));
+    }
+    let text = emit_dpr(8, &formula, &proof).expect("a factoring refutation emits as DPR");
+    let mut pr_lines = 0;
+    for line in text.lines().filter(|l| !l.starts_with('d')) {
+        let fields: Vec<i64> = line.split_whitespace().map(|t| t.parse().unwrap()).collect();
+        let zeros: Vec<usize> = fields.iter().enumerate().filter(|(_, &x)| x == 0).map(|(i, _)| i).collect();
+        if zeros.len() == 2 {
+            pr_lines += 1;
+            assert_eq!(fields[0], fields[zeros[0] + 1], "the pivot leads both the clause and the witness: {line}");
+            assert!(fields[0].unsigned_abs() > 8, "the pivot is an introduced variable: {line}");
+        }
+    }
+    assert!(pr_lines >= 2, "{pr_lines} PR lines");
+}
+
+/// Emitting a long refutation costs its propagations: the DPR text of a factored at-most-one's refutation over 250
+/// variables comes within a minute unoptimized on a loaded box.
+#[test]
+fn emitting_a_long_refutation_costs_its_propagations() {
+    use crate::cdcl::{SolveResult, Solver};
+    let mut formula: Vec<Vec<Lit>> = Vec::new();
+    for a in 0..250u32 {
+        for b in a + 1..250 {
+            formula.push(vec![Lit::neg(a), Lit::neg(b)]);
+        }
+    }
+    formula.push((0..125).map(Lit::pos).collect());
+    formula.push((125..250).map(Lit::pos).collect());
+    let options = crate::preprocess::Options { factor: true, ..Default::default() };
+    let pre = crate::preprocess::preprocess(250, &formula, &options);
+    let mut proof = pre.steps.clone();
+    if !pre.unsat {
+        let mut s = Solver::new(pre.num_vars);
+        for c in &pre.clauses {
+            s.add_clause(c.clone());
+        }
+        assert_eq!(s.solve(), SolveResult::Unsat);
+        proof.extend(s.learned().iter().map(|lc| ProofStep::Rup(lc.lits.clone())));
+    }
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(emit_dpr(250, &formula, &proof).is_ok());
+    });
+    assert!(rx.recv_timeout(std::time::Duration::from_secs(60)).expect("emission costs its propagations"));
+}

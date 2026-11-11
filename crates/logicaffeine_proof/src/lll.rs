@@ -28,32 +28,18 @@ pub struct LllSatCert {
 /// share at least one variable with it. Clauses over disjoint variable sets are independent events and do
 /// not count toward the degree.
 pub fn lll_dependency_degree(clauses: &[Vec<Lit>]) -> usize {
-    use std::collections::{HashMap, HashSet};
-    let mut occ: HashMap<u32, Vec<usize>> = HashMap::new();
-    for (i, c) in clauses.iter().enumerate() {
-        for l in c {
-            occ.entry(l.var()).or_default().push(i);
-        }
-    }
-    let mut max_d = 0;
-    for (i, c) in clauses.iter().enumerate() {
-        let mut neigh: HashSet<usize> = HashSet::new();
-        for l in c {
-            for &j in &occ[&l.var()] {
-                if j != i {
-                    neigh.insert(j);
-                }
-            }
-        }
-        max_d = max_d.max(neigh.len());
-    }
-    max_d
+    max_degree_within(clauses, usize::MAX).unwrap_or(0)
 }
 
 /// Certify satisfiability from sparsity via the symmetric LLL. Returns the witnessing degrees when
 /// `e · 2^{−w_min} · (d+1) ≤ 1`; otherwise `None` (the condition is *sufficient, not necessary* — `None`
 /// means "this certificate does not apply", never "UNSAT"). An empty clause set is vacuously SAT; a set
 /// containing an empty clause can never be certified (it is UNSAT).
+///
+/// The condition is monotone in `d`, so it fixes the largest degree it admits, and the degree is counted only up to
+/// that bound: a variable in more clauses than the bound allows declines the formula from its occurrence count, and a
+/// clause's neighbour count stops at the bound. The work is the literals times the bound (`⌊2^{w_min}/e⌋`, at most the
+/// clause count) — one pass on the formulas with a short clause, which is nearly every formula.
 pub fn lll_certifies_sat(clauses: &[Vec<Lit>]) -> Option<LllSatCert> {
     if clauses.is_empty() {
         return Some(LllSatCert {
@@ -65,22 +51,113 @@ pub fn lll_certifies_sat(clauses: &[Vec<Lit>]) -> Option<LllSatCert> {
     if min_width == 0 {
         return None; // an empty clause is unsatisfiable
     }
-    let d = lll_dependency_degree(clauses);
-    let p = 2f64.powi(-(min_width as i32));
-    if std::f64::consts::E * p * (d as f64 + 1.0) <= 1.0 {
-        Some(LllSatCert {
-            min_width,
-            max_degree: d,
-        })
-    } else {
-        None
+    let p = 2f64.powi(-(min_width.min(i32::MAX as usize) as i32));
+    let holds = |d: usize| std::f64::consts::E * p * (d as f64 + 1.0) <= 1.0;
+    if !holds(0) {
+        return None;
     }
+    let most = clauses.len() - 1;
+    let bound = if holds(most) {
+        most
+    } else {
+        let (mut admitted, mut refused) = (0usize, most);
+        while refused - admitted > 1 {
+            let mid = admitted + (refused - admitted) / 2;
+            if holds(mid) {
+                admitted = mid;
+            } else {
+                refused = mid;
+            }
+        }
+        admitted
+    };
+    let max_degree = max_degree_within(clauses, bound)?;
+    Some(LllSatCert { min_width, max_degree })
+}
+
+/// The clauses each variable occurs in, each clause once per variable however often the variable repeats in it, in
+/// one flat array: `clauses[start[v]..start[v + 1]]` are variable `v`'s.
+struct Occurrences {
+    start: Vec<usize>,
+    clauses: Vec<u32>,
+}
+
+impl Occurrences {
+    /// The occurrences of `formula`'s variables, or `None` as soon as counting finds a variable in more than `limit`
+    /// clauses — before any list is laid out.
+    fn within(formula: &[Vec<Lit>], limit: usize) -> Option<Occurrences> {
+        let vars = formula.iter().flatten().map(|l| l.var() as usize + 1).max().unwrap_or(0);
+        let mut last = vec![u32::MAX; vars];
+        let mut start = vec![0usize; vars + 1];
+        for (i, c) in formula.iter().enumerate() {
+            for l in c {
+                let v = l.var() as usize;
+                if last[v] != i as u32 {
+                    last[v] = i as u32;
+                    start[v + 1] += 1;
+                    if start[v + 1] > limit {
+                        return None;
+                    }
+                }
+            }
+        }
+        for v in 0..vars {
+            start[v + 1] += start[v];
+        }
+        let mut fill = start.clone();
+        let mut clauses = vec![0u32; start[vars]];
+        last.fill(u32::MAX);
+        for (i, c) in formula.iter().enumerate() {
+            for l in c {
+                let v = l.var() as usize;
+                if last[v] != i as u32 {
+                    last[v] = i as u32;
+                    clauses[fill[v]] = i as u32;
+                    fill[v] += 1;
+                }
+            }
+        }
+        Some(Occurrences { start, clauses })
+    }
+
+    fn of_var(&self, v: usize) -> &[u32] {
+        &self.clauses[self.start[v]..self.start[v + 1]]
+    }
+}
+
+/// The largest dependency degree of `formula` when no clause has more than `bound` neighbours, `None` as soon as one
+/// does. A variable in more than `bound + 1` clauses gives each of them that many neighbours, so it declines while the
+/// occurrences are counted; each clause's neighbours are counted once by a stamp, up to `bound + 1`.
+fn max_degree_within(formula: &[Vec<Lit>], bound: usize) -> Option<usize> {
+    let occurrences = Occurrences::within(formula, bound.saturating_add(1))?;
+    let mut stamp = vec![u32::MAX; formula.len()];
+    let mut most = 0usize;
+    for (i, c) in formula.iter().enumerate() {
+        stamp[i] = i as u32;
+        let mut degree = 0usize;
+        for l in c {
+            for &j in occurrences.of_var(l.var() as usize) {
+                if stamp[j as usize] != i as u32 {
+                    stamp[j as usize] = i as u32;
+                    degree += 1;
+                    if degree > bound {
+                        return None;
+                    }
+                }
+            }
+        }
+        most = most.max(degree);
+    }
+    Some(most)
 }
 
 /// Constructively find a satisfying assignment by **Moser–Tardos resampling**: start from a random
 /// assignment and, while some clause is violated, resample the variables of one violated clause. Under
 /// the LLL condition this terminates in expected `O(m)` resamples; the `max_resamples` cap is a safety
 /// net (only reachable when the condition does not hold). Returns a model, or `None` if the cap is hit.
+///
+/// The clause resampled is always the first violated one. The violated clauses are kept in order and a resample
+/// re-examines only the clauses sharing one of its variables, so a step costs that neighbourhood, not a scan.
 pub fn moser_tardos_witness(
     num_vars: usize,
     clauses: &[Vec<Lit>],
@@ -97,20 +174,28 @@ pub fn moser_tardos_witness(
     };
     let mut assign: Vec<bool> = (0..num_vars).map(|_| next() & 1 == 0).collect();
     let violated = |a: &[bool], c: &[Lit]| c.iter().all(|l| a[l.var() as usize] != l.is_positive());
+    let occurrences = Occurrences::within(clauses, usize::MAX).expect("no occurrence count exceeds usize::MAX");
+    let mut open: std::collections::BTreeSet<usize> =
+        (0..clauses.len()).filter(|&i| violated(&assign, &clauses[i])).collect();
     for _ in 0..max_resamples {
-        match clauses.iter().find(|c| violated(&assign, c)) {
-            None => return Some(assign),
-            Some(c) => {
-                for l in c {
-                    assign[l.var() as usize] = next() & 1 == 0;
+        let Some(&i) = open.first() else {
+            return Some(assign);
+        };
+        for l in &clauses[i] {
+            assign[l.var() as usize] = next() & 1 == 0;
+        }
+        for l in &clauses[i] {
+            for &j in occurrences.of_var(l.var() as usize) {
+                let j = j as usize;
+                if violated(&assign, &clauses[j]) {
+                    open.insert(j);
+                } else {
+                    open.remove(&j);
                 }
             }
         }
     }
-    clauses
-        .iter()
-        .all(|c| !violated(&assign, c))
-        .then_some(assign)
+    open.is_empty().then_some(assign)
 }
 
 #[cfg(test)]

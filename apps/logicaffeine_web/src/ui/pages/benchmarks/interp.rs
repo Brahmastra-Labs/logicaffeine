@@ -183,12 +183,20 @@ pub(super) async fn load_bench_bundle() -> Result<(), String> {
     let solver: SolverData = fetch_static_json("/data/solvers.json").await?;
     let codec: CodecData = fetch_static_json("/data/latest-codec.json").await?;
     let interp: InterpData = fetch_static_json("/data/latest-interp.json").await?;
+    let eda = EdaData {
+        mc: fetch_static_json("/data/eda-mc.json").await?,
+        bmc: fetch_static_json("/data/eda-bmc.json").await?,
+        rewrite: fetch_static_json("/data/eda-rewrite.json").await?,
+        count: fetch_static_json("/data/eda-count.json").await?,
+        crypto: fetch_static_json("/data/eda-crypto.json").await?,
+    };
     let sources: HashMap<String, BenchSourcesOwned> =
         fetch_static_json("/data/bench-sources.json").await?;
     let _ = BENCH_DATA.set(bench);
     let _ = SOLVER_DATA.set(solver);
     let _ = CODEC_DATA.set(codec);
     let _ = INTERP_DATA.set(interp);
+    let _ = EDA_DATA.set(eda);
     let _ = SOURCES.set(sources.into_iter().map(|(id, s)| (id, s.pin())).collect());
     Ok(())
 }

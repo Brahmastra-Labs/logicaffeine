@@ -59,6 +59,7 @@ enum ShippedStep {
 enum ShippedWitness {
     Assignment(Vec<i64>),
     Substitution(Vec<i64>),
+    PartialSymmetry(Vec<i64>),
 }
 
 fn dimacs(l: Lit) -> i64 {
@@ -100,6 +101,7 @@ fn step_out(s: &ProofStep) -> ShippedStep {
             witness: match witness {
                 Witness::Assignment(ls) => ShippedWitness::Assignment(clause_out(ls)),
                 Witness::Substitution(p) => ShippedWitness::Substitution(images(p)),
+                Witness::PartialSymmetry(p) => ShippedWitness::PartialSymmetry(images(p)),
             },
         },
     }
@@ -114,6 +116,7 @@ fn step_in(step: &ShippedStep) -> ProofStep {
             witness: match witness {
                 ShippedWitness::Assignment(ls) => Witness::Assignment(clause_in(ls)),
                 ShippedWitness::Substitution(im) => Witness::Substitution(Perm::from_images(clause_in(im))),
+                ShippedWitness::PartialSymmetry(im) => Witness::PartialSymmetry(Perm::from_images(clause_in(im))),
             },
         },
     }
@@ -314,6 +317,13 @@ impl PlacementCertificate {
                         }
                         Witness::Substitution(perm) => {
                             mix(&mut h, 4);
+                            mix(&mut h, perm.num_vars() as u64);
+                            for v in 0..perm.num_vars() {
+                                mix(&mut h, code(perm.apply(Lit::pos(v as u32))));
+                            }
+                        }
+                        Witness::PartialSymmetry(perm) => {
+                            mix(&mut h, 6);
                             mix(&mut h, perm.num_vars() as u64);
                             for v in 0..perm.num_vars() {
                                 mix(&mut h, code(perm.apply(Lit::pos(v as u32))));

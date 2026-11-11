@@ -316,7 +316,7 @@ pub fn prove_unsat(e: &ProofExpr) -> UnsatOutcome {
     }
     let num_vars = cnf.num_vars();
     // Move the atom table out alongside the solver (the RUP checker reads the original clauses
-    // back from the solver via `original_clauses()`, so no clone of the CNF is needed).
+    // back from the solver via `original_clauses()`).
     let (mut solver, atom_of) = cnf.into_solver_with_atoms();
     // The complete search runs FIRST, conflict-budgeted: an easy instance — the overwhelming
     // majority of equivalence/BMC obligations — gets its verdict in microseconds and never pays
@@ -375,7 +375,7 @@ pub fn prove_unsat(e: &ProofExpr) -> UnsatOutcome {
             // solver is not re-enterable (inprocessing assumes a virgin DB), and rebuilding keeps
             // the refutation certificate self-contained — the RUP checker replays only clauses
             // this solve derived, against only the formula's own clauses.
-            let originals: Vec<Vec<Lit>> = solver.original_clauses().to_vec();
+            let originals: Vec<Vec<Lit>> = solver.original_clauses();
             solver = Solver::new(num_vars);
             for c in originals {
                 solver.add_clause(c);
@@ -387,7 +387,7 @@ pub fn prove_unsat(e: &ProofExpr) -> UnsatOutcome {
         SolveResult::Sat(model) => UnsatOutcome::Sat(decode_model_from(&atom_of, &model, &[e])),
         SolveResult::Unsat => {
             let learned: Vec<Vec<Lit>> = solver.learned().iter().map(|c| c.lits.clone()).collect();
-            if rup::check_refutation(num_vars, solver.original_clauses(), &learned) {
+            if rup::check_refutation(num_vars, &solver.original_clauses(), &learned) {
                 UnsatOutcome::Refuted
             } else {
                 UnsatOutcome::Unsupported

@@ -16,10 +16,11 @@
 //!
 //! This module is the correctness-validated core (an exhaustive brute-force oracle checks that the
 //! derived forced-literals/conflicts are precisely the GF(2) consequences, and that every emitted
-//! clause is implied and correctly unit/falsified). The incremental watched-matrix that makes it
-//! cheap per call is layered on top of this oracle.
+//! clause is implied and correctly unit/falsified). The engines the search runs with — [`IncXor`],
+//! and [`WatchedXor`], whose work per assignment is the rows the assignment can affect — are held
+//! to the same consequences under solver-shaped trails.
 
-use crate::cdcl::Lit;
+use crate::cdcl::{Lit, Var};
 use crate::xorsat::XorEquation;
 
 /// One parity constraint over a variable set, carrying the provenance (which original equations it
@@ -63,6 +64,10 @@ fn words_for(n: usize) -> usize {
 #[inline]
 fn bit_set(bits: &mut [u64], i: usize) {
     bits[i / 64] |= 1u64 << (i % 64);
+}
+#[inline]
+fn bit_flip(bits: &mut [u64], i: usize) {
+    bits[i / 64] ^= 1u64 << (i % 64);
 }
 #[inline]
 fn bit_get(bits: &[u64], i: usize) -> bool {
@@ -117,7 +122,8 @@ fn set_bits(bits: &[u64]) -> Vec<usize> {
 
 impl XorEngine {
     /// Build the engine from recovered XOR equations over `num_vars` variables. Equations with a
-    /// variable out of range are dropped (defensive; callers pass in-range systems).
+    /// variable out of range are dropped (defensive; callers pass in-range systems). A variable named
+    /// twice in an equation cancels, as over GF(2).
     pub fn new(num_vars: usize, eqs: &[XorEquation]) -> Self {
         let var_words = words_for(num_vars);
         let eq_words = words_for(eqs.len());
@@ -131,7 +137,7 @@ impl XorEngine {
                     ok = false;
                     break;
                 }
-                bit_set(&mut vars, v);
+                bit_flip(&mut vars, v);
             }
             if !ok {
                 continue;
@@ -304,7 +310,6 @@ pub struct IncXor {
     num_vars: usize,
     var_words: usize,
     orig_vars: Vec<Vec<u64>>,
-    orig_rhs: Vec<bool>,
     rows: Vec<IncRow>,
     /// `pivot_row[v] = Some(r)` ⇔ free variable `v` is the pivot of row `r`.
     pivot_row: Vec<Option<usize>>,
@@ -344,12 +349,12 @@ struct Frame {
 }
 
 impl IncXor {
-    /// Build from recovered equations, reducing the matrix to RREF once.
+    /// Build from recovered equations, reducing the matrix to RREF once. A variable named twice in an
+    /// equation cancels, as over GF(2).
     pub fn new(num_vars: usize, eqs: &[XorEquation]) -> Self {
         let var_words = words_for(num_vars);
         let eq_words = words_for(eqs.len());
         let mut orig_vars = Vec::new();
-        let mut orig_rhs = Vec::new();
         let mut staged: Vec<IncRow> = Vec::new();
         for e in eqs {
             let mut bits = vec![0u64; var_words];
@@ -359,7 +364,7 @@ impl IncXor {
                     ok = false;
                     break;
                 }
-                bit_set(&mut bits, v);
+                bit_flip(&mut bits, v);
             }
             if !ok {
                 continue;
@@ -368,7 +373,6 @@ impl IncXor {
             let mut prov = vec![0u64; eq_words];
             bit_set(&mut prov, idx);
             orig_vars.push(bits.clone());
-            orig_rhs.push(e.rhs);
             staged.push(IncRow {
                 bits,
                 rhs: e.rhs,
@@ -432,7 +436,6 @@ impl IncXor {
             num_vars,
             var_words,
             orig_vars,
-            orig_rhs,
             rows,
             pivot_row,
             occ,
@@ -805,19 +808,29 @@ impl crate::cdcl::Theory for XorEngine {
 /// XOR-forced unit clause or a conflict. O(work-per-assignment), not O(system-per-fixpoint).
 impl crate::cdcl::Theory for IncXor {
     fn propagate(&mut self, trail: &[Lit]) -> Vec<Vec<Lit>> {
-        // longest common prefix of what we've applied and the current trail.
-        let mut cp = 0;
-        while cp < self.applied.len()
-            && cp < trail.len()
-            && self.applied[cp] == trail[cp].var() as usize
-        {
-            cp += 1;
-        }
-        while self.applied.len() > cp {
+        // The longest prefix of the trail applied as it stands: each variable, with its value.
+        let keep = self
+            .applied
+            .iter()
+            .zip(trail)
+            .take_while(|&(&v, l)| v == l.var() as usize && self.value[v] == Some(l.is_positive()))
+            .count();
+        self.sync(trail, keep)
+    }
+
+    fn propagate_kept(&mut self, trail: &[Lit], kept: usize) -> Vec<Vec<Lit>> {
+        self.sync(trail, kept.min(self.applied.len()))
+    }
+}
+
+impl IncXor {
+    /// Bring the matrix to `trail`, the first `keep` literals of which are the ones applied, and return what it forces
+    /// or refutes.
+    fn sync(&mut self, trail: &[Lit], keep: usize) -> Vec<Vec<Lit>> {
+        while self.applied.len() > keep {
             self.unassign();
         }
-        let start = self.applied.len();
-        for &l in &trail[start..] {
+        for &l in &trail[keep..] {
             let v = l.var() as usize;
             if self.value[v].is_none() {
                 self.assign(v, l.is_positive());
@@ -828,6 +841,552 @@ impl crate::cdcl::Theory for IncXor {
             Err(conflict) => vec![conflict],
             Ok(forced) => forced.into_iter().map(|(_, reason)| reason).collect(),
         }
+    }
+}
+
+/// The most cells (rows × columns) one component's matrix may hold; a larger component is left out, to its clauses.
+const WATCHED_CELLS: usize = 1 << 26;
+
+/// No row, column or watch.
+const NONE: u32 = u32::MAX;
+
+/// **Watched Gauss–Jordan elimination**: the XOR equations as a CDCL theory whose work per assignment is the rows the
+/// assignment can affect (Han & Jiang, *When Boolean Satisfiability Meets Gaussian Elimination in a Simplex Way*, CAV
+/// 2012; Soos, Gocht & Meel, *Tinted, Detached, and Lazy CNF-XOR Solving and Its Applications to Counting and
+/// Sampling*, CAV 2020).
+///
+/// Each connected component of the equations is a bit matrix in reduced row echelon form: every row has a basic column
+/// no other row holds, and watches one more column that is neither basic nor assigned. While a row watches such a
+/// column it can neither propagate nor conflict, so an assignment visits only the rows watching its column and the one
+/// row it is basic in:
+///
+/// - a watched column assigned: the row moves its watch to another unassigned non-basic column, or, finding none, has
+///   only its basic column unassigned and propagates it;
+/// - a basic column assigned: the row trades it for an unassigned non-basic column, which becomes basic once the row is
+///   added into every other row holding it; with none to trade, the row is assigned throughout and is checked.
+///
+/// So a row holding an unassigned column has its basic column unassigned, and the matrix restricted to the unassigned
+/// columns stays in echelon form: an assignment the equations force, or one they refute, is a single row's, and the
+/// propagation is complete. Row operations are equivalences, so backtracking undoes no elimination: it unassigns, and a
+/// row left without a watch watches again once the assignment that emptied it is undone. A row is a sum of the
+/// equations, so each clause returned, a propagated basic variable with the current values of its row's other columns
+/// or a refuted row's current values negated, is a clause of an implied equation's gadget: a consequence of the
+/// formula the equations were read from. Every component within [`WATCHED_CELLS`] is held, a single equation too, so
+/// over those equations the propagation is complete whether the formula keeps their clauses or not. A literal a row
+/// forces can go to the search as the row's token, explained when asked: a row with no free column is never added
+/// into nor pivots, so its clause stays the same while that literal is assigned.
+pub struct WatchedXor {
+    matrices: Vec<Matrix>,
+    /// Per variable, its matrix and column, `(NONE, NONE)` when no matrix holds it.
+    place: Vec<(u32, u32)>,
+    /// Per variable, `1` true, `-1` false, `0` unassigned, as the trail last given has it.
+    value: Vec<i8>,
+    /// The trail last given.
+    synced: Vec<Lit>,
+    /// The rows left without a watch, in the order they lost it, each with the trail length at that point.
+    unwatched: Vec<(usize, u32, u32)>,
+    /// The rows holding their basic column alone: unit equations, reported by every call that leaves them unassigned.
+    units: Vec<(u32, u32)>,
+    /// Whether the equations sum to `0 = 1`: every call then returns the empty clause.
+    inconsistent: bool,
+    /// Per matrix, the token of its first row: a row's token is its matrix's base plus its index.
+    row_base: Vec<u32>,
+    /// Whether the call in progress hands forced literals out with tokens, and the ones it has.
+    lazy: bool,
+    forced: Vec<(Lit, u32)>,
+    /// The calls so far, and those that ended in a refutation.
+    calls: u64,
+    refutations: u64,
+}
+
+/// What a row says under the current values.
+enum Says {
+    Nothing,
+    /// Its one unassigned column, its basic one, is forced: the literal.
+    Forces(Lit),
+    /// It is assigned throughout and violated.
+    Refutes,
+}
+
+/// One component's equations as a bit matrix.
+struct Matrix {
+    /// Column to variable.
+    vars: Vec<Var>,
+    words: usize,
+    /// The rows, `words` words each.
+    bits: Vec<u64>,
+    rhs: Vec<bool>,
+    /// Row to its basic column.
+    basic: Vec<u32>,
+    /// Column to the row it is basic in, or `NONE`.
+    row_of: Vec<u32>,
+    /// Row to its watched column, or `NONE`.
+    watch: Vec<u32>,
+    /// Column to the rows watching it.
+    watchers: Vec<Vec<u32>>,
+    /// Row to its place among its watched column's watchers.
+    slot: Vec<u32>,
+    /// The assigned columns, and those assigned true.
+    assigned: Vec<u64>,
+    ones: Vec<u64>,
+    /// The basic columns.
+    basic_mask: Vec<u64>,
+}
+
+impl Matrix {
+    fn row(&self, r: usize) -> &[u64] {
+        &self.bits[r * self.words..(r + 1) * self.words]
+    }
+
+    fn holds(&self, r: usize, c: u32) -> bool {
+        bit_get(self.row(r), c as usize)
+    }
+
+    /// A column of row `r` neither basic nor assigned, other than `except`, looked for from the word holding `from`
+    /// round to the one before it: a watch moving on finds its next column where it left off.
+    fn free_column(&self, r: usize, from: u32, except: u32) -> Option<u32> {
+        let row = self.row(r);
+        let first = if from == NONE { 0 } else { from as usize / 64 };
+        for w in (first..self.words).chain(0..first) {
+            let mut free = row[w] & !self.assigned[w] & !self.basic_mask[w];
+            while free != 0 {
+                let c = (w * 64) as u32 + free.trailing_zeros();
+                if c != except {
+                    return Some(c);
+                }
+                free &= free - 1;
+            }
+        }
+        None
+    }
+
+    /// Add row `from` into row `into`.
+    fn add_row(&mut self, from: usize, into: usize) {
+        let (a, b) = (from * self.words, into * self.words);
+        for w in 0..self.words {
+            self.bits[b + w] ^= self.bits[a + w];
+        }
+        self.rhs[into] ^= self.rhs[from];
+    }
+
+    fn watch_column(&mut self, r: usize, c: u32) {
+        self.watch[r] = c;
+        self.slot[r] = self.watchers[c as usize].len() as u32;
+        self.watchers[c as usize].push(r as u32);
+    }
+
+    fn unwatch(&mut self, r: usize) {
+        let list = &mut self.watchers[self.watch[r] as usize];
+        let at = self.slot[r] as usize;
+        list.swap_remove(at);
+        if let Some(&moved) = list.get(at) {
+            self.slot[moved as usize] = at as u32;
+        }
+        self.watch[r] = NONE;
+    }
+}
+
+impl WatchedXor {
+    /// The theory of `equations` over `num_vars` variables, each connected component reduced once. An equation
+    /// naming a variable past `num_vars` is left out, and so is a component past [`WATCHED_CELLS`].
+    pub fn new(num_vars: usize, equations: &[XorEquation]) -> WatchedXor {
+        let mut inconsistent = false;
+        let mut equations_kept: Vec<(Vec<u32>, bool)> = Vec::new();
+        for equation in equations {
+            if equation.vars.iter().any(|&v| v >= num_vars) {
+                continue;
+            }
+            let mut sorted: Vec<u32> = equation.vars.iter().map(|&v| v as u32).collect();
+            sorted.sort_unstable();
+            let mut vars: Vec<u32> = Vec::with_capacity(sorted.len());
+            for v in sorted {
+                if vars.last() == Some(&v) {
+                    vars.pop();
+                } else {
+                    vars.push(v);
+                }
+            }
+            if vars.is_empty() {
+                inconsistent |= equation.rhs;
+            } else {
+                equations_kept.push((vars, equation.rhs));
+            }
+        }
+        let mut parent: Vec<u32> = (0..num_vars as u32).collect();
+        fn root(parent: &mut [u32], mut x: u32) -> u32 {
+            while parent[x as usize] != x {
+                parent[x as usize] = parent[parent[x as usize] as usize];
+                x = parent[x as usize];
+            }
+            x
+        }
+        for (vars, _) in &equations_kept {
+            for pair in vars.windows(2) {
+                let (a, b) = (root(&mut parent, pair[0]), root(&mut parent, pair[1]));
+                if a != b {
+                    parent[a as usize] = b;
+                }
+            }
+        }
+        let mut components: std::collections::BTreeMap<u32, Vec<usize>> = std::collections::BTreeMap::new();
+        for (i, (vars, _)) in equations_kept.iter().enumerate() {
+            components.entry(root(&mut parent, vars[0])).or_default().push(i);
+        }
+        let mut place = vec![(NONE, NONE); num_vars];
+        let mut matrices: Vec<Matrix> = Vec::new();
+        for members in components.values() {
+            let mut vars: Vec<u32> = members.iter().flat_map(|&i| equations_kept[i].0.iter().copied()).collect();
+            vars.sort_unstable();
+            vars.dedup();
+            if vars.len() * members.len() > WATCHED_CELLS {
+                continue;
+            }
+            let words = words_for(vars.len());
+            let mut bits = vec![0u64; members.len() * words];
+            let mut rhs = Vec::with_capacity(members.len());
+            for (r, &i) in members.iter().enumerate() {
+                for v in &equations_kept[i].0 {
+                    let c = vars.binary_search(v).expect("a component's variable is one of its columns");
+                    bit_set(&mut bits[r * words..(r + 1) * words], c);
+                }
+                rhs.push(equations_kept[i].1);
+            }
+            let mut matrix = Matrix {
+                vars,
+                words,
+                bits,
+                rhs,
+                basic: Vec::new(),
+                row_of: Vec::new(),
+                watch: Vec::new(),
+                watchers: Vec::new(),
+                slot: Vec::new(),
+                assigned: vec![0; words],
+                ones: vec![0; words],
+                basic_mask: vec![0; words],
+            };
+            let (rows, columns) = (members.len(), matrix.vars.len());
+            matrix.row_of = vec![NONE; columns];
+            for c in 0..columns {
+                let rank = matrix.basic.len();
+                let Some(p) = (rank..rows).find(|&r| bit_get(matrix.row(r), c)) else { continue };
+                if p != rank {
+                    for w in 0..words {
+                        matrix.bits.swap(p * words + w, rank * words + w);
+                    }
+                    matrix.rhs.swap(p, rank);
+                }
+                for r in 0..rows {
+                    if r != rank && bit_get(matrix.row(r), c) {
+                        matrix.add_row(rank, r);
+                    }
+                }
+                matrix.basic.push(c as u32);
+                matrix.row_of[c] = rank as u32;
+                bit_set(&mut matrix.basic_mask, c);
+            }
+            let rank = matrix.basic.len();
+            // The rows past the rank are empty: `0 = 1` among them refutes the equations, `0 = 0` says nothing.
+            inconsistent |= matrix.rhs[rank..].iter().any(|&b| b);
+            if rank == 0 {
+                continue;
+            }
+            matrix.bits.truncate(rank * words);
+            matrix.rhs.truncate(rank);
+            matrix.watch = vec![NONE; rank];
+            matrix.slot = vec![0; rank];
+            matrix.watchers = vec![Vec::new(); columns];
+            for (c, &v) in matrix.vars.iter().enumerate() {
+                place[v as usize] = (matrices.len() as u32, c as u32);
+            }
+            matrices.push(matrix);
+        }
+        let mut row_base = Vec::with_capacity(matrices.len());
+        let mut rows = 0u32;
+        for matrix in &matrices {
+            row_base.push(rows);
+            rows += matrix.basic.len() as u32;
+        }
+        let mut units = Vec::new();
+        for (m, matrix) in matrices.iter_mut().enumerate() {
+            for r in 0..matrix.basic.len() {
+                match matrix.free_column(r, NONE, NONE) {
+                    Some(c) => matrix.watch_column(r, c),
+                    None => units.push((m as u32, r as u32)),
+                }
+            }
+        }
+        WatchedXor {
+            matrices,
+            place,
+            value: vec![0; num_vars],
+            synced: Vec::new(),
+            unwatched: Vec::new(),
+            units,
+            inconsistent,
+            row_base,
+            lazy: false,
+            forced: Vec::new(),
+            calls: 0,
+            refutations: 0,
+        }
+    }
+
+    /// The calls the theory has answered.
+    pub fn calls(&self) -> u64 {
+        self.calls
+    }
+
+    /// The calls that ended in a refutation: a row assigned throughout and violated, or the equations inconsistent.
+    pub fn refutations(&self) -> u64 {
+        self.refutations
+    }
+
+    /// Whether the theory holds a matrix, or knows the equations inconsistent.
+    pub fn is_active(&self) -> bool {
+        self.inconsistent || !self.matrices.is_empty()
+    }
+
+    /// The variables no matrix holds as a basic column, before any assignment: once they are all assigned, the
+    /// theory's propagation assigns the rest.
+    pub fn decision_vars(&self) -> Vec<usize> {
+        let mut basic = vec![false; self.place.len()];
+        for matrix in &self.matrices {
+            for &c in &matrix.basic {
+                basic[matrix.vars[c as usize] as usize] = true;
+            }
+        }
+        (0..self.place.len()).filter(|&v| !basic[v]).collect()
+    }
+
+    /// Bring the matrices to `trail`, the first `keep` literals of which are the ones last given, and return what
+    /// the assignments past them force or refute.
+    fn sync(&mut self, trail: &[Lit], keep: usize) -> Vec<Vec<Lit>> {
+        debug_assert!(self.synced[..keep] == trail[..keep], "the kept literals are the ones last given");
+        while self.synced.len() > keep {
+            let l = self.synced.pop().expect("a literal past the kept ones");
+            self.unassign(l);
+        }
+        while let Some(&(at, m, r)) = self.unwatched.last() {
+            if at <= keep {
+                break;
+            }
+            self.unwatched.pop();
+            let matrix = &mut self.matrices[m as usize];
+            let c = matrix
+                .free_column(r as usize, NONE, NONE)
+                .expect("undoing the assignment that emptied a row frees one of its columns");
+            matrix.watch_column(r as usize, c);
+        }
+        let mut out = Vec::new();
+        for &l in &trail[keep..] {
+            self.synced.push(l);
+            self.assign(l, &mut out);
+        }
+        for i in 0..self.units.len() {
+            let (m, r) = (self.units[i].0 as usize, self.units[i].1 as usize);
+            let matrix = &self.matrices[m];
+            if self.value[matrix.vars[matrix.basic[r] as usize] as usize] == 0 {
+                self.check(m, r, &mut out);
+            }
+        }
+        self.calls += 1;
+        if self.inconsistent {
+            self.refutations += 1;
+            self.forced.clear();
+            return vec![Vec::new()];
+        }
+        if out.iter().any(|clause| clause.iter().all(|&l| self.value[l.var() as usize] == if l.is_positive() { -1 } else { 1 })) {
+            self.refutations += 1;
+        }
+        out
+    }
+
+    /// Apply `l`, the last literal synced.
+    fn assign(&mut self, l: Lit, out: &mut Vec<Vec<Lit>>) {
+        let v = l.var() as usize;
+        self.value[v] = if l.is_positive() { 1 } else { -1 };
+        let (m, c) = self.place[v];
+        if m == NONE {
+            return;
+        }
+        let m = m as usize;
+        bit_set(&mut self.matrices[m].assigned, c as usize);
+        if l.is_positive() {
+            bit_set(&mut self.matrices[m].ones, c as usize);
+        }
+        let r = self.matrices[m].row_of[c as usize];
+        if r != NONE {
+            let r = r as usize;
+            // Trade for a free column other than the watch, so the row keeps it; else for the watch itself.
+            let watched = self.matrices[m].watch[r];
+            if watched == NONE {
+                self.check(m, r, out);
+            } else {
+                let w = self.matrices[m].free_column(r, watched, watched).unwrap_or(watched);
+                self.pivot(m, r, c, w, out);
+            }
+            return;
+        }
+        for r in std::mem::take(&mut self.matrices[m].watchers[c as usize]) {
+            let r = r as usize;
+            match self.matrices[m].free_column(r, c, NONE) {
+                Some(w) => self.matrices[m].watch_column(r, w),
+                None => {
+                    self.matrices[m].watch[r] = NONE;
+                    self.unwatched.push((self.synced.len(), m as u32, r as u32));
+                    self.check(m, r, out);
+                }
+            }
+        }
+    }
+
+    /// Make the free column `w` of row `r` its basic column in place of the assigned `c`: row `r` is added into every
+    /// other row holding `w`, and a row the addition took its watch from watches again or, with nothing left to
+    /// watch, propagates.
+    fn pivot(&mut self, m: usize, r: usize, c: u32, w: u32, out: &mut Vec<Vec<Lit>>) {
+        let at = self.synced.len();
+        for other in 0..self.matrices[m].basic.len() {
+            if other == r || !self.matrices[m].holds(other, w) {
+                continue;
+            }
+            self.matrices[m].add_row(r, other);
+            let watched = self.matrices[m].watch[other];
+            debug_assert!(watched != NONE, "a row holding a free column watches one");
+            if self.matrices[m].holds(other, watched) {
+                continue;
+            }
+            self.matrices[m].unwatch(other);
+            match self.matrices[m].free_column(other, watched, NONE) {
+                Some(x) => self.matrices[m].watch_column(other, x),
+                None => {
+                    self.unwatched.push((at, m as u32, other as u32));
+                    self.check(m, other, out);
+                }
+            }
+        }
+        let matrix = &mut self.matrices[m];
+        matrix.basic[r] = w;
+        matrix.row_of[c as usize] = NONE;
+        matrix.row_of[w as usize] = r as u32;
+        bit_clear(&mut matrix.basic_mask, c as usize);
+        bit_set(&mut matrix.basic_mask, w as usize);
+        if matrix.watch[r] == w {
+            matrix.unwatch(r);
+            match matrix.free_column(r, w, NONE) {
+                Some(x) => matrix.watch_column(r, x),
+                None => {
+                    self.unwatched.push((at, m as u32, r as u32));
+                    self.check(m, r, out);
+                }
+            }
+        }
+    }
+
+    fn unassign(&mut self, l: Lit) {
+        let v = l.var() as usize;
+        self.value[v] = 0;
+        let (m, c) = self.place[v];
+        if m != NONE {
+            bit_clear(&mut self.matrices[m as usize].assigned, c as usize);
+            bit_clear(&mut self.matrices[m as usize].ones, c as usize);
+        }
+    }
+
+    /// What row `r` of matrix `m` says: read word by word, its unassigned columns and the parity of its true ones.
+    fn says(&self, m: usize, r: usize) -> Says {
+        let matrix = &self.matrices[m];
+        let row = matrix.row(r);
+        let (mut open, mut free, mut odd) = (0u32, 0usize, false);
+        for w in 0..matrix.words {
+            let unassigned = row[w] & !matrix.assigned[w];
+            if unassigned != 0 {
+                open += unassigned.count_ones();
+                if open > 1 {
+                    return Says::Nothing;
+                }
+                free = w * 64 + unassigned.trailing_zeros() as usize;
+            }
+            odd ^= (row[w] & matrix.ones[w]).count_ones() % 2 == 1;
+        }
+        let parity = matrix.rhs[r] ^ odd;
+        match open {
+            1 => {
+                debug_assert_eq!(free as u32, matrix.basic[r], "a row forces its basic column");
+                Says::Forces(Lit::new(matrix.vars[free], parity))
+            }
+            _ if parity => Says::Refutes,
+            _ => Says::Nothing,
+        }
+    }
+
+    /// Report what row `r` of matrix `m` says: a forced literal by its token when the call is lazy, else by its
+    /// clause; a refutation by its clause.
+    fn check(&mut self, m: usize, r: usize, out: &mut Vec<Vec<Lit>>) {
+        match self.says(m, r) {
+            Says::Nothing => {}
+            Says::Forces(lit) if self.lazy => self.forced.push((lit, self.row_base[m] + r as u32)),
+            Says::Forces(_) | Says::Refutes => {
+                let mut clause = Vec::new();
+                self.explain_row(m, r, &mut clause);
+                out.push(clause);
+            }
+        }
+    }
+
+    /// Row `r`'s clause under the current values, onto `clause`: its basic column's literal as the other columns force
+    /// it, then the literals of the others, each false. For a refuted row every literal is false; for a row that
+    /// forced its basic column it is the forcing clause, unchanged while that literal stays assigned, since a row
+    /// with no free column is never added into nor pivots.
+    fn explain_row(&self, m: usize, r: usize, clause: &mut Vec<Lit>) {
+        let matrix = &self.matrices[m];
+        let b = matrix.basic[r] as usize;
+        let mut forced = matrix.rhs[r];
+        clause.push(Lit::pos(0));
+        let first = clause.len() - 1;
+        for (w, &word) in matrix.row(r).iter().enumerate() {
+            let mut bits = word;
+            while bits != 0 {
+                let c = w * 64 + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                if c == b {
+                    continue;
+                }
+                let v = matrix.vars[c];
+                let value = self.value[v as usize];
+                debug_assert!(value != 0, "a row explains itself only once its other columns are assigned");
+                forced ^= value > 0;
+                clause.push(Lit::new(v, value < 0));
+            }
+        }
+        clause[first] = Lit::new(matrix.vars[b], forced);
+    }
+}
+
+/// The watched matrix as a CDCL theory: each call syncs the matrices to the trail, undoing only past the literals kept
+/// since the last call, and returns every clause the new assignments make unit or false — or, called lazily, every
+/// literal they force by its row, explained when asked.
+impl crate::cdcl::Theory for WatchedXor {
+    fn propagate(&mut self, trail: &[Lit]) -> Vec<Vec<Lit>> {
+        let keep = self.synced.iter().zip(trail).take_while(|(a, b)| a == b).count();
+        self.sync(trail, keep)
+    }
+
+    fn propagate_kept(&mut self, trail: &[Lit], kept: usize) -> Vec<Vec<Lit>> {
+        self.sync(trail, kept.min(self.synced.len()))
+    }
+
+    fn propagate_lazily(&mut self, trail: &[Lit], kept: usize, forced: &mut Vec<(Lit, u32)>) -> Vec<Vec<Lit>> {
+        self.lazy = true;
+        let refuted = self.sync(trail, kept.min(self.synced.len()));
+        self.lazy = false;
+        forced.append(&mut self.forced);
+        refuted
+    }
+
+    fn explain(&mut self, token: u32, clause: &mut Vec<Lit>) {
+        let m = self.row_base.partition_point(|&base| base <= token) - 1;
+        self.explain_row(m, (token - self.row_base[m]) as usize, clause);
     }
 }
 

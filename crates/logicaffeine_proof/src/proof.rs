@@ -97,6 +97,12 @@ pub enum Witness {
     /// A literal permutation / automorphism. Against the clause `C` it certifies, it denotes
     /// the assignment `ω = { ¬σ(l) : l ∈ C }`.
     Substitution(Perm),
+    /// A literal mapping `σ` that need not preserve the database: a partial symmetry. It certifies `C` when it carries
+    /// every model of `F ∧ ¬C` to a model of `F ∧ C`, checked clause by clause: for every clause `D` of the database
+    /// and for `C` itself, `F ∧ ¬C ⊢₁ σ(D)` (substitution redundancy, Buss & Thapen, *DRAT and propagation redundancy
+    /// proofs without new variables*, 2019). A model `τ` of `F` the clause removes has the model `τ ∘ σ` of `F ∧ C`
+    /// in its place. An automorphism of the database is the special case [`Witness::Substitution`] checks faster.
+    PartialSymmetry(Perm),
 }
 
 /// One step of a refutation: add a clause with the justification a checker replays, or delete a

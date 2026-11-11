@@ -154,10 +154,15 @@ and vacuity to `prove_unsat`.
 - `unify`: Robinson unification with occurs check, capture-avoiding `beta_reduce`, Miller patterns.
 - `grounding`: expands bounded quantifiers over a finite domain.
 - `grid_solver`: the certified logic-grid solver (watched-literal unit propagation + DPLL).
-- `cdcl`: the CDCL(T) core: two watched literals, 1-UIP, VSIDS, Luby restarts, a `Theory` trait, and a
-  DRAT/LRAT log. Incremental: solves under assumptions within a conflict budget, variables and decision variables
-  added between solves, and LRAT hints recorded as each clause is learned (a level-0 fact named by its unit clause,
-  derived once), so a caller keeps one derivation across every solve.
+- `cdcl`: the CDCL(T) core: clauses in one flat arena under eight-byte watchers (a binary clause decided from its
+  watcher alone), 1-UIP with recursive minimization, VSIDS, adaptive Glucose/Luby restarts whose stable phases
+  follow target and best phases and rephase on a schedule that includes local-search walks, lucky phases tried
+  before search, a move-to-front decision queue, chronological backtracking and decisions by justification over a
+  circuit's gates (a query's search and model the part of the circuit its assumptions and side clauses need) as
+  options, learned-clause reduction by LBD halving or by Kissat's tiers, level-0 probing, subsumption and
+  vivification, a `Theory` trait, and a DRAT/LRAT log. Incremental: solves under assumptions within a conflict budget,
+  variables and decision variables added between solves, and LRAT hints recorded as each clause is learned (a level-0
+  fact named by its unit clause, derived once), so a caller keeps one derivation across every solve.
 - `cnf`: Tseitin clausification of a `ProofExpr`, plus a gate-level builder
   (`Cnf::{atom_lit, add_clause, encode_and, encode_or, encode_implies, encode_iff}`) for a producer holding a
   shared gate DAG; `sat::prove_unsat_certified_cnf` returns the same checked refutation steps
@@ -183,19 +188,37 @@ Beyond the core, the crate is a library of certified reasoners and proof systems
 - **SAT engines and interchange**: `dimacs` (DIMACS CNF I/O), `satcli` (the SAT command-line driver shared by
   the `logos-sat` binary and `largo sat`: competition output, certificate export, injected streams), `twosat`
   (2-SAT via implication-graph SCC), `hornsat` (Horn-SAT unit propagation), `sdcl` (Satisfaction-Driven
-  Clause Learning), `inprocess` (certified inprocessing simplifications), `discrimination` (the first-order
+  Clause Learning), `inprocess` (certified inprocessing simplifications), `preprocess` (formula preprocessing
+  before search: level-0 units, congruence closure over AND, XOR and if-then-else gates, equivalent-literal
+  substitution, subsumption and self-subsuming strengthening, bounded variable addition, bounded variable elimination
+  through AND and XOR gate definitions, every step RUP- or PR-logged and every removal on a model-reconstruction
+  stack), `walk` (ProbSAT local search, the walker the CDCL core rephases from), `portfolio` (configurations of
+  the CDCL core raced on threads in rounds of doubling budgets, the winner fixed by the formula and the configurations,
+  never by timing), `cube` (cube-and-conquer: a lookahead splits the formula into cubes, failed literals forced and
+  nodes refuted on the way, and incremental solvers on threads conquer them, the answer the lowest satisfiable cube's,
+  a refutation RUP throughout), `count` (exact model counting: DPLL with unit propagation, connected components, a
+  component cache and clause learning, branching along the tree decomposition a min-degree elimination of the primal
+  graph makes, after preprocessing that keeps the count, counts of any size), `discrimination` (the first-order
   discrimination-tree index under `simp`).
 - **Certified proof output**: `proof` (shared proof-step vocabulary), `proof_emit` (DRAT/LRAT/DPR trace
   emission, replayable by the SAT community's independent checkers), `lrat` (LRAT hint chains found by
   watched-literal propagation over a solver's learned clauses, trimmed backward to the clauses the refutation
   uses, or to any target clauses a log derives, and a structured checker that replays them), `proof_rewrite` (the
-  commutation of independent refutation steps, as proof-rewrite 2-cells), `pr` (propagation-redundancy checker),
-  `complexity` (a refutation that carries a checkable bound on its own size).
+  commutation of independent refutation steps, as proof-rewrite 2-cells), `pr` (propagation-redundancy checker,
+  with substitution redundancy both for automorphisms and for partial symmetries, Buss & Thapen's criterion),
+  `complexity` (a refutation that carries a checkable bound on its own size), `interpolate` (McMillan's Craig
+  interpolants read off an LRAT refutation of `A ∧ B`, as a structurally hashed and-inverter graph over the shared
+  variables, every chain replayed and a proof that does not refute refused), `kernel_refutation` (an LRAT refutation
+  checked by the kernel as a development: the formula's atoms and clauses declared as hypotheses, then one definition
+  per lemma that the kernel checks and the independent kernel re-checks, the last stating `False` — intuitionistic,
+  each lemma linear in its hints; from a fresh solve, or from a refutation in hand such as a route's
+  `solve::certified_proof`).
 - **Circuit equivalence**: `aig` (and-inverter graphs: structural hashing, the AIGER ASCII and binary formats,
   bit-parallel simulation), `sweep` (two circuits paired by port name and decided by SAT sweeping, every equality
   a lemma with an LRAT proof and every difference an input assignment that replays), `fraig` (the same decision on one
   incremental solver over the reduced graph: nodes merged by structure without a call, the rest by budgeted solves
-  under assumptions on the cones they ask about, every clause logged with its hints as it is made, and every
+  under assumptions on the cones they ask about, deciding by justification, a counterexample simulated one word of
+  each node and splitting only the classes it tells apart, every clause logged with its hints as it is made, and every
   equality carried by one LRAT derivation from the miter's formula), `units` (two circuits decided over units proven
   apart, each cut out as a function nothing is known of: in rounds, applications of one function whose operands are
   proven equal identified, on either side or across, a unit's latency matched, each side unrolled with its inputs
@@ -209,17 +232,59 @@ Beyond the core, the crate is a library of certified reasoners and proof systems
   each strongly connected component, the bound certified by its cycle and an integer potential no edge violates),
   `min_cost_flow` (the network simplex on a strongly feasible tree, every optimum certified by complementary
   slackness, every infeasibility by a cut, every unbounded problem by a negative cycle: the dual of a least-area
-  register cut at a target clock).
-- **Algebraic proof systems**: `gf2` (GL(n,2)), `xorsat` / `xor_engine` / `xor_drat` (GF(2) parity:
-  Gaussian XOR-SAT, DPLL(XOR), and the CNF→DRAT bridge), `modp` (GF(p) linear algebra), `modm` (ℤ/m by CRT),
-  `polycalc` (Polynomial Calculus / Nullstellensatz over GF(2)), `pseudo_boolean` (cutting planes), `affine` /
+  register cut at a target clock), `itp` (unbounded safety of an AIGER circuit by interpolation: a counterexample
+  that replays by simulation, or an inductive invariant whose three obligations are each established by a checked
+  LRAT proof over the logic it reads, the step asked of each conjunct of a large invariant in turn once the whole
+  outruns a conflict for every four conjuncts; bad-state properties, invariant constraints and free initial values
+  honoured; `itp::bmc` the shortest run to a bad state within a bound, by bounded model checking in one incremental
+  solver over the logic its questions read, each clock encoded by a cover with cuts of up to six leaves (a variable
+  per cut, constants folded, one variable for every instance of a function over the same variables);
+  `itp::bmc_windowed` a run within a bound asked a window of clocks a solve, and `itp::bmc_interleaved` the
+  two by turns;
+  `itp::check_induction` k-induction by two checked refutations over the clocks' backward cones), `pdr` (the
+  same decision by property-directed reachability on this crate's justifying CDCL solver, over the circuit's cone of
+  influence: frames of clauses over the latches, the step a cover of its cones by cuts of up to four leaves, each cut a
+  gate the solver justifies by a product of its value, each frame's solver holding the gates its queries read, cubes
+  blocked by relative induction and generalized by the solver's unsat cores and counterexamples to generalization,
+  predecessors lifted the same way with the constraints assumed and the inputs their models left open free, the bad
+  states asked for k-induction at each frame opened, the invariant, the induction and the run held to `itp`'s checks
+  on the whole circuit),
+  `localize` (the same decision on localization abstractions of a large circuit: the latches a tied bounded model
+  check's refutations rest on kept, the rest free inputs, PDR deciding the abstraction and each run of it the circuit
+  cannot take growing it, the invariant or induction held to `itp`'s checks on the whole circuit, a cone reduced
+  first by its signal correspondence under `Options::correspond`),
+  `scorr` (signal correspondence: the latches and the nodes no input reaches that equal one another or a constant
+  at every clock of every run, from random simulation refined until a base and a speculatively reduced step swept
+  by `fraig` find no difference, and the circuit reduced by them; an invariant of the reduced circuit and the
+  equalities together an invariant `itp::check_invariant` holds on the circuit itself),
+  `mc` (model checking by a deterministic race: PDR and bounded model checking on threads of their own, the first to
+  answer stopping the other, a safe circuit answered by PDR's invariant and an unsafe one by BMC's shortest run, so
+  the verdict and its certificate never depend on which finished first),
+  `atpg` (single stuck-at test
+  generation on a full-scan circuit: random patterns 64 to a word through event-driven fault simulation, then a miter
+  per fault left to the solver; every test simulated before it counts, every untestable fault an LRAT refutation of its
+  miter), `rewrite` (cut rewriting by exact synthesis, aware of the logic the graph holds: the graph edited in place,
+  every node's cuts of up to four leaves taken to their NPN classes, each class's least circuits, found by SAT ahead of
+  time for all 222 classes and shipped with the crate, weighed by the nodes a replacement frees less the gates it adds,
+  a gate the graph already holds free; the result proven equal to the input, port by port, by `fraig` before it is
+  returned).
+- **Algebraic proof systems**: `gf2` (GL(n,2)), `xorsat` / `xor_engine` / `xor_drat` (GF(2) parity: XOR gadgets
+  read off a CNF, sparse Markowitz elimination with certified refutations, DPLL(XOR) with watched Gauss–Jordan
+  elimination inside the search, and the CNF→DRAT bridge), `modp` (GF(p) linear algebra), `modm` (ℤ/m by CRT),
+  `polycalc` (Polynomial Calculus / Nullstellensatz over GF(2)), `polycalc_gfp` (Nullstellensatz over every prime
+  field and over GF(4), with signed clause indicators and dual-witness lower bounds), `polycalc_zm` (Nullstellensatz
+  over ℤ/m, composite moduli and prime powers), `orbit_stability` (symmetric Nullstellensatz questions decided at
+  every scale by one finite computation over orbit types), `res_width` (certified resolution-width lower bounds: the
+  width-`w` closure is the certificate, re-checked with zero trust), `pseudo_boolean` (cutting planes), `affine` /
   `affine_gfp` (the AGL(n,2) / AGL(n,p) affine symmetry a permutation break cannot see), `sos` (exact
   Sum-of-Squares / Positivstellensatz), `lll` (Lovász Local Lemma certificate), `macaulay` / `xl` (the
   Macaulay matrix and XL linearization that solve multivariate-quadratic systems over GF(2)/GF(2⁸), the
   algebraic cryptanalysis Ding formalized via the degree of regularity), `rainbow` (a Ding–Schmidt
   Oil-and-Vinegar signature reference, the multivariate scheme `xl` attacks).
 - **Symmetry**: `symmetry` / `symmetry_detect` (detection), `sym_break` (lex-leader breaking), `sym_certify`
-  (certified breaking), `sym_dynamic` (Symmetric Explanation Learning), `permgroup` (Schreier–Sims BSGS, the
+  (certified breaking, including conditional breaking: every transposition that breaks only a few clauses, guarded by
+  their images and certified as a partial symmetry against the breaks before it, so breaks compose),
+  `sym_dynamic` (Symmetric Explanation Learning), `permgroup` (Schreier–Sims BSGS, the
   non-abelian coset decision), `families` (parametric generators for symmetry-rich hard instances).
 - **Combinatorial reasoners**: `pigeonhole` / `matching` (bipartite-matching infeasibility), `cardinality`
   (cardinality constraints over boolean atoms), `counting_principle` (the modular counting principle
@@ -229,7 +294,8 @@ Beyond the core, the crate is a library of certified reasoners and proof systems
   `ordering` (a polynomial-time recognizer and certified refuter for the GT(n) no-maximum ordering principle,
   which the general cascade decides only by super-polynomial search), `lyapunov` (Lyapunov-measure synthesis).
 - **Homotopy of symmetry and concurrency**: `groupoid` (symmetry breaking as keeping one assignment per
-  orbit of the action groupoid), `coalgebra` (a certified refutation as a coalgebra, and a Lyapunov measure as a morphism to the
+  orbit of the action groupoid, and the model groupoid of partial symmetries, whose every component keeps a model
+  under substitution-redundant breaking), `coalgebra` (a certified refutation as a coalgebra, and a Lyapunov measure as a morphism to the
   countdown), `cubical` (cubical homology in any dimension over GF(2)), `kan_complex` (the nerve of a group,
   with the Kan condition checked in degrees 2 and 3), `two_group` / `two_type` / `eilenberg_maclane` / `postnikov`
   (crossed modules, `K(A, n)` spaces and the Postnikov `k`-invariant), `steenrod` (Steenrod squares on
@@ -258,7 +324,10 @@ Beyond the core, the crate is a library of certified reasoners and proof systems
   algorithm), `lattice` (exact LLL / Coppersmith over `Rational`), `fp2` (𝔽_{p²} arithmetic and the
   supersingular 2-isogeny graph), `hyperelliptic` (genus-2 Richelot (2,2)-isogeny, the Castryck–Decru
   mechanism), `cyclotomic` (the power-of-two Module-LWE ring `ℤ[X]/(Xⁿ+1)`). This is pure number theory over
-  `logicaffeine_base::numeric`, and the hardness lens `isogeny`, `ait` and `solve` build on.
+  `logicaffeine_base::numeric`, and the hardness lens `isogeny`, `ait` and `solve` build on. `cipher` puts
+  reduced-round ciphers before the SAT engines: a bit-level circuit builder that folds constants and shares gates,
+  SHA-1's compression cut to any number of steps and Trivium, each held to its published vectors, and planted
+  preimage and state-recovery instances whose models are checked by recomputing the cipher.
 
 ## Tactics and decision procedures
 
