@@ -575,9 +575,11 @@ largo prove --kernel Demo.andSwap.lg
 
 The SAT Competition interface as a largo verb: solves a DIMACS CNF with the certified engine,
 printing `s SATISFIABLE` with a `v` model or `s UNSATISFIABLE`, with competition exit codes
-(10 = SAT, 20 = UNSAT, 1 = error). `--proof <path>` exports the UNSAT certificate (DRAT; DPR/SR
-for the symmetry routes) for external checkers like drat-trim; `--stats` prints solver statistics
-to stderr.
+(10 = SAT, 20 = UNSAT, 1 = error). `--proof <path>` exports the UNSAT proof (DRAT; DPR/SR for the
+symmetry routes) for external checkers like drat-trim, written only once it checks against the
+formula alone. A verdict whose certificate has no clausal form (a Hall witness, a cutting-plane sum,
+an algebraic or collapse route) writes no file and says so on stderr. `--stats` prints solver
+statistics to stderr.
 
 ### `lean`
 

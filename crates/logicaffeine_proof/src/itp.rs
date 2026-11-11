@@ -364,8 +364,8 @@ pub fn bmc(aig: &Aig, clocks: usize) -> Option<Trace> {
 /// A run of at most `clocks` clocks from an initial state to a bad state, by bounded model checking that asks `window`
 /// clocks a query (Biere, Cimatti, Clarke & Zhu, TACAS 1999, the window rIC3's `bmc --step` asks): one solve asks
 /// whether a run is bad at any clock of the window, the constraints holding up to its bad clock, so a deep run is found
-/// without refuting each clock before it on its own. The run ends at the first clock the model is bad at, which need not
-/// be the shortest run; it is returned only once it [`replays`]; `None` when there is none that short.
+/// without refuting each clock before it on its own. The run ends at the first clock it is bad at, which need not make
+/// it the shortest run; it is returned only once it [`replays`]; `None` when there is none that short.
 pub fn bmc_windowed(aig: &Aig, clocks: usize, window: usize) -> Option<Trace> {
     let mut bmc = Bmc::new(aig);
     while bmc.clocks < clocks {
@@ -767,10 +767,12 @@ impl<'a> Bmc<'a> {
     }
 
     /// Ask the next `w` clocks in one query within `budget` conflicts (0: no limit): whether a run is bad at one of
-    /// them, the constraints holding at every clock up to that one. A model is the run to the first clock it is bad at,
-    /// accepted once it replays, which need not be the shortest run; a refutation moves past every clock asked, the
-    /// constraints of each asserted and its bad states refuted, so a run bad at a later clock is asked of the clocks
-    /// after them. A window left to the budget leaves every clock asked to be asked again. Untied unrollings only.
+    /// them, the constraints holding at every clock up to that one. A model is the run it describes to the first clock
+    /// the run is bad at ([`first_bad`]: a clock's bad signal over several bad states only implies their disjunction,
+    /// so the model may name a later clock), accepted once it replays, which need not be the shortest run; a refutation
+    /// moves past every clock asked, the constraints of each asserted and its bad states refuted, so a run bad at a
+    /// later clock is asked of the clocks after them. A window left to the budget leaves every clock asked to be asked
+    /// again. Untied unrollings only.
     pub(crate) fn window(&mut self, w: usize, budget: u64) -> Answer {
         debug_assert!(self.ties.is_empty(), "a window is asked of an untied unrolling");
         if self.ended {
@@ -840,7 +842,10 @@ impl<'a> Bmc<'a> {
                     }
                 });
                 let (t, _, _) = first.expect("a model of the window is bad at one of its clocks").0;
-                let trace = self.run(&model, *t);
+                let mut trace = self.run(&model, *t);
+                if let Some(first) = first_bad(self.aig, &trace) {
+                    trace.inputs.truncate(first + 1);
+                }
                 self.ended = true;
                 self.clocks = t + 1;
                 if replays(self.aig, &trace) {
@@ -1218,6 +1223,24 @@ pub fn replays(aig: &Aig, trace: &Trace) -> bool {
         state = latches.iter().map(|l| Aig::value(&values, l.next)).collect();
     }
     false
+}
+
+/// The first clock of `trace` at which a bad state holds, the constraints holding at it and at every clock before;
+/// `None` when there is none.
+fn first_bad(aig: &Aig, trace: &Trace) -> Option<usize> {
+    let bad = bad_lits(aig);
+    let mut state = trace.initial.clone();
+    for (t, inputs) in trace.inputs.iter().enumerate() {
+        let values = aig.eval(inputs, &state);
+        if !aig.constraints().iter().all(|c| Aig::value(&values, c.lit)) {
+            return None;
+        }
+        if bad.iter().any(|&b| Aig::value(&values, b)) {
+            return Some(t);
+        }
+        state = aig.latches().iter().map(|l| Aig::value(&values, l.next)).collect();
+    }
+    None
 }
 
 #[cfg(test)]

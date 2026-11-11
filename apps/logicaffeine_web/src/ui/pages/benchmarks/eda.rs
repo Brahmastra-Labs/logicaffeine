@@ -298,7 +298,7 @@ pub fn EdaSection() -> Element {
             div { class: "bench-solver-note",
                 "A run to a bad state, found by unrolling the circuit only as far as its bad states and constraints read it, each clock encoded by cuts of up to six leaves, and asked a clock at a time and, in a cone small enough, sixty-four clocks a query by turns, so a deep run needs no refutation of each clock before it; every run replays. {bmc_unsafe} of these designs the competition found unsafe, the rest it left open. ABC reads each design as for model checking ({bmc.abc_read})."
                 if !bmc.field.is_empty() {
-                    span { " The competition's own solvers, each by the runs it found within {bmc.run.timeout_s:.0} s of CPU time over all its threads: {bmc_field_cpu}; within {bmc.run.timeout_s:.0} s of real time: {bmc_field_real}." }
+                    span { " The competition's own solvers, each by the runs it found within {bmc.run.timeout_s:.0} s of CPU time over all its threads, the clock our engines run under: {bmc_field_cpu}; within {bmc.run.timeout_s:.0} s of real time: {bmc_field_real}." }
                 }
             }
 

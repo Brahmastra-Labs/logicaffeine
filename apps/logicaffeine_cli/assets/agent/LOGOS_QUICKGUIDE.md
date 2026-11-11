@@ -313,7 +313,8 @@ and every page is server-rendered first. The guides: [Frontend](docs/frontend.md
 ## 15. Tensors
 
 A tensor has a shape the parser knows; every tensor statement desugars to the loops every tier runs, and the
-accelerator backends recognize those loops, all but a soft cap's, which they refuse.
+accelerator backends recognize those loops: a backend with no kernel for one (the CUDA tiers for a soft cap or a
+residual's lanes) refuses it by name.
 
 | Construct | Form | Notes |
 |-----------|------|-------|
