@@ -4,7 +4,8 @@
 //! DeepSeek's multi-head latent attention caches one compressed row per position and attends over it with each head's
 //! query absorbed into the latent space. Written in the language it takes five general pieces:
 //!
-//!   • `the first K of every N of X` / `the last K of every N of X` — one part of every head;
+//!   • `the first K of every N of X` / `the last K of every N of X` / `the K after the first F of every N of X` — one
+//!     part of every head;
 //!   • `A joined with B` / `A joined with B across H heads` — rows, or every head's parts, side by side;
 //!   • `X matmul W across H heads` — each head's slice of `X` times its own block of `W`'s rows;
 //!   • an attention whose values are narrower than its keys (`V` of its own width per head);
@@ -85,6 +86,36 @@ fn a_head_slice_takes_one_part_of_every_head() {
     let last: Vec<f64> = (0..2).flat_map(|r| (0..3).map(move |h| q[r * 12 + h * 4 + 3])).collect();
     close(&shown(&program(&[("Q", 2, 12)], "Let P be the first 3 of every 4 of Q.\n", "P", 18)), &round9(&first), "the first 3 of every 4");
     close(&shown(&program(&[("Q", 2, 12)], "Let P be the last 1 of every 4 of Q.\n", "P", 6)), &round9(&last), "the last 1 of every 4");
+}
+
+#[test]
+fn a_part_after_the_first_f_of_every_head_is_the_middle_of_each() {
+    // Three heads of six a row: each head's two values after its first three, on every tier and lifted with its offset.
+    let q = &x("Q", 2 * 18);
+    let mid: Vec<f64> = (0..2).flat_map(|r| (0..3).flat_map(move |h| (0..2).map(move |i| q[r * 18 + h * 6 + 3 + i]))).collect();
+    let src = program(&[("Q", 2, 18)], "Let P be the 2 after the first 3 of every 6 of Q.\n", "P", 12);
+    close(&shown(&src), &round9(&mid), "the 2 after the first 3 of every 6");
+    assert_eq!(
+        shown(&program(&[("Q", 2, 18)], "Let P be the 2 after the first 4 of every 6 of Q.\n", "P", 12)),
+        shown(&program(&[("Q", 2, 18)], "Let P be the last 2 of every 6 of Q.\n", "P", 12)),
+        "the part that ends each head is its last part"
+    );
+    let want = vm_outcome(&src).output;
+    common::assert_c_output(&src, want.trim());
+    common::assert_exact_output(&src, want.trim());
+    let rp = recognize_stages(&src).expect("parses");
+    assert!(rp.unrecognized.is_empty(), "{:?}", rp.unrecognized);
+    let slice = rp.stages.into_iter().find_map(|s| if let TensorOpSpec::HeadSlice(s) = s.op { Some(s) } else { None }).expect("a slice");
+    assert_eq!((slice.every, slice.from, slice.width, slice.n), (6, 3, 2, 36));
+    for (body, why) in [
+        ("Let P be the 2 after the first 0 of every 6 of Q.", "the first 2 of every 6"),
+        ("Let P be the 3 after the first 4 of every 6 of Q.", "a part of 3 after the first 4 must fit in a group of 6"),
+        ("Let P be the 2 after the first 1 of every 4 of Q.", "its 18 columns are not whole groups of every 4"),
+    ] {
+        let src = format!("## Main\nLet Q be a 2 by 18 tensor of Real.\n{body}\nShow 1.\n");
+        let err = vm_outcome(&src).error.unwrap_or_else(|| panic!("`{body}` is refused"));
+        assert!(err.contains(why), "`{body}` is refused naming {why}: {err}");
+    }
 }
 
 #[test]

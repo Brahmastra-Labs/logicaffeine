@@ -239,6 +239,31 @@ fn the_vm_runs_split_deepseek2_to_the_references_tokens() {
     the_vm_generates_the_references_tokens(Tiny::DeepSeek2Split);
 }
 
+#[test]
+fn the_vm_runs_minicpm_to_the_references_tokens() {
+    the_vm_generates_the_references_tokens(Tiny::MiniCpm);
+}
+
+#[test]
+fn the_vm_runs_arcee_to_the_references_tokens() {
+    the_vm_generates_the_references_tokens(Tiny::Arcee);
+}
+
+#[test]
+fn the_vm_runs_granite_to_the_references_tokens() {
+    the_vm_generates_the_references_tokens(Tiny::Granite);
+}
+
+#[test]
+fn the_vm_runs_gemma2_to_the_references_tokens() {
+    the_vm_generates_the_references_tokens(Tiny::Gemma2);
+}
+
+#[test]
+fn the_vm_runs_olmo2_to_the_references_tokens() {
+    the_vm_generates_the_references_tokens(Tiny::Olmo2);
+}
+
 /// Every tiny architecture has its VM run above: a new one is added to both.
 #[test]
 fn every_tiny_architecture_has_a_vm_run() {

@@ -79,9 +79,10 @@ pub struct Scratch {
 /// The scratch launch `l` takes under `numerics`: the delta rule's unnormed outputs; an expert mixture's router logits,
 /// choices and weights, and over a block's rows its choices grouped by expert, each choice's gathered activation row,
 /// hidden row (gate and up rows apart on the tensor cores, the hidden row quantized alone when they are paired) and
-/// weighed result; a tensor-core projection's parts of the tiles its last wave cuts along `k`, and their counts; an `f32`
-/// GEMM's parts of the tiles it cuts along `k`; the arg-max's block maxima; a split attention's chunk partials (none in
-/// tiles); an attention in two words' keys and values in two words and their scales — and the arrival counts.
+/// weighed result; a tensor-core projection's parts of the tiles its last wave cuts along `k`, and their counts; an
+/// `f32` GEMM's parts of the tiles it cuts along `k`; a row normed by parts' sums of squares; the arg-max's block
+/// maxima; a split attention's chunk partials (none in tiles, but the f16 tensor cores' stream-K parts); an attention
+/// in two words' keys and values in two words and their scales — and the arrival counts.
 pub fn scratch(l: &Launch, numerics: Q8MatKind) -> Vec<Scratch> {
     let m = kernels::mode(numerics);
     let two = numerics == Q8MatKind::TwoPassInt8;
@@ -176,6 +177,13 @@ pub fn scratch(l: &Launch, numerics: Q8MatKind) -> Vec<Scratch> {
             let parts = (tiles - whole) * split;
             vec![t("tp", "float", parts * rows * kernels::GEMM_TILE_N * 4), counter("tc", (tiles - whole) * 4)]
         }
+        // A gated delta layer's inputs: its products' scratch, and each normed head's count of rows written.
+        Launch::Fold { .. } if l.gdn_inputs().is_some() => {
+            let Some((products, Launch::ConvParts { parts, block, .. }, _)) = l.gdn_inputs() else { unreachable!("a gated delta layer's inputs") };
+            let mut v = scratch(products, numerics);
+            v.push(counter("gc", parts.iter().filter(|c| c.l2).map(|c| c.chan / block).sum::<usize>().max(1) * 4));
+            v
+        }
         Launch::Fold { first, then } => {
             let mut v = scratch(first, numerics);
             v.extend(match (first.as_ref(), then.as_ref()) {
@@ -196,6 +204,8 @@ pub fn scratch(l: &Launch, numerics: Q8MatKind) -> Vec<Scratch> {
         }
         // A batch's gated pair on the tensor cores: its gate's and its up's sums, gated after.
         Launch::GemvGlu { n, m, .. } if l.batch_on_tensor_cores(numerics) => vec![t("mg", "float", m * n * 4), t("mu", "float", m * n * 4)],
+        // A row normed by parts: each row's parts' sums of squares, in the accumulator.
+        Launch::NormParts { parts, rows, .. } => vec![t("ss", acc_ty, rows * parts.len() * acc)],
         Launch::ArgMax { n, rows, .. } => {
             let blocks = kernels::argmax_blocks(*n);
             vec![t("av", "float", rows * blocks * 4), t("ai", "int", rows * blocks * 4), counter("ac", rows * 4)]
@@ -204,6 +214,17 @@ pub fn scratch(l: &Launch, numerics: Q8MatKind) -> Vec<Scratch> {
         Launch::Attention { heads, group, hd, vd, len, .. } if l.attends_in_two_words(numerics) => {
             let [k, v, sc] = kernels::attn_i8_scratch(*len, heads / group, *hd, *vd);
             vec![t("ak", "signed char", k), t("aw", "signed char", v), t("as", "float", sc)]
+        }
+        // On the f16 tensor cores under the stream-K schedule, with items to split: two partials a stream-K block, and
+        // each item's count of parts arrived.
+        Launch::Attention { heads, group, vd, rows, stream, .. } if *stream > 0 && l.attends_on_tensor_cores(numerics) => {
+            let items = kernels::attn_mma_items(*rows, *heads, kernels::attn_tile_heads(*group));
+            let (ndp, grid) = kernels::attn_mma_schedule(items, *stream);
+            if grid > ndp {
+                vec![t("ap", "float", 2 * stream * kernels::attn_mma_part_floats(*vd) * 4), counter("ac", items * 4)]
+            } else {
+                Vec::new()
+            }
         }
         // Every head of the group in one block: each chunk's maximum, sum and weighed values, for the fold.
         Launch::Attention { heads, vd, rows, shared: Some(splits), .. } if *splits > 1 => vec![t("ap", "float", rows * heads * splits * (vd + 2) * 4)],
@@ -287,11 +308,12 @@ impl Written {
 }
 
 /// Place the arrays of `s` that live within its step: a computed tensor's that is not one of the step's inputs or
-/// outputs, all of it written before any launch reads it — whole, or part by part over every unit (`join_in_place`) —
-/// so nothing the step reads of it was left by another array, or by an earlier step. Each lives from its first touch to
-/// its last, through any view of it. The largest first, each at the lowest aligned offset clear of every array placed
-/// live beside it.
-pub fn place(s: &Schedule) -> Arena {
+/// outputs — or a state the step holds alone (`own`: no other form carries it, so its zeros are only a first step's) —
+/// all of it written before any launch reads it — whole, or part by part over every unit (`join_in_place`) — so nothing
+/// the step reads of it was left by another array, or by an earlier step. Each lives from its first touch to its last,
+/// through any view of it. The largest first, each at the lowest aligned offset clear of every array placed live beside
+/// it.
+pub fn place(s: &Schedule, own: &dyn Fn(&str) -> bool) -> Arena {
     let two = s.numerics == Q8MatKind::TwoPassInt8;
     let io = s.io.names();
     // A touch through a view is a touch of the tensor it views — of its quantized form too, when the view starts on a
@@ -347,7 +369,7 @@ pub fn place(s: &Schedule) -> Arena {
         .filter_map(|((name, touch), (first, last, _))| {
             let b = s.buffers.get(&name)?;
             let allocated = if touch == Touch::Plain { b.plain } else { b.quantized };
-            (b.fill == Fill::Computed && allocated && !io.contains(&name.as_str()))
+            ((b.fill == Fill::Computed || (b.fill == Fill::Zero && own(&name))) && allocated && !io.contains(&name.as_str()))
                 .then(|| (array_bytes(b.len, touch, two), first, last, Item::Array(name, touch)))
         })
         .collect();

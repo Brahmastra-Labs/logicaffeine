@@ -35,11 +35,11 @@ impl Shim for SpatialShim<'_> {
             QkNormRopeKvAppend | RopeKvAppend | RopeQkOneLaunch | QkNormRopeGateSplit | QkvHeadEpilogue | HorizontalNormRopeInsert => Decompose,
             CrossLayerLaunch | Mla | MlaPrologue | AttnOutputQuant | AttnOutputGate | RowWriteQuant | MlaUnabsorbInFold | GluActMul | GluActMulQuant => Decompose,
             ElementwiseRegions => Native,
-            GemvGateUpGlu | ElementwiseChains | ReluSqr | MaskedExpertActivation | GemmBias | GemmScale => Decompose,
+            GemvGateUpGlu | ElementwiseChains | ReluSqr | MaskedExpertActivation | GemmBias | GemmScale | CapArgmax => Decompose,
             MergedQkv | MergedGateUp | AffineInputFold | RouterSharedGateMerge | MoeTokenSort | MoeGatherInOperand => Decompose,
             MoeDeferredFinalize | SharedExpertFusion | GdnInputEpilogue | GdnDecodeWhole | GdnPostConvPrep | ConvBiasSilu => Decompose,
-            ConvParts | GdnGateProjections | GdnGating | FusedSampling | LastLayerRows | AllreduceNorm => Decompose,
-            ConvSiluL2norm | GdnOutputQuant | GemvQuant | ElementwiseQuant => Decompose,
+            ConvParts | GdnGateProjections | GdnGating | FusedSampling | LastLayerRows | AllreduceNorm | AllreduceSumsqNorm => Decompose,
+            ConvSiluL2norm | GdnOutputQuant | GemvQuant | ElementwiseQuant | DeltaQkNorm => Decompose,
             StridedRead | RowWrite | JoinInPlace | StridedValues => Refuse("a section reads and writes each tensor through its own access map"),
             Softcap => Native,
             AttentionVariantsInline => Refuse("the attention sections attend a prefix of the cache, with no window or sink"),
@@ -48,7 +48,7 @@ impl Shim for SpatialShim<'_> {
             GroupedTopk => Refuse("the expert sections route by one top-k over every expert"),
             Sampling => Refuse("a spatial step picks its token by arg-max"),
             KvCacheQuant | HadamardRotation | CompensatedResidual => Refuse("a spatial chip holds its values in the precision the target's datapath reads"),
-            HostResidentKv | MoeDirectPairs => Refuse("a spatial program places every tensor on the chip's own memory"),
+            HostResidentKv | HostWeightStreaming | HostLayersOnCpu | MoeDirectPairs => Refuse("a spatial program places every tensor on the chip's own memory"),
             CudaGraphs => Refuse("a spatial program is placed and scheduled whole, never captured as launches"),
         }
     }
@@ -87,6 +87,6 @@ impl Shim for SpatialShim<'_> {
         // A joined section keeps a folded intermediate in its registers where the program apart packs it and reads it
         // back: an exact program's joins are exact, an approximate one's within the tolerance its rewrites are held to.
         let fused = Bound { of_block: 0.0, of_value: crate::spatial::equiv::APPROX_REL_TOL, floor: crate::spatial::equiv::APPROX_REL_TOL };
-        Some(Contract { point, activations: None, cache: keep, state: keep, attention: None, fused, accumulator_bits: self.target.matmul_acc_int_bits() })
+        Some(Contract { point, activations: None, sixteen: None, cache: keep, state: keep, attention: None, fused, accumulator_bits: self.target.matmul_acc_int_bits() })
     }
 }

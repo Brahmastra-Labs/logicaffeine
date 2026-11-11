@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **`the K after the first F of every N of X`.** A head slice of the `K` elements `F` past the start of every group of
+  `N`, beside `the first K` and `the last K`: a chip's heads of a row of every chip's (`tensor_latent_attention_lock`).
+  An `F` below 1, or a part past its group, is refused by name.
+- **An attention's masks.** After `with sinks S`: `with linear biases M` (ALiBi, `M` a slope a query head, each score
+  less `M[h]·|n − j|`); `with a bidirectional prefix of P` on a causal block (prefix-LM: a row at `n` attends `max(n, P)`
+  positions); `with rows starting at R` (`R` each row's first attended position, an Int row; packed sequences). Slopes
+  or starts of another shape, and a prefix on a single query, are refused by name; at run time a prefix past the keys
+  its block writes and a row start outside `1..=n` are refused with one message (`tensor_attention_masks_lock`).
+
 ### Fixed
 
 - `parser::lgx_lower`: a `Click` on the page's own element lowers as the host's `click` element command alone; the

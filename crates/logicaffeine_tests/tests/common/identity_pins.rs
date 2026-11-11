@@ -119,15 +119,61 @@ pub fn read_pins(family: &str) -> Pins {
         .collect()
 }
 
-/// Hold `family`'s pins, as `generate` computes them, to its fixture — or record it, generated twice and alike.
+/// How a run records a family: every pin, or only the pins its fixture does not hold whose key begins with one of
+/// `prefixes` (every unpinned key where none is named).
+enum Record {
+    Whole,
+    New(Vec<String>),
+}
+
+/// `LOGOS_UPDATE_FIXTURES=1` records every pin; `new` adds the pins the fixture does not hold, `new:<prefix>,<prefix>`
+/// only those whose key begins with a prefix named.
+fn record() -> Option<Record> {
+    match std::env::var("LOGOS_UPDATE_FIXTURES").ok()?.as_str() {
+        "1" => Some(Record::Whole),
+        "new" => Some(Record::New(Vec::new())),
+        m => m.strip_prefix("new:").map(|p| Record::New(p.split(',').map(str::to_string).collect())),
+    }
+}
+
+/// The fixture of `family` with the pins of `generated` it does not hold whose key begins with one of `prefixes` (any,
+/// where none is named) added, every pin it holds kept at its value: its header, a line naming what was added and on
+/// which tree, then every pin.
+fn added(family: &str, generated: &Pins, prefixes: &[String]) -> String {
+    let path = fixture(family);
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e} — a family is first recorded whole", path.display()));
+    let mut pins = read_pins(family);
+    let new: Vec<&String> = generated
+        .keys()
+        .filter(|k| !pins.contains_key(*k) && (prefixes.is_empty() || prefixes.iter().any(|p| k.starts_with(p.as_str()))))
+        .collect();
+    let of = if prefixes.is_empty() { String::new() } else { format!(" (the keys beginning {})", prefixes.join(", ")) };
+    let mut s: String = text.lines().filter(|l| l.starts_with('#')).map(|l| format!("{l}\n")).collect();
+    s.push_str(&format!("# {} pins added{of} on {}, every pin above kept at its value.\n", new.len(), tree_state()));
+    for k in new {
+        pins.insert(k.clone(), generated[k].clone());
+    }
+    for (k, v) in &pins {
+        s.push_str(&format!("{k} {v}\n"));
+    }
+    s
+}
+
+/// Hold `family`'s pins, as `generate` computes them, to its fixture — or record it, generated twice and alike
+/// ([`record`]): every pin, or only new artifacts, each pinned one kept at its pinned digest (new artifacts beside moved
+/// ones that await their own approval).
 pub fn hold(family: &str, generate: impl Fn(&str) -> Pins) {
-    if std::env::var("LOGOS_UPDATE_FIXTURES").is_ok_and(|v| v == "1") {
+    if let Some(mode) = record() {
         let (first, second) = (generate("a"), generate("b"));
         let differ: Vec<&String> = first.keys().filter(|k| first.get(*k) != second.get(*k)).collect();
         assert!(differ.is_empty(), "{family}: generated twice, these artifacts differ, so they cannot be pinned: {differ:?}");
         assert_eq!(first.len(), second.len(), "{family}: generated twice, the keys differ");
+        let text = match mode {
+            Record::Whole => render(family, &first),
+            Record::New(prefixes) => added(family, &first, &prefixes),
+        };
         std::fs::create_dir_all(fixture(family).parent().unwrap()).unwrap();
-        std::fs::write(fixture(family), render(family, &first)).unwrap();
+        std::fs::write(fixture(family), text).unwrap();
         return;
     }
     let want = read_pins(family);
@@ -140,7 +186,8 @@ pub fn hold(family: &str, generate: impl Fn(&str) -> Pins) {
         moved.is_empty() && new.is_empty() && gone.is_empty(),
         "{family}: the artifacts are not the pinned ones.\n{} moved:\n  {}\n{} not pinned: {:?}\n{} pinned but no longer produced: {:?}\n\
          A migration step changes no artifact. A deliberate backend change re-records its family as it lands \
-         (LOGOS_UPDATE_FIXTURES=1 cargo nextest run -p logicaffeine-tests --test one_ir_identity_lock), saying why.",
+         (LOGOS_UPDATE_FIXTURES=1 cargo nextest run -p logicaffeine-tests --test one_ir_identity_lock), saying why; \
+         new artifacts beside moved ones that await their own approval are added alone (LOGOS_UPDATE_FIXTURES=new:<key prefix>,…).",
         moved.len(),
         show(&moved),
         new.len(),

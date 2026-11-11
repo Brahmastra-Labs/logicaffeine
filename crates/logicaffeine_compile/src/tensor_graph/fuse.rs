@@ -618,10 +618,62 @@ impl Rewriter<'_> {
         self.record(rule, class, at);
     }
 
+    /// Hand the parts of the op at `from` that compute `outs` — each a lifted op of one operand the op computes, its
+    /// result read by the op at `to` alone — to that op, as one op of `class` at `to`'s slot over them and it, in the
+    /// order the op at `from` runs them, when the chip runs it whole: the op at `from` keeps the rest, every member of it
+    /// computing what a handed part read in that part's place, and a member left one part that part; one firing of
+    /// `rule`.
+    pub fn hand_over(&mut self, rule: &'static str, class: ClassId, from: usize, outs: &[String], to: usize) -> bool {
+        let handed: Vec<Op> = leaves(self.s.get(from).clone()).into_iter().filter(|l| outs.contains(&l.out)).collect();
+        assert!(handed.len() == outs.len() && handed.iter().all(|l| l.ins.len() == 1), "a handed part is a lifted op of one operand");
+        let parts: Vec<Op> = handed.iter().cloned().chain([self.s.get(to).clone()]).collect();
+        let ins = external(&parts.iter().collect::<Vec<_>>());
+        let names: Vec<String> = ins.iter().map(|(t, _)| t.clone()).collect();
+        let (out, dst) = (self.s.get(to).out.clone(), self.s.get(to).dst.clone());
+        if !self.admits(&candidate(class, parts.clone(), names, &out, dst.clone())) {
+            return false;
+        }
+        let stands: BTreeMap<String, String> = handed.iter().map(|l| (l.out.clone(), l.ins[0].clone())).collect();
+        let kept = without(self.s.take(from).expect("a live slot"), &stands);
+        self.s.put(from, kept);
+        self.s.take(to).expect("a live slot");
+        let mut covers: Vec<usize> = parts.iter().flat_map(|o| o.covers.clone()).collect();
+        covers.sort_unstable();
+        let inside: BTreeSet<String> = parts.iter().flat_map(|p| leaves(p.clone())).map(|l| l.out).collect();
+        let keeps: Vec<String> = inside.iter().filter(|t| **t != out && (self.observed(t) || !self.s.readers(t).is_empty())).cloned().collect();
+        let (names, access): (Vec<String>, Vec<Access>) = ins.into_iter().unzip();
+        self.s.put(to, Op { sym: Sym::Fused(Fused { class, parts }), ins: names, access, out, dst, keeps, covers });
+        self.record(rule, class, to);
+        true
+    }
+
     /// Whether the candidate `op` would run whole on the chip.
     pub fn admits(&mut self, op: &Op) -> bool {
         self.allows(op)
     }
+}
+
+/// `op` without the lifted parts whose results `stands` names, each result standing for what its part read: every
+/// member computing one of those results computes what it stands for in its place, keeping it where the member kept the
+/// result, and a member left one part is that part.
+fn without(op: Op, stands: &BTreeMap<String, String>) -> Op {
+    let Sym::Fused(f) = op.sym else { return op };
+    let mut parts: Vec<Op> = f.parts.into_iter().filter(|p| p.prim().is_none() || !stands.contains_key(&p.out)).map(|p| without(p, stands)).collect();
+    if parts.len() == 1 {
+        return parts.remove(0);
+    }
+    let stand = |t: &String| stands.get(t).unwrap_or(t).clone();
+    let out = stand(&op.out);
+    let dst = if out == op.out { op.dst } else { Dst::to(&out) };
+    let mut keeps: Vec<String> = Vec::new();
+    for t in op.keeps.iter().map(stand) {
+        if t != out && !keeps.contains(&t) {
+            keeps.push(t);
+        }
+    }
+    let mut covers: Vec<usize> = parts.iter().flat_map(|p| p.covers.clone()).collect();
+    covers.sort_unstable();
+    Op { sym: Sym::Fused(Fused { class: f.class, parts }), ins: op.ins, access: op.access, out, dst, keeps, covers }
 }
 
 /// A candidate op for the shim to judge: `class` over `parts` as they stand — each a lifted op or one a rule built —
@@ -1405,13 +1457,35 @@ fn rope_parts(r: &mut Rewriter) {
     }
 }
 
-/// The step's arg-max moves the token, the position and the generated run on.
+/// A soft cap whose values an arg-max alone reads folds into the arg-max's read: a cap is strictly increasing, so the
+/// arg-max of the capped values is the arg-max of the values. Where a statement observes the capped values or a step
+/// carries them, the fold keeps them, written as they are read.
+fn cap_argmax(r: &mut Rewriter) {
+    for i in 0..r.s.len() {
+        let Some(TensorOpSpec::ArgMax(_)) = r.s.slot(i).and_then(|o| o.prim()) else { continue };
+        let capped = r.s.get(i).ins[0].clone();
+        let Some(j) = r.s.producer(&capped) else { continue };
+        let Some(TensorOpSpec::Softcap(_)) = r.s.slot(j).and_then(|o| o.prim()) else { continue };
+        if r.s.readers(&capped) != [i] || r.s.get(i).access.iter().any(|a| *a != Access::Whole) || r.s.sinks_past(j, i, &[]) {
+            continue;
+        }
+        let (cap, op) = (r.s.get(j).clone(), r.s.get(i).clone());
+        let ins: Vec<(String, Access)> = cap.ins.iter().cloned().zip(cap.access.iter().copied()).collect();
+        if r.admits(&candidate(ClassId::CapArgmax, vec![cap.clone(), op.clone()], cap.ins.clone(), &op.out, op.dst.clone())) {
+            r.fuse("cap_argmax", ClassId::CapArgmax, i, &[j], ins, op.out.clone(), op.dst.clone());
+        }
+    }
+}
+
+/// The step's arg-max — of its values, or of a cap of them folded into its read (`cap_argmax`) — moves the token, the
+/// position and the generated run on.
 fn argmax_advance(r: &mut Rewriter) {
     let Some(io) = r.g.io.clone() else { return };
     let nexts: Vec<String> = std::iter::once(io.next.clone()).chain(io.more.iter().map(|q| q.next.clone())).collect();
     for i in 0..r.s.len() {
-        let Some(TensorOpSpec::ArgMax(_)) = r.s.slot(i).and_then(|o| o.prim()) else { continue };
-        if !nexts.contains(&r.s.get(i).out) {
+        let Some(op) = r.s.slot(i) else { continue };
+        let picks = matches!(op.prim(), Some(TensorOpSpec::ArgMax(_))) || matches!(&op.sym, Sym::Fused(f) if f.class == ClassId::CapArgmax);
+        if !picks || !nexts.contains(&op.out) {
             continue;
         }
         let op = r.s.get(i).clone();
@@ -1542,16 +1616,28 @@ fn pair(r: &mut Rewriter, rule: &'static str, class: ClassId, producer: usize, c
     true
 }
 
-/// A scalar scale of a plain norm's whole result, which nothing else reads, in the norm's epilogue.
+/// A scalar scale of a norm's whole result, which nothing else reads, in the norm's epilogue: a lone norm's, or that of
+/// the norm closing an add and norm or a sandwich, the sum it writes on unscaled.
 fn norm_scale(r: &mut Rewriter) {
     for j in 0..r.s.len() {
         let Some((x, n)) = r.s.slot(j).and_then(scale_of) else { continue };
         let Some(i) = r.s.producer(&x) else { continue };
         let Some(nf) = norm(r.s.get(i)) else { continue };
-        let plain = class(r.s.get(i)).is_none() && nf.own && nf.part.is_none() && nf.add.is_none() && nf.rows * nf.cols == n;
-        if plain && r.s.readers(&x) == [j] && !r.s.crosses(i, j, &[]) {
+        let normed = matches!(class(r.s.get(i)), None | Some(ClassId::AddNorm | ClassId::NormThenAdd));
+        if normed && nf.own && nf.part.is_none() && nf.rows * nf.cols == n && r.s.readers(&x) == [j] && !r.s.crosses(i, j, &[]) {
             pair(r, "norm_scale", ClassId::NormScale, i, j, i);
         }
+    }
+}
+
+/// A scaled norm (`norm_scale`): the norm it scales and the factor.
+pub fn scaled_norm(op: &Op) -> Option<(NormForm, f64)> {
+    match &op.sym {
+        Sym::Fused(f) if f.class == ClassId::NormScale => match f.parts.get(1)?.prim()? {
+            TensorOpSpec::Scale(s) => Some((norm(&f.parts[0])?, s.factor.get())),
+            _ => None,
+        },
+        _ => None,
     }
 }
 
@@ -1577,6 +1663,233 @@ fn gemm_scale(r: &mut Rewriter) {
         if b.op == ElementwiseOp::Add && b.gate.is_none() && (b.row.is_some() || b.n == n) && b.row.unwrap_or(p.n) == p.n && constant && !r.s.crosses(i, k, &[]) {
             pair(r, "gemm_scale", ClassId::GemmScale, i, k, i);
         }
+    }
+}
+
+/// An all-reduce as the one program spells it — the left fold of `plus` over partials, each a product's whole result
+/// that nothing else reads, each add read by the next alone — folded into the add and norm its sum feeds: the norm reads
+/// every partial where it lives and folds them in the order the adds did. Where the sum is added to the residual, the
+/// add and norm's other summand is the residual; where a norm takes the sum alone (a post-norm), the add and norm's own
+/// add is the fold's last step, taken apart into the fold — its adds, then the norm.
+fn allreduce_norm(r: &mut Rewriter) {
+    for j in 0..r.s.len() {
+        let Some(ClassId::AddNorm) = r.s.slot(j).and_then(class) else { continue };
+        let op = r.s.get(j).clone();
+        let Some((slots, post)) = post_norm(r, &op, j).map(|s| (s, true)).or_else(|| {
+            [&op.ins[0], &op.ins[1]].into_iter().find_map(|t| allreduced(r, t, j)).map(|(s, _)| (s, false))
+        }) else {
+            continue;
+        };
+        if slots.iter().any(|&i| r.s.sinks_past(i, j, &slots)) {
+            continue;
+        }
+        let members: Vec<Op> = slots.iter().map(|&i| r.s.get(i).clone()).chain([op.clone()]).collect();
+        let ins = external(&members.iter().collect::<Vec<_>>());
+        let names: Vec<String> = ins.iter().map(|(t, _)| t.clone()).collect();
+        // The shim judges the op as it is built: a post-norm's add and norm taken apart into the fold.
+        let mut judged = candidate(ClassId::AllreduceNorm, members, names, &op.out, op.dst.clone());
+        if post {
+            flatten_last(&mut judged);
+        }
+        if !r.admits(&judged) {
+            continue;
+        }
+        r.fuse("allreduce_norm", ClassId::AllreduceNorm, j, &slots, ins, op.out.clone(), op.dst.clone());
+        if post {
+            flatten_last(r.s.get_mut(j));
+        }
+    }
+}
+
+/// Fused op `op`'s last part, itself fused, taken apart into its parts.
+fn flatten_last(op: &mut Op) {
+    let Sym::Fused(f) = &mut op.sym else { return };
+    if let Some(Op { sym: Sym::Fused(inner), .. }) = f.parts.last().cloned() {
+        f.parts.pop();
+        f.parts.extend(inner.parts);
+    }
+}
+
+/// The fold's adds' slots where add and norm `op` (at slot `j`) takes an all-reduce's sum alone: its own add the fold's
+/// last step — its two summands partials, or the fold's result before it and a partial — and that sum read by the norm
+/// alone.
+fn post_norm(r: &Rewriter, op: &Op, j: usize) -> Option<Vec<usize>> {
+    let Sym::Fused(f) = &op.sym else { return None };
+    let b = binary(f.parts.first()?)?;
+    if op.keeps.contains(&b.out) {
+        return None;
+    }
+    let partial = |p: &str| {
+        r.s.producer(p).is_some_and(|k| gemv(r.s.get(k), r.g).is_some_and(|g| r.s.get(k).dst.own().is_some() && g.n * g.m == b.n)) && r.s.readers(p) == [j]
+    };
+    if !partial(&b.b) {
+        return None;
+    }
+    if partial(&b.a) {
+        return Some(Vec::new());
+    }
+    allreduced(r, &b.a, j).map(|(slots, _)| slots)
+}
+
+/// The left fold of `plus` whose result is `t`, read by slot `j` alone: its adds' slots, first to last, and its partials
+/// in order — at least two, each a product's whole result read by the fold alone.
+pub fn allreduced(r: &Rewriter, t: &str, j: usize) -> Option<(Vec<usize>, Vec<String>)> {
+    let (mut slots, mut partials) = (Vec::new(), Vec::new());
+    let (mut t, mut reader) = (t.to_string(), j);
+    loop {
+        let i = r.s.producer(&t)?;
+        let b = binary(r.s.get(i))?;
+        if b.op != ElementwiseOp::Add || b.gate.is_some() || b.row.is_some() || r.s.readers(&t) != [reader] || r.s.get(i).access.iter().any(|a| *a != Access::Whole) {
+            return None;
+        }
+        let partial = |p: &str| {
+            r.s.producer(p).is_some_and(|k| gemv(r.s.get(k), r.g).is_some_and(|f| r.s.get(k).dst.own().is_some() && f.n * f.m == b.n)) && r.s.readers(p) == [i]
+        };
+        if !partial(&b.b) {
+            return None;
+        }
+        slots.push(i);
+        partials.push(b.b.clone());
+        if partial(&b.a) {
+            partials.push(b.a.clone());
+            break;
+        }
+        (t, reader) = (b.a.clone(), i);
+    }
+    slots.reverse();
+    partials.reverse();
+    Some((slots, partials))
+}
+
+/// The partials an all-reduce folded into its norm (`allreduce_norm`) folds, in order, and the result of its last add.
+pub fn allreduce_partials(op: &Op) -> Option<(Vec<String>, String)> {
+    let Sym::Fused(f) = &op.sym else { return None };
+    if f.class != ClassId::AllreduceNorm {
+        return None;
+    }
+    let (_, folds) = f.parts.split_last()?;
+    let first = binary(folds.first()?)?;
+    let mut partials = vec![first.a, first.b];
+    partials.extend(folds[1..].iter().map(|a| a.ins[1].clone()));
+    Some((partials, folds.last()?.out.clone()))
+}
+
+/// A norm of a whole row joined from parts — `joined with` over parts of every row, each join read by the next alone —
+/// whose result slices alone read, each taking one part back: each part normed where it lives by the sum of squares of
+/// the whole, the parts' sums added in order. Across tensor-parallel chips each part stays on its chip, and a chip sends
+/// the others one value a row: its part's sum of squares.
+fn allreduce_sumsq_norm(r: &mut Rewriter) {
+    for j in 0..r.s.len() {
+        let Some(n) = r.s.slot(j).and_then(norm) else { continue };
+        let plain = class(r.s.get(j)).is_none() && n.part.is_none() && n.add.is_none() && n.own && r.s.get(j).access.iter().all(|a| *a == Access::Whole);
+        if !plain || r.observed(&n.out) {
+            continue;
+        }
+        // The joins are taken apart however many read them, as a norm of the row apart sums it; each must then be read
+        // by the join above it, or the norm, alone.
+        let mut joins = Vec::new();
+        let join_of = |t: &str, _: usize| r.s.producer(t).map(|i| (i, r.s.get(i).clone()));
+        let Some(parts) = joined_parts(&n.x, n.rows, j, &join_of, &mut joins) else { continue };
+        let inner = |i: usize| {
+            let out = &r.s.get(i).out;
+            let read = r.s.readers(out);
+            read.len() == 1 && (read[0] == j || joins.contains(&read[0])) && !r.observed(out) && r.s.get(i).dst.own().is_some()
+        };
+        if parts.iter().map(|(_, w)| w).sum::<usize>() != n.cols || !joins.iter().all(|&i| inner(i)) {
+            continue;
+        }
+        let offsets = part_offsets(&parts);
+        let takes_a_part = |k: usize| {
+            let op = r.s.get(k);
+            let Some(s) = slice(op).filter(|_| matches!(op.prim(), Some(TensorOpSpec::HeadSlice(_))) && op.access[0] == Access::Whole) else { return false };
+            s.x == n.out && s.groups == n.rows && s.every == n.cols && offsets.iter().zip(&parts).any(|(&o, (_, w))| (o, *w) == (s.from, s.width))
+        };
+        let slices = r.s.readers(&n.out);
+        if slices.is_empty() || !slices.iter().all(|&k| takes_a_part(k)) {
+            continue;
+        }
+        let group: Vec<usize> = joins.iter().chain(&slices).copied().collect();
+        if joins.iter().any(|&i| r.s.sinks_past(i, j, &group)) || slices.iter().any(|&k| r.s.crosses(j, k, &group)) {
+            continue;
+        }
+        let mut slots: Vec<usize> = group.iter().copied().chain([j]).collect();
+        slots.sort_unstable();
+        let members: Vec<Op> = slots.iter().map(|&i| r.s.get(i).clone()).collect();
+        let ins = external(&members.iter().collect::<Vec<_>>());
+        let names: Vec<String> = ins.iter().map(|(t, _)| t.clone()).collect();
+        let last = r.s.get(*slices.last().expect("a slice")).clone();
+        if !r.admits(&candidate(ClassId::AllreduceSumsqNorm, members, names, &last.out, last.dst.clone())) {
+            continue;
+        }
+        r.fuse("allreduce_sumsq_norm", ClassId::AllreduceSumsqNorm, j, &group, ins, last.out, last.dst);
+    }
+}
+
+/// The parts the row `t` of `rows` rows is joined from, in order, each `(tensor, width)`: the operands of the `joined
+/// with` of every row that `join_of(t, reader)` finds making `t` for `reader`, a part itself such a join taken apart in
+/// turn; each join's place recorded in `joins`. None unless a join makes `t`.
+pub fn joined_parts<K: Copy>(
+    t: &str,
+    rows: usize,
+    reader: K,
+    join_of: &dyn Fn(&str, K) -> Option<(K, Op)>,
+    joins: &mut Vec<K>,
+) -> Option<Vec<(String, usize)>> {
+    let (at, op) = join_of(t, reader)?;
+    let Some(TensorOpSpec::Join(jn)) = op.prim() else { return None };
+    if jn.heads != 1 || jn.rows != rows || op.access.iter().any(|a| *a != Access::Whole) {
+        return None;
+    }
+    joins.push(at);
+    let mut parts = Vec::new();
+    for (x, w) in [(&op.ins[0], jn.wa), (&op.ins[1], jn.wb)] {
+        match joined_parts(x, rows, at, join_of, joins) {
+            Some(inner) => parts.extend(inner),
+            None => parts.push((x.clone(), w)),
+        }
+    }
+    Some(parts)
+}
+
+/// Where each part starts in the row the parts make.
+pub fn part_offsets(parts: &[(String, usize)]) -> Vec<usize> {
+    parts.iter().scan(0, |at, (_, w)| Some(std::mem::replace(at, *at + w))).collect()
+}
+
+/// A row normed by parts (`allreduce_sumsq_norm`): its parts in order, each `(tensor, width)`; the norm; each slice that
+/// takes a part back — the result and where it lands — and the part it takes.
+pub fn parts_norm(op: &Op) -> Option<(Vec<(String, usize)>, NormForm, Vec<(usize, String, Dst)>)> {
+    let Sym::Fused(f) = &op.sym else { return None };
+    if f.class != ClassId::AllreduceSumsqNorm {
+        return None;
+    }
+    let n = f.parts.iter().find_map(norm)?;
+    let join_of = |t: &str, _: ()| f.parts.iter().find(|p| p.out == t && matches!(p.prim(), Some(TensorOpSpec::Join(_)))).map(|p| ((), p.clone()));
+    let parts = joined_parts(&n.x, n.rows, (), &join_of, &mut Vec::new())?;
+    let offsets = part_offsets(&parts);
+    let slices = f
+        .parts
+        .iter()
+        .filter_map(|p| match p.prim() {
+            Some(TensorOpSpec::HeadSlice(h)) => Some((p, h)),
+            _ => None,
+        })
+        .map(|(p, h)| {
+            let k = offsets.iter().zip(&parts).position(|(&o, (_, w))| (o, *w) == (h.from, h.width))?;
+            Some((k, p.out.clone(), p.dst.clone()))
+        })
+        .collect::<Option<Vec<_>>>()?;
+    Some((parts, n, slices))
+}
+
+/// The product an op of its epilogue runs — a scaled product (`gemm_scale`), or a ReLU squared folded into its producer
+/// (`relu_sqr`) — its bias before the epilogue its own.
+pub fn epilogued_product(op: &Op, g: &TensorGraph) -> Option<GemvForm> {
+    match &op.sym {
+        Sym::Fused(f) if f.class == ClassId::GemmScale || (f.class == ClassId::ReluSqr && f.parts.len() == 3) => {
+            gemv(&f.parts[0], g).or_else(|| epilogued_product(&f.parts[0], g))
+        }
+        _ => None,
     }
 }
 
@@ -1611,7 +1924,8 @@ fn affine_input_fold(r: &mut Rewriter) {
     }
 }
 
-/// A ReLU squared: the ReLU's result, read only by the product of it with itself, inside that product.
+/// A ReLU squared: the ReLU's result, read only by the product of it with itself, inside that product — and the two in
+/// the epilogue of the product whose whole result only the ReLU reads, where the chip runs the three as one.
 fn relu_sqr(r: &mut Rewriter) {
     for j in 0..r.s.len() {
         let Some(b) = r.s.slot(j).and_then(binary) else { continue };
@@ -1620,10 +1934,30 @@ fn relu_sqr(r: &mut Rewriter) {
         }
         let Some(i) = r.s.producer(&b.a) else { continue };
         let relu = matches!(r.s.get(i).prim(), Some(TensorOpSpec::Relu(u)) if u.n == b.n) && pointwise(r.s.get(i)).is_some();
-        if relu && r.s.readers(&b.a) == [j] && !r.s.crosses(i, j, &[]) {
+        if relu && r.s.readers(&b.a) == [j] && !r.s.crosses(i, j, &[]) && !relu_sqr_in_producer(r, i, j, b.n) {
             pair(r, "relu_sqr", ClassId::ReluSqr, i, j, i);
         }
     }
+}
+
+/// The ReLU at `i` and its square at `j` (`n` values) folded into the epilogue of the product the ReLU reads, at the
+/// product's slot: where that product computes its result whole, read by the ReLU alone, and the chip runs the three as
+/// one.
+fn relu_sqr_in_producer(r: &mut Rewriter, i: usize, j: usize, n: usize) -> bool {
+    let x = r.s.get(i).ins[0].clone();
+    let Some(k) = r.s.producer(&x) else { return false };
+    let whole = gemv(r.s.get(k), r.g).or_else(|| epilogued_product(r.s.get(k), r.g)).is_some_and(|p| p.n * p.m == n);
+    if !whole || r.s.get(k).dst.own().is_none() || r.s.readers(&x) != [i] || r.s.crosses(k, i, &[]) {
+        return false;
+    }
+    let (p, u, m) = (r.s.get(k).clone(), r.s.get(i).clone(), r.s.get(j).clone());
+    let ins = external(&[&p, &u, &m]);
+    let names: Vec<String> = ins.iter().map(|(t, _)| t.clone()).collect();
+    if !r.admits(&candidate(ClassId::ReluSqr, vec![p, u, m.clone()], names, &m.out, m.dst.clone())) {
+        return false;
+    }
+    r.fuse("relu_sqr", ClassId::ReluSqr, k, &[i, j], ins, m.out, m.dst);
+    true
 }
 
 /// What a region member computes: `n` values of one element type, each from its operands' values at its place — a
@@ -2064,7 +2398,7 @@ fn mla_prologue(r: &mut Rewriter) {
 
 /// A gated delta rule's inputs as its step makes them, with its rows: the convolutions of its query, key and values and
 /// its two gates, and — where an op makes each — the products of the layer's activation those convolutions read and its
-/// output gate is.
+/// output gate is, and — where the gates take their projections apart — those of the same activation the gates read.
 fn delta_inputs(r: &Rewriter, j: usize) -> Option<(usize, Vec<usize>, Option<Vec<usize>>)> {
     let Some(TensorOpSpec::GatedDelta(d)) = r.s.slot(j)?.prim() else { return None };
     let op = r.s.get(j);
@@ -2083,6 +2417,12 @@ fn delta_inputs(r: &Rewriter, j: usize) -> Option<(usize, Vec<usize>, Option<Vec
         .map(|l| l.ins[0].clone())
         .collect();
     read.push(op.ins[3].clone());
+    if class(r.s.get(gating)) == Some(ClassId::GdnGating) {
+        let activation = |t: &str| r.s.maker(t).and_then(|m| gemv(r.s.get(m), r.g)).map(|p| p.x);
+        let x = activation(&read[0]);
+        let taken = leaves(r.s.get(gating).clone()).into_iter().filter(|l| matches!(l.prim(), Some(TensorOpSpec::Sigmoid(_) | TensorOpSpec::Decay(_))));
+        read.extend(taken.map(|l| l.ins[0].clone()).filter(|t| x.is_some() && activation(t) == x));
+    }
     let products: Option<BTreeSet<usize>> = read.iter().map(|t| r.s.maker(t)).collect();
     Some((d.rows, convs.into_iter().chain([gating]).collect(), products.map(|p| p.into_iter().collect())))
 }
@@ -2279,6 +2619,8 @@ fn horizontal_norm_rope_insert(r: &mut Rewriter) {
 pub const RULES: &[Rule] = &[
     Rule { name: "add_norm", kind: RuleKind::Group, builds: &[ClassId::AddNorm], apply: add_norm },
     Rule { name: "sandwich_norm", kind: RuleKind::Group, builds: &[ClassId::NormThenAdd], apply: sandwich_norm },
+    Rule { name: "allreduce_norm", kind: RuleKind::Group, builds: &[ClassId::AllreduceNorm], apply: allreduce_norm },
+    Rule { name: "allreduce_sumsq_norm", kind: RuleKind::Group, builds: &[ClassId::AllreduceSumsqNorm], apply: allreduce_sumsq_norm },
     Rule { name: "gemv_bias", kind: RuleKind::Group, builds: &[ClassId::GemmBias], apply: gemv_bias },
     Rule { name: "gemm_scale", kind: RuleKind::Group, builds: &[ClassId::GemmScale], apply: gemm_scale },
     Rule { name: "affine_input_fold", kind: RuleKind::Group, builds: &[ClassId::AffineInputFold], apply: affine_input_fold },
@@ -2302,6 +2644,7 @@ pub const RULES: &[Rule] = &[
     Rule { name: "attn_output_gate", kind: RuleKind::Group, builds: &[ClassId::AttnOutputGate], apply: attn_output_gate },
     Rule { name: "glu_pair", kind: RuleKind::Group, builds: &[ClassId::GemvGateUpGlu], apply: glu_pair },
     Rule { name: "relu_sqr", kind: RuleKind::Group, builds: &[ClassId::ReluSqr], apply: relu_sqr },
+    Rule { name: "cap_argmax", kind: RuleKind::Group, builds: &[ClassId::CapArgmax], apply: cap_argmax },
     Rule { name: "elementwise_regions", kind: RuleKind::Group, builds: &[ClassId::ElementwiseRegions], apply: elementwise_regions },
     Rule { name: "elementwise_chains", kind: RuleKind::Group, builds: &[ClassId::ElementwiseChains], apply: elementwise_chains },
     Rule { name: "recompute_fanout", kind: RuleKind::Group, builds: &[ClassId::RecomputeFanout], apply: recompute_fanout },

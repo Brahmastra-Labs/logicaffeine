@@ -108,6 +108,9 @@ pub fn spec_refusals(spec: &ModelSpec) -> Vec<Refusal> {
         if !l.pre_norms {
             out.push(Refusal::Norm { layer, what: "sublayers that read the residual unnormed" });
         }
+        if !l.pre_norms {
+            out.push(Refusal::Norm { layer, what: "sublayers that read the residual unnormed" });
+        }
         if l.post_mixer_norm {
             out.push(Refusal::Norm { layer, what: "a norm on the mixer's output" });
         }

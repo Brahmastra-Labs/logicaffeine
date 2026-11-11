@@ -34,7 +34,9 @@ use std::process::Command;
 use logicaffeine_compile::codegen_cuda::knobs::CudaKnobs;
 use logicaffeine_compile::codegen_cuda::lane::plan::{kind, Launch, RULES};
 use logicaffeine_compile::codegen_cuda::lane::residence::place;
-use logicaffeine_compile::codegen_cuda::lane::{compile, compile_batch, compile_batch_holding, compile_holding, Form, Lane, LaneOptions};
+use logicaffeine_compile::codegen_cuda::lane::{
+    compile, compile_batch, compile_batch_holding, compile_holding, compile_split, compile_split_holding, Form, Lane, LaneOptions,
+};
 use logicaffeine_compile::codegen_cuda::qwen_emit::Q8MatKind;
 use logicaffeine_compile::model::gguf::Gguf;
 use logicaffeine_compile::model::reference::{argmax, Activations, KvStorage, NearCall, Reference, NEAR_ROUNDING, NEAR_ROUTING};
@@ -70,6 +72,10 @@ struct Run {
     logits: Vec<Vec<f32>>,
     tok_per_s: Option<f64>,
     placed: (usize, usize, usize),
+    /// The chunks of the prompt the program ran without their output (`LEAN_CHUNKS`), where it says.
+    lean: Option<usize>,
+    /// The moved matrices it streamed to the device a launch at a time (`STREAMED`).
+    streamed: usize,
 }
 
 /// The device and host bytes a program's `stdout` says it allocated, and the matrices it says it moved.
@@ -157,7 +163,14 @@ fn exec_flagged(b: &Built, ckpt: &Path, prompt: &[u32], n: usize, vocab: usize, 
     } else {
         Vec::new()
     };
-    Run { tokens, logits, tok_per_s: field("DECODE_TOK_PER_S:").map(|v| v.parse().unwrap()), placed: placed(&stdout) }
+    Run {
+        tokens,
+        logits,
+        tok_per_s: field("DECODE_TOK_PER_S:").map(|v| v.parse().unwrap()),
+        placed: placed(&stdout),
+        lean: field("LEAN_CHUNKS:").map(|v| v.parse().unwrap()),
+        streamed: field("STREAMED:").expect("the program prints STREAMED:").parse().unwrap(),
+    }
 }
 
 /// Run a built program once over `ckpt` for every `(prompt, n)` of `jobs` (its `--prompts` form): each prompt's run, in
@@ -197,7 +210,9 @@ fn exec_listed(b: &Built, ckpt: &Path, jobs: &[(Vec<u32>, usize)], vocab: usize,
         .map(|t| t.split_whitespace().map(|v| v.parse().unwrap()).collect())
         .collect();
     assert_eq!(tokens.len(), jobs.len(), "{name}: a run a prompt");
+    let lean: Vec<usize> = stdout.lines().filter_map(|l| l.strip_prefix("LEAN_CHUNKS:")).map(|v| v.trim().parse().unwrap()).collect();
     let at = placed(&stdout);
+    let streamed: usize = stdout.lines().find_map(|l| l.strip_prefix("STREAMED:")).expect("the program prints STREAMED:").trim().parse().unwrap();
     let mut all: Vec<f32> = if logits {
         std::fs::read(&dump).unwrap().chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect()
     } else {
@@ -208,10 +223,12 @@ fn exec_listed(b: &Built, ckpt: &Path, jobs: &[(Vec<u32>, usize)], vocab: usize,
     }
     jobs.iter()
         .zip(tokens)
-        .map(|((_, n), tokens)| {
+        .enumerate()
+        .map(|(j, ((_, n), tokens))| {
             assert_eq!(tokens.len(), *n, "{name}: {n} tokens");
             let rows: Vec<f32> = if logits { all.drain(..n * vocab).collect() } else { Vec::new() };
-            Run { tokens, logits: rows.chunks(vocab).map(<[f32]>::to_vec).collect(), tok_per_s: rate.filter(|_| form == "--batch"), placed: at }
+            let lean = (lean.len() == jobs.len()).then(|| lean[j]);
+            Run { tokens, logits: rows.chunks(vocab).map(<[f32]>::to_vec).collect(), tok_per_s: rate.filter(|_| form == "--batch"), placed: at, lean, streamed }
         })
         .collect()
 }
@@ -407,6 +424,44 @@ fn every_tiny_architecture_generates_what_the_reference_computes() {
     eprintln!("{}", report.join("\n"));
 }
 
+/// Every matrix a checkpoint keeps in a 16-bit float format computes what its values compute (PARITY-WEIGHT-FORMATS):
+/// Llama, Qwen3, Gemma-3 and Qwen3.5 written as llama.cpp's converter writes BF16 and F16 checkpoints
+/// (`tiny_models::write_checkpoint_in`) — every matrix read in place two bytes a weight, its activation read `f32` under
+/// the precise numerics and in one word of the matrix's format or two on the 16-bit tensor cores under the quantized
+/// ones (`reference::sixteen_bit_activations`) — generate what the reference computes from the same values at each
+/// numerics, held to the reference as every architecture is.
+#[test]
+fn every_weight_format_computes_what_its_dequantized_matrix_computes() {
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    use logicaffeine_compile::model::quant::GgmlType;
+    let prompts = prompts();
+    let jobs: Vec<(Vec<u32>, usize)> = prompts.iter().map(|p| (p.clone(), GENERATE)).collect();
+    let mut report = Vec::new();
+    for t in [Tiny::Llama, Tiny::Qwen3, Tiny::Gemma3, Tiny::Qwen35] {
+        for ty in [GgmlType::Bf16, GgmlType::F16] {
+            let spec = t.spec(CTX);
+            let ckpt = dir().join(format!("{}-{}.gguf", t.name(), ty.name()));
+            tiny_models::write_checkpoint_in(&spec, &ckpt, ty);
+            for numerics in [Q8MatKind::Dequant, Q8MatKind::TwoPassInt8, Q8MatKind::Int8Act] {
+                let what = format!("{} {} {numerics:?}", t.name(), ty.name());
+                let lane = compile(&spec, &ckpt, &LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 4 })
+                    .unwrap_or_else(|e| panic!("{what}: {e}"));
+                let runs = exec_many(&build(&lane, &format!("{}-{}-{numerics:?}", t.name(), ty.name())), &ckpt, &jobs, spec.vocab, true);
+                let (mut worst, mut flips) = (0f64, 0);
+                for (k, (prompt, r)) in prompts.iter().zip(&runs).enumerate() {
+                    let (w, f) = held_to_reference(&spec, &ckpt, prompt, r, numerics, &format!("{what} prompt {k}"));
+                    worst = worst.max(w);
+                    flips += f;
+                }
+                report.push(format!("{what}: logits within {worst:.3e} of their scale, {flips} near calls decided the other way"));
+            }
+        }
+    }
+    eprintln!("{}", report.join("\n"));
+}
+
 /// A prompt run as chunks continues exactly as the same prompt fed a token at a time: every kernel computes each row of
 /// a block in the order it computes a lone row, so the eleven-token prompt run as chunks of 8, 2 and 1 leaves the same
 /// caches, rings and memories, and the same logits, bit for bit.
@@ -433,6 +488,1440 @@ fn a_prompt_run_in_chunks_continues_as_one_fed_a_token_at_a_time() {
             assert_eq!(runs[1].logits, runs[0].logits, "{} {numerics:?}: bit for bit", t.name());
         }
     }
+}
+
+/// A prompt's chunk before its last computes no output (`emit::output_only`: only what the caches and the carried state
+/// read; its arg-max an advance of the position and the run, `lk_advance`) and the prompt continues exactly as it does
+/// with every chunk run whole (`--whole-chunks`): on every tiny architecture under both quantized numerics, a 22-token
+/// prompt in chunks of 8, 8, 4 and 2 — three of them lean — and two prompts run one after the other (`--prompts`, the
+/// second's 13 tokens in chunks of 8 and 4 and its last token by the decode step), the same tokens and the same logits
+/// bit for bit.
+#[test]
+fn a_chunk_before_the_prompts_last_computes_what_the_whole_chunk_computes() {
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    const LONG: usize = 64;
+    let prompt: Vec<u32> = (0..22u32).map(|i| (i * 29 + 3) % 90).collect();
+    let other: Vec<u32> = (0..13u32).map(|i| (i * 17 + 11) % 90).collect();
+    let mut lanes = Vec::new();
+    for &t in tiny_models::ALL {
+        let spec = t.spec(LONG);
+        let ckpt = dir().join(format!("lean-{}.gguf", t.name()));
+        tiny_models::write_checkpoint(&spec, &ckpt);
+        for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
+            let what = format!("{} {numerics:?}", t.name());
+            let opts = LaneOptions { ctx: LONG, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 8 };
+            let lane = compile(&spec, &ckpt, &opts).unwrap_or_else(|e| panic!("{what}: {e}"));
+            lanes.push((what, spec.vocab, ckpt.clone(), lane, format!("lean-{}-{numerics:?}", t.name())));
+        }
+    }
+    let built = build_all(&lanes.iter().map(|(_, _, _, lane, name)| (lane, name.as_str())).collect::<Vec<_>>());
+    for ((what, vocab, ckpt, _, _), b) in lanes.iter().zip(&built) {
+        let lean = exec_flagged(b, ckpt, &prompt, 6, *vocab, true, &[]);
+        let whole = exec_flagged(b, ckpt, &prompt, 6, *vocab, true, &["--whole-chunks"]);
+        assert_eq!(lean.lean, Some(3), "{what}: the chunks before the last run without their output");
+        assert_eq!(whole.lean, Some(0), "{what}: under --whole-chunks every chunk runs whole");
+        assert_eq!(lean.tokens, whole.tokens, "{what}: the prompt continues alike");
+        assert_eq!(lean.logits, whole.logits, "{what}: bit for bit");
+        let runs = exec_many(b, ckpt, &[(prompt.clone(), 6), (other.clone(), 4)], *vocab, true);
+        let alone = exec_flagged(b, ckpt, &other, 4, *vocab, true, &["--whole-chunks"]);
+        assert_eq!(runs[0].tokens, whole.tokens, "{what}: the first of two prompts continues alike");
+        assert_eq!(runs[0].logits, whole.logits, "{what}: the first of two prompts, bit for bit");
+        assert_eq!(runs[1].tokens, alone.tokens, "{what}: the second of two prompts continues alike");
+        assert_eq!(runs[1].logits, alone.logits, "{what}: the second of two prompts, bit for bit");
+        assert_eq!((runs[0].lean, runs[1].lean), (Some(3), Some(2)), "{what}: each prompt's chunks before its last run lean");
+    }
+}
+
+/// A prompt of a 16-bit checkpoint run as chunks continues exactly as the same prompt fed a token at a time
+/// (PARITY-WEIGHT-FORMATS, phase 2): every product by a 16-bit matrix sums each output on the 16-bit tensor cores in one
+/// order at every row count — the decode step's row dot (`lk_h16_mma_dot`) and the chunk's GEMM (`lk_gemm_h16`) each a
+/// block of 32 `k` as `lk_h16_block` sums it — so Llama, Qwen3, Gemma-3 and Qwen3.5 in BF16 and F16, under one
+/// activation word and two, generate the same tokens and the same logits bit for bit from a 150-token prompt fed a
+/// token at a time, in chunks of 8, and in chunks of 16 — the most rows a chunk takes while every other kernel computes
+/// each row as the step computes it (`GEMV_ROWS`; past it the quantized numerics attend on the tensor cores and walk the
+/// delta rule in chunks). Every row count's GEMM sums as the row dot (`a_sixteen_bit_gemm_sums_every_row_as_the_row_dot_sums_it_alone`).
+#[test]
+fn a_sixteen_bit_prompt_run_in_chunks_continues_as_one_fed_a_token_at_a_time() {
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    const LONG: usize = 256;
+    let prompt: Vec<u32> = (0..150u32).map(|i| (i * 37 + 5) % 90).collect();
+    for t in [Tiny::Llama, Tiny::Qwen3, Tiny::Gemma3, Tiny::Qwen35] {
+        let spec = t.spec(LONG);
+        for ty in [GgmlType::Bf16, GgmlType::F16] {
+            let ckpt = dir().join(format!("chunks-{}-{}.gguf", t.name(), ty.name()));
+            tiny_models::write_checkpoint_in(&spec, &ckpt, ty);
+            for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
+                let what = format!("{} {} {numerics:?}", t.name(), ty.name());
+                let runs: Vec<Run> = [1, 8, 16]
+                    .iter()
+                    .map(|&prefill| {
+                        let opts = LaneOptions { ctx: LONG, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill };
+                        let lane = compile(&spec, &ckpt, &opts).unwrap_or_else(|e| panic!("{what} prefill {prefill}: {e}"));
+                        run(&lane, &ckpt, &prompt, 6, &format!("chunks16-{}-{}-{numerics:?}-{prefill}", t.name(), ty.name()), spec.vocab, true)
+                    })
+                    .collect();
+                for (i, prefill) in [(1, 8), (2, 16)] {
+                    assert_eq!(runs[i].tokens, runs[0].tokens, "{what}: chunks of {prefill} continue alike");
+                    assert_eq!(runs[i].logits, runs[0].logits, "{what}: chunks of {prefill}, bit for bit");
+                }
+            }
+        }
+    }
+}
+
+/// A block-format GEMM whose every output is its sum as it is (`lk_gemm_blk`'s `PLAIN`: no bias, no epilogue step, an
+/// `f32` array) stores what the general epilogue stores: Q8_0 on its streamed path (`k` 1024) and on its block path
+/// (`k` 160), Q4_K, and Q6_K grouped as the lane uploads it, each dense (200 outputs) and in parts (256 and 128 outputs
+/// side by side), over 150 activation rows (a whole tile and 22 rows of the next) under one word and two — every output
+/// the same bits, and every one written.
+#[test]
+fn a_block_gemm_whose_outputs_are_its_sums_stores_what_its_epilogue_stores() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{format_arg, gemm_blk_launch_smem, gemm_blk_launch_threads, gemm_blk_rows, row_bytes, Kernel, GEMM_TILE_N, PRELUDE};
+    use logicaffeine_compile::model::quant::{f32_to_f16, GgmlType};
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let m = 150usize;
+    let dir = dir().join("plain-epilogue");
+    std::fs::create_dir_all(&dir).unwrap();
+    let unit = |i: usize, salt: u64| {
+        let h = (i as u64 ^ salt).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(27) ^ 0x2545_F491_4F6C_DD1D;
+        ((h >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0) as f32
+    };
+    let mut calls = String::new();
+    let mut cases: Vec<(String, usize)> = Vec::new();
+    for (ty, k) in [(GgmlType::Q8_0, 1024usize), (GgmlType::Q8_0, 160), (GgmlType::Q4K, 512), (GgmlType::Q6K, 512)] {
+        let f = format_arg(ty);
+        let name = format!("{}-{k}", ty.name());
+        let x: Vec<f32> = (0..m * k).map(|i| unit(i, 3 + k as u64) * (1.0 + 3.0 * ((i / 32) % 5) as f32)).collect();
+        std::fs::write(dir.join(format!("x-{name}.bin")), x.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+        for (mat, n) in [("a", 256usize), ("b", 128), ("d", 200)] {
+            let bytes: Vec<u8> = if ty == GgmlType::Q8_0 {
+                let levels = (0..n * k).map(|i| (unit(i, 11 + n as u64) * 127.0) as i8 as u8);
+                let scales = (0..n * k / 32).flat_map(|i| f32_to_f16(0.001 + 0.002 * unit(i, 13 + n as u64).abs()).to_le_bytes());
+                levels.chain(scales).collect()
+            } else {
+                tiny_models::seeded_blocks(&format!("{name}-{mat}"), ty, n * k)
+            };
+            std::fs::write(dir.join(format!("w{mat}-{name}.bin")), bytes).unwrap();
+        }
+        for q in [1, 2] {
+            let bm = gemm_blk_rows(f, q == 2);
+            let (threads, smem) = (gemm_blk_launch_threads(f, bm, k), gemm_blk_launch_smem(f, q == 2, bm, k));
+            let general = |g: u32| format!("lk_gemm_blk<{f}, {q}, {g}, {bm}, 0, false>");
+            let plain = |g: u32| format!("lk_gemm_blk<{f}, {q}, {g}, {bm}, 0, true>");
+            let load = |mat: &str, n: usize| {
+                if ty == GgmlType::Q8_0 {
+                    format!("load8(dir + \"/w{mat}-{name}.bin\", {n}L * {k})")
+                } else {
+                    format!("load<{f}>(dir + \"/w{mat}-{name}.bin\", {n}L, {k}, {}L)", row_bytes(ty, k))
+                }
+            };
+            let _ = write!(
+                calls,
+                "  {{ // {name} Q{q}\n\
+                 \x20   lk_w wa = {}, wb = {}, wd = {}; float* x = dev(dir + \"/x-{name}.bin\");\n\
+                 \x20   long nx = {m}L * {k}; signed char* xq = bytes(nx); signed char* xl = {q} == 2 ? bytes(nx) : nullptr; float* xs = nan(nx / 32);\n\
+                 \x20   lk_quant<{q}><<<(nx + 255) / 256, 256>>>(x, xq, xl, xs, nx); CK(cudaGetLastError());\n\
+                 \x20   for(auto* kf : {{(const void*){g0}, (const void*){p0}, (const void*){g4}, (const void*){p4}}}) CK(cudaFuncSetAttribute(kf, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
+                 \x20   float *yd0 = nan({m}L * 200), *yd1 = nan({m}L * 200), *yp0 = nan({m}L * 384), *yp1 = nan({m}L * 384);\n\
+                 \x20   {g0}<<<dim3({dx}, {gy}), {threads}, {smem}>>>(wd, xq, xl, xs, lk_epi(), lk_out(yd0), nullptr, 0, {k}, 200, {m}); CK(cudaGetLastError());\n\
+                 \x20   {p0}<<<dim3({dx}, {gy}), {threads}, {smem}>>>(wd, xq, xl, xs, lk_epi(), lk_out(yd1), nullptr, 0, {k}, 200, {m}); CK(cudaGetLastError());\n\
+                 \x20   for(int v = 0; v < 2; ++v){{\n\
+                 \x20     float* yp = v ? yp1 : yp0;\n\
+                 \x20     lk_parts ps{{}};\n\
+                 \x20     ps.w[0] = wa; ps.w[1] = wb; ps.y[0] = lk_part_y(yp); ps.y[1] = lk_part_y(yp + {m}L * 256);\n\
+                 \x20     for(int p = 0; p < LK_PARTS; ++p) ps.end[p] = p == 0 ? 256 : 384;\n\
+                 \x20     if(v) {p4}<<<dim3({px}, {gy}), {threads}, {smem}>>>({{}}, xq, xl, xs, nullptr, nullptr, nullptr, 0, {k}, 384, {m}, nullptr, nullptr, nullptr, nullptr, {{}}, nullptr, nullptr, nullptr, nullptr, 0.f, 0.f, 0, 1, nullptr, nullptr, ps);\n\
+                 \x20     else {g4}<<<dim3({px}, {gy}), {threads}, {smem}>>>({{}}, xq, xl, xs, nullptr, nullptr, nullptr, 0, {k}, 384, {m}, nullptr, nullptr, nullptr, nullptr, {{}}, nullptr, nullptr, nullptr, nullptr, 0.f, 0.f, 0, 1, nullptr, nullptr, ps);\n\
+                 \x20     CK(cudaGetLastError());\n\
+                 \x20   }}\n\
+                 \x20   CK(cudaDeviceSynchronize()); put(out, yd0, {m}L * 200); put(out, yd1, {m}L * 200); put(out, yp0, {m}L * 384); put(out, yp1, {m}L * 384);\n  }}\n",
+                load("a", 256),
+                load("b", 128),
+                load("d", 200),
+                g0 = general(0),
+                p0 = plain(0),
+                g4 = general(4),
+                p4 = plain(4),
+                dx = 200usize.div_ceil(GEMM_TILE_N),
+                px = 384usize.div_ceil(GEMM_TILE_N),
+                gy = m.div_ceil(bm),
+            );
+            cases.push((format!("{name} under {q} word{}", if q == 2 { "s" } else { "" }), bm));
+        }
+    }
+    let program = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <string>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n\
+         {PRELUDE}{}{}{}{}\n\
+         #define CK(x) do {{ cudaError_t e_ = (x); if(e_ != cudaSuccess){{ fprintf(stderr, \"cuda %d %s\\n\", __LINE__, cudaGetErrorString(e_)); exit(1); }} }} while(0)\n\
+         static std::vector<char> slurp(const std::string& p){{ FILE* f = fopen(p.c_str(), \"rb\"); if(!f) exit(2); std::vector<char> b; char c[65536]; size_t n;\n\
+           while((n = fread(c, 1, sizeof c, f)) > 0) b.insert(b.end(), c, c + n); fclose(f); return b; }}\n\
+         static float* dev(const std::string& p){{ auto b = slurp(p); float* d; CK(cudaMalloc(&d, b.size())); CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice)); return d; }}\n\
+         template<int F> static lk_w load(const std::string& p, long rows, int cols, long row_bytes){{ auto b = slurp(p); std::vector<unsigned char> h((size_t)rows * row_bytes + 256, 0);\n\
+           if(F == 14) lk_q6_regroup((const unsigned char*)b.data(), rows, cols / 256, h.data()); else for(size_t i = 0; i < b.size(); ++i) h[i] = (unsigned char)b[i];\n\
+           unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
+         static lk_w load8(const std::string& p, long n){{ auto b = slurp(p); signed char* q; __half* s; CK(cudaMalloc(&q, n)); CK(cudaMalloc(&s, n / 16));\n\
+           CK(cudaMemcpy(q, b.data(), n, cudaMemcpyHostToDevice)); CK(cudaMemcpy(s, b.data() + n, n / 16, cudaMemcpyHostToDevice)); return lk_w{{q, s, nullptr, 0}}; }}\n\
+         static float* nan(long n){{ float* p; CK(cudaMalloc(&p, n * 4)); CK(cudaMemset(p, 0xff, n * 4)); return p; }}\n\
+         static signed char* bytes(long n){{ signed char* p; CK(cudaMalloc(&p, n)); return p; }}\n\
+         static void put(FILE* out, const float* d, long n){{ std::vector<float> h(n); CK(cudaMemcpy(h.data(), d, n * 4, cudaMemcpyDeviceToHost)); fwrite(h.data(), 4, n, out); }}\n\
+         int main(int argc, char** argv){{\n  std::string dir = argv[1];\n  FILE* out = fopen(argv[2], \"wb\");\n{calls}  fclose(out);\n  return 0;\n}}\n",
+        Kernel::Blocks.source(),
+        Kernel::Quant.source(),
+        Kernel::Mma.source(),
+        Kernel::GemmBlk.source()
+    );
+    let (cu, bin, outp) = (dir.join("plain.cu"), dir.join("plain"), dir.join("out.bin"));
+    std::fs::write(&cu, program).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the GEMMs build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).arg(&dir).arg(&outp).output().unwrap();
+    assert!(ran.status.success(), "they run: {}", String::from_utf8_lossy(&ran.stderr));
+    let all: Vec<u32> = std::fs::read(&outp).unwrap().chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
+    let per = m * (200 + 200 + 384 + 384);
+    assert_eq!(all.len(), cases.len() * per, "every case's outputs");
+    for (c, (what, _)) in cases.iter().enumerate() {
+        let at = c * per;
+        let (d0, rest) = all[at..at + per].split_at(m * 200);
+        let (d1, rest) = rest.split_at(m * 200);
+        let (p0, p1) = rest.split_at(m * 384);
+        for (kind, a, b) in [("dense", d0, d1), ("in parts", p0, p1)] {
+            for (i, (x, y)) in a.iter().zip(b).enumerate() {
+                assert_ne!(*y, u32::MAX, "{what}, {kind}: output {i} written");
+                assert_eq!(x, y, "{what}, {kind}: output {i}: {} by the epilogue, {} as its sum", f32::from_bits(*x), f32::from_bits(*y));
+            }
+        }
+    }
+}
+
+/// A chunk's unnormed rotation a thread a slot of a head (`lk_rope_pairs`) turns each head as the kernel of a block a
+/// head does (`lk_rope<false>`): 111 heads, three to a row, of 64 values turned whole (32 pairs) and in part (24 pairs,
+/// 16 values passed through), into an `f32` buffer and into a binary16 table's rows from the position a parameter names
+/// — every value the same bits, and every value past the rows the launch writes left alone.
+#[test]
+fn the_rotation_by_pairs_turns_each_head_as_the_head_kernel_does() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{Kernel, PRELUDE};
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let (rows, per_row, hd) = (37usize, 3usize, 64usize);
+    let heads = rows * per_row;
+    let dir = dir().join("rope-pairs");
+    std::fs::create_dir_all(&dir).unwrap();
+    let main = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n{PRELUDE}{}\n\
+         __global__ void fill(float* p, long n, unsigned s){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n){{ unsigned h = (unsigned)i * 2654435761u ^ s; h ^= h >> 15; h *= 2246822519u; h ^= h >> 13; p[i] = ((int)(h % 20001) - 10000) * 1e-4f; }} }}\n\
+         int main(){{\n  const int R = {rows}, PR = {per_row}, H = {heads}, HD = {hd}, P = 64, AT = 6, T = AT - 1 + R;\n\
+           float *x, *cs, *sn; int *pos, *yrow;\n\
+           cudaMalloc(&x, (long)H * HD * 4); fill<<<(H * HD + 255) / 256, 256>>>(x, (long)H * HD, 7);\n\
+           cudaMalloc(&cs, (long)P * 32 * 4); fill<<<8, 256>>>(cs, (long)P * 32, 11);\n\
+           cudaMalloc(&sn, (long)P * 32 * 4); fill<<<8, 256>>>(sn, (long)P * 32, 13);\n\
+           const int p0 = 9, r0 = AT;\n\
+           cudaMalloc(&pos, 4); cudaMemcpy(pos, &p0, 4, cudaMemcpyHostToDevice); cudaMalloc(&yrow, 4); cudaMemcpy(yrow, &r0, 4, cudaMemcpyHostToDevice);\n\
+           FILE* o = fopen(\"out.bin\", \"wb\");\n\
+           for(int half : {{32, 24}}){{\n\
+             float *a, *b; __half *ta, *tb;\n\
+             cudaMalloc(&a, (long)H * HD * 4); cudaMalloc(&b, (long)H * HD * 4); cudaMemset(a, 0xff, (long)H * HD * 4); cudaMemset(b, 0xff, (long)H * HD * 4);\n\
+             cudaMalloc(&ta, (long)T * PR * HD * 2); cudaMalloc(&tb, (long)T * PR * HD * 2); cudaMemset(ta, 0x7b, (long)T * PR * HD * 2); cudaMemset(tb, 0x7b, (long)T * PR * HD * 2);\n\
+             lk_rope<false, float><<<H, 128>>>(x, nullptr, cs, sn, pos, lk_out(a), nullptr, 0, HD, half, PR, 0.f, HD, 0, HD, 0);\n\
+             lk_rope_pairs<<<(H * (HD - half) + 255) / 256, 256>>>(x, cs, sn, pos, lk_out(b), nullptr, 0, HD, half, PR, H, HD, 0, HD, 0);\n\
+             lk_rope<false, float><<<H, 128>>>(x, nullptr, cs, sn, pos, lk_out(ta), yrow, PR * HD, HD, half, PR, 0.f, HD, 0, HD, 0);\n\
+             lk_rope_pairs<<<(H * (HD - half) + 255) / 256, 256>>>(x, cs, sn, pos, lk_out(tb), yrow, PR * HD, HD, half, PR, H, HD, 0, HD, 0);\n\
+             if(cudaDeviceSynchronize() != cudaSuccess) return 1;\n\
+             std::vector<float> ha((long)H * HD), hb((long)H * HD); std::vector<__half> hta((long)T * PR * HD), htb((long)T * PR * HD);\n\
+             cudaMemcpy(ha.data(), a, ha.size() * 4, cudaMemcpyDeviceToHost); cudaMemcpy(hb.data(), b, hb.size() * 4, cudaMemcpyDeviceToHost);\n\
+             cudaMemcpy(hta.data(), ta, hta.size() * 2, cudaMemcpyDeviceToHost); cudaMemcpy(htb.data(), tb, htb.size() * 2, cudaMemcpyDeviceToHost);\n\
+             fwrite(ha.data(), 4, ha.size(), o); fwrite(hb.data(), 4, hb.size(), o); fwrite(hta.data(), 2, hta.size(), o); fwrite(htb.data(), 2, htb.size(), o);\n\
+           }}\n\
+           fclose(o);\n  return 0;\n}}\n",
+        Kernel::Rope.source()
+    );
+    let (cu, bin) = (dir.join("rope.cu"), dir.join("rope"));
+    std::fs::write(&cu, main).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the rotations build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).current_dir(&dir).output().unwrap();
+    assert!(ran.status.success(), "the rotations run ({:?}): {}", ran.status.code(), String::from_utf8_lossy(&ran.stderr));
+    let bytes = std::fs::read(dir.join("out.bin")).unwrap();
+    let table = (6 - 1 + rows) * per_row * hd;
+    let (plain, tab) = (heads * hd * 4, table * 2);
+    assert_eq!(bytes.len(), 2 * (2 * plain + 2 * tab), "every array read back");
+    for (k, half) in [32usize, 24].iter().enumerate() {
+        let at = k * (2 * plain + 2 * tab);
+        let (a, rest) = bytes[at..].split_at(plain);
+        let (b, rest) = rest.split_at(plain);
+        let (ta, rest) = rest.split_at(tab);
+        let tb = &rest[..tab];
+        for (i, (p, q)) in a.chunks_exact(4).zip(b.chunks_exact(4)).enumerate() {
+            let (p, q) = (u32::from_le_bytes(p.try_into().unwrap()), u32::from_le_bytes(q.try_into().unwrap()));
+            assert_ne!(q, u32::MAX, "{half} pairs: value {i} written");
+            assert_eq!(p, q, "{half} pairs: head {}, value {}: {} by the head kernel, {} by pairs", i / hd, i % hd, f32::from_bits(p), f32::from_bits(q));
+        }
+        let first = (6 - 1) * per_row * hd;
+        for (i, (p, q)) in ta.chunks_exact(2).zip(tb.chunks_exact(2)).enumerate() {
+            let (p, q) = (u16::from_le_bytes(p.try_into().unwrap()), u16::from_le_bytes(q.try_into().unwrap()));
+            assert_eq!(p, q, "{half} pairs, the binary16 table: value {i} ({:#06x} by the head kernel, {q:#06x} by pairs)", p);
+            assert_eq!(i < first, q == 0x7b7b, "{half} pairs, the binary16 table: value {i} written only in the launch's rows");
+        }
+    }
+}
+
+/// The decode step's attention at depth reads its cache near the rate a plain read of it takes (`lk_attention`'s split
+/// path, its chunks warp-local — a run of `hd / 8` lanes a key, `lk_attn_warps`): Qwen3-8B's 32 heads over 8 groups 128
+/// wide and Llama-3.2-1B's 64 wide, the binary16 cache, one row at position 8,192 of 8,448, in the blocks, splits and
+/// shared memory the lane gives it (`attn_heads_per_block`, `attn_splits`, `attn_smem_bytes`,
+/// `attn_blocks_a_multiprocessor`). Twenty launches back to back take at most `1 / RATE` the time of twenty launches
+/// of a kernel that only reads the same keys and values — each the median of eleven, both in one program, so a loaded
+/// card slows both alike; every output is within 1e-5 of its head's largest of the `f64` attention; and a chunk of 4
+/// rows from that position, in the blocks a multiprocessor the lane gives its grid, computes each row's bits as the four
+/// steps there do and takes at most their time.
+#[test]
+fn the_decode_attention_at_depth_reads_its_cache_near_the_read_rate() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{
+        attn_blocks_a_multiprocessor, attn_heads_per_block, attn_run_width, attn_smem_bytes, attn_splits, attn_values_per_thread, Kernel, ATTN_MIN_SPLIT,
+        PRELUDE,
+    };
+    use logicaffeine_compile::model::quant::{f16_to_f32, f32_to_f16};
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    const RATE: f64 = 0.75;
+    const TOLERANCE: f64 = 1e-5;
+    const ROWS: usize = 4;
+    const LAUNCHES: usize = 20;
+    let (ctx, at) = (8448usize, 8192usize);
+    let chip = CudaKnobs::default().chip;
+    let dir = dir().join("decode-depth");
+    std::fs::create_dir_all(&dir).unwrap();
+    let unit = |i: usize, salt: u64| {
+        let h = (i as u64 ^ salt).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(29) ^ 0x2545_F491_4F6C_DD1D;
+        ((h >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0) as f32
+    };
+    // (name, heads, key/value heads, width)
+    let shapes = [("qwen3-8b", 32usize, 8usize, 128usize), ("llama-3.2-1b", 32, 8, 64)];
+    let mut calls = String::new();
+    // Each shape: its name, its outputs a row, the bytes of keys and values a step reads, its `f64` attention's row.
+    let mut expect: Vec<(&str, usize, usize, Vec<f64>, usize, usize)> = Vec::new();
+    for (k, &(name, heads, kvh, hd)) in shapes.iter().enumerate() {
+        let (group, kvw, n) = (heads / kvh, kvh * hd, heads * hd);
+        let g = attn_heads_per_block(group, hd, hd, ctx, chip.sms, chip.smem_kib_per_block * 1024, 4).expect("the heads fit a block");
+        let splits = attn_splits(heads / g, ctx, chip.sms);
+        let smem = attn_smem_bytes(g, hd, splits, 4);
+        let (mb, mb4) = (attn_blocks_a_multiprocessor(heads / g * splits, chip.sms, 4, g, hd, hd), attn_blocks_a_multiprocessor(heads / g * ROWS * splits, chip.sms, 4, g, hd, hd));
+        let bits = |salt: u64| -> Vec<u16> { (0..ctx * kvw).map(|i| f32_to_f16(unit(i, salt))).collect() };
+        let (kb, vb) = (bits(2 * k as u64 + 1), bits(2 * k as u64 + 2));
+        let qv: Vec<f32> = (0..ROWS * n).map(|i| unit(i, 10 + k as u64) * 2.0).collect();
+        std::fs::write(dir.join(format!("k{k}.bin")), kb.iter().flat_map(|h| h.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+        std::fs::write(dir.join(format!("v{k}.bin")), vb.iter().flat_map(|h| h.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+        std::fs::write(dir.join(format!("q{k}.bin")), qv.iter().flat_map(|f| f.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+        let named = |mb: usize| format!("lk_attention<{g}, {}, float, {mb}, __half, __half, 0, LK_ATTN_SPLIT, {}>", attn_values_per_thread(hd), attn_run_width(hd));
+        let (kernel, kernel4) = (named(mb), named(mb4));
+        let launch = |kernel: &str, rows: usize, q: &str, o: &str| {
+            format!(
+                "{kernel}<<<dim3({}, {rows}, {splits}), 256, {smem}>>>({q}, kh, vh, pos, nullptr, {o}, part, cnt, {ctx}, 0, {hd}, {hd}, {group}, {heads}, {kvw}, {kvw}, 0, {:e}f, {ATTN_MIN_SPLIT}, {splits})",
+                heads / g,
+                1.0 / (hd as f64).sqrt()
+            )
+        };
+        let words = at * kvw * 2 / 16;
+        let _ = write!(
+            calls,
+            "  {{ // {name}: {g} heads a block, {splits} splits, {smem} bytes, {mb} blocks a multiprocessor ({mb4} for {ROWS} rows)\n\
+             \x20   __half* kh = (__half*)dev(dir + \"/k{k}.bin\"); __half* vh = (__half*)dev(dir + \"/v{k}.bin\"); float* q = (float*)dev(dir + \"/q{k}.bin\");\n\
+             \x20   float *o = nan({n}), *o4 = nan({}); float* part = nan({}); int* cnt = zeros({});\n\
+             \x20   CK(cudaFuncSetAttribute({kernel}, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
+             \x20   CK(cudaFuncSetAttribute({kernel4}, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
+             \x20   at(pos, {at}); {}; CK(cudaGetLastError()); CK(cudaDeviceSynchronize()); put(out, o, {n});\n\
+             \x20   float attend = timed([&]{{ for(int i = 0; i < {LAUNCHES}; ++i) {}; }});\n\
+             \x20   float read = timed([&]{{ for(int i = 0; i < {LAUNCHES}; ++i) lk_read<<<{}, 256>>>((const uint4*)kh, (const uint4*)vh, {words}L, sink); }});\n\
+             \x20   fwrite(&attend, 4, 1, out); fwrite(&read, 4, 1, out);\n\
+             \x20   {}; CK(cudaGetLastError()); CK(cudaDeviceSynchronize()); put(out, o4, {});\n\
+             \x20   float chunked = timed([&]{{ for(int i = 0; i < {LAUNCHES}; ++i) {}; }}); fwrite(&chunked, 4, 1, out);\n\
+             \x20   for(int r = 0; r < {ROWS}; ++r){{ at(pos, {at} + r); {}; CK(cudaGetLastError()); CK(cudaDeviceSynchronize()); put(out, o, {n}); }}\n  }}\n",
+            ROWS * n,
+            ROWS * heads * splits * (hd + 2),
+            ROWS * heads,
+            launch(&kernel, 1, "q", "o"),
+            launch(&kernel, 1, "q", "o"),
+            chip.sms * 16,
+            launch(&kernel4, ROWS, "q", "o4"),
+            ROWS * n,
+            launch(&kernel4, ROWS, "q", "o4"),
+            launch(&kernel, 1, &format!("q + r * {n}"), "o"),
+        );
+        // The first row's `f64` attention at position `at`: keys and values `[0, at)`, as the cache holds them.
+        let (kf, vf): (Vec<f64>, Vec<f64>) = (kb.iter().map(|&h| f64::from(f16_to_f32(h))).collect(), vb.iter().map(|&h| f64::from(f16_to_f32(h))).collect());
+        let mut reference = vec![0f64; n];
+        for h in 0..heads {
+            let (kh, qh) = (h / group, &qv[h * hd..(h + 1) * hd]);
+            let scores: Vec<f64> =
+                (0..at).map(|j| (0..hd).map(|d| f64::from(qh[d]) * kf[j * kvw + kh * hd + d]).sum::<f64>() / (hd as f64).sqrt()).collect();
+            let m = scores.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+            let w: Vec<f64> = scores.iter().map(|s| (s - m).exp()).collect();
+            let l: f64 = w.iter().sum();
+            for d in 0..hd {
+                reference[h * hd + d] = (0..at).map(|j| w[j] * vf[j * kvw + kh * hd + d]).sum::<f64>() / l;
+            }
+        }
+        expect.push((name, n, 2 * at * kvw * 2, reference, heads, hd));
+    }
+    let program = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <string>\n#include <vector>\n#include <algorithm>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n\
+         {PRELUDE}{}\n\
+         #define CK(x) do {{ cudaError_t e_ = (x); if(e_ != cudaSuccess){{ fprintf(stderr, \"cuda %d %s\\n\", __LINE__, cudaGetErrorString(e_)); exit(1); }} }} while(0)\n\
+         static void* dev(const std::string& p){{ FILE* f = fopen(p.c_str(), \"rb\"); if(!f) exit(2); std::vector<char> b; char c[65536]; size_t n;\n\
+           while((n = fread(c, 1, sizeof c, f)) > 0) b.insert(b.end(), c, c + n); fclose(f);\n\
+           void* d; CK(cudaMalloc(&d, b.size())); CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice)); return d; }}\n\
+         static float* nan(long n){{ float* p; CK(cudaMalloc(&p, n * 4)); CK(cudaMemset(p, 0xff, n * 4)); return p; }}\n\
+         static int* zeros(long n){{ int* p; CK(cudaMalloc(&p, n * 4)); CK(cudaMemset(p, 0, n * 4)); return p; }}\n\
+         static void at(int* pos, int p){{ CK(cudaMemcpy(pos, &p, 4, cudaMemcpyHostToDevice)); }}\n\
+         static void put(FILE* out, const float* d, long n){{ std::vector<float> h(n); CK(cudaMemcpy(h.data(), d, n * 4, cudaMemcpyDeviceToHost)); fwrite(h.data(), 4, n, out); }}\n\
+         // A plain read of `n` sixteen-byte words of each of two arrays, folded where no word can match it.\n\
+         __global__ void lk_read(const uint4* __restrict__ a, const uint4* __restrict__ b, long n, unsigned* sink){{\n\
+           unsigned x = 0;\n\
+           for(long i = (long)blockIdx.x * blockDim.x + threadIdx.x; i < n; i += (long)gridDim.x * blockDim.x){{ uint4 u = __ldg(a + i), v = __ldg(b + i); x ^= u.x ^ u.y ^ u.z ^ u.w ^ v.x ^ v.y ^ v.z ^ v.w; }}\n\
+           if(x == 0x9e3779b9u) *sink = x; }}\n\
+         // The median of eleven timings of `run`, after one to warm it: milliseconds.\n\
+         template<typename F> static float timed(F run){{\n\
+           cudaEvent_t e0, e1; CK(cudaEventCreate(&e0)); CK(cudaEventCreate(&e1)); std::vector<float> ms;\n\
+           for(int i = 0; i < 12; ++i){{ CK(cudaEventRecord(e0)); run(); CK(cudaEventRecord(e1)); CK(cudaEventSynchronize(e1)); float t; CK(cudaEventElapsedTime(&t, e0, e1)); if(i) ms.push_back(t); }}\n\
+           CK(cudaGetLastError()); std::sort(ms.begin(), ms.end()); return ms[ms.size() / 2]; }}\n\
+         int main(int argc, char** argv){{\n  std::string dir = argv[1];\n  FILE* out = fopen(argv[2], \"wb\");\n\
+           int* pos; CK(cudaMalloc(&pos, 4)); unsigned* sink; CK(cudaMalloc(&sink, 4));\n{calls}  fclose(out);\n  return 0;\n}}\n",
+        Kernel::Attention.source()
+    );
+    let (cu, bin, out) = (dir.join("depth.cu"), dir.join("depth"), dir.join("out.bin"));
+    std::fs::write(&cu, program).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the attentions build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).arg(&dir).arg(&out).output().unwrap();
+    assert!(ran.status.success(), "they run: {}", String::from_utf8_lossy(&ran.stderr));
+    let words: Vec<f32> = std::fs::read(&out).unwrap().chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect();
+    assert_eq!(words.len(), expect.iter().map(|e| (1 + 2 * ROWS) * e.1 + 3).sum::<usize>(), "every shape's outputs and timings");
+    let mut next = 0;
+    let mut take = |n: usize| {
+        next += n;
+        words[next - n..next].to_vec()
+    };
+    let mut rates = Vec::new();
+    for (name, n, bytes, reference, heads, hd) in &expect {
+        let one = take(*n);
+        let (attend, read) = (f64::from(take(1)[0]), f64::from(take(1)[0]));
+        let chunk = take(ROWS * n);
+        let chunked = f64::from(take(1)[0]);
+        for h in 0..*heads {
+            let big = reference[h * hd..(h + 1) * hd].iter().fold(0f64, |m, x| m.max(x.abs()));
+            for d in 0..*hd {
+                let x = f64::from(one[h * hd + d]);
+                assert!(x.is_finite(), "{name}: head {h} value {d} written, and finite");
+                let off = (x - reference[h * hd + d]).abs() / big;
+                assert!(off <= TOLERANCE, "{name}: head {h} value {d}: {x} against the f64 attention's {} ({off:.2e} of the head's largest)", reference[h * hd + d]);
+            }
+        }
+        for r in 0..ROWS {
+            let step = take(*n);
+            let apart = (0..*n).filter(|&i| step[i].to_bits() != chunk[r * n + i].to_bits()).count();
+            assert_eq!(apart, 0, "{name}: the chunk's row {r} computes the step's bits at position {}", at + r);
+        }
+        let (rate, ceiling) = (*bytes as f64 * LAUNCHES as f64 / (attend * 1e-3) / 1e9, *bytes as f64 * LAUNCHES as f64 / (read * 1e-3) / 1e9);
+        eprintln!(
+            "{name}: {:.1} µs a step, {rate:.1} GB/s against a plain read's {ceiling:.1} ({:.0}%); {ROWS} rows {:.1} µs",
+            attend * 1e3 / LAUNCHES as f64,
+            100.0 * rate / ceiling,
+            chunked * 1e3 / LAUNCHES as f64
+        );
+        rates.push((name, rate, ceiling, attend, chunked));
+    }
+    for (name, rate, ceiling, attend, chunked) in rates {
+        assert!(rate >= RATE * ceiling, "{name}: the attention reads its cache at {rate:.1} GB/s, {:.0}% of a plain read's {ceiling:.1}", 100.0 * rate / ceiling);
+        assert!(chunked <= ROWS as f64 * attend, "{name}: {ROWS} rows take {chunked:.3} ms, {ROWS} steps {:.3}", ROWS as f64 * attend);
+    }
+}
+
+/// A warp-local chunk (`lk_attn_warps`) computes each row's bits alike in every form the lane launches its attention in
+/// — a decode step (split blocks, the last to arrive folding them), a chunk's rows (each at its own position), a row
+/// taken whole by one block (its chunks held side by side, or weighed one at a time where they do not fit), and a
+/// batch's sequences each over its own cache — over `f32`, binary16 and fp8 e4m3 caches (the `f32` sums the warp-local
+/// chunks take), in blocks of 1, 2, 4, 7 and 8 heads 64, 128 and 256 wide (every lane share and run width
+/// `lk_attn_lane_values` gives),
+/// at positions past several chunks, in the heads a block, splits, blocks a multiprocessor, paths and shared memory the
+/// lane gives each launch, every sequence's every key/value group taking its chunks warp-local (`lk_attn_by_warps` on
+/// the card); and the decode steps — the first sequence's and the last's — sit within `TOLERANCE` of each head's largest
+/// of the `f64` attention over the cache's own rows. Every output starts as NaN.
+#[test]
+fn a_warp_local_attention_computes_its_bits_in_every_form_on_every_cache() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{
+        attn_blocks_a_multiprocessor, attn_heads_per_block, attn_held_bytes, attn_holds, attn_path, attn_run_width, attn_side_bytes, attn_side_chunks,
+        attn_smem_bytes, attn_splits, attn_values_per_thread, attn_warp_heads, Kernel, ATTN_MIN_SPLIT, PRELUDE,
+    };
+    use logicaffeine_compile::model::quant::{e4m3_to_f32, f16_to_f32, f32_to_e4m3, f32_to_f16};
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    const TOLERANCE: f64 = 1e-5;
+    const ROWS: usize = 4;
+    let (ctx, at) = (700usize, 600usize);
+    // The batch's sequences' positions, each over its own cache.
+    let seq_at: [usize; ROWS] = [600, 539, 478, 417];
+    let chip = CudaKnobs::default().chip;
+    let dir = dir().join("warp-forms");
+    std::fs::create_dir_all(&dir).unwrap();
+    let unit = |i: usize, salt: u64| {
+        let h = (i as u64 ^ salt).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(27) ^ 0x2545_F491_4F6C_DD1D;
+        ((h >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0) as f32
+    };
+    // (heads, key/value heads, width, sums, cache element)
+    let cases: [(usize, usize, usize, &str, &str); 12] = [
+        (8, 2, 64, "float", "float"),
+        (8, 2, 64, "float", "__half"),
+        (8, 2, 64, "float", "__nv_fp8_e4m3"),
+        (8, 2, 128, "float", "__half"),
+        (8, 2, 128, "float", "__nv_fp8_e4m3"),
+        (4, 1, 256, "float", "__half"),
+        (4, 1, 256, "float", "float"),
+        (16, 2, 64, "float", "__half"),
+        (8, 1, 128, "float", "__nv_fp8_e4m3"),
+        (4, 2, 256, "float", "__half"),
+        (2, 2, 128, "float", "float"),
+        (14, 2, 128, "float", "__half"),
+    ];
+    // A cache element's bytes and its value as the cache holds it.
+    let element = |ke: &str, v: f32| -> (Vec<u8>, f64) {
+        match ke {
+            "__half" => (f32_to_f16(v).to_le_bytes().to_vec(), f64::from(f16_to_f32(f32_to_f16(v)))),
+            "__nv_fp8_e4m3" => (vec![f32_to_e4m3(v)], f64::from(e4m3_to_f32(f32_to_e4m3(v)))),
+            _ => (v.to_le_bytes().to_vec(), f64::from(v)),
+        }
+    };
+    // Each case: its name, outputs a row, and the f64 attentions of the first sequence's step and the last's.
+    let mut expect: Vec<(String, usize, usize, [Vec<f64>; 2], f64)> = Vec::new();
+    // Each cache element's program: its cases' launches.
+    let mut programs: std::collections::BTreeMap<&str, String> = std::collections::BTreeMap::new();
+    for (k, &(heads, kvh, hd, acc_ty, ke)) in cases.iter().enumerate() {
+        let (group, kvw, n, acc) = (heads / kvh, kvh * hd, heads * hd, if acc_ty == "double" { 8 } else { 4 });
+        let name = format!("{heads} heads over {kvh}, {hd} wide, {acc_ty} sums, {ke} cache");
+        let g = attn_heads_per_block(group, hd, hd, ctx, chip.sms, chip.smem_kib_per_block * 1024, acc).expect("the heads fit a block");
+        assert!(attn_warp_heads(g, hd, acc), "{name}: {g} heads a block take their chunks warp-local");
+        let splits = attn_splits(heads / g, ctx, chip.sms);
+        let side = if attn_holds(g, hd, splits, acc) { attn_side_chunks(hd, splits) } else { 0 };
+        let (smem, smem_whole) = (attn_smem_bytes(g, hd, splits, acc), attn_smem_bytes(g, hd, splits, acc) + if side > 0 { attn_held_bytes(g, hd, splits, acc) + attn_side_bytes(g, side, acc) } else { 0 });
+        let named = |blocks: usize, path: &str| {
+            format!(
+                "lk_attention<{g}, {}, {acc_ty}, {}, {ke}, {ke}, 0, {path}, {}>",
+                attn_values_per_thread(hd),
+                attn_blocks_a_multiprocessor(blocks, chip.sms, acc, g, hd, hd),
+                attn_run_width(hd)
+            )
+        };
+        let (step, rows, whole) = (named(heads / g * splits, "LK_ATTN_SPLIT"), named(heads / g * ROWS * splits, "LK_ATTN_SPLIT"), named(heads / g * ROWS, attn_path(1, side, splits)));
+        // The sequences' caches, `kz` elements apart, and the queries: a row a sequence (the chunk's rows alike).
+        let kz = ctx * kvw;
+        let mut caches = [Vec::new(), Vec::new()];
+        let mut held = [Vec::new(), Vec::new()];
+        for (c, salt) in [(0usize, 1u64), (1, 2)] {
+            for i in 0..ROWS * kz {
+                let (b, v) = element(ke, unit(i, 100 * k as u64 + salt));
+                caches[c].extend(b);
+                held[c].push(v);
+            }
+        }
+        let qv: Vec<f32> = (0..ROWS * n).map(|i| unit(i, 100 * k as u64 + 3) * 2.0).collect();
+        std::fs::write(dir.join(format!("k{k}.bin")), &caches[0]).unwrap();
+        std::fs::write(dir.join(format!("v{k}.bin")), &caches[1]).unwrap();
+        std::fs::write(dir.join(format!("q{k}.bin")), qv.iter().flat_map(|f| f.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+        let launch = |kernel: &str, grid: &str, smem: usize, q: &str, kc: &str, vc: &str, o: &str, part: &str, cnt: &str, kzs: usize, held: usize| {
+            format!(
+                "{kernel}<<<dim3({grid}), 256, {smem}>>>({q}, {kc}, {vc}, pos, nullptr, {o}, {part}, {cnt}, {ctx}, 0, {hd}, {hd}, {group}, {heads}, {kvw}, {kvw}, 0, {:e}f, {ATTN_MIN_SPLIT}, {splits}, {kzs}L, {held}); \
+                 CK(cudaGetLastError()); CK(cudaDeviceSynchronize())",
+                1.0 / (hd as f64).sqrt()
+            )
+        };
+        let hb = heads / g;
+        let code = programs.entry(ke).or_default();
+        let _ = write!(
+            code,
+            "  {{ // {name}: {g} heads a block, {splits} splits, {side} side by side\n\
+             \x20   {ke}* kc = ({ke}*)dev(dir + \"/k{k}.bin\"); {ke}* vc = ({ke}*)dev(dir + \"/v{k}.bin\"); float* q = (float*)dev(dir + \"/q{k}.bin\");\n\
+             \x20   {acc_ty}* part = ({acc_ty}*)junk({}L); int* cnt = zeros({}); float* o = nan({}L);\n\
+             \x20   {{ int* f = zeros(1); lk_takes_warps<{acc_ty}, {ke}><<<1, 1>>>({g}, {hd}, kc, vc, {kvw}, {kz}L, {kvh}, {ROWS}, f); CK(cudaGetLastError());\n\
+             \x20     int h; CK(cudaMemcpy(&h, f, 4, cudaMemcpyDeviceToHost)); float w = h; fwrite(&w, 4, 1, out); }}\n\
+             \x20   CK(cudaFuncSetAttribute({step}, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
+             \x20   CK(cudaFuncSetAttribute({rows}, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
+             \x20   CK(cudaFuncSetAttribute({whole}, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem_whole}));\n\
+             \x20   for(int r = 0; r < {ROWS}; ++r){{ at(pos, {at} + r); {}; put(out, o, {n}); }}\n\
+             \x20   reset(o, {}L); at(pos, {at}); {}; put(out, o, {});\n\
+             \x20   reset(o, {}L); at(pos, {at}); {}; put(out, o, {});\n\
+             \x20   reset(o, {}L); {{ int p[] = {{{}}}; CK(cudaMemcpy(pos, p, sizeof p, cudaMemcpyHostToDevice)); }} {}; put(out, o, {});\n\
+             \x20   {{ const int ps[] = {{{}}}; for(int r = 0; r < {ROWS}; ++r){{ reset(o, {n}L); at(pos, ps[r]); {}; put(out, o, {n}); }} }}\n  }}\n",
+            ROWS * heads * splits * (hd + 2) * acc,
+            ROWS * hb,
+            ROWS * n,
+            launch(&step, &format!("{hb}, 1, {splits}"), smem, "q + r * {n}".replace("{n}", &n.to_string()).as_str(), "kc", "vc", "o", "part", "cnt", 0, 0),
+            ROWS * n,
+            launch(&rows, &format!("{hb}, {ROWS}, {splits}"), smem, "q", "kc", "vc", "o", "part", "cnt", 0, 0),
+            ROWS * n,
+            ROWS * n,
+            launch(&whole, &format!("{hb}, {ROWS}, 1"), smem_whole, "q", "kc", "vc", "o", "nullptr", "nullptr", 0, side),
+            ROWS * n,
+            ROWS * n,
+            seq_at.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", "),
+            launch(&rows, &format!("{hb}, {ROWS}, {splits}"), smem, "q", "kc", "vc", "o", "part", "cnt", kz, 0),
+            ROWS * n,
+            seq_at.iter().map(|p| p.to_string()).collect::<Vec<_>>().join(", "),
+            launch(&step, &format!("{hb}, 1, {splits}"), smem, &format!("q + r * {n}"), &format!("kc + (long)r * {kz}"), &format!("vc + (long)r * {kz}"), "o", "part", "cnt", 0, 0),
+        );
+        // The f64 attention of query row `r` over sequence `s`'s cache to position `p`.
+        let attend = |s: usize, r: usize, p: usize| -> Vec<f64> {
+            let mut out = vec![0f64; n];
+            for h in 0..heads {
+                let (kh, qh) = (h / group, &qv[(r * heads + h) * hd..(r * heads + h + 1) * hd]);
+                let key = |j: usize, d: usize| held[0][s * kz + j * kvw + kh * hd + d];
+                let value = |j: usize, d: usize| held[1][s * kz + j * kvw + kh * hd + d];
+                let scores: Vec<f64> = (0..p).map(|j| (0..hd).map(|d| f64::from(qh[d]) * key(j, d)).sum::<f64>() / (hd as f64).sqrt()).collect();
+                let m = scores.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                let w: Vec<f64> = scores.iter().map(|x| (x - m).exp()).collect();
+                let l: f64 = w.iter().sum();
+                for d in 0..hd {
+                    out[h * hd + d] = (0..p).map(|j| w[j] * value(j, d)).sum::<f64>() / l;
+                }
+            }
+            out
+        };
+        expect.push((name, n, k, [attend(0, 0, at), attend(ROWS - 1, ROWS - 1, seq_at[ROWS - 1])], TOLERANCE));
+    }
+    let prelude = "#include <cstdio>\n#include <cstdlib>\n#include <string>\n#include <vector>\n#include <utility>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n";
+    let helpers = "#define CK(x) do { cudaError_t e_ = (x); if(e_ != cudaSuccess){ fprintf(stderr, \"cuda %d %s\\n\", __LINE__, cudaGetErrorString(e_)); exit(1); } } while(0)\n\
+         static void* dev(const std::string& p){ FILE* f = fopen(p.c_str(), \"rb\"); if(!f) exit(2); std::vector<char> b; char c[65536]; size_t n;\n\
+           while((n = fread(c, 1, sizeof c, f)) > 0) b.insert(b.end(), c, c + n); fclose(f);\n\
+           void* d; CK(cudaMalloc(&d, b.size())); CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice)); return d; }\n\
+         static float* nan(long n){ float* p; CK(cudaMalloc(&p, n * 4)); CK(cudaMemset(p, 0xff, n * 4)); return p; }\n\
+         static void reset(float* p, long n){ CK(cudaMemset(p, 0xff, n * 4)); }\n\
+         static void* junk(long n){ void* p; CK(cudaMalloc(&p, n)); CK(cudaMemset(p, 0xff, n)); return p; }\n\
+         static int* zeros(long n){ int* p; CK(cudaMalloc(&p, n * 4)); CK(cudaMemset(p, 0, n * 4)); return p; }\n\
+         static void at(int* pos, int p){ CK(cudaMemcpy(pos, &p, 4, cudaMemcpyHostToDevice)); }\n\
+         static void put(FILE* out, const float* d, long n){ std::vector<float> h(n); CK(cudaMemcpy(h.data(), d, n * 4, cudaMemcpyDeviceToHost)); fwrite(h.data(), 4, n, out); }\n\
+         // Whether every sequence's every key/value group of a case takes its chunks warp-local.\n\
+         template<typename A, typename KE> __global__ void lk_takes_warps(int g, int hd, const KE* kc, const KE* vc, int kvw, long kz, int kvh, int seqs, int* flag){\n\
+           int all = 1;\n\
+           for(int s = 0; s < seqs; ++s) for(int h = 0; h < kvh; ++h) all &= lk_attn_by_warps<A>(g, hd, hd, kc + s * kz, vc + s * kz, kvw, kvw, (long)h * hd, (long)h * hd);\n\
+           *flag = all; }\n";
+    // Each cache element's program built beside the others'.
+    let built: Vec<(String, std::path::PathBuf)> = std::thread::scope(|s| {
+        let jobs: Vec<_> = programs
+            .iter()
+            .enumerate()
+            .map(|(i, (ke, calls))| {
+                let (cu, bin) = (dir.join(format!("forms{i}.cu")), dir.join(format!("forms{i}")));
+                let program = format!(
+                    "{prelude}{PRELUDE}{}\n{helpers}int main(int argc, char** argv){{\n  std::string dir = argv[1];\n  FILE* out = fopen(argv[2], \"wb\");\n  int* pos; CK(cudaMalloc(&pos, 64));\n{calls}  fclose(out);\n  return 0;\n}}\n",
+                    Kernel::Attention.source()
+                );
+                std::fs::write(&cu, program).unwrap();
+                let ke = ke.to_string();
+                s.spawn(move || {
+                    let made = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+                    assert!(made.status.success(), "the {ke} program builds:\n{}", String::from_utf8_lossy(&made.stderr));
+                    (ke, bin)
+                })
+            })
+            .collect();
+        jobs.into_iter().map(|j| j.join().unwrap()).collect()
+    });
+    let mut words: std::collections::BTreeMap<String, Vec<f32>> = std::collections::BTreeMap::new();
+    for (ke, bin) in &built {
+        let out = bin.with_extension("out");
+        let ran = Command::new(bin).arg(&dir).arg(&out).output().unwrap();
+        assert!(ran.status.success(), "the {ke} program runs: {}", String::from_utf8_lossy(&ran.stderr));
+        words.insert(ke.clone(), std::fs::read(&out).unwrap().chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect());
+    }
+    // Each program's outputs in its cases' order: the steps, the chunk's rows, the whole rows, the batch, its steps.
+    let mut next: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for (name, n, k, references, tolerance) in &expect {
+        let ke = cases[*k].4;
+        let at_word = next.entry(ke).or_insert(0);
+        let (all, base) = (&words[ke], *at_word + 1);
+        assert_eq!(all[*at_word], 1.0, "{name}: every sequence's every group takes its chunks warp-local");
+        *at_word += 1 + 5 * ROWS * n;
+        let block = |f: usize| base + f * ROWS * n..base + (f + 1) * ROWS * n;
+        let (steps, chunk, whole, batch, seq_steps) = (&all[block(0)], &all[block(1)], &all[block(2)], &all[block(3)], &all[block(4)]);
+        assert!(steps.iter().chain(seq_steps).all(|x| x.is_finite()), "{name}: every step's output written, finite");
+        for (form, got, want) in [("a chunk's rows", chunk, steps), ("rows taken whole", whole, steps), ("a batch's sequences", batch, seq_steps)] {
+            if let Some(i) = (0..ROWS * n).find(|&i| got[i].to_bits() != want[i].to_bits()) {
+                panic!("{name}: {form}, row {} value {}: {} against the step's {}", i / n, i % n, got[i], want[i]);
+            }
+        }
+        for (which, (got, reference)) in [("the first sequence's step", (&steps[..*n], &references[0])), ("the last sequence's step", (&seq_steps[(ROWS - 1) * n..], &references[1]))] {
+            let hd = cases[*k].2;
+            for h in 0..n / hd {
+                let big = reference[h * hd..(h + 1) * hd].iter().fold(0f64, |m, x| m.max(x.abs()));
+                for d in 0..hd {
+                    let off = (f64::from(got[h * hd + d]) - reference[h * hd + d]).abs() / big;
+                    assert!(off <= *tolerance, "{name}: {which}, head {h} value {d}: {} against the f64 attention's {} ({off:.2e})", got[h * hd + d], reference[h * hd + d]);
+                }
+            }
+        }
+    }
+    for (ke, all) in &words {
+        assert_eq!(next[ke.as_str()], all.len(), "{ke}: every output read");
+    }
+}
+
+/// A norm in blocks that play its threads computes the norm's bits (`lk_rmsnorm`'s and `lk_gather_norm`'s `VW`,
+/// `lk_warps_sum`): 512 rows of 1024, 1152, 2048 and 4096 values (Qwen3.5's, Gemma-3's, Llama's and Qwen3-8B's widths),
+/// the residual added and its sum written, the output quantized to one word or two, or kept `f32`; with its added
+/// operand normed first (Gemma's sandwich pairs); and an `f32` table's rows gathered and normed — blocks of 256 playing
+/// four of the norm's warps a warp and of 128 playing eight, against the norm's own block of its threads: every sum,
+/// output, word and scale bit for bit the norm's own block's, every sum written.
+#[test]
+fn a_norm_in_blocks_playing_its_threads_computes_its_bits() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{norm_threads, Kernel, PRELUDE};
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    const ROWS: usize = 512;
+    const VWS: [usize; 3] = [1, 4, 8];
+    let dir = dir().join("norm-vw");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut calls = String::new();
+    // Each case: what it norms and the bytes one launch's outputs take, written once a `VWS` entry, the sum first.
+    let mut cases: Vec<(String, usize, usize)> = Vec::new();
+    for cols in [1024usize, 1152, 2048, 4096] {
+        let (nt, n) = (norm_threads(cols), ROWS * cols);
+        let per = cols.div_ceil(nt);
+        // (form, OUTF, Q, PRE)
+        for (form, outf, q, pre) in [("one word", false, 1usize, false), ("two words", false, 2, false), ("f32", true, 0, false), ("its added operand normed first", false, 1, true)] {
+            let bytes = 4 * n + if outf { 4 * n } else { 0 } + if q > 0 { n * q + 4 * (n / 32) } else { 0 };
+            for vw in VWS {
+                let _ = write!(
+                    calls,
+                    "  clear(); lk_rmsnorm<true, true, {outf}, {q}, {per}, float, {pre}, 0, {vw}><<<{ROWS}, {}>>>(x, r, s, w, {}, yq, {}, {}, {cols}, 1e-5f, {cols}, 0, nullptr, 0, {cols}, 0, {}, 1e-6f);\n  \
+                     CK(cudaGetLastError()); CK(cudaDeviceSynchronize()); putf(out, s, {n});{}{}\n",
+                    nt / vw,
+                    if outf { "y" } else { "nullptr" },
+                    if q == 2 { "yl" } else { "nullptr" },
+                    if q > 0 { "ys" } else { "nullptr" },
+                    if pre { "pw" } else { "nullptr" },
+                    if outf { format!(" putf(out, y, {n});") } else { String::new() },
+                    if q > 0 {
+                        format!(" putb(out, yq, {n});{} putf(out, ys, {});", if q == 2 { format!(" putb(out, yl, {n});") } else { String::new() }, n / 32)
+                    } else {
+                        String::new()
+                    },
+                );
+            }
+            cases.push((format!("{cols} wide, {form}"), bytes, n));
+        }
+        let bytes = 4 * n + n + 4 * (n / 32);
+        for vw in VWS {
+            let _ = write!(
+                calls,
+                "  clear(); lk_gather_norm<0, false, 1, {per}, float, {vw}><<<{ROWS}, {}>>>(lk_w{{}}, t, idx, s, {cols}, 1.f, w, nullptr, yq, nullptr, ys, 1e-5f, nullptr, 0);\n  \
+                 CK(cudaGetLastError()); CK(cudaDeviceSynchronize()); putf(out, s, {n}); putb(out, yq, {n}); putf(out, ys, {});\n",
+                nt / vw,
+                n / 32
+            );
+        }
+        cases.push((format!("{cols} wide, gathered"), bytes, n));
+    }
+    let program = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n\
+         {PRELUDE}{}{}{}{}{}{}\n\
+         #define CK(x) do {{ cudaError_t e_ = (x); if(e_ != cudaSuccess){{ fprintf(stderr, \"cuda %d %s\\n\", __LINE__, cudaGetErrorString(e_)); exit(1); }} }} while(0)\n\
+         // Values in [lo, hi): a hash of the index and the salt.\n\
+         __global__ void fill(float* p, long n, unsigned salt, float lo, float hi){{\n\
+           long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i >= n) return;\n\
+           unsigned long long h = ((unsigned long long)i ^ ((unsigned long long)salt << 40)) * 0x9E3779B97F4A7C15ULL; h ^= h >> 29; h *= 0xBF58476D1CE4E5B9ULL; h ^= h >> 32;\n\
+           p[i] = lo + (hi - lo) * ((float)(h >> 40) / 16777216.f); }}\n\
+         static float* filled(long n, unsigned salt, float lo, float hi){{ float* p; CK(cudaMalloc(&p, n * 4)); fill<<<(n + 255) / 256, 256>>>(p, n, salt, lo, hi); CK(cudaGetLastError()); return p; }}\n\
+         static void putf(FILE* out, const float* d, long n){{ std::vector<float> h(n); CK(cudaMemcpy(h.data(), d, n * 4, cudaMemcpyDeviceToHost)); fwrite(h.data(), 4, n, out); }}\n\
+         static void putb(FILE* out, const signed char* d, long n){{ std::vector<signed char> h(n); CK(cudaMemcpy(h.data(), d, n, cudaMemcpyDeviceToHost)); fwrite(h.data(), 1, n, out); }}\n\
+         int main(int argc, char** argv){{\n  FILE* out = fopen(argv[1], \"wb\");\n\
+         \x20 const long N = {ROWS}L * 4096;\n\
+         \x20 float *x = filled(N, 1, -2.f, 2.f), *r = filled(N, 2, -1.f, 1.f), *w = filled(4096, 3, 0.5f, 1.5f), *pw = filled(4096, 4, 0.5f, 1.5f), *t = filled(64L * 4096, 5, -1.f, 1.f);\n\
+         \x20 std::vector<int> hi({ROWS}); for(int i = 0; i < {ROWS}; ++i) hi[i] = i * 37 % 64 + 1;\n\
+         \x20 int* idx; CK(cudaMalloc(&idx, {ROWS} * 4)); CK(cudaMemcpy(idx, hi.data(), {ROWS} * 4, cudaMemcpyHostToDevice));\n\
+         \x20 float *s, *y, *ys; signed char *yq, *yl;\n\
+         \x20 CK(cudaMalloc(&s, N * 4)); CK(cudaMalloc(&y, N * 4)); CK(cudaMalloc(&ys, N / 32 * 4)); CK(cudaMalloc(&yq, N)); CK(cudaMalloc(&yl, N));\n\
+         \x20 auto clear = [&]{{ CK(cudaMemset(s, 0xff, N * 4)); CK(cudaMemset(y, 0xff, N * 4)); CK(cudaMemset(ys, 0xff, N / 32 * 4)); CK(cudaMemset(yq, 0x5a, N)); CK(cudaMemset(yl, 0x5a, N)); }};\n\
+         {calls}  fclose(out);\n  return 0;\n}}\n",
+        Kernel::Blocks.source(),
+        Kernel::GatherQ8.source(),
+        Kernel::GatherBlk.source(),
+        Kernel::GatherF32.source(),
+        Kernel::RmsNorm.source(),
+        Kernel::GatherNorm.source()
+    );
+    let (cu, bin, out) = (dir.join("norm.cu"), dir.join("norm"), dir.join("out.bin"));
+    std::fs::write(&cu, program).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the norms build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).arg(&out).output().unwrap();
+    assert!(ran.status.success(), "they run: {}", String::from_utf8_lossy(&ran.stderr));
+    let all = std::fs::read(&out).unwrap();
+    let mut at = 0;
+    for (what, bytes, n) in &cases {
+        let runs: Vec<&[u8]> = (0..VWS.len()).map(|k| &all[at + k * bytes..at + (k + 1) * bytes]).collect();
+        at += VWS.len() * bytes;
+        assert!(runs[0][..4 * n].chunks_exact(4).all(|c| f32::from_le_bytes(c.try_into().unwrap()).is_finite()), "{what}: every sum written, and finite");
+        for (k, run) in runs.iter().enumerate().skip(1) {
+            let first = run.iter().zip(runs[0]).position(|(a, b)| a != b);
+            assert_eq!(first, None, "{what}: blocks playing {} of the norm's warps a warp write the norm's own block's bytes, first apart at byte {first:?}", VWS[k]);
+        }
+    }
+    assert_eq!(at, all.len(), "every case's outputs read");
+}
+
+/// The 16-bit GEMM in tiles of 96 outputs sums each output as it does in tiles of 64 (`lk_gemm_h16`'s `TN`, three
+/// stages; `kernels::gemm_h16_launch_tile` takes 96 where its tiles fill four waves): a product of 208 outputs with its
+/// bias (two whole 96-wide tiles and 16 outputs of the next) and a paired gate and up of 200 hidden values through the
+/// SwiGLU with both biases (four whole 48-wide halves and 8 values of the next), over 150 activation rows and nine
+/// blocks of `k`, for bfloat16 and binary16 matrices under one activation word: every output the same bits, and every
+/// one written.
+#[test]
+fn a_sixteen_bit_gemm_in_tiles_of_96_sums_each_output_as_tiles_of_64_do() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{gemm_h16_smem_bytes, Kernel, GEMM_H16_ROWS, PRELUDE};
+    use logicaffeine_compile::model::quant::f32_to_f16;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let (m, k, n, h) = (150usize, 288usize, 208usize, 200usize);
+    let unit = |i: u64| {
+        let v = i.wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(19) ^ 0x6C8E_9CF5_7093_2BD5;
+        (v >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0
+    };
+    let x: Vec<f32> = (0..m * k).map(|i| (unit(i as u64) * 10f64.powi((i / k % 5) as i32 - 2)) as f32).collect();
+    let mats: Vec<Vec<f32>> = [n, h, h].iter().enumerate().map(|(p, &r)| (0..r * k).map(|i| (unit(((p as u64 + 1) << 40) + i as u64) * 0.25) as f32).collect()).collect();
+    let biases: Vec<Vec<f32>> = [n, h, h].iter().enumerate().map(|(p, &r)| (0..r).map(|i| (unit(((p as u64 + 9) << 40) + i as u64) * 0.5) as f32).collect()).collect();
+    let dir = dir().join("sixteen-96");
+    std::fs::create_dir_all(&dir).unwrap();
+    let main = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <vector>\n#include <cuda_runtime.h>\n{PRELUDE}{}{}{}\n\
+         template<int F, int TN> int run(unsigned char* const* w, const float* dx, float* const* db, float* y, float* z, int K, int M){{\n\
+           const int N = {n}, H = {h}, smem = TN == 96 ? {s96} : {s64};\n\
+           if(cudaFuncSetAttribute(lk_gemm_h16<F, 1, 0, 0, TN>, cudaFuncAttributeMaxDynamicSharedMemorySize, smem) != cudaSuccess) return 2;\n\
+           if(cudaFuncSetAttribute(lk_gemm_h16<F, 1, 5, -1, TN>, cudaFuncAttributeMaxDynamicSharedMemorySize, smem) != cudaSuccess) return 2;\n\
+           const lk_w a{{nullptr, nullptr, w[0], (long)K * 2, 16}}, g{{nullptr, nullptr, w[1], (long)K * 2, 8}}, u{{nullptr, nullptr, w[2], (long)K * 2, 8}};\n\
+           lk_gemm_h16<F, 1, 0, 0, TN><<<dim3((N + TN - 1) / TN, (M + {rows} - 1) / {rows}), 256, smem>>>(a, dx, lk_epi(db[0]), lk_out(y), nullptr, 0, K, N, M);\n\
+           lk_gemm_h16<F, 1, 5, -1, TN><<<dim3((H + TN / 2 - 1) / (TN / 2), (M + {rows} - 1) / {rows}), 256, smem>>>(g, dx, lk_epi(db[1]), lk_out(z), nullptr, 0, K, H, M, u, db[2]);\n\
+           return cudaDeviceSynchronize() == cudaSuccess ? 0 : 1;\n\
+         }}\n\
+         int main(int argc, char** argv){{\n  const int M = {m}, K = {k}, f = atoi(argv[1]), tn = atoi(argv[2]);\n\
+           const int rows[3] = {{{n}, {h}, {h}}};\n\
+           FILE* in = fopen(argv[3], \"rb\");\n\
+           unsigned char* w[3]; float* db[3];\n\
+           for(int p = 0; p < 3; ++p){{\n\
+             const int g = lk_h16_group(rows[p]);\n\
+             if(g != (p ? 8 : 16)) return 3;\n\
+             std::vector<unsigned char> hw((long)rows[p] * K * 2), laid(hw.size());\n\
+             fread(hw.data(), 2, (long)rows[p] * K, in);\n\
+             lk_h16_interleave(hw.data(), rows[p], K, g, laid.data());\n\
+             cudaMalloc(&w[p], laid.size()); cudaMemcpy(w[p], laid.data(), laid.size(), cudaMemcpyHostToDevice);\n\
+           }}\n\
+           std::vector<float> hx((long)M * K);\n\
+           fread(hx.data(), 4, (long)M * K, in);\n\
+           for(int p = 0; p < 3; ++p){{ std::vector<float> hb(rows[p]); fread(hb.data(), 4, rows[p], in); cudaMalloc(&db[p], hb.size() * 4); cudaMemcpy(db[p], hb.data(), hb.size() * 4, cudaMemcpyHostToDevice); }}\n\
+           fclose(in);\n\
+           float *dx, *y, *z;\n\
+           cudaMalloc(&dx, hx.size() * 4); cudaMemcpy(dx, hx.data(), hx.size() * 4, cudaMemcpyHostToDevice);\n\
+           cudaMalloc(&y, (long)M * {n} * 4); cudaMalloc(&z, (long)M * {h} * 4);\n\
+           cudaMemset(y, 0xff, (long)M * {n} * 4); cudaMemset(z, 0xff, (long)M * {h} * 4);\n\
+           int e = f == 30 ? (tn == 96 ? run<30, 96>(w, dx, db, y, z, K, M) : run<30, 64>(w, dx, db, y, z, K, M))\n\
+                           : (tn == 96 ? run<1, 96>(w, dx, db, y, z, K, M) : run<1, 64>(w, dx, db, y, z, K, M));\n\
+           if(e) return e;\n\
+           std::vector<float> hy((long)M * {n}), hz((long)M * {h});\n\
+           cudaMemcpy(hy.data(), y, hy.size() * 4, cudaMemcpyDeviceToHost); cudaMemcpy(hz.data(), z, hz.size() * 4, cudaMemcpyDeviceToHost);\n\
+           FILE* o = fopen(argv[4], \"wb\"); fwrite(hy.data(), 4, hy.size(), o); fwrite(hz.data(), 4, hz.size(), o); fclose(o);\n\
+           return 0;\n}}\n",
+        Kernel::Blocks.source(),
+        Kernel::Mma.source(),
+        Kernel::GemmH16.source(),
+        rows = GEMM_H16_ROWS,
+        s96 = gemm_h16_smem_bytes(false, 96),
+        s64 = gemm_h16_smem_bytes(false, 64),
+    );
+    let (cu, bin) = (dir.join("tiles96.cu"), dir.join("tiles96"));
+    std::fs::write(&cu, main).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the products build:\n{}", String::from_utf8_lossy(&built.stderr));
+    for (f, name) in [(30, "bf16"), (1, "f16")] {
+        let word = |v: f32| -> u16 {
+            match f {
+                30 => {
+                    let b = v.to_bits();
+                    (b.wrapping_add(0x7FFF + ((b >> 16) & 1)) >> 16) as u16
+                }
+                _ => f32_to_f16(v),
+            }
+        };
+        let input = dir.join(format!("in-{name}.bin"));
+        let mut bytes: Vec<u8> = mats.iter().flat_map(|w| w.iter().flat_map(|&v| word(v).to_le_bytes())).collect();
+        bytes.extend(x.iter().chain(biases.iter().flatten()).flat_map(|v| v.to_le_bytes()));
+        std::fs::write(&input, bytes).unwrap();
+        let outs: Vec<Vec<u32>> = [96, 64]
+            .iter()
+            .map(|tn| {
+                let out = dir.join(format!("out-{name}-{tn}.bin"));
+                let ran = Command::new(&bin).args([f.to_string(), tn.to_string()]).arg(&input).arg(&out).output().unwrap();
+                assert!(ran.status.success(), "{name} in tiles of {tn}: the products run ({:?}): {}", ran.status.code(), String::from_utf8_lossy(&ran.stderr));
+                std::fs::read(&out).unwrap().chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect()
+            })
+            .collect();
+        assert_eq!(outs[0].len(), m * (n + h), "{name}: every output");
+        for (i, (a, b)) in outs[0].iter().zip(&outs[1]).enumerate() {
+            let what = if i < m * n { format!("the product's output {i}") } else { format!("the pair's hidden value {}", i - m * n) };
+            assert_ne!(*a, u32::MAX, "{name} in tiles of 96: {what} written");
+            assert_eq!(a, b, "{name}: {what} sums {} in tiles of 96, {} in tiles of 64", f32::from_bits(*a), f32::from_bits(*b));
+        }
+    }
+}
+
+/// A 16-bit GEMM in parts sums each part's outputs as the part's own GEMM sums them (`lk_gemm_h16`'s `G` 4 against
+/// `G` 0): three matrices of 256, 128 and 128 outputs side by side — the first with its bias, the second written into a
+/// table's rows from the position a parameter names, its width its pitch, as a chunk writes its keys into the cache —
+/// over 150 activation rows (a whole tile of 128 and 22 rows of the next) and nine blocks of `k`, in tiles of 64
+/// outputs and of 128, for bfloat16 and binary16 matrices under one activation word and two: every output, and every
+/// table row the launch leaves alone, the same bits. The planner launches a chunk's products of one activation so
+/// (`lane_compile_lock::a_sixteen_bit_chunk_projects_one_activation_by_its_matrices_in_one_launch`).
+#[test]
+fn a_sixteen_bit_gemm_in_parts_sums_each_part_as_its_own_gemm_sums_it() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{gemm_h16_smem_bytes, Kernel, PRELUDE};
+    use logicaffeine_compile::model::quant::f32_to_f16;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let (m, k, pos) = (150usize, 288usize, 5usize);
+    let ns = [256usize, 128, 128];
+    let unit = |i: u64| {
+        let h = i.wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(23) ^ 0x2545_F491_4F6C_DD1D;
+        (h >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0
+    };
+    let x: Vec<f32> = (0..m * k).map(|i| (unit(i as u64) * 10f64.powi((i / k % 5) as i32 - 2)) as f32).collect();
+    let weights: Vec<Vec<f32>> = ns.iter().enumerate().map(|(p, &n)| (0..n * k).map(|i| (unit(((p as u64 + 1) << 40) + i as u64) * 0.25) as f32).collect()).collect();
+    let bias: Vec<f32> = (0..ns[0]).map(|i| (unit((7u64 << 40) + i as u64) * 0.5) as f32).collect();
+    let dir = dir().join("sixteen-parts");
+    std::fs::create_dir_all(&dir).unwrap();
+    // Each output array as the launch in parts writes it, then as the parts' own launches write it: part 0 and part 2
+    // whole, part 1's table of `pos − 1 + M` rows.
+    let table = pos - 1 + m;
+    let main = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <vector>\n#include <cuda_runtime.h>\n{PRELUDE}{}{}{}\n\
+         template<int F, int Q, int TN> int run(unsigned char* const* w, const float* dx, const float* db, const int* drow, float* const* y, int K, int M){{\n\
+           const int n[3] = {{{n0}, {n1}, {n2}}}, cols = n[0] + n[1] + n[2], smem = Q == 2 ? (TN == 128 ? {wide2} : {narrow2}) : (TN == 128 ? {wide1} : {narrow1});\n\
+           if(cudaFuncSetAttribute(lk_gemm_h16<F, Q, 4, 0, TN>, cudaFuncAttributeMaxDynamicSharedMemorySize, smem) != cudaSuccess) return 2;\n\
+           if(cudaFuncSetAttribute(lk_gemm_h16<F, Q, 0, 0, TN>, cudaFuncAttributeMaxDynamicSharedMemorySize, smem) != cudaSuccess) return 2;\n\
+           lk_parts parts{{}};\n\
+           int end = 0;\n\
+           for(int p = 0; p < 3; ++p){{\n\
+             parts.w[p] = lk_w{{nullptr, nullptr, w[p], (long)K * 2, 16}};\n\
+             parts.y[p] = lk_part_y(y[p]);\n\
+             parts.bias[p] = p == 0 ? lk_epi(db) : lk_epi();\n\
+             parts.row[p] = p == 1 ? drow : nullptr;\n\
+             parts.pitch[p] = p == 1 ? n[1] : 0;\n\
+             end += n[p]; parts.end[p] = end;\n\
+           }}\n\
+           for(int p = 3; p < LK_PARTS; ++p) parts.end[p] = end;\n\
+           lk_gemm_h16<F, Q, 4, 0, TN><<<dim3((cols + TN - 1) / TN, (M + {rows} - 1) / {rows}), 256, smem>>>(lk_w{{}}, dx, lk_epi(), lk_out(), nullptr, 0, K, cols, M, lk_w{{}}, nullptr, parts);\n\
+           for(int p = 0; p < 3; ++p){{\n\
+             const lk_w wp{{nullptr, nullptr, w[p], (long)K * 2, 16}};\n\
+             lk_gemm_h16<F, Q, 0, 0, TN><<<dim3((n[p] + TN - 1) / TN, (M + {rows} - 1) / {rows}), 256, smem>>>(wp, dx, p == 0 ? lk_epi(db) : lk_epi(), lk_out(y[3 + p]), p == 1 ? drow : nullptr, p == 1 ? n[1] : 0, K, n[p], M);\n\
+           }}\n\
+           return cudaDeviceSynchronize() == cudaSuccess ? 0 : 1;\n\
+         }}\n\
+         int main(int argc, char** argv){{\n  const int M = {m}, K = {k}, f = atoi(argv[1]), q = atoi(argv[2]), tn = atoi(argv[3]);\n\
+           const int n[3] = {{{n0}, {n1}, {n2}}}, rows[3] = {{M, {table}, M}};\n\
+           FILE* in = fopen(argv[4], \"rb\");\n\
+           unsigned char* w[3];\n\
+           for(int p = 0; p < 3; ++p){{\n\
+             if(lk_h16_group(n[p]) != 16) return 3;\n\
+             std::vector<unsigned char> hw((long)n[p] * K * 2), laid(hw.size());\n\
+             fread(hw.data(), 2, (long)n[p] * K, in);\n\
+             lk_h16_interleave(hw.data(), n[p], K, 16, laid.data());\n\
+             cudaMalloc(&w[p], laid.size()); cudaMemcpy(w[p], laid.data(), laid.size(), cudaMemcpyHostToDevice);\n\
+           }}\n\
+           std::vector<float> hx((long)M * K), hb(n[0]);\n\
+           fread(hx.data(), 4, (long)M * K, in); fread(hb.data(), 4, n[0], in); fclose(in);\n\
+           float *dx, *db, *y[6]; int* drow; const int at = {pos};\n\
+           cudaMalloc(&dx, hx.size() * 4); cudaMemcpy(dx, hx.data(), hx.size() * 4, cudaMemcpyHostToDevice);\n\
+           cudaMalloc(&db, hb.size() * 4); cudaMemcpy(db, hb.data(), hb.size() * 4, cudaMemcpyHostToDevice);\n\
+           cudaMalloc(&drow, 4); cudaMemcpy(drow, &at, 4, cudaMemcpyHostToDevice);\n\
+           long total = 0;\n\
+           for(int j = 0; j < 6; ++j){{ const long e = (long)rows[j % 3] * n[j % 3]; cudaMalloc(&y[j], e * 4); cudaMemset(y[j], 0, e * 4); total += e; }}\n\
+           int e = tn == 64 ? (f == 30 ? (q == 1 ? run<30, 1, 64>(w, dx, db, drow, y, K, M) : run<30, 2, 64>(w, dx, db, drow, y, K, M))\n\
+                                       : (q == 1 ? run<1, 1, 64>(w, dx, db, drow, y, K, M) : run<1, 2, 64>(w, dx, db, drow, y, K, M)))\n\
+                            : (f == 30 ? (q == 1 ? run<30, 1, 128>(w, dx, db, drow, y, K, M) : run<30, 2, 128>(w, dx, db, drow, y, K, M))\n\
+                                       : (q == 1 ? run<1, 1, 128>(w, dx, db, drow, y, K, M) : run<1, 2, 128>(w, dx, db, drow, y, K, M)));\n\
+           if(e) return e;\n\
+           FILE* o = fopen(argv[5], \"wb\");\n\
+           for(int j = 0; j < 6; ++j){{ std::vector<float> h((long)rows[j % 3] * n[j % 3]); cudaMemcpy(h.data(), y[j], h.size() * 4, cudaMemcpyDeviceToHost); fwrite(h.data(), 4, h.size(), o); }}\n\
+           fclose(o);\n\
+           return total > 0 ? 0 : 5;\n}}\n",
+        Kernel::Blocks.source(),
+        Kernel::Mma.source(),
+        Kernel::GemmH16.source(),
+        n0 = ns[0],
+        n1 = ns[1],
+        n2 = ns[2],
+        rows = logicaffeine_compile::codegen_cuda::lane::kernels::GEMM_H16_ROWS,
+        wide1 = gemm_h16_smem_bytes(false, 128),
+        wide2 = gemm_h16_smem_bytes(true, 128),
+        narrow1 = gemm_h16_smem_bytes(false, 64),
+        narrow2 = gemm_h16_smem_bytes(true, 64),
+    );
+    let (cu, bin) = (dir.join("parts.cu"), dir.join("parts"));
+    std::fs::write(&cu, main).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the products build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let sizes = [m * ns[0], table * ns[1], m * ns[2]];
+    for (f, name) in [(30, "bf16"), (1, "f16")] {
+        let word = |v: f32| -> u16 {
+            match f {
+                30 => {
+                    let b = v.to_bits();
+                    (b.wrapping_add(0x7FFF + ((b >> 16) & 1)) >> 16) as u16
+                }
+                _ => f32_to_f16(v),
+            }
+        };
+        let input = dir.join(format!("in-{name}.bin"));
+        let mut bytes: Vec<u8> = weights.iter().flat_map(|w| w.iter().flat_map(|&v| word(v).to_le_bytes())).collect();
+        bytes.extend(x.iter().chain(&bias).flat_map(|v| v.to_le_bytes()));
+        std::fs::write(&input, bytes).unwrap();
+        for q in [1, 2] {
+            for tn in [64, 128] {
+                let what = format!("{name} under {q} words in tiles of {tn}");
+                let out = dir.join(format!("out-{name}-{q}-{tn}.bin"));
+                let ran = Command::new(&bin).args([f.to_string(), q.to_string(), tn.to_string()]).arg(&input).arg(&out).output().unwrap();
+                assert!(ran.status.success(), "{what}: the products run ({:?}): {}", ran.status.code(), String::from_utf8_lossy(&ran.stderr));
+                let got: Vec<u32> = std::fs::read(&out).unwrap().chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
+                assert_eq!(got.len(), 2 * sizes.iter().sum::<usize>(), "{what}: every array's outputs");
+                let (parted, alone) = got.split_at(sizes.iter().sum());
+                let mut at = 0;
+                for (p, &size) in sizes.iter().enumerate() {
+                    for i in 0..size {
+                        let (a, b) = (parted[at + i], alone[at + i]);
+                        assert_eq!(a, b, "{what}: part {p}'s output {i} sums {} in parts, {} alone", f32::from_bits(a), f32::from_bits(b));
+                    }
+                    let written = if p == 1 { (pos - 1) * ns[1]..size } else { 0..size };
+                    assert!(parted[at..at + size].iter().enumerate().all(|(i, &v)| written.contains(&i) || v == 0), "{what}: part {p} writes only its rows");
+                    assert!(parted[at + written.start..at + written.end].iter().any(|&v| f32::from_bits(v) != 0.0), "{what}: part {p} computes something");
+                    at += size;
+                }
+            }
+        }
+    }
+}
+
+/// A 16-bit matrix's product sums each output alike at every row count, in every layout, at every rows a warp and at
+/// every tile width (PARITY-WEIGHT-FORMATS, phase 2): over 150 activation rows — a whole tile of 128 and 22 rows of the
+/// next — and 208 outputs — whole tiles and 80 or 16 of the next — `lk_gemm_h16` in tiles of 128 outputs and of 64
+/// (`gemm_h16_tile_n`) over the matrix's rows kept one after another and interleaved two, four, eight and sixteen to a
+/// group (`lk_h16_interleave`, as the upload lays them), the decode step's row dot over each layout at every rows a
+/// warp its group holds — one, two, four and eight (the activation the A operand), sixteen (the weights the A operand),
+/// the counts a launch picks for the chip (`sixteen_launch_rows`) — and the row dot over a chunk's rows
+/// (`lk_h16_mma_rows`) in slabs of sixteen activation rows and the six past them, at every rows a warp of every layout,
+/// and of eight, three and two at eight and sixteen rows a warp, all give every output the same bits, over nine blocks
+/// of `k` (a stage of the dot's loads ahead and one past it), for bfloat16 and binary16 matrices under one activation
+/// word and two.
+#[test]
+fn a_sixteen_bit_gemm_sums_every_row_as_the_row_dot_sums_it_alone() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{gemm_h16_smem_bytes, Kernel, PRELUDE};
+    use logicaffeine_compile::model::quant::f32_to_f16;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let (m, n, k) = (150usize, 208usize, 288usize);
+    let unit = |i: u64| {
+        let h = i.wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(17) ^ 0x5851_F42D_4C95_7F2D;
+        (h >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0
+    };
+    let x: Vec<f32> = (0..m * k).map(|i| (unit(i as u64) * 10f64.powi((i / k % 5) as i32 - 2)) as f32).collect();
+    let weights: Vec<f32> = (0..n * k).map(|i| (unit((1u64 << 40) + i as u64) * 0.25) as f32).collect();
+    let dir = dir().join("sixteen-gemm");
+    std::fs::create_dir_all(&dir).unwrap();
+    // The rows a group of each layout, and every product over them in the program's order: each layout's row dot at
+    // every rows a warp up to its group, then each layout's GEMM in tiles of 128 outputs, then in tiles of 64, then each
+    // layout's row dot over slabs of sixteen activation rows at every rows a warp, then the sixteen-row layout's over
+    // slabs of eight, three and two at sixteen and eight rows a warp.
+    let groups = [1usize, 2, 4, 8, 16];
+    let layout = |g: usize| if g == 1 { "rows kept one after another".to_string() } else { format!("rows {g} to a group") };
+    let pairs: Vec<(usize, usize)> = groups.iter().flat_map(|&g| groups.iter().filter(move |&&w| w <= g).map(move |&w| (g, w))).collect();
+    let slabs = [(16usize, 8usize), (16, 3), (16, 2), (8, 8), (8, 3), (8, 2)];
+    let forms: Vec<String> = pairs
+        .iter()
+        .map(|&(g, w)| format!("the row dot over {}, {w} a warp", layout(g)))
+        .chain([128, 64].iter().flat_map(|&tn| groups.iter().map(move |&g| (tn, g))).map(|(tn, g)| format!("the GEMM in tiles of {tn} over {}", layout(g))))
+        .chain(pairs.iter().map(|&(g, w)| format!("the row dot over {}, {w} a warp, sixteen activation rows a slab", layout(g))))
+        .chain(slabs.iter().map(|&(w, s)| format!("the row dot over rows 16 to a group, {w} a warp, {s} activation rows a slab")))
+        .collect();
+    assert_eq!(forms.len(), 46, "fifteen row dots, ten GEMMs, and twenty-one row dots over slabs");
+    let main = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <vector>\n#include <cuda_runtime.h>\n{PRELUDE}{}{}{}\n\
+         template<int F, int Q, int W> __global__ void dots(lk_w w, const float* x, float* y, int K, int N, int M){{\n\
+           const int warp = (blockIdx.x * blockDim.x + threadIdx.x) >> 5, rows = N / W;\n\
+           if(warp >= rows * M) return;\n\
+           const int t = warp / rows, r0 = warp % rows * W;\n\
+           float out[W];\n\
+           lk_h16_mma_dot<F, Q, W>(w, r0, K, x + (long)t * K, out);\n\
+           if((threadIdx.x & 31) == 0) for(int r = 0; r < W; ++r) y[(long)t * N + r0 + r] = out[r];\n\
+         }}\n\
+         template<int F, int Q, int W> void dot(const lk_w& w, const float* dx, float* y, int K, int N, int M){{\n\
+           dots<F, Q, W><<<(N / W * M * 32 + 255) / 256, 256>>>(w, dx, y, K, N, M);\n\
+         }}\n\
+         // A warp's `W` rows by a slab of `S` activation rows from `s0`, each output where its lane holds it.\n\
+         template<int F, int Q, int W, int S> __device__ void slab(lk_w w, const float* x, float* y, int K, int N, int s0, int r0){{\n\
+           float c[lk_h16_tiles<W, S>()][4];\n\
+           lk_h16_mma_rows<F, Q, W, S>(w, r0, K, x + (long)s0 * K, K, c);\n\
+           lk_h16_each<W, S>([&](int r, int t, int n, int e){{ y[(long)(s0 + t) * N + r0 + r] = c[n][e]; }});\n\
+         }}\n\
+         template<int F, int Q, int W, int S, int R> __global__ void slabs(lk_w w, const float* x, float* y, int K, int N, int M){{\n\
+           const int warp = (blockIdx.x * blockDim.x + threadIdx.x) >> 5, per = N / W, n = (M + S - 1) / S;\n\
+           if(warp >= per * n) return;\n\
+           const int s0 = warp / per * S, r0 = warp % per * W;\n\
+           if(M - s0 >= S) slab<F, Q, W, S>(w, x, y, K, N, s0, r0);\n\
+           else if constexpr(R > 0) slab<F, Q, W, R>(w, x, y, K, N, s0, r0);\n\
+         }}\n\
+         template<int F, int Q, int W, int S> void rows(const lk_w& w, const float* dx, float* y, int K, int N, int M){{\n\
+           slabs<F, Q, W, S, {m} % S><<<(N / W * ((M + S - 1) / S) * 32 + 255) / 256, 256>>>(w, dx, y, K, N, M);\n\
+         }}\n\
+         // Every layout's row dot at each rows a warp its group holds, then every layout's GEMM, an output each.\n\
+         template<int F, int Q> int run(unsigned char* const* layouts, const float* dx, float* y, int K, int N, int M){{\n\
+           const long MN = (long)M * N;\n\
+           int at = 0;\n\
+           for(int i = 0; i < {layouts}; ++i){{\n\
+             const lk_w w = {{nullptr, nullptr, layouts[i], (long)K * 2, 1 << i}};\n\
+             dot<F, Q, 1>(w, dx, y + at++ * MN, K, N, M);\n\
+             if(i >= 1) dot<F, Q, 2>(w, dx, y + at++ * MN, K, N, M);\n\
+             if(i >= 2) dot<F, Q, 4>(w, dx, y + at++ * MN, K, N, M);\n\
+             if(i >= 3) dot<F, Q, 8>(w, dx, y + at++ * MN, K, N, M);\n\
+             if(i >= 4) dot<F, Q, 16>(w, dx, y + at++ * MN, K, N, M);\n\
+           }}\n\
+           const int wide = Q == 2 ? {wide2} : {wide1}, narrow = Q == 2 ? {narrow2} : {narrow1};\n\
+           if(cudaFuncSetAttribute(lk_gemm_h16<F, Q>, cudaFuncAttributeMaxDynamicSharedMemorySize, wide) != cudaSuccess) return 2;\n\
+           if(cudaFuncSetAttribute(lk_gemm_h16<F, Q, 0, 0, 64>, cudaFuncAttributeMaxDynamicSharedMemorySize, narrow) != cudaSuccess) return 2;\n\
+           for(int i = 0; i < {layouts}; ++i){{\n\
+             const lk_w w = {{nullptr, nullptr, layouts[i], (long)K * 2, 1 << i}};\n\
+             lk_gemm_h16<F, Q><<<dim3((N + 127) / 128, (M + 127) / 128), 256, wide>>>(w, dx, lk_epi(), lk_out(y + at++ * MN), nullptr, 0, K, N, M);\n\
+           }}\n\
+           for(int i = 0; i < {layouts}; ++i){{\n\
+             const lk_w w = {{nullptr, nullptr, layouts[i], (long)K * 2, 1 << i}};\n\
+             lk_gemm_h16<F, Q, 0, 0, 64><<<dim3((N + 63) / 64, (M + 127) / 128), 256, narrow>>>(w, dx, lk_epi(), lk_out(y + at++ * MN), nullptr, 0, K, N, M);\n\
+           }}\n\
+           for(int i = 0; i < {layouts}; ++i){{\n\
+             const lk_w w = {{nullptr, nullptr, layouts[i], (long)K * 2, 1 << i}};\n\
+             rows<F, Q, 1, 16>(w, dx, y + at++ * MN, K, N, M);\n\
+             if(i >= 1) rows<F, Q, 2, 16>(w, dx, y + at++ * MN, K, N, M);\n\
+             if(i >= 2) rows<F, Q, 4, 16>(w, dx, y + at++ * MN, K, N, M);\n\
+             if(i >= 3) rows<F, Q, 8, 16>(w, dx, y + at++ * MN, K, N, M);\n\
+             if(i >= 4) rows<F, Q, 16, 16>(w, dx, y + at++ * MN, K, N, M);\n\
+           }}\n\
+           {{\n\
+             const lk_w w = {{nullptr, nullptr, layouts[4], (long)K * 2, 16}};\n\
+             rows<F, Q, 16, 8>(w, dx, y + at++ * MN, K, N, M); rows<F, Q, 16, 3>(w, dx, y + at++ * MN, K, N, M); rows<F, Q, 16, 2>(w, dx, y + at++ * MN, K, N, M);\n\
+             rows<F, Q, 8, 8>(w, dx, y + at++ * MN, K, N, M); rows<F, Q, 8, 3>(w, dx, y + at++ * MN, K, N, M); rows<F, Q, 8, 2>(w, dx, y + at++ * MN, K, N, M);\n\
+           }}\n\
+           return at != {forms} ? 4 : cudaDeviceSynchronize() == cudaSuccess ? 0 : 1;\n\
+         }}\n\
+         int main(int argc, char** argv){{\n  const int M = {m}, N = {n}, K = {k}, f = atoi(argv[1]), q = atoi(argv[2]);\n\
+           const long bytes = (long)N * K * 2;\n\
+           std::vector<unsigned char> hw(bytes); std::vector<float> hx((long)M * K);\n\
+           FILE* in = fopen(argv[3], \"rb\"); fread(hw.data(), 2, (long)N * K, in); fread(hx.data(), 4, (long)M * K, in); fclose(in);\n\
+           if(lk_h16_group(N) != 16) return 3;\n\
+           // The rows kept one after another, then grouped two, four, eight and sixteen.\n\
+           unsigned char* layouts[{layouts}];\n\
+           std::vector<unsigned char> laid(bytes);\n\
+           for(int i = 0; i < {layouts}; ++i){{\n\
+             if(i) lk_h16_interleave(hw.data(), N, K, 1 << i, laid.data()); else laid = hw;\n\
+             cudaMalloc(&layouts[i], bytes); cudaMemcpy(layouts[i], laid.data(), bytes, cudaMemcpyHostToDevice);\n\
+           }}\n\
+           float *dx, *y;\n\
+           cudaMalloc(&dx, (long)M * K * 4); cudaMalloc(&y, {forms}L * M * N * 4);\n\
+           cudaMemcpy(dx, hx.data(), (long)M * K * 4, cudaMemcpyHostToDevice);\n\
+           int e = f == 30 ? (q == 1 ? run<30, 1>(layouts, dx, y, K, N, M) : run<30, 2>(layouts, dx, y, K, N, M))\n\
+                           : (q == 1 ? run<1, 1>(layouts, dx, y, K, N, M) : run<1, 2>(layouts, dx, y, K, N, M));\n\
+           if(e) return e;\n\
+           std::vector<float> h({forms}L * M * N);\n\
+           cudaMemcpy(h.data(), y, {forms}L * M * N * 4, cudaMemcpyDeviceToHost);\n\
+           FILE* o = fopen(argv[4], \"wb\"); fwrite(h.data(), 4, {forms}L * M * N, o); fclose(o);\n\
+           return 0;\n}}\n",
+        Kernel::Blocks.source(),
+        Kernel::Mma.source(),
+        Kernel::GemmH16.source(),
+        wide1 = gemm_h16_smem_bytes(false, 128),
+        wide2 = gemm_h16_smem_bytes(true, 128),
+        narrow1 = gemm_h16_smem_bytes(false, 64),
+        narrow2 = gemm_h16_smem_bytes(true, 64),
+        layouts = groups.len(),
+        forms = forms.len(),
+    );
+    let (cu, bin) = (dir.join("gemm.cu"), dir.join("gemm"));
+    std::fs::write(&cu, main).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the products build:\n{}", String::from_utf8_lossy(&built.stderr));
+    for (f, name) in [(30, "bf16"), (1, "f16")] {
+        let words: Vec<u16> = weights
+            .iter()
+            .map(|&v| match f {
+                30 => {
+                    let b = v.to_bits();
+                    (b.wrapping_add(0x7FFF + ((b >> 16) & 1)) >> 16) as u16
+                }
+                _ => f32_to_f16(v),
+            })
+            .collect();
+        let input = dir.join(format!("in-{name}.bin"));
+        let bytes: Vec<u8> = words.iter().flat_map(|w| w.to_le_bytes()).chain(x.iter().flat_map(|v| v.to_le_bytes())).collect();
+        std::fs::write(&input, bytes).unwrap();
+        for q in [1, 2] {
+            let out = dir.join(format!("out-{name}-{q}.bin"));
+            let ran = Command::new(&bin).arg(f.to_string()).arg(q.to_string()).arg(&input).arg(&out).output().unwrap();
+            assert!(ran.status.success(), "{name} under {q} words: the products run ({:?}): {}", ran.status.code(), String::from_utf8_lossy(&ran.stderr));
+            let got: Vec<u32> = std::fs::read(&out).unwrap().chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
+            assert_eq!(got.len(), forms.len() * m * n, "{name} under {q} words: every product's outputs");
+            let (base, rest) = got.split_at(m * n);
+            for t in 0..m {
+                for o in 0..n {
+                    let i = t * n + o;
+                    for (j, form) in forms.iter().enumerate().skip(1) {
+                        let v = rest[(j - 1) * m * n + i];
+                        assert_eq!(v, base[i], "{name} under {q} words: row {t}, output {o}: {form} sums {}, {} {}", f32::from_bits(v), forms[0], f32::from_bits(base[i]));
+                    }
+                }
+            }
+            assert!(base.iter().any(|&v| f32::from_bits(v) != 0.0), "{name} under {q} words: the products compute something");
+        }
+    }
+}
+
+/// Qwen3.5's gated delta layers in each 16-bit format, the checkpoints `tiny_models::write_checkpoint_in` writes under
+/// `dir` as `tag`: the tiny model, at 2048 wide, and with heads of 512 — a convolution whose L2 norm takes more threads
+/// than a GEMV's eight warps — in BF16 and F16.
+fn sixteen_bit_gated_delta_cases(tag: &str) -> Vec<(String, ModelSpec, PathBuf)> {
+    use logicaffeine_compile::model::quant::GgmlType;
+    let mut wide_heads = Tiny::Qwen35.spec(CTX);
+    for layer in &mut wide_heads.layers {
+        if let Mixer::GatedDelta(g) = &mut layer.mixer {
+            g.head_dim = 512;
+        }
+    }
+    let mut cases = Vec::new();
+    for (name, spec) in [("qwen35", Tiny::Qwen35.spec(CTX)), ("qwen35-medium", Tiny::Qwen35.medium(CTX)), ("qwen35-heads512", wide_heads)] {
+        for ty in [GgmlType::Bf16, GgmlType::F16] {
+            let path = dir().join(format!("{name}-{}-{tag}.gguf", ty.name()));
+            tiny_models::write_checkpoint_in(&spec, &path, ty);
+            cases.push((format!("{name} {}", ty.name()), spec.clone(), path));
+        }
+    }
+    cases
+}
+
+/// A 16-bit checkpoint's gated delta layer inputs folded into their projections' launch compute what their launches
+/// apart compute (PARITY-WEIGHT-FORMATS, phase 2; PARITY-GDN-INPUT-EPILOGUE): on every case of
+/// `sixteen_bit_gated_delta_cases` whose decode step folds them — the cases at 2048 wide always — under one word, two and
+/// the precise numerics, the step with each layer's products, convolutions and gates in one launch and with
+/// `gdn_input_epilogue` held generate the same tokens and the same logits bit for bit through a prompt of chunks and
+/// decode steps — each convolution's taps a multiply-add each in order
+/// (`lk_fma`), as `lk_conv_tap` takes them, whatever a compiler would fuse. Built by CUDA 12.8, the fold's taps, their
+/// products read ahead of the dot, were once summed a rounded product and an add apart where the convolution's launch
+/// fused each into one.
+#[test]
+fn a_sixteen_bit_gdn_input_epilogue_computes_what_its_launches_compute_apart() {
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let mut lanes = Vec::new();
+    for (name, spec, ckpt) in sixteen_bit_gated_delta_cases("gdn16-apart") {
+        for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8, Q8MatKind::Dequant] {
+            let what = format!("{name} {numerics:?}");
+            let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 4 };
+            let folded = compile(&spec, &ckpt, &opts).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let folds = folded.decode().schedule.launches.iter().any(|l| kind(l) == "gemv_gdn");
+            assert!(folds || !name.starts_with("qwen35-medium"), "{what}: the decode step folds its gated delta inputs");
+            if folds {
+                let apart = compile_holding(&spec, &ckpt, &opts, &["gdn_input_epilogue"]).unwrap_or_else(|e| panic!("{what} held: {e}"));
+                lanes.push((what, spec.vocab, ckpt.clone(), folded, apart));
+            }
+        }
+    }
+    held_alike(&lanes, "gdn16");
+}
+
+/// A 16-bit checkpoint's step whose delta rule norms its query and key heads itself computes what the step reading heads
+/// its convolution normed computes (`delta_qk_norm`): the rule moves a head's norm to the step only where the gated
+/// delta inputs' launch could not norm it in the block that computes it — never with the real checkpoint's heads at 2048
+/// wide (16 key and 16 value heads of 128) in one word or two, where its GEMV in parts takes sixteen rows a warp and a
+/// block holds a whole head of 128, while the tiny model at 2048 wide, its gates' four outputs taking four rows a warp,
+/// moves them — and on every case of `sixteen_bit_gated_delta_cases` and those it moves, under one word, two and the
+/// precise numerics, the step with the rule and with it held generate the same tokens
+/// and the same logits bit for bit through a prompt of chunks and decode steps: each head's squares rounded as written
+/// (`lk_mul`) and summed by one tree in both.
+#[test]
+fn a_sixteen_bit_steps_delta_rule_norms_its_heads_as_its_convolution_does() {
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    use logicaffeine_compile::model::quant::GgmlType;
+    let mut real = Tiny::Qwen35.medium(CTX);
+    for layer in &mut real.layers {
+        if let Mixer::GatedDelta(g) = &mut layer.mixer {
+            (g.k_heads, g.v_heads, g.head_dim) = (16, 16, 128);
+        }
+    }
+    let mut cases = sixteen_bit_gated_delta_cases("delta16-qk");
+    for ty in [GgmlType::Bf16, GgmlType::F16] {
+        let path = dir().join(format!("qwen35-real-heads-{}-delta16-qk.gguf", ty.name()));
+        tiny_models::write_checkpoint_in(&real, &path, ty);
+        cases.push((format!("qwen35-real-heads {}", ty.name()), real.clone(), path));
+    }
+    let mut lanes = Vec::new();
+    for (name, spec, ckpt) in cases {
+        for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8, Q8MatKind::Dequant] {
+            let what = format!("{name} {numerics:?}");
+            let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 4 };
+            let moved = compile(&spec, &ckpt, &opts).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let fired = moved.decode().schedule.fired("delta_qk_norm") > 0;
+            if name.starts_with("qwen35-real-heads") && numerics != Q8MatKind::Dequant {
+                assert!(!fired, "{what}: the inputs' launch norms its whole heads itself");
+            }
+            if fired {
+                let apart = compile_holding(&spec, &ckpt, &opts, &["delta_qk_norm"]).unwrap_or_else(|e| panic!("{what} held: {e}"));
+                lanes.push((what, spec.vocab, ckpt.clone(), moved, apart));
+            }
+        }
+    }
+    assert!(!lanes.is_empty(), "some case moves its norms");
+    held_alike(&lanes, "delta16-qk");
+}
+
+/// A 16-bit checkpoint's gated delta layer inputs folded into their projections' launch decode faster than their
+/// launches apart (PARITY-WEIGHT-FORMATS, phase 2; PARITY-GDN-INPUT-EPILOGUE): Qwen3.5 at 2048 wide with the real
+/// checkpoint's heads (16 key and 16 value heads of 128), every matrix of whole 32s in BF16 on the 16-bit tensor cores,
+/// the fold at sixteen rows a warp, under one word — the decode step with each layer's products, convolutions and gates
+/// in one launch runs more tokens a second than with `gdn_input_epilogue` held, the best of three runs each, taken in
+/// turns. Each of a warp's rows goes on through its convolution and gates in a lane of its own, the row's operands read
+/// while the dots stream: one lane carrying a warp's sixteen rows one after another held the fold to 125 µs a layer on
+/// the real Qwen3.5-0.8B, a lane a row to 63.
+#[test]
+fn a_sixteen_bit_gdn_input_epilogue_decodes_faster_than_its_launches_apart() {
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let mut spec = Tiny::Qwen35.medium(CTX);
+    for layer in &mut spec.layers {
+        if let Mixer::GatedDelta(g) = &mut layer.mixer {
+            (g.k_heads, g.v_heads, g.head_dim) = (16, 16, 128);
+        }
+    }
+    let ckpt = dir().join("qwen35-real-heads-gdn-speed-bf16.gguf");
+    let sixteen: Vec<String> = tiny_models::tensors(&spec)
+        .into_iter()
+        .filter(|(n, dims)| dims.len() == 2 && dims[0] % 32 == 0 && !n.contains("norm"))
+        .map(|(n, _)| n)
+        .collect();
+    tiny_models::write_checkpoint_as(&spec, &ckpt, &|t| if sixteen.iter().any(|b| b == t) { GgmlType::Bf16 } else { GgmlType::F32 });
+    let opts = LaneOptions { ctx: 256, knobs: CudaKnobs { activations: Q8MatKind::Int8Act, ..CudaKnobs::default() }, prefill: 4 };
+    let folded = compile(&spec, &ckpt, &opts).unwrap_or_else(|e| panic!("folded: {e}"));
+    assert!(
+        folded.decode().schedule.launches.iter().any(|l| l.gdn_inputs().is_some_and(|(products, _, _)| products.reads_sixteen())),
+        "the decode step folds its gated delta inputs, a product by 16-bit matrices"
+    );
+    assert!(folded.program.cu.contains("lk_gemv_gdn<30, 1, 16, "), "the fold takes sixteen rows a warp");
+    let apart = compile_holding(&spec, &ckpt, &opts, &["gdn_input_epilogue"]).unwrap_or_else(|e| panic!("held: {e}"));
+    let built = build_all(&[(&folded, "gdn16-speed-folded"), (&apart, "gdn16-speed-apart")]);
+    let prompt = [5u32, 17, 2, 30, 9, 11, 3];
+    let (mut fast, mut slow) = (0f64, 0f64);
+    for _ in 0..3 {
+        let f = exec(&built[0], &ckpt, &prompt, 192, spec.vocab, false).tok_per_s.expect("the folded program's decode rate");
+        let a = exec(&built[1], &ckpt, &prompt, 192, spec.vocab, false).tok_per_s.expect("the held program's decode rate");
+        fast = fast.max(f);
+        slow = slow.max(a);
+    }
+    assert!(fast > slow, "the folded step decodes {fast:.1} tokens a second, its launches apart {slow:.1}");
+}
+
+/// A batch of a 16-bit checkpoint decodes each of its sequences exactly as the decode step decodes it alone
+/// (PARITY-WEIGHT-FORMATS, phase 2): Llama, Qwen3, Gemma-3 and Qwen3.5 in BF16 and F16, under one activation word and
+/// two, four sequences a step — their products in the GEMV's lanes on the 16-bit tensor cores (`lk_h16_mma_rows`, the
+/// sequences' rows B's columns) — and twenty, past `GEMV_ROWS`, on the 16-bit GEMM, generate, sequence by sequence, the
+/// tokens and every logit, bit for bit, the program gives them run one after another.
+#[test]
+fn a_sixteen_bit_batch_decodes_each_sequence_as_its_own_step_does() {
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let four: Vec<(Vec<u32>, usize)> = vec![(vec![5, 17, 2, 30, 41, 8, 63], 6), (vec![9, 1], 6), (vec![44, 13, 70, 2, 2], 6), (vec![7], 6)];
+    let twenty: Vec<(Vec<u32>, usize)> = (0..20u32).map(|i| ((0..1 + i % 5).map(|j| (i * 31 + j * 7 + 3) % 90).collect(), 4)).collect();
+    let mut lanes = Vec::new();
+    for t in [Tiny::Llama, Tiny::Qwen3, Tiny::Gemma3, Tiny::Qwen35] {
+        let spec = t.spec(CTX);
+        for ty in [GgmlType::Bf16, GgmlType::F16] {
+            let ckpt = dir().join(format!("batch16-{}-{}.gguf", t.name(), ty.name()));
+            tiny_models::write_checkpoint_in(&spec, &ckpt, ty);
+            for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
+                let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 4 };
+                for jobs in [&four, &twenty] {
+                    let what = format!("{} {} {numerics:?}, {} sequences", t.name(), ty.name(), jobs.len());
+                    let lane = compile_batch(&spec, &ckpt, &opts, jobs.len()).unwrap_or_else(|e| panic!("{what}: {e}"));
+                    let name = format!("batch16-{}-{}-{numerics:?}-{}", t.name(), ty.name(), jobs.len());
+                    lanes.push((what, spec.vocab, ckpt.clone(), jobs.clone(), lane, name));
+                }
+            }
+        }
+    }
+    let built = build_all(&lanes.iter().map(|(_, _, _, _, lane, name)| (lane, name.as_str())).collect::<Vec<_>>());
+    for ((what, vocab, ckpt, jobs, _, _), b) in lanes.iter().zip(&built) {
+        let alone = exec_many(b, ckpt, jobs, *vocab, true);
+        let together = exec_batch(b, ckpt, jobs, *vocab, true);
+        for (s, (one, all)) in alone.iter().zip(&together).enumerate() {
+            assert_eq!(all.tokens, one.tokens, "{what}: sequence {s} decodes in the batch as it does alone");
+            assert_eq!(all.logits, one.logits, "{what}: sequence {s}'s every logit, bit for bit");
+        }
+    }
+}
+
+/// A short prompt of a 16-bit checkpoint prefills a chunk in about a decode step's time (PARITY-WEIGHT-FORMATS, phase 2):
+/// Llama at 2048 wide in BF16 under one word, a 16-token prompt in one chunk of 16 rows — each matrix read once, as a
+/// step reads it for its one row, the chunk's rows multiplied in the GEMV's lanes on the 16-bit tensor cores
+/// (`lk_h16_mma_rows`) — prefills in at most two decode steps' time, the best of three runs. On the 128-row GEMM a
+/// 6-token prompt's two chunks of the real Llama-3.2-1B took 2.7 steps each (41.8 ms; 16.0 in the GEMV's lanes).
+#[test]
+fn a_sixteen_bit_short_prompt_prefills_a_chunk_in_about_a_decode_steps_time() {
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let spec = Tiny::Llama.medium(CTX);
+    let ckpt = dir().join("llama-medium-short-prompt-bf16.gguf");
+    let sixteen: Vec<String> = tiny_models::tensors(&spec)
+        .into_iter()
+        .filter(|(n, dims)| dims.len() == 2 && dims[0] % 32 == 0 && !n.contains("norm"))
+        .map(|(n, _)| n)
+        .collect();
+    tiny_models::write_checkpoint_as(&spec, &ckpt, &|t| if sixteen.iter().any(|b| b == t) { GgmlType::Bf16 } else { GgmlType::F32 });
+    let opts = LaneOptions { ctx: 256, knobs: CudaKnobs { activations: Q8MatKind::Int8Act, ..CudaKnobs::default() }, prefill: 16 };
+    let lane = compile(&spec, &ckpt, &opts).unwrap_or_else(|e| panic!("{e}"));
+    let built = build_all(&[(&lane, "short-prompt-bf16")]);
+    let Built { bin, side, name } = &built[0];
+    let prompt: Vec<u32> = (0..16u32).map(|i| (i * 37 + 5) % 90).collect();
+    let (mut prefill, mut step) = (f64::MAX, f64::MAX);
+    for _ in 0..3 {
+        let out = Command::new(bin).arg(&ckpt).arg(side).arg("64").args(prompt.iter().map(u32::to_string)).output().unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "{name} runs:\n{stdout}\n{}", String::from_utf8_lossy(&out.stderr));
+        let field = |key: &str| -> f64 {
+            stdout.lines().find_map(|l| l.strip_prefix(key)).unwrap_or_else(|| panic!("{name} prints {key}")).trim().parse().unwrap()
+        };
+        prefill = prefill.min(field("PREFILL_MS:"));
+        step = step.min(field("DECODE_MS_PER_TOKEN:"));
+    }
+    assert!(prefill <= 2.0 * step, "the 16-row chunk prefills in {prefill:.3} ms, {:.2} decode steps of {step:.3} ms", prefill / step);
 }
 
 /// A long prompt crosses the attention's chunks. A row's span is cut into chunks by its length alone: the decode step
@@ -561,6 +2050,90 @@ fn a_batch_decodes_each_sequence_as_its_own_step_does() {
     }
 }
 
+/// A batch whose projections are over Q4_K and Q6_K rows decodes each of its sequences exactly as the decode step
+/// decodes it alone, its projections on the tensor cores (`lk_gemv_mma_blk`) summing each row as the decode step's GEMV
+/// sums its one: Llama's and Qwen3's medium shapes with every matrix of whole super-blocks in each format, sixteen
+/// prompts of one to eight tokens decoded a token each a step together, generate, sequence by sequence, the tokens and
+/// every logit, bit for bit, that each gives alone, under one word a block.
+#[test]
+fn a_k_quant_batch_decodes_each_sequence_as_its_own_step_does() {
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let jobs: Vec<(Vec<u32>, usize)> = (0..16u32).map(|s| ((0..=s % 8).map(|i| 3 + (s * 7 + i * 11) % 60).collect(), 4)).collect();
+    let mut lanes = Vec::new();
+    for ty in [GgmlType::Q4K, GgmlType::Q6K] {
+        for t in [Tiny::Llama, Tiny::Qwen3] {
+            let spec = t.medium(CTX);
+            let ckpt = dir().join(format!("batch-blk-{}-{}.gguf", t.name(), ty.name()));
+            let matrices: std::collections::BTreeSet<String> = tiny_models::tensors(&spec)
+                .into_iter()
+                .filter(|(n, dims)| dims.len() == 2 && dims[0] % 256 == 0 && !n.contains("norm") && !n.contains("token_embd"))
+                .map(|(n, _)| n)
+                .collect();
+            tiny_models::write_checkpoint_as(&spec, &ckpt, &|n| if matrices.contains(n) { ty } else { GgmlType::Q8_0 });
+            let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: Q8MatKind::Int8Act, ..CudaKnobs::default() }, prefill: 4 };
+            let lane = compile_batch(&spec, &ckpt, &opts, jobs.len()).unwrap_or_else(|e| panic!("{} {}: {e}", t.name(), ty.name()));
+            assert!(lane.program.cu.contains("lk_gemv_mma_blk<"), "{} {}: the batch on the tensor cores", t.name(), ty.name());
+            lanes.push((t, ty, spec.vocab, ckpt, lane, format!("batch-blk-{}-{}", t.name(), ty.name())));
+        }
+    }
+    let built = build_all(&lanes.iter().map(|(_, _, _, _, lane, name)| (lane, name.as_str())).collect::<Vec<_>>());
+    for ((t, ty, vocab, ckpt, _, _), b) in lanes.iter().zip(&built) {
+        let what = format!("{} {}", t.name(), ty.name());
+        let alone = exec_many(b, ckpt, &jobs, *vocab, true);
+        let together = exec_batch(b, ckpt, &jobs, *vocab, true);
+        for (s, (one, all)) in alone.iter().zip(&together).enumerate() {
+            assert_eq!(all.tokens, one.tokens, "{what}: sequence {s} decodes in the batch as it does alone");
+            assert_eq!(all.logits, one.logits, "{what}: sequence {s}'s every logit, bit for bit");
+        }
+    }
+}
+
+/// A batch whose projections are over 32-value blocks — Q4_0, Q4_1, Q5_0, Q5_1 — decodes each of its sequences exactly
+/// as the decode step decodes it alone, those projections on the tensor cores (`lk_gemv_mma_blk`) summing each row as
+/// the decode step's GEMV sums its one: Llama's and Qwen3's medium shapes with every matrix in each format, sixteen
+/// prompts of one to eight tokens decoded together, generate, sequence by sequence, the tokens and every logit, bit for
+/// bit, that each gives alone, under one word a block.
+#[test]
+fn a_batch_of_32_value_blocks_decodes_each_sequence_as_its_own_step_does() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::format_arg;
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let jobs: Vec<(Vec<u32>, usize)> = (0..16u32).map(|s| ((0..=s % 8).map(|i| 3 + (s * 7 + i * 11) % 60).collect(), 4)).collect();
+    let mut lanes = Vec::new();
+    for ty in [GgmlType::Q4_0, GgmlType::Q4_1, GgmlType::Q5_0, GgmlType::Q5_1] {
+        for t in [Tiny::Llama, Tiny::Qwen3] {
+            let spec = t.medium(CTX);
+            let ckpt = dir().join(format!("batch-blk32-{}-{}.gguf", t.name(), ty.name()));
+            let matrices: std::collections::BTreeSet<String> = tiny_models::tensors(&spec)
+                .into_iter()
+                .filter(|(n, dims)| dims.len() == 2 && dims[0] % 32 == 0 && !n.contains("norm") && !n.contains("token_embd"))
+                .map(|(n, _)| n)
+                .collect();
+            tiny_models::write_checkpoint_as(&spec, &ckpt, &|n| if matrices.contains(n) { ty } else { GgmlType::Q8_0 });
+            let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: Q8MatKind::Int8Act, ..CudaKnobs::default() }, prefill: 4 };
+            let lane = compile_batch(&spec, &ckpt, &opts, jobs.len()).unwrap_or_else(|e| panic!("{} {}: {e}", t.name(), ty.name()));
+            let launch = format!("lk_gemv_mma_blk<{}><<<", format_arg(ty));
+            assert!(lane.program.cu.contains(&launch), "{} {}: the batch on the tensor cores ({launch})", t.name(), ty.name());
+            lanes.push((t, ty, spec.vocab, ckpt, lane, format!("batch-blk32-{}-{}", t.name(), ty.name())));
+        }
+    }
+    let built = build_all(&lanes.iter().map(|(_, _, _, _, lane, name)| (lane, name.as_str())).collect::<Vec<_>>());
+    for ((t, ty, vocab, ckpt, _, _), b) in lanes.iter().zip(&built) {
+        let what = format!("{} {}", t.name(), ty.name());
+        let alone = exec_many(b, ckpt, &jobs, *vocab, true);
+        let together = exec_batch(b, ckpt, &jobs, *vocab, true);
+        for (s, (one, all)) in alone.iter().zip(&together).enumerate() {
+            assert_eq!(all.tokens, one.tokens, "{what}: sequence {s} decodes in the batch as it does alone");
+            assert_eq!(all.logits, one.logits, "{what}: sequence {s}'s every logit, bit for bit");
+        }
+    }
+}
+
 /// The `recurrent_state` knob at bf16 keeps every form of the step alike: a gated-delta model whose memories are stored
 /// in bf16 between steps (the delta rule rounding each memory after every row it walks) continues a prompt run in chunks
 /// of 8, 2 and 1 exactly as one fed a token at a time, and decodes each of a batch's sequences as it decodes alone,
@@ -632,6 +2205,23 @@ fn a_bf16_recurrent_state_decodes_alike_in_every_form_and_near_its_reference() {
 #[test]
 fn an_f16_cache_decodes_alike_in_every_form_and_near_its_reference() {
     use logicaffeine_compile::codegen_cuda::CachePrecision;
+    cache_decodes_alike_and_near(CachePrecision::F16, KvStorage::F16, "f16", "binary16");
+}
+
+/// [`an_f16_cache_decodes_alike_in_every_form_and_near_its_reference`] for the cache kept in fp8 e4m3
+/// (PARITY-KV-CACHE-QUANT): every tiny architecture under every numerics decodes a prompt fed a token at a time and in
+/// chunks of 8 alike, and each of a batch's sequences as it decodes alone, tokens and every logit bit for bit; held to
+/// the reference whose caches keep e4m3 rows alike — a cached value its `f32` arithmetic rounded to the other e4m3
+/// neighbour among the near calls — and, under the precise numerics, nearer that reference than the exact one.
+#[test]
+fn an_e4m3_cache_decodes_alike_in_every_form_and_near_its_reference() {
+    use logicaffeine_compile::codegen_cuda::CachePrecision;
+    cache_decodes_alike_and_near(CachePrecision::E4m3, KvStorage::E4m3, "e4m3", "e4m3");
+}
+
+/// The body of the cache-format tests: every tiny architecture with its caches stored at `cache`, held to the reference
+/// whose caches keep the rows as `kv` keeps them (`tag` names the programs, `format` the reports).
+fn cache_decodes_alike_and_near(cache: logicaffeine_compile::codegen_cuda::CachePrecision, kv: KvStorage, tag: &str, format: &str) {
     use logicaffeine_compile::model::reference::CACHE_WORD;
     if !(common::require_tool("nvcc") && common::require_gpu()) {
         return;
@@ -641,16 +2231,16 @@ fn an_f16_cache_decodes_alike_in_every_form_and_near_its_reference() {
     let mut report = Vec::new();
     for &t in ALL {
         let spec = t.spec(CTX);
-        let ckpt = dir().join(format!("cache-f16-{}.gguf", t.name()));
+        let ckpt = dir().join(format!("cache-{tag}-{}.gguf", t.name()));
         tiny_models::write_checkpoint(&spec, &ckpt);
         for numerics in [Q8MatKind::Dequant, Q8MatKind::TwoPassInt8, Q8MatKind::Int8Act] {
-            let what = format!("{} f16 cache {numerics:?}", t.name());
-            let knobs = CudaKnobs { activations: numerics, cache_precision: CachePrecision::F16, ..CudaKnobs::default() };
+            let what = format!("{} {tag} cache {numerics:?}", t.name());
+            let knobs = CudaKnobs { activations: numerics, cache_precision: cache, ..CudaKnobs::default() };
             let lane = |prefill: usize| compile(&spec, &ckpt, &LaneOptions { ctx: CTX, knobs, prefill }).unwrap_or_else(|e| panic!("{what} prefill {prefill}: {e}"));
             let (one_at_a_time, chunked) = (lane(1), lane(8));
             let batch = compile_batch(&spec, &ckpt, &LaneOptions { ctx: CTX, knobs, prefill: 4 }, jobs.len()).unwrap_or_else(|e| panic!("{what} batch: {e}"));
-            let tag = format!("cache-f16-{}-{numerics:?}", t.name());
-            let built = build_all(&[(&one_at_a_time, &format!("{tag}-1")), (&chunked, &format!("{tag}-8")), (&batch, &format!("{tag}-batch"))]);
+            let name = format!("cache-{tag}-{}-{numerics:?}", t.name());
+            let built = build_all(&[(&one_at_a_time, &format!("{name}-1")), (&chunked, &format!("{name}-8")), (&batch, &format!("{name}-batch"))]);
             let one = exec(&built[0], &ckpt, &prompt, 6, spec.vocab, true);
             let chunks = exec(&built[1], &ckpt, &prompt, 6, spec.vocab, true);
             assert_eq!(chunks.tokens, one.tokens, "{what}: the chunked prompt continues alike");
@@ -662,7 +2252,7 @@ fn an_f16_cache_decodes_alike_in_every_form_and_near_its_reference() {
                 assert_eq!(t.logits, a.logits, "{what}: sequence {s}'s every logit, bit for bit");
             }
             let latent = spec.layers.iter().any(|l| matches!(l.mixer, Mixer::Mla(_)));
-            let (worst, kept) = if latent { (f64::NAN, Vec::new()) } else { held(&spec, &ckpt, &prompt, &one, numerics, KvStorage::F16, &what) };
+            let (worst, kept) = if latent { (f64::NAN, Vec::new()) } else { held(&spec, &ckpt, &prompt, &one, numerics, kv, &what) };
             // The distance over the run from the reference keeping its caches' rows as `kv` stores them, the kept calls
             // taken.
             let distance = |kv: KvStorage| -> f64 {
@@ -682,14 +2272,14 @@ fn an_f16_cache_decodes_alike_in_every_form_and_near_its_reference() {
                 sum
             };
             if !latent {
-                let cache = kept.iter().filter(|c| matches!(c, NearCall::Rounding(r) if r.word == CACHE_WORD)).count();
-                report.push(format!("{what}: within {worst:.3e} of the binary16-cache reference, {} near calls decided the other way ({cache} cached values)", kept.len()));
+                let cached = kept.iter().filter(|c| matches!(c, NearCall::Rounding(r) if r.word == CACHE_WORD)).count();
+                report.push(format!("{what}: within {worst:.3e} of the {format}-cache reference, {} near calls decided the other way ({cached} cached values)", kept.len()));
             }
             // Under the precise numerics the cache's rounding is all that sets the two references apart.
             if numerics == Q8MatKind::Dequant {
-                let (near, far) = (distance(KvStorage::F16), distance(KvStorage::Exact));
-                assert!(near < far, "{what}: the run sits nearer the binary16-cache reference ({near:.3e} over its positions) than the exact one ({far:.3e})");
-                report.push(format!("{what}: {near:.3e} from the binary16-cache reference over the run, {far:.3e} from the exact one"));
+                let (near, far) = (distance(kv), distance(KvStorage::Exact));
+                assert!(near < far, "{what}: the run sits nearer the {format}-cache reference ({near:.3e} over its positions) than the exact one ({far:.3e})");
+                report.push(format!("{what}: {near:.3e} from the {format}-cache reference over the run, {far:.3e} from the exact one"));
             }
         }
     }
@@ -1802,6 +3392,170 @@ fn the_batch_gemv_on_the_tensor_cores_sums_as_the_decode_steps_gemv_does() {
     assert!(ran.status.success() && equal == expected, "every part of every case bit for bit ({equal} of {expected}):\n{stdout}{}", String::from_utf8_lossy(&ran.stderr));
 }
 
+/// A batch's GEMV over Q4_K and Q6_K matrices on the tensor cores (`lk_gemv_mma_blk`) sums every (row, output) exactly
+/// as the decode step's GEMV sums its one row (`lk_gemv_blk<F, 1, 1>`): each half sub-block's int8 dot exact by an
+/// `mma`, the sub-block's term as `lk_sub_dot` takes it, each unit (a Q4_K pair of sub-blocks, a Q6_K quarter) into the
+/// partial of the lane the GEMV gives it, a partial's units in order, and the partials folded by `lk_warp_sum`'s tree.
+/// Over matrices of normal f16 scales (Q6_K in the lane's grouped layout) and activations quantized by the lane's own
+/// quantizer, each row of a batch of 1 to 16 (rows past the m-tile's edge too) by one to three matrices side by side and
+/// by six (each a whole number of 64-output tiles, one biased, one into the rows of a table a position names), over `k`
+/// of one super-block (fewer units than lanes), whole rounds and whole rounds and a tail — writes, bit for bit, what
+/// `lk_gemv_blk<F, 1, 1>` writes for that row alone.
+#[test]
+fn the_batch_gemv_of_k_quants_on_the_tensor_cores_sums_as_the_decode_steps_gemv_does() {
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    // (format, rows, k, each part's outputs, the biased part, the part into a table's rows)
+    let cases: [(u32, usize, usize, &[usize], Option<usize>, Option<usize>); 14] = [
+        (12, 1, 256, &[64], None, None),
+        (12, 2, 2048, &[64, 128], Some(1), None),
+        (12, 5, 2304, &[64, 64], None, Some(0)),
+        (12, 16, 2048, &[128, 64, 64], Some(0), None),
+        (12, 16, 4096, &[256], None, None),
+        (12, 9, 8192, &[64, 64], Some(1), Some(0)),
+        (12, 16, 12288, &[128], None, None),
+        (12, 16, 2048, &[64, 64, 128, 128, 64, 64], Some(4), Some(5)),
+        (14, 1, 256, &[64], None, None),
+        (14, 3, 2048, &[64, 64], Some(0), None),
+        (14, 16, 4352, &[128], None, Some(0)),
+        (14, 16, 8192, &[64, 192], Some(1), None),
+        (14, 12, 12288, &[64], None, None),
+        (14, 16, 2048, &[64, 64, 64, 64, 128, 64], Some(2), Some(3)),
+    ];
+    batch_blk_bits("gemv-mma-blk", &cases);
+}
+
+/// A batch's GEMV over 32-value blocks on the tensor cores (`lk_gemv_mma_blk`: Q4_0, Q4_1, Q5_0, Q5_1, the formats a
+/// Q4_K_M keeps the matrices of a width past whole super-blocks in) sums every (row, output) exactly as the decode
+/// step's GEMV sums its one row (`lk_gemv_blk<F, 1, 1>`): each block a lane's unit, its levels `lk_sub4`'s, each half's
+/// int8 dot exact by an `mma`, its term `lk_sub_dot`'s with the block's scale (and offset), a lane's blocks in order and
+/// the lanes folded by `lk_warp_sum`'s tree. Over rows of normal f16 scales and activations quantized by the lane's own
+/// quantizer, batches of 1 to 16 rows by one to six matrices side by side (one biased, one into a table's rows), over
+/// `k` of one block, fewer blocks than lanes (Gemma-3's 1,152), whole rounds and a tail — bit for bit.
+#[test]
+fn the_batch_gemv_of_32_value_blocks_on_the_tensor_cores_sums_as_the_decode_steps_gemv_does() {
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    // (format, rows, k, each part's outputs, the biased part, the part into a table's rows)
+    let cases: [(u32, usize, usize, &[usize], Option<usize>, Option<usize>); 12] = [
+        (6, 1, 32, &[64], None, None),
+        (6, 2, 1152, &[1024, 256, 256], Some(1), None),
+        (6, 16, 1152, &[64, 64], None, Some(0)),
+        (6, 16, 2048, &[128, 64, 64, 64, 64, 128], Some(2), Some(4)),
+        (6, 9, 4096, &[256], None, None),
+        (6, 16, 6912, &[64], Some(0), None),
+        (2, 16, 1152, &[128, 64], Some(1), None),
+        (2, 5, 2080, &[64], None, Some(0)),
+        (3, 16, 2048, &[64, 128], None, None),
+        (3, 12, 1152, &[64], Some(0), Some(0)),
+        (7, 16, 2048, &[192], None, None),
+        (7, 3, 1184, &[64, 64], Some(0), Some(1)),
+    ];
+    batch_blk_bits("gemv-mma-blk-32", &cases);
+}
+
+/// Each case — (format, rows, `k`, each part's outputs, the biased part, the part into a table's rows) — through
+/// `lk_gemv_mma_blk<F>` beside the decode step's GEMV a row at a time (`lk_gemv_blk<F, 1, 1>`), in one harness
+/// (`tag`): every part of every case, bit for bit.
+fn batch_blk_bits(tag: &str, cases: &[(u32, usize, usize, &[usize], Option<usize>, Option<usize>)]) {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{gemv_mma_blk_smem_bytes, Kernel, GEMM_PARTS, GEMV_MMA_BLK_OUTPUTS, GEMV_MMA_BLK_THREADS, PRELUDE};
+    const AT: usize = 3;
+    let mut calls = String::new();
+    for (ci, &(f, m, k, ns, biased, rowed)) in cases.iter().enumerate() {
+        let total: usize = ns.iter().sum();
+        let _ = writeln!(calls, "  {{ // case {ci}: F {f}, {m} rows, k {k}, parts {ns:?}");
+        let _ = writeln!(calls, "    const int M = {m}, K = {k}, N = {total}; float* x = falloc((long)M * K); fill_f<<<(M * K + 255) / 256, 256>>>(x, (long)M * K, {});", 100 + ci);
+        let _ = writeln!(calls, "    signed char* xq = calloc8((long)M * K); float* xs = falloc((long)M * K / 32);");
+        let _ = writeln!(calls, "    lk_quant<1><<<(M * K + 255) / 256, 256>>>(x, xq, nullptr, xs, M * K);");
+        let _ = writeln!(calls, "    lk_parts parts{{}}; float* ref[{GEMM_PARTS}] = {{}}; long len[{GEMM_PARTS}] = {{}};");
+        let mut end = 0;
+        for (p, &n) in ns.iter().enumerate() {
+            end += n;
+            let rows = if rowed == Some(p) { AT + m } else { m };
+            let _ = writeln!(
+                calls,
+                "    {{ long rb; unsigned char* wb = blocks({f}, {n}, K, {}, &rb);\n\
+                 \x20     parts.w[{p}] = lk_w{{nullptr, nullptr, wb, rb}}; parts.end[{p}] = {end};\n\
+                 \x20     parts.bias[{p}] = {}; parts.row[{p}] = {}; parts.pitch[{p}] = {};\n\
+                 \x20     len[{p}] = (long){rows} * {n}; parts.y[{p}] = nanbuf(len[{p}]); ref[{p}] = nanbuf(len[{p}]);\n\
+                 \x20     for(int t = 0; t < M; ++t) lk_gemv_blk<{f}, 1, 1><<<({n} + 7) / 8, 256>>>(parts.w[{p}], nullptr, xq + (long)t * K, nullptr, xs + (long)t * K / 32, parts.bias[{p}], ref[{p}] + (long)t * {n}, parts.row[{p}], parts.pitch[{p}], K, {n}, nullptr, nullptr, nullptr); }}",
+                1000 * ci + p,
+                if biased == Some(p) { format!("bias({n}, {})", 2000 + ci) } else { "nullptr".into() },
+                if rowed == Some(p) { format!("rowat({})", AT + 1) } else { "nullptr".into() },
+                if rowed == Some(p) { n } else { 0 },
+            );
+        }
+        for p in ns.len()..GEMM_PARTS {
+            let _ = writeln!(calls, "    parts.end[{p}] = N;");
+        }
+        let smem = gemv_mma_blk_smem_bytes(f);
+        let _ = writeln!(
+            calls,
+            "    CK(cudaFuncSetAttribute(lk_gemv_mma_blk<{f}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
+             \x20   for(int p = 0; p < {np}; ++p) CK(cudaMemset(parts.y[p], 0xFF, len[p] * 4));\n\
+             \x20   lk_gemv_mma_blk<{f}><<<N / {GEMV_MMA_BLK_OUTPUTS}, {GEMV_MMA_BLK_THREADS}, {smem}>>>(xq, nullptr, xs, K, N, M, parts); CK(cudaGetLastError()); CK(cudaDeviceSynchronize());\n\
+             \x20   for(int p = 0; p < {np}; ++p) compare(\"case {ci} F {f} part\", p, parts.y[p], ref[p], len[p]);\n  }}",
+            np = ns.len(),
+        );
+    }
+    let main = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <cstring>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n{PRELUDE}{}{}{}{}{}\n\
+         #define CK(e) do {{ cudaError_t r_ = (e); if(r_ != cudaSuccess){{ printf(\"CUDA %s at %d\\n\", cudaGetErrorString(r_), __LINE__); exit(1); }} }} while(0)\n\
+         unsigned long long hh(unsigned long long i, unsigned long long s){{ unsigned long long z = (i ^ (s * 0x9E3779B97F4A7C15ULL)) * 0xBF58476D1CE4E5B9ULL; z ^= z >> 31; z *= 0x94D049BB133111EBULL; return z ^ (z >> 29); }}\n\
+         __device__ unsigned long long dhh(unsigned long long i, unsigned long long s){{ unsigned long long z = (i ^ (s * 0x9E3779B97F4A7C15ULL)) * 0xBF58476D1CE4E5B9ULL; z ^= z >> 31; z *= 0x94D049BB133111EBULL; return z ^ (z >> 29); }}\n\
+         __device__ float unitf(unsigned long long i, unsigned long long s){{ return (float)((dhh(i, s) >> 11) * (1.0 / 9007199254740992.0) * 2.0 - 1.0); }}\n\
+         __global__ void fill_f(float* p, long n, unsigned long long s){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) p[i] = unitf(i, s) * (1.0f + 3.0f * (float)((i / 32) % 5)); }}\n\
+         __global__ void fill_b(float* p, long n, unsigned long long s){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) p[i] = unitf(i, s) * 0.2f; }}\n\
+         float* falloc(long n){{ float* p; CK(cudaMalloc(&p, n * 4)); return p; }}\n\
+         signed char* calloc8(long n){{ signed char* p; CK(cudaMalloc(&p, n)); CK(cudaMemset(p, 0, n)); return p; }}\n\
+         float* nanbuf(long n){{ float* p = falloc(n); CK(cudaMemset(p, 0xFF, n * 4)); return p; }}\n\
+         float* bias(int n, unsigned long long s){{ float* p = falloc(n); fill_b<<<(n + 255) / 256, 256>>>(p, n, s); return p; }}\n\
+         const int* rowat(int r){{ int* p; CK(cudaMalloc(&p, 4)); CK(cudaMemcpy(p, &r, 4, cudaMemcpyHostToDevice)); return p; }}\n\
+         // `n` rows of `k` weights in format `f` (12 Q4_K, 14 Q6_K grouped as `upload_q6k` lays it out; 2 Q4_0, 3 Q4_1,\n\
+         // 6 Q5_0, 7 Q5_1): every byte a pattern, each block's scales normal f16 numbers varied block to block; the device\n\
+         // rows and their pitch.\n\
+         unsigned char* blocks(int f, int n, int k, unsigned long long s, long* rb){{\n\
+         \x20 const long nb = f == 12 || f == 14 ? k / 256 : k / 32, bb = f == 12 ? 144 : f == 14 ? 210 : f == 2 ? 18 : f == 3 ? 20 : f == 6 ? 22 : 24;\n\
+         \x20 std::vector<unsigned char> raw((size_t)n * nb * bb);\n\
+         \x20 for(size_t i = 0; i < raw.size(); ++i) raw[i] = (unsigned char)hh(i, s);\n\
+         \x20 for(long b = 0; b < (long)n * nb; ++b){{\n\
+         \x20   unsigned short d = (unsigned short)(((5 + b % 4) << 10) | (hh(b, s + 1) & 0x3FF)), dm = (unsigned short)(((4 + b % 3) << 10) | (hh(b, s + 2) & 0x3FF));\n\
+         \x20   if(f == 12 || f == 3 || f == 7){{ memcpy(&raw[b * bb], &d, 2); memcpy(&raw[b * bb + 2], &dm, 2); }} else if(f == 14) memcpy(&raw[b * bb + 208], &d, 2); else memcpy(&raw[b * bb], &d, 2);\n\
+         \x20 }}\n\
+         \x20 std::vector<unsigned char> h;\n\
+         \x20 if(f == 14){{ *rb = lk_q6_row_bytes(nb); h.assign((size_t)n * *rb + 32, 0); lk_q6_regroup(raw.data(), n, nb, h.data()); }} else {{ *rb = nb * bb; h = raw; h.resize(h.size() + 32, 0); }}\n\
+         \x20 unsigned char* p; CK(cudaMalloc(&p, h.size())); CK(cudaMemcpy(p, h.data(), h.size(), cudaMemcpyHostToDevice)); return p;\n\
+         }}\n\
+         int bad = 0;\n\
+         void compare(const char* what, int p, const float* got, const float* want, long n){{\n\
+         \x20 CK(cudaDeviceSynchronize()); float* g = (float*)malloc(n * 4); float* w = (float*)malloc(n * 4);\n\
+         \x20 CK(cudaMemcpy(g, got, n * 4, cudaMemcpyDeviceToHost)); CK(cudaMemcpy(w, want, n * 4, cudaMemcpyDeviceToHost));\n\
+         \x20 long diff = 0, first = -1; for(long i = 0; i < n; ++i) if(memcmp(g + i, w + i, 4)){{ if(first < 0) first = i; ++diff; }}\n\
+         \x20 if(diff){{ ++bad; printf(\"MISMATCH %s %d: %ld of %ld, first at %ld: %.9g against %.9g\\n\", what, p, diff, n, first, g[first], w[first]); }}\n\
+         \x20 else printf(\"EQUAL %s %d: %ld\\n\", what, p, n);\n\
+         \x20 free(g); free(w); }}\n\
+         int main(){{\n{calls}  printf(\"BAD %d\\n\", bad); return bad ? 2 : 0;\n}}\n",
+        Kernel::Blocks.source(),
+        Kernel::Quant.source(),
+        Kernel::GemvBlk.source(),
+        Kernel::Mma.source(),
+        Kernel::GemvMmaBlk.source(),
+    );
+    let dir = dir().join(tag);
+    std::fs::create_dir_all(&dir).unwrap();
+    let (cu, bin) = (dir.join("gemv_mma_blk.cu"), dir.join("gemv_mma_blk"));
+    std::fs::write(&cu, main).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the harness builds:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).output().unwrap();
+    let stdout = String::from_utf8_lossy(&ran.stdout);
+    let equal = stdout.lines().filter(|l| l.starts_with("EQUAL")).count();
+    let expected: usize = cases.iter().map(|c| c.3.len()).sum();
+    assert!(ran.status.success() && equal == expected, "every part of every case bit for bit ({equal} of {expected}):\n{stdout}{}", String::from_utf8_lossy(&ran.stderr));
+}
+
 /// The Q8_0 GEMV's quantized sum is one order, the order every kernel that sums as it sums takes (`lk_gemv_mma` on the
 /// tensor cores too): each 32-value block's int8 dot exact in int32 (under two words the high and the low words' dots
 /// `d` and `e`), block `b`'s step into partial `b mod 4` — `p ← fmaf(w·s, d, p)`, under two words `p ← fmaf(w, fmaf(s,
@@ -2096,6 +3850,41 @@ fn the_program_profiles_its_decode_step_launch_by_launch() {
     }
 }
 
+/// `--profile` names the matrix bytes each launch streams and their rate beside its time (K-08's measure): every
+/// `PROFILE:` line's fourth field is its launch's bytes (`Launch::weight_bytes`, which `lane_compile_lock` holds to the
+/// checkpoint) and its fifth those bytes over its microseconds, in GB/s, for a dense model and a mixture.
+#[test]
+fn the_profile_names_each_launchs_matrix_bytes_and_their_rate() {
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    for t in [Tiny::Qwen3, Tiny::Qwen3Moe] {
+        let spec = t.spec(CTX);
+        let ckpt = dir().join(format!("profile-rate-{}.gguf", t.name()));
+        tiny_models::write_checkpoint(&spec, &ckpt);
+        let lane = compile(&spec, &ckpt, &LaneOptions { ctx: CTX, knobs: CudaKnobs::default(), prefill: 4 }).unwrap();
+        let built = build(&lane, &format!("profile-rate-{}", t.name()));
+        let out = Command::new(&built.bin).arg(&ckpt).arg(&built.side).arg("8").arg("--profile").args(["5", "17", "2"]).output().unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        assert!(out.status.success(), "{} profiles:\n{stdout}\n{}", t.name(), String::from_utf8_lossy(&out.stderr));
+        let rows: Vec<(f64, u64, f64)> = stdout
+            .lines()
+            .filter_map(|l| l.strip_prefix("PROFILE:"))
+            .map(|l| {
+                let f: Vec<&str> = l.split_whitespace().collect();
+                assert_eq!(f.len(), 5, "{}: kind, tensor, time, bytes and rate: {l}", t.name());
+                (f[2].parse().unwrap(), f[3].parse().unwrap(), f[4].parse().unwrap())
+            })
+            .collect();
+        let want: Vec<u64> = lane.decode().schedule.launches.iter().filter(|l| !matches!(l, Launch::View { .. })).map(|l| l.weight_bytes() as u64).collect();
+        assert_eq!(rows.iter().map(|r| r.1).collect::<Vec<_>>(), want, "{}: each line's bytes its launch's", t.name());
+        assert!(want.iter().any(|&b| b > 0), "{}: the step streams matrices", t.name());
+        for &(us, bytes, rate) in &rows {
+            assert!((rate - bytes as f64 / us / 1e3).abs() <= 0.05 + 1e-3 * rate, "{}: {bytes} bytes in {us} µs is {rate} GB/s", t.name());
+        }
+    }
+}
+
 /// `--profile` times every prefill chunk the prompt runs launch by launch as well: a `PROFILE_CHUNK:` line for each
 /// launch of each chunk form, with the form's rows, the launch's kind, the tensor it computes and its mean time over the
 /// chunk's runs, in the form's order — prefill measured the way decode is, on any GPU, with no profiler installed. The
@@ -2285,6 +4074,66 @@ fn a_matrix_in_host_memory_computes_what_it_computes_on_the_device() {
     }
 }
 
+/// A matrix in host memory that a launch reads whole streams to the device a launch at a time and computes what it
+/// computes there: Llama's, Qwen3.5's, Qwen3-MoE's and gpt-oss's tiny lanes (gated delta layers, expert stacks, sinks),
+/// compiled under both quantized numerics with chunks of 32 rows, run from a 40-token prompt — on the device to
+/// themselves and on `--device-bytes` of the arrays that cannot move, a quarter, half and all the matrices' bytes past
+/// them — each stream exactly the moved matrices the plan streams (`STREAMED`, `residence::Plan::streamed`; none where
+/// nothing moves) and generate the device's tokens and logits bit for bit, the slots beside the budget; and with every
+/// matrix moved under `--stagger` (each launch held back by a seeded stall, so a copy that overwrote a slot before its
+/// last reader ran would show), the same.
+#[test]
+fn a_lane_streaming_its_moved_matrices_computes_what_it_computes_on_the_device() {
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let ctx = 64;
+    let prompt: Vec<u32> = (0..40).map(|i| (5 + 13 * i) % 60).collect();
+    let mut lanes = Vec::new();
+    for t in [Tiny::Llama, Tiny::Qwen35, Tiny::Qwen3Moe, Tiny::GptOss] {
+        let spec = t.spec(ctx);
+        let ckpt = dir().join(format!("{}-stream.gguf", t.name()));
+        tiny_models::write_checkpoint(&spec, &ckpt);
+        for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
+            let knobs = CudaKnobs { activations: numerics, ..CudaKnobs::default() };
+            let lane = compile(&spec, &ckpt, &LaneOptions { ctx, knobs, prefill: 32 }).unwrap_or_else(|e| panic!("{} {numerics:?}: {e}", t.name()));
+            assert!(!lane.plan.streamed.is_empty(), "{} {numerics:?}: some matrix streams", t.name());
+            lanes.push((t, numerics, spec.vocab, ckpt.clone(), lane, format!("stream-{}-{numerics:?}", t.name())));
+        }
+    }
+    let built = build_all(&lanes.iter().map(|(_, _, _, _, lane, name)| (lane, name.as_str())).collect::<Vec<_>>());
+    for ((t, numerics, vocab, ckpt, lane, _), b) in lanes.iter().zip(&built) {
+        let what = format!("{} {numerics:?}", t.name());
+        let plan = &lane.plan;
+        let fixed = plan.arena + plan.fixed;
+        let free = exec(b, ckpt, &prompt, GENERATE, *vocab, true);
+        assert_eq!((free.placed.2, free.streamed), (0, 0), "{what}: the free device holds and streams nothing");
+        let mut streamed_somewhere = false;
+        for (at, budget) in [("a quarter", fixed + (plan.whole() - fixed) / 4), ("half", fixed + (plan.whole() - fixed) / 2), ("none", fixed)] {
+            let r = exec_flagged(b, ckpt, &prompt, GENERATE, *vocab, true, &["--device-bytes", &budget.to_string()]);
+            let p = place(plan, budget).unwrap();
+            assert_eq!(r.placed, (p.device_bytes, p.host_bytes, p.moved), "{what} {at}: placed as the plan places");
+            let streams = p.host.iter().filter(|m| plan.streamed.contains_key(*m)).count();
+            assert_eq!(r.streamed, streams, "{what} {at}: every moved matrix that streams, streams");
+            assert_eq!(p.streaming, streams > 0, "{what} {at}");
+            streamed_somewhere |= streams > 0;
+            assert_eq!(r.tokens, free.tokens, "{what} {at}: the device's tokens");
+            for (i, (x, y)) in r.logits.iter().zip(&free.logits).enumerate() {
+                let parted = x.iter().zip(y).position(|(p, q)| p.to_bits() != q.to_bits());
+                assert!(parted.is_none(), "{what} {at}: position {i}'s logit {parted:?} parts from the device's");
+            }
+        }
+        assert!(streamed_somewhere, "{what}: some budget streams");
+        let staggered = exec_flagged(b, ckpt, &prompt, GENERATE, *vocab, true, &["--device-bytes", &fixed.to_string(), "--stagger", "7"]);
+        assert!(staggered.streamed > 0, "{what}: every matrix moved streams under the stalls");
+        assert_eq!(staggered.tokens, free.tokens, "{what} staggered: the device's tokens");
+        for (i, (x, y)) in staggered.logits.iter().zip(&free.logits).enumerate() {
+            let parted = x.iter().zip(y).position(|(p, q)| p.to_bits() != q.to_bits());
+            assert!(parted.is_none(), "{what} staggered: position {i}'s logit {parted:?} parts from the device's");
+        }
+    }
+}
+
 /// A program squeezed by another process places its matrices on the memory it finds: Llama-3.2-1B under the two-word
 /// numerics, run while a process holds all of the device but the arrays that cannot move, half the matrices' bytes, its
 /// spare and a context's share, moves some of its matrices to mapped host memory on its own, builds its graphs in the
@@ -2470,10 +4319,11 @@ fn the_last_block_norm_computes_what_the_norm_launch_computes() {
 
 /// A mixture's last step norms what the mixture wrote as the norm's own launch does (PARITY-MOE-DEFERRED-FINALIZE):
 /// Qwen3-MoE, gpt-oss and DeepSeek-V2 tiny; Qwen3-MoE and DeepSeek-V2 at 2048 wide and gpt-oss at its own 2880 —
-/// where the decode step's down block of a few warps plays the norm's block of 1024 threads, three values a thread
-/// and the last ragged — under the quantized and the precise numerics, with their mixtures folding the add and norm
-/// and with `moe_deferred_finalize` held, generate the same tokens and the same logits bit for bit through a prompt of
-/// chunks and decode steps: the fold's reduction is `lk_rmsnorm`'s tree.
+/// every chunk folding its norm into a block of the norm's threads a row, the tiny models' decode steps into their down
+/// block of the norm's width, and the wider models' decode steps leaving it to the norm's own launch, K-18's rule
+/// (`kernels::block_holds_its_norm`) — under the quantized and the precise numerics, with their mixtures folding the add
+/// and norm and with `moe_deferred_finalize` held, generate the same tokens and the same logits bit for bit through a
+/// prompt of chunks and decode steps: the fold's reduction is `lk_rmsnorm`'s tree.
 #[test]
 fn the_mixtures_last_step_norms_as_the_norm_launch_does() {
     if !(common::require_tool("nvcc") && common::require_gpu()) {
@@ -2481,16 +4331,17 @@ fn the_mixtures_last_step_norms_as_the_norm_launch_does() {
     }
     let mut oss = Tiny::GptOss.medium(CTX);
     oss.d = 2880;
+    // (name, spec, whether its decode step's down block holds the norm)
     let models = [
-        ("qwen3moe", Tiny::Qwen3Moe.spec(CTX)),
-        ("gpt-oss", Tiny::GptOss.spec(CTX)),
-        ("deepseek2", Tiny::DeepSeek2.spec(CTX)),
-        ("qwen3moe-medium", Tiny::Qwen3Moe.medium(CTX)),
-        ("deepseek2-medium", Tiny::DeepSeek2.medium(CTX)),
-        ("gpt-oss-2880", oss),
+        ("qwen3moe", Tiny::Qwen3Moe.spec(CTX), true),
+        ("gpt-oss", Tiny::GptOss.spec(CTX), true),
+        ("deepseek2", Tiny::DeepSeek2.spec(CTX), true),
+        ("qwen3moe-medium", Tiny::Qwen3Moe.medium(CTX), false),
+        ("deepseek2-medium", Tiny::DeepSeek2.medium(CTX), false),
+        ("gpt-oss-2880", oss, false),
     ];
     let mut lanes = Vec::new();
-    for (name, spec) in &models {
+    for (name, spec, decode_folds) in &models {
         let ckpt = dir().join(format!("{name}-moe-fold.gguf"));
         tiny_models::write_checkpoint(spec, &ckpt);
         for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8, Q8MatKind::Dequant] {
@@ -2498,7 +4349,12 @@ fn the_mixtures_last_step_norms_as_the_norm_launch_does() {
             let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 4 };
             let folded = compile(spec, &ckpt, &opts).unwrap_or_else(|e| panic!("{what}: {e}"));
             for f in &folded.forms {
-                assert!(f.schedule.launches.iter().any(|l| kind(l) == "moe_norm"), "{what}: the form of {} rows folds", f.rows);
+                let folds = f.schedule.launches.iter().any(|l| kind(l) == "moe_norm");
+                if f.rows > 1 {
+                    assert!(folds, "{what}: the chunk of {} rows folds", f.rows);
+                } else {
+                    assert_eq!(folds, *decode_folds, "{what}: the decode step folds where its down block holds the norm");
+                }
             }
             let apart = compile_holding(spec, &ckpt, &opts, &["moe_deferred_finalize"]).unwrap_or_else(|e| panic!("{what} held: {e}"));
             lanes.push((what, spec.vocab, ckpt.clone(), folded, apart));
@@ -2652,10 +4508,11 @@ fn the_stepped_delta_rules_last_block_norms_as_the_norm_kernel_does() {
 }
 
 /// A block-format projection's last-arriving block norms the row it wrote as the norm's own launch does
-/// (PARITY-GEMV-NORM-EPILOGUE): Llama and DeepSeek-V2 at 2048 wide in Q4_K — four rows a warp, each warp of the block's
-/// four playing eight of the norm's 32 — and Llama wide in Q6_K, Q5_0 and MXFP4, under the quantized and the precise
-/// numerics, with their projections folding the add and norm and with `gemv_norm_epilogue` held, generate the same
-/// tokens and the same logits bit for bit through a prompt of chunks and decode steps.
+/// (PARITY-GEMV-NORM-EPILOGUE): Llama and DeepSeek-V2 wide in Q4_K, and Llama wide in Q6_K, Q5_0 and MXFP4 — each a
+/// block of the norm's own width, the only block K-18 folds a norm into (`kernels::block_holds_its_norm`; a 2048-wide
+/// row's norm keeps its own launch) — under the quantized and the precise numerics, with their projections folding the
+/// add and norm and with `gemv_norm_epilogue` held, generate the same tokens and the same logits bit for bit through a
+/// prompt of chunks and decode steps.
 #[test]
 fn the_block_projections_last_block_norms_as_the_norm_launch_does() {
     use logicaffeine_compile::model::quant::GgmlType;
@@ -2663,8 +4520,8 @@ fn the_block_projections_last_block_norms_as_the_norm_launch_does() {
         return;
     }
     let models = [
-        ("llama-medium-q4k", Tiny::Llama.medium(CTX), GgmlType::Q4K),
-        ("deepseek2-medium-q4k", Tiny::DeepSeek2.medium(CTX), GgmlType::Q4K),
+        ("llama-wide-q4k", Tiny::Llama.wide(CTX), GgmlType::Q4K),
+        ("deepseek2-wide-q4k", Tiny::DeepSeek2.wide(CTX), GgmlType::Q4K),
         ("llama-wide-q6k", Tiny::Llama.wide(CTX), GgmlType::Q6K),
         ("llama-wide-q5_0", Tiny::Llama.wide(CTX), GgmlType::Q5_0),
         ("llama-wide-mxfp4", Tiny::Llama.wide(CTX), GgmlType::Mxfp4),
@@ -2798,6 +4655,98 @@ fn the_head_epilogue_computes_what_the_rope_launches_compute() {
         }
     }
     held_alike(&lanes, "heads");
+}
+
+/// A gated delta layer's inputs folded into their projections' launch are what their launches apart compute
+/// (PARITY-GDN-INPUT-EPILOGUE, K-09): on every case of `tiny_models::gated_delta_cases` — gates in `f32` and in Q8_0,
+/// at 2048 wide, at Qwen3.8's three value heads a key head, heads of 512 — under the quantized numerics in one word and
+/// in two and the precise numerics, the step with each layer's products, convolutions, SiLU, L2 norms and gates in one
+/// launch and with `gdn_input_epilogue` held generate the same tokens and the same logits bit for bit through a prompt
+/// of chunks and decode steps: each channel's taps summed as `lk_conv_parts` sums them, each head's norm by its tree,
+/// each gate as `lk_gates` or `lk_gate_proj` computes it.
+#[test]
+fn the_gdn_input_epilogue_computes_what_its_launches_compute_apart() {
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let mut lanes = Vec::new();
+    for (name, spec, ckpt, _) in tiny_models::gated_delta_cases(&dir(), "gdn-apart", CTX) {
+        for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8, Q8MatKind::Dequant] {
+            let what = format!("{name} {numerics:?}");
+            let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 4 };
+            let folded = compile(&spec, &ckpt, &opts).unwrap_or_else(|e| panic!("{what}: {e}"));
+            assert!(folded.decode().schedule.launches.iter().any(|l| kind(l) == "gemv_gdn"), "{what}: the decode step folds its gated delta inputs");
+            let apart = compile_holding(&spec, &ckpt, &opts, &["gdn_input_epilogue"]).unwrap_or_else(|e| panic!("{what} held: {e}"));
+            lanes.push((what, spec.vocab, ckpt.clone(), folded, apart));
+        }
+    }
+    held_alike(&lanes, "gdn");
+}
+
+/// A step's delta rule that norms its query and key heads itself computes what the step reading heads its convolution
+/// normed computes (`delta_qk_norm`): on every case of `tiny_models::gated_delta_cases`, under the quantized numerics in
+/// one word and in two and the precise numerics, the step with the rule and with it held generate the same tokens and
+/// the same logits bit for bit through a prompt of chunks and decode steps: each head's norm summed as the
+/// convolution's (`lk_head_den`, `lk_l2_unit`), each value divided by it as the convolution divides it.
+#[test]
+fn a_steps_delta_rule_norms_its_heads_as_its_convolution_does() {
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let mut lanes = Vec::new();
+    for (name, spec, ckpt, _) in tiny_models::gated_delta_cases(&dir(), "delta-qk", CTX) {
+        for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8, Q8MatKind::Dequant] {
+            let what = format!("{name} {numerics:?}");
+            let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 4 };
+            let moved = compile(&spec, &ckpt, &opts).unwrap_or_else(|e| panic!("{what}: {e}"));
+            assert!(moved.decode().schedule.fired("delta_qk_norm") > 0, "{what}: the steps norm their heads");
+            let apart = compile_holding(&spec, &ckpt, &opts, &["delta_qk_norm"]).unwrap_or_else(|e| panic!("{what} held: {e}"));
+            lanes.push((what, spec.vocab, ckpt.clone(), moved, apart));
+        }
+    }
+    held_alike(&lanes, "delta-qk");
+}
+
+/// A gated delta layer's inputs folded into their projections' launch decode faster than their launches apart
+/// (PARITY-GDN-INPUT-EPILOGUE, K-09): Qwen3.5 at 2048 wide with the real checkpoint's heads (16 key and 16 value heads
+/// of 128) and every matrix of whole blocks in Q8_0, its gates' projections among them, under one word — the decode
+/// step with each layer's products, convolutions, L2 norms and gates in one launch runs more tokens a second than with
+/// `gdn_input_epilogue` held, the best of three runs each, taken in turns. The fold ran 295 tokens a second on the real
+/// Qwen3.5-0.8B where its launches apart ran 321: each warp's convolution tap read its ring after the dot, and every
+/// block fenced for heads only the query and key blocks norm.
+#[test]
+fn the_gdn_input_epilogue_decodes_faster_than_its_launches_apart() {
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let mut spec = Tiny::Qwen35.medium(CTX);
+    for layer in &mut spec.layers {
+        if let Mixer::GatedDelta(g) = &mut layer.mixer {
+            (g.k_heads, g.v_heads, g.head_dim) = (16, 16, 128);
+        }
+    }
+    let ckpt = dir().join("qwen35-real-heads-gdn-speed.gguf");
+    let blocked: Vec<String> = tiny_models::tensors(&spec)
+        .into_iter()
+        .filter(|(n, dims)| dims.len() == 2 && dims[0] % 32 == 0 && !n.contains("norm"))
+        .map(|(n, _)| n)
+        .collect();
+    tiny_models::write_checkpoint_as(&spec, &ckpt, &|t| if blocked.iter().any(|b| b == t) { GgmlType::Q8_0 } else { GgmlType::F32 });
+    let opts = LaneOptions { ctx: 256, knobs: CudaKnobs { activations: Q8MatKind::Int8Act, ..CudaKnobs::default() }, prefill: 4 };
+    let folded = compile(&spec, &ckpt, &opts).unwrap_or_else(|e| panic!("folded: {e}"));
+    assert!(folded.decode().schedule.launches.iter().any(|l| kind(l) == "gemv_gdn"), "the decode step folds its gated delta inputs");
+    let apart = compile_holding(&spec, &ckpt, &opts, &["gdn_input_epilogue"]).unwrap_or_else(|e| panic!("held: {e}"));
+    let built = build_all(&[(&folded, "gdn-speed-folded"), (&apart, "gdn-speed-apart")]);
+    let prompt = [5u32, 17, 2, 30, 9, 11, 3];
+    let (mut fast, mut slow) = (0f64, 0f64);
+    for _ in 0..3 {
+        let f = exec(&built[0], &ckpt, &prompt, 192, spec.vocab, false).tok_per_s.expect("the folded program's decode rate");
+        let a = exec(&built[1], &ckpt, &prompt, 192, spec.vocab, false).tok_per_s.expect("the held program's decode rate");
+        fast = fast.max(f);
+        slow = slow.max(a);
+    }
+    assert!(fast > slow, "the folded step decodes {fast:.1} tokens a second, its launches apart {slow:.1}");
 }
 
 /// Every fusion of the hybrid step computes what its launches compute apart at the medium width: Qwen3.5 at 2048 wide,
@@ -3034,6 +4983,20 @@ fn gemma3_1b_meets_every_activation_precisions_bar() {
     meets_every_activation_precisions_bar("gemma3-1b");
 }
 
+/// Gemma 2 2B: its scores capped at 50 inside every attention kernel, its logits at 30 by their own launch, every other
+/// layer windowed (PARITY-SOFTCAP).
+#[test]
+fn gemma2_2b_meets_every_activation_precisions_bar() {
+    meets_every_activation_precisions_bar("gemma2-2b");
+}
+
+/// OLMo 2 1B: no norm before either sublayer, each post-norm then its residual add, the queries and keys each normed
+/// across every head.
+#[test]
+fn olmo2_1b_meets_every_activation_precisions_bar() {
+    meets_every_activation_precisions_bar("olmo2-1b");
+}
+
 #[test]
 fn deepseek_v2_lite_meets_every_activation_precisions_bar() {
     meets_every_activation_precisions_bar("deepseek-v2-lite");
@@ -3059,6 +5022,17 @@ fn llama3_2_1b_meets_every_activation_precisions_bar_on_long_prompts() {
 #[test]
 fn gemma3_1b_meets_every_activation_precisions_bar_on_long_prompts() {
     meets_every_activation_precisions_bar_on_long_prompts("gemma3-1b");
+}
+
+/// Gemma 2 2B's capped heads of 256 on the wide chunks' paths: the attention in tiles, each score capped in its tile.
+#[test]
+fn gemma2_2b_meets_every_activation_precisions_bar_on_long_prompts() {
+    meets_every_activation_precisions_bar_on_long_prompts("gemma2-2b");
+}
+
+#[test]
+fn olmo2_1b_meets_every_activation_precisions_bar_on_long_prompts() {
+    meets_every_activation_precisions_bar_on_long_prompts("olmo2-1b");
 }
 
 #[test]
@@ -3130,6 +5104,100 @@ fn the_activation_quantizer_is_the_references_bit_for_bit() {
                 _ => f64::from(hi[i] as i8) * f64::from(sc) + f64::from(lo[i] as i8) * f64::from(sc * 0.0078125),
             };
             assert_eq!(got.to_bits(), want[i].to_bits(), "{mode:?}: element {i} (block {}) is {got}, the reference reads {}", i / 32, want[i]);
+        }
+    }
+}
+
+/// The 16-bit tensor cores multiply the words the reference reads, bit for bit: for activations spanning every
+/// magnitude a model's rows take — the ties of both formats and a unit of `f32` either side, binary16's subnormals, the
+/// edge of its range and past it, `f32`'s own subnormals — the bfloat16 and binary16 words `lk_h16_words` rounds hold,
+/// one word and two, exactly the values `reference::sixteen_bit_activations` reads under the one-word numerics and the
+/// two-word.
+#[test]
+fn the_tensor_cores_sixteen_bit_words_are_the_references_reading() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{Kernel, PRELUDE};
+    use logicaffeine_compile::model::quant::{f16_to_f32, GgmlType};
+    use logicaffeine_compile::model::reference::sixteen_bit_activations;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let mut x: Vec<f32> = Vec::new();
+    for base in [1.0f32, 3.0, 0.15625, 1e-3, 6.103_515_6e-5, 3e-6, 4.0e4, 65504.0, 2.5e-30, 1.2e-38] {
+        for sign in [1.0f32, -1.0] {
+            let bits = (base * sign).to_bits();
+            for d in [0u32, 1, 0x0fff, 0x1000, 0x1001, 0x1fff, 0x2000, 0x7fff, 0x8000, 0x8001, 0xffff] {
+                x.push(f32::from_bits(bits + d));
+            }
+        }
+    }
+    x.extend([0.0, -0.0, 65519.0, 65520.0, -7e4, 1e-45, -3e-41, 0.1, -2.0 / 3.0]);
+    x.extend((0..8192u64).map(|i| {
+        let h = i.wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(17) ^ 0x5851_F42D_4C95_7F2D;
+        let unit = (h >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0;
+        (unit * 10f64.powi((i % 13) as i32 - 6)) as f32
+    }));
+    if x.len() % 2 == 1 {
+        x.push(0.5);
+    }
+    let n = x.len();
+    let dir = dir().join("sixteen-words");
+    std::fs::create_dir_all(&dir).unwrap();
+    let main = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <cuda_runtime.h>\n{PRELUDE}{}\n\
+         template<int F, int Q> __global__ void words(const float* x, unsigned* hi, unsigned* lo, int pairs){{\n\
+           int i = blockIdx.x * blockDim.x + threadIdx.x;\n\
+           if(i < pairs){{ unsigned h = 0, l = 0; lk_h16_words<F, Q>(x[2 * i], x[2 * i + 1], h, l); hi[i] = h; lo[i] = l; }}\n\
+         }}\n\
+         int main(int argc, char** argv){{\n  int n = {n}, pairs = n / 2, f = atoi(argv[1]), q = atoi(argv[2]);\n\
+           float* hx = (float*)malloc(n * 4); FILE* in = fopen(argv[3], \"rb\"); fread(hx, 4, n, in); fclose(in);\n\
+           float* x; unsigned *h, *l;\n\
+           cudaMalloc(&x, n * 4); cudaMalloc(&h, pairs * 4); cudaMalloc(&l, pairs * 4);\n\
+           cudaMemcpy(x, hx, n * 4, cudaMemcpyHostToDevice);\n\
+           int grid = (pairs + 255) / 256;\n\
+           if(f == 30 && q == 1) words<30, 1><<<grid, 256>>>(x, h, l, pairs);\n\
+           else if(f == 30) words<30, 2><<<grid, 256>>>(x, h, l, pairs);\n\
+           else if(q == 1) words<1, 1><<<grid, 256>>>(x, h, l, pairs);\n\
+           else words<1, 2><<<grid, 256>>>(x, h, l, pairs);\n\
+           if(cudaDeviceSynchronize() != cudaSuccess) return 1;\n\
+           unsigned* hh = (unsigned*)malloc(pairs * 4); unsigned* hl = (unsigned*)malloc(pairs * 4);\n\
+           cudaMemcpy(hh, h, pairs * 4, cudaMemcpyDeviceToHost); cudaMemcpy(hl, l, pairs * 4, cudaMemcpyDeviceToHost);\n\
+           FILE* o = fopen(argv[4], \"wb\"); fwrite(hh, 4, pairs, o); fwrite(hl, 4, pairs, o); fclose(o);\n\
+           return 0;\n}}\n",
+        Kernel::Blocks.source()
+    );
+    let (cu, bin, input) = (dir.join("words.cu"), dir.join("words"), dir.join("x.bin"));
+    std::fs::write(&cu, main).unwrap();
+    std::fs::write(&input, x.iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the words build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let x64: Vec<f64> = x.iter().map(|&v| f64::from(v)).collect();
+    for (ty, f) in [(GgmlType::Bf16, 30), (GgmlType::F16, 1)] {
+        let value = |w: u32| -> f64 {
+            let w = w as u16;
+            f64::from(if ty == GgmlType::Bf16 { f32::from_bits(u32::from(w) << 16) } else { f16_to_f32(w) })
+        };
+        for (q, mode) in [(1, Activations::Int8), (2, Activations::Int8TwoPass)] {
+            let out = dir.join(format!("words-{f}-{q}.bin"));
+            let ran = Command::new(&bin).arg(f.to_string()).arg(q.to_string()).arg(&input).arg(&out).output().unwrap();
+            assert!(ran.status.success(), "the words run: {}", String::from_utf8_lossy(&ran.stderr));
+            let bytes = std::fs::read(&out).unwrap();
+            let w: Vec<u32> = bytes.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
+            let (hi, lo) = w.split_at(n / 2);
+            let want = sixteen_bit_activations(&x64, ty, mode);
+            for i in 0..n {
+                // A pair's first value is its word's low half.
+                let shift = 16 * (i % 2) as u32;
+                let got = match q {
+                    1 => value(hi[i / 2] >> shift),
+                    _ => value(hi[i / 2] >> shift) + value(lo[i / 2] >> shift),
+                };
+                assert!(
+                    got.to_bits() == want[i].to_bits() || (got.is_nan() && want[i].is_nan()),
+                    "{ty:?} {mode:?}: element {i}, {:e}, is {got:e} in the lane's words, the reference reads {:e}",
+                    x[i],
+                    want[i]
+                );
+            }
         }
     }
 }
@@ -3247,7 +5315,6 @@ fn the_staged_per_head_matmul_takes_the_shared_memory_its_tile_leaves() {
 #[test]
 fn every_block_decoder_agrees_with_the_sub_block_decoder() {
     use logicaffeine_compile::codegen_cuda::lane::kernels::{Kernel, PRELUDE};
-    use logicaffeine_compile::model::quant::GgmlType;
     if !(common::require_tool("nvcc") && common::require_gpu()) {
         return;
     }
@@ -3300,7 +5367,7 @@ fn every_block_decoder_agrees_with_the_sub_block_decoder() {
 /// start as NaN).
 #[test]
 fn the_tiled_per_head_products_compute_what_the_slabs_compute() {
-    use logicaffeine_compile::codegen_cuda::lane::kernels::{Kernel, PRELUDE};
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{row_bytes, Kernel, PRELUDE};
     use logicaffeine_compile::model::quant::GgmlType;
     if !(common::require_tool("nvcc") && common::require_gpu()) {
         return;
@@ -3335,7 +5402,7 @@ fn the_tiled_per_head_products_compute_what_the_slabs_compute() {
             std::fs::write(dir.join(format!("{name}.bin")), bytes).unwrap();
             for q in [1, 2, 3] {
                 let f = ty.id();
-                let rb = ty.bytes_for(cols);
+                let rb = row_bytes(ty, cols);
                 let slabs: String = [(0usize, 16usize), (16, 16), (32, 8)]
                     .iter()
                     .map(|&(r0, r)| {
@@ -3386,6 +5453,14 @@ fn the_tiled_per_head_products_compute_what_the_slabs_compute() {
            auto b = slurp(p);\n\
            if(F == 8){{ signed char* q; __half* s; long n = rows * cols; CK(cudaMalloc(&q, n)); CK(cudaMalloc(&s, n / 32 * 2));\n\
              CK(cudaMemcpy(q, b.data(), n, cudaMemcpyHostToDevice)); CK(cudaMemcpy(s, b.data() + n, n / 32 * 2, cudaMemcpyHostToDevice)); return lk_w{{q, s, nullptr, 0}}; }}\n\
+           if(F == 14){{ auto b = slurp(p); long nb = cols / 256;\n\
+             if(row_bytes != lk_q6_row_bytes(nb)){{ fprintf(stderr, \"a Q6_K row of %ld blocks is %ld bytes, not %ld\\n\", nb, lk_q6_row_bytes(nb), row_bytes); exit(3); }}\n\
+             std::vector<unsigned char> h((size_t)rows * row_bytes + 256, 0); lk_q6_regroup((const unsigned char*)b.data(), rows, nb, h.data());\n\
+             unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
+           if(F == 39){{ long nb = cols / 32;\n\
+             if(row_bytes != lk_mx_row_bytes(nb)){{ fprintf(stderr, \"an MXFP4 row of %ld sub-blocks is %ld bytes, not %ld\\n\", nb, lk_mx_row_bytes(nb), row_bytes); exit(3); }}\n\
+             std::vector<unsigned char> h((size_t)rows * row_bytes + 256, 0); lk_mx_regroup((const unsigned char*)b.data(), rows, nb, h.data());\n\
+             unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
            unsigned char* d; CK(cudaMalloc(&d, b.size() + 32)); CK(cudaMemset(d, 0, b.size() + 32)); CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice));\n\
            return lk_w{{nullptr, nullptr, d, row_bytes}};\n\
          }}\n\
@@ -3429,11 +5504,33 @@ fn the_tiled_per_head_products_compute_what_the_slabs_compute() {
     eprintln!("{}", report.join("\n"));
 }
 
+/// Each attention a kernel test holds for one shape: as it stands; every score capped at 50 (Gemma 2's attention cap);
+/// and, where the shape has a window, its span as chunks (Llama 4's chunked-local attention), each chunk's boundary
+/// falling inside a tile, capped too — each with its name's suffix, the window the kernels take (a chunk's negative), and
+/// whether it is capped.
+fn attention_variants(win: usize) -> Vec<(&'static str, i64, bool)> {
+    let mut out = vec![("", win as i64, false), (", capped", win as i64, true)];
+    if win > 0 {
+        out.push((", capped, in chunks", -(win as i64), true));
+    }
+    out
+}
+
+/// The trailing arguments that pass a cap of 50: to `lk_attention` (past its split count, its held flag and its result's
+/// quantize), to the tiles that take a split key (`lk_attention_tiled`, `_mma`, `_flash`), and to the two-word tiles.
+const CAP_ATTENTION: &str = ", 0, 0, lk_qout{}, 5e1f";
+const CAP_TILES: &str = ", nullptr, 0, 0, (const float*)nullptr, 0, 0, 0, 5e1f";
+const CAP_TWO_WORDS: &str = ", nullptr, 0, 0, 0, 5e1f";
+/// A cap of 50 to the shared-row attention, past its split count and its result's quantize.
+const CAP_SHARED: &str = ", 0, lk_qout{}, 5e1f";
+
 /// The tiled attention computes what the attention a block a row computes, on the same queries, caches and positions:
 /// grouped heads, grouped heads within a window and with sinks, DeepSeek's latent attention (576-wide keys, its values
 /// the first 512 of each cache row, read in place), and a head a group — 40 rows after 70 cached positions, so every
 /// row's span crosses tiles and the block's last rows run past the chunk. Each output within `TOLERANCE` of its
 /// head's largest, the difference of two summation orders, and every output written (they start as NaN).
+/// Each shape also with every score capped at 50 and, where it has a window, in chunks of its span
+/// (`attention_variants`).
 #[test]
 fn the_tiled_attention_computes_what_the_attention_computes() {
     use logicaffeine_compile::codegen_cuda::lane::kernels::{
@@ -3474,26 +5571,29 @@ fn the_tiled_attention_computes_what_the_attention_computes() {
         }
         let scale = 1.0 / (hd as f64).sqrt();
         let (hg, vi) = (attn_tile_heads(group), attn_tile_values(vd));
-        let _ = write!(
-            calls,
-            "  {{ // {name}\n    float* q = dev(dir + \"/q{k}.bin\"); float* kc = dev(dir + \"/k{k}.bin\"); float* vc = {}; float* sk = {};\n\
-             \x20   float *a = nan({ROWS} * {heads} * {vd}), *b = nan({ROWS} * {heads} * {vd});\n\
-             \x20   lk_attention<1, {}, float><<<dim3({heads}, {ROWS}, 1), 256, {}>>>(q, kc, vc, pos, sk, a, nullptr, nullptr, {len}, {win}, {hd}, {vd}, {group}, {heads}, {kvw}, {vw}, {voff}, {scale:e}f, {ATTN_MIN_SPLIT}, 1);\n\
-             \x20   CK(cudaGetLastError());\n\
-             \x20   CK(cudaFuncSetAttribute(lk_attention_tiled<{hg}, {vi}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {}));\n\
-             \x20   lk_attention_tiled<{hg}, {vi}><<<dim3({}, {}), 256, {}>>>(q, kc, vc, pos, sk, b, {len}, {win}, {hd}, {vd}, {group}, {heads}, {kvw}, {vw}, {voff}, {scale:e}f, {ROWS});\n\
-             \x20   CK(cudaGetLastError()); CK(cudaDeviceSynchronize());\n\
-             \x20   put(out, a, {ROWS} * {heads} * {vd}); put(out, b, {ROWS} * {heads} * {vd});\n  }}\n",
-            if latent { "kc".to_string() } else { format!("dev(dir + \"/v{k}.bin\")") },
-            if sinks { format!("dev(dir + \"/s{k}.bin\")") } else { "nullptr".into() },
-            attn_values_per_thread(vd),
-            attn_smem_bytes(1, hd, 1, 4),
-            attn_tile_smem_bytes(vd),
-            ROWS.div_ceil(ATTN_TILE_Q / hg),
-            heads / hg,
-            attn_tile_smem_bytes(vd)
-        );
-        sizes.push((name, heads, vd));
+        for (variant, win, capped) in attention_variants(win) {
+            let (cap_a, cap_t) = if capped { (CAP_ATTENTION, CAP_TILES) } else { ("", "") };
+            let _ = write!(
+                calls,
+                "  {{ // {name}{variant}\n    float* q = dev(dir + \"/q{k}.bin\"); float* kc = dev(dir + \"/k{k}.bin\"); float* vc = {}; float* sk = {};\n\
+                 \x20   float *a = nan({ROWS} * {heads} * {vd}), *b = nan({ROWS} * {heads} * {vd});\n\
+                 \x20   lk_attention<1, {}, float><<<dim3({heads}, {ROWS}, 1), 256, {}>>>(q, kc, vc, pos, sk, a, nullptr, nullptr, {len}, {win}, {hd}, {vd}, {group}, {heads}, {kvw}, {vw}, {voff}, {scale:e}f, {ATTN_MIN_SPLIT}, 1{cap_a});\n\
+                 \x20   CK(cudaGetLastError());\n\
+                 \x20   CK(cudaFuncSetAttribute(lk_attention_tiled<{hg}, {vi}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {}));\n\
+                 \x20   lk_attention_tiled<{hg}, {vi}><<<dim3({}, {}), 256, {}>>>(q, kc, vc, pos, sk, b, {len}, {win}, {hd}, {vd}, {group}, {heads}, {kvw}, {vw}, {voff}, {scale:e}f, {ROWS}{cap_t});\n\
+                 \x20   CK(cudaGetLastError()); CK(cudaDeviceSynchronize());\n\
+                 \x20   put(out, a, {ROWS} * {heads} * {vd}); put(out, b, {ROWS} * {heads} * {vd});\n  }}\n",
+                if latent { "kc".to_string() } else { format!("dev(dir + \"/v{k}.bin\")") },
+                if sinks { format!("dev(dir + \"/s{k}.bin\")") } else { "nullptr".into() },
+                attn_values_per_thread(vd),
+                attn_smem_bytes(1, hd, 1, 4),
+                attn_tile_smem_bytes(vd),
+                ROWS.div_ceil(ATTN_TILE_Q / hg),
+                heads / hg,
+                attn_tile_smem_bytes(vd)
+            );
+            sizes.push((format!("{name}{variant}"), heads, vd));
+        }
     }
     let program = format!(
         "#include <cstdio>\n#include <cstdlib>\n#include <string>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n\
@@ -3519,7 +5619,8 @@ fn the_tiled_attention_computes_what_the_attention_computes() {
     assert_eq!(all.len(), sizes.iter().map(|&(_, h, vd)| 2 * ROWS * h * vd).sum::<usize>(), "every shape's outputs");
     let mut at = 0;
     let mut report = Vec::new();
-    for &(name, heads, vd) in &sizes {
+    for (name, heads, vd) in &sizes {
+        let (heads, vd) = (*heads, *vd);
         let n = ROWS * heads * vd;
         let (a, b) = (&all[at..at + n], &all[at + n..at + 2 * n]);
         at += 2 * n;
@@ -3549,6 +5650,8 @@ fn the_tiled_attention_computes_what_the_attention_computes() {
 /// apart, each head's expanded key and the rotated key every head shares in place in the cache), against the tiles'
 /// split. Each output within `TOLERANCE` of its head's largest, the difference of two summation orders, and every output
 /// written (they start as NaN).
+/// Each shape also with every score capped at 50 and, where it has a window, in chunks of its span
+/// (`attention_variants`).
 #[test]
 fn the_flash_attention_computes_what_the_attention_computes() {
     use logicaffeine_compile::codegen_cuda::lane::kernels::{
@@ -3591,25 +5694,28 @@ fn the_flash_attention_computes_what_the_attention_computes() {
         let scale = 1.0 / (hd as f64).sqrt();
         let (hg, bq) = (attn_tile_heads(group), attn_flash_queries(hd, vd));
         let smem = attn_flash_smem_bytes(hd, vd);
-        let _ = write!(
-            calls,
-            "  {{ // {name}\n    int p0 = {cached}; CK(cudaMemcpy(pos, &p0, 4, cudaMemcpyHostToDevice));\n\
-             \x20   float* q = dev(dir + \"/q{k}.bin\"); float* kc = dev(dir + \"/k{k}.bin\"); float* vc = {}; float* sk = {};\n\
-             \x20   float *a = nan({rows} * {heads} * {vd}), *b = nan({rows} * {heads} * {vd});\n\
-             \x20   lk_attention<1, {}, float><<<dim3({heads}, {rows}, 1), 256, {}>>>(q, kc, vc, pos, sk, a, nullptr, nullptr, {len}, {win}, {hd}, {vd}, {group}, {heads}, {kvw}, {vw}, {voff}, {scale:e}f, {ATTN_MIN_SPLIT}, 1);\n\
-             \x20   CK(cudaGetLastError());\n\
-             \x20   CK(cudaFuncSetAttribute(lk_attention_flash<{hg}, {hd}, {vd}, {bq}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
-             \x20   lk_attention_flash<{hg}, {hd}, {vd}, {bq}><<<dim3({}, {}), 128, {smem}>>>(q, kc, vc, pos, sk, b, {len}, {win}, {group}, {heads}, {kvw}, {vw}, {voff}, {scale:e}f, {rows});\n\
-             \x20   CK(cudaGetLastError()); CK(cudaDeviceSynchronize());\n\
-             \x20   put(out, a, {rows} * {heads} * {vd}); put(out, b, {rows} * {heads} * {vd});\n  }}\n",
-            if latent { "kc".to_string() } else { format!("dev(dir + \"/v{k}.bin\")") },
-            if sinks { format!("dev(dir + \"/s{k}.bin\")") } else { "nullptr".into() },
-            attn_values_per_thread(vd),
-            attn_smem_bytes(1, hd, 1, 4),
-            rows.div_ceil(bq / hg),
-            heads / hg
-        );
-        sizes.push((name.to_string(), rows, heads, vd));
+        for (variant, win, capped) in attention_variants(win) {
+            let (cap_a, cap_t) = if capped { (CAP_ATTENTION, CAP_TILES) } else { ("", "") };
+            let _ = write!(
+                calls,
+                "  {{ // {name}{variant}\n    int p0 = {cached}; CK(cudaMemcpy(pos, &p0, 4, cudaMemcpyHostToDevice));\n\
+                 \x20   float* q = dev(dir + \"/q{k}.bin\"); float* kc = dev(dir + \"/k{k}.bin\"); float* vc = {}; float* sk = {};\n\
+                 \x20   float *a = nan({rows} * {heads} * {vd}), *b = nan({rows} * {heads} * {vd});\n\
+                 \x20   lk_attention<1, {}, float><<<dim3({heads}, {rows}, 1), 256, {}>>>(q, kc, vc, pos, sk, a, nullptr, nullptr, {len}, {win}, {hd}, {vd}, {group}, {heads}, {kvw}, {vw}, {voff}, {scale:e}f, {ATTN_MIN_SPLIT}, 1{cap_a});\n\
+                 \x20   CK(cudaGetLastError());\n\
+                 \x20   CK(cudaFuncSetAttribute(lk_attention_flash<{hg}, {hd}, {vd}, {bq}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
+                 \x20   lk_attention_flash<{hg}, {hd}, {vd}, {bq}><<<dim3({}, {}), 128, {smem}>>>(q, kc, vc, pos, sk, b, {len}, {win}, {group}, {heads}, {kvw}, {vw}, {voff}, {scale:e}f, {rows}{cap_t});\n\
+                 \x20   CK(cudaGetLastError()); CK(cudaDeviceSynchronize());\n\
+                 \x20   put(out, a, {rows} * {heads} * {vd}); put(out, b, {rows} * {heads} * {vd});\n  }}\n",
+                if latent { "kc".to_string() } else { format!("dev(dir + \"/v{k}.bin\")") },
+                if sinks { format!("dev(dir + \"/s{k}.bin\")") } else { "nullptr".into() },
+                attn_values_per_thread(vd),
+                attn_smem_bytes(1, hd, 1, 4),
+                rows.div_ceil(bq / hg),
+                heads / hg
+            );
+            sizes.push((format!("{name}{variant}"), rows, heads, vd));
+        }
     }
     // Split: 8 heads a group each, each query its own 128 in the projection (192 a head) and its rotated 64 apart; each
     // key its head's own 128 (expanded) and the rotated 64 every head shares at 512 in a 576-wide cache row.
@@ -3702,6 +5808,8 @@ fn the_flash_attention_computes_what_the_attention_computes() {
 /// part read apart as an expanded latent attention reads them, against the tiles' split. Each output within `TOLERANCE`
 /// of its head's largest — what rounding the queries, keys, values and weights to f16 moves — and every output written
 /// (they start as NaN).
+/// Each shape also with every score capped at 50 and, where it has a window, in chunks of its span
+/// (`attention_variants`).
 #[test]
 fn the_tensor_core_attention_computes_what_the_attention_computes() {
     use logicaffeine_compile::codegen_cuda::lane::kernels::{
@@ -3747,25 +5855,28 @@ fn the_tensor_core_attention_computes_what_the_attention_computes() {
         let scale = 1.0 / (hd as f64).sqrt();
         let (hg, bq) = (attn_tile_heads(group), ATTN_MMA_QUERIES);
         let smem = attn_mma_smem_bytes(hd, vd);
-        let _ = write!(
-            calls,
-            "  {{ // {name}\n    int p0 = {cached}; CK(cudaMemcpy(pos, &p0, 4, cudaMemcpyHostToDevice));\n\
-             \x20   float* q = dev(dir + \"/q{k}.bin\"); float* kc = dev(dir + \"/k{k}.bin\"); float* vc = {}; float* sk = {};\n\
-             \x20   float *a = nan({rows} * {heads} * {vd}), *b = nan({rows} * {heads} * {vd});\n\
-             \x20   lk_attention<1, {}, float><<<dim3({heads}, {rows}, 1), 256, {}>>>(q, kc, vc, pos, sk, a, nullptr, nullptr, {len}, {win}, {hd}, {vd}, {group}, {heads}, {kvw}, {vw}, {voff}, {scale:e}f, {ATTN_MIN_SPLIT}, 1);\n\
-             \x20   CK(cudaGetLastError());\n\
-             \x20   CK(cudaFuncSetAttribute(lk_attention_mma<{hg}, {hd}, {vd}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
-             \x20   lk_attention_mma<{hg}, {hd}, {vd}><<<dim3({}, {}), 128, {smem}>>>(q, kc, vc, pos, sk, b, {len}, {win}, {group}, {heads}, {kvw}, {vw}, {voff}, {scale:e}f, {rows});\n\
-             \x20   CK(cudaGetLastError()); CK(cudaDeviceSynchronize());\n\
-             \x20   put(out, a, {rows} * {heads} * {vd}); put(out, b, {rows} * {heads} * {vd});\n  }}\n",
-            if latent { "kc".to_string() } else { format!("dev(dir + \"/v{k}.bin\")") },
-            if sinks { format!("dev(dir + \"/s{k}.bin\")") } else { "nullptr".into() },
-            attn_values_per_thread(vd),
-            attn_smem_bytes(1, hd, 1, 4),
-            rows.div_ceil(bq / hg),
-            heads / hg
-        );
-        sizes.push((name.to_string(), rows, heads, vd));
+        for (variant, win, capped) in attention_variants(win) {
+            let (cap_a, cap_t) = if capped { (CAP_ATTENTION, CAP_TILES) } else { ("", "") };
+            let _ = write!(
+                calls,
+                "  {{ // {name}{variant}\n    int p0 = {cached}; CK(cudaMemcpy(pos, &p0, 4, cudaMemcpyHostToDevice));\n\
+                 \x20   float* q = dev(dir + \"/q{k}.bin\"); float* kc = dev(dir + \"/k{k}.bin\"); float* vc = {}; float* sk = {};\n\
+                 \x20   float *a = nan({rows} * {heads} * {vd}), *b = nan({rows} * {heads} * {vd});\n\
+                 \x20   lk_attention<1, {}, float><<<dim3({heads}, {rows}, 1), 256, {}>>>(q, kc, vc, pos, sk, a, nullptr, nullptr, {len}, {win}, {hd}, {vd}, {group}, {heads}, {kvw}, {vw}, {voff}, {scale:e}f, {ATTN_MIN_SPLIT}, 1{cap_a});\n\
+                 \x20   CK(cudaGetLastError());\n\
+                 \x20   CK(cudaFuncSetAttribute(lk_attention_mma<{hg}, {hd}, {vd}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
+                 \x20   lk_attention_mma<{hg}, {hd}, {vd}><<<dim3({}, {}), 128, {smem}>>>(q, kc, vc, pos, sk, b, {len}, {win}, {group}, {heads}, {kvw}, {vw}, {voff}, {scale:e}f, {rows}{cap_t});\n\
+                 \x20   CK(cudaGetLastError()); CK(cudaDeviceSynchronize());\n\
+                 \x20   put(out, a, {rows} * {heads} * {vd}); put(out, b, {rows} * {heads} * {vd});\n  }}\n",
+                if latent { "kc".to_string() } else { format!("dev(dir + \"/v{k}.bin\")") },
+                if sinks { format!("dev(dir + \"/s{k}.bin\")") } else { "nullptr".into() },
+                attn_values_per_thread(vd),
+                attn_smem_bytes(1, hd, 1, 4),
+                rows.div_ceil(bq / hg),
+                heads / hg
+            );
+            sizes.push((format!("{name}{variant}"), rows, heads, vd));
+        }
     }
     // Split: 8 heads a group each, each query its own 128 in the projection (192 a head) and its rotated 64 apart; each
     // key its head's own 128 (expanded) and the rotated 64 every head shares at 512 in a 576-wide cache row.
@@ -3849,6 +5960,196 @@ fn the_tensor_core_attention_computes_what_the_attention_computes() {
     eprintln!("{}", report.join("\n"));
 }
 
+/// The f16 tensor-core attention under the stream-K schedule (`lk_attention_mma<…, MB, 1>` over `attn_mma_schedule`'s
+/// grid on the 3060's resident blocks, `attn_mma_stream_blocks`, an `lk_amma_split` past its rows) computes what it
+/// computes one block an item, over the
+/// `f32` cache and the binary16 one holding the same values: Llama-3.2-1B's 32 heads over 8 groups 64 wide, 512 rows
+/// after 3,584 cached positions (three whole waves, the fourth's items split) and 256 after 1,536 (one whole wave);
+/// Qwen3-8B's 128 wide with sinks, 512 after 1,536; gpt-oss's 64 heads over 8 within a window of 128, with sinks, 512
+/// after 700; Gemma-3's four 256 wide over one group within a window of 512, 512 after 3,584 (under one wave: every item
+/// in the split); Gemma-2's eight over four, capped at 50, 512 after 1,536; 77 rows after 3,000 and one row after 4,000.
+/// The whole waves' items bit for bit; every output within `TOLERANCE` of its head's largest — what rounding the
+/// weights to f16 under another running maximum moves — and finite; two stream-K launches bit for bit; every item's
+/// arrival count back at zero after each; and the binary16 cache's outputs bit for bit the `f32` cache's. Under the
+/// pinned compute-sanitizer, a launch whose last wave splits (512 rows after 300) shows no shared-memory race, no
+/// misplaced barrier and no stray access.
+#[test]
+fn the_stream_k_attention_computes_what_one_block_an_item_computes() {
+    use logicaffeine_compile::codegen_cuda::chip::CudaChip;
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{
+        attn_mma_blocks, attn_mma_items, attn_mma_part_floats, attn_mma_schedule, attn_mma_smem_bytes, attn_mma_stream_blocks, attn_tile_heads, Kernel,
+        ATTN_MMA_QUERIES, PRELUDE,
+    };
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    const TOLERANCE: f64 = 1e-4;
+    let sms = CudaChip::rtx3060().sms;
+    // (name, heads, kv heads, hd, vd, window, sinks, cap, rows, cached)
+    let shapes: [(&str, usize, usize, usize, usize, usize, bool, f64, usize, usize); 9] = [
+        ("llama, 512 after 3584", 32, 8, 64, 64, 0, false, 0.0, 512, 3584),
+        ("llama, 256 after 1536", 32, 8, 64, 64, 0, false, 0.0, 256, 1536),
+        ("qwen3 with sinks", 32, 8, 128, 128, 0, true, 0.0, 512, 1536),
+        ("gpt-oss windowed with sinks", 64, 8, 64, 64, 128, true, 0.0, 512, 700),
+        ("gemma3 windowed", 4, 1, 256, 256, 512, false, 0.0, 512, 3584),
+        ("gemma2 capped", 8, 4, 256, 256, 0, false, 50.0, 512, 1536),
+        ("77 rows", 32, 8, 64, 64, 0, false, 0.0, 77, 3000),
+        ("one row", 32, 8, 64, 64, 0, false, 0.0, 1, 4000),
+        ("sanitized", 32, 8, 64, 64, 0, false, 0.0, 512, 300),
+    ];
+    let dir = dir().join("mma-stream");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut calls = String::new();
+    let mut expect = Vec::new();
+    for (k, &(name, heads, kvh, hd, vd, win, sinks, cap, rows, cached)) in shapes.iter().enumerate() {
+        let (group, len) = (heads / kvh, cached + rows);
+        let hg = attn_tile_heads(group);
+        let (mb, s, smem) = (attn_mma_blocks(hd, vd), attn_mma_stream_blocks(hd, vd, sms), attn_mma_smem_bytes(hd, vd));
+        let items = attn_mma_items(rows, heads, hg);
+        let (ndp, grid) = attn_mma_schedule(items, s);
+        let scale = 1.0 / (hd as f64).sqrt();
+        let sk = if sinks { "sk" } else { "nullptr" };
+        let (kvw, vw) = (kvh * hd, kvh * vd);
+        let tail = |e: &str| format!(", nullptr, 0, 0, (const {e}*)nullptr, 0, 0, 0, {cap:e}f");
+        let one = |e: &str, kc: &str, vc: &str, o: &str| {
+            let kernel = format!("lk_attention_mma<{hg}, {hd}, {vd}, {e}, {e}, {e}>");
+            format!(
+                "CK(cudaFuncSetAttribute({kernel}, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n    \
+                 {kernel}<<<dim3({}, {}), 128, {smem}>>>(q, {kc}, {vc}, pos, {sk}, {o}, {len}, {win}, {group}, {heads}, {kvw}, {vw}, 0, {scale:e}f, {rows}{});\n    \
+                 CK(cudaGetLastError());\n    ",
+                rows.div_ceil(ATTN_MMA_QUERIES / hg),
+                heads / hg,
+                tail(e)
+            )
+        };
+        let stream = |e: &str, kc: &str, vc: &str, o: &str| {
+            let kernel = format!("lk_attention_mma<{hg}, {hd}, {vd}, {e}, {e}, {e}, {mb}, 1>");
+            format!(
+                "CK(cudaFuncSetAttribute({kernel}, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n    \
+                 {kernel}<<<{grid}, 128, {smem}>>>(q, {kc}, {vc}, pos, {sk}, {o}, {len}, {win}, {group}, {heads}, {kvw}, {vw}, 0, {scale:e}f, {rows}, lk_amma_split{{part, cnt, {ndp}}}{});\n    \
+                 CK(cudaGetLastError()); CK(cudaDeviceSynchronize()); counts.push_back(left(cnt, {items}));\n    ",
+                tail(e)
+            )
+        };
+        let n = rows * heads * vd;
+        let sanitized = name == "sanitized";
+        let _ = write!(
+            calls,
+            "  if(sanitize == {}){{ // {name}\n    int p0 = {}; CK(cudaMemcpy(pos, &p0, 4, cudaMemcpyHostToDevice));\n    \
+             float* q = fill({}, {}, 0, 2.f); float* kf = fill({}, {}, 1, 1.f); float* vf = fill({}, {}, 1, 1.f); float* sk = fill({heads}, {}, 0, 2.f);\n    \
+             __half* kh = halves(kf, {}); __half* vh = halves(vf, {});\n    \
+             float* part; CK(cudaMalloc(&part, {}L * 4)); CK(cudaMemset(part, 0xff, {}L * 4)); int* cnt; CK(cudaMalloc(&cnt, {items} * 4)); CK(cudaMemset(cnt, 0, {items} * 4));\n    \
+             float *a = nan({n}), *b = nan({n}), *c = nan({n}), *d = nan({n}), *e = nan({n});\n    std::vector<int> counts;\n    \
+             {}{}{}{}{}CK(cudaDeviceSynchronize()); counts.push_back(written(part, {}L));\n    \
+             put(out, a, {n}); put(out, b, {n}); put(out, c, {n}); put(out, d, {n}); put(out, e, {n}); fwrite(counts.data(), 4, counts.size(), out);\n  }}\n",
+            u8::from(sanitized),
+            cached + 1,
+            rows * heads * hd,
+            100 + k,
+            len * kvw,
+            200 + k,
+            len * vw,
+            300 + k,
+            400 + k,
+            len * kvw,
+            len * vw,
+            2 * s * attn_mma_part_floats(vd),
+            2 * s * attn_mma_part_floats(vd),
+            one("float", "kf", "vf", "a"),
+            stream("float", "kf", "vf", "b"),
+            stream("float", "kf", "vf", "c"),
+            one("__half", "kh", "vh", "d"),
+            stream("__half", "kh", "vh", "e"),
+            2 * s * attn_mma_part_floats(vd)
+        );
+        expect.push((name, rows, heads, hg, vd, items, ndp, grid, sanitized));
+    }
+    let program = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <string>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n\
+         {PRELUDE}{}{}\n\
+         #define CK(x) do {{ cudaError_t e_ = (x); if(e_ != cudaSuccess){{ fprintf(stderr, \"cuda %d %s\\n\", __LINE__, cudaGetErrorString(e_)); exit(1); }} }} while(0)\n\
+         // Values in [-m, m): a hash of the index and the salt, rounded to f16 where `h16` (the caches' values, which a\n\
+         // binary16 cache holds exactly).\n\
+         __global__ void lk_fill(float* p, long n, unsigned salt, int h16, float m){{\n\
+           long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i >= n) return;\n\
+           unsigned long long h = ((unsigned long long)i ^ ((unsigned long long)salt << 40)) * 0x9E3779B97F4A7C15ULL; h ^= h >> 29; h *= 0xBF58476D1CE4E5B9ULL; h ^= h >> 32;\n\
+           float v = ((float)(h >> 40) / 16777216.f * 2.f - 1.f) * m; p[i] = h16 ? __half2float(__float2half(v)) : v; }}\n\
+         __global__ void lk_half(const float* p, __half* h, long n){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) h[i] = __float2half(p[i]); }}\n\
+         static float* fill(long n, unsigned salt, int h16, float m){{ float* p; CK(cudaMalloc(&p, n * 4)); lk_fill<<<(n + 255) / 256, 256>>>(p, n, salt, h16, m); CK(cudaGetLastError()); return p; }}\n\
+         static __half* halves(const float* p, long n){{ __half* h; CK(cudaMalloc(&h, n * 2)); lk_half<<<(n + 255) / 256, 256>>>(p, h, n); CK(cudaGetLastError()); return h; }}\n\
+         static float* nan(long n){{ float* p; CK(cudaMalloc(&p, n * 4)); CK(cudaMemset(p, 0xff, n * 4)); return p; }}\n\
+         static void put(FILE* out, const float* d, long n){{ std::vector<float> h(n); CK(cudaMemcpy(h.data(), d, n * 4, cudaMemcpyDeviceToHost)); fwrite(h.data(), 4, n, out); }}\n\
+         // The arrival counts a launch left nonzero, and the partials' floats written (they start as NaN).\n\
+         static int left(const int* cnt, int n){{ std::vector<int> h(n); CK(cudaMemcpy(h.data(), cnt, n * 4, cudaMemcpyDeviceToHost)); int k = 0; for(int x : h) k += x != 0; return k; }}\n\
+         static int written(const float* p, long n){{ std::vector<float> h(n); CK(cudaMemcpy(h.data(), p, n * 4, cudaMemcpyDeviceToHost)); int k = 0; for(float x : h) k += x == x; return k; }}\n\
+         int main(int argc, char** argv){{\n  int sanitize = argc > 2;\n  int* pos; CK(cudaMalloc(&pos, 4));\n  FILE* out = fopen(argv[1], \"wb\");\n{calls}  fclose(out);\n  return 0;\n}}\n",
+        Kernel::Mma.source(),
+        Kernel::AttentionMma.source()
+    );
+    let (cu, bin, out) = (dir.join("stream.cu"), dir.join("stream"), dir.join("out.bin"));
+    std::fs::write(&cu, program).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the attentions build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).arg(&out).output().unwrap();
+    assert!(ran.status.success(), "they run: {}", String::from_utf8_lossy(&ran.stderr));
+    let words: Vec<u32> = std::fs::read(&out).unwrap().chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
+    let mut at = 0;
+    let mut report = Vec::new();
+    for &(name, rows, heads, hg, vd, items, ndp, grid, sanitized) in &expect {
+        if sanitized {
+            continue;
+        }
+        assert!(grid > ndp, "{name}: the schedule splits ({items} items, {ndp} a block each, {grid} blocks)");
+        // The program's words in order: the `f32` cache's one block an item, its two stream-K launches; the binary16
+        // cache's one block an item and its stream-K launch; then each stream-K launch's counts left nonzero, and the
+        // partials' floats written.
+        let n = rows * heads * vd;
+        let [one, first, second, one16, first16]: [&[u32]; 5] = std::array::from_fn(|i| &words[at + i * n..at + (i + 1) * n]);
+        let (lefts, written) = (&words[at + 5 * n..at + 5 * n + 3], words[at + 5 * n + 3]);
+        at += 5 * n + 4;
+        assert_eq!(lefts, [0, 0, 0], "{name}: every item's arrival count back at zero after each stream-K launch");
+        assert!(written > 0, "{name}: the launch splits items, its blocks keeping partials");
+        assert!(first == second, "{name}: two stream-K launches write the same bits");
+        assert!(one16 == one && first16 == first, "{name}: over the binary16 cache, the f32 cache's bits");
+        let f = |w: u32| f64::from(f32::from_bits(w));
+        let (br, nbx) = (ATTN_MMA_QUERIES / hg, rows.div_ceil(ATTN_MMA_QUERIES / hg));
+        let mut worst = 0f64;
+        for r in 0..rows {
+            for h in 0..heads {
+                let (u, w) = (&one[(r * heads + h) * vd..][..vd], &first[(r * heads + h) * vd..][..vd]);
+                assert!(u.iter().chain(w).all(|&x| f32::from_bits(x).is_finite()), "{name}: row {r} head {h}: every output written, and finite");
+                let item = (h / hg) * nbx + r / br;
+                if item < ndp {
+                    assert!(u == w, "{name}: row {r} head {h}: item {item} of the whole waves, bit for bit");
+                }
+                let scale = u.iter().fold(0f64, |m, &x| m.max(f(x).abs()));
+                for (e, (&x, &y)) in u.iter().zip(w).enumerate() {
+                    let off = (f(x) - f(y)).abs() / scale;
+                    worst = worst.max(off);
+                    assert!(off <= TOLERANCE, "{name}: row {r} head {h} value {e}: {} one block an item, {} split ({off:.2e} of the head's largest)", f(x), f(y));
+                }
+            }
+        }
+        report.push(format!("{name}: {items} items, {ndp} a block each, {grid} blocks; split within {worst:.2e}"));
+    }
+    assert_eq!(at, words.len(), "every shape's outputs read");
+    eprintln!("{}", report.join("\n"));
+    if common::require_tool("cuda-sanitizer") {
+        for (tool, clean) in [("racecheck", "RACECHECK SUMMARY: 0 hazards displayed (0 errors, 0 warnings)"), ("synccheck", "ERROR SUMMARY: 0 errors"), ("memcheck", "ERROR SUMMARY: 0 errors")] {
+            let checked = Command::new(common::cuda_sanitizer())
+                .args(["--tool", tool])
+                .args(if tool == "racecheck" { &["--racecheck-report", "all"][..] } else { &[][..] })
+                .arg(&bin)
+                .arg(dir.join(format!("{tool}.bin")))
+                .arg("sanitize")
+                .output()
+                .unwrap();
+            let said = String::from_utf8_lossy(&checked.stdout).into_owned() + &String::from_utf8_lossy(&checked.stderr);
+            assert!(checked.status.success() && said.contains(clean), "the stream-K attention under {tool}:\n{}", said.lines().take(40).collect::<Vec<_>>().join("\n"));
+        }
+    }
+}
+
 /// The two-word attention (`lk_attention_i8` after `lk_kv_two_words`, the two-word numerics') computes what the
 /// attention a block a row computes (`lk_attention`), on the same queries, caches and positions: grouped heads; grouped
 /// heads within a window and with sinks; a head a group; Qwen3's 32 heads over 8 groups, and with one key channel in 37
@@ -3863,6 +6164,8 @@ fn the_tensor_core_attention_computes_what_the_attention_computes() {
 /// as NaN, and the two-word scratch as bytes no key or scale has). Under the pinned
 /// compute-sanitizer the program shows no shared-memory race — every `cp.async` tile waited for before it is read, every
 /// write after the reads it follows — no misplaced barrier and no stray access, as a warning or an error.
+/// Each shape also with every score capped at 50 and, where it has a window, in chunks of its span
+/// (`attention_variants`).
 #[test]
 fn the_two_word_attention_computes_what_the_attention_computes() {
     use logicaffeine_compile::codegen_cuda::lane::kernels::{
@@ -3925,30 +6228,33 @@ fn the_two_word_attention_computes_what_the_attention_computes() {
         let scale = 1.0 / (hd as f64).sqrt();
         let hg = attn_tile_heads(group);
         let lpad = attn_i8_rows(len);
-        let _ = write!(
-            calls,
-            "  {{ // {name}\n    int p0 = {cached}; CK(cudaMemcpy(pos, &p0, 4, cudaMemcpyHostToDevice));\n\
-             \x20   float* q = dev(dir + \"/q{k}.bin\"); float* kc = dev(dir + \"/k{k}.bin\"); float* vc = {}; float* sk = {};\n\
-             \x20   float *a = nan({rows} * {heads} * {vd}), *b = nan({rows} * {heads} * {vd});\n\
-             \x20   {}\n\
-             \x20   lk_attention<1, {}, float><<<dim3({heads}, {rows}, 1), 256, {}>>>(q, kc, vc, pos, sk, a, nullptr, nullptr, {len}, {win}, {hd}, {vd}, {group}, {heads}, {kvw}, {vw}, {voff}, {scale:e}f, {ATTN_MIN_SPLIT}, 1);\n\
-             \x20   CK(cudaGetLastError());\n\
-             \x20   lk_kv_two_words<{hd}, {vd}><<<dim3({}, {kvh}), 256>>>(kc, vc, pos, {rows}, {len}, {kvw}, {vw}, {voff}, {lpad}, k8, k8l, s8, w8, w8l, s8v);\n\
-             \x20   CK(cudaGetLastError());\n\
-             \x20   lk_attention_i8<{hg}, {hd}, {vd}><<<dim3({}, {}), 128, {}>>>(q, k8, k8l, s8, w8, w8l, s8v, {lpad}, pos, sk, b, {len}, {win}, {group}, {heads}, {scale:e}f, {rows});\n\
-             \x20   CK(cudaGetLastError()); CK(cudaDeviceSynchronize());\n\
-             \x20   put(out, a, {rows} * {heads} * {vd}); put(out, b, {rows} * {heads} * {vd});\n  }}\n",
-            if latent { "kc".to_string() } else { format!("dev(dir + \"/v{k}.bin\")") },
-            if sinks { format!("dev(dir + \"/s{k}.bin\")") } else { "nullptr".into() },
-            scratch(len, kvh, hd, vd),
-            attn_values_per_thread(vd),
-            attn_smem_bytes(1, hd, 1, 4),
-            lpad / 32,
-            rows.div_ceil(ATTN_I8_QUERIES / hg),
-            heads / hg,
-            attn_i8_smem_bytes(hd, vd)
-        );
-        sizes.push((name.to_string(), rows, heads, vd));
+        for (variant, win, capped) in attention_variants(win) {
+            let (cap_a, cap_t) = if capped { (CAP_ATTENTION, CAP_TWO_WORDS) } else { ("", "") };
+            let _ = write!(
+                calls,
+                "  {{ // {name}{variant}\n    int p0 = {cached}; CK(cudaMemcpy(pos, &p0, 4, cudaMemcpyHostToDevice));\n\
+                 \x20   float* q = dev(dir + \"/q{k}.bin\"); float* kc = dev(dir + \"/k{k}.bin\"); float* vc = {}; float* sk = {};\n\
+                 \x20   float *a = nan({rows} * {heads} * {vd}), *b = nan({rows} * {heads} * {vd});\n\
+                 \x20   {}\n\
+                 \x20   lk_attention<1, {}, float><<<dim3({heads}, {rows}, 1), 256, {}>>>(q, kc, vc, pos, sk, a, nullptr, nullptr, {len}, {win}, {hd}, {vd}, {group}, {heads}, {kvw}, {vw}, {voff}, {scale:e}f, {ATTN_MIN_SPLIT}, 1{cap_a});\n\
+                 \x20   CK(cudaGetLastError());\n\
+                 \x20   lk_kv_two_words<{hd}, {vd}><<<dim3({}, {kvh}), 256>>>(kc, vc, pos, {rows}, {len}, {kvw}, {vw}, {voff}, {lpad}, k8, k8l, s8, w8, w8l, s8v);\n\
+                 \x20   CK(cudaGetLastError());\n\
+                 \x20   lk_attention_i8<{hg}, {hd}, {vd}><<<dim3({}, {}), 128, {}>>>(q, k8, k8l, s8, w8, w8l, s8v, {lpad}, pos, sk, b, {len}, {win}, {group}, {heads}, {scale:e}f, {rows}{cap_t});\n\
+                 \x20   CK(cudaGetLastError()); CK(cudaDeviceSynchronize());\n\
+                 \x20   put(out, a, {rows} * {heads} * {vd}); put(out, b, {rows} * {heads} * {vd});\n  }}\n",
+                if latent { "kc".to_string() } else { format!("dev(dir + \"/v{k}.bin\")") },
+                if sinks { format!("dev(dir + \"/s{k}.bin\")") } else { "nullptr".into() },
+                scratch(len, kvh, hd, vd),
+                attn_values_per_thread(vd),
+                attn_smem_bytes(1, hd, 1, 4),
+                lpad / 32,
+                rows.div_ceil(ATTN_I8_QUERIES / hg),
+                heads / hg,
+                attn_i8_smem_bytes(hd, vd)
+            );
+            sizes.push((format!("{name}{variant}"), rows, heads, vd));
+        }
     }
     // Split: 8 heads a group each, each query its own 128 in the projection (192 a head) and its rotated 64 apart; each
     // key its head's own 128 (expanded) and the rotated 64 every head shares at 512 in a 576-wide cache row.
@@ -4050,7 +6356,11 @@ fn the_two_word_attention_computes_what_the_attention_computes() {
         let keys: Vec<Vec<Vec<f64>>> = (0..kvh).map(|g| (0..len).map(|j| rowed(&kc, j * kvw + g * hd, hd, true)).collect()).collect();
         let values: Vec<Vec<Vec<f64>>> = (0..kvh).map(|g| (0..len).map(|j| rowed(&vc, j * vw + g * vd, vd, true)).collect()).collect();
         let queries = |r: usize, h: usize| rowed(&q, (r * heads + h) * hd, hd, false);
-        models.push(attention_f64(rows, heads, group, cached, win, if sinks { Some(&sk) } else { None }, 1.0 / (hd as f64).sqrt(), &queries, &keys, &values));
+        // One model a variant, in the order the program runs them.
+        for (_, win, capped) in attention_variants(win) {
+            let cap = capped.then_some(50.0);
+            models.push(attention_f64(rows, heads, group, cached, win, cap, if sinks { Some(&sk) } else { None }, 1.0 / (hd as f64).sqrt(), &queries, &keys, &values));
+        }
     }
     {
         let (h, own, rope, vd, rows, cached, kw, lora) = (8usize, 128usize, 64usize, 128usize, 40usize, 70usize, 576usize, 512usize);
@@ -4068,8 +6378,9 @@ fn the_two_word_attention_computes_what_the_attention_computes() {
             let u = r * h + hh;
             two_words_row(&joined(&sq[u * qk..][..own], &sqe[u * rope..][..rope]), false)
         };
-        models.push(attention_f64(rows, h, 1, cached, 0, None, 1.0 / (qk as f64).sqrt(), &queries, &keys, &values));
+        models.push(attention_f64(rows, h, 1, cached, 0, None, None, 1.0 / (qk as f64).sqrt(), &queries, &keys, &values));
     }
+    assert_eq!(models.len(), sizes.len(), "a model a shape the program runs, in its order");
     let mut at = 0;
     let mut exact = Vec::new();
     for ((name, rows, heads, vd), model) in sizes.iter().zip(&models) {
@@ -4129,14 +6440,17 @@ fn two_words_row(row: &[f32], by_products: bool) -> Vec<f64> {
 }
 
 /// An attention in `f64`: row `r` of `rows`, head `h` (of `heads`, `group` a key/value group), query `query(r, h)`,
-/// attends keys `[lo, end)` of its group — `end = cached + r`, `lo` the window's start — `keys[g][j]` and
-/// `values[g][j]`; a sink joins each head's denominator. Each head's values, a row's heads one after another.
+/// attends keys `[lo, end)` of its group — `end = cached + r`, `lo` the window's start as `lk_window_lo` takes it (a
+/// sliding window's span, or a chunk's when negative) — `keys[g][j]` and `values[g][j]`, each scaled score capped at
+/// `cap` where given; a sink joins each head's denominator. Each head's values, a row's heads one after another.
+#[allow(clippy::too_many_arguments)]
 fn attention_f64(
     rows: usize,
     heads: usize,
     group: usize,
     cached: usize,
-    win: usize,
+    win: i64,
+    cap: Option<f64>,
     sinks: Option<&[f32]>,
     scale: f64,
     query: &dyn Fn(usize, usize) -> Vec<f64>,
@@ -4148,8 +6462,15 @@ fn attention_f64(
     for r in 0..rows {
         for h in 0..heads {
             let (q, g, end) = (query(r, h), h / group, cached + r);
-            let lo = if win > 0 && end > win { end - win } else { 0 };
-            let scores: Vec<f64> = (lo..end).map(|j| q.iter().zip(&keys[g][j]).map(|(a, b)| a * b).sum::<f64>() * scale).collect();
+            let lo = match win {
+                w if w > 0 && end > w as usize => end - w as usize,
+                w if w < 0 => (end - 1) / w.unsigned_abs() as usize * w.unsigned_abs() as usize,
+                _ => 0,
+            };
+            let scores: Vec<f64> = (lo..end)
+                .map(|j| q.iter().zip(&keys[g][j]).map(|(a, b)| a * b).sum::<f64>() * scale)
+                .map(|s| cap.map_or(s, |c| c * (s / c).tanh()))
+                .collect();
             let sink = sinks.map(|s| f64::from(s[h]));
             let m = scores.iter().copied().chain(sink).fold(f64::NEG_INFINITY, f64::max);
             let mut o = vec![0f64; vd];
@@ -4178,6 +6499,8 @@ fn attention_f64(
 /// difference of two summation orders, and every output written (they start as NaN); and the values read from rows of
 /// their own, sliced out of the key rows as a program holding back `strided_values` slices them, give the same outputs
 /// bit for bit.
+/// Each shape also with every score capped at 50 and, where it has a window, in chunks of its span
+/// (`attention_variants`).
 #[test]
 fn the_shared_row_attention_computes_what_the_attention_computes() {
     use logicaffeine_compile::codegen_cuda::lane::kernels::{
@@ -4228,36 +6551,39 @@ fn the_shared_row_attention_computes_what_the_attention_computes() {
                 let g = attn_heads_per_block(heads, hd, vd, len, 28, 99 * 1024, 4).expect("the attention's heads fit a block");
                 let splits_a = attn_splits(heads / g, len, 28);
                 let sinks_arg = if sinks { format!("dev(dir + \"/s{tag}.bin\")") } else { "nullptr".into() };
-                for splits in [1usize, 7, 17, 40] {
-                    let _ = write!(
-                        calls,
-                        "  {{ // {name}, {rows} rows after {cached}, {splits} chunks\n\
-                         \x20   int p0 = {cached} + 1; CK(cudaMemcpy(pos, &p0, 4, cudaMemcpyHostToDevice));\n\
-                         \x20   float* q = dev(dir + \"/q{tag}.bin\"); float* kc = dev(dir + \"/k{tag}.bin\"); float* sk = {sinks_arg};\n\
-                         \x20   float* vs = dev(dir + \"/v{tag}.bin\");\n\
-                         \x20   float *a = nan({rows} * {heads} * {vd}), *b = nan({rows} * {heads} * {vd}), *c = nan({rows} * {heads} * {vd});\n\
-                         \x20   float* pa = nan({rows}L * {heads} * {splits_a} * ({vd} + 2)); int* ca = zeros({rows} * {heads});\n\
-                         \x20   CK(cudaFuncSetAttribute(lk_attention<{g}, {vpt}, float>, cudaFuncAttributeMaxDynamicSharedMemorySize, {sa}));\n\
-                         \x20   lk_attention<{g}, {vpt}, float><<<dim3({}, {rows}, {splits_a}), 256, {sa}>>>(q, kc, kc, pos, sk, a, pa, ca, {len}, {win}, {hd}, {vd}, {heads}, {heads}, {hd}, {hd}, 0, {scale:e}f, {ATTN_MIN_SPLIT}, {splits_a});\n\
-                         \x20   CK(cudaGetLastError());\n\
-                         \x20   float* pb = nan({rows}L * {heads} * {splits} * ({vd} + 2));\n\
-                         \x20   lk_attention_shared<{heads}, {vpt}, {h4}, true><<<dim3(1, {rows}, {splits}), 256, {smem}>>>(q, kc, kc, pos, sk, b, pb, {len}, {win}, {vd}, {heads}, {hd}, {hd}, 0, {scale:e}f, {ATTN_MIN_SPLIT}, {splits});\n\
-                         \x20   CK(cudaGetLastError());\n\
-                         \x20   lk_attention_fold<<<dim3({heads}, {rows}, {fb}), {ATTN_FOLD_PAIRS}, {fs}>>>(pb, pos, sk, b, {len}, {win}, {vd}, {heads}, {ATTN_MIN_SPLIT}, {splits});\n\
-                         \x20   CK(cudaGetLastError());\n\
-                         \x20   float* pc = nan({rows}L * {heads} * {splits} * ({vd} + 2));\n\
-                         \x20   lk_attention_shared<{heads}, {vpt}, {h4}, false><<<dim3(1, {rows}, {splits}), 256, {smem}>>>(q, kc, vs, pos, sk, c, pc, {len}, {win}, {vd}, {heads}, {hd}, {vd}, 0, {scale:e}f, {ATTN_MIN_SPLIT}, {splits});\n\
-                         \x20   CK(cudaGetLastError());\n\
-                         \x20   lk_attention_fold<<<dim3({heads}, {rows}, {fb}), {ATTN_FOLD_PAIRS}, {fs}>>>(pc, pos, sk, c, {len}, {win}, {vd}, {heads}, {ATTN_MIN_SPLIT}, {splits});\n\
-                         \x20   CK(cudaGetLastError()); CK(cudaDeviceSynchronize());\n\
-                         \x20   put(out, a, {rows} * {heads} * {vd}); put(out, b, {rows} * {heads} * {vd}); put(out, c, {rows} * {heads} * {vd});\n  }}\n",
-                        heads / g,
-                        sa = attn_smem_bytes(g, hd, splits_a, 4),
-                        h4 = hd / 4,
-                        fb = vd.div_ceil(2 * ATTN_FOLD_PAIRS),
-                        fs = splits * 4
-                    );
-                    cases.push((format!("{name}, {rows} rows after {cached}, {splits} chunks"), rows, heads, vd));
+                for (variant, win, capped) in attention_variants(win) {
+                    let (cap_a, cap_s) = if capped { (CAP_ATTENTION, CAP_SHARED) } else { ("", "") };
+                    for splits in [1usize, 7, 17, 40] {
+                        let _ = write!(
+                            calls,
+                            "  {{ // {name}{variant}, {rows} rows after {cached}, {splits} chunks\n\
+                             \x20   int p0 = {cached} + 1; CK(cudaMemcpy(pos, &p0, 4, cudaMemcpyHostToDevice));\n\
+                             \x20   float* q = dev(dir + \"/q{tag}.bin\"); float* kc = dev(dir + \"/k{tag}.bin\"); float* sk = {sinks_arg};\n\
+                             \x20   float* vs = dev(dir + \"/v{tag}.bin\");\n\
+                             \x20   float *a = nan({rows} * {heads} * {vd}), *b = nan({rows} * {heads} * {vd}), *c = nan({rows} * {heads} * {vd});\n\
+                             \x20   float* pa = nan({rows}L * {heads} * {splits_a} * ({vd} + 2)); int* ca = zeros({rows} * {heads});\n\
+                             \x20   CK(cudaFuncSetAttribute(lk_attention<{g}, {vpt}, float>, cudaFuncAttributeMaxDynamicSharedMemorySize, {sa}));\n\
+                             \x20   lk_attention<{g}, {vpt}, float><<<dim3({}, {rows}, {splits_a}), 256, {sa}>>>(q, kc, kc, pos, sk, a, pa, ca, {len}, {win}, {hd}, {vd}, {heads}, {heads}, {hd}, {hd}, 0, {scale:e}f, {ATTN_MIN_SPLIT}, {splits_a}{cap_a});\n\
+                             \x20   CK(cudaGetLastError());\n\
+                             \x20   float* pb = nan({rows}L * {heads} * {splits} * ({vd} + 2));\n\
+                             \x20   lk_attention_shared<{heads}, {vpt}, {h4}, true><<<dim3(1, {rows}, {splits}), 256, {smem}>>>(q, kc, kc, pos, sk, b, pb, {len}, {win}, {vd}, {heads}, {hd}, {hd}, 0, {scale:e}f, {ATTN_MIN_SPLIT}, {splits}{cap_s});\n\
+                             \x20   CK(cudaGetLastError());\n\
+                             \x20   lk_attention_fold<<<dim3({heads}, {rows}, {fb}), {ATTN_FOLD_PAIRS}, {fs}>>>(pb, pos, sk, b, {len}, {win}, {vd}, {heads}, {ATTN_MIN_SPLIT}, {splits});\n\
+                             \x20   CK(cudaGetLastError());\n\
+                             \x20   float* pc = nan({rows}L * {heads} * {splits} * ({vd} + 2));\n\
+                             \x20   lk_attention_shared<{heads}, {vpt}, {h4}, false><<<dim3(1, {rows}, {splits}), 256, {smem}>>>(q, kc, vs, pos, sk, c, pc, {len}, {win}, {vd}, {heads}, {hd}, {vd}, 0, {scale:e}f, {ATTN_MIN_SPLIT}, {splits}{cap_s});\n\
+                             \x20   CK(cudaGetLastError());\n\
+                             \x20   lk_attention_fold<<<dim3({heads}, {rows}, {fb}), {ATTN_FOLD_PAIRS}, {fs}>>>(pc, pos, sk, c, {len}, {win}, {vd}, {heads}, {ATTN_MIN_SPLIT}, {splits});\n\
+                             \x20   CK(cudaGetLastError()); CK(cudaDeviceSynchronize());\n\
+                             \x20   put(out, a, {rows} * {heads} * {vd}); put(out, b, {rows} * {heads} * {vd}); put(out, c, {rows} * {heads} * {vd});\n  }}\n",
+                            heads / g,
+                            sa = attn_smem_bytes(g, hd, splits_a, 4),
+                            h4 = hd / 4,
+                            fb = vd.div_ceil(2 * ATTN_FOLD_PAIRS),
+                            fs = splits * 4
+                        );
+                        cases.push((format!("{name}{variant}, {rows} rows after {cached}, {splits} chunks"), rows, heads, vd));
+                    }
                 }
             }
         }
@@ -4324,7 +6650,7 @@ fn the_shared_row_attention_computes_what_the_attention_computes() {
 /// orders, and every output written (they start as NaN).
 #[test]
 fn the_expanded_latent_attention_computes_what_the_absorbed_one_computes() {
-    use logicaffeine_compile::codegen_cuda::lane::kernels::{attn_tile_heads, attn_tile_smem_bytes, attn_tile_values, Kernel, ATTN_TILE_Q, PRELUDE};
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{attn_tile_heads, attn_tile_smem_bytes, attn_tile_values, row_bytes, Kernel, ATTN_TILE_Q, PRELUDE};
     use logicaffeine_compile::model::quant::GgmlType;
     if !(common::require_tool("nvcc") && common::require_gpu()) {
         return;
@@ -4389,10 +6715,10 @@ fn the_expanded_latent_attention_computes_what_the_absorbed_one_computes() {
                  \x20   lk_attention_tiled<{hl}, {vl}><<<dim3({}, {}), 256, {}>>>(qr, k, v, pos, nullptr, cb, {len}, 0, {qk}, {vd}, 1, {H}, {}, {}, 0, {scale:e}f, {ROWS}, qe, {qk}, {rope}, kc, {kw}, {lora}, {nope});\n\
                  \x20   CK(cudaGetLastError()); CK(cudaDeviceSynchronize());\n\
                  \x20   put(out, ca, {ROWS}L * {H} * {vd}); put(out, cb, {ROWS}L * {H} * {vd});\n  }}\n",
-                ty.bytes_for(cols),
+                row_bytes(ty, cols),
                 ty.name(),
                 H * vd,
-                ty.bytes_for(lora),
+                row_bytes(ty, lora),
                 lora.div_ceil(64),
                 attn_tile_smem_bytes(lora),
                 ROWS.div_ceil(ATTN_TILE_Q / hg),
@@ -4426,6 +6752,10 @@ fn the_expanded_latent_attention_computes_what_the_absorbed_one_computes() {
            auto b = slurp(p);\n\
            if(F == 8){{ signed char* q; __half* s; long n = rows * cols; CK(cudaMalloc(&q, n)); CK(cudaMalloc(&s, n / 32 * 2));\n\
              CK(cudaMemcpy(q, b.data(), n, cudaMemcpyHostToDevice)); CK(cudaMemcpy(s, b.data() + n, n / 32 * 2, cudaMemcpyHostToDevice)); return lk_w{{q, s, nullptr, 0}}; }}\n\
+           if(F == 14){{ auto b = slurp(p); long nb = cols / 256;\n\
+             if(row_bytes != lk_q6_row_bytes(nb)){{ fprintf(stderr, \"a Q6_K row of %ld blocks is %ld bytes, not %ld\\n\", nb, lk_q6_row_bytes(nb), row_bytes); exit(3); }}\n\
+             std::vector<unsigned char> h((size_t)rows * row_bytes + 256, 0); lk_q6_regroup((const unsigned char*)b.data(), rows, nb, h.data());\n\
+             unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
            unsigned char* d; CK(cudaMalloc(&d, b.size() + 32)); CK(cudaMemset(d, 0, b.size() + 32)); CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice));\n\
            return lk_w{{nullptr, nullptr, d, row_bytes}};\n\
          }}\n\
@@ -4477,7 +6807,7 @@ fn the_expanded_latent_attention_computes_what_the_absorbed_one_computes() {
 /// summation orders; every output written (they start as NaN); a GEMM with nothing to split bit for bit the same.
 #[test]
 fn a_dense_gemms_last_wave_split_computes_what_the_whole_tiles_compute() {
-    use logicaffeine_compile::codegen_cuda::lane::kernels::{gemm_blk_rows, gemm_blk_smem_bytes, gemm_blk_tail, gemm_blk_threads, Kernel, GEMM_TILE_N, PRELUDE};
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{gemm_blk_rows, gemm_blk_smem_bytes, gemm_blk_tail, gemm_blk_threads, row_bytes, Kernel, GEMM_TILE_N, PRELUDE};
     use logicaffeine_compile::model::quant::GgmlType;
     if !(common::require_tool("nvcc") && common::require_gpu()) {
         return;
@@ -4528,7 +6858,7 @@ fn a_dense_gemms_last_wave_split_computes_what_the_whole_tiles_compute() {
                 let _ = write!(
                     calls,
                     "  {{ // {name} Q{q}\n\
-                     \x20   lk_w w = {f} == 8 ? load8(dir + \"/{name}.bin\", {n}L * {k}) : load(dir + \"/{name}.bin\", {}L);\n\
+                     \x20   lk_w w = {f} == 8 ? load8(dir + \"/{name}.bin\", {n}L * {k}) : load<{f}>(dir + \"/{name}.bin\", {n}L, {k}, {}L);\n\
                      \x20   float* x = dev(dir + \"/x{si}.bin\"); float* b = {};\n\
                      \x20   long nx = {m}L * {k}; signed char* xq = bytes(nx); signed char* xl = {q} == 2 ? bytes(nx) : nullptr; float* xs = nan(nx / 32);\n\
                      \x20   lk_quant<{q}><<<(nx + 255) / 256, 256>>>(x, xq, xl, xs, nx); CK(cudaGetLastError());\n\
@@ -4538,7 +6868,7 @@ fn a_dense_gemms_last_wave_split_computes_what_the_whole_tiles_compute() {
                      \x20   lk_gemm_blk<{f}, {q}, 0, {bm}><<<{}, {}, {smem}>>>(w, xq, xl, xs, b, yb, nullptr, 0, {k}, {n}, {m}, nullptr, nullptr, nullptr, nullptr,\n\
                      \x20                                         {{}}, nullptr, nullptr, nullptr, nullptr, 0.f, 0.f, {full}, {split}, part, cnt); CK(cudaGetLastError());\n\
                      \x20   CK(cudaDeviceSynchronize()); put(out, ya, {m}L * {n}); put(out, yb, {m}L * {n});\n  }}\n",
-                    if ty == GgmlType::Q8_0 { 0 } else { ty.bytes_for(k) },
+                    if ty == GgmlType::Q8_0 { 0 } else { row_bytes(ty, k) },
                     if bias { format!("dev(dir + \"/b{si}.bin\")") } else { "nullptr".into() },
                     (parts * bm * GEMM_TILE_N).max(1),
                     (tiles - full).max(1),
@@ -4564,7 +6894,16 @@ fn a_dense_gemms_last_wave_split_computes_what_the_whole_tiles_compute() {
          static std::vector<char> slurp(const std::string& p){{ FILE* f = fopen(p.c_str(), \"rb\"); if(!f) exit(2); std::vector<char> b; char c[65536]; size_t n;\n\
            while((n = fread(c, 1, sizeof c, f)) > 0) b.insert(b.end(), c, c + n); fclose(f); return b; }}\n\
          static float* dev(const std::string& p){{ auto b = slurp(p); float* d; CK(cudaMalloc(&d, b.size())); CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice)); return d; }}\n\
-         static lk_w load(const std::string& p, long row_bytes){{ auto b = slurp(p); unsigned char* d; CK(cudaMalloc(&d, b.size() + 32)); CK(cudaMemset(d, 0, b.size() + 32));\n\
+         template<int F> static lk_w load(const std::string& p, long rows, int cols, long row_bytes){{ auto b = slurp(p);\n\
+           if(F == 14){{ auto b = slurp(p); long nb = cols / 256;\n\
+             if(row_bytes != lk_q6_row_bytes(nb)){{ fprintf(stderr, \"a Q6_K row of %ld blocks is %ld bytes, not %ld\\n\", nb, lk_q6_row_bytes(nb), row_bytes); exit(3); }}\n\
+             std::vector<unsigned char> h((size_t)rows * row_bytes + 256, 0); lk_q6_regroup((const unsigned char*)b.data(), rows, nb, h.data());\n\
+             unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
+           if(F == 39){{ long nb = cols / 32;\n\
+             if(row_bytes != lk_mx_row_bytes(nb)){{ fprintf(stderr, \"an MXFP4 row of %ld sub-blocks is %ld bytes, not %ld\\n\", nb, lk_mx_row_bytes(nb), row_bytes); exit(3); }}\n\
+             std::vector<unsigned char> h((size_t)rows * row_bytes + 256, 0); lk_mx_regroup((const unsigned char*)b.data(), rows, nb, h.data());\n\
+             unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
+           unsigned char* d; CK(cudaMalloc(&d, b.size() + 32)); CK(cudaMemset(d, 0, b.size() + 32));\n\
            CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
          static lk_w load8(const std::string& p, long n){{ auto b = slurp(p); signed char* q; __half* s; CK(cudaMalloc(&q, n)); CK(cudaMalloc(&s, n / 16));\n\
            CK(cudaMemcpy(q, b.data(), n, cudaMemcpyHostToDevice)); CK(cudaMemcpy(s, b.data() + n, n / 16, cudaMemcpyHostToDevice)); return lk_w{{q, s, nullptr, 0}}; }}\n\
@@ -4622,7 +6961,7 @@ fn a_dense_gemms_last_wave_split_computes_what_the_whole_tiles_compute() {
 /// its parts in one order whichever arrives last, so a second run computes the same bits and leaves its counts at zero.
 #[test]
 fn a_gemm_in_parts_computes_each_parts_gemm() {
-    use logicaffeine_compile::codegen_cuda::lane::kernels::{gemm_blk_rows, gemm_blk_smem_bytes, gemm_blk_tail, gemm_blk_threads, Kernel, GEMM_PARTS, GEMM_TILE_N, PRELUDE};
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{gemm_blk_rows, gemm_blk_smem_bytes, gemm_blk_tail, gemm_blk_threads, row_bytes, Kernel, GEMM_PARTS, GEMM_TILE_N, PRELUDE};
     use logicaffeine_compile::model::quant::GgmlType;
     if !(common::require_tool("nvcc") && common::require_gpu()) {
         return;
@@ -4695,12 +7034,12 @@ fn a_gemm_in_parts_computes_each_parts_gemm() {
                     };
                     let _ = write!(
                         alone,
-                        "    lk_w w{p} = {f} == 8 ? load8(dir + \"/w{si}-{p}-{}.bin\", {n}L * {k}) : load(dir + \"/w{si}-{p}-{}.bin\", {}L); float* b{p} = {};\n\
+                        "    lk_w w{p} = {f} == 8 ? load8(dir + \"/w{si}-{p}-{}.bin\", {n}L * {k}) : load(dir + \"/w{si}-{p}-{}.bin\", {f}, {n}L, {k}L, {}L); float* b{p} = {};\n\
                          \x20   float *ya{p} = nan({m}L * {n});\n{tables}\
                          \x20   lk_gemm_blk<{f}, {q}, 0, {bm}><<<dim3({}, {}), {threads}, {smem}>>>(w{p}, xq, xl, xs, b{p}, ya{p}, nullptr, 0, {k}, {n}, {m}); CK(cudaGetLastError());\n",
                         ty.name(),
                         ty.name(),
-                        if ty == GgmlType::Q8_0 { 0 } else { ty.bytes_for(k) },
+                        if ty == GgmlType::Q8_0 { 0 } else { row_bytes(ty, k) },
                         if bias { format!("dev(dir + \"/b{si}-{p}.bin\")") } else { "nullptr".into() },
                         n.div_ceil(GEMM_TILE_N),
                         m.div_ceil(bm)
@@ -4762,8 +7101,12 @@ fn a_gemm_in_parts_computes_each_parts_gemm() {
          static std::vector<char> slurp(const std::string& p){{ FILE* f = fopen(p.c_str(), \"rb\"); if(!f) exit(2); std::vector<char> b; char c[65536]; size_t n;\n\
            while((n = fread(c, 1, sizeof c, f)) > 0) b.insert(b.end(), c, c + n); fclose(f); return b; }}\n\
          static float* dev(const std::string& p){{ auto b = slurp(p); float* d; CK(cudaMalloc(&d, b.size())); CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice)); return d; }}\n\
-         static lk_w load(const std::string& p, long row_bytes){{ auto b = slurp(p); unsigned char* d; CK(cudaMalloc(&d, b.size() + 32)); CK(cudaMemset(d, 0, b.size() + 32));\n\
-           CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
+         // A matrix of `rows` rows of `cols` in format `f` as the lane uploads it: Q6_K grouped, any other as stored.\n\
+         static lk_w load(const std::string& p, int f, long rows, long cols, long row_bytes){{ auto b = slurp(p);\n\
+           std::vector<unsigned char> h(f == 14 ? (size_t)rows * row_bytes : b.size(), 0);\n\
+           if(f == 14) lk_q6_regroup((const unsigned char*)b.data(), rows, cols / 256, h.data()); else for(size_t i = 0; i < b.size(); ++i) h[i] = (unsigned char)b[i];\n\
+           unsigned char* d; CK(cudaMalloc(&d, h.size() + 32)); CK(cudaMemset(d, 0, h.size() + 32));\n\
+           CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
          static lk_w load8(const std::string& p, long n){{ auto b = slurp(p); signed char* q; __half* s; CK(cudaMalloc(&q, n)); CK(cudaMalloc(&s, n / 16));\n\
            CK(cudaMemcpy(q, b.data(), n, cudaMemcpyHostToDevice)); CK(cudaMemcpy(s, b.data() + n, n / 16, cudaMemcpyHostToDevice)); return lk_w{{q, s, nullptr, 0}}; }}\n\
          static float* nan(long n){{ float* p; CK(cudaMalloc(&p, n * 4)); CK(cudaMemset(p, 0xff, n * 4)); return p; }}\n\
@@ -4960,6 +7303,534 @@ fn the_q8_0_block_gemm_sums_each_output_as_its_replica_does() {
         }
     }
     assert_eq!(at, all.len(), "every result read");
+}
+
+/// The Q3_K and Q6_K block GEMMs (`lk_gemm_blk<11, Q>`, `lk_gemm_blk<14, Q>`, in the lane's tiles, the Q6_K matrix
+/// grouped as the lane uploads it) sum each output exactly as their replica on the CPU does: each 32-value sub-block's
+/// two halves' dots of int8 levels exact, weighed by the halves' integer scales in integers, `sc₀·dot₀ + sc₁·dot₁`
+/// (exact, under 2²⁴), and accumulated `fma(row scale · block scale, that sum, sum)` sub-block after sub-block in `k`'s
+/// order — under two words the low words' sum after, `fma(row scale · block scale / 128, sc₀·dotₗ₀ + sc₁·dotₗ₁, sum)` — a
+/// tile cut along `k` summing each part from zero over its stages and the parts in order, the bias added last. Bit for
+/// bit, under both quantized numerics, whole tiles and the last wave cut as the lane cuts it on this chip, rows and
+/// outputs past a tile's edge, with and without a bias; the replica's levels, integer scales and block scales read from
+/// the checkpoint's blocks give `model::quant`'s dequantized weights bit for bit.
+#[test]
+fn the_q3_k_and_q6_k_block_gemms_sum_each_output_as_their_replica_does() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{gemm_blk_rows, gemm_blk_smem_bytes, gemm_blk_tail, gemm_blk_threads, row_bytes, Kernel, GEMM_TILE_N, PRELUDE};
+    use logicaffeine_compile::model::quant::{f16_to_f32, GgmlType};
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let workers = CudaKnobs::default().chip.sms;
+    let unit = |i: usize, salt: u64| {
+        let h = (i as u64 ^ salt).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(29) ^ 0x2545_F491_4F6C_DD1D;
+        ((h >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0) as f32
+    };
+    // A block's levels, its sixteen 16-value groups' integer scales and its scale, as ggml lays the block out.
+    let ints = |ty: GgmlType, b: &[u8]| -> (Vec<i32>, Vec<i32>, f32) {
+        let d = f16_to_f32(u16::from_le_bytes([b[b.len() - 2], b[b.len() - 1]]));
+        let mut levels = vec![0i32; 256];
+        let scales: Vec<i32>;
+        if ty == GgmlType::Q6K {
+            scales = b[192..208].iter().map(|&v| v as i8 as i32).collect();
+            for part in 0..2 {
+                let (ql, qh) = (&b[part * 64..part * 64 + 64], &b[128 + part * 32..128 + part * 32 + 32]);
+                for l in 0..32 {
+                    let n = part * 128 + l;
+                    levels[n] = ((ql[l] & 0xf) | ((qh[l] & 3) << 4)) as i32 - 32;
+                    levels[n + 32] = ((ql[l + 32] & 0xf) | (((qh[l] >> 2) & 3) << 4)) as i32 - 32;
+                    levels[n + 64] = ((ql[l] >> 4) | (((qh[l] >> 4) & 3) << 4)) as i32 - 32;
+                    levels[n + 96] = ((ql[l + 32] >> 4) | (((qh[l] >> 6) & 3) << 4)) as i32 - 32;
+                }
+            }
+        } else {
+            let (hm, qs, packed) = (&b[0..32], &b[32..96], &b[96..108]);
+            let word = |k: usize| u32::from_le_bytes([packed[4 * k], packed[4 * k + 1], packed[4 * k + 2], packed[4 * k + 3]]);
+            let (k1, k2) = (0x0303_0303u32, 0x0f0f_0f0fu32);
+            let (a0, a1, t) = (word(0), word(1), word(2));
+            let aux = [(a0 & k2) | ((t & k1) << 4), (a1 & k2) | (((t >> 2) & k1) << 4), ((a0 >> 4) & k2) | (((t >> 4) & k1) << 4), ((a1 >> 4) & k2) | (((t >> 6) & k1) << 4)];
+            scales = aux.iter().flat_map(|a| a.to_le_bytes()).map(|v| v as i8 as i32 - 32).collect();
+            let mut at = 0;
+            for n in (0..256).step_by(128) {
+                let q = &qs[n / 4..n / 4 + 32];
+                for j in 0..4 {
+                    let m = 1u8 << (n / 128 * 4 + j);
+                    for half in [0usize, 16] {
+                        for l in 0..16 {
+                            let low = ((q[l + half] >> (2 * j)) & 3) as i32;
+                            levels[at] = low - if hm[l + half] & m != 0 { 0 } else { 4 };
+                            at += 1;
+                        }
+                    }
+                }
+            }
+        }
+        (levels, scales, d)
+    };
+    let dir = dir().join("k-replica");
+    std::fs::create_dir_all(&dir).unwrap();
+    // (rows, outputs, inputs, a bias)
+    let shapes = [(100usize, 384usize, 1024usize, true), (512, 2048, 2048, false), (40, 256, 768, true), (512, 640, 3584, false)];
+    let mut calls = String::new();
+    let mut cases = Vec::new();
+    for ty in [GgmlType::Q3K, GgmlType::Q6K] {
+        let f = ty.id();
+        for (si, &(m, n, k, biased)) in shapes.iter().enumerate() {
+            let name = format!("w{si}-{}", ty.name());
+            let raw = tiny_models::seeded_blocks(&name, ty, n * k);
+            // The replica's integers give the dequantizer's weights.
+            let blocks: Vec<(Vec<i32>, Vec<i32>, f32)> = raw.chunks_exact(ty.block_bytes()).map(|b| ints(ty, b)).collect();
+            let mut deq = Vec::new();
+            ty.dequantize(&raw, &mut deq);
+            for (bi, (levels, scales, d)) in blocks.iter().enumerate() {
+                for i in 0..256 {
+                    let w = *d * scales[i / 16] as f32 * levels[i] as f32;
+                    assert_eq!(w.to_bits(), deq[bi * 256 + i].to_bits(), "{name}: block {bi} weight {i}: the replica's integers give {w}, the dequantizer {}", deq[bi * 256 + i]);
+                }
+            }
+            std::fs::write(dir.join(format!("{name}.bin")), &raw).unwrap();
+            let floats = |file: String, v: Vec<f32>| std::fs::write(dir.join(file), v.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+            floats(format!("x{si}.bin"), (0..m * k).map(|i| unit(i, 30 + si as u64) * (1.0 + 3.0 * ((i / 32) % 5) as f32)).collect());
+            floats(format!("b{si}.bin"), (0..n).map(|i| unit(i, 40 + si as u64) * 0.2).collect());
+            for q in [1, 2] {
+                let bm = gemm_blk_rows(f, q == 2);
+                let tiles = n.div_ceil(GEMM_TILE_N) * m.div_ceil(bm);
+                let (whole, split) = gemm_blk_tail(tiles, workers, k.div_ceil(128));
+                let (smem, threads) = (gemm_blk_smem_bytes(f, q == 2, bm), gemm_blk_threads(bm));
+                let bias = if biased { "b" } else { "nullptr" };
+                let cut = if split > 1 {
+                    format!(
+                        "lk_gemm_blk<{f}, {q}, 0, {bm}><<<{}, {threads}, {smem}>>>(w, xq, xl, xs, {bias}, yc, nullptr, 0, {k}, {n}, {m}, nullptr, nullptr, nullptr, nullptr, {{}}, nullptr, nullptr, nullptr, nullptr, 0.f, 0.f, {whole}, {split}, part, cnt); CK(cudaGetLastError());",
+                        whole + (tiles - whole) * split
+                    )
+                } else {
+                    format!("lk_gemm_blk<{f}, {q}, 0, {bm}><<<dim3({}, {}), {threads}, {smem}>>>(w, xq, xl, xs, {bias}, yc, nullptr, 0, {k}, {n}, {m}); CK(cudaGetLastError());", n.div_ceil(GEMM_TILE_N), m.div_ceil(bm))
+                };
+                let _ = write!(
+                    calls,
+                    "  {{ // {name} Q{q}\n\
+                     \x20   lk_w w = load<{f}>(dir + \"/{name}.bin\", {n}L, {k}, {}L); float* x = dev(dir + \"/x{si}.bin\"); float* b = dev(dir + \"/b{si}.bin\");\n\
+                     \x20   long nx = {m}L * {k}; signed char* xq = bytes(nx); signed char* xl = {q} == 2 ? bytes(nx) : nullptr; float* xs = nan(nx / 32);\n\
+                     \x20   lk_quant<{q}><<<(nx + 255) / 256, 256>>>(x, xq, xl, xs, nx); CK(cudaGetLastError());\n\
+                     \x20   CK(cudaFuncSetAttribute(lk_gemm_blk<{f}, {q}, 0, {bm}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
+                     \x20   float *yw = nan({m}L * {n}), *yc = nan({m}L * {n}), *part = nan({}L); int* cnt = zeros({});\n\
+                     \x20   lk_gemm_blk<{f}, {q}, 0, {bm}><<<dim3({}, {}), {threads}, {smem}>>>(w, xq, xl, xs, {bias}, yw, nullptr, 0, {k}, {n}, {m}); CK(cudaGetLastError());\n\
+                     \x20   {cut}\n\
+                     \x20   CK(cudaDeviceSynchronize()); putb(out, xq, nx); if({q} == 2) putb(out, xl, nx); put(out, xs, nx / 32); put(out, yw, {m}L * {n}); put(out, yc, {m}L * {n});\n  }}\n",
+                    row_bytes(ty, k),
+                    ((tiles - whole) * split * bm * GEMM_TILE_N).max(1),
+                    (tiles - whole).max(1),
+                    n.div_ceil(GEMM_TILE_N),
+                    m.div_ceil(bm)
+                );
+                cases.push((name.clone(), si, q, m, n, k, biased, bm, whole, split));
+            }
+            std::fs::write(dir.join(format!("{name}.ints")), blocks.iter().flat_map(|(l, s, d)| l.iter().chain(s).map(|v| *v as i8 as u8).chain(d.to_le_bytes())).collect::<Vec<u8>>()).unwrap();
+        }
+    }
+    let program = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <string>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n\
+         {PRELUDE}{}{}{}{}\n\
+         #define CK(x) do {{ cudaError_t e_ = (x); if(e_ != cudaSuccess){{ fprintf(stderr, \"cuda %d %s\\n\", __LINE__, cudaGetErrorString(e_)); exit(1); }} }} while(0)\n\
+         static std::vector<char> slurp(const std::string& p){{ FILE* f = fopen(p.c_str(), \"rb\"); if(!f) exit(2); std::vector<char> b; char c[65536]; size_t n;\n\
+           while((n = fread(c, 1, sizeof c, f)) > 0) b.insert(b.end(), c, c + n); fclose(f); return b; }}\n\
+         static float* dev(const std::string& p){{ auto b = slurp(p); float* d; CK(cudaMalloc(&d, b.size())); CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice)); return d; }}\n\
+         // A matrix of `rows` rows of `cols` in format `F` as the lane uploads it: Q6_K grouped, any other as stored.\n\
+         template<int F> static lk_w load(const std::string& p, long rows, int cols, long row_bytes){{ auto b = slurp(p); std::vector<unsigned char> h((size_t)rows * row_bytes + 256, 0);\n\
+           if(F == 14) lk_q6_regroup((const unsigned char*)b.data(), rows, cols / 256, h.data()); else for(size_t i = 0; i < b.size(); ++i) h[i] = (unsigned char)b[i];\n\
+           unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
+         static float* nan(long n){{ float* p; CK(cudaMalloc(&p, n * 4)); CK(cudaMemset(p, 0xff, n * 4)); return p; }}\n\
+         static int* zeros(long n){{ int* p; CK(cudaMalloc(&p, n * 4)); CK(cudaMemset(p, 0, n * 4)); return p; }}\n\
+         static signed char* bytes(long n){{ signed char* p; CK(cudaMalloc(&p, n)); return p; }}\n\
+         static void put(FILE* out, const float* d, long n){{ std::vector<float> h(n); CK(cudaMemcpy(h.data(), d, n * 4, cudaMemcpyDeviceToHost)); fwrite(h.data(), 4, n, out); }}\n\
+         static void putb(FILE* out, const signed char* d, long n){{ std::vector<signed char> h(n); CK(cudaMemcpy(h.data(), d, n, cudaMemcpyDeviceToHost)); fwrite(h.data(), 1, n, out); }}\n\
+         int main(int argc, char** argv){{\n  std::string dir = argv[1];\n  FILE* out = fopen(argv[2], \"wb\");\n{calls}  fclose(out);\n  return 0;\n}}\n",
+        Kernel::Blocks.source(),
+        Kernel::Quant.source(),
+        Kernel::Mma.source(),
+        Kernel::GemmBlk.source()
+    );
+    let (cu, bin, outp) = (dir.join("replica.cu"), dir.join("replica"), dir.join("out.bin"));
+    std::fs::write(&cu, program).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the GEMMs build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).arg(&dir).arg(&outp).output().unwrap();
+    assert!(ran.status.success(), "they run: {}", String::from_utf8_lossy(&ran.stderr));
+    let all = std::fs::read(&outp).unwrap();
+    let mut at = 0;
+    let mut take = |n: usize| {
+        at += n;
+        all[at - n..at].to_vec()
+    };
+    let f32s = |v: Vec<u8>| v.chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect::<Vec<f32>>();
+    for (name, si, q, m, n, k, biased, bm, whole, split) in cases {
+        let what = format!("{name}: {m} × {k} by {n} Q{q}{}", if biased { " with a bias" } else { "" });
+        let packed = std::fs::read(dir.join(format!("{name}.ints"))).unwrap();
+        // Each block's 256 levels, 16 scales and its scale, as written above.
+        let per = 256 + 16 + 4;
+        let level = |c: usize, i: usize| packed[(c * (k / 256) + i / 256) * per + i % 256] as i8 as i32;
+        let scale16 = |c: usize, g: usize| packed[(c * (k / 256) + g / 16) * per + 256 + g % 16] as i8 as i32;
+        let dblk = |c: usize, b: usize| {
+            let o = (c * (k / 256) + b) * per + 272;
+            f32::from_le_bytes([packed[o], packed[o + 1], packed[o + 2], packed[o + 3]])
+        };
+        let xq: Vec<i8> = take(m * k).into_iter().map(|b| b as i8).collect();
+        let xl: Vec<i8> = if q == 2 { take(m * k).into_iter().map(|b| b as i8).collect() } else { Vec::new() };
+        let xs = f32s(take(m * k / 32 * 4));
+        let (yw, yc) = (f32s(take(m * n * 4)), f32s(take(m * n * 4)));
+        let bias: Vec<f32> = std::fs::read(dir.join(format!("b{si}.bin"))).unwrap().chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect();
+        let nb = k / 32;
+        let stages = k.div_ceil(128);
+        let nbx = n.div_ceil(GEMM_TILE_N);
+        for r in 0..m {
+            for c in 0..n {
+                // Each sub-block's halves' dots weighed by their integer scales, the low words' apart, and its scale.
+                let subs: Vec<(i32, i32, f32)> = (0..nb)
+                    .map(|j| {
+                        let half = |a: &[i8], h: usize| (0..16).map(|i| a[r * k + 32 * j + 16 * h + i] as i32 * level(c, 32 * j + 16 * h + i)).sum::<i32>();
+                        let weigh = |a: &[i8]| half(a, 0) * scale16(c, 2 * j) + half(a, 1) * scale16(c, 2 * j + 1);
+                        (weigh(&xq), if q == 2 { weigh(&xl) } else { 0 }, xs[r * nb + j] * dblk(c, j / 8))
+                    })
+                    .collect();
+                let run = |lo: usize, hi: usize| {
+                    subs[lo..hi.min(nb)].iter().fold(0f32, |acc, &(s, sl, sd)| {
+                        let acc = sd.mul_add(s as f32, acc);
+                        if q == 2 { (sd * 0.0078125).mul_add(sl as f32, acc) } else { acc }
+                    })
+                };
+                let tail = |v: f32| if biased { v + bias[c] } else { v };
+                let plain = tail(run(0, nb));
+                assert_eq!(yw[r * n + c].to_bits(), plain.to_bits(), "{what}: whole tiles, row {r} output {c}: {} against the replica's {plain}", yw[r * n + c]);
+                let tile = (r / bm) * nbx + c / GEMM_TILE_N;
+                let cut = if split > 1 && tile >= whole {
+                    (0..split).fold(0f32, |acc, piece| acc + run(piece * stages / split * 4, (piece + 1) * stages / split * 4))
+                } else {
+                    run(0, nb)
+                };
+                let cut = tail(cut);
+                assert_eq!(yc[r * n + c].to_bits(), cut.to_bits(), "{what}: the lane's cut (split {split} past {whole}), row {r} output {c}: {} against the replica's {cut}", yc[r * n + c]);
+            }
+        }
+    }
+    assert_eq!(at, all.len(), "every result read");
+}
+
+/// An int8 tensor-core GEMM reads each `mma` sum as a float the same on every architecture (`lk_dot_f`): by the
+/// conversion where the kernel asks it and the architecture issues it on the float pipe (sm_86 on), the sum begun at
+/// zero; by one float subtraction otherwise, the sum begun at the bits of 1.5·2²³. Built for sm_80 (every kernel by the
+/// subtraction) and for sm_86 (the conversion under one word, and in the streamed path under two) and run on this card,
+/// every launch whose sums it reads computes the same bits — the K-quant block path dense in Q4_K (offsets) and Q6_K
+/// (integer halves), and paired through the SwiGLU into `f32` and quantized hidden rows; Q8_0's streamed path and its
+/// block path over a `k` ending inside a stage, under both quantized numerics; the batch GEMV on the tensor cores under
+/// both — over rows and outputs past a tile's edge, in the lane's launches, every output written and finite and none of
+/// the GEMMs zero throughout.
+#[test]
+fn a_block_gemm_reads_its_sums_the_same_on_every_architecture() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{
+        gemm_blk_launch_smem, gemm_blk_launch_threads, gemm_blk_rows, gemv_mma_launch, gemv_mma_smem_bytes, gemv_mma_threads, row_bytes, Kernel,
+        GEMM_PARTS, GEMM_TILE_N, PRELUDE,
+    };
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let dir = dir().join("dot-reading");
+    std::fs::create_dir_all(&dir).unwrap();
+    let unit = |i: usize, salt: u64| {
+        let h = (i as u64 ^ salt).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(27) ^ 0x2545_F491_4F6C_DD1D;
+        ((h >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0) as f32
+    };
+    let floats = |name: &str, v: Vec<f32>| std::fs::write(dir.join(name), v.iter().flat_map(|f| f.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+    // Each result the program writes: what it is, its bytes, and whether they are floats.
+    let mut results: Vec<(String, usize, bool)> = Vec::new();
+    let mut calls = String::new();
+    // The K-quant block path: (name, format, rows, k, outputs, paired).
+    let blocks = [
+        ("Q4_K", GgmlType::Q4K, 200usize, 1024usize, 640usize, false),
+        ("Q6_K", GgmlType::Q6K, 130, 1024, 384, false),
+        ("Q4_K paired", GgmlType::Q4K, 150, 2048, 320, true),
+    ];
+    for (ci, &(name, ty, m, k, n, paired)) in blocks.iter().enumerate() {
+        let f = ty.id();
+        for which in if paired { &["g", "u"][..] } else { &["w"][..] } {
+            std::fs::write(dir.join(format!("k{which}{ci}.bin")), tiny_models::seeded_blocks(&format!("dot-reading-{which}{ci}"), ty, n * k)).unwrap();
+        }
+        floats(&format!("kx{ci}.bin"), (0..m * k).map(|i| unit(i, ci as u64) * (1.0 + 3.0 * ((i / 32) % 5) as f32)).collect());
+        let bm = gemm_blk_rows(f, false);
+        let (smem, threads) = (gemm_blk_launch_smem(f, false, bm, k), gemm_blk_launch_threads(f, bm, k));
+        let rb = row_bytes(ty, k);
+        let launch = if paired {
+            format!(
+                "lk_gemm_blk<{f}, 1, 5, {bm}, -1><<<dim3({}, {}), {threads}, {smem}>>>(wg, xq, nullptr, xs, nullptr, y, nullptr, 0, {k}, {n}, {m}, nullptr, nullptr, nullptr, nullptr, wu, nullptr, hq, nullptr, hs)",
+                n.div_ceil(GEMM_TILE_N / 2),
+                m.div_ceil(bm)
+            )
+        } else {
+            format!(
+                "lk_gemm_blk<{f}, 1, 0, {bm}, 0, true><<<dim3({}, {}), {threads}, {smem}>>>(wg, xq, nullptr, xs, nullptr, y, nullptr, 0, {k}, {n}, {m})",
+                n.div_ceil(GEMM_TILE_N),
+                m.div_ceil(bm)
+            )
+        };
+        let kernel = &launch[..launch.find("<<<").unwrap()];
+        let _ = write!(
+            calls,
+            "  {{ // {name}\n\
+             \x20   lk_w wg = loadk<{f}>(dir + \"/k{g}{ci}.bin\", {n}L, {k}L, {rb}L), wu = {up};\n\
+             \x20   float* x = dev(dir + \"/kx{ci}.bin\"); long nx = {m}L * {k}, nh = {m}L * {n}; signed char* xq = bytes(nx); float* xs = nan(nx / 32);\n\
+             \x20   lk_quant<1><<<(nx + 255) / 256, 256>>>(x, xq, nullptr, xs, nx); CK(cudaGetLastError());\n\
+             \x20   signed char* hq = bytes(nh); float* hs = nan(nh / 32); float* y = nan(nh);\n\
+             \x20   CK(cudaFuncSetAttribute({kernel}, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
+             \x20   {launch}; CK(cudaGetLastError()); CK(cudaDeviceSynchronize());\n\
+             \x20   put(out, y, nh);{quantized}\n  }}\n",
+            g = if paired { "g" } else { "w" },
+            up = if paired { format!("loadk<{f}>(dir + \"/ku{ci}.bin\", {n}L, {k}L, {rb}L)") } else { "lk_w{}".to_string() },
+            quantized = if paired { " putb(out, hq, nh); put(out, hs, nh / 32);" } else { "" },
+        );
+        results.push((format!("{name} {m} × {k} by {n}"), m * n * 4, true));
+        if paired {
+            results.push((format!("{name} {m} × {k} by {n}: its quantized hidden rows"), m * n, false));
+            results.push((format!("{name} {m} × {k} by {n}: their scales"), m * n / 32 * 4, true));
+        }
+    }
+    // Q8_0: (rows, k, outputs) — a `k` of whole 128-value stages takes the streamed path, 1056 the block path.
+    let q8 = [(150usize, 1024usize, 384usize), (70, 1056, 256)];
+    for (si, &(m, k, n)) in q8.iter().enumerate() {
+        let levels: Vec<u8> = (0..n * k).map(|i| (unit(i, 10 + si as u64) * 127.0) as i8 as u8).collect();
+        let scales: Vec<u16> = (0..n * k / 32).map(|b| (((5 + b % 4) << 10) | (((unit(b, 20 + si as u64) + 1.0) * 511.0) as usize & 0x3FF)) as u16).collect();
+        let mut matrix = levels;
+        matrix.extend(scales.iter().flat_map(|s| s.to_le_bytes()));
+        std::fs::write(dir.join(format!("qw{si}.bin")), &matrix).unwrap();
+        floats(&format!("qx{si}.bin"), (0..m * k).map(|i| unit(i, 30 + si as u64) * (1.0 + 3.0 * ((i / 32) % 5) as f32)).collect());
+        for q in [1usize, 2] {
+            let bm = gemm_blk_rows(8, q == 2);
+            let (smem, threads) = (gemm_blk_launch_smem(8, q == 2, bm, k), gemm_blk_launch_threads(8, bm, k));
+            let _ = write!(
+                calls,
+                "  {{ // Q8_0 {m} × {k} by {n} Q{q}\n\
+                 \x20   lk_w w = load8(dir + \"/qw{si}.bin\", {n}L * {k}); float* x = dev(dir + \"/qx{si}.bin\");\n\
+                 \x20   long nx = {m}L * {k}; signed char* xq = bytes(nx); signed char* xl = {q} == 2 ? bytes(nx) : nullptr; float* xs = nan(nx / 32);\n\
+                 \x20   lk_quant<{q}><<<(nx + 255) / 256, 256>>>(x, xq, xl, xs, nx); CK(cudaGetLastError());\n\
+                 \x20   CK(cudaFuncSetAttribute(lk_gemm_blk<8, {q}, 0, {bm}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
+                 \x20   float* y = nan({m}L * {n});\n\
+                 \x20   lk_gemm_blk<8, {q}, 0, {bm}><<<dim3({}, {}), {threads}, {smem}>>>(w, xq, xl, xs, nullptr, y, nullptr, 0, {k}, {n}, {m}); CK(cudaGetLastError()); CK(cudaDeviceSynchronize());\n\
+                 \x20   put(out, y, {m}L * {n});\n  }}\n",
+                n.div_ceil(GEMM_TILE_N),
+                m.div_ceil(bm)
+            );
+            results.push((format!("Q8_0 {m} × {k} by {n} Q{q}"), m * n * 4, true));
+        }
+    }
+    // The batch GEMV on the tensor cores: 17 rows of a Q8_0 matrix's 96 outputs, `k` 1152, in the lane's launch.
+    let (m, k, n) = (17usize, 1152usize, 96usize);
+    let levels: Vec<u8> = (0..n * k).map(|i| (unit(i, 50) * 127.0) as i8 as u8).collect();
+    let scales: Vec<u16> = (0..n * k / 32).map(|b| (((5 + b % 4) << 10) | (((unit(b, 60) + 1.0) * 511.0) as usize & 0x3FF)) as u16).collect();
+    let mut matrix = levels;
+    matrix.extend(scales.iter().flat_map(|s| s.to_le_bytes()));
+    std::fs::write(dir.join("vw.bin"), &matrix).unwrap();
+    floats("vx.bin", (0..m * k).map(|i| unit(i, 70) * (1.0 + 3.0 * ((i / 32) % 5) as f32)).collect());
+    let (mt, nt, mw, nw) = gemv_mma_launch(m, n, k, 28);
+    for q in [1usize, 2] {
+        let smem = gemv_mma_smem_bytes(q == 2, mt, nt);
+        let _ = write!(
+            calls,
+            "  {{ // the batch GEMV, {m} rows of {n} outputs, k {k}, Q{q}\n\
+             \x20   lk_w w = load8(dir + \"/vw.bin\", {n}L * {k}); float* x = dev(dir + \"/vx.bin\");\n\
+             \x20   long nx = {m}L * {k}; signed char* xq = bytes(nx); signed char* xl = {q} == 2 ? bytes(nx) : nullptr; float* xs = nan(nx / 32);\n\
+             \x20   lk_quant<{q}><<<(nx + 255) / 256, 256>>>(x, xq, xl, xs, nx); CK(cudaGetLastError());\n\
+             \x20   lk_parts parts{{}}; parts.w[0] = w; parts.end[0] = {n}; parts.y[0] = nan({m}L * {n});\n\
+             \x20   for(int p = 1; p < {GEMM_PARTS}; ++p) parts.end[p] = {n};\n\
+             \x20   CK(cudaFuncSetAttribute(lk_gemv_mma<{q}, {mt}, {nt}, {mw}, {nw}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
+             \x20   lk_gemv_mma<{q}, {mt}, {nt}, {mw}, {nw}><<<{}, {}, {smem}>>>(xq, xl, xs, {k}, {n}, {m}, parts); CK(cudaGetLastError()); CK(cudaDeviceSynchronize());\n\
+             \x20   put(out, parts.y[0], {m}L * {n});\n  }}\n",
+            n.div_ceil(8 * nt),
+            gemv_mma_threads(mt, nt, mw, nw)
+        );
+        results.push((format!("the batch GEMV {m} × {k} by {n} Q{q}"), m * n * 4, true));
+    }
+    let program = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <cstring>\n#include <string>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n\
+         {PRELUDE}{}{}{}{}{}\n\
+         #define CK(x) do {{ cudaError_t e_ = (x); if(e_ != cudaSuccess){{ fprintf(stderr, \"cuda %d %s\\n\", __LINE__, cudaGetErrorString(e_)); exit(1); }} }} while(0)\n\
+         static std::vector<char> slurp(const std::string& p){{ FILE* f = fopen(p.c_str(), \"rb\"); if(!f) exit(2); std::vector<char> b; char c[65536]; size_t n;\n\
+           while((n = fread(c, 1, sizeof c, f)) > 0) b.insert(b.end(), c, c + n); fclose(f); return b; }}\n\
+         static float* dev(const std::string& p){{ auto b = slurp(p); float* d; CK(cudaMalloc(&d, b.size())); CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice)); return d; }}\n\
+         template<int F> static lk_w loadk(const std::string& p, long rows, long k, long rb){{ auto b = slurp(p); std::vector<unsigned char> h(rows * rb + 32, 0);\n\
+           if(F == 14) lk_q6_regroup((const unsigned char*)b.data(), rows, k / 256, h.data()); else memcpy(h.data(), b.data(), b.size());\n\
+           unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, rb}}; }}\n\
+         static lk_w load8(const std::string& p, long n){{ auto b = slurp(p); signed char* q; __half* s; CK(cudaMalloc(&q, n)); CK(cudaMalloc(&s, n / 16));\n\
+           CK(cudaMemcpy(q, b.data(), n, cudaMemcpyHostToDevice)); CK(cudaMemcpy(s, b.data() + n, n / 16, cudaMemcpyHostToDevice)); return lk_w{{q, s, nullptr, 0}}; }}\n\
+         static float* nan(long n){{ float* p; CK(cudaMalloc(&p, n * 4)); CK(cudaMemset(p, 0xff, n * 4)); return p; }}\n\
+         static signed char* bytes(long n){{ signed char* p; CK(cudaMalloc(&p, n)); CK(cudaMemset(p, 0x5a, n)); return p; }}\n\
+         static void put(FILE* out, const float* d, long n){{ std::vector<float> h(n); CK(cudaMemcpy(h.data(), d, n * 4, cudaMemcpyDeviceToHost)); fwrite(h.data(), 4, n, out); }}\n\
+         static void putb(FILE* out, const signed char* d, long n){{ std::vector<signed char> h(n); CK(cudaMemcpy(h.data(), d, n, cudaMemcpyDeviceToHost)); fwrite(h.data(), 1, n, out); }}\n\
+         int main(int argc, char** argv){{\n  std::string dir = argv[1];\n  FILE* out = fopen(argv[2], \"wb\");\n{calls}  fclose(out);\n  return 0;\n}}\n",
+        Kernel::Blocks.source(),
+        Kernel::Quant.source(),
+        Kernel::Mma.source(),
+        Kernel::GemvMma.source(),
+        Kernel::GemmBlk.source()
+    );
+    let cu = dir.join("reading.cu");
+    std::fs::write(&cu, program).unwrap();
+    let mut outputs = Vec::new();
+    for arch in ["sm_80", "sm_86"] {
+        let (bin, outp) = (dir.join(format!("reading-{arch}")), dir.join(format!("out-{arch}.bin")));
+        let built = Command::new("nvcc").args(["-O3", "-std=c++17", &format!("-arch={arch}"), "-o"]).arg(&bin).arg(&cu).output().unwrap();
+        assert!(built.status.success(), "the GEMMs build for {arch}:\n{}", String::from_utf8_lossy(&built.stderr));
+        let ran = Command::new(&bin).arg(&dir).arg(&outp).output().unwrap();
+        assert!(ran.status.success(), "the {arch} build runs: {}", String::from_utf8_lossy(&ran.stderr));
+        outputs.push(std::fs::read(&outp).unwrap());
+    }
+    let total: usize = results.iter().map(|r| r.1).sum();
+    assert_eq!(outputs[0].len(), total, "sm_80: every result written");
+    assert_eq!(outputs[1].len(), total, "sm_86: every result written");
+    let mut at = 0;
+    for (what, bytes, floats) in &results {
+        let (a, b) = (&outputs[0][at..at + bytes], &outputs[1][at..at + bytes]);
+        if *floats {
+            let values: Vec<f32> = b.chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect();
+            assert!(values.iter().all(|v| v.is_finite()), "{what}: every output written and finite");
+            assert!(values.iter().any(|&v| v != 0.0), "{what}: not zero throughout");
+        }
+        if let Some(i) = (0..*bytes).find(|&i| a[i] != b[i]) {
+            let w = i / 4 * 4;
+            panic!(
+                "{what}: byte {i} of {bytes} differs between the sm_80 and sm_86 builds ({:02x?} against {:02x?})",
+                &a[w..(w + 4).min(*bytes)],
+                &b[w..(w + 4).min(*bytes)]
+            );
+        }
+        at += bytes;
+    }
+}
+
+/// A block-format GEMM over a `k` that ends inside a stage computes, bit for bit, what it computes of the same matrix
+/// and activation with zero 32-value blocks appended to every row to the stage's end: its sub-blocks past `k` are staged
+/// as zeros — the matrix's levels and scales, the activation's values and scales — which a lean dense tile of a format
+/// without offsets multiplies and every other tile skips, a zero product leaving each sum as it was (no sum is ever −0).
+/// Q4_0, Q5_0, IQ4_NL and MXFP4 (as the lane uploads it), its outputs as they are and through the general epilogue with
+/// a bias, in whole tiles and with the last wave cut as the lane cuts it on this chip, over rows and outputs past a
+/// tile's edge (150 × 200), `k` 1056 against 1152, under both quantized numerics; every output written and finite.
+#[test]
+fn a_block_gemm_past_k_computes_what_its_zero_padded_k_computes() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{
+        format_arg, gemm_blk_launch_smem, gemm_blk_launch_threads, gemm_blk_rows, gemm_blk_tail, row_bytes, Kernel, GEMM_TILE_N, PRELUDE,
+    };
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let (m, n, k, padded) = (150usize, 200usize, 1056usize, 1152usize);
+    let workers = CudaKnobs::default().chip.sms;
+    let dir = dir().join("past-k");
+    std::fs::create_dir_all(&dir).unwrap();
+    let unit = |i: usize, salt: u64| {
+        let h = (i as u64 ^ salt).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(25) ^ 0x2545_F491_4F6C_DD1D;
+        ((h >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0) as f32
+    };
+    let floats = |name: &str, v: &[f32]| std::fs::write(dir.join(name), v.iter().flat_map(|f| f.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+    let x: Vec<f32> = (0..m * k).map(|i| unit(i, 1) * (1.0 + 3.0 * ((i / 32) % 5) as f32)).collect();
+    let xp: Vec<f32> = (0..m).flat_map(|r| x[r * k..(r + 1) * k].iter().copied().chain(std::iter::repeat(0.0).take(padded - k))).collect();
+    floats("x.bin", &x);
+    floats("xp.bin", &xp);
+    floats("bias.bin", &(0..n).map(|i| unit(i, 2) * 0.2).collect::<Vec<f32>>());
+    let tiles = n.div_ceil(GEMM_TILE_N) * m.div_ceil(gemm_blk_rows(2, false));
+    let (whole, split) = gemm_blk_tail(tiles, workers, k.div_ceil(128));
+    assert_eq!(gemm_blk_tail(tiles, workers, padded.div_ceil(128)), (whole, split), "both `k`s cut alike");
+    assert!(split > 1, "the lane cuts this shape's last wave");
+    let mut calls = String::new();
+    let mut cases = Vec::new();
+    for ty in [GgmlType::Q4_0, GgmlType::Q5_0, GgmlType::Iq4Nl, GgmlType::Mxfp4] {
+        let f = format_arg(ty);
+        let (len, size) = (ty.block_len(), ty.block_bytes());
+        let blocks = tiny_models::seeded_blocks(&format!("past-k-{}", ty.name()), ty, n * k);
+        // Each row's blocks, then zero blocks to `padded`: a zero scale, or (MXFP4, whose scale is a power of two) zero
+        // levels.
+        let zero: Vec<u8> = if ty == GgmlType::Mxfp4 { std::iter::once(127u8).chain(std::iter::repeat(0).take(size - 1)).collect() } else { vec![0; size] };
+        let row = k / len * size;
+        let grown: Vec<u8> = (0..n).flat_map(|r| blocks[r * row..(r + 1) * row].iter().copied().chain((0..(padded - k) / len).flat_map(|_| zero.clone()))).collect();
+        std::fs::write(dir.join(format!("w-{}.bin", ty.name())), &blocks).unwrap();
+        std::fs::write(dir.join(format!("wp-{}.bin", ty.name())), &grown).unwrap();
+        for q in [1usize, 2] {
+            let bm = gemm_blk_rows(f, q == 2);
+            assert_eq!(n.div_ceil(GEMM_TILE_N) * m.div_ceil(bm), tiles, "{} Q{q}: the tiles of one word's tiling", ty.name());
+            let mut launch = |kk: usize, file: &str, xf: &str, tag: &str| {
+                let (threads, smem) = (gemm_blk_launch_threads(f, bm, kk), gemm_blk_launch_smem(f, q == 2, bm, kk));
+                let rb = row_bytes(ty, kk);
+                let grid = format!("dim3({}, {})", n.div_ceil(GEMM_TILE_N), m.div_ceil(bm));
+                let _ = write!(
+                    calls,
+                    "  {{ // {} Q{q} k {kk}\n\
+                     \x20   lk_w w = loadk<{f}>(dir + \"/{file}\", {n}L, {kk}L, {rb}L); float* x = dev(dir + \"/{xf}\"); float* b = dev(dir + \"/bias.bin\");\n\
+                     \x20   long nx = {m}L * {kk}; signed char* xq = bytes(nx); signed char* xl = {q} == 2 ? bytes(nx) : nullptr; float* xs = nan(nx / 32);\n\
+                     \x20   lk_quant<{q}><<<(nx + 255) / 256, 256>>>(x, xq, xl, xs, nx); CK(cudaGetLastError());\n\
+                     \x20   CK(cudaFuncSetAttribute(lk_gemm_blk<{f}, {q}, 0, {bm}, 0, true>, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
+                     \x20   CK(cudaFuncSetAttribute(lk_gemm_blk<{f}, {q}, 0, {bm}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
+                     \x20   float *yp = nan({m}L * {n}), *yb = nan({m}L * {n}), *yc = nan({m}L * {n}), *part = nan({}L); int* cnt = zeros({});\n\
+                     \x20   lk_gemm_blk<{f}, {q}, 0, {bm}, 0, true><<<{grid}, {threads}, {smem}>>>(w, xq, xl, xs, nullptr, yp, nullptr, 0, {kk}, {n}, {m}); CK(cudaGetLastError());\n\
+                     \x20   lk_gemm_blk<{f}, {q}, 0, {bm}><<<{grid}, {threads}, {smem}>>>(w, xq, xl, xs, b, yb, nullptr, 0, {kk}, {n}, {m}); CK(cudaGetLastError());\n\
+                     \x20   lk_gemm_blk<{f}, {q}, 0, {bm}><<<{}, {threads}, {smem}>>>(w, xq, xl, xs, b, yc, nullptr, 0, {kk}, {n}, {m}, nullptr, nullptr, nullptr, nullptr, {{}}, nullptr, nullptr, nullptr, nullptr, 0.f, 0.f, {whole}, {split}, part, cnt); CK(cudaGetLastError());\n\
+                     \x20   CK(cudaDeviceSynchronize()); put(out, yp, {m}L * {n}); put(out, yb, {m}L * {n}); put(out, yc, {m}L * {n});\n  }}\n",
+                    ty.name(),
+                    ((tiles - whole) * split * bm * GEMM_TILE_N).max(1),
+                    (tiles - whole).max(1),
+                    whole + (tiles - whole) * split,
+                );
+                cases.push(format!("{} Q{q} {tag}", ty.name()));
+            };
+            launch(k, &format!("w-{}.bin", ty.name()), "x.bin", "k 1056");
+            launch(padded, &format!("wp-{}.bin", ty.name()), "xp.bin", "k 1152");
+        }
+    }
+    let program = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <cstring>\n#include <string>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n\
+         {PRELUDE}{}{}{}{}\n\
+         #define CK(x) do {{ cudaError_t e_ = (x); if(e_ != cudaSuccess){{ fprintf(stderr, \"cuda %d %s\\n\", __LINE__, cudaGetErrorString(e_)); exit(1); }} }} while(0)\n\
+         static std::vector<char> slurp(const std::string& p){{ FILE* f = fopen(p.c_str(), \"rb\"); if(!f) exit(2); std::vector<char> b; char c[65536]; size_t n;\n\
+           while((n = fread(c, 1, sizeof c, f)) > 0) b.insert(b.end(), c, c + n); fclose(f); return b; }}\n\
+         static float* dev(const std::string& p){{ auto b = slurp(p); float* d; CK(cudaMalloc(&d, b.size())); CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice)); return d; }}\n\
+         template<int F> static lk_w loadk(const std::string& p, long rows, long k, long rb){{ auto b = slurp(p); std::vector<unsigned char> h(rows * rb + 256, 0);\n\
+           if(F == 39) lk_mx_regroup((const unsigned char*)b.data(), rows, k / 32, h.data()); else memcpy(h.data(), b.data(), b.size());\n\
+           unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, rb}}; }}\n\
+         static float* nan(long n){{ float* p; CK(cudaMalloc(&p, n * 4)); CK(cudaMemset(p, 0xff, n * 4)); return p; }}\n\
+         static int* zeros(long n){{ int* p; CK(cudaMalloc(&p, n * 4)); CK(cudaMemset(p, 0, n * 4)); return p; }}\n\
+         static signed char* bytes(long n){{ signed char* p; CK(cudaMalloc(&p, n)); CK(cudaMemset(p, 0x5a, n)); return p; }}\n\
+         static void put(FILE* out, const float* d, long n){{ std::vector<float> h(n); CK(cudaMemcpy(h.data(), d, n * 4, cudaMemcpyDeviceToHost)); fwrite(h.data(), 4, n, out); }}\n\
+         int main(int argc, char** argv){{\n  std::string dir = argv[1];\n  FILE* out = fopen(argv[2], \"wb\");\n{calls}  fclose(out);\n  return 0;\n}}\n",
+        Kernel::Blocks.source(),
+        Kernel::Quant.source(),
+        Kernel::Mma.source(),
+        Kernel::GemmBlk.source()
+    );
+    let (cu, bin, outp) = (dir.join("past-k.cu"), dir.join("past-k"), dir.join("out.bin"));
+    std::fs::write(&cu, program).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the GEMMs build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).arg(&dir).arg(&outp).output().unwrap();
+    assert!(ran.status.success(), "they run: {}", String::from_utf8_lossy(&ran.stderr));
+    let all: Vec<f32> = std::fs::read(&outp).unwrap().chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect();
+    let per = 3 * m * n;
+    assert_eq!(all.len(), cases.len() * per, "every result written");
+    for pair in 0..cases.len() / 2 {
+        let (a, b) = (&all[2 * pair * per..(2 * pair + 1) * per], &all[(2 * pair + 1) * per..(2 * pair + 2) * per]);
+        for (v, what) in ["its sums as they are", "through the epilogue", "the last wave cut"].iter().enumerate() {
+            let (sa, sb) = (&a[v * m * n..(v + 1) * m * n], &b[v * m * n..(v + 1) * m * n]);
+            assert!(sa.iter().chain(sb).all(|y| y.is_finite()), "{}: {what}: every output written and finite", cases[2 * pair]);
+            assert!(sa.iter().any(|&y| y != 0.0), "{}: {what}: not zero throughout", cases[2 * pair]);
+            if let Some(i) = (0..m * n).find(|&i| sa[i].to_bits() != sb[i].to_bits()) {
+                panic!(
+                    "{} against {}: {what}, row {} output {}: {} against {}",
+                    cases[2 * pair],
+                    cases[2 * pair + 1],
+                    i / n,
+                    i % n,
+                    sa[i],
+                    sb[i]
+                );
+            }
+        }
+    }
 }
 
 /// The block GEMM's streamed Q8_0 path (`lk_gemm_blk<8>` over a `k` of whole 128-value scale groups) computes, bit for
@@ -5390,7 +8261,7 @@ fn the_streamed_q8_0_path_computes_what_the_block_path_computes() {
 /// without biases.
 #[test]
 fn a_paired_gemm_computes_what_its_gate_and_up_compute_apart() {
-    use logicaffeine_compile::codegen_cuda::lane::kernels::{gemm_blk_rows, gemm_blk_smem_bytes, gemm_blk_tail, gemm_blk_threads, Kernel, GEMM_TILE_N, PRELUDE};
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{gemm_blk_rows, gemm_blk_smem_bytes, gemm_blk_tail, gemm_blk_threads, row_bytes, Kernel, GEMM_TILE_N, PRELUDE};
     use logicaffeine_compile::model::quant::GgmlType;
     if !(common::require_tool("nvcc") && common::require_gpu()) {
         return;
@@ -5454,8 +8325,8 @@ fn a_paired_gemm_computes_what_its_gate_and_up_compute_apart() {
                 let _ = write!(
                     calls,
                     "  {{ // shape {si} {ty_name} Q{q}\n\
-                     \x20   lk_w wg = {f} == 8 ? load8(dir + \"/g{si}-{ty_name}.bin\", {n}L * {k}) : load(dir + \"/g{si}-{ty_name}.bin\", {row_bytes}L);\n\
-                     \x20   lk_w wu = {f} == 8 ? load8(dir + \"/u{si}-{ty_name}.bin\", {n}L * {k}) : load(dir + \"/u{si}-{ty_name}.bin\", {row_bytes}L);\n\
+                     \x20   lk_w wg = {f} == 8 ? load8(dir + \"/g{si}-{ty_name}.bin\", {n}L * {k}) : load(dir + \"/g{si}-{ty_name}.bin\", {f}, {n}L, {k}L, {row_bytes}L);\n\
+                     \x20   lk_w wu = {f} == 8 ? load8(dir + \"/u{si}-{ty_name}.bin\", {n}L * {k}) : load(dir + \"/u{si}-{ty_name}.bin\", {f}, {n}L, {k}L, {row_bytes}L);\n\
                      \x20   float* bg = {bgs}; float* bu = {bus};\n\
                      \x20   float* x = dev(dir + \"/x{si}.bin\"); long nx = {m}L * {k}, nh = {m}L * {n}; signed char* xq = bytes(nx); signed char* xl = {q} == 2 ? bytes(nx) : nullptr; float* xs = nan(nx / 32);\n\
                      \x20   lk_quant<{q}><<<(nx + 255) / 256, 256>>>(x, xq, xl, xs, nx); CK(cudaGetLastError());\n\
@@ -5469,7 +8340,7 @@ fn a_paired_gemm_computes_what_its_gate_and_up_compute_apart() {
                      \x20   CK(cudaDeviceSynchronize()); put(out, ya, nh); put(out, yb, nh); put(out, as, nh / 32); put(out, bs, nh / 32);\n\
                      \x20   putb(out, aq, nh); putb(out, bq, nh); if({q} == 2){{ putb(out, al, nh); putb(out, bl, nh); }}\n  }}\n",
                     ty_name = ty.name(),
-                    row_bytes = if ty == GgmlType::Q8_0 { 0 } else { ty.bytes_for(k) },
+                    row_bytes = if ty == GgmlType::Q8_0 { 0 } else { row_bytes(ty, k) },
                     parts = (cut * bm * GEMM_TILE_N).max(1),
                     counts = (tiles - whole).max(1),
                     bgs = if biased { format!("dev(dir + \"/bg{si}.bin\")") } else { "nullptr".into() },
@@ -5488,8 +8359,12 @@ fn a_paired_gemm_computes_what_its_gate_and_up_compute_apart() {
          static std::vector<char> slurp(const std::string& p){{ FILE* f = fopen(p.c_str(), \"rb\"); if(!f) exit(2); std::vector<char> b; char c[65536]; size_t n;\n\
            while((n = fread(c, 1, sizeof c, f)) > 0) b.insert(b.end(), c, c + n); fclose(f); return b; }}\n\
          static float* dev(const std::string& p){{ auto b = slurp(p); float* d; CK(cudaMalloc(&d, b.size())); CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice)); return d; }}\n\
-         static lk_w load(const std::string& p, long row_bytes){{ auto b = slurp(p); unsigned char* d; CK(cudaMalloc(&d, b.size() + 32)); CK(cudaMemset(d, 0, b.size() + 32));\n\
-           CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
+         // A matrix of `rows` rows of `cols` in format `f` as the lane uploads it: Q6_K grouped, any other as stored.\n\
+         static lk_w load(const std::string& p, int f, long rows, long cols, long row_bytes){{ auto b = slurp(p);\n\
+           std::vector<unsigned char> h(f == 14 ? (size_t)rows * row_bytes : b.size(), 0);\n\
+           if(f == 14) lk_q6_regroup((const unsigned char*)b.data(), rows, cols / 256, h.data()); else for(size_t i = 0; i < b.size(); ++i) h[i] = (unsigned char)b[i];\n\
+           unsigned char* d; CK(cudaMalloc(&d, h.size() + 32)); CK(cudaMemset(d, 0, h.size() + 32));\n\
+           CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
          static lk_w load8(const std::string& p, long n){{ auto b = slurp(p); signed char* q; __half* s; CK(cudaMalloc(&q, n)); CK(cudaMalloc(&s, n / 16));\n\
            CK(cudaMemcpy(q, b.data(), n, cudaMemcpyHostToDevice)); CK(cudaMemcpy(s, b.data() + n, n / 16, cudaMemcpyHostToDevice)); return lk_w{{q, s, nullptr, 0}}; }}\n\
          static float* nan(long n){{ float* p; CK(cudaMalloc(&p, n * 4)); CK(cudaMemset(p, 0xff, n * 4)); return p; }}\n\
@@ -5527,6 +8402,204 @@ fn a_paired_gemm_computes_what_its_gate_and_up_compute_apart() {
             let (wa, wb) = (take(*nh), take(*nh));
             assert_eq!(wb, wa, "{what}: and their words ({})", ["high", "low"][word]);
         }
+    }
+    assert_eq!(at, all.len(), "every result read");
+}
+
+/// A lane's spare holds every node its graphs capture (`residence::plan`, `emit::captured_nodes`): Llama, Qwen3.5 and
+/// gpt-oss — its steps' experts branched over streams — at their tiny shapes in Q8_0 (gpt-oss's experts in MXFP4),
+/// compiled with chunks of 4 rows, each program run for a few tokens reports the nodes the driver counts in its captured
+/// graphs (`GRAPH_NODES`), and they are the nodes the plan counted, its spare `SPARE` and `SPARE_A_LAUNCH` for each. The
+/// spare once counted a launch a node: gpt-oss-20b's 8,448-position program captured 3,168 nodes over 1,809 launches.
+#[test]
+fn a_lanes_spare_holds_every_node_its_graphs_capture() {
+    use logicaffeine_compile::codegen_cuda::lane::emit::captured_nodes;
+    use logicaffeine_compile::codegen_cuda::lane::residence::{SPARE, SPARE_A_LAUNCH};
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    for t in [Tiny::Llama, Tiny::Qwen35, Tiny::GptOss] {
+        let spec = t.spec(CTX);
+        let ckpt = dir().join(format!("nodes-{}.gguf", t.name()));
+        // The matrices: every `.weight` of whole 32-value rows but the norms, the sinks and the router — gpt-oss's
+        // expert stacks in MXFP4, the rest in Q8_0.
+        let blocked: std::collections::BTreeMap<String, GgmlType> = tiny_models::tensors(&spec)
+            .into_iter()
+            .filter(|(n, dims)| {
+                dims.len() >= 2 && dims[0] % 32 == 0 && n.ends_with(".weight") && !n.contains("norm") && !n.contains("attn_sinks") && !n.contains("ffn_gate_inp")
+            })
+            .map(|(n, _)| {
+                let ty = if t == Tiny::GptOss && n.contains("_exps") { GgmlType::Mxfp4 } else { GgmlType::Q8_0 };
+                (n, ty)
+            })
+            .collect();
+        tiny_models::write_checkpoint_as(&spec, &ckpt, &|n| blocked.get(n).copied().unwrap_or(GgmlType::F32));
+        let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs::default(), prefill: 4 };
+        let lane = compile(&spec, &ckpt, &opts).unwrap_or_else(|e| panic!("{}: {e}", t.name()));
+        let counted = captured_nodes(&lane.forms, &opts.knobs);
+        assert_eq!(lane.plan.spare, SPARE + counted * SPARE_A_LAUNCH, "{}: the spare is the nodes counted", t.name());
+        let built = build(&lane, &format!("nodes-{}", t.name()));
+        let out = Command::new(&built.bin).arg(&ckpt).arg(&built.side).arg("3").args(["5", "17", "2"]).output().unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert!(out.status.success(), "{} runs:\n{stdout}\n{}", t.name(), String::from_utf8_lossy(&out.stderr));
+        let nodes: usize = stdout.lines().find_map(|l| l.strip_prefix("GRAPH_NODES:")).expect("the graphs' nodes reported").trim().parse().unwrap();
+        assert_eq!(nodes, counted, "{}: the driver counts {nodes} nodes in the captured graphs, the plan {counted}", t.name());
+    }
+}
+
+/// A lane's graphs take no more device memory than its spare holds (`residence::plan`'s spare, `SPARE_A_LAUNCH` a node):
+/// Llama's, Qwen3.5's and gpt-oss's tiny lanes in chunks of 4 rows, and Llama-3.2-1B's batch of 16 with chunks of up to
+/// 512 rows (its 21.2 KiB a node, where the spare once counted 16 and Qwen3.8-27B's 18,590 nodes ran out of memory),
+/// each run for a few tokens, report the free memory their graphs took (`GRAPH_BYTES`): within the spare, and for the
+/// checkpoint's lane within `SPARE_A_LAUNCH` a node.
+#[test]
+fn a_lanes_graphs_take_no_more_memory_than_its_spare() {
+    use logicaffeine_compile::codegen_cuda::lane::emit::captured_nodes;
+    use logicaffeine_compile::codegen_cuda::lane::residence::SPARE_A_LAUNCH;
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let field = |stdout: &str, key: &str| -> usize {
+        stdout.lines().find_map(|l| l.strip_prefix(key)).unwrap_or_else(|| panic!("the program prints {key}")).trim().parse().unwrap()
+    };
+    let mut lanes: Vec<(String, Lane, PathBuf, bool)> = Vec::new();
+    for t in [Tiny::Llama, Tiny::Qwen35, Tiny::GptOss] {
+        let spec = t.spec(CTX);
+        let ckpt = dir().join(format!("graph-bytes-{}.gguf", t.name()));
+        if t == Tiny::GptOss {
+            // Every matrix and expert stack in MXFP4, the router, the sinks and the norms in f32 as gpt-oss keeps them.
+            let blocked: Vec<String> = tiny_models::tensors(&spec)
+                .into_iter()
+                .map(|(n, _)| n)
+                .filter(|n| n.ends_with(".weight") && !n.contains("norm") && !n.contains("attn_sinks") && !n.contains("ffn_gate_inp"))
+                .collect();
+            tiny_models::write_checkpoint_as(&spec, &ckpt, &|n| if blocked.iter().any(|b| b == n) { GgmlType::Mxfp4 } else { GgmlType::F32 });
+        } else {
+            tiny_models::write_checkpoint(&spec, &ckpt);
+        }
+        let lane = compile(&spec, &ckpt, &LaneOptions { ctx: CTX, knobs: CudaKnobs::default(), prefill: 4 }).unwrap_or_else(|e| panic!("{}: {e}", t.name()));
+        lanes.push((t.name().to_string(), lane, ckpt, false));
+    }
+    if common::require_tool("checkpoint:llama3.2-1b") {
+        let ckpt = common::checkpoint("llama3.2-1b").unwrap();
+        let spec = ModelSpec::from_gguf(&Gguf::open(&ckpt).unwrap()).unwrap();
+        let lane = compile_batch(&spec, &ckpt, &LaneOptions { ctx: 1152, knobs: CudaKnobs::default(), prefill: 512 }, 16).unwrap();
+        lanes.push(("llama3.2-1b".to_string(), lane, ckpt, true));
+    }
+    let built = build_all(&lanes.iter().map(|(name, lane, _, _)| (lane, name.as_str())).collect::<Vec<_>>());
+    for ((name, lane, ckpt, real), b) in lanes.iter().zip(&built) {
+        let out = Command::new(&b.bin).arg(ckpt).arg(&b.side).arg("3").args(["5", "17", "2"]).output().unwrap();
+        let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
+        assert!(out.status.success(), "{name} runs:\n{stdout}\n{}", String::from_utf8_lossy(&out.stderr));
+        let (nodes, bytes) = (field(&stdout, "GRAPH_NODES:"), field(&stdout, "GRAPH_BYTES:"));
+        assert_eq!(nodes, captured_nodes(&lane.forms, &CudaKnobs::default()), "{name}: the nodes the plan counted");
+        assert!(bytes <= lane.plan.spare, "{name}: its graphs took {bytes} bytes of a {}-byte spare", lane.plan.spare);
+        if *real {
+            assert!(bytes <= nodes * SPARE_A_LAUNCH, "{name}: {} bytes a node, past SPARE_A_LAUNCH's {SPARE_A_LAUNCH}", bytes / nodes);
+        }
+    }
+}
+
+/// A paired block GEMM computes the same bits every launch: Qwen3-8B's feed-forward shape cut down (2816 hidden values
+/// of 2048 over 512 rows, whole tiles of 128 rows, many waves) in Q4_K, Q5_K, Q6_K, IQ4_XS and MXFP4 — the formats whose
+/// dense tile decodes its next stage while it multiplies (`lk_stage_over`) — under both quantized numerics, launched 64
+/// times over the same inputs: each launch's hidden values, quantized words and scales equal the first launch's byte
+/// for byte. The paired epilogue stages its sums over the stage buffers, so a warp reaching it while another still
+/// multiplies the last stage changes the bits (once in about twenty launches of the 3060's 512-row prompt, without the
+/// barrier after the loop).
+#[test]
+fn a_paired_block_gemm_computes_the_same_bits_every_launch() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{gemm_blk_rows, gemm_blk_smem_bytes, gemm_blk_threads, row_bytes, Kernel, GEMM_TILE_N, PRELUDE};
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    const LAUNCHES: usize = 64;
+    let (m, k, n) = (512usize, 2048usize, 2816usize);
+    let unit = |i: usize, salt: u64| {
+        let h = (i as u64 ^ salt).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(23) ^ 0x2545_F491_4F6C_DD1D;
+        ((h >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0) as f32
+    };
+    let dir = dir().join("pair-again");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("x.bin"), (0..m * k).flat_map(|i| (unit(i, 3) * 2.0).to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+    let mut calls = String::new();
+    let mut cases = Vec::new();
+    for ty in [GgmlType::Q4K, GgmlType::Q5K, GgmlType::Q6K, GgmlType::Iq4Xs, GgmlType::Mxfp4] {
+        let f = ty.id();
+        for which in ["g", "u"] {
+            std::fs::write(dir.join(format!("{which}-{}.bin", ty.name())), tiny_models::seeded_blocks(&format!("again-{which}-{}", ty.name()), ty, n * k)).unwrap();
+        }
+        for q in [1, 2] {
+            let bm = gemm_blk_rows(f, q == 2);
+            let (smem, threads) = (gemm_blk_smem_bytes(f, q == 2, bm), gemm_blk_threads(bm));
+            let _ = write!(
+                calls,
+                "  {{ // {ty_name} Q{q}\n\
+                 \x20   lk_w wg = load<{f}>(dir + \"/g-{ty_name}.bin\", {n}L, {k}L, {rb}L), wu = load<{f}>(dir + \"/u-{ty_name}.bin\", {n}L, {k}L, {rb}L);\n\
+                 \x20   float* x = dev(dir + \"/x.bin\"); long nx = {m}L * {k}, nh = {m}L * {n}; signed char* xq = bytes(nx); signed char* xl = {q} == 2 ? bytes(nx) : nullptr; float* xs = nan(nx / 32);\n\
+                 \x20   lk_quant<{q}><<<(nx + 255) / 256, 256>>>(x, xq, xl, xs, nx); CK(cudaGetLastError());\n\
+                 \x20   CK(cudaFuncSetAttribute(lk_gemm_blk<{f}, {q}, 5, {bm}, -1>, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
+                 \x20   signed char *hq = bytes(nh), *hl = {q} == 2 ? bytes(nh) : nullptr; float* hs = nan(nh / 32);\n\
+                 \x20   signed char *rq = bytes(nh), *rl = {q} == 2 ? bytes(nh) : nullptr; float* rs = nan(nh / 32); int* bad = zeros(1);\n\
+                 \x20   for(int launch = 0; launch < {LAUNCHES}; ++launch){{\n\
+                 \x20     lk_gemm_blk<{f}, {q}, 5, {bm}, -1><<<dim3({}, {}), {threads}, {smem}>>>(wg, xq, xl, xs, nullptr, nullptr, nullptr, 0, {k}, {n}, {m}, nullptr, nullptr, nullptr, nullptr, wu, nullptr, hq, hl, hs);\n\
+                 \x20     CK(cudaGetLastError());\n\
+                 \x20     if(launch == 0){{ CK(cudaMemcpy(rq, hq, nh, cudaMemcpyDeviceToDevice)); CK(cudaMemcpy(rs, hs, nh / 8, cudaMemcpyDeviceToDevice)); if({q} == 2) CK(cudaMemcpy(rl, hl, nh, cudaMemcpyDeviceToDevice)); }}\n\
+                 \x20     else {{ differ<<<(nh + 255) / 256, 256>>>((const unsigned char*)hq, (const unsigned char*)rq, nh, bad); differ<<<(nh / 8 + 255) / 256, 256>>>((const unsigned char*)hs, (const unsigned char*)rs, nh / 8, bad);\n\
+                 \x20            if({q} == 2) differ<<<(nh + 255) / 256, 256>>>((const unsigned char*)hl, (const unsigned char*)rl, nh, bad); CK(cudaGetLastError()); }}\n\
+                 \x20   }}\n\
+                 \x20   CK(cudaDeviceSynchronize()); int h; CK(cudaMemcpy(&h, bad, 4, cudaMemcpyDeviceToHost)); fwrite(&h, 4, 1, out); put(out, rs, nh / 32);\n  }}\n",
+                n.div_ceil(GEMM_TILE_N / 2),
+                m.div_ceil(bm),
+                ty_name = ty.name(),
+                rb = row_bytes(ty, k),
+            );
+            cases.push((format!("{} under {q} words, {bm}-row tiles, {smem} bytes", ty.name()), m * n));
+        }
+    }
+    let program = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <cstring>\n#include <string>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n\
+         {PRELUDE}{}{}{}{}\n\
+         #define CK(x) do {{ cudaError_t e_ = (x); if(e_ != cudaSuccess){{ fprintf(stderr, \"cuda %d %s\\n\", __LINE__, cudaGetErrorString(e_)); exit(1); }} }} while(0)\n\
+         static std::vector<char> slurp(const std::string& p){{ FILE* f = fopen(p.c_str(), \"rb\"); if(!f) exit(2); std::vector<char> b; char c[65536]; size_t n;\n\
+           while((n = fread(c, 1, sizeof c, f)) > 0) b.insert(b.end(), c, c + n); fclose(f); return b; }}\n\
+         static float* dev(const std::string& p){{ auto b = slurp(p); float* d; CK(cudaMalloc(&d, b.size())); CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice)); return d; }}\n\
+         // A matrix of `rows` rows of `k` in format `F` as the lane uploads it: Q6_K grouped, MXFP4 regrouped, any other as stored.\n\
+         template<int F> static lk_w load(const std::string& p, long rows, long k, long rb){{ auto b = slurp(p); std::vector<unsigned char> h(rows * rb + 32, 0);\n\
+           if(F == 14) lk_q6_regroup((const unsigned char*)b.data(), rows, k / 256, h.data());\n\
+           else if(F == 39) lk_mx_regroup((const unsigned char*)b.data(), rows, k / 32, h.data());\n\
+           else memcpy(h.data(), b.data(), b.size());\n\
+           unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, rb}}; }}\n\
+         static float* nan(long n){{ float* p; CK(cudaMalloc(&p, n * 4)); CK(cudaMemset(p, 0xff, n * 4)); return p; }}\n\
+         static int* zeros(long n){{ int* p; CK(cudaMalloc(&p, n * 4)); CK(cudaMemset(p, 0, n * 4)); return p; }}\n\
+         static signed char* bytes(long n){{ signed char* p; CK(cudaMalloc(&p, n)); CK(cudaMemset(p, 0x5a, n)); return p; }}\n\
+         static void put(FILE* out, const float* d, long n){{ std::vector<float> h(n); CK(cudaMemcpy(h.data(), d, n * 4, cudaMemcpyDeviceToHost)); fwrite(h.data(), 4, n, out); }}\n\
+         // The bytes of `a` that differ from `b`'s, counted into `bad`.\n\
+         __global__ void differ(const unsigned char* a, const unsigned char* b, long n, int* bad){{\n\
+           long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n && a[i] != b[i]) atomicAdd(bad, 1); }}\n\
+         int main(int argc, char** argv){{\n  std::string dir = argv[1];\n  FILE* out = fopen(argv[2], \"wb\");\n{calls}  fclose(out);\n  return 0;\n}}\n",
+        Kernel::Blocks.source(),
+        Kernel::Quant.source(),
+        Kernel::Mma.source(),
+        Kernel::GemmBlk.source()
+    );
+    let (cu, bin, outp) = (dir.join("again.cu"), dir.join("again"), dir.join("out.bin"));
+    std::fs::write(&cu, program).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the GEMMs build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).arg(&dir).arg(&outp).output().unwrap();
+    assert!(ran.status.success(), "they run: {}", String::from_utf8_lossy(&ran.stderr));
+    let all = std::fs::read(&outp).unwrap();
+    let mut at = 0;
+    for (what, nh) in &cases {
+        let bad = i32::from_le_bytes(all[at..at + 4].try_into().unwrap());
+        let scales = &all[at + 4..at + 4 + nh / 8];
+        at += 4 + nh / 8;
+        assert!(scales.chunks_exact(4).all(|c| f32::from_le_bytes(c.try_into().unwrap()).is_finite()), "{what}: every hidden block's scale written, and finite");
+        assert_eq!(bad, 0, "{what}: {} launches after the first, each the first's bits ({bad} bytes differ)", LAUNCHES - 1);
     }
     assert_eq!(at, all.len(), "every result read");
 }
@@ -5626,6 +8699,10 @@ fn the_router_as_a_gemm_routes_as_the_router_does() {
            auto b = slurp(p);\n\
            if(F == 8){{ signed char* q; __half* s; long n = rows * cols; CK(cudaMalloc(&q, n)); CK(cudaMalloc(&s, n / 32 * 2));\n\
              CK(cudaMemcpy(q, b.data(), n, cudaMemcpyHostToDevice)); CK(cudaMemcpy(s, b.data() + n, n / 32 * 2, cudaMemcpyHostToDevice)); return lk_w{{q, s, nullptr, 0}}; }}\n\
+           if(F == 14){{ auto b = slurp(p); long nb = cols / 256;\n\
+             if(row_bytes != lk_q6_row_bytes(nb)){{ fprintf(stderr, \"a Q6_K row of %ld blocks is %ld bytes, not %ld\\n\", nb, lk_q6_row_bytes(nb), row_bytes); exit(3); }}\n\
+             std::vector<unsigned char> h((size_t)rows * row_bytes + 256, 0); lk_q6_regroup((const unsigned char*)b.data(), rows, nb, h.data());\n\
+             unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
            unsigned char* d; CK(cudaMalloc(&d, b.size() + 32)); CK(cudaMemset(d, 0, b.size() + 32)); CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice));\n\
            return lk_w{{nullptr, nullptr, d, row_bytes}};\n\
          }}\n\
@@ -5702,7 +8779,7 @@ fn the_router_as_a_gemm_routes_as_the_router_does() {
 #[test]
 fn the_grouped_expert_gemms_compute_what_the_slabs_compute() {
     use logicaffeine_compile::codegen_cuda::lane::kernels::{
-        gemm_blk_smem_bytes, gemm_blk_threads, moe_group_smem_bytes, moe_group_threads, Kernel, PRELUDE,
+        gemm_blk_smem_bytes, gemm_blk_threads, moe_group_smem_bytes, moe_group_threads, row_bytes, Kernel, PRELUDE,
     };
     use logicaffeine_compile::model::quant::GgmlType;
     if !(common::require_tool("nvcc") && common::require_gpu()) {
@@ -5763,7 +8840,7 @@ fn the_grouped_expert_gemms_compute_what_the_slabs_compute() {
         .iter()
         .map(|&(ty, q, act, bm)| {
             let (f, name) = (ty.id(), ty.name());
-            let load = |w: &str, rows: usize, cols: usize| format!("load<{f}>(dir + \"/{w}-{name}.bin\", {rows}L, {cols}, {}L)", ty.bytes_for(cols));
+            let load = |w: &str, rows: usize, cols: usize| format!("load<{f}>(dir + \"/{w}-{name}.bin\", {rows}L, {cols}, {}L)", row_bytes(ty, cols));
             assert_eq!(gemm_blk_threads(bm), bm * 4, "a warp each 32 × 32");
             format!(
                 "  run_case<{f}, {q}, {act}, {bm}>({}, {}, {}, {}, out);\n",
@@ -5788,6 +8865,14 @@ fn the_grouped_expert_gemms_compute_what_the_slabs_compute() {
            if(F == 8){{ auto b = slurp(p); signed char* q; __half* s; long n = rows * cols;\n\
              CK(cudaMalloc(&q, n)); CK(cudaMalloc(&s, n / 32 * 2)); CK(cudaMemcpy(q, b.data(), n, cudaMemcpyHostToDevice));\n\
              CK(cudaMemcpy(s, b.data() + n, n / 32 * 2, cudaMemcpyHostToDevice)); return lk_w{{q, s, nullptr, 0}}; }}\n\
+           if(F == 14){{ auto b = slurp(p); long nb = cols / 256;\n\
+             if(row_bytes != lk_q6_row_bytes(nb)){{ fprintf(stderr, \"a Q6_K row of %ld blocks is %ld bytes, not %ld\\n\", nb, lk_q6_row_bytes(nb), row_bytes); exit(3); }}\n\
+             std::vector<unsigned char> h((size_t)rows * row_bytes + 256, 0); lk_q6_regroup((const unsigned char*)b.data(), rows, nb, h.data());\n\
+             unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
+           if(F == 39){{ auto b = slurp(p); long nb = cols / 32;\n\
+             if(row_bytes != lk_mx_row_bytes(nb)){{ fprintf(stderr, \"an MXFP4 row of %ld sub-blocks is %ld bytes, not %ld\\n\", nb, lk_mx_row_bytes(nb), row_bytes); exit(3); }}\n\
+             std::vector<unsigned char> h((size_t)rows * row_bytes + 256, 0); lk_mx_regroup((const unsigned char*)b.data(), rows, nb, h.data());\n\
+             unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
            return lk_w{{nullptr, nullptr, dev<unsigned char>(p), row_bytes}};\n\
          }}\n\
          template<typename T> static T* nan(long n){{ T* p; CK(cudaMalloc(&p, n * sizeof(T))); CK(cudaMemset(p, 0xff, n * sizeof(T))); return p; }}\n\
@@ -5871,7 +8956,7 @@ fn the_grouped_expert_gemms_compute_what_the_slabs_compute() {
 /// expert, so a tile fills, spills over and stays part full).
 #[test]
 fn the_paired_gate_and_up_gemm_quantizes_the_hidden_rows_as_the_unpaired_launches_do() {
-    use logicaffeine_compile::codegen_cuda::lane::kernels::{gemm_blk_smem_bytes, moe_group_smem_bytes, moe_group_threads, Kernel, PRELUDE};
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{gemm_blk_smem_bytes, moe_group_smem_bytes, moe_group_threads, row_bytes, Kernel, PRELUDE};
     use logicaffeine_compile::model::quant::GgmlType;
     if !(common::require_tool("nvcc") && common::require_gpu()) {
         return;
@@ -5921,7 +9006,7 @@ fn the_paired_gate_and_up_gemm_quantizes_the_hidden_rows_as_the_unpaired_launche
         .iter()
         .map(|&(ty, q, act, bm)| {
             let (f, name) = (ty.id(), ty.name());
-            let load = |w: &str| format!("load<{f}>(dir + \"/{w}-{name}.bin\", {}L, {D}, {}L)", E * DFF, ty.bytes_for(D));
+            let load = |w: &str| format!("load<{f}>(dir + \"/{w}-{name}.bin\", {}L, {D}, {}L)", E * DFF, row_bytes(ty, D));
             format!("  run_case<{f}, {q}, {act}, {bm}>({}, {}, {}, out);\n", load("wg"), load("wu"), gemm_blk_smem_bytes(f, q == 2, bm))
         })
         .collect();
@@ -5939,6 +9024,14 @@ fn the_paired_gate_and_up_gemm_quantizes_the_hidden_rows_as_the_unpaired_launche
            if(F == 8){{ auto b = slurp(p); signed char* q; __half* s; long n = rows * cols;\n\
              CK(cudaMalloc(&q, n)); CK(cudaMalloc(&s, n / 32 * 2)); CK(cudaMemcpy(q, b.data(), n, cudaMemcpyHostToDevice));\n\
              CK(cudaMemcpy(s, b.data() + n, n / 32 * 2, cudaMemcpyHostToDevice)); return lk_w{{q, s, nullptr, 0}}; }}\n\
+           if(F == 14){{ auto b = slurp(p); long nb = cols / 256;\n\
+             if(row_bytes != lk_q6_row_bytes(nb)){{ fprintf(stderr, \"a Q6_K row of %ld blocks is %ld bytes, not %ld\\n\", nb, lk_q6_row_bytes(nb), row_bytes); exit(3); }}\n\
+             std::vector<unsigned char> h((size_t)rows * row_bytes + 256, 0); lk_q6_regroup((const unsigned char*)b.data(), rows, nb, h.data());\n\
+             unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
+           if(F == 39){{ auto b = slurp(p); long nb = cols / 32;\n\
+             if(row_bytes != lk_mx_row_bytes(nb)){{ fprintf(stderr, \"an MXFP4 row of %ld sub-blocks is %ld bytes, not %ld\\n\", nb, lk_mx_row_bytes(nb), row_bytes); exit(3); }}\n\
+             std::vector<unsigned char> h((size_t)rows * row_bytes + 256, 0); lk_mx_regroup((const unsigned char*)b.data(), rows, nb, h.data());\n\
+             unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
            return lk_w{{nullptr, nullptr, dev<unsigned char>(p), row_bytes}};\n\
          }}\n\
          template<typename T> static T* nan(long n){{ T* p; CK(cudaMalloc(&p, n * sizeof(T))); CK(cudaMemset(p, 0xff, n * sizeof(T))); return p; }}\n\
@@ -6540,7 +9633,7 @@ fn the_chunked_delta_rule_computes_what_the_delta_rule_a_row_at_a_time_computes(
 /// int8 words the GPU quantized, the low word an eighth of a level's 1/16).
 #[test]
 fn the_expert_down_takes_several_outputs_a_block_as_a_block_of_one_does() {
-    use logicaffeine_compile::codegen_cuda::lane::kernels::{format_arg, moe_down_rows, Kernel, PRELUDE};
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{format_arg, moe_down_rows, row_bytes, Kernel, PRELUDE};
     use logicaffeine_compile::model::quant::{f16_to_f32, GgmlType};
     if !(common::require_tool("nvcc") && common::require_gpu()) {
         return;
@@ -6647,8 +9740,8 @@ fn the_expert_down_takes_several_outputs_a_block_as_a_block_of_one_does() {
                  \x20   CK(cudaGetLastError()); CK(cudaDeviceSynchronize()); put(out, y, {D}); }}\n",
                 ty.name(),
                 E * D,
-                ty.bytes_for(DFF),
-                if sdff > 0 { format!("load<{sf}>(dir + \"/sd-{}.bin\", {D}L, {sdff}, {}L)", sty.name(), sty.bytes_for(sdff)) } else { "lk_w{}".into() },
+                row_bytes(ty, DFF),
+                if sdff > 0 { format!("load<{sf}>(dir + \"/sd-{}.bin\", {D}L, {sdff}, {}L)", sty.name(), row_bytes(sty, sdff)) } else { "lk_w{}".into() },
                 D / w,
                 if bias { "bd" } else { "nullptr" }
             )
@@ -6666,6 +9759,14 @@ fn the_expert_down_takes_several_outputs_a_block_as_a_block_of_one_does() {
            if(F == 8){{ auto b = slurp(p); signed char* q; __half* s; long n = rows * cols;\n\
              CK(cudaMalloc(&q, n)); CK(cudaMalloc(&s, n / 32 * 2)); CK(cudaMemcpy(q, b.data(), n, cudaMemcpyHostToDevice));\n\
              CK(cudaMemcpy(s, b.data() + n, n / 32 * 2, cudaMemcpyHostToDevice)); return lk_w{{q, s, nullptr, 0}}; }}\n\
+           if(F == 14){{ auto b = slurp(p); long nb = cols / 256;\n\
+             if(row_bytes != lk_q6_row_bytes(nb)){{ fprintf(stderr, \"a Q6_K row of %ld blocks is %ld bytes, not %ld\\n\", nb, lk_q6_row_bytes(nb), row_bytes); exit(3); }}\n\
+             std::vector<unsigned char> h((size_t)rows * row_bytes + 256, 0); lk_q6_regroup((const unsigned char*)b.data(), rows, nb, h.data());\n\
+             unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
+           if(F == 39){{ auto b = slurp(p); long nb = cols / 32;\n\
+             if(row_bytes != lk_mx_row_bytes(nb)){{ fprintf(stderr, \"an MXFP4 row of %ld sub-blocks is %ld bytes, not %ld\\n\", nb, lk_mx_row_bytes(nb), row_bytes); exit(3); }}\n\
+             std::vector<unsigned char> h((size_t)rows * row_bytes + 256, 0); lk_mx_regroup((const unsigned char*)b.data(), rows, nb, h.data());\n\
+             unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
            return lk_w{{nullptr, nullptr, dev<unsigned char>(p), row_bytes}};\n\
          }}\n\
          template<typename T> static T* nan(long n){{ T* p; CK(cudaMalloc(&p, n * sizeof(T))); CK(cudaMemset(p, 0xff, n * sizeof(T))); return p; }}\n\
@@ -6849,4 +9950,511 @@ fn a_wide_chunks_experts_on_the_tensor_cores_generate_what_the_reference_compute
         }
     }
     eprintln!("{}", report.join("\n"));
+}
+
+/// The matrices of `spec` each in `format` (the norms and other vectors `f32`), written as `ckpt`.
+fn checkpoint_in(spec: &ModelSpec, ckpt: &Path, format: logicaffeine_compile::model::quant::GgmlType) {
+    use logicaffeine_compile::model::quant::GgmlType;
+    let matrices: Vec<String> = tiny_models::tensors(spec)
+        .into_iter()
+        .filter(|(n, dims)| n.ends_with(".weight") && dims.len() >= 2 && !n.contains("norm"))
+        .map(|(n, _)| n)
+        .collect();
+    tiny_models::write_checkpoint_as(spec, ckpt, &|t| if matrices.iter().any(|m| m == t) { format } else { GgmlType::F32 });
+}
+
+/// A prompt of `len` tokens of the tiny vocabulary.
+fn prompt_of(len: usize) -> Vec<u32> {
+    (0..len as u32).map(|i| (i * 37 + 5) % tiny_models::VOCAB as u32).collect()
+}
+
+/// Granite's scaled projections compute what their launches compute apart (PARITY-GEMM-SCALE): each output projection's
+/// residual scale and the head's logit scale in the product's epilogue (`gemm_scale`) against the same program with
+/// `gemm_scale` held back — the product, then `lk_scale` — tokens and every logit bit for bit: on the GEMV at its own
+/// width in Q8_0 under the three numerics; four times as wide in Q4_K, the chunks of 64 on the tensor cores and the
+/// step's products four rows a warp; by `f32` matrices, the chunks on the tiled `f32` GEMM; and a batch of four, its
+/// projections on the tensor cores' batch GEMV — each through a prompt that runs chunks and decode steps.
+#[test]
+fn a_scaled_projection_computes_what_its_launches_compute_apart() {
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let mut cases: Vec<(String, ModelSpec, Option<GgmlType>, LaneOptions, Vec<u32>)> = Vec::new();
+    for numerics in [Q8MatKind::Dequant, Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
+        let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 4 };
+        cases.push((format!("granite {numerics:?}"), Tiny::Granite.spec(CTX), None, opts, prompt_of(7)));
+    }
+    for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
+        let opts = LaneOptions { ctx: 128, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 64 };
+        cases.push((format!("granite wide q4k {numerics:?}"), Tiny::Granite.wide(128), Some(GgmlType::Q4K), opts, prompt_of(70)));
+    }
+    let opts = LaneOptions { ctx: 128, knobs: CudaKnobs { activations: Q8MatKind::Dequant, ..CudaKnobs::default() }, prefill: 64 };
+    cases.push(("granite f32".to_string(), Tiny::Granite.spec(128), Some(GgmlType::F32), opts, prompt_of(70)));
+    let mut lanes: Vec<(String, ModelSpec, PathBuf, Lane, Lane, Vec<u32>)> = Vec::new();
+    for (what, spec, format, opts, prompt) in cases {
+        let ckpt = dir().join(format!("{}.gguf", what.replace(' ', "-")));
+        match format {
+            Some(f) => checkpoint_in(&spec, &ckpt, f),
+            None => tiny_models::write_checkpoint(&spec, &ckpt),
+        }
+        let fused = compile(&spec, &ckpt, &opts).unwrap_or_else(|e| panic!("{what}: {e}"));
+        let apart = compile_holding(&spec, &ckpt, &opts, &["gemm_scale"]).unwrap_or_else(|e| panic!("{what} apart: {e}"));
+        assert!(fused.forms.iter().all(|f| f.schedule.fired("gemm_scale") == 7), "{what}: every scaled product scales in its epilogue");
+        assert!(apart.forms.iter().all(|f| f.schedule.fired("gemm_scale") == 0), "{what}: held, every scale runs apart");
+        lanes.push((what, spec, ckpt, fused, apart, prompt));
+    }
+    let jobs: Vec<(&Lane, String)> =
+        lanes.iter().flat_map(|(what, _, _, fused, apart, _)| [(fused, format!("scaled-{what}")), (apart, format!("apart-{what}"))]).map(|(l, n)| (l, n.replace(' ', "-"))).collect();
+    let built = build_all(&jobs.iter().map(|(l, n)| (*l, n.as_str())).collect::<Vec<_>>());
+    for ((what, spec, ckpt, _, _, prompt), pair) in lanes.iter().zip(built.chunks(2)) {
+        let (a, b) = (exec(&pair[0], ckpt, prompt, GENERATE, spec.vocab, true), exec(&pair[1], ckpt, prompt, GENERATE, spec.vocab, true));
+        assert_eq!(b.tokens, a.tokens, "{what}: the scales apart generate the epilogue's tokens");
+        for (i, (x, y)) in a.logits.iter().zip(&b.logits).enumerate() {
+            let parted = x.iter().zip(y).position(|(p, q)| p.to_bits() != q.to_bits());
+            assert!(parted.is_none(), "{what}: position {i}'s logit {parted:?} parts: {:?} fused, {:?} apart", parted.map(|v| x[v]), parted.map(|v| y[v]));
+        }
+    }
+    let spec = Tiny::Granite.spec(CTX);
+    let ckpt = dir().join("granite-batch.gguf");
+    tiny_models::write_checkpoint(&spec, &ckpt);
+    let jobs: Vec<(Vec<u32>, usize)> = vec![(prompt_of(7), 6), (vec![9, 1], 6), (vec![44, 13, 70, 2, 2], 6), (vec![7], 6)];
+    let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: Q8MatKind::Int8Act, ..CudaKnobs::default() }, prefill: 4 };
+    let fused = compile_batch(&spec, &ckpt, &opts, jobs.len()).unwrap_or_else(|e| panic!("granite batch: {e}"));
+    let apart = compile_batch_holding(&spec, &ckpt, &opts, jobs.len(), &["gemm_scale"]).unwrap_or_else(|e| panic!("granite batch apart: {e}"));
+    let built = build_all(&[(&fused, "scaled-granite-batch"), (&apart, "apart-granite-batch")]);
+    let (a, b) = (exec_batch(&built[0], &ckpt, &jobs, spec.vocab, true), exec_batch(&built[1], &ckpt, &jobs, spec.vocab, true));
+    for (k, (x, y)) in a.iter().zip(&b).enumerate() {
+        assert_eq!(y.tokens, x.tokens, "granite batch: sequence {k}'s tokens apart");
+        assert_eq!(y.logits, x.logits, "granite batch: sequence {k}'s every logit, bit for bit");
+    }
+}
+
+/// Gemma 2's soft caps generate what the reference computes (PARITY-SOFTCAP, PARITY-ATTENTION-VARIANTS-INLINE): every
+/// score capped at 50 inside the attention — the decode step's kernel and, through prompts longer than a chunk, the
+/// tiles of each kernel a capped model's heads take (`lk_attention_mma` and `lk_attention_flash` at its own width in
+/// chunks of 32, `lk_attention_i8` and `lk_attention_mma` four times as wide in chunks of 64, `lk_attention_tiled` with
+/// heads of 288) — the even layers windowed, and the logits capped at 30 inside the arg-max that reads them, held to the
+/// reference as every architecture is: under the precise and the two-word numerics through a prompt past a chunk and a
+/// short one, under one word through the short one, its tiles held to `lk_attention` by the attention kernel tests'
+/// capped shapes.
+#[test]
+fn a_capped_attention_computes_what_its_reference_computes() {
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let mut wide_heads = Tiny::Gemma2.spec(64);
+    for layer in &mut wide_heads.layers {
+        if let Mixer::Attention(a) = &mut layer.mixer {
+            (a.head_dim, a.value_dim, a.scale) = (288, 288, 1.0 / 288f64.sqrt());
+            if let Some(r) = &mut a.rope {
+                r.dims = 288;
+            }
+        }
+    }
+    let cases: Vec<(&str, ModelSpec, usize, usize)> =
+        vec![("gemma2", Tiny::Gemma2.spec(64), 64, 32), ("gemma2-wide", Tiny::Gemma2.wide(128), 128, 64), ("gemma2-heads288", wide_heads, 64, 32)];
+    let mut report = Vec::new();
+    for (name, spec, ctx, prefill) in &cases {
+        let ckpt = dir().join(format!("{name}-capped.gguf"));
+        tiny_models::write_checkpoint(spec, &ckpt);
+        let prompts = [prompt_of(prefill + 7), prompt_of(5)];
+        for numerics in [Q8MatKind::Dequant, Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
+            // Under one word, a prompt past a chunk makes more roundings near a half-way point than the near calls the
+            // reference may take the other way account for: one word takes the short prompt alone, its tiles held to the
+            // attention kernel by kernel (`attention_variants`).
+            let prompts: &[Vec<u32>] = if numerics == Q8MatKind::Int8Act { &prompts[1..] } else { &prompts };
+            let jobs: Vec<(Vec<u32>, usize)> = prompts.iter().map(|p| (p.clone(), 6)).collect();
+            let what = format!("{name} {numerics:?}");
+            let opts = LaneOptions { ctx: *ctx, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: *prefill };
+            let lane = compile(spec, &ckpt, &opts).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let runs = exec_many(&build(&lane, &format!("capped-{name}-{numerics:?}")), &ckpt, &jobs, spec.vocab, true);
+            let (mut worst, mut flips) = (0f64, 0);
+            for (k, (prompt, r)) in prompts.iter().zip(&runs).enumerate() {
+                let (w, f) = held_to_reference(spec, &ckpt, prompt, r, numerics, &format!("{what} prompt {k}"));
+                worst = worst.max(w);
+                flips += f;
+            }
+            report.push(format!("{what}: logits within {worst:.3e} of their scale, {flips} near calls decided the other way"));
+        }
+    }
+    eprintln!("{}", report.join("\n"));
+}
+
+/// Arcee's relu² FFN generates what the reference computes (PARITY-RELU-SQR) — at its own width in Q8_0 under the three
+/// numerics (its own launch, quantizing for the down projection; under the precise numerics folded into the up
+/// projection) and at the medium width in Q4_K under one word (folded into an up projection of four rows a warp that
+/// quantizes in its epilogue) — held to the reference as every architecture is; and each computes, bit for bit, what the
+/// same program computes with `relu_sqr` held back (the ReLU's launch, then the product of it by itself).
+#[test]
+fn a_relu_square_computes_what_the_reference_computes() {
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let mut cases: Vec<(String, ModelSpec, Option<GgmlType>, Q8MatKind)> =
+        [Q8MatKind::Dequant, Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8].map(|n| (format!("arcee {n:?}"), Tiny::Arcee.spec(CTX), None, n)).into();
+    cases.push(("arcee medium q4k Int8Act".to_string(), Tiny::Arcee.medium(CTX), Some(GgmlType::Q4K), Q8MatKind::Int8Act));
+    let prompts = [prompt_of(7), prompt_of(3)];
+    let jobs: Vec<(Vec<u32>, usize)> = prompts.iter().map(|p| (p.clone(), GENERATE)).collect();
+    let mut report = Vec::new();
+    for (what, spec, format, numerics) in &cases {
+        let ckpt = dir().join(format!("{}.gguf", what.replace(' ', "-")));
+        match format {
+            Some(f) => checkpoint_in(spec, &ckpt, *f),
+            None => tiny_models::write_checkpoint(spec, &ckpt),
+        }
+        let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: *numerics, ..CudaKnobs::default() }, prefill: 4 };
+        let fused = compile(spec, &ckpt, &opts).unwrap_or_else(|e| panic!("{what}: {e}"));
+        let apart = compile_holding(spec, &ckpt, &opts, &["relu_sqr"]).unwrap_or_else(|e| panic!("{what} apart: {e}"));
+        let tag = what.replace(' ', "-");
+        let built = build_all(&[(&fused, &format!("relu2-{tag}")), (&apart, &format!("relu2-apart-{tag}"))]);
+        let (runs, held) = (exec_many(&built[0], &ckpt, &jobs, spec.vocab, true), exec_many(&built[1], &ckpt, &jobs, spec.vocab, true));
+        let (mut worst, mut flips) = (0f64, 0);
+        for (k, ((prompt, r), h)) in prompts.iter().zip(&runs).zip(&held).enumerate() {
+            assert_eq!(h.tokens, r.tokens, "{what} prompt {k}: relu² apart generates the fused tokens");
+            assert_eq!(h.logits, r.logits, "{what} prompt {k}: every logit, bit for bit");
+            let (w, f) = held_to_reference(spec, &ckpt, prompt, r, *numerics, &format!("{what} prompt {k}"));
+            worst = worst.max(w);
+            flips += f;
+        }
+        report.push(format!("{what}: logits within {worst:.3e} of their scale, {flips} near calls decided the other way"));
+    }
+    eprintln!("{}", report.join("\n"));
+}
+
+/// relu² and the soft cap meet their edge values (PARITY-RELU-SQR, PARITY-SOFTCAP): `lk_relu` squaring and a product's
+/// epilogue squaring (`lk_epi`) each give, bit for bit, the `f32` square of the language's `max(x, 0)` — a NaN and
+/// either zero give +0, an infinity +inf or +0, a square past the largest `f32` +inf, a subnormal's square +0 — and
+/// `lk_softcap` gives `c·tanh(x / c)`: a NaN stays NaN, the infinities ±c, zero zero, every value within four `f32`
+/// epsilons of `c` of the language's `c·(1 − 2/(e^(x·2/c) + 1))`.
+#[test]
+fn relu_square_and_the_soft_cap_meet_their_edge_values() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{Kernel, PRELUDE};
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let xs: Vec<f32> = vec![
+        f32::NAN,
+        -0.0,
+        0.0,
+        f32::INFINITY,
+        f32::NEG_INFINITY,
+        f32::from_bits(1),
+        -f32::from_bits(1),
+        f32::MIN_POSITIVE,
+        1e-30,
+        1e30,
+        -1e30,
+        3.5,
+        -5.0,
+        0.75,
+        49.0,
+        -120.0,
+        1.0e-7,
+    ];
+    let n = xs.len();
+    let dir = dir().join("edges");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("x.bin"), xs.iter().flat_map(|f| f.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+    let cap = 30.0f32;
+    let program = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n{PRELUDE}{}{}\n\
+         __global__ void squared(const float* x, float* y, int n){{ int i = threadIdx.x; if(i < n) y[i] = lk_epi(nullptr, 1.f, nullptr, false, nullptr, false, true)(x[i], 0, i, n); }}\n\
+         int main(int, char** argv){{\n  FILE* f = fopen(argv[1], \"rb\"); std::vector<float> h({n}); if(fread(h.data(), 4, {n}, f) != {n}) return 2; fclose(f);\n\
+           float *x, *a, *b, *c; cudaMalloc(&x, {n} * 4); cudaMalloc(&a, {n} * 4); cudaMalloc(&b, {n} * 4); cudaMalloc(&c, {n} * 4);\n\
+           cudaMemcpy(x, h.data(), {n} * 4, cudaMemcpyHostToDevice);\n\
+           lk_relu<true, true, 0><<<1, 32>>>(x, a, nullptr, nullptr, nullptr, {n});\n\
+           squared<<<1, 32>>>(x, b, {n});\n\
+           lk_softcap<<<1, 32>>>(x, c, {n}, {cap:e}f);\n\
+           if(cudaDeviceSynchronize() != cudaSuccess) return 3;\n\
+           FILE* o = fopen(argv[2], \"wb\");\n\
+           for(float* d : {{a, b, c}}){{ cudaMemcpy(h.data(), d, {n} * 4, cudaMemcpyDeviceToHost); fwrite(h.data(), 4, {n}, o); }}\n\
+           fclose(o);\n  return 0;\n}}\n",
+        Kernel::Relu.source(),
+        Kernel::Softcap.source()
+    );
+    let (cu, bin, out) = (dir.join("edges.cu"), dir.join("edges"), dir.join("out.bin"));
+    std::fs::write(&cu, program).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the edges build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).arg(dir.join("x.bin")).arg(&out).output().unwrap();
+    assert!(ran.status.success(), "they run: {}", String::from_utf8_lossy(&ran.stderr));
+    let all: Vec<f32> = std::fs::read(&out).unwrap().chunks_exact(4).map(|c| f32::from_le_bytes(c.try_into().unwrap())).collect();
+    let (relu, epi, capped) = (&all[..n], &all[n..2 * n], &all[2 * n..]);
+    for (i, &x) in xs.iter().enumerate() {
+        let r = logicaffeine_base::numeric::float_max(f64::from(x), 0.0) as f32;
+        let want = r * r;
+        assert_eq!(relu[i].to_bits(), want.to_bits(), "lk_relu squares {x:e} to {want:e}, not {:e}", relu[i]);
+        assert_eq!(epi[i].to_bits(), want.to_bits(), "an epilogue squares {x:e} to {want:e}, not {:e}", epi[i]);
+        let c = f64::from(cap);
+        let language = c * (1.0 - 2.0 / ((f64::from(x) * (2.0 / c)).exp() + 1.0));
+        if x.is_nan() {
+            assert!(capped[i].is_nan(), "a NaN stays NaN past the cap");
+        } else {
+            let off = (f64::from(capped[i]) - language).abs();
+            assert!(off <= 4.0 * f64::from(f32::EPSILON) * c, "{x:e} capped at {cap}: {} against the language's {language:e}", capped[i]);
+        }
+    }
+}
+
+/// The lane rounds into an e4m3 cache as the model rounds (PARITY-KV-CACHE-QUANT): the kernels' `lk_to<__nv_fp8_e4m3>`
+/// (CUDA's saturating conversion) gives `model::quant::f32_to_e4m3`'s code for every 256th `f32` bit pattern — both
+/// signs, subnormals, every exponent, infinities and NaNs — and for every half-way point between two codes and its two
+/// neighbours; and `lk_from` widens each of the 256 codes to `e4m3_to_f32`'s value.
+#[test]
+fn the_lanes_e4m3_cache_rounds_as_the_model_rounds() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::PRELUDE;
+    use logicaffeine_compile::model::quant::{e4m3_to_f32, f32_to_e4m3};
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let mut xs: Vec<f32> = (0..1u64 << 24).map(|i| f32::from_bits((i << 8) as u32 | (i as u32 & 0xff))).collect();
+    let finite: Vec<f32> = (0u8..=0x7e).map(e4m3_to_f32).collect();
+    for w in finite.windows(2) {
+        let mid = (w[0] + w[1]) / 2.0;
+        for v in [mid, mid.next_down(), mid.next_up()] {
+            xs.extend([v, -v]);
+        }
+    }
+    let n = xs.len();
+    let dir = dir().join("e4m3");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("x.bin"), xs.iter().flat_map(|f| f.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+    let program = format!(
+        "#include <cstdio>\n#include <vector>\n#include <cuda_runtime.h>\n{PRELUDE}\n\
+         __global__ void to(const float* x, unsigned char* y, long n){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) y[i] = lk_to<__nv_fp8_e4m3>(x[i]).__x; }}\n\
+         __global__ void from(float* y){{ int i = threadIdx.x; __nv_fp8_e4m3 v; v.__x = (unsigned char)i; y[i] = lk_from(v); }}\n\
+         int main(int, char** argv){{\n  long n = {n}; std::vector<float> h(n); FILE* f = fopen(argv[1], \"rb\"); if(fread(h.data(), 4, n, f) != (size_t)n) return 2; fclose(f);\n\
+           float *x, *w; unsigned char* y; cudaMalloc(&x, n * 4); cudaMalloc(&y, n); cudaMalloc(&w, 256 * 4);\n\
+           cudaMemcpy(x, h.data(), n * 4, cudaMemcpyHostToDevice);\n\
+           to<<<(n + 255) / 256, 256>>>(x, y, n); from<<<1, 256>>>(w);\n\
+           if(cudaDeviceSynchronize() != cudaSuccess) return 3;\n\
+           std::vector<unsigned char> b(n); std::vector<float> v(256);\n\
+           cudaMemcpy(b.data(), y, n, cudaMemcpyDeviceToHost); cudaMemcpy(v.data(), w, 256 * 4, cudaMemcpyDeviceToHost);\n\
+           FILE* o = fopen(argv[2], \"wb\"); fwrite(b.data(), 1, n, o); fwrite(v.data(), 4, 256, o); fclose(o);\n  return 0;\n}}\n"
+    );
+    let (cu, bin, out) = (dir.join("e4m3.cu"), dir.join("e4m3"), dir.join("out.bin"));
+    std::fs::write(&cu, program).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the conversions build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).arg(dir.join("x.bin")).arg(&out).output().unwrap();
+    assert!(ran.status.success(), "they run: {}", String::from_utf8_lossy(&ran.stderr));
+    let all = std::fs::read(&out).unwrap();
+    let (codes, widened) = all.split_at(n);
+    let mut parted = Vec::new();
+    for (&x, &c) in xs.iter().zip(codes) {
+        let want = f32_to_e4m3(x);
+        // A NaN's code is any NaN code: the model's is 0x7f, CUDA keeps the sign.
+        let same = if x.is_nan() { c & 0x7f == 0x7f } else { c == want };
+        if !same && parted.len() < 8 {
+            parted.push(format!("{x:e} ({:#010x}): the lane's {c:#04x}, the model's {want:#04x}", x.to_bits()));
+        }
+    }
+    assert!(parted.is_empty(), "the lane rounds to e4m3 as the model does:\n{}", parted.join("\n"));
+    for (code, w) in widened.chunks_exact(4).enumerate() {
+        let (lane, model) = (f32::from_le_bytes(w.try_into().unwrap()), e4m3_to_f32(code as u8));
+        assert!(lane.to_bits() == model.to_bits() || (lane.is_nan() && model.is_nan()), "code {code:#04x} widens to {model:e}, not {lane:e}");
+    }
+}
+
+/// A decode step split over chips computes what its launches compute apart (PARITY-ALLREDUCE-NORM): Qwen3 and Llama four
+/// times as wide over two and four ranks on the one device, every all-reduce folded into the add and norm its sum feeds
+/// (`allreduce_norm`, one launch reading every rank's partial), against the same program with the rule held back (the
+/// partials added a launch an add, then the add and norm): tokens and every logit bit for bit, under the three
+/// numerics; and the split step held to the reference as every architecture is — the model it splits. Gemma 3, whose
+/// sublayers post-norm their outputs, folds each all-reduce into its post-norm, its last partial read onto the others'
+/// fold.
+#[test]
+fn a_tensor_parallel_step_computes_what_its_launches_compute_apart() {
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let prompt = prompt_of(7);
+    let mut report = Vec::new();
+    for t in [Tiny::Qwen3, Tiny::Llama, Tiny::Gemma3] {
+        let spec = t.wide(CTX);
+        let ckpt = dir().join(format!("{}-wide-tp.gguf", t.name()));
+        checkpoint_in(&spec, &ckpt, GgmlType::Q8_0);
+        for tp in [2, 4] {
+            for numerics in [Q8MatKind::Dequant, Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
+                let what = format!("{} wide over {tp} {numerics:?}", t.name());
+                let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 1 };
+                let fused = compile_split(&spec, &ckpt, &opts, tp).unwrap_or_else(|e| panic!("{what}: {e}"));
+                let apart = compile_split_holding(&spec, &ckpt, &opts, tp, &["allreduce_norm"]).unwrap_or_else(|e| panic!("{what} apart: {e}"));
+                let tag = format!("tp-{}-{tp}-{numerics:?}", t.name());
+                let built = build_all(&[(&fused, &tag), (&apart, &format!("{tag}-apart"))]);
+                let (a, b) = (exec(&built[0], &ckpt, &prompt, GENERATE, spec.vocab, true), exec(&built[1], &ckpt, &prompt, GENERATE, spec.vocab, true));
+                assert_eq!(b.tokens, a.tokens, "{what}: the all-reduces apart generate the fused tokens");
+                for (i, (x, y)) in a.logits.iter().zip(&b.logits).enumerate() {
+                    let parted = x.iter().zip(y).position(|(p, q)| p.to_bits() != q.to_bits());
+                    assert!(parted.is_none(), "{what}: position {i}'s logit {parted:?} parts: {:?} fused, {:?} apart", parted.map(|v| x[v]), parted.map(|v| y[v]));
+                }
+                let (worst, flips) = held_to_reference(&spec, &ckpt, &prompt, &a, numerics, &what);
+                report.push(format!("{what}: logits within {worst:.3e} of their scale, {flips} near calls decided the other way"));
+            }
+        }
+    }
+    eprintln!("{}", report.join("\n"));
+}
+
+/// A decode step split over chips whose QK norm spans every head computes what its launches compute apart
+/// (PARITY-ALLREDUCE-NORM, `allreduce_sumsq_norm`): MiniMax-M2's attention on Qwen3's layout four times as wide, over two
+/// chips and, with four KV heads, over four, each layer's queries and keys normed by their chips' parts where they live —
+/// a sum of squares a chip — against the same program with the rule held back (the chips' rows joined, the joined row
+/// summed by the same parts): tokens and every logit bit for bit, under the three numerics; and the split step held to
+/// the reference as every architecture is.
+#[test]
+fn a_tensor_parallel_whole_qk_norm_computes_what_its_launches_compute_apart() {
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let whole = |heads: Option<(usize, usize)>| {
+        let mut spec = Tiny::Qwen3.wide(CTX);
+        for layer in &mut spec.layers {
+            if let Mixer::Attention(a) = &mut layer.mixer {
+                a.qk_norm_whole = true;
+                if let Some((h, kv)) = heads {
+                    (a.heads, a.kv_heads) = (h, kv);
+                }
+            }
+        }
+        spec
+    };
+    let prompt = prompt_of(7);
+    let mut report = Vec::new();
+    for (spec, tp, name) in [(whole(None), 2, "qwen3-whole"), (whole(Some((8, 4))), 4, "qwen3-whole-kv4")] {
+        let ckpt = dir().join(format!("{name}-tp.gguf"));
+        checkpoint_in(&spec, &ckpt, GgmlType::Q8_0);
+        for numerics in [Q8MatKind::Dequant, Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
+            let what = format!("{name} over {tp} {numerics:?}");
+            let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 1 };
+            let fused = compile_split(&spec, &ckpt, &opts, tp).unwrap_or_else(|e| panic!("{what}: {e}"));
+            assert_eq!(fused.decode().schedule.fired("allreduce_sumsq_norm"), 2 * spec.layers.len(), "{what}: every side normed by its chips' parts");
+            let apart = compile_split_holding(&spec, &ckpt, &opts, tp, &["allreduce_sumsq_norm"]).unwrap_or_else(|e| panic!("{what} apart: {e}"));
+            let tag = format!("tp-{name}-{numerics:?}");
+            let built = build_all(&[(&fused, &tag), (&apart, &format!("{tag}-apart"))]);
+            let (a, b) = (exec(&built[0], &ckpt, &prompt, GENERATE, spec.vocab, true), exec(&built[1], &ckpt, &prompt, GENERATE, spec.vocab, true));
+            assert_eq!(b.tokens, a.tokens, "{what}: the joined rows' norms generate the fused tokens");
+            for (i, (x, y)) in a.logits.iter().zip(&b.logits).enumerate() {
+                let parted = x.iter().zip(y).position(|(p, q)| p.to_bits() != q.to_bits());
+                assert!(parted.is_none(), "{what}: position {i}'s logit {parted:?} parts: {:?} fused, {:?} apart", parted.map(|v| x[v]), parted.map(|v| y[v]));
+            }
+            let (worst, flips) = held_to_reference(&spec, &ckpt, &prompt, &a, numerics, &what);
+            report.push(format!("{what}: logits within {worst:.3e} of their scale, {flips} near calls decided the other way"));
+        }
+    }
+    eprintln!("{}", report.join("\n"));
+}
+
+/// A chunked-local attention generates what the reference computes (PARITY-ATTENTION-VARIANTS-INLINE): Llama with its
+/// first two layers attending chunks of four — every query its own chunk's rows — at its own width (the decode step's
+/// kernel, and chunks of 32 on the tensor cores or the flash tiles) and four times as wide in chunks of 64, through
+/// prompts that cross chunks, held to the reference as every architecture is: under the precise and the two-word
+/// numerics through a prompt past a chunk and a short one, under one word through the short one, its tiles held to
+/// `lk_attention` by the attention kernel tests' shapes in chunks.
+#[test]
+fn a_chunked_local_attention_computes_what_its_reference_computes() {
+    use logicaffeine_compile::tensor_recognize::qwen::Window;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let chunked = |mut spec: ModelSpec| {
+        for layer in spec.layers.iter_mut().take(2) {
+            if let Mixer::Attention(a) = &mut layer.mixer {
+                a.window = Some(Window::Chunked(4));
+            }
+        }
+        spec
+    };
+    let cases = [("llama", chunked(Tiny::Llama.spec(64)), 64, 32), ("llama-wide", chunked(Tiny::Llama.wide(128)), 128, 64)];
+    let mut report = Vec::new();
+    for (name, spec, ctx, prefill) in &cases {
+        let ckpt = dir().join(format!("{name}-chunked.gguf"));
+        tiny_models::write_checkpoint(spec, &ckpt);
+        let prompts = [prompt_of(prefill + 7), prompt_of(11)];
+        for numerics in [Q8MatKind::Dequant, Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
+            // Under one word, a prompt past a chunk makes more roundings near a half-way point than the near calls the
+            // reference may take the other way account for: one word takes the short prompt alone, its tiles held to the
+            // attention kernel by kernel (`attention_variants`).
+            let prompts: &[Vec<u32>] = if numerics == Q8MatKind::Int8Act { &prompts[1..] } else { &prompts };
+            let jobs: Vec<(Vec<u32>, usize)> = prompts.iter().map(|p| (p.clone(), 6)).collect();
+            let what = format!("{name} chunked {numerics:?}");
+            let opts = LaneOptions { ctx: *ctx, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: *prefill };
+            let lane = compile(spec, &ckpt, &opts).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let runs = exec_many(&build(&lane, &format!("chunked-{name}-{numerics:?}")), &ckpt, &jobs, spec.vocab, true);
+            let (mut worst, mut flips) = (0f64, 0);
+            for (k, (prompt, r)) in prompts.iter().zip(&runs).enumerate() {
+                let (w, f) = held_to_reference(spec, &ckpt, prompt, r, numerics, &format!("{what} prompt {k}"));
+                worst = worst.max(w);
+                flips += f;
+            }
+            report.push(format!("{what}: logits within {worst:.3e} of their scale, {flips} near calls decided the other way"));
+        }
+    }
+    eprintln!("{}", report.join("\n"));
+}
+
+/// Gemma 2's final cap rides its arg-max and computes what its launch apart computes (PARITY-SOFTCAP, `cap_argmax`): the
+/// program whose host reads the logits writes, from inside the arg-max, every capped logit bit for bit as the cap's own
+/// launch writes it (`cap_argmax` held back), and generates its tokens; with the host reading no logits
+/// (`CudaKnobs::logits` `Unread`) the program generates the same tokens, and so does it with the cap held apart — under
+/// every numerics, through a prompt run in chunks of four and decode steps, and as a batch of four sequences. The greedy
+/// program refuses `--logits` by name.
+#[test]
+fn a_greedy_step_generates_what_its_capped_logits_pick() {
+    use logicaffeine_compile::codegen_cuda::Logits;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let spec = Tiny::Gemma2.spec(CTX);
+    let ckpt = dir().join("gemma2-greedy.gguf");
+    tiny_models::write_checkpoint(&spec, &ckpt);
+    let prompt = prompt_of(11);
+    let jobs: Vec<(Vec<u32>, usize)> = vec![(prompt_of(7), 6), (vec![9, 1], 6), (vec![44, 13, 70, 2, 2], 6), (vec![7], 6)];
+    let held = ["cap_argmax"];
+    for numerics in [Q8MatKind::Dequant, Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
+        let what = format!("gemma2 {numerics:?}");
+        let read = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 4 };
+        let greedy = LaneOptions { knobs: CudaKnobs { logits: Logits::Unread, ..read.knobs }, ..read };
+        let lanes = [
+            compile(&spec, &ckpt, &read),
+            compile_holding(&spec, &ckpt, &read, &held),
+            compile(&spec, &ckpt, &greedy),
+            compile_holding(&spec, &ckpt, &greedy, &held),
+            compile_batch(&spec, &ckpt, &read, jobs.len()),
+            compile_batch_holding(&spec, &ckpt, &read, jobs.len(), &held),
+            compile_batch(&spec, &ckpt, &greedy, jobs.len()),
+            compile_batch_holding(&spec, &ckpt, &greedy, jobs.len(), &held),
+        ]
+        .map(|l| l.unwrap_or_else(|e| panic!("{what}: {e}")));
+        let names = ["read", "read-held", "greedy", "greedy-held", "batch-read", "batch-read-held", "batch-greedy", "batch-greedy-held"]
+            .map(|n| format!("greedy-{n}-{numerics:?}"));
+        let built = build_all(&lanes.iter().zip(&names).map(|(l, n)| (l, n.as_str())).collect::<Vec<_>>());
+        let (folded, apart) = (exec(&built[0], &ckpt, &prompt, GENERATE, spec.vocab, true), exec(&built[1], &ckpt, &prompt, GENERATE, spec.vocab, true));
+        assert_eq!(folded.tokens, apart.tokens, "{what}: the cap in the arg-max generates the cap launch's tokens");
+        for (i, (x, y)) in folded.logits.iter().zip(&apart.logits).enumerate() {
+            let parted = x.iter().zip(y).position(|(p, q)| p.to_bits() != q.to_bits());
+            assert!(parted.is_none(), "{what}: position {i}'s capped logit {parted:?} parts: {:?} in the arg-max, {:?} apart", parted.map(|v| x[v]), parted.map(|v| y[v]));
+        }
+        for (b, label) in [(&built[2], "greedy"), (&built[3], "greedy, the cap held apart")] {
+            assert_eq!(exec(b, &ckpt, &prompt, GENERATE, spec.vocab, false).tokens, folded.tokens, "{what} {label}: the tokens the capped logits pick");
+        }
+        let (folded, apart) = (exec_batch(&built[4], &ckpt, &jobs, spec.vocab, true), exec_batch(&built[5], &ckpt, &jobs, spec.vocab, true));
+        for (k, (x, y)) in folded.iter().zip(&apart).enumerate() {
+            assert_eq!(x.tokens, y.tokens, "{what} batch: sequence {k}'s tokens with the cap in the arg-max");
+            assert_eq!(x.logits, y.logits, "{what} batch: sequence {k}'s every capped logit, bit for bit");
+        }
+        for (b, label) in [(&built[6], "greedy"), (&built[7], "greedy, the cap held apart")] {
+            for (k, (x, y)) in exec_batch(b, &ckpt, &jobs, spec.vocab, false).iter().zip(&folded).enumerate() {
+                assert_eq!(x.tokens, y.tokens, "{what} batch {label}: sequence {k}'s tokens");
+            }
+        }
+        let out = Command::new(&built[2].bin).arg(&ckpt).arg(&built[2].side).arg("2").arg("--logits").arg(dir().join("greedy.logits")).arg("5").output().unwrap();
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(2), "{what}: the greedy program refuses `--logits`: {err}");
+        assert!(err.contains("writes no logits"), "{what}: by name: {err}");
+    }
 }

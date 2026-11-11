@@ -1,6 +1,6 @@
 //! A compiled lane form's cut, lifted into the one IR as the shared optimizer reads it: each constant's storage from the
-//! form's buffers (checkpoint rows in their block format, or values), the names it reads and writes across steps from
-//! its kind.
+//! form's buffers (checkpoint rows in their block format, or values), the names it reads and writes across steps as its
+//! plan took them.
 
 #![allow(dead_code)]
 
@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 
 use logicaffeine_compile::codegen_cuda::lane::plan::{Fill, StepIo as LaneIo};
 use logicaffeine_compile::codegen_cuda::lane::weights::Placement;
-use logicaffeine_compile::codegen_cuda::lane::{batch_io, decode_io, prefill_io, Form, FormKind};
+use logicaffeine_compile::codegen_cuda::lane::Form;
 use logicaffeine_compile::spatial::passes::recognize_stages::recognize_stages;
 use logicaffeine_compile::tensor_graph::graph::{SeqIo, StepIo, Storage, TensorGraph};
 
@@ -20,6 +20,7 @@ pub fn io_of(io: LaneIo) -> StepIo {
         logits: io.logits,
         next: io.next,
         more: io.more.into_iter().map(|q| SeqIo { position: q.position, logits: q.logits, next: q.next }).collect(),
+        logits_read: io.logits_read,
     }
 }
 
@@ -36,11 +37,7 @@ pub fn lifted(form: &Form, what: &str) -> TensorGraph {
             _ => None,
         })
         .collect();
-    let io = match form.kind {
-        FormKind::Decode => decode_io(),
-        FormKind::Prefill => prefill_io(),
-        FormKind::Batch => batch_io(form.rows),
-    };
-    TensorGraph::lift(&rp, Some(form.identity.clone()), Some(io_of(io)), &|n| placed.get(n).cloned().unwrap_or(Storage::Values))
+    // The names the form carries across steps as its plan took them: whether its host reads its logits too.
+    TensorGraph::lift(&rp, Some(form.identity.clone()), Some(io_of(form.schedule.io.clone())), &|n| placed.get(n).cloned().unwrap_or(Storage::Values))
         .unwrap_or_else(|e| panic!("{what}: {e}"))
 }

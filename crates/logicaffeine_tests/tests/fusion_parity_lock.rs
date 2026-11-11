@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 /// The number of classes the ledger marks `compiled`. It only rises.
-const COMPILED_FLOOR: usize = 29;
+const COMPILED_FLOOR: usize = 36;
 /// The inventory: fusion classes and serving features, as pinned. Re-inventorying a new stack release changes
 /// these on purpose, together with the pins.
 const CLASSES: usize = 36;

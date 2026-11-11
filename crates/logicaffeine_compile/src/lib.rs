@@ -61,6 +61,10 @@ pub mod codegen_tt;
 #[cfg(feature = "codegen")]
 pub mod codegen_cuda;
 
+// The CPU tier for the one IR: a shim answering the shared optimizer for each CPU instruction set, and its link.
+#[cfg(feature = "codegen")]
+pub mod codegen_cpu;
+
 // The SPATIAL IR — one stage/buffer/handshake/placement program that EVERY spatial backend
 // (our fabric, the RDU, Tensix, a persistent GPU kernel) lowers FROM. Passes are target-parametric;
 // a lowering may only read the IR + its target descriptor, never invent choreography.

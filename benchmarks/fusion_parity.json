@@ -131,8 +131,10 @@
     }
    ],
    "ours": {
-    "status": "gap",
-    "note": "the language has no tensor-by-scalar scale sugar yet"
+    "status": "compiled",
+    "census": "lane_compile_lock::a_scaled_norm_is_one_row_kernel",
+    "values": "cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart",
+    "note": "`norm_scale`: a norm's row scaled by a constant (MiniCPM's head scale) in the norm's own row kernel, the add before it too"
    }
   },
   {
@@ -275,8 +277,10 @@
     }
    ],
    "ours": {
-    "status": "gap",
-    "note": "multi-GPU; the CUDA lane has no tensor parallelism (the spatial IR's AllReduce stage does)"
+    "status": "compiled",
+    "census": "lane_compile_lock::a_tensor_parallel_step_folds_each_all_reduce_into_its_norm",
+    "values": "cuda_lane_lock::a_tensor_parallel_step_computes_what_its_launches_compute_apart",
+    "note": "`allreduce_norm`, tensor parallelism emulated on one device (`compile_split`): each rank's slices read in place and its partial its own array, each all-reduce's sum of up to 8 partials read inside the add and norm it feeds"
    }
   },
   {
@@ -369,8 +373,10 @@
     }
    ],
    "ours": {
-    "status": "gap",
-    "note": "a final logit soft-cap is refused by name (`LaneError::NotYet`); no attention soft-cap"
+    "status": "compiled",
+    "census": "lane_compile_lock::a_capped_attention_caps_inside_its_kernel",
+    "values": "cuda_lane_lock::a_capped_attention_computes_what_its_reference_computes",
+    "note": "every attention score capped inside its attention kernel (Gemma 2's 50, `lk_cap`), the final logits capped inside the arg-max that reads them (`cap_argmax`), which writes the capped row where the host reads it"
    }
   },
   {
@@ -390,8 +396,10 @@
     }
    ],
    "ours": {
-    "status": "gap",
-    "note": "the language has no relu sugar yet"
+    "status": "compiled",
+    "census": "lane_compile_lock::a_relu_square_compiles_and_folds_into_its_producer",
+    "values": "cuda_lane_lock::a_relu_square_computes_what_the_reference_computes",
+    "note": "`relu_sqr`: ReLU squared in the epilogue of the product that feeds it, or one launch (`lk_relu`) where nothing produces it"
    }
   },
   {
@@ -446,7 +454,10 @@
     }
    ],
    "ours": {
-    "status": "gap"
+    "status": "compiled",
+    "census": "lane_compile_lock::a_scaled_projection_scales_in_its_epilogue",
+    "values": "cuda_lane_lock::a_scaled_projection_computes_what_its_launches_compute_apart",
+    "note": "`gemm_scale`: a product scaled by a constant, a row or a column vector in its epilogue (Granite's residual and logit scales) on every GEMV and GEMM"
    }
   },
   {
@@ -694,9 +705,10 @@
     }
    ],
    "ours": {
-    "status": "partial",
-    "census": "lane_compile_lock::the_sandwiched_step_windows_its_local_layers_and_fuses_its_gates",
-    "note": "windows and sinks inside the attention kernel; soft-capping and arbitrary masks are not"
+    "status": "compiled",
+    "census": "lane_compile_lock::every_attention_kernel_takes_a_cap_and_a_mask",
+    "values": "cuda_lane_lock::a_chunked_local_attention_computes_what_its_reference_computes",
+    "note": "sliding and chunked-local windows (Llama 4), sinks and soft caps inside every attention kernel, the decode step's and the tiled ones: every mask a model declares computed in the kernel, none read from a mask tensor"
    }
   },
   {
@@ -840,8 +852,10 @@
     }
    ],
    "ours": {
-    "status": "gap",
-    "note": "the lane's caches are f32; a quantized cache is not yet compiled"
+    "status": "compiled",
+    "census": "lane_compile_lock::a_quantized_cache_is_written_and_read_in_its_format",
+    "values": "cuda_lane_lock::an_e4m3_cache_decodes_alike_in_every_form_and_near_its_reference",
+    "note": "the caches in f16 or OCP e4m3 (`__nv_fp8_e4m3`, round to nearest even, saturating at 448), each row written in its format by the launch producing it and widened in registers by the attention"
    }
   }
  ],

@@ -26,12 +26,15 @@ use std::process::Command;
 use logicaffeine_compile::codegen_cuda::knobs::CudaKnobs;
 use logicaffeine_compile::codegen_cuda::lane::graph::{Role, StepGraph};
 use logicaffeine_compile::codegen_cuda::lane::arena::{array_bytes, scratch, ALIGN as ARENA_ALIGN};
-use logicaffeine_compile::codegen_cuda::lane::plan::{kind, plan, quant_in_place, ConvPart, Dst, Fill, Launch, Part, Router, RowSel, Schedule, SharedExperts, Split, Touch, RULES};
+use logicaffeine_compile::codegen_cuda::lane::plan::{
+    kind, plan, quant_in_place, ConvPart, Dst, Epilogue, Fill, Launch, NormedPart, Part, Router, RowPart, RowSel, ScaleBy, Schedule, SharedExperts, Split,
+    Touch, RULES,
+};
 use logicaffeine_compile::tensor_recognize::qwen::MoeAct;
 use logicaffeine_compile::tensor_recognize::ElementwiseOp;
 use logicaffeine_compile::codegen_cuda::lane::weights::{Placement, Rows};
 use logicaffeine_compile::codegen_cuda::lane::residence::{matrix_bytes, place, pooled, CONTEXT_RESERVE, POOL_ALIGN};
-use logicaffeine_compile::codegen_cuda::lane::{compile, compile_holding, compile_batch, compile_batch_holding, decode_io, FormKind, Lane, LaneError, LaneOptions};
+use logicaffeine_compile::codegen_cuda::lane::{compile, compile_holding, compile_batch, compile_batch_holding, compile_split, compile_split_holding, decode_io, FormKind, Lane, LaneError, LaneOptions};
 use logicaffeine_compile::codegen_cuda::provenance::{header, Provenance};
 use logicaffeine_compile::codegen_cuda::qwen_emit::Q8MatKind;
 use logicaffeine_compile::model::bind::{bind, rope_tables, values, Source};
@@ -291,6 +294,198 @@ fn a_batchs_projections_sum_each_sequence_as_the_decode_step_does() {
     }
 }
 
+/// A batch's projections over Q4_K and Q6_K rows take the tensor cores in their rows' own order (`lk_gemv_mma_blk`,
+/// `Launch::batch_blk_format`) under one word a block: at 2 and at 16 sequences, every projection, merged projection and
+/// gated pair of Llama's and Qwen3's medium shapes whose matrices are of the format, whose `k` is whole super-blocks and
+/// whose parts are whole 64-output blocks reports the format, the program instantiates the kernel and sets its shared
+/// memory before the step runs; past 16 sequences, under two words and under the precise numerics none does (the GEMV
+/// keeps them); and no step of one sequence takes it.
+#[test]
+fn a_batchs_k_quant_projections_take_the_tensor_cores_in_their_rows_own_order() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{format_arg, gemv_mma_blk_smem_bytes, GEMV_MMA_BLK_OUTPUTS};
+    let projection = |l: &Launch| matches!(l, Launch::Gemv { .. } | Launch::GemmParts { .. } | Launch::GemvGlu { .. });
+    for ty in [GgmlType::Q4K, GgmlType::Q6K] {
+        for t in [Tiny::Llama, Tiny::Qwen3] {
+            let spec = t.medium(CTX);
+            let path = dir().join(format!("batch-blk-{}-{}.gguf", t.name(), ty.name()));
+            let matrices: BTreeSet<String> = tiny_models::tensors(&spec)
+                .into_iter()
+                .filter(|(n, dims)| dims.len() == 2 && dims[0] % 256 == 0 && !n.contains("norm") && !n.contains("token_embd"))
+                .map(|(n, _)| n)
+                .collect();
+            tiny_models::write_checkpoint_as(&spec, &path, &|n| if matrices.contains(n) { ty } else { GgmlType::Q8_0 });
+            let f = format_arg(ty);
+            let whole = |l: &Launch| match l {
+                Launch::Gemv { format, k, n, .. } => *format == ty && k % 256 == 0 && n % GEMV_MMA_BLK_OUTPUTS == 0,
+                Launch::GemmParts { format, k, parts, .. } => *format == ty && k % 256 == 0 && parts.iter().all(|p| p.n % GEMV_MMA_BLK_OUTPUTS == 0),
+                Launch::GemvGlu { formats, k, n, .. } => formats.iter().all(|x| *x == ty) && k % 256 == 0 && n % GEMV_MMA_BLK_OUTPUTS == 0,
+                _ => false,
+            };
+            for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8, Q8MatKind::Dequant] {
+                for rows in [2, 16, 17] {
+                    let what = format!("{} {} {numerics:?}, {rows} sequences", t.name(), ty.name());
+                    let lane = compile_batch(&spec, &path, &options(numerics), rows).unwrap_or_else(|e| panic!("{what}: {e}"));
+                    let s = &lane.batch().unwrap_or_else(|| panic!("{what}: the batch step")).schedule;
+                    let eligible: Vec<&Launch> = s.launches.iter().flat_map(|l| l.parts()).filter(|l| projection(l) && whole(l)).collect();
+                    let taken = eligible.iter().filter(|l| l.batch_blk_format(numerics) == Some(ty)).count();
+                    let cu = &lane.program.cu;
+                    if numerics == Q8MatKind::Int8Act && rows <= 16 {
+                        assert!(!eligible.is_empty(), "{what}: projections of the format");
+                        assert_eq!(taken, eligible.len(), "{what}: every projection of the format on the tensor cores: {eligible:?}");
+                        assert!(cu.contains(&format!("lk_gemv_mma_blk<{f}><<<")), "{what}: launched by lk_gemv_mma_blk<{f}>");
+                        let set = format!("cudaFuncSetAttribute(lk_gemv_mma_blk<{f}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {}));", gemv_mma_blk_smem_bytes(f));
+                        assert!(cu.contains(&set), "{what}: its shared memory set before the step: {set}");
+                    } else {
+                        assert_eq!(taken, 0, "{what}: the GEMV keeps them");
+                        assert!(!cu.contains("lk_gemv_mma_blk<"), "{what}: no lk_gemv_mma_blk");
+                    }
+                    for form in lane.forms.iter().filter(|form| form.kind != FormKind::Batch) {
+                        assert!(
+                            !form.schedule.launches.iter().flat_map(|l| l.parts()).any(|l| l.batch_blk_format(numerics).is_some()),
+                            "{what} {}: no step of one sequence takes it",
+                            form.tag()
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A batch's projections over 32-value blocks — Q4_0, Q4_1, Q5_0, Q5_1 — take the tensor cores in their rows' own
+/// order (`lk_gemv_mma_blk`, `Launch::batch_blk_format`) under one word a block: at 2 and at 16 sequences, every
+/// projection, merged projection and gated pair of Llama's and Qwen3's medium shapes whose matrices are of the format,
+/// whose `k` is whole blocks and whose parts are whole 64-output blocks reports the format, the program instantiates the
+/// kernel and sets its shared memory before the step runs; past 16 sequences, under two words and under the precise
+/// numerics none does (the GEMV keeps them); and no step of one sequence takes it.
+#[test]
+fn a_batchs_32_value_block_projections_take_the_tensor_cores_in_their_rows_own_order() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{format_arg, gemv_mma_blk_smem_bytes, GEMV_MMA_BLK_OUTPUTS};
+    let projection = |l: &Launch| matches!(l, Launch::Gemv { .. } | Launch::GemmParts { .. } | Launch::GemvGlu { .. });
+    for ty in [GgmlType::Q4_0, GgmlType::Q4_1, GgmlType::Q5_0, GgmlType::Q5_1] {
+        for t in [Tiny::Llama, Tiny::Qwen3] {
+            let spec = t.medium(CTX);
+            let path = dir().join(format!("batch-blk32-{}-{}.gguf", t.name(), ty.name()));
+            let matrices: BTreeSet<String> = tiny_models::tensors(&spec)
+                .into_iter()
+                .filter(|(n, dims)| dims.len() == 2 && dims[0] % 32 == 0 && !n.contains("norm") && !n.contains("token_embd"))
+                .map(|(n, _)| n)
+                .collect();
+            tiny_models::write_checkpoint_as(&spec, &path, &|n| if matrices.contains(n) { ty } else { GgmlType::Q8_0 });
+            let f = format_arg(ty);
+            let whole = |l: &Launch| match l {
+                Launch::Gemv { format, k, n, .. } => *format == ty && k % 32 == 0 && n % GEMV_MMA_BLK_OUTPUTS == 0,
+                Launch::GemmParts { format, k, parts, .. } => *format == ty && k % 32 == 0 && parts.iter().all(|p| p.n % GEMV_MMA_BLK_OUTPUTS == 0),
+                Launch::GemvGlu { formats, k, n, .. } => formats.iter().all(|x| *x == ty) && k % 32 == 0 && n % GEMV_MMA_BLK_OUTPUTS == 0,
+                _ => false,
+            };
+            for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8, Q8MatKind::Dequant] {
+                for rows in [2, 16, 17] {
+                    let what = format!("{} {} {numerics:?}, {rows} sequences", t.name(), ty.name());
+                    let lane = compile_batch(&spec, &path, &options(numerics), rows).unwrap_or_else(|e| panic!("{what}: {e}"));
+                    let s = &lane.batch().unwrap_or_else(|| panic!("{what}: the batch step")).schedule;
+                    let eligible: Vec<&Launch> = s.launches.iter().flat_map(|l| l.parts()).filter(|l| projection(l) && whole(l)).collect();
+                    let taken = eligible.iter().filter(|l| l.batch_blk_format(numerics) == Some(ty)).count();
+                    let cu = &lane.program.cu;
+                    if numerics == Q8MatKind::Int8Act && rows <= 16 {
+                        assert!(!eligible.is_empty(), "{what}: projections of the format");
+                        assert_eq!(taken, eligible.len(), "{what}: every projection of the format on the tensor cores: {eligible:?}");
+                        assert!(cu.contains(&format!("lk_gemv_mma_blk<{f}><<<")), "{what}: launched by lk_gemv_mma_blk<{f}>");
+                        let set = format!("cudaFuncSetAttribute(lk_gemv_mma_blk<{f}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {}));", gemv_mma_blk_smem_bytes(f));
+                        assert!(cu.contains(&set), "{what}: its shared memory set before the step: {set}");
+                    } else {
+                        assert_eq!(taken, 0, "{what}: the GEMV keeps them");
+                        assert!(!cu.contains("lk_gemv_mma_blk<"), "{what}: no lk_gemv_mma_blk");
+                    }
+                    for form in lane.forms.iter().filter(|form| form.kind != FormKind::Batch) {
+                        assert!(
+                            !form.schedule.launches.iter().flat_map(|l| l.parts()).any(|l| l.batch_blk_format(numerics).is_some()),
+                            "{what} {}: no step of one sequence takes it",
+                            form.tag()
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// A batch's block-format kernel holds its sums in registers (`lk_gemv_mma_blk`). In the lanes of Llama's and Qwen3's
+/// medium shapes at 16 sequences in Q4_K and Q6_K, and of Llama's in Q4_0, Q4_1, Q5_0 and Q5_1, no instantiation keeps
+/// an array in local memory (`__local_depot` in the PTX: a level of the closing tree left a loop put its 16 level-one
+/// sums there, and the Q6_K head ran at a quarter of its speed), and those whose warp holds both leaves' sums — Q4_K's
+/// and the 32-value blocks' — keep no stack frame: eight n-tiles of two leaves' sums fill the registers 512 threads a
+/// block leave, and the 260 bytes Q4_K's spilled holding its part's outputs through the sums halved its speed.
+#[test]
+fn a_batchs_block_format_kernels_hold_their_sums_in_registers() {
+    if !common::require_tool("nvcc") {
+        return;
+    }
+    let mut programs: Vec<(String, PathBuf)> = Vec::new();
+    let lanes = [GgmlType::Q4K, GgmlType::Q6K].into_iter().flat_map(|ty| [(ty, Tiny::Llama), (ty, Tiny::Qwen3)])
+        .chain([GgmlType::Q4_0, GgmlType::Q4_1, GgmlType::Q5_0, GgmlType::Q5_1].into_iter().map(|ty| (ty, Tiny::Llama)));
+    for (ty, t) in lanes {
+        let spec = t.medium(CTX);
+        let path = dir().join(format!("batch-blk-regs-{}-{}.gguf", t.name(), ty.name()));
+        let matrices: BTreeSet<String> = tiny_models::tensors(&spec)
+            .into_iter()
+            .filter(|(n, dims)| dims.len() == 2 && dims[0] % if matches!(ty, GgmlType::Q4K | GgmlType::Q6K) { 256 } else { 32 } == 0 && !n.contains("norm") && !n.contains("token_embd"))
+            .map(|(n, _)| n)
+            .collect();
+        tiny_models::write_checkpoint_as(&spec, &path, &|n| if matrices.contains(n) { ty } else { GgmlType::Q8_0 });
+        let what = format!("{} {}", t.name(), ty.name());
+        let lane = compile_batch(&spec, &path, &options(Q8MatKind::Int8Act), 16).unwrap_or_else(|e| panic!("{what}: {e}"));
+        let src = dir().join(format!("lane-blk-regs-{}-{}.cu", t.name(), ty.name()));
+        std::fs::write(&src, &lane.program.cu).unwrap();
+        programs.push((what, src));
+    }
+    // Each program's PTX and ptxas's report of its kernels.
+    let build = |src: &Path| -> (String, String) {
+        let ptx = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-ptx", "-o"]).arg(src.with_extension("ptx")).arg(src).output().expect("nvcc runs");
+        assert!(ptx.status.success(), "{} compiles to PTX:\n{}", src.display(), String::from_utf8_lossy(&ptx.stderr));
+        let obj = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-Xptxas", "-v", "-c", "-o"]).arg(src.with_extension("o")).arg(src).output().expect("nvcc runs");
+        assert!(obj.status.success(), "{} compiles:\n{}", src.display(), String::from_utf8_lossy(&obj.stderr));
+        (std::fs::read_to_string(src.with_extension("ptx")).unwrap(), String::from_utf8_lossy(&obj.stderr).into_owned())
+    };
+    let compiled: Vec<(String, (String, String))> = std::thread::scope(|scope| {
+        let workers: Vec<_> = programs.iter().map(|(what, src)| scope.spawn(move || (what.clone(), build(src)))).collect();
+        workers.into_iter().map(|w| w.join().unwrap()).collect()
+    });
+    // (program, kernel, stack frame bytes, spill store bytes) of each instantiation; the kernels whose PTX keeps a depot.
+    let mut frames: Vec<(String, String, u64, u64)> = Vec::new();
+    let mut depots: Vec<(String, String)> = Vec::new();
+    for (what, (ptx, report)) in &compiled {
+        for entry in ptx.split(".entry ").skip(1) {
+            let name = entry.split('(').next().unwrap_or("").trim();
+            if name.contains("lk_gemv_mma_blk") && entry[..entry.find("\n}\n").unwrap_or(entry.len())].contains("__local_depot") {
+                depots.push((what.clone(), name.to_string()));
+            }
+        }
+        let mut kernel: Option<String> = None;
+        for line in report.lines() {
+            if let Some(at) = line.find("Function properties for ") {
+                kernel = Some(line[at + "Function properties for ".len()..].trim().to_string());
+            } else if let (Some(k), Some(at), Some(sp)) = (&kernel, line.find(" bytes stack frame, "), line.find(" bytes spill stores")) {
+                let bytes = |s: &str| -> u64 { s.trim().rsplit(' ').next().and_then(|n| n.parse().ok()).expect("a count of bytes") };
+                if k.contains("lk_gemv_mma_blk") {
+                    frames.push((what.clone(), k.clone(), bytes(&line[..at]), bytes(&line[at + " bytes stack frame, ".len()..sp])));
+                }
+                kernel = None;
+            }
+        }
+    }
+    for f in [12, 14, 2, 3, 6, 7] {
+        assert!(
+            frames.iter().any(|(_, k, _, _)| k.contains(&format!("lk_gemv_mma_blkILi{f}E"))),
+            "some lane instantiates lk_gemv_mma_blk<{f}>: {frames:?}"
+        );
+    }
+    assert!(depots.is_empty(), "a batch's block-format kernel keeps an array in local memory: {depots:?}");
+    let both = |k: &str| [12, 2, 3, 6, 7].iter().any(|f| k.contains(&format!("lk_gemv_mma_blkILi{f}E")));
+    let framed: Vec<_> = frames.iter().filter(|(_, k, stack, spill)| both(k) && (*stack > 0 || *spill > 0)).collect();
+    assert!(framed.is_empty(), "a batch kernel whose warp holds both leaves' sums holds them in its registers, with no stack frame: {framed:?}");
+}
+
 /// A batch's Q8_0 projections take the widest tile of the tensor cores their rows fill (`kernels::gemv_mma_shape`): up
 /// to sixteen rows, four n-tiles of 8 outputs a block, a warp each; up to 32, eight n-tiles, a warp each over both
 /// m-tiles; up to 64, sixteen n-tiles over all four m-tiles, a warp each two n-tiles over two m-tiles — a block of 128
@@ -369,11 +564,272 @@ fn the_decode_step_projects_one_activation_by_its_matrices_in_one_launch() {
     }
 }
 
+/// A chunk wider than the GEMV's sixteen rows multiplies a 16-bit float matrix's projections of one activation — each
+/// layer's query, key and value — as one launch of the 16-bit GEMM in parts (a `Launch::GemmParts` of the chunk's rows,
+/// `lk_gemm_h16`'s `G` 4, merged as the int8 tensor cores' products are), each part written where its projection writes
+/// it alone, under one word (tiles of 64 outputs) and two (of 128); none of them alone. The launch in parts sums each
+/// part as the part's own GEMM sums it (`cuda_lane_lock::a_sixteen_bit_gemm_in_parts_sums_each_part_as_its_own_gemm_sums_it`).
+#[test]
+fn a_sixteen_bit_chunk_projects_one_activation_by_its_matrices_in_one_launch() {
+    let spec = Tiny::Llama.wide(CTX);
+    let path = dir().join("bf16-chunk-parts.gguf");
+    tiny_models::write_checkpoint_in(&spec, &path, GgmlType::Bf16);
+    let Mixer::Attention(a) = &spec.layers[0].mixer else { panic!("Llama's layers attend") };
+    let widths = [a.heads * a.head_dim, a.kv_heads * a.head_dim, a.kv_heads * a.value_dim];
+    for (numerics, parted) in [(Q8MatKind::Int8Act, "lk_gemm_h16<30, 1, 4, 0, 64><<<"), (Q8MatKind::TwoPassInt8, "lk_gemm_h16<30, 2, 4><<<")] {
+        let lane = compile(&spec, &path, &LaneOptions { ctx: 128, prefill: 64, ..options(numerics) }).unwrap_or_else(|e| panic!("{numerics:?}: {e}"));
+        let wide: Vec<&_> = lane.forms.iter().filter(|f| f.rows > 16).collect();
+        assert_eq!(wide.iter().map(|f| f.rows).collect::<Vec<_>>(), [64, 32], "{numerics:?}: two chunks past the GEMV's rows");
+        for f in wide {
+            let what = format!("{numerics:?}, the {}-row chunk", f.rows);
+            let merged: Vec<_> = f
+                .schedule
+                .launches
+                .iter()
+                .filter_map(|l| match l {
+                    Launch::GemmParts { m, parts, format: GgmlType::Bf16, .. } if *m == f.rows => Some(parts),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(merged.len(), spec.layers.len(), "{what}: one launch in parts a layer: {:?}", f.schedule.launches);
+            for parts in merged {
+                assert_eq!(parts.iter().map(|p| p.n).collect::<Vec<_>>(), widths, "{what}: the query's, the key's and the value's outputs side by side");
+                for p in parts {
+                    assert!(!f.schedule.launches.iter().any(|l| matches!(l, Launch::Gemv { y, .. } if y.buf == p.y.buf)), "{what}: {} only in parts", p.y.buf);
+                }
+            }
+        }
+        assert_eq!(lane.program.cu.matches(parted).count(), 2 * spec.layers.len(), "{numerics:?}: each wide chunk's layers by the 16-bit GEMM in parts");
+        if common::require_tool("nvcc") {
+            nvcc(&lane.program.cu, &dir().join(format!("lane-bf16-parts-{numerics:?}")));
+        }
+    }
+}
+
+/// A block-format GEMM on the int8 tensor cores whose every output is its sum as it is — a dense product or a launch in
+/// parts with no bias and no epilogue step, into `f32` arrays — stores its sums plainly (`lk_gemm_blk`'s `PLAIN`, named
+/// with `true` last and given its shared memory under that name), and every other keeps the general epilogue: Qwen3 at
+/// four times the tiny width in Q8_0, whose chunks of 64 rows multiply unbiased, and gpt-oss's biased projections,
+/// under both quantized numerics. The plain stores are the general epilogue's bits
+/// (`cuda_lane_lock::a_block_gemm_whose_outputs_are_its_sums_stores_what_its_epilogue_stores`).
+#[test]
+fn a_block_gemm_stores_its_sums_plainly_where_its_outputs_are_them() {
+    use logicaffeine_compile::codegen_cuda::lane::plan::DType;
+    for t in [Tiny::Qwen3, Tiny::GptOss] {
+        let (spec, path) = wide_checkpoint(t, "plain", &|_| GgmlType::Q8_0);
+        for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
+            let what = format!("{} {numerics:?}", t.name());
+            let lane = compile(&spec, &path, &LaneOptions { ctx: 128, prefill: 64, ..options(numerics) }).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let cu = &lane.program.cu;
+            let mut plain = 0;
+            for f in &lane.forms {
+                let f32 = |d: &Dst| d.unit.is_none() && f.schedule.buffers.get(&d.buf).is_some_and(|b| b.dtype == DType::F32);
+                for l in &f.schedule.launches {
+                    if !l.on_tensor_cores(numerics) {
+                        continue;
+                    }
+                    plain += usize::from(match l {
+                        Launch::Gemv { bias, epi, y, .. } => bias.is_none() && epi.is_none() && f32(y),
+                        Launch::GemmParts { parts, .. } => parts.iter().all(|p| p.bias.is_none() && f32(&p.y)),
+                        _ => false,
+                    });
+                }
+            }
+            // Each block GEMM's template arguments, launched or given its shared memory.
+            let named = |tail: &str| -> usize {
+                cu.match_indices("lk_gemm_blk<")
+                    .filter(|(at, _)| {
+                        let rest = &cu[*at..];
+                        let close = rest.find('>').unwrap();
+                        rest[..close].ends_with(", true") && rest[close..].starts_with(tail)
+                    })
+                    .count()
+            };
+            assert_eq!(named("><<<"), plain, "{what}: a plain launch for every product whose outputs are its sums");
+            if t == Tiny::GptOss {
+                assert_eq!(plain, 0, "{what}: every projection biased");
+            } else {
+                assert!(plain > 0, "{what}: the unbiased chunks' products stored plainly");
+                assert!(named(">, cudaFuncAttributeMaxDynamicSharedMemorySize, ") > 0, "{what}: the plain kernel given its shared memory");
+            }
+            if common::require_tool("nvcc") {
+                nvcc(cu, &dir().join(format!("lane-plain-{}-{numerics:?}", t.name())));
+            }
+        }
+    }
+}
+
+/// A rotation its own launch turns its heads a thread a slot of a head where it norms none (`lk_rope_pairs`, a grid of
+/// the heads' pairs and passed-through values) and a block a head where it norms them first (`lk_rope<true>`, the
+/// norm's reduction): Llama's chunks of 64 and 32 rows turn their queries and keys by pairs, Qwen3's by heads, under
+/// every numerics. The pairs turn each head as the head kernel does
+/// (`cuda_lane_lock::the_rotation_by_pairs_turns_each_head_as_the_head_kernel_does`).
+#[test]
+fn an_unnormed_rotation_turns_a_thread_a_pair() {
+    for (t, normed) in [(Tiny::Llama, false), (Tiny::Qwen3, true)] {
+        let (spec, path) = checkpoint(t, "rope-pairs");
+        for numerics in NUMERICS {
+            let what = format!("{} {numerics:?}", t.name());
+            let lane = compile(&spec, &path, &LaneOptions { ctx: 128, prefill: 64, ..options(numerics) }).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let cu = &lane.program.cu;
+            let mut turned = 0;
+            for f in &lane.forms {
+                for l in &f.schedule.launches {
+                    let Launch::Rope { norm, heads, hd, half, .. } = l else { continue };
+                    assert_eq!(norm.is_some(), normed, "{what}, {} rows: {l:?}", f.rows);
+                    turned += 1;
+                    if !normed {
+                        let grid = format!("lk_rope_pairs<<<{}, 256, 0, st>>>(", (heads * (hd - half)).div_ceil(256));
+                        assert!(cu.contains(&grid), "{what}, {} rows: `{grid}`", f.rows);
+                    }
+                }
+            }
+            assert!(turned > 0, "{what}: some rotation its own launch");
+            assert_eq!(cu.contains("lk_rope_pairs<<<"), !normed, "{what}: by pairs exactly where no head is normed");
+            assert_eq!(cu.contains("lk_rope<true"), normed, "{what}: a normed head by its block");
+            assert!(!cu.contains("lk_rope<false"), "{what}: no unnormed head by a block");
+        }
+    }
+}
+
+/// A norm over a chunk's rows takes blocks a multiprocessor holds six of, each playing the norm's own threads
+/// (`lk_rmsnorm`'s and `lk_gather_norm`'s `VW`, `kernels::norm_block`): Llama, Gemma-3 (its sandwich pairs) and
+/// Qwen3.5 at their tiny width and past 256 (2048, and Gemma-3-1B's 1152), prompted in chunks of 64 rows under every
+/// numerics — every norm launched over more than one
+/// row takes at most 256 threads, each of its warps `VW` of the norm's, its threads `VW` times over the norm's own
+/// (`norm_threads` of the model's width) — `VW` past 1 exactly where the norm's own block passes 256 threads — and a
+/// decode step's takes the norm's own block. Six blocks of 256 fit the 3060's
+/// 1536 threads a multiprocessor where one of the norm's 1024 fits alone: a 512-row chunk's norm in three waves, not
+/// eighteen (Gemma-3's 1152-wide norm 37.9 µs against 55.3, Qwen3.5's 1024-wide 31.7 against 47.1). A block playing the
+/// norm's threads computes the norm's bits (`cuda_lane_lock::a_norm_in_blocks_playing_its_threads_computes_its_bits`).
+#[test]
+fn a_chunks_norm_takes_blocks_a_multiprocessor_holds_six_of() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::norm_threads;
+    // Every launch of `kernel` in `cu`: its rows, its threads, and the norm's warps a warp plays — its template's
+    // `VW`, the argument past the kernel's others (`args` of them), 1 where the launch names none.
+    let launches = |cu: &str, kernel: &str, args: usize| -> Vec<(usize, usize, usize)> {
+        let open = format!("{kernel}<");
+        cu.match_indices(&open)
+            .filter_map(|(i, _)| {
+                let (template, rest) = cu[i + open.len()..].split_once("><<<")?;
+                let (rows, rest) = rest.split_once(", ")?;
+                let threads = rest.split_once(',')?.0;
+                let named: Vec<&str> = template.split(", ").collect();
+                let vw = if named.len() > args { named[args].trim().parse().ok()? } else { 1 };
+                Some((rows.parse().ok()?, threads.trim().parse().ok()?, vw))
+            })
+            .collect()
+    };
+    // Each architecture at its tiny width, whose norm's own block is under 256 threads, and past it: Llama's and
+    // Qwen3.5's medium 2048 and Gemma-3-1B's own 1152.
+    for (t, d) in [(Tiny::Llama, 0), (Tiny::Llama, 2048), (Tiny::Gemma3, 0), (Tiny::Gemma3, 1152), (Tiny::Qwen35, 0), (Tiny::Qwen35, 2048)] {
+        let spec = if d == 0 {
+            t.spec(CTX)
+        } else {
+            let mut spec = t.medium(CTX);
+            spec.d = d;
+            spec
+        };
+        let path = dir().join(format!("{}-norm-block-{}.gguf", t.name(), spec.d));
+        tiny_models::write_checkpoint(&spec, &path);
+        let norm = norm_threads(spec.d);
+        for numerics in NUMERICS {
+            let what = format!("{} at {} {numerics:?}", t.name(), spec.d);
+            let lane = compile(&spec, &path, &LaneOptions { ctx: 128, prefill: 64, ..options(numerics) }).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let cu = &lane.program.cu;
+            let (mut chunk, mut played) = (0, 0);
+            // `lk_rmsnorm<ADD, SUM, OUTF, Q, PER, A, PRE, FN, VW>`, `lk_gather_norm<F, OUTF, Q, PER, A, VW>`.
+            for (kernel, args) in [("lk_rmsnorm", 8), ("lk_gather_norm", 5)] {
+                for (rows, threads, vw) in launches(cu, kernel, args) {
+                    if rows > 1 {
+                        assert!(threads <= 256, "{what}: a {rows}-row `{kernel}` in blocks of {threads}");
+                        assert_eq!(threads * vw, norm, "{what}: a {rows}-row `{kernel}`'s blocks of {threads}, {vw} of the norm's warps a warp, play the norm's {norm} threads");
+                        chunk += 1;
+                        played += usize::from(vw > 1);
+                    } else {
+                        assert_eq!((threads, vw), (norm, 1), "{what}: the decode step's `{kernel}` takes the norm's own block");
+                    }
+                }
+            }
+            assert!(chunk > 0, "{what}: a chunk's norm launched");
+            assert_eq!(played > 0, norm > 256, "{what}: a chunk's blocks play the norm's warps exactly where the norm's own block passes 256 threads");
+        }
+    }
+}
+
+/// A launch of the 16-bit GEMM takes tiles of 96 outputs under one word where they fill four waves of the chip's two
+/// blocks a multiprocessor, and tiles of 64 below (`kernels::gemm_h16_launch_tile`): Llama at four times the tiny width
+/// with a feed-forward of 8192, prompted in chunks up to 512 rows, multiplies the 512- and 256-row chunks' gated pairs
+/// in tiles of 96 and every other 16-bit GEMM in tiles of 64 — each launch's grid its tiles, each kernel given the
+/// shared memory its stages and staged sums take (`gemm_h16_smem_bytes`) — and under two words in tiles of 128. Tiles
+/// of 96 sum each output as tiles of 64 do
+/// (`cuda_lane_lock::a_sixteen_bit_gemm_in_tiles_of_96_sums_each_output_as_tiles_of_64_do`).
+#[test]
+fn a_sixteen_bit_launch_takes_tiles_of_96_where_they_fill_four_waves() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{gemm_h16_launch_tile, gemm_h16_smem_bytes, GEMM_H16_ROWS};
+    let mut spec = Tiny::Llama.wide(CTX);
+    for layer in &mut spec.layers {
+        if let Ffn::Dense { dff, .. } = &mut layer.ffn {
+            *dff = 8192;
+        }
+    }
+    let path = dir().join("bf16-wide-ffn.gguf");
+    tiny_models::write_checkpoint_in(&spec, &path, GgmlType::Bf16);
+    let sms = CudaKnobs::default().chip.sms;
+    for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
+        let two = numerics == Q8MatKind::TwoPassInt8;
+        let lane = compile(&spec, &path, &LaneOptions { ctx: 600, prefill: 512, ..options(numerics) }).unwrap_or_else(|e| panic!("{numerics:?}: {e}"));
+        let cu = &lane.program.cu;
+        let (mut pairs96, mut checked) = (0, 0);
+        for f in lane.forms.iter().filter(|f| f.rows > 16) {
+            for l in &f.schedule.launches {
+                let (group, outputs, cols, rows) = match l {
+                    Launch::Gemv { n, m, format: GgmlType::Bf16, .. } => (0, *n, *n, *m),
+                    Launch::GemvGlu { n, m, formats: [GgmlType::Bf16, _], .. } => (5, 2 * *n, *n, *m),
+                    _ => continue,
+                };
+                if !l.on_tensor_cores(numerics) {
+                    continue;
+                }
+                let tn = gemm_h16_launch_tile(two, outputs, rows, sms);
+                let want = match (two, group, f.rows) {
+                    (true, ..) => 128,
+                    (false, 5, 512 | 256) => 96,
+                    _ => 64,
+                };
+                assert_eq!(tn, want, "{numerics:?}, the {}-row chunk: {l:?} in tiles of {want}", f.rows);
+                pairs96 += usize::from(tn == 96 && group == 5);
+                let kernel = match (group, tn) {
+                    (0, 128) => "lk_gemm_h16<30, 2>".to_string(),
+                    (5, 128) => "lk_gemm_h16<30, 2, 5, -1>".to_string(),
+                    (0, _) => format!("lk_gemm_h16<30, 1, 0, 0, {tn}>"),
+                    (_, _) => format!("lk_gemm_h16<30, 1, 5, -1, {tn}>"),
+                };
+                let gx = if group == 5 { cols.div_ceil(tn / 2) } else { cols.div_ceil(tn) };
+                let launch = format!("{kernel}<<<dim3({gx}, {}), 256, {}, st>>>(", rows.div_ceil(GEMM_H16_ROWS), gemm_h16_smem_bytes(two, tn));
+                assert!(cu.contains(&launch), "{numerics:?}, the {}-row chunk: `{launch}`", f.rows);
+                assert!(
+                    cu.contains(&format!("CK(cudaFuncSetAttribute({kernel}, cudaFuncAttributeMaxDynamicSharedMemorySize, {}));", gemm_h16_smem_bytes(two, tn))),
+                    "{numerics:?}: {kernel} given its shared memory"
+                );
+                checked += 1;
+            }
+        }
+        assert!(checked > 0, "{numerics:?}: the wide chunks' 16-bit GEMMs checked");
+        assert_eq!(pairs96, if two { 0 } else { 2 * spec.layers.len() }, "{numerics:?}: the 512- and 256-row chunks' pairs in tiles of 96");
+        if common::require_tool("nvcc") {
+            nvcc(cu, &dir().join(format!("lane-bf16-tiles96-{numerics:?}")));
+        }
+    }
+}
+
 /// A recurrent layer's six projections of its activation — the delta rule's query, key, value and output gate and its
 /// two gates, kept in Q8_0 as the real Qwen3.5 checkpoints keep them — run as one launch of six parts (`gemv_parts`, as
 /// many as `kernels::GEMM_PARTS` takes), at the decode step and in a batch of 64 on the tensor cores, under every
-/// numerics; none of them alone. The kernels' parts hold as many as the planner merges (`LK_PARTS`). The program apart
-/// computes what the merged one computes bit for bit (`cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart`).
+/// numerics; none of them alone. The kernels' parts hold as many as the planner merges (`LK_PARTS`). The layer's input
+/// epilogue (`gdn_input_epilogue`, which takes the six into its launch with the convolutions and gates) is held
+/// throughout. The program apart computes what the merged one computes bit for bit
+/// (`cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart`).
 #[test]
 fn a_recurrent_layers_six_projections_run_as_one_launch() {
     use logicaffeine_compile::codegen_cuda::lane::kernels::{Kernel, GEMM_PARTS};
@@ -391,7 +847,7 @@ fn a_recurrent_layers_six_projections_run_as_one_launch() {
     let recurrent = spec.layers.iter().filter(|l| matches!(l.mixer, Mixer::GatedDelta(_))).count();
     assert!(recurrent > 0, "a hybrid with recurrent layers");
     for numerics in NUMERICS {
-        let lane = compile_batch(&spec, &path, &options(numerics), 64).unwrap_or_else(|e| panic!("{numerics:?}: {e}"));
+        let lane = compile_batch_holding(&spec, &path, &options(numerics), 64, &["gdn_input_epilogue"]).unwrap_or_else(|e| panic!("{numerics:?}: {e}"));
         for (what, s) in [("decode", &lane.decode().schedule), ("batch", &lane.batch().unwrap().schedule)] {
             let six: Vec<&Launch> = s.launches.iter().filter(|l| matches!(l, Launch::GemmParts { parts, .. } if parts.len() == 6)).collect();
             assert_eq!(six.len(), recurrent, "{what} {numerics:?}: each recurrent layer's six projections in one launch: {:?}", s.launches);
@@ -446,14 +902,15 @@ fn the_step_rotates_its_query_and_key_heads_in_one_launch() {
 /// A recurrent layer's two gates and the two `f32` projections of its activation they read — its write strength's and
 /// its forget gate's — run as one launch (`gate_projections`: a `Launch::GateProj`, `lk_gate_proj`), each head's dots
 /// summed as its own projections sum them, under every numerics; held back, the projections and the gates run apart.
-/// A prefill chunk's projections over its rows stay apart. The program apart computes what the merged one computes bit
-/// for bit (`cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart`).
+/// A prefill chunk's projections over its rows stay apart. The layer's input epilogue (`gdn_input_epilogue`, which takes
+/// the gates into its projections' launch) is held throughout. The program apart computes what the merged one computes
+/// bit for bit (`cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart`).
 #[test]
 fn the_hybrid_step_takes_its_gates_from_its_activation_in_one_launch() {
     let (spec, path) = checkpoint(Tiny::Qwen35, "gate-proj");
     for numerics in NUMERICS {
         let what = format!("qwen35 {numerics:?}");
-        let lane = compile(&spec, &path, &LaneOptions { prefill: 4, ..options(numerics) }).unwrap_or_else(|e| panic!("{what}: {e}"));
+        let lane = compile_holding(&spec, &path, &LaneOptions { prefill: 4, ..options(numerics) }, &["gdn_input_epilogue"]).unwrap_or_else(|e| panic!("{what}: {e}"));
         let s = &lane.decode().schedule;
         assert_eq!(s.fired("gate_projections"), 2, "{what}: one a recurrent layer: {:?}", s.fusions);
         assert_eq!(s.launches.iter().filter(|l| matches!(l, Launch::GateProj { .. })).count(), 2, "{what}: a launch a recurrent layer");
@@ -461,7 +918,7 @@ fn the_hybrid_step_takes_its_gates_from_its_activation_in_one_launch() {
         assert!(lane.program.cu.contains("lk_gate_proj<<<"), "{what}: by the gates from the activation");
         let chunk = lane.chunk(4).unwrap_or_else(|| panic!("{what}: the chunk of 4")).schedule.clone();
         assert_eq!(chunk.fired("gate_projections"), 0, "{what}: a chunk's projections over its rows stay apart");
-        let held = compile_holding(&spec, &path, &options(numerics), &["gate_projections"]).unwrap_or_else(|e| panic!("{what} held: {e}"));
+        let held = compile_holding(&spec, &path, &options(numerics), &["gate_projections", "gdn_input_epilogue"]).unwrap_or_else(|e| panic!("{what} held: {e}"));
         let h = &held.decode().schedule;
         assert_eq!(h.fired("gate_projections"), 0, "{what} held");
         assert_eq!(h.launches.iter().filter(|l| matches!(l, Launch::GemvF32 { .. })).count(), 4, "{what} held: two a recurrent layer");
@@ -662,10 +1119,11 @@ fn a_narrow_projection_of_long_rows_takes_a_block_of_64_outputs() {
     }
 }
 
-/// An attention launch of more blocks than the chip holds at two a multiprocessor — a batch's sequences, whose blocks
-/// come in waves — holds its registers to three blocks a multiprocessor (`lk_attention`'s `MB`,
-/// `kernels::attn_blocks_a_multiprocessor`) under the `f32` sums: occupancy, not a block's latency, bounds a wave there.
-/// A decode step's attention, under one wave, keeps its registers, and so does every attention summing in `f64`.
+/// An attention whose chunks take a tile of keys at a time, in a launch of more blocks than the chip holds at two a
+/// multiprocessor — a batch's sequences, whose blocks come in waves — holds its registers to three blocks a
+/// multiprocessor (`lk_attention`'s `MB`, `kernels::attn_blocks_a_multiprocessor`) under the `f32` sums: occupancy,
+/// not a block's latency, bounds a wave there. A decode step's attention, under one wave, keeps its registers, and so
+/// does every attention summing in `f64`.
 #[test]
 fn an_attention_in_waves_holds_three_blocks_a_multiprocessor() {
     let (spec, path) = checkpoint(Tiny::Llama, "attn-waves");
@@ -683,6 +1141,45 @@ fn an_attention_in_waves_holds_three_blocks_a_multiprocessor() {
             let decode = lane.decode().schedule.launches.iter().filter(|l| matches!(l, Launch::Attention { .. })).count();
             assert_eq!(launches.len() - three, decode, "{numerics:?}: the decode step's keep their registers: {launches:?}");
             assert!(cu.contains("__launch_bounds__(256, MB) lk_attention("), "{numerics:?}: the bound is the launch's");
+        }
+    }
+}
+
+/// An attention whose blocks take their chunks warp-local (`kernels::attn_warp_heads`: at most eight heads a block, 64,
+/// 128 or 256 wide, the values as wide, a lane's share within its registers) keeps two blocks a multiprocessor in waves
+/// too (`lk_attention`'s `MB`, `kernels::attn_blocks_a_multiprocessor`): its runs keep their queries and weighed values
+/// in registers, which a third block's share spills. Llama's and Qwen3's batch of 64 at four times their width (heads 64
+/// wide, two a block) under the `f32` sums: every attention a block of warp-local heads, some of the batch's grids past
+/// two blocks a multiprocessor, and every attention launched at two.
+#[test]
+fn a_warp_local_attention_in_waves_keeps_two_blocks_a_multiprocessor() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{accumulator, attn_warp_heads, mode};
+    let sms = CudaKnobs::default().chip.sms;
+    for t in [Tiny::Llama, Tiny::Qwen3] {
+        let (spec, path) = wide_checkpoint(t, "attn-waves-warps", &|_| GgmlType::Q4K);
+        for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
+            let what = format!("{} wide {numerics:?}", t.name());
+            let lane = compile_batch(&spec, &path, &options(numerics), 64).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let attentions: Vec<&Launch> = lane
+                .forms
+                .iter()
+                .flat_map(|f| f.schedule.launches.iter())
+                .filter(|l| matches!(l, Launch::Attention { shared: None, .. }) && !l.attends_in_tiles(numerics))
+                .collect();
+            assert!(!attentions.is_empty(), "{what}: attentions scheduled");
+            let mut waves = 0;
+            for l in &attentions {
+                let Launch::Attention { heads, hd, vd, rows, per_block, splits, parallel, .. } = l else { unreachable!() };
+                assert!(attn_warp_heads(*per_block, *hd, accumulator(mode(numerics)).0) && vd == hd, "{what}: {per_block} heads {hd} wide a block take their chunks warp-local");
+                waves += usize::from(heads / per_block * rows * if *parallel { *splits } else { 1 } > 2 * sms);
+            }
+            assert!(waves > 0, "{what}: some attention's grid is past two blocks a multiprocessor");
+            let cu = &lane.program.cu;
+            let launches: Vec<&str> = cu.split("lk_attention<").skip(1).filter_map(|s| s.split_once('>').filter(|(_, r)| r.starts_with("<<<")).map(|(a, _)| a)).collect();
+            assert!(!launches.is_empty(), "{what}: attentions launched");
+            for a in &launches {
+                assert_eq!(a.split(", ").nth(3), Some("2"), "{what}: `lk_attention<{a}>` keeps two blocks a multiprocessor");
+            }
         }
     }
 }
@@ -742,11 +1239,52 @@ fn a_row_taken_whole_weighs_its_chunks_side_by_side() {
     assert!(several, "some batch weighs several chunks side by side");
 }
 
+/// The lane sizes a warp-local attention block's shared memory as its kernel lays it out: for one to sixteen heads 4 to
+/// 576 wide summing in `f32` and in `f64`, `kernels::attn_lane_values`, `attn_warp_heads`, `attn_warp_pass` and
+/// `attn_warp_slots` give what the kernel's `lk_attn_lane_values`, `lk_attn_warp_heads`, `lk_attn_warp_pass` and
+/// `lk_attn_warp_slots` give, evaluated by nvcc's host compiler from the attention's own source — and some of those
+/// shapes take their chunks warp-local, some in a pass of fewer heads than the block's, some (their lanes' share past
+/// its registers) a tile of keys at a time.
+#[test]
+fn a_warp_local_attention_blocks_shared_memory_is_what_its_kernel_lays_out() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{attn_lane_values, attn_warp_heads, attn_warp_pass, attn_warp_slots, Kernel, PRELUDE};
+    if !common::require_tool("nvcc") {
+        return;
+    }
+    let program = format!(
+        "#include <cstdio>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n{PRELUDE}{}\n\
+         int main(){{\n  for(int acc = 4; acc <= 8; acc += 4)\n    for(int g = 1; g <= 16; ++g)\n      for(int hd = 4; hd <= 576; hd += 4)\n\
+           printf(\"%d %d %d %d %d %d %d\\n\", g, hd, acc, lk_attn_lane_values(g, hd, acc), (int)lk_attn_warp_heads(g, hd, acc), lk_attn_warp_pass(g, hd), lk_attn_warp_slots(g, hd, acc));\n  return 0;\n}}\n",
+        Kernel::Attention.source()
+    );
+    let bin = dir().join("warp-layout");
+    nvcc(&program, &bin);
+    let ran = Command::new(&bin).output().expect("the layout program runs");
+    assert!(ran.status.success(), "the layout program exits cleanly");
+    let (mut shapes, mut warps, mut passes, mut tiles) = (0, 0, 0, 0);
+    for line in String::from_utf8(ran.stdout).unwrap().lines() {
+        let v: Vec<usize> = line.split(' ').map(|x| x.parse().expect("a number")).collect();
+        let (g, hd, acc) = (v[0], v[1], v[2]);
+        assert_eq!(
+            (v[3], v[4] == 1, v[5], v[6]),
+            (attn_lane_values(g, hd, acc), attn_warp_heads(g, hd, acc), attn_warp_pass(g, hd), attn_warp_slots(g, hd, acc)),
+            "{g} heads {hd} wide, {acc}-byte sums: the warp-local layout (a lane's values of a key, whether, heads a pass, slots)"
+        );
+        shapes += 1;
+        warps += usize::from(attn_warp_heads(g, hd, acc));
+        passes += usize::from(attn_warp_heads(g, hd, acc) && attn_warp_pass(g, hd) < g);
+        tiles += usize::from(g <= 8 && matches!(hd, 64 | 128 | 256) && !attn_warp_heads(g, hd, acc));
+    }
+    assert_eq!(shapes, 2 * 16 * 144, "every shape printed");
+    assert!(warps > 0 && passes > 0 && tiles > 0, "warp-local shapes ({warps}), some in passes ({passes}), some past a lane's registers ({tiles})");
+}
+
 /// A recurrent layer's gate projections are read in the checkpoint's own format, as the reference and llama.cpp read
 /// them: kept in Q8_0 (as the real Qwen3.5 checkpoints keep them), each is a quantized projection of the layer's
 /// activation — no `f32` GEMV and no fused gates from the activation, in the decode step or the batch — and the author
 /// declares them quantized matrices; kept in `f32`, they take the `f32` GEMV and the gates fuse with them
-/// (`gate_projections`), under every numerics.
+/// (`gate_projections`), under every numerics. The layer's input epilogue (`gdn_input_epilogue`, which takes the gates
+/// into its projections' launch) is held throughout.
 #[test]
 fn a_recurrent_layers_gate_projections_are_read_in_the_checkpoints_format() {
     use logicaffeine_compile::model::program;
@@ -766,7 +1304,7 @@ fn a_recurrent_layers_gate_projections_are_read_in_the_checkpoints_format() {
         });
         for numerics in NUMERICS {
             let what = format!("{gates} gates, {numerics:?}");
-            let lane = compile_batch(&spec, &path, &options(numerics), 4).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let lane = compile_batch_holding(&spec, &path, &options(numerics), 4, &["gdn_input_epilogue"]).unwrap_or_else(|e| panic!("{what}: {e}"));
             for f in [lane.decode(), lane.batch().unwrap()] {
                 let s = &f.schedule;
                 let f32_gates = s.launches.iter().filter(|l| matches!(l, Launch::GemvF32 { .. } | Launch::GateProj { .. })).count();
@@ -788,6 +1326,8 @@ fn a_recurrent_layers_gate_projections_are_read_in_the_checkpoints_format() {
 /// them (`kernels::gemv_f32_parts` over the heads and `k`), so the fused launch sums what its launches sum apart: at the
 /// medium width (2048 values a row, the chip's multiprocessors) the decode step's `Launch::GateProj` takes the cut the
 /// held-back program's `Launch::GemvF32` projections take, under every numerics — the gates' projections kept in `f32`.
+/// The layer's input epilogue (`gdn_input_epilogue`, which takes the gates into its projections' launch) is held
+/// throughout.
 #[test]
 fn a_fused_gate_projection_cuts_its_dots_as_its_projections_apart_do() {
     use logicaffeine_compile::codegen_cuda::lane::kernels::gemv_f32_parts;
@@ -801,8 +1341,8 @@ fn a_fused_gate_projection_cuts_its_dots_as_its_projections_apart_do() {
     let (spec, path) = medium_checkpoint(Tiny::Qwen35, "gate-cut", &|t| if blocked.iter().any(|b| b == t) { GgmlType::Q8_0 } else { GgmlType::F32 });
     for numerics in NUMERICS {
         let what = format!("medium qwen35 {numerics:?}");
-        let fused = compile(&spec, &path, &options(numerics)).unwrap_or_else(|e| panic!("{what}: {e}"));
-        let held = compile_holding(&spec, &path, &options(numerics), &["gate_projections"]).unwrap_or_else(|e| panic!("{what} held: {e}"));
+        let fused = compile_holding(&spec, &path, &options(numerics), &["gdn_input_epilogue"]).unwrap_or_else(|e| panic!("{what}: {e}"));
+        let held = compile_holding(&spec, &path, &options(numerics), &["gate_projections", "gdn_input_epilogue"]).unwrap_or_else(|e| panic!("{what} held: {e}"));
         let sms = options(numerics).knobs.chip.sms;
         let cuts: Vec<(usize, usize, usize)> = fused
             .decode()
@@ -836,14 +1376,15 @@ fn a_fused_gate_projection_cuts_its_dots_as_its_projections_apart_do() {
 /// A decode step's causal convolutions of one row — a recurrent layer's query and key, each head normed to unit length,
 /// and its value — run as one launch over their channels (`conv_parts`: a `Launch::ConvParts`, `lk_conv_parts`), each
 /// written where its own convolution wrote it, under every numerics; held back, each runs alone. A prefill chunk's
-/// convolutions over its rows stay apart. The program apart computes what the merged one computes bit for bit
-/// (`cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart`).
+/// convolutions over its rows stay apart. The layer's input epilogue (`gdn_input_epilogue`, which takes the
+/// convolutions into its projections' launch) is held throughout. The program apart computes what the merged one computes
+/// bit for bit (`cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart`).
 #[test]
 fn the_hybrid_step_convolves_its_query_key_and_value_in_one_launch() {
     let (spec, path) = checkpoint(Tiny::Qwen35, "conv-parts");
     for numerics in NUMERICS {
         let what = format!("qwen35 {numerics:?}");
-        let lane = compile(&spec, &path, &LaneOptions { prefill: 4, ..options(numerics) }).unwrap_or_else(|e| panic!("{what}: {e}"));
+        let lane = compile_holding(&spec, &path, &LaneOptions { prefill: 4, ..options(numerics) }, &["gdn_input_epilogue"]).unwrap_or_else(|e| panic!("{what}: {e}"));
         let s = &lane.decode().schedule;
         assert_eq!(s.fired("conv_parts"), 2, "{what}: one a recurrent layer: {:?}", s.fusions);
         let merged: Vec<&Vec<ConvPart>> = s
@@ -861,7 +1402,7 @@ fn the_hybrid_step_convolves_its_query_key_and_value_in_one_launch() {
         assert!(lane.program.cu.contains("lk_conv_parts<"), "{what}: by the convolution in parts");
         let chunk = lane.chunk(4).unwrap_or_else(|| panic!("{what}: the chunk of 4")).schedule.clone();
         assert_eq!(chunk.fired("conv_parts"), 0, "{what}: a chunk's convolutions over its rows stay apart");
-        let held = compile_holding(&spec, &path, &options(numerics), &["conv_parts"]).unwrap_or_else(|e| panic!("{what} held: {e}"));
+        let held = compile_holding(&spec, &path, &options(numerics), &["conv_parts", "gdn_input_epilogue"]).unwrap_or_else(|e| panic!("{what} held: {e}"));
         let h = &held.decode().schedule;
         assert_eq!(h.fired("conv_parts"), 0, "{what} held");
         assert_eq!(h.launches.iter().filter(|l| matches!(l, Launch::Conv { .. })).count(), 6, "{what} held: three a recurrent layer");
@@ -2009,6 +2550,345 @@ fn a_stepped_delta_rule_norms_each_head_in_its_last_block() {
     }
 }
 
+/// The program's profile names the matrix bytes each launch streams (K-08's measure: `--profile`'s rate is those bytes
+/// over its time): over a decode step, its launches' bytes are exactly the checkpoint's matrices as the device keeps
+/// them — every matrix once at its rows' bytes (`kernels::row_bytes`), an expert stack at the share of its experts a
+/// token routes to, the token table's one row gathered (and the whole table where it is the head too) — for Llama,
+/// Qwen3 and Gemma-3 in Q8_0, Llama in BF16 and in MXFP4 (whose rows the upload regroups, so the device keeps more bytes
+/// than the checkpoint), and Qwen3's mixture, under every numerics.
+#[test]
+fn every_profiled_launch_names_the_matrix_bytes_it_streams() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::row_bytes;
+    let array = |cu: &str, name: &str| -> Vec<u64> {
+        let at = cu.find(&format!("{name}[] = {{")).unwrap_or_else(|| panic!("the profile table names no {name}"));
+        let body = &cu[at..];
+        let body = &body[body.find('{').unwrap() + 1..body.find('}').unwrap()];
+        body.split(',').map(|v| v.trim().trim_end_matches("ULL")).filter(|v| !v.is_empty()).map(|v| v.parse().unwrap()).collect()
+    };
+    let cases: Vec<(&str, ModelSpec, Option<GgmlType>)> = vec![
+        ("llama", Tiny::Llama.spec(CTX), None),
+        ("qwen3", Tiny::Qwen3.spec(CTX), None),
+        ("gemma3", Tiny::Gemma3.spec(CTX), None),
+        ("llama bf16", Tiny::Llama.spec(CTX), Some(GgmlType::Bf16)),
+        ("llama mxfp4", Tiny::Llama.spec(CTX), Some(GgmlType::Mxfp4)),
+        ("qwen3moe", Tiny::Qwen3Moe.spec(CTX), None),
+    ];
+    for (name, spec, ty) in cases {
+        let path = dir().join(format!("profile-bytes-{}.gguf", name.replace(' ', "-")));
+        match ty {
+            Some(ty) => tiny_models::write_checkpoint_in(&spec, &path, ty),
+            None => tiny_models::write_checkpoint(&spec, &path),
+        }
+        let g = Gguf::open(&path).unwrap();
+        let untied = g.info("output.weight").is_some();
+        let (experts, routed) = (spec.layers.iter().find_map(|l| match &l.ffn {
+            Ffn::Moe(m) => Some((m.experts, m.top_k)),
+            _ => None,
+        }))
+        .unwrap_or((0, 0));
+        // The checkpoint's matrices as the device keeps them, a decode step's share of each.
+        let mut want = 0u64;
+        for (t, dims, id) in g.tensor_names() {
+            if dims.len() < 2 {
+                continue;
+            }
+            let ty = GgmlType::from_id(id).unwrap();
+            let rows: u64 = dims[1..].iter().product();
+            let full = rows * row_bytes(ty, dims[0] as usize) as u64;
+            want += match t.as_str() {
+                "token_embd.weight" if untied => row_bytes(ty, dims[0] as usize) as u64,
+                "token_embd.weight" => full + row_bytes(ty, dims[0] as usize) as u64,
+                _ if t.contains("_exps.") => full * routed as u64 / experts as u64,
+                _ => full,
+            };
+        }
+        for numerics in NUMERICS {
+            let what = format!("{name} {numerics:?}");
+            let lane = compile(&spec, &path, &options(numerics)).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let cu = &lane.program.cu;
+            let (form, bytes) = (array(cu, "PROF_ROWS"), array(cu, "PROF_BYTES"));
+            assert_eq!(form.len(), bytes.len(), "{what}: a launch's bytes beside its form");
+            let step: u64 = form.iter().zip(&bytes).filter(|(f, _)| **f == 1).map(|(_, b)| *b).sum();
+            assert_eq!(step, want, "{what}: the decode step's launches stream the checkpoint's matrices once: {:?}", lane.decode().schedule.census());
+        }
+    }
+}
+
+/// A latent attention's launches name the matrix bytes they stream, as every launch does
+/// (`every_profiled_launch_names_the_matrix_bytes_it_streams`): DeepSeek-V2 at its medium shape — its real heads, 16 of
+/// 128 unrotated and 64 rotated values and a latent of 512 — every matrix of whole 256-value rows in Q4_K, and again in
+/// Q6_K (grouped at upload), the rest in `f32`, under every numerics: the decode step's launches stream the checkpoint's
+/// matrices once as the device keeps them, its absorbed per-head products each head's rows of the latent's expansion —
+/// `b` rows of the head's `a` inputs where the matrix's rows are its outputs, `a` rows of `b` where they are its inputs.
+/// Counted the other way round, a head's 512 latent values into its 128 outputs asked for rows of 128 values, which no
+/// K-quant block holds, and DeepSeek-V2-Lite no longer compiled.
+#[test]
+fn a_latent_attentions_launches_name_the_matrix_bytes_they_stream() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::row_bytes;
+    let array = |cu: &str, name: &str| -> Vec<u64> {
+        let at = cu.find(&format!("{name}[] = {{")).unwrap_or_else(|| panic!("the profile table names no {name}"));
+        let body = &cu[at..];
+        let body = &body[body.find('{').unwrap() + 1..body.find('}').unwrap()];
+        body.split(',').map(|v| v.trim().trim_end_matches("ULL")).filter(|v| !v.is_empty()).map(|v| v.parse().unwrap()).collect()
+    };
+    let spec = Tiny::DeepSeek2.medium(CTX);
+    for ty in [GgmlType::Q4K, GgmlType::Q6K] {
+        let path = dir().join(format!("profile-bytes-deepseek2-medium-{}.gguf", ty.name()));
+        let matrices: BTreeSet<String> = tiny_models::tensors(&spec)
+            .into_iter()
+            .filter(|(n, dims)| dims.len() >= 2 && dims[0] % 256 == 0 && !n.contains("norm"))
+            .map(|(n, _)| n)
+            .collect();
+        tiny_models::write_checkpoint_as(&spec, &path, &|n| if matrices.contains(n) { ty } else { GgmlType::F32 });
+        let g = Gguf::open(&path).unwrap();
+        let untied = g.info("output.weight").is_some();
+        let (experts, routed) = spec
+            .layers
+            .iter()
+            .find_map(|l| match &l.ffn {
+                Ffn::Moe(m) => Some((m.experts, m.top_k)),
+                _ => None,
+            })
+            .unwrap_or((0, 0));
+        let mut want = 0u64;
+        for (t, dims, id) in g.tensor_names() {
+            if dims.len() < 2 {
+                continue;
+            }
+            let format = GgmlType::from_id(id).unwrap();
+            let rows: u64 = dims[1..].iter().product();
+            let full = rows * row_bytes(format, dims[0] as usize) as u64;
+            want += match t.as_str() {
+                "token_embd.weight" if untied => row_bytes(format, dims[0] as usize) as u64,
+                "token_embd.weight" => full + row_bytes(format, dims[0] as usize) as u64,
+                _ if t.contains("_exps.") => full * routed as u64 / experts as u64,
+                _ => full,
+            };
+        }
+        for numerics in NUMERICS {
+            let what = format!("deepseek2 medium {} {numerics:?}", ty.name());
+            let lane = compile(&spec, &path, &options(numerics)).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let cu = &lane.program.cu;
+            let (form, bytes) = (array(cu, "PROF_ROWS"), array(cu, "PROF_BYTES"));
+            assert_eq!(form.len(), bytes.len(), "{what}: a launch's bytes beside its form");
+            let step: u64 = form.iter().zip(&bytes).filter(|(f, _)| **f == 1).map(|(_, b)| *b).sum();
+            assert_eq!(step, want, "{what}: the decode step's launches stream the checkpoint's matrices once: {:?}", lane.decode().schedule.census());
+        }
+    }
+}
+
+/// A one-row gated delta layer's every input projection is one launch with its convolutions, SiLU, L2 norms and gates
+/// in its epilogue (PARITY-GDN-INPUT-EPILOGUE, K-09): on every case of `tiny_models::gated_delta_cases`, under every
+/// numerics and with `fuse_quant` off, the decode step launches each recurrent layer's inputs as one fold (`gemv_gdn`)
+/// — its query's, key's, values' and output gate's products, and its gates' in Q8_0, as one GEMV in parts of the
+/// layer's activation; its query, key and value convolutions through the SiLU over those parts' outputs, the query and
+/// key heads left for the step's delta rule to norm (`delta_qk_norm`); then the gates, from their parts in the GEMV, or
+/// from the activation by their `f32` projections — and no convolution, gate or projection of the layer apart, by
+/// `lk_gemv_gdn`. Held back, each fold is its three launches again. A prefill chunk's and a batch's products are of
+/// many rows and stay apart.
+#[test]
+fn a_gated_delta_layers_input_projections_are_one_launch_with_conv_and_gates() {
+    for (name, spec, path, f32_gates) in tiny_models::gated_delta_cases(&dir(), "gdn-inputs", CTX) {
+        let recurrent = spec.layers.iter().filter(|l| matches!(l.mixer, Mixer::GatedDelta(_))).count();
+        assert!(recurrent > 0, "{name}: a hybrid with recurrent layers");
+        for (numerics, fuse_quant) in NUMERICS.map(|n| (n, true)).into_iter().chain([(Q8MatKind::Int8Act, false)]) {
+            let what = format!("{name} {numerics:?} fuse_quant {fuse_quant}");
+            let opts = LaneOptions { prefill: 4, knobs: CudaKnobs { activations: numerics, fuse_quant, ..CudaKnobs::default() }, ..options(numerics) };
+            let lane = compile(&spec, &path, &opts).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let s = &lane.decode().schedule;
+            assert_eq!(s.fired("gdn_input_epilogue"), recurrent, "{what}: one a recurrent layer: {:?}", s.fusions);
+            let folds: Vec<&Launch> = s.launches.iter().filter(|l| kind(l) == "gemv_gdn").collect();
+            assert_eq!(folds.len(), recurrent, "{what}: a launch a recurrent layer: {:?}", s.census());
+            for f in folds {
+                let Launch::Fold { first, then: gates } = f else { panic!("{what}: a fold: {f:?}") };
+                let Launch::Fold { first: products, then: convs } = first.as_ref() else { panic!("{what}: the products, then their convolutions: {f:?}") };
+                let (Launch::GemmParts { parts, m: 1, .. }, Launch::ConvParts { parts: convs, .. }) = (products.as_ref(), convs.as_ref()) else {
+                    panic!("{what}: one row's GEMV in parts and its convolutions in parts: {f:?}")
+                };
+                assert_eq!(parts.len(), if f32_gates { 4 } else { 6 }, "{what}: the query, key, values, output gate{} in one GEMV: {f:?}", if f32_gates { "" } else { " and both gates" });
+                assert_eq!(convs.iter().map(|c| c.l2).collect::<Vec<_>>(), [false, false, false], "{what}: no head normed in the convolutions, the delta rule norms the query and key: {f:?}");
+                let made = |t: &str| parts.iter().any(|p| p.y.own() == Some(t));
+                assert!(convs.iter().all(|c| made(&c.x)), "{what}: each convolution reads a part's output: {f:?}");
+                match gates.as_ref() {
+                    Launch::GateProj { k, heads, parts, .. } => {
+                        assert!(f32_gates, "{what}: Q8_0 gates take their rows in the GEMV: {f:?}");
+                        let cut = logicaffeine_compile::codegen_cuda::lane::kernels::gemv_f32_parts(*heads, *k, opts.knobs.chip.sms);
+                        assert_eq!(*parts, cut, "{what}: the gates' blocks cut each dot as their projections apart do: {f:?}");
+                    }
+                    Launch::Gates { br, ar, .. } => assert!(!f32_gates && made(br) && made(ar), "{what}: the gates read their parts of the GEMV: {f:?}"),
+                    other => panic!("{what}: the gates close the fold: {other:?}"),
+                }
+            }
+            let apart = s.launches.iter().filter(|l| matches!(l, Launch::Conv { .. } | Launch::ConvParts { .. } | Launch::Gates { .. } | Launch::GateProj { .. } | Launch::L2Norm { .. })).count();
+            assert_eq!(apart, 0, "{what}: no convolution or gate apart: {:?}", s.census());
+            assert!(lane.program.cu.contains("lk_gemv_gdn<"), "{what}: by the GEMV with its gated delta inputs");
+            let chunk = lane.chunk(4).unwrap_or_else(|| panic!("{what}: the chunk of 4")).schedule.clone();
+            assert_eq!(chunk.fired("gdn_input_epilogue"), 0, "{what}: a chunk's products over its rows stay apart");
+            let held = compile_holding(&spec, &path, &opts, &["gdn_input_epilogue"]).unwrap_or_else(|e| panic!("{what} held: {e}"));
+            let h = &held.decode().schedule;
+            assert!(!h.launches.iter().any(|l| kind(l) == "gemv_gdn"), "{what} held: no fold");
+            assert_eq!(h.launches.len(), s.launches.len() + 2 * recurrent, "{what} held: each fold is its three launches: {:?}", h.census());
+        }
+        let batch = compile_batch(&spec, &path, &options(Q8MatKind::Int8Act), 2).unwrap_or_else(|e| panic!("{name} batch: {e}"));
+        assert_eq!(batch.batch().unwrap().schedule.fired("gdn_input_epilogue"), 0, "{name}: a batch's products are of its sequences' rows");
+    }
+}
+
+/// A gated delta layer whose convolution takes more taps than its products' launch copies in while the row's dot
+/// streams (`kernels::GDN_TAPS`, four) keeps its inputs' launches apart: Qwen3.5 tiny with five taps compiles, its
+/// decode step folding no layer's inputs, refused by name.
+#[test]
+fn a_gated_delta_layer_of_five_taps_keeps_its_inputs_apart() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::GDN_TAPS;
+    let mut spec = Tiny::Qwen35.spec(CTX);
+    for layer in &mut spec.layers {
+        if let Mixer::GatedDelta(g) = &mut layer.mixer {
+            g.conv_taps = GDN_TAPS + 1;
+        }
+    }
+    let path = dir().join("qwen35-five-taps.gguf");
+    tiny_models::write_checkpoint(&spec, &path);
+    for numerics in NUMERICS {
+        let lane = compile(&spec, &path, &options(numerics)).unwrap_or_else(|e| panic!("{numerics:?}: {e}"));
+        let s = &lane.decode().schedule;
+        assert_eq!(s.fired("gdn_input_epilogue"), 0, "{numerics:?}: no layer's inputs fold: {:?}", s.census());
+        assert!(!s.launches.iter().any(|l| kind(l) == "gemv_gdn"), "{numerics:?}: no inputs' launch: {:?}", s.census());
+    }
+}
+
+/// A step's delta rule norms its query and key heads itself (`delta_qk_norm`): on every case of
+/// `tiny_models::gated_delta_cases`, under every numerics, the decode step's delta rules take the L2 norm's epsilon,
+/// the convolutions in their layer's inputs' launch norm no head, and the rule fires once a recurrent layer; held
+/// back, and with the inputs' launch held (`gdn_input_epilogue`, each convolution's own launch a block a head), the
+/// convolutions norm the query and key heads and the steps norm none. A chunk's delta rule reads heads its convolution
+/// normed.
+#[test]
+fn a_steps_delta_rule_norms_its_query_and_key_heads() {
+    for (name, spec, path, _) in tiny_models::gated_delta_cases(&dir(), "delta-qk", CTX) {
+        let recurrent = spec.layers.iter().filter(|l| matches!(l.mixer, Mixer::GatedDelta(_))).count();
+        for numerics in NUMERICS {
+            let opts = LaneOptions { prefill: 4, ..options(numerics) };
+            for held in [&[][..], &["gdn_input_epilogue"][..], &["delta_qk_norm"][..]] {
+                let what = format!("{name} {numerics:?} holding {held:?}");
+                let lane = compile_holding(&spec, &path, &opts, held).unwrap_or_else(|e| panic!("{what}: {e}"));
+                let s = &lane.decode().schedule;
+                let moved = held.is_empty();
+                assert_eq!(s.fired("delta_qk_norm"), if moved { recurrent } else { 0 }, "{what}: {:?}", s.fusions);
+                let deltas: Vec<&Launch> = s.launches.iter().filter(|l| matches!(l, Launch::Delta { .. })).collect();
+                assert_eq!(deltas.len(), recurrent, "{what}: a step a recurrent layer");
+                for d in deltas {
+                    let Launch::Delta { qk, .. } = d else { unreachable!() };
+                    assert_eq!(qk.is_some(), moved, "{what}: {d:?}");
+                }
+                let normed: usize = s
+                    .launches
+                    .iter()
+                    .flat_map(|l| l.parts())
+                    .filter_map(|l| match l {
+                        Launch::ConvParts { parts, .. } => Some(parts.iter().filter(|c| c.l2).count()),
+                        _ => None,
+                    })
+                    .sum();
+                assert_eq!(normed, if moved { 0 } else { 2 * recurrent }, "{what}: the convolutions' normed heads: {:?}", s.census());
+                for f in lane.forms.iter().filter(|f| f.rows > 1) {
+                    for l in &f.schedule.launches {
+                        if let Launch::Delta { qk, rows, .. } = l {
+                            assert!(*rows == 1 || qk.is_none(), "{what}: a chunk's delta rule reads normed heads: {l:?}");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The step takes its query and key heads' norms (`delta_qk_norm`) exactly where its layer's inputs' launch holds no
+/// whole head in a block: on every case of `tiny_models::gated_delta_cases` and every 16-bit case (Qwen3.5 tiny, at
+/// 2048 wide and with heads of 512, in BF16 and F16), under every numerics, the decode step with the rule is the one
+/// with it held but for each inputs' launch whose blocks — eight warps, or a head's width of threads where that is
+/// more, `per_warp` rows a warp — hold less than a head: that launch's convolutions norm no head (their parts write the
+/// heads unnormed, and the launch keeps no head's width or epsilon), and the delta rule reading its query and key reads
+/// them so, norming them by the convolutions' epsilon. A launch holding whole heads keeps its norms and its step reads
+/// them normed. The rule fires once a launch it moves; both outcomes are met.
+#[test]
+fn a_steps_delta_rule_takes_its_heads_norms_only_where_its_inputs_launch_holds_no_whole_head() {
+    let mut cases: Vec<(String, ModelSpec, PathBuf)> =
+        tiny_models::gated_delta_cases(&dir(), "delta-qk-where", CTX).into_iter().map(|(name, spec, path, _)| (name, spec, path)).collect();
+    let mut wide_heads = Tiny::Qwen35.spec(CTX);
+    for layer in &mut wide_heads.layers {
+        if let Mixer::GatedDelta(g) = &mut layer.mixer {
+            g.head_dim = 512;
+        }
+    }
+    for (name, spec) in [("qwen35", Tiny::Qwen35.spec(CTX)), ("qwen35-medium", Tiny::Qwen35.medium(CTX)), ("qwen35-heads512", wide_heads)] {
+        for ty in [GgmlType::Bf16, GgmlType::F16] {
+            let path = dir().join(format!("{name}-{}-delta-qk-where.gguf", ty.name()));
+            tiny_models::write_checkpoint_in(&spec, &path, ty);
+            cases.push((format!("{name} {}", ty.name()), spec.clone(), path));
+        }
+    }
+    let (mut moved_anywhere, mut kept_anywhere) = (0usize, 0usize);
+    for (name, spec, path) in &cases {
+        for numerics in NUMERICS {
+            let what = format!("{name} {numerics:?}");
+            let opts = LaneOptions { prefill: 4, ..options(numerics) };
+            let moved = compile(spec, path, &opts).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let held = compile_holding(spec, path, &opts, &["delta_qk_norm"]).unwrap_or_else(|e| panic!("{what} held: {e}"));
+            let (m, h) = (&moved.decode().schedule, &held.decode().schedule);
+            assert_eq!(h.fired("delta_qk_norm"), 0, "{what}: held, the rule fires nowhere");
+            assert_eq!(m.launches.len(), h.launches.len(), "{what}: the rule moves norms and adds no launch: {:?} / {:?}", m.census(), h.census());
+            // The held step's every inputs' launch that norms its heads in blocks holding none whole, with the unnormed
+            // names the moved step's convolutions write in place of the normed ones.
+            let mut renamed: BTreeMap<String, String> = BTreeMap::new();
+            let mut eps_of: BTreeMap<String, _> = BTreeMap::new();
+            let mut moves = 0usize;
+            for (hl, ml) in h.launches.iter().zip(&m.launches) {
+                let Some((Launch::GemmParts { per_warp, .. }, Launch::ConvParts { parts, block, eps, .. }, _)) = hl.gdn_inputs() else { continue };
+                let normed = parts.iter().any(|c| c.l2);
+                if !normed || (*block).max(256) / 32 * per_warp >= *block {
+                    kept_anywhere += usize::from(normed);
+                    assert_eq!(ml, hl, "{what}: an inputs' launch whose blocks hold whole heads keeps its norms");
+                    continue;
+                }
+                moves += 1;
+                let Some((_, Launch::ConvParts { parts: written, .. }, _)) = ml.gdn_inputs() else { panic!("{what}: the inputs' launch stays one launch: {ml:?}") };
+                assert_eq!(written.len(), parts.len(), "{what}: the same convolutions: {ml:?}");
+                let mut want = hl.clone();
+                for part in want.parts_mut() {
+                    if let Launch::ConvParts { parts, block, eps: e, .. } = part {
+                        for (c, w) in parts.iter_mut().zip(written) {
+                            if c.l2 {
+                                assert_ne!(w.y, c.y, "{what}: a moved norm leaves its convolution writing the head unnormed, under its own name");
+                                renamed.insert(c.y.clone(), w.y.clone());
+                                eps_of.insert(w.y.clone(), eps.expect("a normed launch's epsilon"));
+                                (c.y, c.l2) = (w.y.clone(), false);
+                            }
+                        }
+                        (*block, *e) = (256, None);
+                    }
+                }
+                assert_eq!(ml, &want, "{what}: the inputs' launch hands its query and key norms to the step and nothing else");
+            }
+            moved_anywhere += moves;
+            assert_eq!(m.fired("delta_qk_norm"), moves, "{what}: once a launch it moves: {:?}", m.fusions);
+            for (hl, ml) in h.launches.iter().zip(&m.launches).filter(|(hl, _)| hl.gdn_inputs().is_none()) {
+                let mut want = hl.clone();
+                if let Launch::Delta { q, k, qk, .. } = &mut want {
+                    if let (Some(nq), Some(nk)) = (renamed.get(q.as_str()).cloned(), renamed.get(k.as_str()).cloned()) {
+                        assert_eq!(*qk, None, "{what}: held, the step norms no head");
+                        *qk = Some(eps_of[&nq]);
+                        (*q, *k) = (nq, nk);
+                    }
+                }
+                assert_eq!(ml, &want, "{what}: every other launch is the held step's, and the delta rule that reads moved heads norms them");
+            }
+            let normed_read = m.launches.iter().filter(|l| matches!(l, Launch::Delta { qk: Some(_), .. })).count();
+            assert_eq!(normed_read, renamed.len() / 2, "{what}: a step norms the heads of each launch that moved them");
+        }
+    }
+    assert!(moved_anywhere > 0 && kept_anywhere > 0, "both outcomes are met: {moved_anywhere} moved, {kept_anywhere} kept");
+}
+
 /// A one-row projection in a block format finishes the residual add and the next norm in its last-arriving block as a
 /// Q8_0 one does (PARITY-GEMV-NORM-EPILOGUE, K-05, K-07, K-16) where its block is at least the norm's width
 /// (`kernels::block_holds_its_norm`): Llama wide in every block format the library decodes, one row a warp, under every
@@ -2486,10 +3366,11 @@ fn a_row_of_a_table_written_before_its_last_reader_is_copied_where_it_is_taken()
     );
 }
 
-/// Qwen3.5's hybrid: each Gated DeltaNet block's query, key, value and gate projections are one launch (`gemv_parts`),
-/// its three convolutions one launch carrying their silu and the query's and key's L2 norm (`conv_parts`), its two
-/// gates and the two `f32` projections they read one launch (`gate_projections`), its output norm quantizes for the
-/// output projection; the gated attention's projections are one launch with its heads' norms and rotations in its
+/// Qwen3.5's hybrid: each Gated DeltaNet block's inputs are one launch (`gdn_input_epilogue`): its query, key, value and
+/// gate projections as one GEMV in parts, its three convolutions carrying their silu and the query's and key's L2 norm
+/// (`conv_parts`) in its epilogue, and its two gates with the two `f32` projections they read (`gate_projections`) in
+/// its last blocks; its output norm quantizes for the output projection; the gated attention's projections are one
+/// launch (`gemv_parts`) with its heads' norms and rotations in its
 /// epilogue (`qkv_head_epilogue`), and its gate's sigmoid and product run in the attention's store, which quantizes for
 /// the output projection; every output and down projection takes the residual add and the next norm into its last
 /// block (`gemv_norm_epilogue`), and the embedding's gather the first norm (`embed_norm`).
@@ -2502,13 +3383,11 @@ fn the_hybrid_step_fuses_the_recurrence_and_the_gate() {
         counts(&[
             ("argmax", 1),
             ("attention", 1),
-            ("conv", 2),
             ("delta", 2),
-            ("gates", 2),
             ("gather_norm", 1),
+            ("gemv_gdn", 2),
             ("gemv_glu", 3),
             ("gemv_norm", 6),
-            ("gemv_parts", 2),
             ("gemv_q8", 1),
             ("gemv_rope", 1)
         ])
@@ -2525,9 +3404,10 @@ fn the_hybrid_step_fuses_the_recurrence_and_the_gate() {
         ("argmax_advance", 1),
         ("glu_pair", 3),
         ("fused_quant", 13),
-        ("gemv_parts", 3),
+        ("gemv_parts", 1),
         ("conv_parts", 2),
         ("gate_projections", 2),
+        ("gdn_input_epilogue", 2),
         ("qkv_head_epilogue", 2),
         ("gemv_norm_epilogue", 6),
         ("embed_norm", 1),
@@ -2666,16 +3546,25 @@ fn a_wide_chunk_runs_its_projections_on_the_tensor_cores() {
     let wide = |numerics| compile(&spec, &path, &LaneOptions { ctx: 128, prefill: 64, ..options(numerics) }).unwrap();
     let fast = wide(Q8MatKind::Int8Act);
     assert_eq!(fast.forms.iter().map(|f| f.rows).collect::<Vec<_>>(), [1, 64, 32, 16, 8, 4, 2]);
-    assert!(fast.program.cu.contains("lk_gemm_blk<8, 1><<<"), "the chunk of 64 runs the tensor-core GEMM");
-    assert!(fast.program.cu.contains("cudaFuncSetAttribute(lk_gemm_blk<8, 1>"), "with the shared memory its stages need");
+    // A dense GEMM's launch, with the general epilogue or the plain one (`blk_plain`: its sums into an `f32` array).
+    let dense_launch = ["lk_gemm_blk<8, 1><<<", "lk_gemm_blk<8, 1, 0, 128, 0, true><<<"];
+    assert!(dense_launch.iter().any(|k| fast.program.cu.contains(k)), "the chunk of 64 runs the tensor-core GEMM");
+    assert!(
+        ["lk_gemm_blk<8, 1>", "lk_gemm_blk<8, 1, 0, 128, 0, true>"].iter().any(|k| fast.program.cu.contains(&format!("cudaFuncSetAttribute({k}"))),
+        "with the shared memory its stages need"
+    );
     assert!(fast.program.cu.contains("lk_gemv_q8<1, 16>"), "the chunk of 16 keeps the GEMV");
     let two = wide(Q8MatKind::TwoPassInt8);
-    assert!(two.program.cu.contains("lk_gemm_blk<8, 2, 0, 64><<<"), "two words take the Q8_0 GEMM in tiles of 64 rows");
+    assert!(
+        two.program.cu.contains("lk_gemm_blk<8, 2, 0, 64><<<") || two.program.cu.contains("lk_gemm_blk<8, 2, 0, 64, 0, true><<<"),
+        "two words take the Q8_0 GEMM in tiles of 64 rows"
+    );
     assert!(!two.program.cu.contains("lk_gemm_blk<8, 2><<<"), "and never the 128-row tile");
     let precise = wide(Q8MatKind::Dequant);
     assert!(!precise.program.cu.contains("lk_gemm_blk"), "the precise numerics never take the int8 tensor cores");
     assert!(![&fast, &two, &precise].iter().any(|l| l.program.cu.contains("lk_gemm_q8")), "no Q8_0 GEMM of its own");
-    assert_eq!(fast.program.cu.matches("lk_gemm_blk<8, 1><<<").count(), 21 * 2, "the 64- and 32-row chunks keep every projection, the gated pair's too, on the tensor cores");
+    let dense: usize = dense_launch.iter().map(|k| fast.program.cu.matches(k).count()).sum();
+    assert_eq!(dense, 21 * 2, "the 64- and 32-row chunks keep every projection, the gated pair's too, on the tensor cores");
     assert_eq!(fast.program.cu.matches("lk_gemv_glu<8, 8, 1, 16").count(), 3, "the 16-row chunk takes its gated pairs in one launch each");
     let slabs = precise.program.cu.matches("lk_gemv_q8<0, 16>").count();
     assert_eq!(slabs, 15 * (4 + 2) + (15 - 9), "every layer projection of the 64- and 32-row chunks in slabs of sixteen, the 16-row chunk's but its query, key and value");
@@ -2693,12 +3582,13 @@ fn a_wide_chunk_runs_its_projections_on_the_tensor_cores() {
 /// `f32` GEMM of 64 × 64 tiles over its rows (`lk_gemm_f32`), each tile's `k` cut into the parts that give the chip's
 /// blocks work — where the GEMV would sum each row's dots in `f64`, a warp a dot. The chunk of 16 keeps the GEMV, and the
 /// precise numerics keep its `f64` sums at every width; the decode step's two take their gates' launch
-/// (`gate_projections`), which sums them in `f64` too.
+/// (`gate_projections`), which sums them in `f64` too — the layer's input epilogue (`gdn_input_epilogue`, which takes the
+/// gates' launch into its projections') held.
 #[test]
 fn a_wide_chunk_multiplies_its_f32_projections_in_tiles() {
     use logicaffeine_compile::codegen_cuda::lane::kernels::gemm_f32_splits;
     let (spec, path) = checkpoint(Tiny::Qwen35, "wide-f32");
-    let wide = |numerics| compile(&spec, &path, &LaneOptions { ctx: 128, prefill: 64, ..options(numerics) }).unwrap();
+    let wide = |numerics| compile_holding(&spec, &path, &LaneOptions { ctx: 128, prefill: 64, ..options(numerics) }, &["gdn_input_epilogue"]).unwrap();
     let f32s = |lane: &Lane, wide: bool| -> Vec<(usize, usize, usize)> {
         lane.forms
             .iter()
@@ -3008,8 +3898,10 @@ fn upload_ranks(cu: &str) -> BTreeMap<String, usize> {
 }
 
 /// A matrix's bytes are what the program carves for it from a pool: a Q8_0 matrix's levels and its half scales, a block
-/// format's blocks as the checkpoint lays them out and the 32 bytes a staged read runs past them, each array rounded
-/// up to the pool's alignment, `cudaMalloc`'s.
+/// format's blocks as the checkpoint lays them out and the 32 bytes a staged read runs past them — an MXFP4 matrix's
+/// rows regrouped, 16 sub-blocks a group (272 bytes; a short last group its 16 bytes of exponents and a 16-byte word
+/// a sub-block), and the 256 bytes a staged read of a short last group runs past them — each array rounded up to the
+/// pool's alignment, `cudaMalloc`'s.
 #[test]
 fn a_matrix_takes_the_bytes_its_upload_carves() {
     assert_eq!(POOL_ALIGN, 256);
@@ -3018,7 +3910,9 @@ fn a_matrix_takes_the_bytes_its_upload_carves() {
     assert_eq!(matrix_bytes(16, 512, GgmlType::Q8_0), 16 * 512 + 16 * 16 * 2, "arrays whole multiples of the alignment take their bytes");
     assert_eq!(matrix_bytes(3, 256, GgmlType::Q4K), pooled(3 * 144 + 32));
     assert_eq!(matrix_bytes(5, 64, GgmlType::F32), pooled(5 * 64 * 4 + 32));
-    assert_eq!(matrix_bytes(2, 32, GgmlType::Mxfp4), pooled(2 * 17 + 32));
+    assert_eq!(matrix_bytes(2, 32, GgmlType::Mxfp4), pooled(2 * 32 + 256));
+    assert_eq!(matrix_bytes(3, 512, GgmlType::Mxfp4), pooled(3 * 272 + 256));
+    assert_eq!(matrix_bytes(32 * 2880, 2880, GgmlType::Mxfp4), pooled(32 * 2880 * 1536 + 256), "gpt-oss's experts: five groups and ten sub-blocks a row");
 }
 
 /// Every array stays on the device while they fit it, and the program knows its plan: every architecture under every
@@ -3067,6 +3961,93 @@ fn every_array_stays_on_the_device_while_the_arrays_fit() {
             assert!(cu.contains(&table), "{what}: the program's order {table}");
             let ranks: BTreeMap<String, usize> = plan.order.iter().enumerate().map(|(i, (m, _))| (m.clone(), i)).collect();
             assert_eq!(upload_ranks(cu), ranks, "{what}: each upload lives in host memory past its rank");
+        }
+    }
+}
+
+/// A matrix in host memory that a launch reads whole streams to the device a launch at a time (`residence::Plan::streamed`;
+/// the program's `lk_stage_in`, `lk_stage_go`, `lk_stage_out`): every tiny architecture's lane, compiled with chunks of four rows under
+/// every numerics, streams exactly the matrices some launch reads whole — not a table only gathered from, not an expert
+/// stack — each with its arrays' bytes (a Q8_0 matrix's levels and scales); its slot is the most bytes one launch's
+/// streamed matrices take; its copies are the arrays each step's graph stages, the lean step's too; and its program
+/// says the same: which of its order streams (`LK_STREAMS`), its slot, a staged array before each launch that reads one
+/// under the matrix's rank (`lk_moved > rank`), and the copy stream forked and joined by each step that stages.
+#[test]
+fn a_lane_streams_each_matrix_it_reads_whole_from_host_memory_through_two_slots() {
+    use logicaffeine_compile::codegen_cuda::lane::emit::output_only;
+    use logicaffeine_compile::codegen_cuda::lane::residence::matrix_arrays;
+    for &t in ALL {
+        let (spec, path) = checkpoint(t, "stream");
+        for numerics in NUMERICS {
+            let what = format!("{} {numerics:?}", t.name());
+            let lane = compile(&spec, &path, &chunked(numerics, 4)).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let plan = &lane.plan;
+            let up = |n: &str| plan.shares.get(n).cloned().unwrap_or_else(|| n.to_string());
+            let mut rows: BTreeMap<String, (GgmlType, usize, usize)> = BTreeMap::new();
+            for f in &lane.forms {
+                for b in f.schedule.buffers.values() {
+                    if let Fill::Constant(Placement::Rows(r)) = &b.fill {
+                        rows.entry(up(&b.name)).or_insert((r.ty, r.rows, r.cols));
+                    }
+                }
+            }
+            let (mut whole, mut sparse) = (BTreeSet::new(), BTreeSet::new());
+            for l in lane.forms.iter().flat_map(|f| f.schedule.launches.iter().flat_map(|l| l.parts())) {
+                let experts: Vec<String> = match l {
+                    Launch::Moe { wg, wu, wd, .. } => vec![up(wg), up(wu), up(wd)],
+                    _ => Vec::new(),
+                };
+                for m in l.reads().into_iter().map(up).filter(|m| rows.contains_key(m)) {
+                    if matches!(l, Launch::Gather { .. }) || experts.contains(&m) {
+                        sparse.insert(m);
+                    } else {
+                        whole.insert(m);
+                    }
+                }
+            }
+            let expected: BTreeMap<String, Vec<usize>> = whole
+                .difference(&sparse)
+                .map(|m| {
+                    let (ty, r, c) = rows[m];
+                    (m.clone(), matrix_arrays(r, c, ty))
+                })
+                .collect();
+            assert!(!expected.is_empty(), "{what}: some matrix is read whole");
+            assert_eq!(plan.streamed, expected, "{what}: the matrices read whole stream, each with its arrays");
+            let staged = |l: &Launch| -> Vec<String> {
+                let mut seen = BTreeSet::new();
+                l.parts().into_iter().flat_map(|p| p.reads()).filter(|t| plan.streamed.contains_key(&up(t)) && seen.insert(t.to_string())).map(str::to_string).collect()
+            };
+            let launches = lane.forms.iter().flat_map(|f| f.schedule.launches.iter());
+            let slot = launches.clone().map(|l| staged(l).iter().map(|t| plan.streamed[&up(t)].iter().sum::<usize>()).sum::<usize>()).max().unwrap();
+            assert_eq!(plan.slot, slot, "{what}: a slot holds the widest launch's streamed matrices");
+            let arrays = |l: &Launch| staged(l).iter().map(|t| plan.streamed[&up(t)].len()).sum::<usize>();
+            let copies: usize = lane
+                .forms
+                .iter()
+                .map(|f| {
+                    let lean = output_only(f, &lane.forms);
+                    let all: usize = f.schedule.launches.iter().map(arrays).sum();
+                    all + if lean.iter().any(|&x| x) { f.schedule.launches.iter().zip(&lean).filter(|(_, &o)| !o).map(|(l, _)| arrays(l)).sum() } else { 0 }
+                })
+                .sum();
+            assert_eq!(plan.copies, copies, "{what}: the copies every graph stages, the lean steps' too");
+            let cu = &lane.program.cu;
+            let table = format!("LK_STREAMS[] = {{{}}};", plan.order.iter().map(|(m, _)| if plan.streamed.contains_key(m) { "1" } else { "0" }).collect::<Vec<_>>().join(", "));
+            assert!(cu.contains(&table), "{what}: the program's {table}");
+            assert!(cu.contains(&format!("LK_SLOT = {}UL,", plan.slot)), "{what}: the program's slot");
+            let staged_launches: usize = launches.clone().filter(|l| !staged(l).is_empty()).count();
+            let staged_arrays: usize = launches.clone().map(arrays).sum();
+            assert_eq!(cu.matches("lk_stage_in((void**)&").count(), staged_arrays, "{what}: an array staged for each launch that reads it");
+            assert_eq!(cu.matches("  lk_stage_go(st);\n").count(), staged_launches, "{what}: each staging launch waits for its copies");
+            assert_eq!(cu.matches("  lk_stage_out(st);\n").count(), staged_launches, "{what}: and frees its slot after it");
+            let ranks: BTreeMap<&str, usize> = plan.order.iter().enumerate().map(|(i, (m, _))| (m.as_str(), i)).collect();
+            for m in plan.streamed.keys() {
+                assert!(cu.contains(&format!("if(lk_streaming && lk_moved > {}){{", ranks[m.as_str()])), "{what}: {m} stages under its rank");
+            }
+            let forked = lane.forms.iter().filter(|f| f.schedule.launches.iter().any(|l| !staged(l).is_empty())).count();
+            assert_eq!(cu.matches("  lk_stage_fork(st);\n").count(), forked, "{what}: each staging step forks its copies");
+            assert_eq!(cu.matches("  lk_stage_join(st);\n").count(), forked, "{what}: and joins them");
         }
     }
 }
@@ -3236,9 +4217,13 @@ fn computed_constants_are_the_bindings_values() {
 #[test]
 fn what_the_lane_cannot_compile_is_refused_by_name() {
     let (spec, path) = checkpoint(Tiny::Qwen3, "refuse");
-    let mut capped = spec.clone();
-    capped.final_logit_softcap = Some(30.0);
-    assert!(matches!(compile(&capped, &path, &options(Q8MatKind::Int8Act)), Err(LaneError::NotYet(_))));
+    let mut fused = spec.clone();
+    for layer in &mut fused.layers {
+        if let Mixer::Attention(a) = &mut layer.mixer {
+            a.fused_qkv = true;
+        }
+    }
+    assert!(matches!(compile(&fused, &path, &options(Q8MatKind::Int8Act)), Err(LaneError::NotYet(_))));
 
     for prefill in [3, 32, 1024] {
         assert_eq!(
@@ -3281,12 +4266,25 @@ fn a_wide_chunk_in_a_block_format_runs_on_the_tensor_cores() {
         let wide = |numerics| compile(&spec, &path, &LaneOptions { ctx: 128, prefill: 64, ..options(numerics) }).unwrap();
         let fast = wide(Q8MatKind::Int8Act);
         let id = format.id();
+        // A dense GEMM's launch, with the general epilogue or the plain one (`blk_plain`: its sums into an `f32` array).
+        let dense = |q: u32| [format!("lk_gemm_blk<{id}, {q}>"), format!("lk_gemm_blk<{id}, {q}, 0, 128, 0, true>")];
+        let in_parts = |q: u32| [format!("lk_gemm_blk<{id}, {q}, 4>"), format!("lk_gemm_blk<{id}, {q}, 4, 128, 0, true>")];
+        let launched = |cu: &str, q: u32| dense(q).iter().map(|k| cu.matches(&format!("{k}<<<")).count()).sum::<usize>();
+        let launched_in_parts = |cu: &str, q: u32| in_parts(q).iter().map(|k| cu.matches(&format!("{k}<<<")).count()).sum::<usize>();
         // Each of the three layers in the 64- and 32-row chunks: its output and down GEMMs, its query, key and value in
         // parts, its gated pair paired.
-        assert_eq!(fast.program.cu.matches(&format!("lk_gemm_blk<{id}, 1><<<")).count(), 6 * 2, "{what}: the wide chunks' projections on the tensor cores");
-        assert_eq!(fast.program.cu.matches(&format!("lk_gemm_blk<{id}, 1, 4><<<")).count(), 3 * 2, "{what}: each query, key and value in parts");
+        assert_eq!(launched(&fast.program.cu, 1), 6 * 2, "{what}: the wide chunks' projections on the tensor cores");
+        assert_eq!(launched_in_parts(&fast.program.cu, 1), 3 * 2, "{what}: each query, key and value in parts");
         assert_eq!(fast.program.cu.matches(&format!("lk_gemm_blk<{id}, 1, 5, 128, -1><<<")).count(), 3 * 2, "{what}: each gated pair paired");
-        for kernel in [format!("lk_gemm_blk<{id}, 1>"), format!("lk_gemm_blk<{id}, 1, 4>"), format!("lk_gemm_blk<{id}, 1, 5, 128, -1>")] {
+        assert!(
+            dense(1).iter().any(|k| fast.program.cu.contains(&format!("cudaFuncSetAttribute({k}, "))),
+            "{what}: the dense GEMM with the shared memory its stage needs"
+        );
+        assert!(
+            in_parts(1).iter().any(|k| fast.program.cu.contains(&format!("cudaFuncSetAttribute({k}, "))),
+            "{what}: the GEMM in parts with the shared memory its stage needs"
+        );
+        for kernel in [format!("lk_gemm_blk<{id}, 1, 5, 128, -1>")] {
             assert!(fast.program.cu.contains(&format!("cudaFuncSetAttribute({kernel}, ")), "{what}: {kernel} with the shared memory its stage needs");
         }
         assert_eq!(fast.program.cu.matches(&format!("lk_gemv_glu<{id}, {id}, 1, 16")).count(), 3, "{what}: the 16-row chunk's gated pairs");
@@ -3298,8 +4296,8 @@ fn a_wide_chunk_in_a_block_format_runs_on_the_tensor_cores() {
             "{what}: no projection writes the cache's rows on its own"
         );
         let two = wide(Q8MatKind::TwoPassInt8);
-        assert_eq!(two.program.cu.matches(&format!("lk_gemm_blk<{id}, 2><<<")).count(), 6 * 2, "{what}: two words alike");
-        assert_eq!(two.program.cu.matches(&format!("lk_gemm_blk<{id}, 2, 4><<<")).count(), 3 * 2, "{what}: two words in parts");
+        assert_eq!(launched(&two.program.cu, 2), 6 * 2, "{what}: two words alike");
+        assert_eq!(launched_in_parts(&two.program.cu, 2), 3 * 2, "{what}: two words in parts");
         assert_eq!(two.program.cu.matches(&format!("lk_gemm_blk<{id}, 2, 5, 128, -1><<<")).count(), 3 * 2, "{what}: two words paired");
         let precise = wide(Q8MatKind::Dequant);
         assert!(!precise.program.cu.contains("lk_gemm_blk"), "{what}: the precise numerics never take the int8 tensor cores");
@@ -3505,6 +4503,428 @@ fn a_wide_chunk_attends_in_tiles() {
     }
 }
 
+/// A chunk's attention on the f16 tensor cores takes the stream-K schedule where `attn_mma_stream` takes it, under the
+/// one-word numerics: every attention of Qwen3's and gpt-oss's 64-row chunks (windows and sinks) over the `f32` cache and
+/// over the binary16 one, and of heads 256 wide over the binary16 cache, keeps the chip's resident blocks as its stream-K
+/// blocks (`stream`, `attn_mma_stream_blocks`: the 3060's 28 multiprocessors by `attn_mma_blocks`) and launches
+/// `lk_attention_mma<…, MB, 1>` over `attn_mma_schedule`'s grid, past its rows an `lk_amma_split` of its partials and
+/// their counts — named where it splits: two partials a stream-K block (`attn_mma_part_floats`) placed in the arena, a
+/// count an item in a zeroed buffer of its own — and the items a block each. Heads 256 wide over the `f32` cache keep one block an item: no
+/// stream-K blocks, the grid of row blocks by groups, no scratch. The schedule: whole waves a block an item, the rest past
+/// them split, every item split under one wave. Every program builds.
+#[test]
+fn a_chunks_tensor_core_attention_splits_its_last_wave_over_the_chip() {
+    use logicaffeine_compile::codegen_cuda::chip::CudaChip;
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{
+        attn_mma_blocks, attn_mma_items, attn_mma_part_floats, attn_mma_schedule, attn_mma_smem_bytes, attn_mma_stream_blocks, attn_tile_heads,
+    };
+    use logicaffeine_compile::codegen_cuda::CachePrecision;
+    assert_eq!(attn_mma_schedule(256, 84), (252, 336), "Llama's 512-row chunk on the 3060: three whole waves, the fourth's four items split");
+    assert_eq!(attn_mma_schedule(128, 84), (84, 168), "its 256-row chunk: one whole wave, 44 items split");
+    assert_eq!(attn_mma_schedule(32, 56), (0, 56), "Gemma-3's 512-row chunk: under one wave, every item split");
+    assert_eq!(attn_mma_schedule(168, 84), (168, 168), "whole waves: an item a block");
+    let sms = CudaChip::rtx3060().sms;
+    let mangled = |name: &str| -> String { name.chars().map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' }).collect() };
+    let mut heads256 = Tiny::Qwen3.wide(CTX);
+    for layer in &mut heads256.layers {
+        if let Mixer::Attention(a) = &mut layer.mixer {
+            (a.head_dim, a.value_dim, a.scale) = (256, 256, 1.0 / 16.0);
+            if let Some(r) = &mut a.rope {
+                r.dims = 256;
+            }
+        }
+    }
+    let wide256 = sized_checkpoint(heads256, "qwen3-wide-heads256", &|_| GgmlType::Q4K);
+    let qwen3 = wide_checkpoint(Tiny::Qwen3, "stream", &|_| GgmlType::Q4K);
+    let oss = wide_checkpoint(Tiny::GptOss, "stream", &|_| GgmlType::Q4K);
+    for (what, (spec, path)) in [("qwen3", &qwen3), ("gpt-oss", &oss), ("heads 256 wide", &wide256)] {
+        for cache in [CachePrecision::F32, CachePrecision::F16] {
+            let what = format!("{what} {cache:?}");
+            let knobs = CudaKnobs { cache_precision: cache, ..options(Q8MatKind::Int8Act).knobs };
+            let lane = compile(spec, path, &LaneOptions { ctx: 128, prefill: 64, knobs, ..options(Q8MatKind::Int8Act) }).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let cu = &lane.program.cu;
+            let mut seen = 0;
+            for f in lane.forms.iter().filter(|f| f.rows > 16) {
+                for (i, l) in f.schedule.launches.iter().enumerate() {
+                    let Launch::Attention { out, heads, group, hd, vd, rows, stream, .. } = l else { continue };
+                    if !l.attends_on_tensor_cores(Q8MatKind::Int8Act) {
+                        continue;
+                    }
+                    seen += 1;
+                    let (hg, smem) = (attn_tile_heads(*group), attn_mma_smem_bytes(*hd, *vd));
+                    let split = cache == CachePrecision::F16 || (*hd <= 128 && *vd <= 128);
+                    let line = cu
+                        .lines()
+                        .map(str::trim)
+                        .find(|t| t.starts_with("lk_attention_mma<") && t.contains(&format!(", t{}_{}, ", f.tag(), mangled(out))))
+                        .unwrap_or_else(|| panic!("{what} {}: the attention into `{out}` launches", f.tag()));
+                    let tags: Vec<&str> = scratch(l, Q8MatKind::Int8Act).iter().map(|s| s.tag).collect();
+                    if !split {
+                        assert_eq!(*stream, 0, "{what} {}: `{out}` keeps one block an item", f.tag());
+                        assert!(line.starts_with(&format!("lk_attention_mma<{hg}, {hd}, {vd}")) && line.contains(&format!("<<<dim3({}, {}), 128, {smem}, st>>>", rows.div_ceil(64 / hg), heads / hg)), "{what} {}: one block an item: {line}", f.tag());
+                        assert!(tags.is_empty(), "{what} {}: no stream-K scratch: {tags:?}", f.tag());
+                        continue;
+                    }
+                    assert_eq!(*stream, attn_mma_stream_blocks(*hd, *vd, sms), "{what} {}: `{out}` splits over the 3060's resident blocks", f.tag());
+                    let items = attn_mma_items(*rows, *heads, hg);
+                    let (ndp, grid) = attn_mma_schedule(items, *stream);
+                    let elem = if cache == CachePrecision::F16 { "__half" } else { "float" };
+                    assert!(
+                        line.starts_with(&format!("lk_attention_mma<{hg}, {hd}, {vd}, {elem}, {elem}, {elem}, {}, 1><<<{grid}, 128, {smem}, st>>>", attn_mma_blocks(*hd, *vd))),
+                        "{what} {}: the stream-K kernel over {grid} blocks: {line}",
+                        f.tag()
+                    );
+                    let splits = grid > ndp;
+                    let (ap, ac) = (format!("ap{}_{}", f.tag(), mangled(out)), format!("ac{}_{}", f.tag(), mangled(out)));
+                    let named = if splits { format!(", {rows}, lk_amma_split{{{ap}, {ac}, {ndp}}}") } else { format!(", {rows}, lk_amma_split{{nullptr, nullptr, {ndp}}}") };
+                    assert!(line.contains(&named), "{what} {}: past its rows `{named}`, its partials and their counts named exactly where the schedule splits: {line}", f.tag());
+                    if splits {
+                        let sizes: Vec<(&str, usize, bool)> = scratch(l, Q8MatKind::Int8Act).iter().map(|s| (s.tag, s.bytes, s.counter)).collect();
+                        assert_eq!(sizes, vec![("ap", 2 * stream * attn_mma_part_floats(*vd) * 4, false), ("ac", items * 4, true)], "{what} {}: two partials a stream-K block, a count an item", f.tag());
+                        assert!(f.arena.scratch_at(i, "ap").is_some(), "{what} {}: the partials live in the arena", f.tag());
+                    } else {
+                        assert!(tags.is_empty(), "{what} {}: whole waves keep no scratch", f.tag());
+                    }
+                }
+            }
+            assert!(seen > 0, "{what}: the chunks attend on the f16 tensor cores");
+            if common::require_tool("nvcc") {
+                nvcc(cu, &dir().join(format!("lane-stream-{}-{cache:?}", what.replace(' ', "-"))));
+            }
+        }
+    }
+}
+
+/// Every expert mixture's grouped GEMM under one word takes two blocks a multiprocessor (`lk_gemm_blk_blocks`): Qwen3-MoE
+/// at its wide shape in Q8_0 and every block format, and gpt-oss in MXFP4 (its clamped SwiGLU), compiled with chunks of
+/// 64 rows — each `lk_gemm_blk<F, 1, G, 64>` of the paired gate and up (`G` 3), the experts apart (`G` 1) and the down
+/// projection (`G` 2) uses at most 128 registers a thread with no stack frame and no spill, as `ptxas` reports it, and
+/// two of its blocks' shared memory (`gemm_blk_launch_smem`), with the kilobyte the driver reserves for each, fit the
+/// multiprocessor's 100 KB. Q2_K, Q3_K and Q5_K, whose halves' scales and offsets beside the multiply need more
+/// registers than two blocks leave a thread, take one block, still with no stack frame and no spill. On the 3060 one
+/// 256-thread block of 133 registers a multiprocessor ran gpt-oss-20b's 512-row prefill in 232.9 ms, two in 179.7.
+#[test]
+fn every_one_word_expert_gemm_takes_two_blocks_a_multiprocessor() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{format_arg, gemm_blk_launch_smem};
+    if !common::require_tool("nvcc") {
+        return;
+    }
+    let formats: Vec<GgmlType> = std::iter::once(GgmlType::Q8_0).chain(BLOCK_FORMATS).collect();
+    let jobs: Vec<(Tiny, GgmlType)> =
+        formats.iter().map(|&ty| (Tiny::Qwen3Moe, ty)).chain(std::iter::once((Tiny::GptOss, GgmlType::Mxfp4))).collect();
+    let reports: Vec<(String, ModelSpec, GgmlType, String)> = std::thread::scope(|s| {
+        let handles: Vec<_> = jobs
+            .iter()
+            .map(|&(t, ty)| {
+                s.spawn(move || {
+                    let what = format!("{} {}", t.name(), ty.name());
+                    let (spec, path) = wide_checkpoint(t, &format!("two-blocks-{}", ty.name()), &|_| ty);
+                    let lane = compile(&spec, &path, &LaneOptions { ctx: 128, prefill: 64, ..options(Q8MatKind::Int8Act) })
+                        .unwrap_or_else(|e| panic!("{what}: {e}"));
+                    let src = dir().join(format!("two-blocks-{}-{}.cu", t.name(), ty.name()));
+                    std::fs::write(&src, &lane.program.cu).unwrap();
+                    let out = Command::new("nvcc")
+                        .args(["-O3", "-std=c++17", "-arch=sm_86", "-cubin", "-Xptxas", "-v", "-o", "/dev/null"])
+                        .arg(&src)
+                        .output()
+                        .expect("nvcc runs");
+                    assert!(out.status.success(), "{what} compiles:\n{}", String::from_utf8_lossy(&out.stderr));
+                    (what, spec, ty, String::from_utf8_lossy(&out.stderr).into_owned())
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let (mut checked, mut short) = (0, Vec::new());
+    for (what, spec, ty, report) in &reports {
+        let f = format_arg(*ty);
+        let two = !matches!(ty, GgmlType::Q2K | GgmlType::Q3K | GgmlType::Q5K);
+        let grouped: Vec<String> = (1..=3).map(|g| format!("_Z11lk_gemm_blkILi{f}ELi1ELi{g}ELi64E")).collect();
+        let mut kernel: Option<String> = None;
+        let mut frame: Option<String> = None;
+        for line in report.lines() {
+            if let Some(name) = line.split("Function properties for ").nth(1) {
+                kernel = Some(name.trim().to_string());
+                frame = None;
+            } else if line.contains("bytes stack frame") {
+                frame = Some(line.trim().to_string());
+            } else if let (Some(k), Some(regs)) = (&kernel, line.split("Used ").nth(1).and_then(|r| r.split(' ').next())) {
+                if grouped.iter().any(|g| k.starts_with(g.as_str())) {
+                    checked += 1;
+                    let regs: usize = regs.parse().unwrap();
+                    let spilled = frame.as_deref().map_or(true, |fr| {
+                        fr.split(',').map(|p| p.trim().split(' ').next().unwrap().parse::<usize>().unwrap()).any(|b| b != 0)
+                    });
+                    if (two && regs > 128) || spilled {
+                        short.push(format!("{what}: `{k}` uses {regs} registers ({})", frame.as_deref().unwrap_or("no frame report")));
+                    }
+                }
+                kernel = None;
+            }
+        }
+        for k in [spec.d, 256] {
+            let smem = gemm_blk_launch_smem(f, false, 64, k);
+            if two && 2 * (smem + 1024) > 100 * 1024 {
+                short.push(format!("{what}: two blocks of {smem} bytes of shared memory over k {k} pass the multiprocessor's 100 KB"));
+            }
+        }
+    }
+    assert!(checked >= jobs.len() * 2, "every program's grouped GEMMs are reported: {checked}");
+    assert!(short.is_empty(), "grouped expert GEMMs short of their blocks a multiprocessor:\n{}", short.join("\n"));
+}
+
+/// A state a chunk's form holds alone lives in the step's arena (`arena::place`'s `own`): gpt-oss at its wide shape in
+/// MXFP4 — its experts' output declared zeroed and set a row at a time (`bmo{l}`), held by no step but the chunks' —
+/// compiled with chunks of 16 rows: every chunk form places each layer's `bmo` in its arena, so the lane's fixed arrays
+/// hold none of it, and the decode step's zeroed states (its caches) stay out of every arena, read by every form. At
+/// gpt-oss-20b's 8,448 positions the outputs took 269 MiB of fixed arrays, a layer a form, and its 8K decode ran out of
+/// memory on the 3060.
+#[test]
+fn a_chunks_own_state_lives_in_the_arena() {
+    let (spec, path) = wide_checkpoint(Tiny::GptOss, "own-state", &|_| GgmlType::Mxfp4);
+    let lane = compile(&spec, &path, &LaneOptions { prefill: 16, ..options(Q8MatKind::Int8Act) }).unwrap_or_else(|e| panic!("gpt-oss: {e}"));
+    let mut placed = 0;
+    for f in lane.forms.iter().filter(|f| f.rows > 1) {
+        for (name, b) in f.schedule.buffers.iter().filter(|(n, _)| n.starts_with("bmo")) {
+            assert_eq!(b.fill, Fill::Zero, "{}: `{name}` is declared zeroed", f.tag());
+            assert!(f.arena.at(name, Touch::Plain).is_some(), "{}: `{name}` lives in the arena", f.tag());
+            placed += 1;
+        }
+    }
+    assert!(placed >= 2 * spec.layers.len(), "every chunk form's experts' outputs are placed: {placed}");
+    let decode = lane.forms.iter().find(|f| f.rows == 1).expect("a decode step");
+    let states: Vec<&String> = decode.schedule.buffers.iter().filter(|(_, b)| b.fill == Fill::Zero).map(|(n, _)| n).collect();
+    assert!(!states.is_empty(), "the decode step holds zeroed states");
+    for name in states {
+        assert!(decode.arena.at(name, Touch::Plain).is_none(), "the decode step's state `{name}` is every form's, in no arena");
+        for f in &lane.forms {
+            assert!(f.arena.at(name, Touch::Plain).is_none(), "{}: the decode step's state `{name}` in no arena", f.tag());
+        }
+    }
+}
+
+/// Every copy a kernel the lane ships waits for is committed: in the PTX of each program a wide chunk's lane writes —
+/// Qwen3 at its wide shape in Q4_K, Q6_K and Q2_K (the block GEMM's stages over two decoded tiles and over one), in
+/// Q8_0 (the streamed path) and in BF16 (the 16-bit GEMM), Qwen3-MoE in Q4_K (the grouped GEMMs), and Qwen3.5 in Q8_0
+/// (its chunked delta rule and attention), under both quantized numerics — each kernel that waits on groups of
+/// `cp.async` copies (`cp.async.wait_group`) commits copies to groups (`cp.async.commit_group`): a copy in no group is
+/// one no `cp.async.wait_group` waits for, and a stage that reads it reads whatever has landed. And each kernel that
+/// copies by `cp.async` has its copies committed, waited on all at once (`cp.async.wait_all`) or tracked by an mbarrier
+/// (`cp.async.mbarrier.arrive`).
+#[test]
+fn every_copy_a_kernel_waits_for_is_committed() {
+    if !common::require_tool("nvcc") {
+        return;
+    }
+    let dir = dir().join("commits");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut jobs: Vec<(String, String)> = Vec::new();
+    for (t, ty) in [
+        (Tiny::Qwen3, GgmlType::Q4K),
+        (Tiny::Qwen3, GgmlType::Q6K),
+        (Tiny::Qwen3, GgmlType::Q2K),
+        (Tiny::Qwen3, GgmlType::Q8_0),
+        (Tiny::Qwen3, GgmlType::Bf16),
+        (Tiny::Qwen3Moe, GgmlType::Q4K),
+        (Tiny::Qwen35, GgmlType::Q8_0),
+    ] {
+        // A gated delta layer's convolution weights stay `f32`: their rows are a few taps, no whole blocks.
+        let (spec, path) = wide_checkpoint(t, &format!("commits-{}", ty.name()), &|n| if n.contains("conv") { GgmlType::F32 } else { ty });
+        for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
+            let what = format!("{} {} {numerics:?}", t.name(), ty.name());
+            let lane = compile(&spec, &path, &LaneOptions { ctx: 128, prefill: 64, ..options(numerics) }).unwrap_or_else(|e| panic!("{what}: {e}"));
+            jobs.push((what, lane.program.cu.clone()));
+        }
+    }
+    let reports: Vec<(String, String)> = std::thread::scope(|s| {
+        let handles: Vec<_> = jobs
+            .iter()
+            .enumerate()
+            .map(|(i, (what, cu))| {
+                let dir = &dir;
+                s.spawn(move || {
+                    let (src, ptx) = (dir.join(format!("p{i}.cu")), dir.join(format!("p{i}.ptx")));
+                    std::fs::write(&src, cu).unwrap();
+                    let out = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-ptx", "-o"]).arg(&ptx).arg(&src).output().expect("nvcc runs");
+                    assert!(out.status.success(), "{what} compiles:\n{}", String::from_utf8_lossy(&out.stderr));
+                    (what.clone(), std::fs::read_to_string(&ptx).unwrap())
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    let mut copying = 0;
+    for (what, ptx) in &reports {
+        // Each kernel's body: from the brace after its parameters to the brace that closes it, its inline assembly's
+        // braced blocks inside it.
+        for (at, _) in ptx.match_indices(".entry ") {
+            let name: String = ptx[at + 7..].chars().take_while(|c| *c != '(').collect();
+            let params = at + ptx[at..].find(')').unwrap();
+            let open = params + ptx[params..].find('{').unwrap();
+            let mut depth = 0;
+            let close = ptx[open..]
+                .char_indices()
+                .find(|&(_, c)| {
+                    depth += match c {
+                        '{' => 1,
+                        '}' => -1,
+                        _ => 0,
+                    };
+                    depth == 0
+                })
+                .map(|(i, _)| open + i)
+                .unwrap();
+            let body = &ptx[open..close];
+            let copies = body.matches("cp.async.cg.").count() + body.matches("cp.async.ca.").count();
+            let (commits, waits) = (body.matches("cp.async.commit_group").count(), body.matches("cp.async.wait_group").count());
+            assert!(waits == 0 || commits > 0, "{what}: `{name}` waits on groups of cp.async copies {waits} times and commits none");
+            if copies == 0 {
+                continue;
+            }
+            copying += 1;
+            assert!(
+                commits > 0 || body.contains("cp.async.wait_all") || body.contains("cp.async.mbarrier.arrive"),
+                "{what}: `{name}` copies {copies} times by cp.async and neither commits, waits on all nor tracks them"
+            );
+        }
+    }
+    assert!(copying > 0, "the programs' kernels copy by cp.async");
+}
+
+/// A GEMM in parts reads its parts from its launch's parameters (`lk_take_part`): its part is taken by selects over
+/// constant indices, never a part index computed at run time, which would copy the parts to every thread's stack — so
+/// every GEMM in parts a wide chunk launches, in Q8_0 (the streamed path), Q4_K, Q6_K and BF16 (the 16-bit tensor
+/// cores), under both quantized numerics, keeps a stack frame smaller than one copy of
+/// `lk_parts`, as `ptxas` reports it.
+#[test]
+fn a_gemm_in_parts_reads_its_parts_where_its_launch_passed_them() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{Kernel, PRELUDE};
+    if !common::require_tool("nvcc") {
+        return;
+    }
+    let dir = dir().join("parts-frame");
+    std::fs::create_dir_all(&dir).unwrap();
+    let size_src = dir.join("size.cu");
+    std::fs::write(&size_src, format!("#include <cstdio>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n{PRELUDE}{}\nint main(){{ printf(\"%zu\\n\", sizeof(lk_parts)); return 0; }}\n", Kernel::Blocks.source())).unwrap();
+    let size_bin = dir.join("size");
+    let built = Command::new("nvcc").args(["-std=c++17", "-arch=sm_86", "-o"]).arg(&size_bin).arg(&size_src).output().expect("nvcc runs");
+    assert!(built.status.success(), "the size probe builds:\n{}", String::from_utf8_lossy(&built.stderr));
+    let parts: usize = String::from_utf8_lossy(&Command::new(&size_bin).output().unwrap().stdout).trim().parse().unwrap();
+    let jobs: Vec<(GgmlType, Q8MatKind)> = [GgmlType::Q8_0, GgmlType::Q4K, GgmlType::Q6K, GgmlType::Bf16]
+        .into_iter()
+        .flat_map(|ty| [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8].map(|n| (ty, n)))
+        .collect();
+    let reports: Vec<(String, String)> = std::thread::scope(|s| {
+        let handles: Vec<_> = jobs
+            .iter()
+            .map(|&(ty, numerics)| {
+                let dir = &dir;
+                s.spawn(move || {
+                    let what = format!("qwen3 {} {numerics:?}", ty.name());
+                    let (spec, path) = wide_checkpoint(Tiny::Qwen3, &format!("parts-frame-{}", ty.name()), &|_| ty);
+                    let lane = compile(&spec, &path, &LaneOptions { ctx: 128, prefill: 64, ..options(numerics) }).unwrap_or_else(|e| panic!("{what}: {e}"));
+                    assert!(lane.program.cu.contains(if ty == GgmlType::Bf16 { "lk_gemm_h16<" } else { "lk_gemm_blk<" }), "{what}: its products on the tensor cores");
+                    let src = dir.join(format!("{}-{numerics:?}.cu", ty.name()));
+                    std::fs::write(&src, &lane.program.cu).unwrap();
+                    let out = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-cubin", "-Xptxas", "-v", "-o", "/dev/null"]).arg(&src).output().expect("nvcc runs");
+                    assert!(out.status.success(), "{what} compiles:\n{}", String::from_utf8_lossy(&out.stderr));
+                    (what, String::from_utf8_lossy(&out.stderr).into_owned())
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    for (what, report) in &reports {
+        let mut kernel: Option<String> = None;
+        let mut seen = 0;
+        for line in report.lines() {
+            if let Some(name) = line.split("Function properties for ").nth(1) {
+                kernel = Some(name.trim().to_string());
+            } else if let (Some(k), Some(frame)) = (&kernel, line.trim().split(" bytes stack frame").next().filter(|_| line.contains("bytes stack frame"))) {
+                // The GEMMs in parts: `G` 4, the third template argument.
+                let in_parts = ["_Z11lk_gemm_blkI", "_Z11lk_gemm_h16I"].iter().any(|p| k.starts_with(p))
+                    && k.split('E').nth(2).is_some_and(|g| g == "Li4");
+                if in_parts {
+                    seen += 1;
+                    let bytes: usize = frame.trim().parse().unwrap();
+                    assert!(bytes < parts, "{what}: `{k}` keeps a {bytes}-byte stack frame, one copy of its {parts}-byte parts or more");
+                }
+                kernel = None;
+            }
+        }
+        assert!(seen > 0, "{what}: a GEMM in parts reported");
+    }
+}
+
+/// Every block GEMM launches with the shared memory its kernel lays out (`gemm_blk_smem_bytes`, the block path): for
+/// Q8_0 and every block format, under one word and two, over tiles of 64 and 128 rows, the kernel's own stage sizes
+/// (`lk_stage_acts`, `lk_stage_wt`, `lk_stage_sums`) evaluated by `nvcc` on the host and laid out as the block path
+/// lays them out — its activation buffers (two where `lk_stage_pipelined`), its decoded weight tiles (two where
+/// `lk_stage_over`), then the activation's sums, at least the paired epilogue's sums — end at the bytes the launch
+/// takes; a block takes two decoded tiles only where it holds its multiprocessor alone (`lk_gemm_blk_blocks`), and the
+/// 128-row tiles of Qwen3-8B's formats, Q4_K and Q6_K under one word, take them.
+#[test]
+fn every_block_gemms_shared_memory_is_what_its_kernel_lays_out() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{gemm_blk_launch_smem, Kernel, PRELUDE};
+    if !common::require_tool("nvcc") {
+        return;
+    }
+    let formats: Vec<GgmlType> = std::iter::once(GgmlType::Q8_0).chain(BLOCK_FORMATS).collect();
+    let mut rows = String::new();
+    for ty in &formats {
+        for q in [1, 2] {
+            for bm in [64, 128] {
+                let f = ty.id();
+                rows.push_str(&format!(
+                    "  row<{f}, {q}, {bm}>(\"{} {q} {bm}\");\n",
+                    ty.name()
+                ));
+            }
+        }
+    }
+    let main = format!(
+        "#include <cstdio>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n{PRELUDE}{}{}{}{}\n\
+         template<int F, int Q, int BM> void row(const char* what){{\n\
+           constexpr bool PIPE = lk_stage_pipelined<F, Q, BM>(), OVER = lk_stage_over<F, Q, BM>();\n\
+           constexpr int end = (PIPE ? 2 : 1) * lk_stage_acts<Q, BM>() + (OVER ? 2 : 1) * lk_stage_wt<F>() + lk_stage_sums<F, Q, BM>();\n\
+           constexpr int pair = BM * LK_BN * 4;\n\
+           printf(\"%s %d %d %d\\n\", what, end > pair ? end : pair, (int)OVER, lk_gemm_blk_blocks<F, Q, BM>());\n\
+         }}\n\
+         int main(){{\n{rows}  return 0;\n}}\n",
+        Kernel::Blocks.source(),
+        Kernel::Quant.source(),
+        Kernel::Mma.source(),
+        Kernel::GemmBlk.source()
+    );
+    let dir = dir().join("blk-smem");
+    std::fs::create_dir_all(&dir).unwrap();
+    let (cu, bin) = (dir.join("layout.cu"), dir.join("layout"));
+    std::fs::write(&cu, main).unwrap();
+    let built = Command::new("nvcc").args(["-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().expect("nvcc runs");
+    assert!(built.status.success(), "the layout probe builds:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).output().expect("the layout probe runs");
+    assert!(ran.status.success(), "the layout probe runs:\n{}", String::from_utf8_lossy(&ran.stderr));
+    let report = String::from_utf8_lossy(&ran.stdout).into_owned();
+    let lines: Vec<&str> = report.lines().collect();
+    assert_eq!(lines.len(), formats.len() * 4, "every format, numerics and tile reported:\n{report}");
+    let mut over = Vec::new();
+    for (line, (ty, q, bm)) in lines.iter().zip(formats.iter().flat_map(|&ty| [1, 2].into_iter().flat_map(move |q| [64, 128].into_iter().map(move |bm| (ty, q, bm))))) {
+        let fields: Vec<&str> = line.split(' ').collect();
+        let (bytes, two_tiles, blocks): (usize, usize, usize) = (fields[3].parse().unwrap(), fields[4].parse().unwrap(), fields[5].parse().unwrap());
+        let what = format!("{} under {q} words, {bm} rows", ty.name());
+        // A Q8_0 matrix's launch over a `k` of whole 128-value scale groups streams; every other takes the block path.
+        let launched = gemm_blk_launch_smem(ty.id(), q == 2, bm, if ty == GgmlType::Q8_0 { 96 } else { 128 });
+        assert_eq!(launched, bytes, "{what}: the launch takes the bytes the kernel lays out");
+        assert!(two_tiles == 0 || blocks == 1, "{what}: two decoded tiles only where a block holds its multiprocessor alone");
+        if two_tiles == 1 {
+            over.push((ty, q, bm));
+        }
+    }
+    for ty in [GgmlType::Q4K, GgmlType::Q6K] {
+        assert!(over.contains(&(ty, 1, 128)), "{}'s dense 128-row tile under one word decodes its next stage beside its multiply", ty.name());
+    }
+}
+
 /// A wide chunk's per-head products run in tiles under the quantized numerics (`lk_head_tiled`): DeepSeek's latent
 /// expansion, each cached latent row through the key half and the value half, with one expansion and with the halves
 /// split, every product of the 64- and 32-row chunks in one launch; the 16-row chunk and the decode step keep the
@@ -3702,12 +5122,14 @@ fn wrote(l: &Launch, t: &str) -> Wrote {
 /// (`Form::arena`): each array placed — a tensor's `f32` buffer or its quantized form — is first touched by a launch
 /// that writes it and reads nothing of it, is all written before any launch reads it (whole, or as parts of every unit
 /// that together cover each unit — never rows, never through a view), stays placed until the last launch that touches
-/// it (through any view of it), never shares a byte with an array live beside it, and is a computed tensor's, never a
-/// constant's, carried state's, an input's or an output's. Every launch's scratch but its arrival counts lives there
-/// too while the launch runs, clear of every array live then and of the launch's other scratch; the counts, zero
-/// before the launch and after it, keep zeroed buffers of their own. The program allocates the arena once, at the largest form's size, filled with
-/// `0xff` so any read of a byte no launch of the step wrote is a NaN. A 64-row chunk of DeepSeek-V2 at its medium width
-/// places nearly all of its step's bytes, and they fit in a third of their sum.
+/// it (through any view of it), never shares a byte with an array live beside it, and is a computed tensor's or a
+/// zeroed state the form holds alone (`arena::place`'s `own`: one the decode step, which every form reads, does not
+/// carry), never a constant's, carried state's, an input's or an output's. Every launch's scratch but its arrival
+/// counts lives there too while the launch runs, clear of every array live then and of the launch's other scratch; the
+/// counts, zero before the launch and after it, keep zeroed buffers of their own. The program allocates the arena once,
+/// at the largest form's size, filled with `0xff` so any read of a byte no launch of the step wrote is a NaN. A 64-row
+/// chunk of DeepSeek-V2 at its medium width places nearly all of its step's bytes, and they fit in a third of their
+/// sum.
 #[test]
 fn every_step_local_array_lives_in_one_arena_by_its_lifetime() {
     let mut lanes: Vec<(String, Lane)> = Vec::new();
@@ -3731,7 +5153,12 @@ fn every_step_local_array_lives_in_one_arena_by_its_lifetime() {
             let life = lifetimes(s);
             for p in &a.placed {
                 let b = &s.buffers[&p.name];
-                assert!(b.fill == Fill::Computed && !io.contains(&&p.name), "{what}: `{}` is a computed tensor of the step's own", p.name);
+                let own = b.fill == Fill::Zero && !lane.forms[0].schedule.buffers.contains_key(&p.name);
+                assert!(
+                    (b.fill == Fill::Computed || own) && !io.contains(&&p.name),
+                    "{what}: `{}` is a computed tensor of the step's own, or a zeroed state the form holds alone",
+                    p.name
+                );
                 assert!(if p.touch == Touch::Plain { b.plain } else { b.quantized }, "{what}: `{}` {:?} is allocated", p.name, p.touch);
                 let touches = &life[&(p.name.clone(), p.touch)];
                 let (i0, read, writes) = touches[0];
@@ -3982,13 +5409,15 @@ fn every_row_reading_kernel_keeps_its_decode_in_registers() {
     assert!(kept.is_empty(), "row readers keeping memory beside their registers:\n{}", kept.join("\n"));
 }
 
-/// Every block format's unit, as the kernels stage it, is the checkpoint's block: `lk_unit_bytes<F>` the bytes and
-/// `lk_unit_subs<F>` the 32-weight sub-blocks of one of its blocks (`GgmlType::block_bytes`, `block_len`), and
-/// `lk_axpy_pitch<F, AXPY_W>` the staged row's bytes the emitter sizes its tile by (`kernels::axpy_pitch`) — the
-/// constexpr facts evaluated on the host from the kernels' own source.
+/// Every block format's unit, as the kernels stage it, is the unit it decodes alone (`kernels::unit`): `lk_unit_bytes<F>`
+/// its bytes and `lk_unit_subs<F>` its 32-weight sub-blocks — the checkpoint's block (`GgmlType::block_bytes`,
+/// `block_len`) in every format but MXFP4, whose unit is its regrouped group of 16 sub-blocks, 272 bytes, and Q6_K,
+/// whose unit is its group of eight blocks as uploaded (`lk_q6_regroup`), 1680 bytes — and `lk_axpy_pitch<F, AXPY_W>`
+/// the staged row's bytes the emitter sizes its tile by (`kernels::axpy_pitch`) — the constexpr facts evaluated on the
+/// host from the kernels' own source.
 #[test]
-fn every_block_formats_staged_unit_is_its_checkpoint_block() {
-    use logicaffeine_compile::codegen_cuda::lane::kernels::{axpy_pitch, Kernel, AXPY_W, PRELUDE};
+fn every_block_formats_staged_unit_is_its_decoded_unit() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{axpy_pitch, unit, Kernel, AXPY_W, PRELUDE};
     if !common::require_tool("nvcc") {
         return;
     }
@@ -4015,8 +5444,14 @@ fn every_block_formats_staged_unit_is_its_checkpoint_block() {
     assert_eq!(units.len(), BLOCK_FORMATS.len(), "a unit a format:\n{stdout}");
     for (ty, u) in BLOCK_FORMATS.iter().zip(&units) {
         assert_eq!(u[0], ty.id() as usize, "{}", ty.name());
-        assert_eq!(u[1], ty.block_bytes(), "{}: a unit is the checkpoint's block", ty.name());
-        assert_eq!(u[2], ty.block_len() / 32, "{}: the block's sub-blocks", ty.name());
+        assert_eq!((u[1], u[2]), unit(*ty), "{}: the unit the kernels stage is the unit the emitter sizes", ty.name());
+        if *ty == GgmlType::Mxfp4 {
+            assert_eq!(unit(*ty), (272, 16), "MXFP4: a unit is its regrouped group of 16 sub-blocks");
+        } else if *ty == GgmlType::Q6K {
+            assert_eq!(unit(*ty), (1680, 64), "Q6_K: a unit is its group of eight blocks");
+        } else {
+            assert_eq!(unit(*ty), (ty.block_bytes(), ty.block_len() / 32), "{}: a unit is the checkpoint's block", ty.name());
+        }
         assert_eq!(u[3], axpy_pitch(*ty), "{}: the staged pitch the emitter sizes its tile by", ty.name());
     }
 }
@@ -4249,5 +5684,689 @@ fn an_attention_launch_compiles_only_the_path_it_takes() {
     }
     for path in ["LK_ATTN_SPLIT", "LK_ATTN_HELD", "LK_ATTN_ONE"] {
         assert!(seen.contains_key(path), "some tiny architecture's lane launches an attention on {path}: {seen:?}");
+    }
+}
+
+/// The launch of `s` that writes `t`.
+fn writer<'a>(s: &'a Schedule, t: &str) -> &'a Launch {
+    s.launches.iter().find(|l| l.writes().contains(&t)).unwrap_or_else(|| panic!("no launch writes `{t}`"))
+}
+
+/// The tensors `s`'s heads read: each product to the vocabulary's width.
+fn head_inputs(s: &Schedule) -> Vec<&str> {
+    s.launches
+        .iter()
+        .flat_map(|l| l.parts())
+        .filter_map(|l| match l {
+            Launch::Gemv { x, n, .. } if *n == tiny_models::VOCAB => Some(x.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// MiniCPM's head (PARITY-NORM-SCALE): the output norm's result times `256/d` before the head, the scale inside the
+/// norm's launch (`norm_scale`) — in the decode step the launch that adds the last residual and norms the sum, in a chunk
+/// of four the norm of its last row — the head's activation written by that norm, quantized in its epilogue where the
+/// head reads it so, no launch scaling or quantizing it apart, under every numerics.
+#[test]
+fn a_scaled_norm_is_one_row_kernel() {
+    for numerics in NUMERICS {
+        let lane = compiled_chunks(Tiny::MiniCpm, numerics, 4, "norm-scale");
+        for f in &lane.forms {
+            let what = format!("minicpm {numerics:?} rows {}", f.rows);
+            let s = &f.schedule;
+            assert_eq!(s.fired("norm_scale"), 1, "{what}: the output norm takes the head's scale");
+            let heads = head_inputs(s);
+            assert_eq!(heads.len(), 1, "{what}: one head");
+            let norm = writer(s, heads[0]);
+            assert!(matches!(norm, Launch::Norm { scale: Some(c), .. } if *c == 0.25), "{what}: the norm writes the head's activation times 256/d: {norm:?}");
+            if f.rows == 1 {
+                assert!(matches!(norm, Launch::Norm { add: Some(_), .. }), "{what}: the decode step's head norm adds the last residual: {norm:?}");
+            }
+            let quantized = s.launches.iter().any(|l| matches!(l, Launch::Quant { x, .. } if x == heads[0]));
+            assert!(!quantized, "{what}: the scaled norm quantizes the head's activation in its own epilogue");
+        }
+    }
+}
+
+/// Granite's step (PARITY-GEMM-SCALE): each sublayer's output projection times `residual_scale` before the residual, and
+/// the logits times `1/logit_scale` after the head, every scale inside its product's epilogue (`gemm_scale`) — six
+/// residual scales and the head's, no launch scaling a tensor apart, the arg-max reading the head's own result — in the
+/// decode step and a chunk of four, under every numerics.
+#[test]
+fn a_scaled_projection_scales_in_its_epilogue() {
+    for numerics in NUMERICS {
+        let lane = compiled_chunks(Tiny::Granite, numerics, 4, "gemm-scale");
+        for f in &lane.forms {
+            let what = format!("granite {numerics:?} rows {}", f.rows);
+            let s = &f.schedule;
+            assert_eq!(s.fired("gemm_scale"), 7, "{what}: every scaled product scales in its epilogue");
+            let scaled: Vec<f64> = s
+                .launches
+                .iter()
+                .flat_map(|l| l.parts())
+                .filter_map(|l| match l {
+                    Launch::Gemv { epi: Some(Epilogue { scale: Some(ScaleBy::Factor(c)), after: None, relu_sq: false }), .. } => Some(*c),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(scaled, [0.25, 0.25, 0.25, 0.25, 0.25, 0.25, 0.125], "{what}: each sublayer's output projection times 1/4, the head times 1/8");
+            let apart: Vec<&Launch> = s.launches.iter().flat_map(|l| l.parts()).filter(|l| matches!(l, Launch::Scale { .. })).collect();
+            assert!(apart.is_empty(), "{what}: no launch scales apart: {apart:?}");
+            for l in s.launches.iter().filter(|l| matches!(l, Launch::ArgMax { .. })) {
+                let Launch::ArgMax { x, .. } = l else { unreachable!() };
+                let head = writer(s, x);
+                assert!(matches!(head, Launch::Gemv { n, .. } if *n == tiny_models::VOCAB), "{what}: the head writes the scaled logits the arg-max reads: {head:?}");
+            }
+        }
+    }
+}
+
+/// Arcee's FFN (PARITY-RELU-SQR): relu² of the up projection, no gate, every layer, in the decode step and a chunk of
+/// four — folded into the up projection's epilogue where nothing reads it quantized (the precise numerics) or where the
+/// projection quantizes its outputs too (the medium width in Q4_K, four rows a warp: one launch for the projection, the
+/// relu² and the down projection's quantized activation); otherwise one launch of its own that quantizes its result for
+/// the down projection (a Q8_0 projection takes one row a warp and keeps its plain result). No launch squares apart and
+/// no launch quantizes it apart.
+#[test]
+fn a_relu_square_compiles_and_folds_into_its_producer() {
+    let (tiny, tiny_path) = checkpoint(Tiny::Arcee, "relu-sqr");
+    let (medium, medium_path) = medium_checkpoint(Tiny::Arcee, "relu-sqr", &|_| GgmlType::Q4K);
+    let cases = NUMERICS.iter().map(|&n| ("arcee", &tiny, &tiny_path, n)).chain([("arcee medium q4k", &medium, &medium_path, Q8MatKind::Int8Act)]);
+    for (name, spec, path, numerics) in cases {
+        let lane = compile(spec, path, &chunked(numerics, 4)).unwrap_or_else(|e| panic!("{name} {numerics:?}: {e}"));
+        for f in &lane.forms {
+            let what = format!("{name} {numerics:?} rows {}", f.rows);
+            let s = &f.schedule;
+            assert_eq!(s.fired("relu_sqr"), 3, "{what}: every layer squares its ReLU in one launch");
+            let alone: Vec<&Launch> = s.launches.iter().flat_map(|l| l.parts()).filter(|l| matches!(l, Launch::Relu { .. })).collect();
+            let folded: Vec<&Launch> =
+                s.launches.iter().flat_map(|l| l.parts()).filter(|l| matches!(l, Launch::Gemv { epi: Some(Epilogue { relu_sq: true, .. }), .. })).collect();
+            let fold = numerics == Q8MatKind::Dequant || (name == "arcee medium q4k" && f.rows == 1);
+            if fold {
+                assert!(alone.is_empty(), "{what}: relu² rides its producer: {alone:?}");
+                assert_eq!(folded.len(), 3, "{what}: each up projection squares the ReLU of its result: {folded:?}");
+                for l in &folded {
+                    let Launch::Gemv { quant, f32, per_warp, .. } = l else { unreachable!() };
+                    let q = numerics != Q8MatKind::Dequant;
+                    assert_eq!((*quant, *f32), (q, !q), "{what}: the projection writes what the down projection reads of it: {l:?}");
+                    if q {
+                        assert_eq!(*per_warp, 4, "{what}: four rows a warp, so the projection quantizes in its epilogue");
+                    }
+                }
+            } else {
+                assert!(folded.is_empty(), "{what}: the projection keeps its result plain: {folded:?}");
+                assert_eq!(alone.len(), 3, "{what}: one launch squares each layer's ReLU: {alone:?}");
+                for l in &alone {
+                    let Launch::Relu { square, f32, quant, .. } = l else { unreachable!() };
+                    assert!(*square, "{what}: the ReLU squares its result: {l:?}");
+                    assert_eq!((*quant, *f32), (true, false), "{what}: quantized for the down projection and kept only so: {l:?}");
+                }
+            }
+            let hidden: Vec<&str> = alone.iter().chain(&folded).flat_map(|l| l.writes()).collect();
+            for t in hidden {
+                assert!(!s.launches.iter().any(|q| matches!(q, Launch::Quant { x, .. } if x == t)), "{what}: `{t}` is quantized in its producer's epilogue");
+            }
+            let squares: Vec<&Launch> = s.launches.iter().flat_map(|l| l.parts()).filter(|l| matches!(l, Launch::Binary { a, b, .. } if a == b)).collect();
+            assert!(squares.is_empty(), "{what}: no launch squares apart: {squares:?}");
+        }
+    }
+}
+
+/// Gemma 2's step (PARITY-SOFTCAP): every score soft-capped at 50 inside its attention's own kernel — the even layers
+/// windowed — and the logits capped at 30 inside the arg-max that reads them, reading the head's own result and writing
+/// the capped logits the host reads, under every numerics, in the decode step and a chunk of four; each attention launch
+/// the program prints passes its cap.
+#[test]
+fn a_capped_attention_caps_inside_its_kernel() {
+    for numerics in NUMERICS {
+        let lane = compiled_chunks(Tiny::Gemma2, numerics, 4, "softcap");
+        for f in &lane.forms {
+            let what = format!("gemma2 {numerics:?} rows {}", f.rows);
+            let s = &f.schedule;
+            let attention: Vec<(Option<usize>, Option<f64>)> =
+                s.launches.iter().filter_map(|l| if let Launch::Attention { window, cap, .. } = l { Some((*window, *cap)) } else { None }).collect();
+            let w = Some(tiny_models::WINDOW);
+            assert_eq!(attention, [(w, Some(50.0)), (None, Some(50.0)), (w, Some(50.0))], "{what}: every layer caps its scores, the even ones windowed");
+            assert!(!s.launches.iter().any(|l| matches!(l, Launch::Softcap { .. })), "{what}: no launch caps the logits apart: {:?}", s.census());
+            let picks: Vec<&Launch> = s.launches.iter().filter(|l| matches!(l, Launch::ArgMax { .. })).collect();
+            let [Launch::ArgMax { x, cap, y, .. }] = picks[..] else { panic!("{what}: one arg-max picks the token: {picks:?}") };
+            assert_eq!(*cap, Some(30.0), "{what}: the logits are capped at 30 inside the arg-max");
+            assert_eq!(y.as_deref(), Some(s.io.logits.as_str()), "{what}: the arg-max writes the capped logits the host reads");
+            assert!(matches!(writer(s, x), Launch::Gemv { n, .. } if *n == tiny_models::VOCAB), "{what}: the arg-max reads the head's result");
+        }
+        let lines: Vec<&str> =
+            lane.program.cu.lines().map(str::trim).filter(|l| l.starts_with("lk_attention") && l.contains("<<<") && !l.starts_with("lk_attention_fold")).collect();
+        assert!(!lines.is_empty(), "gemma2 {numerics:?}: the program attends");
+        for line in lines {
+            assert!(line.ends_with(", 5e1f);"), "gemma2 {numerics:?}: `{line}` passes its cap");
+        }
+    }
+}
+
+/// Gemma 2's final cap rides its arg-max (PARITY-SOFTCAP, `cap_argmax`): in every form — the decode step and its chunks
+/// and a batch of two, under every numerics — no launch caps the logits; every arg-max reads the head's own result and
+/// caps each value in its registers at 30, one fold a sequence, and writes the capped logits exactly where the host reads
+/// them — not where it reads none (`CudaKnobs::logits` `Unread`), whose program writes no logits. Held back
+/// (`cap_argmax`), the cap is its own launch. A model with no cap compiles the same launches either way.
+#[test]
+fn a_greedy_step_folds_its_final_cap_into_its_arg_max() {
+    use logicaffeine_compile::codegen_cuda::Logits;
+    let (spec, path) = checkpoint(Tiny::Gemma2, "greedy");
+    let caps = |s: &Schedule| s.launches.iter().filter(|l| matches!(l, Launch::Softcap { .. })).count();
+    let picks = |s: &Schedule| -> Vec<(Option<f64>, bool)> {
+        s.launches.iter().filter_map(|l| if let Launch::ArgMax { cap, y, .. } = l { Some((*cap, y.is_some())) } else { None }).collect()
+    };
+    for numerics in NUMERICS {
+        let read = LaneOptions { prefill: 4, ..options(numerics) };
+        let greedy = LaneOptions { knobs: CudaKnobs { logits: Logits::Unread, ..read.knobs }, ..read };
+        for batch in [None, Some(2)] {
+            let build = |opts: &LaneOptions, held: &[&str]| {
+                match batch {
+                    None => compile_holding(&spec, &path, opts, held),
+                    Some(b) => compile_batch_holding(&spec, &path, opts, b, held),
+                }
+                .unwrap_or_else(|e| panic!("gemma2 {numerics:?} batch {batch:?}: {e}"))
+            };
+            let (lane, kept, held) = (build(&greedy, &[]), build(&read, &[]), build(&read, &["cap_argmax"]));
+            for ((f, k), h) in lane.forms.iter().zip(&kept.forms).zip(&held.forms) {
+                let what = format!("gemma2 {numerics:?} batch {batch:?} rows {}", f.rows);
+                for (s, written, how) in [(&f.schedule, false, "unread"), (&k.schedule, true, "read")] {
+                    assert_eq!(caps(s), 0, "{what}, logits {how}: no launch caps the logits apart: {:?}", s.census());
+                    assert_eq!(s.fired("cap_argmax"), 1 + s.io.more.len(), "{what}, logits {how}: one fold a sequence");
+                    assert!(!picks(s).is_empty() && picks(s).iter().all(|&p| p == (Some(30.0), written)), "{what}, logits {how}: every arg-max caps each value it reads at 30 and writes the capped logits exactly where the host reads them: {:?}", picks(s));
+                    for l in s.launches.iter().filter(|l| matches!(l, Launch::ArgMax { .. })) {
+                        let Launch::ArgMax { x, .. } = l else { unreachable!() };
+                        assert!(matches!(writer(s, x), Launch::Gemv { n, .. } if *n == tiny_models::VOCAB), "{what}, logits {how}: the arg-max reads the head's own result: {l:?}");
+                    }
+                }
+                let hs = &h.schedule;
+                assert!(caps(hs) > 0 && hs.fired("cap_argmax") == 0 && picks(hs).iter().all(|p| p.0.is_none()), "{what}: held back, the cap is its own launch");
+            }
+            assert!(lane.program.cu.contains("static const bool LOGITS = false;"), "gemma2 {numerics:?}: the greedy program writes no logits");
+            assert!(kept.program.cu.contains("static const bool LOGITS = true;"), "gemma2 {numerics:?}: the program writes the logits its host reads");
+        }
+    }
+    for t in [Tiny::Llama, Tiny::Qwen35] {
+        let (spec, path) = checkpoint(t, "greedy");
+        let read = LaneOptions { prefill: 4, ..options(Q8MatKind::Int8Act) };
+        let greedy = LaneOptions { knobs: CudaKnobs { logits: Logits::Unread, ..read.knobs }, ..read };
+        let (a, b) = (compile(&spec, &path, &read).unwrap(), compile(&spec, &path, &greedy).unwrap());
+        for (x, y) in a.forms.iter().zip(&b.forms) {
+            assert_eq!(x.schedule.launches, y.schedule.launches, "{} rows {}: no cap, the same launches", t.name(), x.rows);
+        }
+    }
+}
+
+/// Every attention kernel takes the soft cap and the window (PARITY-ATTENTION-VARIANTS-INLINE): Gemma 2 at its own width
+/// in the decode step (`lk_attention`) and in chunks of thirty-two (`lk_attention_flash` under the two-word numerics, its
+/// heads short of a two-word block; `lk_attention_mma` under one word), four times as wide in chunks of sixty-four
+/// (`lk_attention_i8`, `lk_attention_mma`), and with heads of 288 (`lk_attention_tiled`) — every attention launch capped
+/// at 50 and the even layers windowed, every launch line passing its cap, and every program building.
+#[test]
+fn every_attention_kernel_takes_a_cap_and_a_mask() {
+    let mut wide_heads = Tiny::Gemma2.spec(32);
+    for layer in &mut wide_heads.layers {
+        if let Mixer::Attention(a) = &mut layer.mixer {
+            (a.head_dim, a.value_dim, a.scale) = (288, 288, 1.0 / 288f64.sqrt());
+            if let Some(r) = &mut a.rope {
+                r.dims = 288;
+            }
+        }
+    }
+    let wide = Tiny::Gemma2.wide(128);
+    let cases: Vec<(&str, ModelSpec, usize, usize)> = vec![("gemma2", Tiny::Gemma2.spec(64), 64, 32), ("gemma2 wide", wide, 128, 64), ("gemma2 heads 288", wide_heads, 32, 32)];
+    let mut seen: BTreeSet<&str> = BTreeSet::new();
+    let mut programs: Vec<(String, String)> = Vec::new();
+    for (name, spec, ctx, prefill) in &cases {
+        let path = dir().join(format!("{}-caps.gguf", name.replace(' ', "-")));
+        tiny_models::write_checkpoint(spec, &path);
+        for numerics in NUMERICS {
+            let what = format!("{name} {numerics:?}");
+            let opts = LaneOptions { ctx: *ctx, prefill: *prefill, ..options(numerics) };
+            let lane = compile(spec, &path, &opts).unwrap_or_else(|e| panic!("{what}: {e}"));
+            for f in &lane.forms {
+                let windows: Vec<Option<usize>> = f
+                    .schedule
+                    .launches
+                    .iter()
+                    .filter_map(|l| match l {
+                        Launch::Attention { window, cap, .. } => {
+                            assert_eq!(*cap, Some(50.0), "{what} rows {}: {l:?}", f.rows);
+                            Some(*window)
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(windows, [Some(tiny_models::WINDOW), None, Some(tiny_models::WINDOW)], "{what} rows {}: the even layers windowed", f.rows);
+            }
+            for line in lane.program.cu.lines().map(str::trim).filter(|l| l.starts_with("lk_attention") && l.contains("<<<") && !l.starts_with("lk_attention_fold")) {
+                assert!(line.ends_with(", 5e1f);"), "{what}: `{line}` passes its cap");
+                for kernel in ["lk_attention_mma", "lk_attention_i8", "lk_attention_flash", "lk_attention_tiled", "lk_attention<"] {
+                    if line.starts_with(kernel) {
+                        seen.insert(kernel);
+                    }
+                }
+            }
+            programs.push((format!("caps-{}-{numerics:?}", name.replace(' ', "-")), lane.program.cu.clone()));
+        }
+    }
+    assert_eq!(seen.len(), 5, "every attention kernel the lane picks for a model's heads attends a capped model: {seen:?}");
+    if common::require_tool("nvcc") {
+        for batch in programs.chunks(6) {
+            std::thread::scope(|scope| {
+                for (name, cu) in batch {
+                    scope.spawn(move || nvcc(cu, &dir().join(name)));
+                }
+            });
+        }
+    }
+}
+
+/// The `cache_precision` knob stores every attention's cache quantized, one byte a value in fp8 e4m3
+/// (PARITY-KV-CACHE-QUANT): at `CachePrecision::E4m3` every array an attention of any form reads its keys or values from
+/// (followed through the views into it to the carried array they view) is a `DType::E4m3` buffer in every form that
+/// holds it, and so is every view into one; no other array is narrower than `f32`; the program declares each cache
+/// `__nv_fp8_e4m3`, allocated once at one byte an element, and nothing else; the pool the plan sizes shrinks by exactly
+/// what those allocations save against `f32`. Every architecture under every numerics, with the decode step, its chunks
+/// and its batch; and each program builds — every writer rounding into the cache, every attention kernel reading it
+/// (the decode step's and the shared-row kernel at every architecture's own width, the tiles four times as wide in
+/// chunks of 64 under both quantized numerics, the flash tiles of Gemma 2's narrow heads).
+#[test]
+fn a_quantized_cache_is_written_and_read_in_its_format() {
+    use logicaffeine_compile::codegen_cuda::lane::plan::DType;
+    use logicaffeine_compile::codegen_cuda::CachePrecision;
+    let mangled = |name: &str| -> String { name.chars().map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' }).collect() };
+    let root = |s: &Schedule, name: &str| -> String {
+        let mut n = name.to_string();
+        while let Some(Fill::Alias { of, .. }) = s.buffers.get(&n).map(|b| &b.fill) {
+            n = of.clone();
+        }
+        n
+    };
+    let e4m3 = |numerics: Q8MatKind, prefill: usize, ctx: usize| LaneOptions {
+        ctx,
+        prefill,
+        knobs: CudaKnobs { cache_precision: CachePrecision::E4m3, ..options(numerics).knobs },
+    };
+    let mut programs: Vec<(String, String)> = Vec::new();
+    for &t in ALL {
+        let (spec, path) = checkpoint(t, "cache-e4m3");
+        for numerics in NUMERICS {
+            let what = format!("{} {numerics:?}", t.name());
+            let plain = compile_batch(&spec, &path, &LaneOptions { prefill: 4, ..options(numerics) }, 4).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let lane = compile_batch(&spec, &path, &e4m3(numerics, 4, CTX), 4).unwrap_or_else(|e| panic!("{what} e4m3: {e}"));
+            let mut caches = BTreeSet::new();
+            for f in &lane.forms {
+                for l in &f.schedule.launches {
+                    if let Launch::Attention { kc, vc, .. } = l {
+                        for c in [kc, vc] {
+                            let r = root(&f.schedule, c);
+                            if f.schedule.buffers[&r].fill == Fill::Zero {
+                                caches.insert(r);
+                            }
+                        }
+                    }
+                }
+            }
+            assert!(!caches.is_empty(), "{what}: the step attends over a cache");
+            for f in &lane.forms {
+                let s = &f.schedule;
+                for (name, b) in &s.buffers {
+                    if caches.contains(&root(s, name)) {
+                        assert_eq!(b.dtype, DType::E4m3, "{what} {}: the cache `{name}`", f.tag());
+                    } else {
+                        assert!(b.dtype.bytes() == 4 || b.dtype == DType::Bf16, "{what} {}: `{name}` is no cache", f.tag());
+                    }
+                }
+            }
+            let cu = &lane.program.cu;
+            let arrays: Vec<&str> = cu.lines().filter_map(|l| l.trim().strip_prefix("__nv_fp8_e4m3* ")?.strip_suffix(" = nullptr;")).collect();
+            let declared: BTreeSet<String> = arrays.iter().filter_map(|a| a.strip_prefix('t')?.split_once('_').map(|(_, name)| name.to_string())).collect();
+            assert_eq!(declared, caches.iter().map(|c| mangled(c)).collect::<BTreeSet<_>>(), "{what}: every cache declared in e4m3, and no other array");
+            let mut saved = 0;
+            for a in &arrays {
+                let at = format!("lk_malloc(&{a}, ");
+                let mut lines = cu.lines().filter_map(|l| Some(&l[l.find(&at)? + at.len()..]));
+                let len: usize = lines
+                    .next()
+                    .and_then(|rest| rest.split_once("UL * 1);"))
+                    .and_then(|(len, _)| len.parse().ok())
+                    .unwrap_or_else(|| panic!("{what}: `{a}` allocated at one byte an element"));
+                assert!(lines.next().is_none(), "{what}: `{a}` allocated once");
+                saved += pooled(len * 4) - pooled(len);
+            }
+            assert!(saved > 0, "{what}: the caches take less in e4m3");
+            assert_eq!(plain.plan.fixed - lane.plan.fixed, saved, "{what}: the pool shrinks by what the program's e4m3 caches save, and by nothing else");
+            if numerics == Q8MatKind::Int8Act {
+                programs.push((format!("cache-e4m3-{}", t.name()), lane.program.cu.clone()));
+            }
+        }
+    }
+    for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
+        for t in [Tiny::Qwen3, Tiny::Gemma3, Tiny::DeepSeek2] {
+            let (spec, path) = wide_checkpoint(t, "cache-e4m3", &|_| GgmlType::Q4K);
+            let lane = compile(&spec, &path, &e4m3(numerics, 64, 128)).unwrap_or_else(|e| panic!("{} wide {numerics:?}: {e}", t.name()));
+            programs.push((format!("cache-e4m3-{}-wide-{numerics:?}", t.name()), lane.program.cu.clone()));
+        }
+    }
+    let (spec, path) = checkpoint(Tiny::Gemma2, "cache-e4m3-flash");
+    let lane = compile(&spec, &path, &e4m3(Q8MatKind::TwoPassInt8, 32, 64)).unwrap_or_else(|e| panic!("gemma2 flash: {e}"));
+    assert!(lane.program.cu.contains("lk_attention_flash<"), "Gemma 2's narrow heads take the flash tiles");
+    programs.push(("cache-e4m3-gemma2-flash".to_string(), lane.program.cu.clone()));
+    if common::require_tool("nvcc") {
+        for batch in programs.chunks(6) {
+            std::thread::scope(|scope| {
+                for (name, cu) in batch {
+                    scope.spawn(move || nvcc(cu, &dir().join(name)));
+                }
+            });
+        }
+    }
+}
+
+/// A decode step split over chips (tensor parallelism, PARITY-ALLREDUCE-NORM), compiled for one device: Qwen3 and Llama
+/// four times as wide over two and four ranks, under every numerics — every chip's slice of a projection read in place
+/// from the checkpoint (a run of output rows, or a run of whole blocks of every row), every all-reduce of the attention's
+/// and the FFN's partials folded into the add and norm its sum feeds (`allreduce_norm`): one norm launch a sum, reading
+/// every rank's partial, each written by its own product into its own array, and no launch adding partials apart.
+/// Held back, the all-reduce adds its partials a launch an add.
+#[test]
+fn a_tensor_parallel_step_folds_each_all_reduce_into_its_norm() {
+    for t in [Tiny::Qwen3, Tiny::Llama] {
+        let (spec, path) = wide_checkpoint(t, "tp", &|_| GgmlType::Q8_0);
+        for tp in [2, 4] {
+            for numerics in NUMERICS {
+                let what = format!("{} wide over {tp} {numerics:?}", t.name());
+                let lane = compile_split(&spec, &path, &options(numerics), tp).unwrap_or_else(|e| panic!("{what}: {e}"));
+                assert_eq!(lane.forms.len(), 1, "{what}: the decode step alone");
+                let s = &lane.decode().schedule;
+                let sums = 2 * spec.layers.len();
+                assert_eq!(s.fired("allreduce_norm"), sums, "{what}: every all-reduce rides its norm");
+                let folding: Vec<&Launch> = s.launches.iter().filter(|l| matches!(l, Launch::Norm { fold, .. } if !fold.is_empty())).collect();
+                assert_eq!(folding.len(), sums, "{what}: one norm launch an all-reduce: {folding:?}");
+                for (i, l) in folding.iter().enumerate() {
+                    let Launch::Norm { fold, add, sum, .. } = l else { unreachable!() };
+                    assert_eq!(fold.len(), tp, "{what}: every rank's partial: {l:?}");
+                    assert!(add.is_none(), "{what}: the partials' fold is the added operand: {l:?}");
+                    assert_eq!(sum.is_some(), i + 1 < sums, "{what}: every sum but the last is the residual the next layer reads, written on; the last feeds the output norm alone: {l:?}");
+                    let distinct: BTreeSet<&String> = fold.iter().collect();
+                    assert_eq!(distinct.len(), tp, "{what}: each rank's partial its own array: {fold:?}");
+                    for p in fold {
+                        let w = writer(s, p);
+                        assert!(matches!(w, Launch::Gemv { .. }), "{what}: `{p}` is its rank's product: {w:?}");
+                    }
+                }
+                let partials: BTreeSet<&str> = folding.iter().flat_map(|l| match l {
+                    Launch::Norm { fold, .. } => fold.iter().map(String::as_str).collect::<Vec<_>>(),
+                    _ => Vec::new(),
+                }).collect();
+                let apart: Vec<&Launch> = s.launches.iter().filter(|l| matches!(l, Launch::Binary { a, b, .. } if partials.contains(a.as_str()) || partials.contains(b.as_str()))).collect();
+                assert!(apart.is_empty(), "{what}: no launch adds partials apart: {apart:?}");
+                let held = compile_split_holding(&spec, &path, &options(numerics), tp, &["allreduce_norm"]).unwrap_or_else(|e| panic!("{what} held: {e}"));
+                let hs = &held.decode().schedule;
+                assert_eq!(hs.fired("allreduce_norm"), 0, "{what}: held, it fires nowhere");
+                let adds = hs.launches.iter().filter(|l| matches!(l, Launch::Binary { op: ElementwiseOp::Add, .. })).count();
+                assert_eq!(adds, sums * (tp - 1), "{what}: held, each all-reduce adds its partials a launch an add");
+                let mut constants = BTreeSet::new();
+                for f in &lane.forms {
+                    for l in &f.schedule.launches {
+                        if let Launch::Gemv { w, .. } = l {
+                            constants.insert(w.clone());
+                        }
+                    }
+                }
+                assert!(constants.iter().any(|w| w.contains("_c")), "{what}: the ranks' slices are read in place: {constants:?}");
+            }
+        }
+    }
+}
+
+/// A decode step split over chips whose sublayers post-norm their outputs (Gemma 3, PARITY-ALLREDUCE-NORM), four times as
+/// wide over two and four ranks under every numerics: each sublayer's all-reduce folds into its post-norm, two a layer —
+/// one norm launch reading its last partial onto the left fold of the others, each written by its own product, no
+/// residual added in it and no sum written. Held back, the fold's adds before its last run a launch an add, the last in
+/// the post-norm's add and norm.
+#[test]
+fn a_tensor_parallel_post_norm_folds_its_all_reduce_into_the_norm() {
+    let (spec, path) = wide_checkpoint(Tiny::Gemma3, "tp-post", &|_| GgmlType::Q8_0);
+    for tp in [2, 4] {
+        for numerics in NUMERICS {
+            let what = format!("gemma3 wide over {tp} {numerics:?}");
+            let lane = compile_split(&spec, &path, &options(numerics), tp).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let s = &lane.decode().schedule;
+            let sums = 2 * spec.layers.len();
+            assert_eq!(s.fired("allreduce_norm"), sums, "{what}: every all-reduce rides its post-norm");
+            let folding: Vec<&Launch> = s.launches.iter().filter(|l| matches!(l, Launch::Norm { fold, .. } if !fold.is_empty())).collect();
+            assert_eq!(folding.len(), sums, "{what}: one norm launch an all-reduce: {folding:?}");
+            for l in &folding {
+                let Launch::Norm { x, fold, add, sum, .. } = l else { unreachable!() };
+                assert_eq!(fold.len(), tp - 1, "{what}: the other ranks' partials: {l:?}");
+                assert!(add.is_none() && sum.is_none(), "{what}: the post-norm takes the sum alone and writes none: {l:?}");
+                let partials: BTreeSet<&String> = fold.iter().chain([x]).collect();
+                assert_eq!(partials.len(), tp, "{what}: each rank's partial its own array: {l:?}");
+                for p in partials {
+                    assert!(matches!(writer(s, p), Launch::Gemv { .. }), "{what}: `{p}` is its rank's product: {:?}", writer(s, p));
+                }
+            }
+            let held = compile_split_holding(&spec, &path, &options(numerics), tp, &["allreduce_norm"]).unwrap_or_else(|e| panic!("{what} held: {e}"));
+            let hs = &held.decode().schedule;
+            assert_eq!(hs.fired("allreduce_norm"), 0, "{what}: held, it fires nowhere");
+            let adds = hs.launches.iter().filter(|l| matches!(l, Launch::Binary { op: ElementwiseOp::Add, .. })).count();
+            assert_eq!(adds, sums * (tp - 2), "{what}: held, the fold's adds before its last run a launch an add");
+        }
+    }
+}
+
+/// The spec of `t` four times as wide with MiniMax-M2's QK norm — across every head at once — and, where given, its
+/// query and KV heads.
+fn whole_qk_norm(t: Tiny, heads: Option<(usize, usize)>) -> ModelSpec {
+    let mut spec = t.wide(CTX);
+    for layer in &mut spec.layers {
+        if let Mixer::Attention(a) = &mut layer.mixer {
+            a.qk_norm_whole = true;
+            if let Some((h, kv)) = heads {
+                (a.heads, a.kv_heads) = (h, kv);
+            }
+        }
+    }
+    spec
+}
+
+/// A decode step split over chips whose QK norm spans every head (MiniMax-M2's attention, PARITY-ALLREDUCE-NORM), on
+/// Qwen3's layout four times as wide over two chips and, with four KV heads, over four, under every numerics: each
+/// layer's queries and keys normed by their chips' parts where they live (`allreduce_sumsq_norm`) — one norm launch a
+/// side, reading every chip's raw projection in the array its product wrote and writing every chip's normed heads in its
+/// own array, its only scratch one sum of squares a part — and no join of the chips' rows launched. Held back, the norm
+/// sums the joined row by the same parts, each read at its place in the row. Both programs build.
+#[test]
+fn a_tensor_parallel_whole_qk_norm_sends_one_sum_of_squares_a_chip() {
+    let mut programs = Vec::new();
+    for (spec, tp, name) in [(whole_qk_norm(Tiny::Qwen3, None), 2, "qwen3-whole"), (whole_qk_norm(Tiny::Qwen3, Some((8, 4))), 4, "qwen3-whole-kv4")] {
+        let (spec, path) = sized_checkpoint(spec, name, &|_| GgmlType::Q8_0);
+        let Mixer::Attention(a) = &spec.layers[0].mixer else { unreachable!("Qwen3 attends") };
+        let widths = [a.heads / tp * a.head_dim, a.kv_heads / tp * a.head_dim];
+        for numerics in NUMERICS {
+            let what = format!("{name} over {tp} {numerics:?}");
+            let lane = compile_split(&spec, &path, &options(numerics), tp).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let s = &lane.decode().schedule;
+            let sides = 2 * spec.layers.len();
+            assert_eq!(s.fired("allreduce_sumsq_norm"), sides, "{what}: every layer's queries and keys are normed by their chips' parts");
+            let normed: Vec<&Launch> = s.launches.iter().filter(|l| matches!(l, Launch::NormParts { .. })).collect();
+            assert_eq!(normed.len(), sides, "{what}: one norm launch a side: {normed:?}");
+            for (i, l) in normed.iter().enumerate() {
+                let Launch::NormParts { parts, normed: out, rows, cols, .. } = l else { unreachable!() };
+                let (layer, (raw, taken)) = (i / 2, if i % 2 == 0 { ("qr", "qm") } else { ("kr", "km") });
+                let want: Vec<RowPart> = (0..tp).map(|c| RowPart { x: format!("{raw}{layer}_c{c}"), part: None, cols: widths[i % 2] }).collect();
+                assert_eq!(parts, &want, "{what}: every chip's raw projection read where its product wrote it: {l:?}");
+                let back: Vec<NormedPart> = (0..tp).map(|c| NormedPart { part: c, y: Dst::to(&format!("{taken}{layer}_c{c}")) }).collect();
+                assert_eq!(out, &back, "{what}: every chip's normed heads written in its own array: {l:?}");
+                assert_eq!((*rows, *cols), (1, tp * widths[i % 2]), "{what}: the step's one row of every chip's heads: {l:?}");
+                for p in parts {
+                    assert!(matches!(writer(s, &p.x), Launch::Gemv { .. }), "{what}: `{}` is its chip's product: {:?}", p.x, writer(s, &p.x));
+                }
+                let sums: Vec<usize> = scratch(l, numerics).into_iter().filter(|sc| sc.tag == "ss").map(|sc| sc.bytes).collect();
+                let acc = if numerics == Q8MatKind::Dequant { 8 } else { 4 };
+                assert_eq!(sums, [tp * acc], "{what}: the launch's one scratch, a sum of squares a chip: {l:?}");
+            }
+            let joins: Vec<&Launch> = s.launches.iter().filter(|l| matches!(l, Launch::Join { .. })).collect();
+            assert!(joins.is_empty(), "{what}: no chip's row is joined to another's: {joins:?}");
+            assert!(lane.program.cu.contains("lk_sumsq<") && lane.program.cu.contains("lk_norm_by_sums<"), "{what}: the norm by parts' two kernels");
+            programs.push((format!("whole-qk-{name}-{numerics:?}"), lane.program.cu.clone()));
+            let held = compile_split_holding(&spec, &path, &options(numerics), tp, &["allreduce_sumsq_norm"]).unwrap_or_else(|e| panic!("{what} held: {e}"));
+            let hs = &held.decode().schedule;
+            assert_eq!(hs.fired("allreduce_sumsq_norm"), 0, "{what}: held, it fires nowhere");
+            let apart: Vec<&Launch> = hs.launches.iter().filter(|l| matches!(l, Launch::NormParts { .. })).collect();
+            assert_eq!(apart.len(), sides, "{what}: held, each side's norm still sums its row by its parts: {apart:?}");
+            for (i, l) in apart.iter().enumerate() {
+                let Launch::NormParts { parts, normed: out, cols, .. } = l else { unreachable!() };
+                let row: BTreeSet<&String> = parts.iter().map(|p| &p.x).collect();
+                assert_eq!(row.len(), 1, "{what}: held, every part read in the one joined row: {l:?}");
+                let places: Vec<(Option<Part>, usize)> = parts.iter().map(|p| (p.part, p.cols)).collect();
+                let want: Vec<(Option<Part>, usize)> = (0..tp).map(|c| (Some(Part { pitch: *cols, offset: c * widths[i % 2] }), widths[i % 2])).collect();
+                assert_eq!(places, want, "{what}: held, each part at its place in the row: {l:?}");
+                assert!(out.iter().all(|o| o.y.unit == Some(Part { pitch: *cols, offset: o.part * widths[i % 2] })), "{what}: held, each part normed into its place: {l:?}");
+            }
+            programs.push((format!("whole-qk-{name}-{numerics:?}-held"), held.program.cu.clone()));
+        }
+    }
+    if common::require_tool("nvcc") {
+        for batch in programs.chunks(6) {
+            std::thread::scope(|scope| {
+                for (name, cu) in batch {
+                    scope.spawn(move || nvcc(cu, &dir().join(name)));
+                }
+            });
+        }
+    }
+}
+
+/// Llama with its first two layers attending chunks of four (Llama 4's chunked-local attention), the third every cached
+/// row: a mask inside every attention kernel (PARITY-ATTENTION-VARIANTS-INLINE) — each chunked layer's attention keeps
+/// its own chunk (`chunked`, a window of 4), the global layer every row — at its own width in the decode step and chunks
+/// of 32, and four times as wide in chunks of 64, under every numerics; each launch line passes the window negative, the
+/// way the kernels tell a chunk from a sliding window.
+#[test]
+fn a_chunked_local_attention_keeps_its_own_chunk_inside_its_kernel() {
+    use logicaffeine_compile::tensor_recognize::qwen::Window;
+    let chunked = |mut spec: ModelSpec| {
+        for layer in spec.layers.iter_mut().take(2) {
+            if let Mixer::Attention(a) = &mut layer.mixer {
+                a.window = Some(Window::Chunked(4));
+            }
+        }
+        spec
+    };
+    let cases = [("llama", chunked(Tiny::Llama.spec(64)), 64, 32), ("llama wide", chunked(Tiny::Llama.wide(128)), 128, 64)];
+    let mut kernels: BTreeSet<String> = BTreeSet::new();
+    for (name, spec, ctx, prefill) in &cases {
+        let path = dir().join(format!("{}-chunked.gguf", name.replace(' ', "-")));
+        tiny_models::write_checkpoint(spec, &path);
+        for numerics in NUMERICS {
+            let what = format!("{name} {numerics:?}");
+            let lane = compile(spec, &path, &LaneOptions { ctx: *ctx, prefill: *prefill, ..options(numerics) }).unwrap_or_else(|e| panic!("{what}: {e}"));
+            for f in &lane.forms {
+                let attention: Vec<(Option<usize>, bool)> =
+                    f.schedule.launches.iter().filter_map(|l| if let Launch::Attention { window, chunked, .. } = l { Some((*window, *chunked)) } else { None }).collect();
+                assert_eq!(attention, [(Some(4), true), (Some(4), true), (None, false)], "{what} rows {}: the first two layers keep their own chunk", f.rows);
+            }
+            let lines: Vec<&str> =
+                lane.program.cu.lines().map(str::trim).filter(|l| l.starts_with("lk_attention") && l.contains("<<<") && !l.starts_with("lk_attention_fold")).collect();
+            for line in &lines {
+                kernels.insert(line[..line.find('<').unwrap_or(line.len())].to_string());
+            }
+            let negative = lines.iter().filter(|l| l.contains(", -4, ")).count();
+            assert_eq!(negative, 2 * lane.forms.len(), "{what}: each form's two chunked layers pass their chunk negative");
+        }
+    }
+    for k in ["lk_attention", "lk_attention_mma", "lk_attention_i8", "lk_attention_flash"] {
+        assert!(kernels.contains(k), "a chunked-local attention runs on `{k}`: {kernels:?}");
+    }
+}
+
+/// Every chunked program runs a chunk before the prompt's last lean: on every tiny architecture, under every numerics,
+/// each prefill form whose launches include some only its output reads captures a second graph of its step without
+/// them (`exec…_lean`), its arg-max an advance of the position and the run (`lk_advance`); the program counts the lean
+/// chunks it ran (`LEAN_CHUNKS`) and runs every chunk whole under `--whole-chunks`.
+#[test]
+fn every_chunked_program_runs_a_chunk_before_the_prompts_last_lean() {
+    for &t in ALL {
+        for numerics in NUMERICS {
+            let what = format!("{} {numerics:?}", t.name());
+            let lane = compiled_chunks(t, numerics, 8, &format!("lean-text-{numerics:?}"));
+            let cu = &lane.program.cu;
+            for f in lane.forms.iter().filter(|f| f.kind == FormKind::Prefill) {
+                assert!(cu.contains(&format!("cudaGraphExec_t exec{}_lean", f.tag())), "{what}: the chunk of {} captures its lean graph", f.rows);
+                assert!(cu.contains(&format!(">>>(d_pos, {}, d_gen, d_count);", f.rows)), "{what}: the chunk of {} advances without picking", f.rows);
+            }
+            assert!(cu.contains("__global__ void lk_advance(") && cu.contains(" else lk_advance<<<1, 1, 0, S["), "{what}: the advance's kernel, the lean step's arg-max");
+            assert!(cu.contains("\"--whole-chunks\"") && cu.contains("LEAN_CHUNKS: %d"), "{what}: the flag and the count");
+        }
+    }
+}
+
+/// A prefill chunk's launches that compute only what its output reads (`emit::output_only`) are what liveness from the
+/// steps' carried tensors leaves: on every tiny architecture, chunked, under every numerics, every attention's caches
+/// and every recurrent memory are carried (`emit::carried`) and a mixture's sum, made anew each step, is not; no
+/// output-only launch writes a carried tensor (through any alias of one) but the arg-max, which a chunk before the
+/// prompt's last runs as its advance; every other launch writes one, or a tensor a later kept launch reads; the head's
+/// product is among them, and so is the last layer's attention where that layer attends; the decode step has none.
+#[test]
+fn a_chunks_output_only_launches_are_what_liveness_from_its_carried_tensors_leaves() {
+    use logicaffeine_compile::codegen_cuda::lane::emit::{alias_root, carried, output_only};
+    for &t in ALL {
+        let last_attends = matches!(t.spec(CTX).layers.last().map(|l| &l.mixer), Some(Mixer::Attention(_)));
+        for numerics in NUMERICS {
+            let what = format!("{} {numerics:?}", t.name());
+            let lane = compiled_chunks(t, numerics, 8, &format!("lean-live-{numerics:?}"));
+            for f in &lane.forms {
+                for l in &f.schedule.launches {
+                    match l {
+                        Launch::Attention { kc, vc, .. } => assert!(carried(&lane.forms, kc) && carried(&lane.forms, vc), "{what}: an attention's caches are carried"),
+                        Launch::Delta { st, .. } => assert!(carried(&lane.forms, st), "{what}: a recurrent memory is carried"),
+                        Launch::Moe { y, .. } if y.own().is_some() => assert!(!carried(&lane.forms, &y.buf), "{what}: a mixture's sum is made anew each step"),
+                        _ => {}
+                    }
+                }
+                let lean = output_only(f, &lane.forms);
+                if f.kind != FormKind::Prefill {
+                    assert!(lean.iter().all(|&x| !x), "{what}: the step of {} computes nothing only its output reads", f.rows);
+                    continue;
+                }
+                let root = |t: &str| alias_root(&f.schedule.buffers, t).to_string();
+                let carried = |t: &str| carried(&lane.forms, t);
+                let ls = &f.schedule.launches;
+                for (i, l) in ls.iter().enumerate() {
+                    let writes = l.writes();
+                    if lean[i] {
+                        assert!(
+                            matches!(l, Launch::ArgMax { .. }) || !writes.iter().any(|&w| carried(w)),
+                            "{what} chunk of {}: launch {i} ({}) writes what the step carries but runs only for the output",
+                            f.rows,
+                            kind(l)
+                        );
+                    } else {
+                        let read_later = writes
+                            .iter()
+                            .any(|&w| ls[i + 1..].iter().zip(&lean[i + 1..]).any(|(m, &out)| !out && m.reads().iter().any(|&r| root(r) == root(w))));
+                        assert!(
+                            writes.is_empty() || writes.iter().any(|&w| carried(w)) || read_later,
+                            "{what} chunk of {}: launch {i} ({}) is kept, but it carries nothing and nothing kept reads it",
+                            f.rows,
+                            kind(l)
+                        );
+                    }
+                }
+                let argmax = ls.iter().position(|l| matches!(l, Launch::ArgMax { .. })).expect("a chunk picks a token");
+                assert!(lean[argmax], "{what} chunk of {}: the arg-max is the output's", f.rows);
+                let logits = root(ls[argmax].reads()[0]);
+                let head = ls.iter().rposition(|l| l.writes().iter().any(|&w| root(w) == logits)).expect("the head's product");
+                assert!(lean[head], "{what} chunk of {}: the head's product ({}) is the output's", f.rows, kind(&ls[head]));
+                if last_attends {
+                    let attention = ls.iter().rposition(|l| matches!(l, Launch::Attention { .. })).expect("the last layer's attention");
+                    assert!(lean[attention], "{what} chunk of {}: the last layer's attention is the output's", f.rows);
+                }
+            }
+        }
     }
 }

@@ -12,7 +12,7 @@
 use std::collections::BTreeSet;
 
 use super::facts;
-use super::fuse::{binary, candidate, class, gemv, norm, Rewriter};
+use super::fuse::{binary, candidate, class, epilogued_product, gemv, norm, scaled_norm, Rewriter};
 use super::front::TensorOpSpec;
 use super::graph::{Access, Dst, Op, QuantFormat, Sym};
 use super::symbols::ClassId;
@@ -78,7 +78,7 @@ fn fold_into(r: &mut Rewriter, p: usize, class: ClassId, quant: Op) {
 /// The class a producer's epilogue quantize builds, by what the producer is: a norm, an elementwise op, a gated pair or
 /// SwiGLU, a delta rule, an attention, a product — or, for an op a rule built, the member that computes its result.
 fn folded_class(op: &Op, g: &super::graph::TensorGraph) -> Option<ClassId> {
-    if let Some(c) = direct_class(op).or_else(|| gemv(op, g).map(|_| ClassId::GemvQuant)) {
+    if let Some(c) = direct_class(op).or_else(|| gemv(op, g).or_else(|| epilogued_product(op, g)).map(|_| ClassId::GemvQuant)) {
         return Some(c);
     }
     match &op.sym {
@@ -88,7 +88,7 @@ fn folded_class(op: &Op, g: &super::graph::TensorGraph) -> Option<ClassId> {
 }
 
 fn direct_class(op: &Op) -> Option<ClassId> {
-    if let Some(n) = norm(op) {
+    if let Some(n) = norm(op).or_else(|| scaled_norm(op).map(|(n, _)| n)) {
         return Some(if n.add.is_some() { ClassId::AddNormQuant } else { ClassId::NormQuant });
     }
     if let Some(b) = binary(op) {
@@ -272,12 +272,57 @@ pub enum Keep {
     F32,
     F16,
     Bf16,
+    E4m3,
     Int8Rows,
     Int8RowsRotated,
 }
 
 impl Keep {
-pub fn keep_row_deciding(self, row: &[f64], scale: &mut dyn FnMut(f32) -> f64, other: &mut dyn FnMut(usize, f64) -> bool) -> Option<Vec<f64>> {
+    /// The bound a value kept this way keeps. A float: half an ulp of its significand of the value, and its smallest
+    /// normal where a chip flushes what lies below it. A row of int8 codes: half a level of the row's scale, the scale
+    /// rounded to binary16 (a relative 2⁻¹¹, which can push a code past ±127 to be clamped), and a scale that underflows
+    /// binary16; its block is the row as stored — turned, for a rotated row, whose error the inverse turn averages.
+    pub fn bound(self) -> Bound {
+        match self {
+            Keep::Exact => Bound::EXACT,
+            Keep::F32 => Bound { of_block: 0.0, of_value: 2f64.powi(-24), floor: 2f64.powi(-126) },
+            Keep::Int8Rows | Keep::Int8RowsRotated => Bound { of_block: (1.0 / 254.0) * (1.0 + 2f64.powi(-10)) + 2f64.powi(-11) + 2f64.powi(-19), of_value: 0.0, floor: 2f64.powi(-16) },
+            Keep::F16 => Bound { of_block: 0.0, of_value: 2f64.powi(-11) + 2f64.powi(-24), floor: 2f64.powi(-25) },
+            Keep::Bf16 => Bound { of_block: 0.0, of_value: 2f64.powi(-8) + 2f64.powi(-24), floor: 2f64.powi(-134) },
+            Keep::E4m3 => Bound { of_block: 0.0, of_value: 2f64.powi(-4) + 2f64.powi(-24), floor: 2f64.powi(-10) },
+        }
+    }
+
+    /// The largest magnitude the format keeps within its bound: past it a float overflows, or (fp8 e4m3) saturates to
+    /// it; a row of int8 codes scales to any.
+    pub fn range(self) -> f64 {
+        match self {
+            Keep::Exact | Keep::Int8Rows | Keep::Int8RowsRotated => f64::INFINITY,
+            Keep::F32 => f64::from(f32::MAX),
+            Keep::F16 => 65504.0,
+            Keep::Bf16 => f64::from(f32::from_bits(0x7f7f_0000)),
+            Keep::E4m3 => f64::from(crate::model::quant::E4M3_MAX),
+        }
+    }
+
+    /// A cache row as this way keeps it, read back: a float format's every value [`Self::keep`]s; an int8 row's values
+    /// the codes `rne(v / s)` within ±127 times the row's one scale `s`, its largest magnitude rounded to `f32`, over
+    /// 127 in `f32`, rounded to binary16 (every code zero where `s` rounds to zero); a rotated row turned first by the
+    /// unnormalized Walsh–Hadamard transform, kept so, and turned back — the turn twice `n` times the identity, so `n` a
+    /// power of two divides it out exactly. The values are taken in `f32` and every step after in `f64`, each turn's
+    /// butterflies in [`hadamard`]'s order: a chip's cache writer that takes them alike keeps the row's codes and scale
+    /// bit for bit, and what any chip keeps lies within [`Self::bound`] of this, its block the row as stored. `None` for
+    /// a rotation of a row whose length is not a power of two.
+    pub fn keep_row(self, row: &[f64]) -> Option<Vec<f64>> {
+        use crate::model::quant::{f16_to_f32, f32_to_f16};
+        self.keep_row_deciding(row, &mut |q| f64::from(f16_to_f32(f32_to_f16(q))), &mut |_, _| false)
+    }
+
+    /// [`Self::keep_row`], its decisions another's to make: `scale` rounds the row's largest magnitude over 127 (its
+    /// `f32` value) to its binary16 scale, and `other` says whether code `element` — the row's value over the scale,
+    /// as turned where the row is — takes its other neighbour (`rne` toward the far side, within ±127). The reference
+    /// decides them so to record the calls it made near their other outcome and to take those a run made the other way.
+    pub fn keep_row_deciding(self, row: &[f64], scale: &mut dyn FnMut(f32) -> f64, other: &mut dyn FnMut(usize, f64) -> bool) -> Option<Vec<f64>> {
         let mut int8 = |x: &[f64]| -> Vec<f64> {
             let amax = x.iter().fold(0f64, |m, &v| m.max(v.abs()));
             let s = scale(amax as f32 / 127.0);
@@ -310,18 +355,14 @@ pub fn keep_row_deciding(self, row: &[f64], scale: &mut dyn FnMut(f32) -> f64, o
         })
     }
 
-    /// The bound a value kept this way keeps. A float: half an ulp of its significand of the value, and its smallest
-    /// normal where a chip flushes what lies below it. A row of int8 codes: half a level of the row's scale, the scale
-    /// rounded to binary16 (a relative 2⁻¹¹, which can push a code past ±127 to be clamped), and a scale that underflows
-    /// binary16; its block is the row as stored — turned, for a rotated row, whose error the inverse turn averages.
-    pub fn bound(self) -> Bound {
-        match self {
-            Keep::Exact => Bound::EXACT,
-            Keep::F32 => Bound { of_block: 0.0, of_value: 2f64.powi(-24), floor: 2f64.powi(-126) },
-            Keep::Int8Rows | Keep::Int8RowsRotated => Bound { of_block: (1.0 / 254.0) * (1.0 + 2f64.powi(-10)) + 2f64.powi(-11) + 2f64.powi(-19), of_value: 0.0, floor: 2f64.powi(-16) },
-            Keep::F16 => Bound { of_block: 0.0, of_value: 2f64.powi(-11) + 2f64.powi(-24), floor: 2f64.powi(-25) },
-            Keep::Bf16 => Bound { of_block: 0.0, of_value: 2f64.powi(-8) + 2f64.powi(-24), floor: 2f64.powi(-134) },
-        }
+    /// The block a cache row kept this way is bounded against ([`Bound::holds`]): its largest magnitude as stored —
+    /// turned, for a rotated row.
+    pub fn row_block(self, row: &[f64]) -> f64 {
+        let stored = match self {
+            Keep::Int8RowsRotated if row.len().is_power_of_two() => hadamard(row),
+            _ => row.to_vec(),
+        };
+        stored.iter().fold(0.0, |m, v| m.max(v.abs()))
     }
 
     /// `v` as this way keeps it, to the nearest, ties to even; `None` for a format that keeps a row at a time.
@@ -331,6 +372,7 @@ pub fn keep_row_deciding(self, row: &[f64], scale: &mut dyn FnMut(f32) -> f64, o
             Keep::Exact => v,
             Keep::F32 => f64::from(v as f32),
             Keep::F16 => f64::from(crate::model::quant::f16_to_f32(crate::model::quant::f32_to_f16(v as f32))),
+            Keep::E4m3 => f64::from(crate::model::quant::e4m3_to_f32(crate::model::quant::f32_to_e4m3(v as f32))),
             Keep::Bf16 => {
                 let x = v as f32;
                 if x.is_nan() {
@@ -340,6 +382,46 @@ pub fn keep_row_deciding(self, row: &[f64], scale: &mut dyn FnMut(f32) -> f64, o
                 f64::from(f32::from_bits(bits.wrapping_add(0x7FFF + ((bits >> 16) & 1)) & 0xFFFF_0000))
             }
         })
+    }
+}
+
+/// The unnormalized Walsh–Hadamard transform of `x` (its length a power of two): for each stride `h` from 1 doubling to
+/// half the length, every pair `(x[j], x[j+h])` of each `2h`-block becomes `(x[j] + x[j+h], x[j] − x[j+h])`.
+pub fn hadamard(x: &[f64]) -> Vec<f64> {
+    let mut y = x.to_vec();
+    let mut h = 1;
+    while h < y.len() {
+        for start in (0..y.len()).step_by(2 * h) {
+            for j in start..start + h {
+                let (a, b) = (y[j], y[j + h]);
+                (y[j], y[j + h]) = (a + b, a - b);
+            }
+        }
+        h *= 2;
+    }
+    y
+}
+
+/// How a product by a matrix of 16-bit floats reads its activation where it narrows it: in `words` words of the matrix's
+/// own format, bfloat16 or binary16 — the first the value rounded to the nearest from `f32`, ties to even, each next
+/// the rest the words before it leave, rounded so too.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SixteenBit {
+    pub words: u8,
+}
+
+impl SixteenBit {
+    /// The bound a value read in this many words of `format` keeps: half a unit of the last word of what the words
+    /// before it leave — of a `p`-bit significand `2^-p` of the value for one word, and a further `2^-(p+1)` for each
+    /// next, the rest a word leaves being at most half its unit — beside the value read in `f32` (a relative 2⁻²⁴) and
+    /// half the format's smallest subnormal.
+    pub fn bound(self, format: Keep) -> Bound {
+        let (p, floor) = match format {
+            Keep::Bf16 => (8, 2f64.powi(-134)),
+            Keep::F16 => (11, 2f64.powi(-25)),
+            other => panic!("{other:?} is no 16-bit float format"),
+        };
+        Bound { of_block: 0.0, of_value: 2f64.powi(-p - (p + 1) * (i32::from(self.words) - 1)) + 2f64.powi(-24), floor }
     }
 }
 
@@ -360,7 +442,8 @@ pub struct AttentionNumerics {
 }
 
 /// What a chip computes at one knob point, and how far it may lie from the meaning: the scheme a product by a matrix in a
-/// block format reads its activation in (`None`, its values), how the chip keeps a cache's rows and a recurrent memory,
+/// block format reads its activation in (`None`, its values), how a product by a matrix of 16-bit floats reads its
+/// activation (`None`, its values as the chip keeps them), how the chip keeps a cache's rows and a recurrent memory,
 /// how an attention takes its operands where it narrows them (`None`, it attends on its values as the chip keeps them),
 /// how far a fused op may lie from its parts run apart ([`Bound::EXACT`], bit for bit), and the widest integer a product
 /// or a sum of integers accumulates in.
@@ -369,6 +452,7 @@ pub struct Contract {
     /// The knob point, by name.
     pub point: String,
     pub activations: Option<Scheme>,
+    pub sixteen: Option<SixteenBit>,
     pub cache: Keep,
     pub state: Keep,
     pub attention: Option<AttentionNumerics>,
@@ -395,21 +479,4 @@ pub fn holds_accumulator(op: &Op, g: &super::graph::TensorGraph, bits: u32) -> R
         }
     }
     Ok(())
-}
-
-/// The unnormalized Walsh–Hadamard transform of `x` (its length a power of two): for each stride `h` from 1 doubling to
-/// half the length, every pair `(x[j], x[j+h])` of each `2h`-block becomes `(x[j] + x[j+h], x[j] − x[j+h])`.
-pub fn hadamard(x: &[f64]) -> Vec<f64> {
-    let mut y = x.to_vec();
-    let mut h = 1;
-    while h < y.len() {
-        for start in (0..y.len()).step_by(2 * h) {
-            for j in start..start + h {
-                let (a, b) = (y[j], y[j + h]);
-                (y[j], y[j + h]) = (a + b, a - b);
-            }
-        }
-        h *= 2;
-    }
-    y
 }

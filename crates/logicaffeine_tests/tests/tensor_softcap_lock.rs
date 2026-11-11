@@ -16,8 +16,8 @@
 //!     the SN50 within 2% of the largest logit, and the caps move those logits;
 //!   • the tensor graph's evaluator computes every capped op as the VM does, value for value;
 //!   • the CUDA forward, with no cap in its kernels, refuses a capped program by name, and so does every shim of a
-//!     chip without a cap (the CUDA lane at every knob point, the forward, the D5005 engine) and the backward pass, while
-//!     every spatial chip's shim resolves both;
+//!     chip without a cap (the forward, the D5005 engine) and the backward pass, while every spatial chip's shim and the
+//!     CUDA lane at every knob point resolve both;
 //!   • every file of the compiler that reads an attention's spec is named here with what it does with the cap — lifts,
 //!     routes, computes, refuses — and each that lifts, computes or refuses names the cap: a field read silently skipped
 //!     is a model computed wrong.
@@ -305,17 +305,11 @@ fn capped_programs() -> [(String, &'static str, &'static str); 3] {
     ]
 }
 
-/// The shims of the chips with no cap in their kernels: the CUDA lane at every knob point, the forward at each of its
-/// activations, the D5005 engine for both of its tiny models.
+/// The shims of the chips with no cap in their kernels: the forward at each of its activations, the D5005 engine for
+/// both of its tiny models.
 fn shims_without_a_cap() -> Vec<Box<dyn Shim>> {
     let mut out: Vec<Box<dyn Shim>> = Vec::new();
     for activations in [Q8MatKind::Dequant, Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
-        for fuse_quant in [true, false] {
-            for batch in [false, true] {
-                let knobs = CudaKnobs { activations, fuse_quant, ..CudaKnobs::default() };
-                out.push(Box::new(LaneShim { knobs, batch, held: Vec::new() }));
-            }
-        }
         out.push(Box::new(ForwardShim { kind: activations }));
     }
     for tiny in [Tiny::Qwen35, Tiny::Qwen3] {
@@ -324,8 +318,22 @@ fn shims_without_a_cap() -> Vec<Box<dyn Shim>> {
     out
 }
 
+/// The CUDA lane at every knob point: every attention kernel caps its scores, and a capped tensor is one launch.
+fn lane_shims() -> Vec<LaneShim> {
+    let mut out = Vec::new();
+    for activations in [Q8MatKind::Dequant, Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
+        for fuse_quant in [true, false] {
+            for batch in [false, true] {
+                let knobs = CudaKnobs { activations, fuse_quant, ..CudaKnobs::default() };
+                out.push(LaneShim { knobs, batch, held: Vec::new() });
+            }
+        }
+    }
+    out
+}
+
 #[test]
-fn every_shim_without_the_cap_refuses_the_capped_op_by_name_and_every_spatial_shim_resolves_it() {
+fn every_shim_without_the_cap_refuses_the_capped_op_by_name_and_every_spatial_shim_and_the_cuda_lane_resolve_it() {
     for (src, what, kind) in capped_programs() {
         let rp = recognize_stages(&src).expect("parses");
         let g = TensorGraph::lift(&rp, None, None, &|_| Storage::Values).unwrap_or_else(|why| panic!("{what} lifts: {why:?}"));
@@ -337,6 +345,9 @@ fn every_shim_without_the_cap_refuses_the_capped_op_by_name_and_every_spatial_sh
         }
         for target in [SpatialTarget::wormhole(), SpatialTarget::sky_fabric(64, 64), SpatialTarget::sn50_rdu(), SpatialTarget::rtx3060()] {
             let shim = SpatialShim { target: Box::leak(Box::new(target)) };
+            resolve(&g, &shim).unwrap_or_else(|why| panic!("{} resolves {what}: {why:?}", shim.name()));
+        }
+        for shim in lane_shims() {
             resolve(&g, &shim).unwrap_or_else(|why| panic!("{} resolves {what}: {why:?}", shim.name()));
         }
         resolve(&g, &ReferenceShim).unwrap_or_else(|why| panic!("the reference resolves {what}: {why:?}"));
@@ -495,6 +506,7 @@ const CONSUMERS: &[(&str, &str)] = &[
     ("tensor_graph/vjp.rs", "computes"),
     ("spatial/link.rs", "computes"),
     ("spatial/passes/from_qwen_ops.rs", "computes"),
+    ("codegen_cpu/link.rs", "computes"),
     ("codegen_cuda/forward_shim.rs", "refuses"),
     ("codegen_cuda/lane_shim.rs", "refuses"),
     ("codegen_cuda/lane_link.rs", "refuses"),

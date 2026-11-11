@@ -182,12 +182,12 @@ impl Lane {
 
 /// The names the authored decode step reads and writes across steps.
 pub fn decode_io() -> StepIo {
-    StepIo { token: "tok".into(), position: "pos".into(), logits: "logits".into(), next: "next".into(), more: Vec::new() }
+    StepIo { token: "tok".into(), position: "pos".into(), logits: "logits".into(), next: "next".into(), more: Vec::new(), logits_read: true }
 }
 
 /// The names an authored prefill chunk reads and writes across steps.
 pub fn prefill_io() -> StepIo {
-    StepIo { token: "toks".into(), position: "pos_s0".into(), logits: "logits".into(), next: "next".into(), more: Vec::new() }
+    StepIo { token: "toks".into(), position: "pos_s0".into(), logits: "logits".into(), next: "next".into(), more: Vec::new(), logits_read: true }
 }
 
 /// The names an authored batch of `rows` sequences reads and writes across steps: its tokens, one a sequence, and
@@ -199,10 +199,13 @@ pub fn batch_io(rows: usize) -> StepIo {
         logits: "logits_s0".into(),
         next: "next_s0".into(),
         more: (1..rows).map(|b| SeqIo { position: format!("pos_s{b}"), logits: format!("logits_s{b}"), next: format!("next_s{b}") }).collect(),
+        logits_read: true,
     }
 }
 
-/// Lower one authored form: lift it, place its constants, plan it.
+/// Lower one authored form: lift it, place its constants, plan it; its arena takes the states `own` names, the ones no
+/// other form carries.
+#[allow(clippy::too_many_arguments)]
 fn form(
     spec: &ModelSpec,
     g: &mut Gguf,
@@ -212,6 +215,7 @@ fn form(
     opts: &LaneOptions,
     io: StepIo,
     held: &[&str],
+    own: &dyn Fn(&str) -> bool,
 ) -> Result<Form, LaneError> {
     let ((source, _, q8), identity) = program::written(spec, cut);
     let rp = recognize_stages(&source).map_err(|e| LaneError::Parse(format!("{e:?}")))?;
@@ -222,8 +226,50 @@ fn form(
         constants.insert(t.name.clone(), placed);
     }
     let schedule = plan::plan(&graph, &|s| rp.name(s).to_string(), constants, opts.knobs.activations, &opts.knobs, io, held)?;
-    let arena = arena::place(&schedule);
+    let arena = arena::place(&schedule, own);
     Ok(Form { rows, kind, identity, source, graph, schedule, arena })
+}
+
+/// Lower the decode step of `spec` split over `tp` chips ([`program::written_split`]) as one device runs it: every chip's
+/// slice of a weight placed as its own constant, every chip's caches its own arrays, every all-reduce the left fold of
+/// its chips' partials the step spells — each partial read where it lives.
+fn split_form(spec: &ModelSpec, g: &mut Gguf, tp: usize, opts: &LaneOptions, held: &[&str]) -> Result<Form, LaneError> {
+    let ((source, _, q8, manifest), identity) = program::written_split(spec, Cut::Decode { ctx: opts.ctx }, "", tp).map_err(LaneError::NotYet)?;
+    let rp = recognize_stages(&source).map_err(|e| LaneError::Parse(format!("{e:?}")))?;
+    let graph = StepGraph::build(&rp)?;
+    let mut constants = BTreeMap::new();
+    for t in graph.of_role(Role::Constant) {
+        // A slice is a quantized matrix when the matrix it cuts is one: the author declares the whole matrix.
+        let placed = match manifest.slices.get(&t.name) {
+            Some(slice) => weights::place_slice(spec, g, &t.name, t.len(), slice, q8.contains_key(&slice.of))?,
+            None => weights::place(spec, g, &t.name, t.len(), q8.contains_key(&t.name), opts.ctx)?,
+        };
+        constants.insert(t.name.clone(), placed);
+    }
+    let schedule = plan::plan(&graph, &|s| rp.name(s).to_string(), constants, opts.knobs.activations, &opts.knobs, decode_io(), held)?;
+    // The decode step's states are every form's.
+    let arena = arena::place(&schedule, &|_| false);
+    Ok(Form { rows: 1, kind: FormKind::Decode, identity, source, graph, schedule, arena })
+}
+
+/// Compile the lane of `spec`'s decode step split over `tp` chips (tensor parallelism) as one device runs it — the chips'
+/// slices, caches and partials each their own arrays, each all-reduce read across them — against the checkpoint at
+/// `checkpoint`; the prompt runs a decode step at a time (`opts.prefill` 1).
+pub fn compile_split(spec: &ModelSpec, checkpoint: &Path, opts: &LaneOptions, tp: usize) -> Result<Lane, LaneError> {
+    compile_split_holding(spec, checkpoint, opts, tp, &[])
+}
+
+/// [`compile_split`] with the fusion rules `held` held back.
+pub fn compile_split_holding(spec: &ModelSpec, checkpoint: &Path, opts: &LaneOptions, tp: usize, held: &[&str]) -> Result<Lane, LaneError> {
+    author::check_tp(spec, tp).map_err(LaneError::NotYet)?;
+    lane_check(spec).map_err(LaneError::NotYet)?;
+    if opts.prefill != 1 {
+        return Err(LaneError::Chunk { rows: opts.prefill, ctx: opts.ctx });
+    }
+    let io = |e: std::io::Error| LaneError::Io(e.to_string());
+    let mut g = Gguf::open(checkpoint).map_err(io)?;
+    let forms = vec![split_form(spec, &mut g, tp, opts, held)?];
+    finish(forms, checkpoint, &mut g, opts)
 }
 
 /// Compile the lane of `spec` against the checkpoint at `checkpoint`: its decode step and its prefill chunks.
@@ -252,25 +298,16 @@ pub fn compile_batch_holding(spec: &ModelSpec, checkpoint: &Path, opts: &LaneOpt
     compile_forms(spec, checkpoint, opts, batch, held)
 }
 
-/// What the author writes that the lane's kernels do not take yet: soft-capped scores or logits, one fused query, key
-/// and value projection, values unlike the keys in width, and a QK norm across every head.
+/// What the author writes that the lane's kernels do not take yet: one fused query, key and value projection, and
+/// values unlike the keys in width.
 fn lane_check(spec: &ModelSpec) -> Result<(), NotYet> {
-    if spec.final_logit_softcap.is_some() {
-        return Err(NotYet("soft-capped logits on the CUDA lane"));
-    }
     for layer in &spec.layers {
         if let Mixer::Attention(a) = &layer.mixer {
-            if a.softcap.is_some() {
-                return Err(NotYet("soft-capped attention scores on the CUDA lane"));
-            }
             if a.fused_qkv {
                 return Err(NotYet("one fused query, key and value projection on the CUDA lane"));
             }
             if a.value_dim != a.head_dim {
                 return Err(NotYet("values unlike the keys in width on the CUDA lane"));
-            }
-            if a.qk_norm_whole {
-                return Err(NotYet("a QK norm across every head on the CUDA lane"));
             }
         }
     }
@@ -285,21 +322,32 @@ fn compile_forms(spec: &ModelSpec, checkpoint: &Path, opts: &LaneOptions, batch:
     }
     let io = |e: std::io::Error| LaneError::Io(e.to_string());
     let mut g = Gguf::open(checkpoint).map_err(io)?;
-    let mut forms = vec![form(spec, &mut g, 1, FormKind::Decode, Cut::Decode { ctx: opts.ctx }, opts, decode_io(), held)?];
+    // The decode step's states are every form's (`residence::shared_names`); a state only another form holds is that
+    // form's own.
+    let mut forms = vec![form(spec, &mut g, 1, FormKind::Decode, Cut::Decode { ctx: opts.ctx }, opts, decode_io(), held, &|_| false)?];
+    let carried: std::collections::BTreeSet<String> = forms[0].schedule.buffers.keys().cloned().collect();
+    let own = |name: &str| !carried.contains(name);
     let mut rows = opts.prefill;
     while rows > 1 {
-        forms.push(form(spec, &mut g, rows, FormKind::Prefill, Cut::Prefill { rows, ctx: opts.ctx }, opts, prefill_io(), held)?);
+        forms.push(form(spec, &mut g, rows, FormKind::Prefill, Cut::Prefill { rows, ctx: opts.ctx }, opts, prefill_io(), held, &own)?);
         rows /= 2;
     }
     if batch > 1 {
-        forms.push(form(spec, &mut g, batch, FormKind::Batch, Cut::Batch { rows: batch, ctx: opts.ctx }, opts, batch_io(batch), held)?);
+        forms.push(form(spec, &mut g, batch, FormKind::Batch, Cut::Batch { rows: batch, ctx: opts.ctx }, opts, batch_io(batch), held, &own)?);
     }
+    finish(forms, checkpoint, &mut g, opts)
+}
+
+/// The lane of `forms` against the checkpoint at `checkpoint` (opened as `g`): its matrices placed, its program printed.
+fn finish(forms: Vec<Form>, checkpoint: &Path, g: &mut Gguf, opts: &LaneOptions) -> Result<Lane, LaneError> {
+    let io = |e: std::io::Error| LaneError::Io(e.to_string());
     let ckpt = Checkpoint {
         size: std::fs::metadata(checkpoint).map_err(io)?.len(),
         data_start: g.data_start(),
         digest: g.header_digest().map_err(io)?,
     };
-    let plan = residence::plan(&forms, opts.ctx);
+    let mut plan = residence::plan(&forms, opts.ctx, emit::captured_nodes(&forms, &opts.knobs));
+    plan.copies = emit::captured_copies(&forms, &plan);
     let residence = residence::place(&plan, opts.knobs.chip.mem_bytes.saturating_sub(residence::CONTEXT_RESERVE + plan.spare))?;
     let program = emit::emit(&forms, &opts.knobs, opts.ctx, ckpt, &plan)?;
     Ok(Lane { forms, program, plan, residence })

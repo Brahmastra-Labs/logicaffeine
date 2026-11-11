@@ -910,6 +910,195 @@ fn a_projection_feeding_a_causal_conv_and_gates_folds_them_per_row() {
     carried_run(&g, &o.graph, &["S", "CQ", "CK", "CV"], &["X"], 3);
 }
 
+/// A one-row gated delta layer's input epilogue takes its gates' products whether or not they fused with their gates
+/// first (PARITY-GDN-INPUT-EPILOGUE): with `gate_projections` held — a chip that runs a gate's projection only inside
+/// the epilogue, as the CUDA lane runs Q8_0 gates — the op that makes the rule's inputs still holds all six products
+/// of its one activation, the write strength's and the forget gate's beside the query's, key's, values' and output
+/// gate's, nothing of the layer but the rule and the product of its result running beside it, and means what its parts
+/// mean, through a run of steps from a zero history.
+#[test]
+fn a_gated_delta_layers_input_epilogue_takes_its_gates_products_where_they_stay_apart() {
+    let products = ["PXQ", "PXK", "PXV", "PZ", "PBR", "PAR"];
+    for (nk, nv, w) in [(2, 2, 64), (2, 6, 32), (1, 4, 128)] {
+        for rows in [true, false] {
+            let what = format!("{nk} key heads, {nv} value heads, {w} wide (rows {rows})");
+            let g = lifted(&delta_layer(nk, nv, w, 1, true, true), rows, None);
+            let o = optimize(&g, &ReferenceShim, &["gate_projections"]);
+            assert_eq!(o.fired("gate_projections"), 0, "{what}: held");
+            assert_eq!(o.fired("gdn_input_epilogue"), 1, "{what}: {:?}", o.fired);
+            assert_eq!(o.fired("merged_projections"), 0, "{what}: no product is left to merge beside the epilogue: {:?}", o.fired);
+            same_meaning(&what, &g, &o.graph, &o.fired);
+            let epilogue = o
+                .graph
+                .ops
+                .iter()
+                .find(|op| op.kind() == ClassId::GdnInputEpilogue.id())
+                .unwrap_or_else(|| panic!("{what}: no input epilogue makes the rule's inputs: {:?}", kinds(&o.graph)));
+            let made: Vec<Op> = leaves(epilogue.clone());
+            let read: BTreeSet<String> = made.iter().filter_map(|l| gemv(l, &o.graph)).map(|p| p.x).collect();
+            let by: BTreeSet<String> = made.iter().filter_map(|l| gemv(l, &o.graph)).map(|p| p.w).collect();
+            assert_eq!(by, products.iter().map(|p| p.to_string()).collect(), "{what}: the epilogue's products");
+            assert_eq!(read, BTreeSet::from(["X".to_string()]), "{what}: one activation");
+            for t in ["BR", "AR", "BT", "DY"] {
+                assert!(made.iter().any(|l| l.out == t), "{what}: `{t}` is made in the epilogue");
+            }
+            let apart: Vec<&str> = o.graph.ops.iter().filter(|op| !std::ptr::eq(*op, epilogue)).map(|op| op.kind()).filter(|k| !matches!(*k, "GatedDelta" | "Matmul")).collect();
+            assert!(apart.is_empty(), "{what}: the inputs run beside {apart:?}");
+            assert_eq!(o.graph.ops.iter().filter(|op| op.kind() == "Matmul").count(), 1, "{what}: only the product of the rule's result apart");
+        }
+    }
+    let g = lifted(&delta_layer(2, 4, 32, 1, true, false), true, None);
+    let o = optimize(&g, &ReferenceShim, &["gate_projections"]);
+    carried_run(&g, &o.graph, &["S", "CQ", "CK", "CV"], &["X"], 32);
+    // Gates projected from a second activation stay out of the epilogue, which still takes the four of its own.
+    let second = delta_layer(2, 4, 32, 1, true, false)
+        .replacen("Let BR be X matmul PBR.", "Let BR be X2 matmul PBR.", 1)
+        .replacen("Let AR be X matmul PAR.", "Let AR be X2 matmul PAR.", 1)
+        .replacen("## Main\n", "## Main\nLet X2 be a 1 by 64 tensor of Real.\n", 1);
+    for rows in [true, false] {
+        let what = format!("gates from a second activation (rows {rows})");
+        let g = lifted(&second, rows, None);
+        let o = optimize(&g, &ReferenceShim, &["gate_projections"]);
+        assert_eq!(o.fired("gdn_input_epilogue"), 1, "{what}: {:?}", o.fired);
+        same_meaning(&what, &g, &o.graph, &o.fired);
+        let epilogue = o.graph.ops.iter().find(|op| op.kind() == ClassId::GdnInputEpilogue.id()).unwrap_or_else(|| panic!("{what}: no input epilogue: {:?}", kinds(&o.graph)));
+        let by: BTreeSet<String> = leaves(epilogue.clone()).iter().filter_map(|l| gemv(l, &o.graph)).map(|p| p.w).collect();
+        assert_eq!(by, ["PXQ", "PXK", "PXV", "PZ"].iter().map(|p| p.to_string()).collect(), "{what}: the epilogue's products");
+        for t in ["BR", "AR"] {
+            assert!(!leaves(epilogue.clone()).iter().any(|l| l.out == t), "{what}: `{t}` is projected outside the epilogue");
+            assert!(o.graph.ops.iter().any(|op| leaves(op.clone()).iter().any(|l| l.out == t && gemv(l, &o.graph).is_some_and(|p| p.x == "X2"))), "{what}: `{t}` is a product of the second activation");
+        }
+    }
+}
+
+/// A chip whose own rule hands the query's and key's L2 norms of a one-row gated delta layer's input epilogue to the
+/// delta rule reading them (`Rewriter::hand_over`, as the CUDA lane's `delta_qk_norm` does).
+struct HandingNorms;
+
+impl HandingNorms {
+    fn hand(r: &mut logicaffeine_compile::tensor_graph::fuse::Rewriter) {
+        for j in 0..r.s.len() {
+            let Some(op) = r.s.slot(j) else { continue };
+            if op.kind() != "GatedDelta" {
+                continue;
+            }
+            let (q, k) = (op.ins[0].clone(), op.ins[1].clone());
+            let Some(e) = r.s.maker(&q) else { continue };
+            if r.s.maker(&k) == Some(e) && r.s.get(e).kind() == ClassId::GdnInputEpilogue.id() {
+                r.hand_over("hand_norms", ClassId::DeltaQkNorm, e, &[q, k], j);
+            }
+        }
+    }
+}
+
+impl Shim for HandingNorms {
+    fn name(&self) -> String {
+        "reference-handing-norms".to_string()
+    }
+    fn supports(&self, _: ClassId) -> Support {
+        Support::Native
+    }
+    fn fits(&self, _: &Op, _: &TensorGraph) -> Result<(), String> {
+        Ok(())
+    }
+    fn rules(&self) -> Vec<(logicaffeine_compile::tensor_graph::shim::Position, logicaffeine_compile::tensor_graph::fuse::ChipRule<'_>)> {
+        use logicaffeine_compile::tensor_graph::fuse::ChipRule;
+        use logicaffeine_compile::tensor_graph::shim::Position;
+        vec![(Position::After("gdn_input_epilogue"), ChipRule { name: "hand_norms", builds: &[ClassId::DeltaQkNorm], apply: Box::new(Self::hand) })]
+    }
+    fn numerics(&self) -> Option<logicaffeine_compile::tensor_graph::numerics::Contract> {
+        ReferenceShim.numerics()
+    }
+}
+
+/// Every fused op of `o` at every depth computes its result in one of its parts — into a buffer of that name, where it
+/// lands in one of its own — covers exactly the lifted ops its parts cover, and keeps every result of its parts that
+/// anything outside it reads or the host does; and the top-level ops cover each lifted op at most once.
+fn folds_are_whole(what: &str, o: &TensorGraph) {
+    use logicaffeine_compile::tensor_graph::graph::Sym;
+    fn every<'a>(op: &'a Op, out: &mut Vec<&'a Op>) {
+        if let Sym::Fused(f) = &op.sym {
+            out.push(op);
+            for p in &f.parts {
+                every(p, out);
+            }
+        }
+    }
+    let mut folds = Vec::new();
+    for op in &o.ops {
+        every(op, &mut folds);
+    }
+    let lifted: Vec<Op> = o.ops.iter().flat_map(|op| leaves(op.clone())).collect();
+    let observed = |t: &str| o.tensors.get(t).is_some_and(|x| x.observed) || o.io.as_ref().is_some_and(|io| io.names().contains(&t));
+    for fold in folds {
+        let inside = leaves(fold.clone());
+        let mut covers: Vec<usize> = inside.iter().flat_map(|l| l.covers.clone()).collect();
+        covers.sort_unstable();
+        assert_eq!(fold.covers, covers, "{what}: a `{}` covers what its parts cover", fold.kind());
+        assert!(inside.iter().any(|l| l.out == fold.out), "{what}: a `{}`'s result `{}` is computed by a part of it", fold.kind(), fold.out);
+        if fold.dst.own().is_some() {
+            assert_eq!(fold.dst.buf, fold.out, "{what}: a `{}` lands its result in a buffer of its own", fold.kind());
+        }
+        let made: BTreeSet<&str> = inside.iter().map(|l| l.out.as_str()).collect();
+        for l in &inside {
+            let read_outside = lifted.iter().any(|x| !made.contains(x.out.as_str()) && x.ins.contains(&l.out));
+            if l.out != fold.out && (read_outside || observed(&l.out)) {
+                assert!(fold.keeps.contains(&l.out), "{what}: a `{}` keeps `{}`, which is read outside it", fold.kind(), l.out);
+            }
+        }
+    }
+    let mut seen = BTreeSet::new();
+    for c in o.ops.iter().flat_map(|op| op.covers.clone()) {
+        assert!(seen.insert(c), "{what}: lifted op {c} is covered twice");
+    }
+}
+
+/// A chip's own rule hands parts of a fold to the op that reads them (`Rewriter::hand_over`): on one-row gated delta
+/// layers of as many value heads as key heads and more, at heads of 32 to 128, the query's and key's L2 norms handed
+/// from the input epilogue to the delta rule leave the epilogue's convolutions writing the heads unnormed — each fold
+/// of a convolution, its SiLU and its norm the convolution and its SiLU alone, no norm left in the epilogue — and the
+/// rule one `delta_qk_norm` op over the two norms and itself, reading the SiLU's results; every fold whole
+/// (`folds_are_whole`); the graph meaning what the lifted graph means, and through a run of steps from a zero history.
+/// Held, the rule fires nowhere, is reported held where it would have fired, and the graph is the reference's.
+#[test]
+fn a_chips_rule_hands_a_folds_parts_to_the_op_reading_them() {
+    use logicaffeine_compile::tensor_graph::fuse::Outcome;
+    for (nk, nv, w) in [(2, 2, 64), (2, 4, 32), (2, 6, 32), (1, 4, 128)] {
+        for out in [false, true] {
+            for rows in [true, false] {
+                let what = format!("{nk} key heads, {nv} value heads, {w} wide (rows {rows}, out {out})");
+                let g = lifted(&delta_layer(nk, nv, w, 1, true, out), rows, None);
+                let o = optimize(&g, &HandingNorms, &[]);
+                assert_eq!(o.fired("gdn_input_epilogue"), 1, "{what}: {:?}", o.fired);
+                assert_eq!(o.fired("hand_norms"), 1, "{what}: {:?}", o.fired);
+                same_meaning(&what, &g, &o.graph, &o.fired);
+                folds_are_whole(&what, &o.graph);
+                let epilogue = o.graph.ops.iter().find(|op| op.kind() == ClassId::GdnInputEpilogue.id()).unwrap_or_else(|| panic!("{what}: {:?}", kinds(&o.graph)));
+                assert!(!leaves(epilogue.clone()).iter().any(|l| l.kind() == "L2Norm"), "{what}: the epilogue keeps no norm");
+                let classes = realizes(epilogue, &o.graph);
+                assert!(classes.contains(&ClassId::ConvBiasSilu) && !classes.contains(&ClassId::ConvSiluL2norm), "{what}: its convolutions end at their SiLU: {classes:?}");
+                for t in ["SQ", "SK"] {
+                    assert!(epilogue.keeps.contains(&t.to_string()) || epilogue.out == t, "{what}: the epilogue keeps `{t}` for the rule");
+                }
+                let step = o.graph.ops.iter().find(|op| op.kind() == ClassId::DeltaQkNorm.id()).unwrap_or_else(|| panic!("{what}: {:?}", kinds(&o.graph)));
+                let parts: Vec<String> = leaves(step.clone()).iter().map(|l| l.kind().to_string()).collect();
+                assert_eq!(parts, ["L2Norm", "L2Norm", "GatedDelta"], "{what}: the rule over the two norms it was handed");
+                assert_eq!(step.ins[..2], ["SQ".to_string(), "SK".to_string()], "{what}: the rule reads the SiLU's results");
+                assert_eq!(step.out, "O", "{what}: the rule's result is the op's");
+                let held = optimize(&g, &HandingNorms, &["hand_norms"]);
+                assert_eq!(held.fired("hand_norms"), 0, "{what}: held");
+                assert!(!held.report.of("hand_norms").is_empty() && held.report.of("hand_norms").iter().all(|d| d.outcome == Outcome::Held), "{what}: reported held");
+                let reference = optimize(&g, &ReferenceShim, &[]);
+                assert_eq!(format!("{:?}", held.graph.ops), format!("{:?}", reference.graph.ops), "{what}: held, the graph is the reference's");
+            }
+        }
+    }
+    let g = lifted(&delta_layer(2, 4, 32, 1, true, false), true, None);
+    let o = optimize(&g, &HandingNorms, &[]);
+    assert_eq!(o.fired("hand_norms"), 1, "the run's rule hands its norms");
+    carried_run(&g, &o.graph, &["S", "CQ", "CK", "CV"], &["X"], 32);
+}
+
 /// A gated attention's output, read only by its product with its gate's activation, is gated in the attention's store
 /// (`attn_output_gate`, K-13), meaning what they mean bit for bit: on Qwen3.5's gated attention, on a decode step, a
 /// prefill chunk and a batch, every attention whose output a gate multiplies.
@@ -1005,6 +1194,400 @@ fn an_expert_combine_feeding_an_add_and_norm_fuses_into_it() {
     }
 }
 
+/// An all-reduce of products' partials feeding an add and norm folds into the norm (PARITY-ALLREDUCE-NORM), meaning
+/// what it meant bit for bit, its partials summed in the order the program adds them: the left fold of `plus` over two,
+/// three, four and eight ranks' products into the add and norm its sum feeds, and into a post-norm that takes the sum
+/// alone — every add of the fold and that norm one op, the residual's add and norm after it an op of its own; the norm
+/// reads every partial where its product wrote it. A sum the program adds as a tree, or one of whose summands no product
+/// writes, stays apart. Qwen3 and Llama split over two and four chips fold every layer's two all-reduces, the last into
+/// the final norm; Gemma 3, whose sublayers post-norm their outputs, folds each into its post-norm.
+#[test]
+fn an_all_reduce_feeding_an_add_and_norm_fuses() {
+    use logicaffeine_compile::tensor_graph::fuse::allreduce_partials;
+    let decl = |t: &str, r: usize, c: usize| format!("Let {t} be a {r} by {c} tensor of Real.\n");
+    let ranks = |tp: usize| -> (String, Vec<String>) {
+        let mut src = format!("## Main\n{}{}{}", decl("R", 1, 32), decl("N", 1, 32), decl("M", 1, 32));
+        let mut partials = Vec::new();
+        for k in 0..tp {
+            src += &format!("{}{}Let P{k} be X{k} matmul W{k}.\n", decl(&format!("X{k}"), 1, 16), decl(&format!("W{k}"), 16, 32));
+            partials.push(format!("P{k}"));
+        }
+        let mut acc = "P0".to_string();
+        for k in 1..tp {
+            let s = if k + 1 == tp { "S".to_string() } else { format!("S{k}") };
+            src += &format!("Let {s} be {acc} plus P{k}.\n");
+            acc = s;
+        }
+        (src, partials)
+    };
+    for tp in [2, 3, 4, 8] {
+        let (body, partials) = ranks(tp);
+        for (form, tail, adds) in [
+            ("an add and norm", "Let T be R plus S.\nLet Y be rmsnorm of T with weight N.\n", tp),
+            ("a post-norm", "Let Q be rmsnorm of S with weight M.\nLet T be R plus Q.\nLet Y be rmsnorm of T with weight N.\n", tp - 1),
+        ] {
+            let what = format!("{tp} ranks into {form}");
+            let (_, o) = reference(&format!("{body}{tail}"), &what);
+            let mut parts = vec!["Elementwise"; adds];
+            parts.push("FusedRow");
+            let op = folding(&o, ClassId::AllreduceNorm, &parts).unwrap_or_else(|| panic!("{what}: the all-reduce is not in the norm: {:?}", kinds(&o)));
+            if adds < tp {
+                assert!(
+                    o.ops.iter().any(|w| realizes(w, &o).contains(&ClassId::AddNorm) && w.ins.iter().any(|t| t == "Q")),
+                    "{what}: the residual's add and norm is an op of its own, reading the post-norm: {:?}",
+                    kinds(&o)
+                );
+            }
+            let (folded, sum) = allreduce_partials(op).unwrap_or_else(|| panic!("{what}: the fold names no partials: {op:?}"));
+            assert_eq!(folded, partials, "{what}: every rank's partial, in the order the program adds them");
+            assert_eq!(sum, "S", "{what}: the fold ends at the all-reduce's sum");
+            for p in &partials {
+                assert!(o.ops.iter().any(|w| w.kind() == "Matmul" && w.out == *p), "{what}: `{p}` is still its rank's product");
+            }
+        }
+    }
+    let (body, _) = ranks(2);
+    let tree = format!(
+        "## Main\n{}{}{}{}Let P0 be X0 matmul W0.\nLet P1 be X1 matmul W1.\nLet P2 be X2 matmul W2.\nLet P3 be X3 matmul W3.\n\
+         Let A be P0 plus P1.\nLet B be P2 plus P3.\nLet S be A plus B.\nLet T be R plus S.\nLet Y be rmsnorm of T with weight N.\n",
+        decl("R", 1, 32),
+        decl("N", 1, 32),
+        (0..4).map(|k| decl(&format!("X{k}"), 1, 16)).collect::<String>(),
+        (0..4).map(|k| decl(&format!("W{k}"), 16, 32)).collect::<String>(),
+    );
+    let unproduced = format!("{}{}Let U be S plus V.\nLet T be R plus U.\nLet Y be rmsnorm of T with weight N.\n", body, decl("V", 1, 32));
+    for (what, src) in [("a sum added as a tree", tree), ("a summand no product writes", unproduced)] {
+        let (_, o) = reference(&src, what);
+        assert!(folding(&o, ClassId::AllreduceNorm, &[]).is_none(), "{what}: folded as an all-reduce: {:?}", kinds(&o));
+    }
+    for t in [tiny_models::Tiny::Qwen3, tiny_models::Tiny::Llama] {
+        let spec = t.wide(24);
+        for tp in [2, 4] {
+            let what = format!("{} wide over {tp}", t.name());
+            let ((source, _, _, _), _) = program::written_split(&spec, Cut::Decode { ctx: 24 }, "", tp).unwrap_or_else(|e| panic!("{what}: {e:?}"));
+            let g = lifted(&source, true, Some(io(Cut::Decode { ctx: 24 })));
+            let o = optimize(&g, &ReferenceShim, &[]);
+            same_meaning(&what, &g, &o.graph, &o.fired);
+            let folds: Vec<&Op> = o.graph.ops.iter().filter(|op| realizes(op, &o.graph).contains(&ClassId::AllreduceNorm)).collect();
+            assert_eq!(folds.len(), 2 * spec.layers.len(), "{what}: the attention's and the FFN's all-reduce of every layer fold");
+            for op in &folds {
+                let (partials, _) = allreduce_partials(op).unwrap_or_else(|| panic!("{what}: a fold names no partials"));
+                assert_eq!(partials.len(), tp, "{what}: every rank's partial: {partials:?}");
+            }
+            let last = folds.last().expect("a fold");
+            assert!(leaves((*last).clone()).iter().any(|l| l.kind() == "FusedRow" && l.ins.iter().any(|t| t == "on")), "{what}: the last all-reduce folds into the final norm");
+        }
+    }
+    let spec = tiny_models::Tiny::Gemma3.wide(24);
+    for tp in [2, 4] {
+        let what = format!("gemma3 wide over {tp}");
+        let ((source, _, _, _), _) = program::written_split(&spec, Cut::Decode { ctx: 24 }, "", tp).unwrap_or_else(|e| panic!("{what}: {e:?}"));
+        let g = lifted(&source, true, Some(io(Cut::Decode { ctx: 24 })));
+        let o = optimize(&g, &ReferenceShim, &[]);
+        same_meaning(&what, &g, &o.graph, &o.fired);
+        let folds: Vec<&Op> = o.graph.ops.iter().filter(|op| realizes(op, &o.graph).contains(&ClassId::AllreduceNorm)).collect();
+        assert_eq!(folds.len(), 2 * spec.layers.len(), "{what}: every sublayer's all-reduce folds into its post-norm");
+        for op in &folds {
+            let (partials, _) = allreduce_partials(op).unwrap_or_else(|| panic!("{what}: a fold names no partials"));
+            assert_eq!(partials.len(), tp, "{what}: every rank's partial: {partials:?}");
+            assert!(!realizes(op, &o.graph).contains(&ClassId::AddNorm), "{what}: a post-norm takes the sum alone, the residual's add apart");
+        }
+    }
+}
+
+/// A norm of a whole row joined from parts, whose result slices alone read, each taking one part back, norms each part
+/// where it lives by the whole row's sum of squares (PARITY-ALLREDUCE-NORM, `allreduce_sumsq_norm`), meaning what the
+/// program means: over two, three, four and eight parts of unequal widths, joined as the left fold a tensor-parallel
+/// step writes and as a tree, the joins, the norm and the slices are one op that reads the parts themselves — never the
+/// joined row — and writes each slice; the parts are the joined operands in order, each slice taking its own. A join
+/// another op reads, a slice across two parts, a norm a statement shows or another op reads, and a norm head by head
+/// stay apart. A step whose QK norm spans every head (MiniMax-M2's), split over two and four chips, norms each layer's
+/// queries and keys so, every chip's raw projection a part and its normed heads the slice it takes back — in the decode
+/// step and in a batch.
+#[test]
+fn a_norms_all_reduce_carries_only_its_sum_of_squares() {
+    use logicaffeine_compile::model::spec::Mixer;
+    use logicaffeine_compile::tensor_graph::fuse::parts_norm;
+    let decl = |t: &str, r: usize, c: usize| format!("Let {t} be a {r} by {c} tensor of Real.\n");
+    // Each part `P{k}` a product of `X` by its own columns; the row they join normed whole; each part taken back as `S{k}`
+    // and shown. `join` writes the joins of parts `lo..hi` and names the row they make.
+    fn join(src: &mut String, lo: usize, hi: usize, tree: bool, names: &mut usize) -> String {
+        if hi - lo == 1 {
+            return format!("P{lo}");
+        }
+        let (a, b) = if tree {
+            let mid = lo + (hi - lo) / 2;
+            (join(src, lo, mid, tree, names), join(src, mid, hi, tree, names))
+        } else {
+            (join(src, lo, hi - 1, tree, names), format!("P{}", hi - 1))
+        };
+        *names += 1;
+        let out = format!("J{names}");
+        src.push_str(&format!("Let {out} be {a} joined with {b}.\n"));
+        out
+    }
+    let taken = |at: usize, w: usize, total: usize| match (at, at + w == total) {
+        (0, _) => format!("the first {w}"),
+        (_, true) => format!("the last {w}"),
+        _ => format!("the {w} after the first {at}"),
+    };
+    let program = |widths: &[usize], tree: bool, extra: &str, slices: &[(usize, usize)]| -> (String, String) {
+        let total: usize = widths.iter().sum();
+        let mut src = format!("## Main\n{}{}", decl("X", 1, 16), decl("N", 1, total));
+        for (k, w) in widths.iter().enumerate() {
+            src += &format!("{}Let P{k} be X matmul W{k}.\n", decl(&format!("W{k}"), 16, *w));
+        }
+        let row = join(&mut src, 0, widths.len(), tree, &mut 0);
+        src += &format!("Let Y be rmsnorm of {row} with weight N.\n");
+        for (k, &(at, w)) in slices.iter().enumerate() {
+            src += &format!("Let S{k} be {} of every {total} of Y.\nShow item 1 of S{k}.\n", taken(at, w, total));
+        }
+        src += extra;
+        (src, row)
+    };
+    let own = |widths: &[usize]| -> Vec<(usize, usize)> { widths.iter().scan(0, |at, &w| Some((std::mem::replace(at, *at + w), w))).collect() };
+    for widths in [&[8, 24][..], &[16, 8, 40], &[8, 16, 8, 32], &[8, 8, 16, 8, 8, 24, 8, 8]] {
+        for tree in [false, true] {
+            let what = format!("{} parts {widths:?}{}", widths.len(), if tree { " joined as a tree" } else { "" });
+            let (src, _) = program(widths, tree, "", &own(widths));
+            let (_, o) = reference(&src, &what);
+            let mut pattern = vec!["Join"; widths.len() - 1];
+            pattern.push("FusedRow");
+            pattern.extend(vec!["HeadSlice"; widths.len()]);
+            let op = folding(&o, ClassId::AllreduceSumsqNorm, &pattern).unwrap_or_else(|| panic!("{what}: the norm is not by parts: {:?}", kinds(&o)));
+            let (parts, n, slices) = parts_norm(op).unwrap_or_else(|| panic!("{what}: the op names no parts: {op:?}"));
+            let named: Vec<(String, usize)> = widths.iter().enumerate().map(|(k, &w)| (format!("P{k}"), w)).collect();
+            assert_eq!(parts, named, "{what}: every part, in the order the joins put them side by side");
+            assert_eq!((n.out.as_str(), n.cols), ("Y", widths.iter().sum()), "{what}: the norm of the whole row");
+            let took: Vec<(usize, String)> = slices.iter().map(|(k, s, _)| (*k, s.clone())).collect();
+            assert_eq!(took, (0..widths.len()).map(|k| (k, format!("S{k}"))).collect::<Vec<_>>(), "{what}: each slice takes its own part back");
+            let mut reads: Vec<String> = named.iter().map(|(t, _)| t.clone()).chain(["N".to_string()]).collect();
+            let mut ins = op.ins.clone();
+            reads.sort();
+            ins.sort();
+            assert_eq!(ins, reads, "{what}: the op reads the parts and the weight, never a joined row");
+            assert_eq!(op.out, format!("S{}", widths.len() - 1), "{what}: the op ends at the last slice");
+            assert_eq!(op.keeps, (0..widths.len() - 1).map(|k| format!("S{k}")).collect::<Vec<_>>(), "{what}: every slice is written");
+            for (t, _) in &named {
+                assert!(
+                    o.ops.iter().any(|w| !std::ptr::eq(w, op) && (w.out == *t || w.keeps.contains(t))),
+                    "{what}: `{t}` is written by a product apart from the norm, alone or merged with the others of one input"
+                );
+            }
+        }
+    }
+    let widths = [8, 16, 8];
+    for (what, slices, extra) in [
+        ("a join another op reads", own(&widths), "Let Z be J1 scaled by 2.0.\n".to_string()),
+        ("the joined row another op reads", own(&widths), "Let Z be J2 scaled by 2.0.\n".to_string()),
+        ("a slice across two parts", vec![(0, 8), (4, 16), (24, 8)], String::new()),
+        ("a norm a statement shows", own(&widths), "Show item 1 of Y.\n".to_string()),
+        ("a norm another op reads", own(&widths), "Let Z be Y scaled by 2.0.\n".to_string()),
+    ] {
+        let (src, _) = program(&widths, false, &extra, &slices);
+        let (_, o) = reference(&src, what);
+        assert!(folding(&o, ClassId::AllreduceSumsqNorm, &[]).is_none(), "{what}: normed by parts: {:?}", kinds(&o));
+    }
+    let heads = format!(
+        "## Main\n{}{}{}{}Let P0 be X matmul W0.\nLet P1 be X matmul W1.\nLet J be P0 joined with P1.\nLet Y be rmsnorm of J with weight N across 4 heads.\n\
+         Let S0 be the first 16 of every 32 of Y.\nLet S1 be the last 16 of every 32 of Y.\nShow item 1 of S0.\nShow item 1 of S1.\n",
+        decl("X", 1, 16),
+        decl("N", 1, 8),
+        decl("W0", 16, 16),
+        decl("W1", 16, 16),
+    );
+    let (_, o) = reference(&heads, "a norm head by head");
+    assert!(folding(&o, ClassId::AllreduceSumsqNorm, &[]).is_none(), "a norm head by head: normed by parts: {:?}", kinds(&o));
+    // MiniMax-M2's attention: the QK norm across every head, on Qwen3's layout; four KV heads for four chips.
+    let whole = |mut spec: logicaffeine_compile::model::spec::ModelSpec, heads: Option<(usize, usize)>| {
+        for layer in &mut spec.layers {
+            if let Mixer::Attention(a) = &mut layer.mixer {
+                a.qk_norm_whole = true;
+                if let Some((h, kv)) = heads {
+                    (a.heads, a.kv_heads) = (h, kv);
+                }
+            }
+        }
+        spec
+    };
+    for (spec, tp) in [(whole(tiny_models::Tiny::Qwen3.wide(24), None), 2), (whole(tiny_models::Tiny::Qwen3.wide(24), Some((8, 4))), 4)] {
+        for (cut, pre) in [(Cut::Decode { ctx: 24 }, ""), (Cut::Batch { rows: 2, ctx: 24 }, "b")] {
+            let what = format!("a whole QK norm over {tp} chips, {cut:?}");
+            let ((source, _, _, _), _) = program::written_split(&spec, cut, "", tp).unwrap_or_else(|e| panic!("{what}: {e:?}"));
+            let g = lifted(&source, true, Some(io(cut)));
+            let o = optimize(&g, &ReferenceShim, &[]);
+            same_meaning(&what, &g, &o.graph, &o.fired);
+            let norms: Vec<&Op> = o.graph.ops.iter().filter(|op| realizes(op, &o.graph).contains(&ClassId::AllreduceSumsqNorm)).collect();
+            assert_eq!(norms.len(), 2 * spec.layers.len(), "{what}: every layer's queries and keys are normed by their chips' parts");
+            for (i, op) in norms.iter().enumerate() {
+                let (l, side) = (i / 2, if i % 2 == 0 { ("qr", "qm") } else { ("kr", "km") });
+                let (parts, _, slices) = parts_norm(op).unwrap_or_else(|| panic!("{what}: a norm names no parts"));
+                let raw: Vec<String> = parts.iter().map(|(t, _)| t.clone()).collect();
+                assert_eq!(raw, (0..tp).map(|c| format!("{pre}{}{l}_c{c}", side.0)).collect::<Vec<_>>(), "{what}: every chip's projection a part, in chip order");
+                let took: Vec<(usize, String)> = slices.iter().map(|(k, s, _)| (*k, s.clone())).collect();
+                assert_eq!(took, (0..tp).map(|c| (c, format!("{pre}{}{l}_c{c}", side.1))).collect::<Vec<_>>(), "{what}: each chip takes its own heads back");
+            }
+        }
+    }
+    let refused = program::written_split(&whole(tiny_models::Tiny::Qwen3.wide(24), None), Cut::Decode { ctx: 24 }, "", 4).map(|_| ()).unwrap_err();
+    assert!(format!("{refused:?}").contains("a KV head on more than one chip"), "a whole QK norm over more chips than KV heads is refused by name: {refused:?}");
+}
+
+/// A cache row kept in each scheme of `kv_cache_quant` (PARITY-KV-CACHE-QUANT) reads back within the bound the scheme
+/// declares, its block the row as stored: binary16, bfloat16 and fp8 e4m3 each value to its nearest; int8 codes under the
+/// row's one binary16 scale; the same of the row turned by the Walsh–Hadamard transform, turned back — over smooth rows,
+/// a row one channel of which is a hundred times the rest, zeros, one repeated value, tiny values, a float format's
+/// extremes, and a row no power of two long, which the turned scheme refuses. The turn keeps the outlier row closer than
+/// the plain codes do, the reason it turns. The D5005 engine's cache rows, in the card's own arithmetic
+/// (`decode_engine::numerics`), lie within the same bounds: its int8 and Hadamard caches link the shared schemes.
+#[test]
+fn a_quantized_cache_row_reads_back_what_its_scheme_keeps() {
+    use logicaffeine_compile::model::quant::f16_to_f32;
+    use logicaffeine_compile::spatial::decode_engine::numerics::{self as card, FpUnit};
+    use logicaffeine_compile::tensor_graph::numerics::Keep;
+    let seeded = |n: usize, salt: u64| -> Vec<f64> {
+        (0..n)
+            .map(|i| {
+                let h = (i as u64 ^ salt).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(29);
+                ((h >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
+            })
+            .collect()
+    };
+    let mut outlier = seeded(64, 3);
+    outlier[17] = 100.0;
+    let rows: Vec<(String, Vec<f64>)> = vec![
+        ("a smooth row of 64".into(), seeded(64, 1)),
+        ("a smooth row of 128".into(), seeded(128, 2)),
+        ("a row one channel of which is a hundred times the rest".into(), outlier.clone()),
+        ("a row of zeros".into(), vec![0.0; 64]),
+        ("a row of one value".into(), vec![0.375; 32]),
+        ("a row of tiny values".into(), seeded(64, 5).iter().map(|v| v * 1e-6).collect()),
+        ("a row of 96, no power of two".into(), seeded(96, 4)),
+    ];
+    let schemes = [Keep::F16, Keep::Bf16, Keep::E4m3, Keep::Int8Rows, Keep::Int8RowsRotated];
+    let within = |keep: Keep, what: &str, row: &[f64], kept: &[f64]| {
+        let (bound, block) = (keep.bound(), keep.row_block(row));
+        for (i, (&v, &k)) in row.iter().zip(kept).enumerate() {
+            assert!(bound.holds(v, k, block), "{keep:?}, {what}: value {i} is {v}, kept as {k}, past the bound of a block of {block}");
+        }
+    };
+    for keep in schemes {
+        let mut cases = rows.clone();
+        if keep.range().is_finite() {
+            let top = keep.range();
+            cases.push(("the format's largest values".into(), seeded(32, 6).iter().map(|v| v * top).collect()));
+        }
+        for (what, row) in &cases {
+            match keep.keep_row(row) {
+                Some(kept) => within(keep, what, row, &kept),
+                None => assert!(keep == Keep::Int8RowsRotated && !row.len().is_power_of_two(), "{keep:?}, {what}: only a turn of a row no power of two long is refused"),
+            }
+        }
+    }
+    let worst = |keep: Keep, row: &[f64]| keep.keep_row(row).unwrap().iter().zip(row).map(|(k, v)| (k - v).abs()).fold(0.0, f64::max);
+    // Rows of uniform values from splitmix64, each with one channel a hundred times the rest: no row aligned with the
+    // transform's own basis, as a seeded hash's can be.
+    let uniform = |n: usize, seed: u64| -> Vec<f64> {
+        let mut s = seed;
+        (0..n)
+            .map(|_| {
+                s = s.wrapping_add(0x9E37_79B9_7F4A_7C15);
+                let mut z = s;
+                z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+                z ^= z >> 31;
+                ((z >> 11) as f64 / (1u64 << 53) as f64) * 2.0 - 1.0
+            })
+            .collect()
+    };
+    let ratios: Vec<f64> = (1..=32)
+        .map(|seed| {
+            let mut row = uniform(64, seed);
+            row[17] = 100.0;
+            worst(Keep::Int8RowsRotated, &row) / worst(Keep::Int8Rows, &row)
+        })
+        .collect();
+    let mean = ratios.iter().sum::<f64>() / ratios.len() as f64;
+    assert!(
+        mean < 1.0 / 3.0,
+        "the turn spreads an outlier across its row, its one scale fitting every value: over 32 rows the turned row's worst error is {mean} of the plain row's ({ratios:?})"
+    );
+    // The engine's rows, as the card computes them: the codes under its scale, and those of the turned row turned back.
+    for (what, row) in &rows {
+        let x: Vec<f32> = row.iter().map(|&v| v as f32).collect();
+        let read = |x: &[f32]| -> Vec<f32> {
+            let (s, codes) = card::cache_row(FpUnit::Soft, x);
+            codes.iter().map(|&c| f32::from(c) * f16_to_f32(s)).collect()
+        };
+        let plain: Vec<f64> = read(&x).into_iter().map(f64::from).collect();
+        within(Keep::Int8Rows, &format!("the engine's {what}"), row, &plain);
+        if x.len().is_power_of_two() {
+            let mut turned = x.clone();
+            card::hadamard(&mut turned);
+            let mut back = read(&turned);
+            card::hadamard(&mut back);
+            let inv = 1.0 / x.len() as f32;
+            let rotated: Vec<f64> = back.into_iter().map(|v| f64::from(v * inv)).collect();
+            within(Keep::Int8RowsRotated, &format!("the engine's turned {what}"), row, &rotated);
+        }
+    }
+}
+
+/// A soft cap whose values an arg-max alone reads folds into the arg-max's read (PARITY-SOFTCAP, `cap_argmax`): over a
+/// row of 8 and a row of the tiny vocabulary, the fold reads the cap's input, writes the capped row nowhere, and picks
+/// what the arg-max of the raw row picks; a cap a statement shows folds too, the capped row kept; a cap a second op
+/// reads stays apart. Gemma 2's decode step, chunk and batch fold every sequence's final cap into its arg-max, keeping
+/// the capped logits exactly where the host reads them.
+#[test]
+fn a_cap_before_an_argmax_is_dropped_and_the_argmax_is_unchanged() {
+    use logicaffeine_compile::tensor_graph::graph::{StepIo, Sym};
+    /// Every fused op of `op`, `op` too, at any depth.
+    fn fused(op: &Op, out: &mut Vec<Op>) {
+        if let Sym::Fused(f) = &op.sym {
+            out.push(op.clone());
+            f.parts.iter().for_each(|p| fused(p, out));
+        }
+    }
+    for n in [8, tiny_models::VOCAB] {
+        let what = format!("a row of {n}");
+        let decl = format!("## Main\nLet X be a 1 by {n} tensor of Real.\n");
+        let (g, o) = reference(&format!("{decl}Let Y be X capped at 30.0.\nLet next be argmax of Y.\n"), &what);
+        let op = folding(&o, ClassId::CapArgmax, &["Softcap", "ArgMax"]).unwrap_or_else(|| panic!("{what}: the cap is not in the arg-max's read: {:?}", kinds(&o)));
+        assert_eq!(op.ins, ["X"], "{what}: the arg-max reads the cap's input");
+        assert!(op.keeps.is_empty(), "{what}: the capped row is written nowhere: keeps {:?}", op.keeps);
+        let raw = lifted(&format!("{decl}Let next be argmax of X.\n"), false, None);
+        let ins = inputs(&g);
+        assert_eq!(eval(&o, &ins).unwrap()["next"], eval(&raw, &ins).unwrap()["next"], "{what}: the fold picks what the raw row's arg-max picks");
+    }
+    let decl = "## Main\nLet X be a 1 by 8 tensor of Real.\nLet Y be X capped at 30.0.\nLet next be argmax of Y.\n";
+    let (_, o) = reference(&format!("{decl}Show item 1 of Y.\n"), "a cap a statement shows");
+    let op = folding(&o, ClassId::CapArgmax, &["Softcap", "ArgMax"]).unwrap_or_else(|| panic!("a cap a statement shows: not folded: {:?}", kinds(&o)));
+    assert_eq!(op.keeps, ["Y"], "a cap a statement shows: the capped row kept");
+    let (_, o) = reference(&format!("{decl}Let Z be Y scaled by 2.0.\n"), "a cap a second op reads");
+    assert!(folding(&o, ClassId::CapArgmax, &[]).is_none(), "a cap a second op reads: folded into the arg-max: {:?}", kinds(&o));
+    let spec = tiny_models::Tiny::Gemma2.spec(24);
+    for cut in [Cut::Decode { ctx: 24 }, Cut::Prefill { rows: 4, ctx: 24 }, Cut::Batch { rows: 2, ctx: 24 }] {
+        let ((source, _, _), _) = program::written(&spec, cut);
+        for logits_read in [true, false] {
+            let what = format!("gemma2 {cut:?}, logits {}", if logits_read { "read" } else { "unread" });
+            let step_io = StepIo { logits_read, ..io(cut) };
+            let g = lifted(&source, true, Some(step_io.clone()));
+            let o = optimize(&g, &ReferenceShim, &[]);
+            same_meaning(&what, &g, &o.graph, &o.fired);
+            let logits: Vec<String> = std::iter::once(step_io.logits.clone()).chain(step_io.more.iter().map(|q| q.logits.clone())).collect();
+            let mut all = Vec::new();
+            o.graph.ops.iter().for_each(|op| fused(op, &mut all));
+            let mut folds = 0;
+            for part in all.iter().filter(|p| matches!(&p.sym, Sym::Fused(f) if f.class == ClassId::CapArgmax)) {
+                folds += 1;
+                let kept = part.keeps.iter().any(|k| logits.contains(k));
+                assert_eq!(kept, logits_read, "{what}: the capped logits kept exactly where the host reads them: keeps {:?}", part.keeps);
+            }
+            assert_eq!(folds, logits.len(), "{what}: each sequence's final cap folds into its arg-max");
+        }
+    }
+}
+
 /// The op of `g` realizing `class` that computes `t`, at any depth of its parts.
 fn computing<'a>(g: &'a TensorGraph, class: ClassId, t: &str) -> Option<&'a Op> {
     g.ops.iter().find(|op| realizes(op, g).contains(&class) && leaves((*op).clone()).iter().any(|l| l.out == t))
@@ -1061,6 +1644,37 @@ fn a_pointwise_dag_fuses_into_one_region() {
     for op in [first, second] {
         assert!(leaves(op.clone()).iter().all(|l| l.kind() != "FusedRow"), "a region holds no reduction: {:?}", kinds(&o));
     }
+}
+
+/// A fused op writes every table and state any of its parts writes, however deep it lies: a member a rule built that
+/// holds another member — a merged projection holding a query and key's norm, rotation and cache insert — writes the
+/// cache its inner part lands a row in (`Op::writes`), so the dataflow facts every rule reads (`facts::writes`) see the
+/// write. On every tiny architecture's decode step, prefill chunk and batch under the reference shim, every tensor a
+/// leaf of a fused op lands rows or units in, or updates as state, is among the fused op's writes, and some fused op
+/// holds another.
+#[test]
+fn a_fused_op_writes_every_table_and_state_its_parts_write() {
+    let mut nested = 0usize;
+    for &t in tiny_models::ALL {
+        let spec = t.spec(24);
+        for cut in [Cut::Decode { ctx: 24 }, Cut::Prefill { rows: 4, ctx: 24 }, Cut::Batch { rows: 2, ctx: 24 }] {
+            let ((source, _, _), _) = program::written(&spec, cut);
+            let g = lifted(&source, true, Some(io(cut)));
+            let o = optimize(&g, &ReferenceShim, &[]);
+            for op in &o.graph.ops {
+                let logicaffeine_compile::tensor_graph::graph::Sym::Fused(f) = &op.sym else { continue };
+                nested += f.parts.iter().filter(|p| matches!(p.sym, logicaffeine_compile::tensor_graph::graph::Sym::Fused(_))).count();
+                let writes: BTreeSet<String> = op.writes().into_iter().map(String::from).collect();
+                for leaf in leaves(op.clone()) {
+                    let placed = (leaf.dst.row.is_some() || leaf.dst.unit.is_some()).then(|| leaf.dst.buf.clone());
+                    for w in placed.into_iter().chain(leaf.state_inputs().into_iter().map(|k| leaf.ins[k].clone())) {
+                        assert!(writes.contains(&w), "{} {cut:?}: `{}` holds a {} landing `{w}`, and writes only {writes:?}", t.name(), op.kind(), leaf.kind());
+                    }
+                }
+            }
+        }
+    }
+    assert!(nested > 0, "some fused op holds another");
 }
 
 /// A prefill chunk's last layer computes only the row its output reads (PARITY-LAST-LAYER-ROWS): from the attention on,

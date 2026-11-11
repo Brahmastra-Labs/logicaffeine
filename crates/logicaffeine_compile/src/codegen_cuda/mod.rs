@@ -54,7 +54,7 @@ mod wrap;
 pub use chip::{CudaChip, GpuFamily};
 pub use device_float::LOGOS_DEVICE_FLOAT_FMT;
 pub use fused_row::{emit_fused_row, emit_swiglu};
-pub use knobs::{CachePrecision, CudaKnobs, KnobTradeoff, LoadWidth, MatmulPrecision, StatePrecision, STRICTLY_BETTER};
+pub use knobs::{CachePrecision, CudaKnobs, KnobTradeoff, LoadWidth, Logits, MatmulPrecision, StatePrecision, STRICTLY_BETTER};
 pub use matrix::{
     emit_int8_gemm, lower_elementwise_to_cuda, lower_matmul_to_cuda, lower_matmul_to_cuda_with,
     lower_reduction_to_cuda, sample_gemm_data, CudaGemmArtifact,

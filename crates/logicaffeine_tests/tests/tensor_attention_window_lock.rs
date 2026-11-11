@@ -298,8 +298,11 @@ fn a_chunk_that_is_not_a_positive_whole_number_is_refused() {
     }
 }
 
+/// The CUDA lane takes a chunked-local attention: every layer's attention launch keeps its own chunk of four rows inside
+/// its kernel (the values: `cuda_lane_lock::a_chunked_local_attention_computes_what_its_reference_computes`).
 #[test]
-fn the_cuda_lane_refuses_a_chunked_local_attention_by_name() {
+fn the_cuda_lane_takes_a_chunked_local_attention() {
+    use logicaffeine_compile::codegen_cuda::lane::plan::Launch;
     let mut spec = Tiny::Llama.spec(16);
     for layer in &mut spec.layers {
         if let Mixer::Attention(a) = &mut layer.mixer {
@@ -309,7 +312,9 @@ fn the_cuda_lane_refuses_a_chunked_local_attention_by_name() {
     let path = std::env::temp_dir().join(format!("chunked-lane-{}.gguf", std::process::id()));
     write_checkpoint(&spec, &path);
     let opts = LaneOptions { ctx: 16, knobs: CudaKnobs::default(), prefill: 1 };
-    let err = compile(&spec, &path, &opts).err().expect("the lane lowered a chunked-local attention");
+    let lane = compile(&spec, &path, &opts).unwrap_or_else(|e| panic!("the lane takes a chunked-local attention: {e}"));
     let _ = std::fs::remove_file(&path);
-    assert!(err.to_string().contains("chunked-local"), "the lane names what it refuses: {err}");
+    let attention: Vec<(Option<usize>, bool)> =
+        lane.decode().schedule.launches.iter().filter_map(|l| if let Launch::Attention { window, chunked, .. } = l { Some((*window, *chunked)) } else { None }).collect();
+    assert_eq!(attention, vec![(Some(4), true); spec.layers.len()], "every layer keeps its own chunk of four");
 }

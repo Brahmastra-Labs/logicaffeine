@@ -145,7 +145,7 @@ impl Shim for ForwardShim {
             NormWeight | AddNorm | ElementwiseChains | ElementwiseRegions | GemmDequantInkernel | CudaGraphs => Native,
             RouterTopk | MoeGateUpAct | MoeDownCombine => Native,
             NormQuant | AddNormQuant | AttnOutputQuant => producer_quant,
-            AttnOutputGate | RowWriteQuant => Decompose,
+            AttnOutputGate | RowWriteQuant | CapArgmax => Decompose,
             NormThenAdd | NormScale | NormWeightOffset | DualNorm | GatedNorm | EmbedNorm | EmbedScale => Decompose,
             GemvNormEpilogue | PrefillNormEpilogues | AttnResidualNorm | RecomputeFanout => Decompose,
             QkNormRope | QkNormRopeKvAppend | RopeKvAppend | RopeQkOneLaunch | QkNormRopeGateSplit | QkvHeadEpilogue => Decompose,
@@ -154,8 +154,8 @@ impl Shim for ForwardShim {
             GemmBias | GemmScale | MergedQkv | MergedGateUp | AffineInputFold | RouterSharedGateMerge => Decompose,
             MoeTokenSort | MoeGatherInOperand | MoeDeferredFinalize | SharedExpertFusion => Decompose,
             GdnInputEpilogue | GdnDecodeWhole | GdnPostConvPrep | ConvBiasSilu | ConvParts | ConvSiluL2norm => Decompose,
-            GdnGateProjections | GdnGating | FusedSampling | LastLayerRows | AllreduceNorm => Decompose,
-            ElementwiseQuant | GdnOutputQuant | GemvQuant => Decompose,
+            GdnGateProjections | GdnGating | FusedSampling | LastLayerRows | AllreduceNorm | AllreduceSumsqNorm => Decompose,
+            ElementwiseQuant | GdnOutputQuant | GemvQuant | DeltaQkNorm => Decompose,
             ReluSqr => Refuse("the forward links no ReLU"),
             FlashDecode | FlashPrefill => Refuse("the forward attends one query over a cache held in one block's shared scores"),
             AttentionVariantsInline | Softcap | MixedBatchAttention | SparseAttention => {
@@ -167,7 +167,7 @@ impl Shim for ForwardShim {
             GdnStep => Refuse("the forward links no delta rule"),
             KvCacheQuant | HadamardRotation => Refuse("the forward holds its caches in f32"),
             CompensatedResidual => Refuse("the forward sums its residual in f32, uncompensated"),
-            HostResidentKv => Refuse("the forward keeps every buffer on the device"),
+            HostResidentKv | HostWeightStreaming | HostLayersOnCpu => Refuse("the forward keeps every buffer on the device"),
             MoeDirectPairs => Refuse("the forward runs one sequence's row through its kept experts"),
             PersistentLayerMegakernel => Refuse("the forward replays a graph of a kernel a stage"),
             StridedRead | RowWrite | JoinInPlace | StridedValues => Refuse("the forward's stages read and write whole buffers"),
@@ -250,6 +250,6 @@ impl Shim for ForwardShim {
             Q8MatKind::TwoPassInt8 => Some(Scheme::of(QuantFormat::TwoWords)),
         };
         let point = format!("the older forward: {:?} activations", self.kind);
-        Some(Contract { point, activations, cache: Keep::F32, state: Keep::F32, attention: None, fused: Bound::EXACT, accumulator_bits: 32 })
+        Some(Contract { point, activations, sixteen: None, cache: Keep::F32, state: Keep::F32, attention: None, fused: Bound::EXACT, accumulator_bits: 32 })
     }
 }

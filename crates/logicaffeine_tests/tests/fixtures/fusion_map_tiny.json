@@ -29,6 +29,9 @@
       "lane_compile_lock::the_hybrid_step_fuses_the_recurrence_and_the_gate",
       "lane_compile_lock::a_prefill_chunk_takes_its_rows_in_one_launch_per_op"
     ],
+    "cap_argmax": [
+      "lane_compile_lock::a_greedy_step_folds_its_final_cap_into_its_arg_max"
+    ],
     "conv_parts": [
       "lane_compile_lock::the_hybrid_step_convolves_its_query_key_and_value_in_one_launch",
       "lane_compile_lock::the_hybrid_step_fuses_the_recurrence_and_the_gate",
@@ -41,6 +44,10 @@
     "conv_silu_l2": [
       "lane_compile_lock::the_hybrid_step_fuses_the_recurrence_and_the_gate",
       "lane_compile_lock::a_prefill_chunk_takes_its_rows_in_one_launch_per_op"
+    ],
+    "delta_qk_norm": [
+      "lane_compile_lock::a_steps_delta_rule_norms_its_query_and_key_heads",
+      "lane_compile_lock::a_steps_delta_rule_takes_its_heads_norms_only_where_its_inputs_launch_holds_no_whole_head"
     ],
     "embed_norm": [
       "lane_compile_lock::the_dense_steps_fuse_where_their_dataflow_allows",
@@ -76,6 +83,21 @@
     ],
     "gather_scale": [
       "lane_compile_lock::the_sandwiched_step_windows_its_local_layers_and_fuses_its_gates"
+    ],
+    "gdn_input_epilogue": [
+      "lane_compile_lock::a_recurrent_layers_six_projections_run_as_one_launch",
+      "lane_compile_lock::the_hybrid_step_takes_its_gates_from_its_activation_in_one_launch",
+      "lane_compile_lock::a_recurrent_layers_gate_projections_are_read_in_the_checkpoints_format",
+      "lane_compile_lock::a_fused_gate_projection_cuts_its_dots_as_its_projections_apart_do",
+      "lane_compile_lock::the_hybrid_step_convolves_its_query_key_and_value_in_one_launch",
+      "lane_compile_lock::a_gated_delta_layers_input_projections_are_one_launch_with_conv_and_gates",
+      "lane_compile_lock::a_gated_delta_layer_of_five_taps_keeps_its_inputs_apart",
+      "lane_compile_lock::a_steps_delta_rule_norms_its_query_and_key_heads",
+      "lane_compile_lock::the_hybrid_step_fuses_the_recurrence_and_the_gate",
+      "lane_compile_lock::a_wide_chunk_multiplies_its_f32_projections_in_tiles"
+    ],
+    "gemm_scale": [
+      "lane_compile_lock::a_scaled_projection_scales_in_its_epilogue"
     ],
     "gemv_bias": [
       "lane_compile_lock::the_biased_step_folds_its_biases_and_routes_by_an_f32_router"
@@ -122,6 +144,9 @@
       "lane_compile_lock::a_decode_mixture_adds_and_norms_in_its_last_down_block",
       "lane_compile_lock::a_wide_chunks_expert_combine_folds_into_the_next_add_and_norm"
     ],
+    "norm_scale": [
+      "lane_compile_lock::a_scaled_norm_is_one_row_kernel"
+    ],
     "qkv_head_epilogue": [
       "lane_compile_lock::the_dense_steps_fuse_where_their_dataflow_allows",
       "lane_compile_lock::the_decode_step_projects_one_activation_by_its_matrices_in_one_launch",
@@ -130,6 +155,9 @@
       "lane_compile_lock::the_biased_step_folds_its_biases_and_routes_by_an_f32_router",
       "lane_compile_lock::a_decode_layers_query_key_and_value_are_one_launch_with_their_head_epilogue",
       "lane_compile_lock::the_hybrid_step_fuses_the_recurrence_and_the_gate"
+    ],
+    "relu_sqr": [
+      "lane_compile_lock::a_relu_square_compiles_and_folds_into_its_producer"
     ],
     "rope_parts": [
       "lane_compile_lock::the_dense_steps_fuse_where_their_dataflow_allows",
@@ -165,6 +193,38 @@
     ]
   },
   "models": {
+    "arcee": {
+      "cuda": {
+        "identity": "LOGOS program: decode step, ctx 24, sha256 99ba026e93baf1521786a293a9ab88a394c25397a1803104f1f5b3d0fa127fa0",
+        "rules": {
+          "add_norm": 6,
+          "argmax_advance": 1,
+          "embed_norm": 1,
+          "fused_quant": 10,
+          "gemv_norm_epilogue": 6,
+          "gemv_parts": 3,
+          "qkv_head_epilogue": 6,
+          "relu_sqr": 3,
+          "row_write": 6
+        },
+        "symbols": {
+          "add_norm": 6,
+          "add_norm_quant": 6,
+          "embed_norm": 1,
+          "fused_sampling": 1,
+          "gemv_norm_epilogue": 6,
+          "glu_act_mul_quant": 3,
+          "merged_qkv": 3,
+          "norm_quant": 1,
+          "qkv_head_epilogue": 6,
+          "relu_sqr": 3,
+          "row_write": 6
+        }
+      },
+      "d5005": {
+        "refused": "a feed-forward block of ReLU (every layer)"
+      }
+    },
     "deepseek2": {
       "cuda": {
         "identity": "LOGOS program: decode step, ctx 24, sha256 9c211f292a031060edf669be0dd4baa0ef9f463ebe76db5b32461b81c2d425ac",
@@ -249,6 +309,46 @@
         "refused": "multi-head latent attention (every layer); a feed-forward block of experts (layers 1–2)"
       }
     },
+    "gemma2": {
+      "cuda": {
+        "identity": "LOGOS program: decode step, ctx 24, sha256 28881af7b05436ec10ab416fe3cf6ba4232f04e6d298d534cc1034979e9547a3",
+        "rules": {
+          "act_gate": 3,
+          "add_norm": 6,
+          "argmax_advance": 1,
+          "cap_argmax": 1,
+          "embed_norm": 1,
+          "fused_quant": 10,
+          "gather_scale": 1,
+          "gemv_norm_epilogue": 6,
+          "gemv_parts": 3,
+          "glu_pair": 3,
+          "qkv_head_epilogue": 6,
+          "row_write": 6,
+          "sandwich_norm": 6
+        },
+        "symbols": {
+          "add_norm": 6,
+          "add_norm_quant": 6,
+          "cap_argmax": 1,
+          "embed_norm": 1,
+          "embed_scale": 1,
+          "fused_sampling": 1,
+          "gemv_gate_up_glu": 3,
+          "gemv_norm_epilogue": 6,
+          "glu_act_mul": 3,
+          "glu_act_mul_quant": 3,
+          "merged_qkv": 3,
+          "norm_quant": 1,
+          "norm_then_add": 6,
+          "qkv_head_epilogue": 6,
+          "row_write": 6
+        }
+      },
+      "d5005": {
+        "refused": "attention with a sliding window (layers 0, 2); attention with soft-capped scores (every layer); a feed-forward block of GELU (every layer); a norm on the mixer's output (every layer); a norm on the feed-forward output (every layer); a scaled token embedding; soft-capped logits"
+      }
+    },
     "gemma3": {
       "cuda": {
         "identity": "LOGOS program: decode step, ctx 24, sha256 6a71447adfc9e3654ae6417436b1d9f6a7b76e613a9c6bb01318fb38fe78fcf1",
@@ -320,6 +420,40 @@
       },
       "d5005": {
         "refused": "attention with projection biases (every layer); attention with a sliding window (layers 0, 2); attention with attention sinks (every layer); a feed-forward block of experts (every layer)"
+      }
+    },
+    "granite": {
+      "cuda": {
+        "identity": "LOGOS program: decode step, ctx 24, sha256 facbf53fbefd938ae0ac385e718cee052772ea9f81e8dcd59d01306f869fc4a1",
+        "rules": {
+          "add_norm": 6,
+          "argmax_advance": 1,
+          "embed_norm": 1,
+          "fused_quant": 10,
+          "gather_scale": 1,
+          "gemm_scale": 7,
+          "gemv_parts": 3,
+          "glu_pair": 3,
+          "qkv_head_epilogue": 6,
+          "row_write": 6
+        },
+        "symbols": {
+          "add_norm": 6,
+          "add_norm_quant": 6,
+          "embed_norm": 1,
+          "embed_scale": 1,
+          "fused_sampling": 1,
+          "gemm_scale": 7,
+          "gemv_gate_up_glu": 3,
+          "glu_act_mul_quant": 3,
+          "merged_qkv": 3,
+          "norm_quant": 1,
+          "qkv_head_epilogue": 6,
+          "row_write": 6
+        }
+      },
+      "d5005": {
+        "refused": "a scaled token embedding"
       }
     },
     "llama": {
@@ -406,6 +540,42 @@
         }
       }
     },
+    "minicpm": {
+      "cuda": {
+        "identity": "LOGOS program: decode step, ctx 24, sha256 c277883cf8f2feb23debc36ec3986a1875719c3b09110ea6aa321ba735922afb",
+        "rules": {
+          "add_norm": 6,
+          "argmax_advance": 1,
+          "embed_norm": 1,
+          "fused_quant": 10,
+          "gather_scale": 1,
+          "gemm_scale": 6,
+          "gemv_parts": 3,
+          "glu_pair": 3,
+          "norm_scale": 1,
+          "qkv_head_epilogue": 6,
+          "row_write": 6
+        },
+        "symbols": {
+          "add_norm": 6,
+          "add_norm_quant": 6,
+          "embed_norm": 1,
+          "embed_scale": 1,
+          "fused_sampling": 1,
+          "gemm_scale": 6,
+          "gemv_gate_up_glu": 3,
+          "glu_act_mul_quant": 3,
+          "merged_qkv": 3,
+          "norm_quant": 1,
+          "norm_scale": 1,
+          "qkv_head_epilogue": 6,
+          "row_write": 6
+        }
+      },
+      "d5005": {
+        "refused": "a scaled token embedding"
+      }
+    },
     "qwen3": {
       "cuda": {
         "identity": "LOGOS program: decode step, ctx 24, sha256 79ded54051652c00c035480f3f19c2064cccb6ce35251d5a01bf215b7471078a",
@@ -461,12 +631,14 @@
           "conv_parts": 2,
           "conv_silu": 6,
           "conv_silu_l2": 4,
+          "delta_qk_norm": 2,
           "embed_norm": 1,
           "fused_quant": 13,
           "gate_projections": 2,
           "gates": 2,
+          "gdn_input_epilogue": 2,
           "gemv_norm_epilogue": 6,
-          "gemv_parts": 3,
+          "gemv_parts": 1,
           "glu_pair": 3,
           "head_norm_rope": 2,
           "qkv_head_epilogue": 2,
@@ -484,11 +656,12 @@
           "gated_norm": 2,
           "gdn_gate_projections": 2,
           "gdn_gating": 2,
+          "gdn_input_epilogue": 2,
           "gemv_gate_up_glu": 3,
           "gemv_norm_epilogue": 6,
           "glu_act_mul": 1,
           "glu_act_mul_quant": 3,
-          "merged_qkv": 3,
+          "merged_qkv": 1,
           "norm_quant": 1,
           "qk_norm_rope": 2,
           "qkv_head_epilogue": 2,

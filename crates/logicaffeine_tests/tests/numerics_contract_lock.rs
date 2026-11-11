@@ -18,6 +18,8 @@
 //!   merged matrix moves with the rows outside it.
 //! ★ MUTATION PROBE: declare the lane's one-word activations as two words → the lane's contract no longer follows its
 //!   knobs, and a product reads a form its chip does not declare.
+//! ★ MUTATION PROBE: give two 16-bit words the bound of a word of `2p` significand bits → a value the reference reads in
+//!   two words lies past it.
 //!
 //!   cargo nextest run -p logicaffeine-tests --test numerics_contract_lock
 //! ════════════════════════════════════════════════════════════════════════════════════════════════
@@ -39,7 +41,7 @@ use logicaffeine_compile::codegen_cuda::forward_shim::ForwardShim;
 use logicaffeine_compile::codegen_cuda::knobs::{CachePrecision, CudaKnobs, StatePrecision};
 use logicaffeine_compile::codegen_cuda::lane_shim::LaneShim;
 use logicaffeine_compile::codegen_cuda::qwen_emit::Q8MatKind;
-use logicaffeine_compile::model::reference::{quantize_activations, Activations};
+use logicaffeine_compile::model::reference::{quantize_activations, sixteen_bit_activations, Activations};
 use logicaffeine_compile::spatial::decode_engine::model::EngineNumerics;
 use logicaffeine_compile::spatial::decode_engine::numerics::{cache_row, hadamard, quantize, quantize_blocks, FpUnit, Words};
 use logicaffeine_compile::spatial::decode_engine::shim::EngineShim;
@@ -47,7 +49,7 @@ use logicaffeine_compile::spatial::shim::SpatialShim;
 use logicaffeine_compile::spatial::target::SpatialTarget;
 use logicaffeine_compile::tensor_graph::fuse::{leaves, optimize};
 use logicaffeine_compile::tensor_graph::graph::{QuantFormat, Sym, TensorGraph};
-use logicaffeine_compile::tensor_graph::numerics::{AttentionNumerics, Block, Bound, Keep, Scale, Scheme, Taken, BLOCK};
+use logicaffeine_compile::tensor_graph::numerics::{AttentionNumerics, Block, Bound, Keep, Scale, Scheme, SixteenBit, Taken, BLOCK};
 use logicaffeine_compile::tensor_graph::shim::{ReferenceShim, Shim};
 
 use lane_corpus::every_lane_cut;
@@ -56,7 +58,7 @@ use lane_corpus::every_lane_cut;
 fn shims() -> Vec<Box<dyn Shim>> {
     let mut out: Vec<Box<dyn Shim>> = Vec::new();
     for activations in [Q8MatKind::Dequant, Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
-        for cache_precision in [CachePrecision::F32, CachePrecision::F16] {
+        for cache_precision in [CachePrecision::F32, CachePrecision::F16, CachePrecision::E4m3] {
             for recurrent_state in [StatePrecision::F32, StatePrecision::Bf16] {
                 let knobs = CudaKnobs { activations, cache_precision, recurrent_state, ..CudaKnobs::default() };
                 out.push(Box::new(LaneShim { knobs, batch: false, held: Vec::new() }));
@@ -243,6 +245,32 @@ fn engine_weights(w: &[f32]) -> Vec<f64> {
     w.iter().map(|&v| (f64::from(v) * 2f64.powi(-e)).round_ties_even() * 2f64.powi(e)).collect()
 }
 
+/// How a product by a 16-bit float matrix reads its activation in `words` words of the matrix's own format holds its
+/// bound for both formats, bfloat16 and binary16, on every value of the reference's own reading below the format's
+/// range, and reaches at least two fifths of it somewhere: the bound is the words', not a guess.
+fn hold_sixteen(sixteen: SixteenBit) {
+    let mode = match sixteen.words {
+        1 => Activations::Int8,
+        2 => Activations::Int8TwoPass,
+        w => panic!("a 16-bit product reads its activation in no {w} words"),
+    };
+    for (ty, format) in [(GgmlType::Bf16, Keep::Bf16), (GgmlType::F16, Keep::F16)] {
+        let bound = sixteen.bound(format);
+        let mut reached = 0.0f64;
+        for b in blocks(64, 400) {
+            let b: Vec<f64> = b.into_iter().filter(|v| v.abs() <= format.range()).collect();
+            let kept = sixteen_bit_activations(&b, ty, mode);
+            for (&x, &k) in b.iter().zip(&kept) {
+                assert!(bound.holds(x, k, 0.0), "{sixteen:?} of {ty:?}: {x:e} read as {k:e} lies {:e} away, past {bound:?}", (x - k).abs());
+                if x.abs() * bound.of_value > 16.0 * bound.floor {
+                    reached = reached.max((x - k).abs() / (bound.of_value * x.abs()));
+                }
+            }
+        }
+        assert!(reached >= 0.4, "{sixteen:?} of {ty:?}: the worst error reaches {reached:.3} of the bound — the bound is not the words'");
+    }
+}
+
 /// How an attention takes an operand holds its bound: a kept float format's, or a scheme's.
 fn hold_taken(t: Taken) {
     match t {
@@ -299,6 +327,7 @@ fn hold_keep(keep: Keep) {
         return;
     }
     for b in blocks(64, 200) {
+        let b: Vec<f64> = b.into_iter().filter(|v| v.abs() <= keep.range()).collect();
         let kept: Vec<f64> = b.iter().map(|&v| keep.keep(v).expect("a float keeps a value at a time")).collect();
         worst(&bound, &b, &kept, block_max(&b), &format!("{keep:?}"));
     }
@@ -313,6 +342,17 @@ fn hold_keep(keep: Keep) {
         for v in [1.0f64, 1.0 + 2f64.powi(-12), 65504.0, 2f64.powi(-24), -3.25] {
             let half = logicaffeine_compile::model::quant::f16_to_f32(logicaffeine_compile::model::quant::f32_to_f16(v as f32));
             assert_eq!(keep.keep(v), Some(f64::from(half)), "binary16 keeps {v} as the model's own conversion does");
+        }
+    }
+    if keep == Keep::E4m3 {
+        use logicaffeine_compile::model::quant::{e4m3_to_f32, f32_to_e4m3};
+        for v in [1.0f64, 1.0625, 1.1875, 448.0, 2f64.powi(-9), 3.0 * 2f64.powi(-10), -3.25, 0.0] {
+            assert_eq!(keep.keep(v), Some(f64::from(e4m3_to_f32(f32_to_e4m3(v as f32)))), "e4m3 keeps {v} as the model's own conversion does");
+        }
+        // Past its range the format saturates: every value beyond ±448, infinities included, keeps ±448.
+        for v in [448.5f64, 464.0, 1e3, 3e4, f64::INFINITY] {
+            assert_eq!(keep.keep(v), Some(keep.range()), "e4m3 saturates {v} at its range");
+            assert_eq!(keep.keep(-v), Some(-keep.range()), "e4m3 saturates {} at its range", -v);
         }
     }
 }
@@ -334,6 +374,9 @@ fn every_knob_point_declares_its_bound() {
         assert!(matches!(c.accumulator_bits, 32 | 64), "`{name}` accumulates integers in {} bits", c.accumulator_bits);
         if let Some(scheme) = c.activations {
             hold_scheme(scheme);
+        }
+        if let Some(sixteen) = c.sixteen {
+            hold_sixteen(sixteen);
         }
         hold_keep(c.cache);
         hold_keep(c.state);
@@ -363,8 +406,12 @@ fn every_knob_point_declares_its_bound() {
     ] {
         hold_scheme(scheme);
     }
-    for keep in [Keep::Exact, Keep::F32, Keep::F16, Keep::Bf16, Keep::Int8Rows, Keep::Int8RowsRotated] {
+    for keep in [Keep::Exact, Keep::F32, Keep::F16, Keep::Bf16, Keep::E4m3, Keep::Int8Rows, Keep::Int8RowsRotated] {
         hold_keep(keep);
+    }
+    // Every reading of a 16-bit product's activation a chip can take: one word of the matrix's format and two.
+    for words in [1, 2] {
+        hold_sixteen(SixteenBit { words });
     }
 }
 
@@ -372,7 +419,7 @@ fn every_knob_point_declares_its_bound() {
 #[test]
 fn the_lanes_contract_follows_its_knobs() {
     for activations in [Q8MatKind::Dequant, Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8] {
-        for cache_precision in [CachePrecision::F32, CachePrecision::F16] {
+        for cache_precision in [CachePrecision::F32, CachePrecision::F16, CachePrecision::E4m3] {
             for recurrent_state in [StatePrecision::F32, StatePrecision::Bf16] {
                 let knobs = CudaKnobs { activations, cache_precision, recurrent_state, ..CudaKnobs::default() };
                 let c = LaneShim { knobs, batch: false, held: Vec::new() }.numerics().expect("the lane declares its contract");
@@ -382,6 +429,14 @@ fn the_lanes_contract_follows_its_knobs() {
                     Q8MatKind::TwoPassInt8 => Some(Scheme::of(QuantFormat::TwoWords)),
                 };
                 assert_eq!(c.activations, scheme, "{knobs:?}");
+                // A product by a 16-bit float matrix reads its activation `f32` under the precise numerics, and on the
+                // tensor cores in one word of the matrix's format or two under the quantized ones.
+                let sixteen = match activations {
+                    Q8MatKind::Dequant => None,
+                    Q8MatKind::Int8Act => Some(SixteenBit { words: 1 }),
+                    Q8MatKind::TwoPassInt8 => Some(SixteenBit { words: 2 }),
+                };
+                assert_eq!(c.sixteen, sixteen, "{knobs:?}: a 16-bit product's activation");
                 let row = |words| Taken::Quantized(Scheme { block: Block::Row, scale: Scale::MaxOver127, words });
                 let attention = match activations {
                     Q8MatKind::Dequant => None,
@@ -389,7 +444,12 @@ fn the_lanes_contract_follows_its_knobs() {
                     Q8MatKind::TwoPassInt8 => Some(AttentionNumerics { queries: row(2), keys_values: row(2), weights: row(3) }),
                 };
                 assert_eq!(c.attention, attention, "{knobs:?}");
-                assert_eq!(c.cache, if cache_precision == CachePrecision::F16 { Keep::F16 } else { Keep::F32 }, "{knobs:?}");
+                let cache = match cache_precision {
+                    CachePrecision::F32 => Keep::F32,
+                    CachePrecision::F16 => Keep::F16,
+                    CachePrecision::E4m3 => Keep::E4m3,
+                };
+                assert_eq!(c.cache, cache, "{knobs:?}");
                 assert_eq!(c.state, if recurrent_state == StatePrecision::Bf16 { Keep::Bf16 } else { Keep::F32 }, "{knobs:?}");
             }
         }
@@ -412,6 +472,17 @@ fn the_lanes_narrowed_attentions_are_held_on_the_device() {
         assert!(body.contains("require_gpu()"), "cuda_lane_lock::{test} runs on the device");
     }
     assert_eq!(LaneShim::attention(Q8MatKind::Dequant), None, "the dequantized numerics attend in f32");
+}
+
+/// The 16-bit words the lane's tensor cores multiply are held on the device to the reference's reading of the
+/// activation: `lk_h16_words` against `sixteen_bit_activations`, bit for bit, in both formats and both word counts.
+#[test]
+fn the_lanes_sixteen_bit_words_are_held_on_the_device() {
+    let suite = std::fs::read_to_string(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/cuda_lane_lock.rs")).expect("the lane's suite");
+    let test = "the_tensor_cores_sixteen_bit_words_are_the_references_reading";
+    let at = suite.find(&format!("#[test]\nfn {test}()")).unwrap_or_else(|| panic!("cuda_lane_lock::{test} holds the 16-bit words"));
+    let body = &suite[at..suite[at + 1..].find("\n#[test]").map_or(suite.len(), |e| at + 1 + e)];
+    assert!(body.contains("require_gpu()") && body.contains("sixteen_bit_activations"), "cuda_lane_lock::{test} runs on the device against the reference");
 }
 
 /// The engine's contract follows its build's numerics at every knob point: the activation scheme from its words and its
@@ -445,6 +516,7 @@ fn the_engines_contract_follows_its_numerics() {
             }),
         };
         assert_eq!(c.attention, attention, "{numerics:?}: the array's attention");
+        assert_eq!(c.sixteen, None, "{numerics:?}: a 16-bit product reads its activation in f32");
         assert_eq!(c.accumulator_bits, 64, "{numerics:?}: integer dots exact in i64");
     }
 }
@@ -1188,4 +1260,17 @@ fn every_chip_fused_equals_apart_within_its_declared_bound() {
     the_engines_merged_projections_are_each_projection_alone();
     every_spatial_chips_joins_compute_their_sections();
     every_gpu_chip_names_where_its_claim_is_held();
+}
+
+/// Every cache scheme the lane stores declares its bound (PARITY-KV-CACHE-QUANT): each `cache_precision` the lane's
+/// contract names keeps every value within its range inside its bound, and its range is the format's — f32's largest,
+/// binary16's 65504, fp8 e4m3's 448, where it saturates.
+#[test]
+fn every_cache_scheme_declares_its_bound() {
+    for (cache_precision, range) in [(CachePrecision::F32, f64::from(f32::MAX)), (CachePrecision::F16, 65504.0), (CachePrecision::E4m3, 448.0)] {
+        let knobs = CudaKnobs { cache_precision, ..CudaKnobs::default() };
+        let c = LaneShim { knobs, batch: false, held: Vec::new() }.numerics().expect("the lane declares its contract");
+        assert_eq!(c.cache.range(), range, "{cache_precision:?}: the format's range");
+        hold_keep(c.cache);
+    }
 }

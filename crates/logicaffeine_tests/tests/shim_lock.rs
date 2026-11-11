@@ -23,6 +23,7 @@ mod tiny_models;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use logicaffeine_compile::codegen_cpu::shim::{CpuActivations, CpuCache, CpuIsa, CpuShim};
 use logicaffeine_compile::codegen_cuda::forward_shim::ForwardShim;
 use logicaffeine_compile::codegen_cuda::knobs::CudaKnobs;
 use logicaffeine_compile::codegen_cuda::lane_link::Link;
@@ -60,6 +61,15 @@ fn shims() -> Vec<Box<dyn Shim>> {
     for tiny in [tiny_models::Tiny::Qwen35, tiny_models::Tiny::Qwen3] {
         out.push(Box::new(EngineShim { spec: Box::leak(Box::new(tiny.spec(24))), numerics: EngineNumerics::precise() }));
     }
+    for isa in CpuIsa::ALL {
+        for activations in [CpuActivations::Values, CpuActivations::OneWord] {
+            for cache in CpuCache::ALL {
+                for fuse in [true, false] {
+                    out.push(Box::new(CpuShim { isa, activations, cache, fuse }));
+                }
+            }
+        }
+    }
     out.push(Box::new(ReferenceShim));
     out
 }
@@ -71,6 +81,7 @@ const SHIMS: &[(&str, &str)] = &[
     ("ForwardShim", "codegen_cuda/forward_shim.rs"),
     ("SpatialShim", "spatial/shim.rs"),
     ("EngineShim", "spatial/decode_engine/shim.rs"),
+    ("CpuShim", "codegen_cpu/shim.rs"),
 ];
 
 /// The reference shim answers no class by name: everything is linked whole by its definition.
@@ -192,22 +203,7 @@ fn every_shim_answers_every_class() {
 /// no chip links whole yet, each with the book's ticket that links it on CUDA. A class the shared table newly builds
 /// joins with that ticket; a chip that links one takes it off.
 const AWAITING_A_LINK: &[(ClassId, &str)] = &[
-    (ClassId::NormScale, "PARITY-NORM-SCALE"),
-    (ClassId::GemmScale, "PARITY-GEMM-SCALE"),
-    (ClassId::AffineInputFold, "PARITY-AFFINE-INPUT-FOLD"),
-    (ClassId::PrefillNormEpilogues, "PARITY-PREFILL-NORM-EPILOGUES"),
-    (ClassId::ReluSqr, "PARITY-RELU-SQR"),
-    (ClassId::RecomputeFanout, "PARITY-RECOMPUTE-FANOUT"),
-    (ClassId::DualNorm, "PARITY-DUAL-NORM"),
-    (ClassId::CrossLayerLaunch, "PARITY-CROSS-LAYER-LAUNCH"),
-    (ClassId::MlaUnabsorbInFold, "PARITY-MLA-UNABSORB-IN-FOLD"),
-    (ClassId::MlaPrologue, "PARITY-MLA-PROLOGUE"),
-    (ClassId::GdnInputEpilogue, "PARITY-GDN-INPUT-EPILOGUE"),
-    (ClassId::GdnDecodeWhole, "PARITY-GDN-DECODE-WHOLE"),
-    (ClassId::GdnPostConvPrep, "PARITY-GDN-POST-CONV-PREP"),
     (ClassId::LastLayerRows, "PARITY-LAST-LAYER-ROWS"),
-    (ClassId::QkNormRopeGateSplit, "PARITY-QK-NORM-ROPE-GATE-SPLIT"),
-    (ClassId::HorizontalNormRopeInsert, "PARITY-HORIZONTAL-NORM-ROPE-INSERT"),
 ];
 
 /// Every tiny architecture's cuts, compiled by the lane under every numerics, each with the lane shim it compiles
@@ -388,13 +384,13 @@ fn misaligned_head_product(g: &TensorGraph) -> Op {
 fn a_decomposed_class_whose_part_is_refused_is_refused_whole_by_name() {
     let corpus = lane_corpus();
     let (what, g, shim) = corpus.iter().find(|(_, g, _)| g.ops.iter().any(|o| o.prim().is_some_and(|p| p.kind() == "HeadMatmul"))).expect("a cut with a per-head product");
-    assert_eq!(shim.supports(ClassId::NormScale), Support::Decompose, "the lane runs a norm and its scale apart");
+    assert_eq!(shim.supports(ClassId::DualNorm), Support::Decompose, "the lane runs two norms of one source apart");
     let part = misaligned_head_product(g);
     let Allow::Refuse(part_why) = allows(shim, &part, g) else { panic!("{what}: the lane refuses a per-head product off the blocks") };
-    let fused = Op { sym: Sym::Fused(Fused { class: ClassId::NormScale, parts: vec![part.clone()] }), ..part.clone() };
+    let fused = Op { sym: Sym::Fused(Fused { class: ClassId::DualNorm, parts: vec![part.clone()] }), ..part.clone() };
     match allows(shim, &fused, g) {
         Allow::Refuse(why) => {
-            assert!(why.contains("norm_scale") && why.contains("HeadMatmul") && why.contains(&part_why), "{what}: the refusal names the class, the part and its reason: {why}");
+            assert!(why.contains("dual_norm") && why.contains("HeadMatmul") && why.contains(&part_why), "{what}: the refusal names the class, the part and its reason: {why}");
         }
         other => panic!("{what}: a class run as parts with a refused part answers {other:?}"),
     }

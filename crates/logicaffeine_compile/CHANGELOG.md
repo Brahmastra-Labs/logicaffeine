@@ -70,6 +70,176 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   files}`; `spatial::lineage::Lineage::runs_apart`; `spatial::certificate::{compute_obligation, checked, RecheckFault}`;
   `codegen_sva::pnr_certificate::{Obligation, PlacementCertificate::{carries, refutes}}`, every reader of an external
   placement rebuilding its obligation before it replays the proof; `spatial::compile_cache`, the section cache.
+- `codegen_cpu`, the CPU tier (PARITY-CPU-SHIM): a checkpoint's decode step and prefill chunks linked from the one IR
+  into a C++17 program for the host's cores (`codegen_cpu::model::compile_model`, `examples/model_cpu.rs`), the GGUF
+  mapped and its rows read in place. `codegen_cpu::shim::CpuShim` answers the shared optimizer for each instruction set
+  (x86 AVX2 with AVX-VNNI and F16C linked; AVX-512, Arm NEON dot and RVV refused by name) at two numerics points — a
+  product's activation in one word a 32-value block, its dots exact in 32-bit integers, or as its values — its attention
+  caches (`CpuCache`) `f32`, binary16 (llama.cpp's default cache), int8 codes under one binary16 scale a head's row, or
+  those rows turned by the Walsh–Hadamard transform before they are quantized (a turned cache's attention takes its
+  query turned and turns its output back), each int8 row written as `Keep::keep_row` keeps it, codes and scale bit for
+  bit; and `fuse` links every fused class whole or as its parts. `codegen_cpu::kernels` is the library: products by
+  Q8_0, Q4_K, Q6_K and f32 rows, a vector's lanes a product's outputs — eight outputs a vector, each lane's block dot
+  exact in 32 bits (`vpdpbusd` against four broadcast activation codes), each output one `f32` chain in block order, so
+  every output is the bits it is alone however the outputs are grouped (a chunk's rows through panel kernels that stage
+  a block of outputs in the core's cache), norms, rotations, attention (a GQA group's heads over each key and value row
+  together; a row attending more than `kernels::ATTN_SPLIT` positions a split at a time, the splits merged by
+  log-sum-exp and spread over the threads where a step's rows are too few to fill them, each row the bits of its span
+  under either schedule), mixtures of experts, the gated delta rule, convolutions, latent attention's per-head products
+  and the rest of the IR's primitives, as units a phased thread pool (`lk_phases`) shares. `codegen_cpu::link` emits
+  each op as a run of phases, a fused op one run of its parts' phases, each part's units computed by the function it
+  runs alone. Every tiny architecture links: within 1e-5 of the evaluator under the precise point, every op within 3e-2
+  of the evaluator's on the same inputs under one word (`cpu_shim_lock`).
+- `TensorGraph::cache_units`: every attention's cache with the widths of the units a cache kept a row at a time keeps
+  its rows in — a head's row where an attention reads the cache itself, the whole row where it reads a part (a
+  latent's); `caches` is its names.
+- `codegen_cuda::lane` reads a matrix a checkpoint keeps in BF16 or F16 in place, two bytes a weight, where it widened
+  it to `f32` values on the host (PARITY-WEIGHT-FORMATS, phase 1): `lane::weights::place` places it as rows in its own
+  format (`kernels::reads_in_place`, `kernels::sixteen`), and `lk_row_dot` hands its rows to `lk_h16_dot`, which widens
+  eight weights a lane in registers (`lk_h16`) and reads the activation `f32` under every numerics — so the GEMV, the
+  GEMV in parts, the gated pair, the folds and the gather (`lk_gather_sub`) all take it. Its products read their
+  activation `f32` (`LaneShim::activation`, `Launch::projected_input`, `Launch::reads_sixteen`) and never take the int8
+  tensor cores; per-head products and expert mixtures in 16 bits are refused by name. A BF16 Llama-3.2-1B compiles to
+  2,425 MiB read in place and 115 launches a token, where it compiled to 5,785 MiB of `f32` values and 195; every other
+  program's machine code is unchanged.
+- `codegen_cuda::lane` takes a gated delta layer's inputs as one launch (`gdn_input_epilogue`, PARITY-GDN-INPUT-EPILOGUE,
+  K-09): `lk_gemv_gdn` runs the layer's products of its activation as one GEMV in parts and carries each convolution
+  channel through its taps and SiLU in the epilogue (`lk_conv_tap`, the ring advanced in place), each gate through
+  `lk_act<1>` and `lk_forget`, and each query and key head through its L2 norm in the block that finishes the head
+  (`lk_l2_unit`); gates projected in `f32`, as Qwen3.8's are, take the launch's last blocks as `lk_gate_proj` does
+  (`lk_gate_heads`). `lk_conv_parts`, `lk_gates`, `lk_decay` and `lk_gate_proj` call the same helpers, so the launches
+  apart compute what the fold computes bit for bit. The launch is `Launch::Fold` of the GEMV in parts, its
+  convolutions and its gates (`Launch::gdn_inputs`, kind `gemv_gdn`); `plan::RULES` holds the rule. Qwen3.5-0.8B's
+  decode step runs 123 launches a token where it ran 159. `tensor_graph::fuse`'s rule takes the gates' products of the
+  layer's activation where the gates take them apart, so a chip that runs Q8_0 gates only inside the epilogue folds all
+  six.
+- `model::spec` reads Granite (`granite`), MiniCPM (`minicpm`) and Arcee (`arcee`) checkpoints. `ModelSpec` gains
+  `residual_scale` (each sublayer's output times it before the residual: Granite's `residual_multiplier`, MiniCPM's
+  `scale_depth / √layers`) and `logit_scale: Option<LogitScale>`, `AfterHead` for Granite's logits divided by
+  `logit_scale` and `BeforeHead` for MiniCPM's output norm divided by it ahead of the head. Granite's multipliers are
+  optional and zero means none; MiniCPM's default to llama.cpp's 12, 1.4/√layers and 256/d. `Act::ReluSquared` is
+  Arcee's ungated FFN, relu of the up projection squared, with no gate projection. `model::author` writes all three
+  (`X scaled by C` after a sublayer's post-norm and on the chosen side of the head; `relu of` then `hadamard`), and
+  `model::reference` computes them; a tensor-parallel relu² FFN is refused by name, and so is relu² on the D5005
+  engine (`decode_engine::capability`). `model::triage` reads under the three new names.
+- The CUDA lane links every fusion class of `benchmarks/fusion_parity.json`:
+  - `norm_scale`: a scale of a norm's result rides the norm's own launch (`Launch::Norm::scale`, `lk_rmsnorm`'s factor
+    after the `f32` rounding). `tensor_graph::fuse`'s `norm_scale` also takes the norm closing an add and norm or a
+    sandwich, and the epilogue quantize folds over a scaled norm (`fuse::scaled_norm`).
+  - `gemm_scale`: every GEMV and GEMM store goes through one epilogue, `lk_epi`: a bias, a scale (a factor, a constant
+    row, or a constant of the product's shape), a constant added after, each step rounded as its own launch rounds it
+    (`Launch::Gemv::epi`, `plan::Epilogue`). `lk_parts` carries one per part.
+  - `relu_sqr`: `relu of` links (`Launch::Relu`, `lk_relu`, a NaN and either zero giving +0 as the language's `max`
+    does), relu² is one launch that quantizes for its product, and `fuse`'s `relu_sqr` folds it into the up
+    projection's epilogue where the projection quantizes too or nothing reads it quantized.
+  - `softcap`: `capped at C` links (`Launch::Softcap`, `lk_softcap`); every attention kernel caps its scores
+    (`Launch::Attention::cap`, `lk_cap`).
+  - `attention_variants_inline`: every attention kernel also takes a chunked-local window (`Launch::Attention::chunked`,
+    `lk_window_lo`), Llama 4's mask.
+  - `kv_cache_quant`: `CachePrecision::E4m3` stores every attention's cache in fp8 e4m3, saturating at ±448 as vLLM's
+    scale-one fp8 cache does, rounded by every cache writer and read by every attention kernel (`DType::E4m3`,
+    `numerics::Keep::E4m3` with its range, `model::quant::{f32_to_e4m3, e4m3_to_f32}`, `reference::KvStorage::E4m3`).
+  - `allreduce_norm`: `fuse`'s rule takes an all-reduce as the one program spells it (the left fold of `plus` over
+    products' partials) into the add and norm its sum feeds (`Launch::Norm::fold`, `lk_fold`), or into the post-norm
+    that takes the sum alone (Gemma's), the norm reading its last partial onto the others' fold. `lane::compile_split`
+    compiles a decode step split over chips (`program::written_split`) for one device, each rank's slice of a matrix
+    read in place (`weights::place_slice`).
+- `tensor_graph::fuse`'s `cap_argmax` (class `cap_argmax`) folds a soft cap that an arg-max alone reads into the
+  arg-max's read: `lk_argmax` takes each value through `lk_cap` in its registers (`Launch::ArgMax::cap`) and writes the
+  capped row as it reads it where something reads it (`Launch::ArgMax::y`), so Gemma 2's step runs no cap launch, every
+  capped logit bit for bit what the cap's own launch writes. `CudaKnobs::logits` (`Logits::Written`, the default, or
+  `Unread`): a lane whose host takes only each next token, `StepIo::logits_read` saying whether a step's host reads its
+  logits; unread, the arg-max writes no capped row. `model::author` writes each of a batch's sequences' logits as
+  its own row of the head's, soft-capped as the decode step caps its logits, so a greedy batch folds every sequence's
+  cap into its arg-max, and the batch's arg-maxes, one launch over the sequences, write the stacked capped rows. A
+  program whose logits are unread refuses `--logits`; the
+    products' partials) into the add and norm its sum feeds (`Launch::Norm::fold`, `lk_fold`). `lane::compile_split`
+    compiles a decode step split over chips (`program::written_split`) for one device, each rank's slice of a matrix
+    read in place (`weights::place_slice`).
+- `CudaKnobs::logits` (`Logits::Written`, the default, or `Unread`): a lane whose host takes only each next token.
+  `StepIo::logits_read` says whether a step's host reads its logits, and `tensor_graph::fuse`'s `cap_argmax` (class
+  `cap_argmax`) folds a soft cap that an arg-max alone reads into the arg-max's read: `lk_argmax` takes each value through
+  `lk_cap` in its registers (`Launch::ArgMax::cap`), so Gemma 2's greedy step runs no cap launch and writes no capped
+  logits, and picks the tokens its capped logits pick. A program whose logits are unread refuses `--logits`; the
+  `model_lane` example compiles one with `--logits=unread`. `tensor_graph::smt`'s exact identities give a soft cap (a
+  strictly increasing function of each value) and an arg-max (the index of the first greatest value) their meanings,
+  under which Z3 proves the arg-max of a capped row is the row's own.
+- `tensor_graph::fuse`'s `allreduce_sumsq_norm` (class `allreduce_sumsq_norm`) takes a norm of a whole row joined from
+  parts, whose result slices alone read, each taking one part back, as one op over the parts (`joined_parts`,
+  `parts_norm`). The CUDA lane links it as `Launch::NormParts`: `lk_sumsq` writes each part's sum of squares — the one
+  value a row a part sends — and `lk_norm_by_sums` norms each part where it lives by their sum, writing it where its
+  slice lands; a norm of a joined row apart sums it by the same parts, so the two agree bit for bit. `model::author`
+  splits a QK norm across every head (MiniMax-M2's) over chips that hold whole KV groups, in the decode step and the
+  batch: every chip's projections joined, the row normed, each chip's heads taken back; `check_tp` refuses one over
+  more chips than KV heads by name.
+- OLMo 2 (and OLMo 3's windows): `model::spec`'s `olmo2` arm and `Layer::pre_norms` — a layer whose sublayers read
+  the residual stream itself, normed only after each; its queries and keys each normed across every head, a QK norm one
+  head wide refused by name; all but every fourth block windowed where the checkpoint sets a window, turning by
+  `rope.freq_base_swa` unscaled. `model::author` writes every form of it (`mixer_input`, `ffn_input`), tensor
+  parallelism included, and refuses a hyper-connected residual without pre-norms by name; `model::reference` runs it;
+  `model::hf` reads `Olmo2ForCausalLM` and `Olmo3ForCausalLM` configurations and checkpoints; `model::triage` reads
+  checkpoints as `olmo2`. The D5005 engine and the Qwen3.8 hybrid emitter refuse sublayers that read the residual
+  unnormed by name.
+- `tensor_graph::numerics::Keep::keep_row` keeps a cache row as each scheme of `kv_cache_quant` defines it — a float
+  format value by value, an int8 row under its one binary16 scale, a row turned by the Walsh–Hadamard transform
+  (`numerics::hadamard`) first and turned back — and `Keep::row_block` names the block its bound is taken over.
+  `Keep::keep_row_deciding` is the same keep with its scale's rounding and each code's side another's to decide.
+- `model::reference::KvStorage::Int8Rows` and `KvStorage::Int8RowsRotated` keep each head's row of keys and of values,
+  and a latent's whole row, as `Keep::keep_row` keeps it, plain or turned; each head's scale and each of its codes are
+  near calls (`RoundingCall` of word `CACHE_WORD` for a code, the new `CACHE_SCALE_WORD` for a scale) a run may decide
+  the other way, and a turned row whose width is not a power of two is refused by name.
+- `codegen_cuda::lane` streams a matrix in host memory to the device a launch at a time (`residence::Plan::streamed`,
+  PARITY-HOST-WEIGHT-STREAMING): before a launch that reads it whole, the copy engine copies it into one of two device
+  slots once the slot's last reader is done, and the launch reads the slot — so a prefill chunk reads it over the link
+  once, not once a 128-row tile, at the copy engine's rate (3.7–4.0 GB/s on the 3060's PCIe x4, against 2.2–2.6 for a
+  kernel's mapped reads). A table only gathered from and an expert stack stay mapped (a step reads their rows); a matrix
+  past `residence::SLOT_CAP` stays on the device after every one that streams leaves it. The slots and their copies'
+  graph memory (`residence::staging`) come out of the memory the program finds free before it places its arrays, and
+  sit beside a `--device-bytes` budget, so `residence::place` places the arrays as before; the program prints how many
+  matrices it streams (`STREAMED:`).
+- A batch's projections over Q4_K, Q6_K, Q4_0, Q4_1, Q5_0 and Q5_1 rows run on the int8 tensor cores in the decode
+  step's own order (`lk_gemv_mma_blk<F>`, `Launch::batch_blk_format`): under one word a block, two to 16 rows, every
+  projection, merged projection and gated pair whose `k` is whole blocks of its format and whose parts are whole
+  64-output blocks. The decode GEMV's lane L takes the units L, L + 32, … of a row (a Q4_K pair of sub-blocks, a Q6_K
+  quarter, a 32-value block) and `lk_warp_sum` folds the 32 lanes; here each half sub-block's int8 dot is one
+  m16n8k16 `mma` for 16 rows by 8 outputs, its term `lk_sub_dot`'s with each multiply and add spelled out in the
+  order the decode's compiled term takes them for the format, a block of 16 warps 64 outputs with warp w the lanes w
+  and w + 16 — the tree's first level in the warp, its last four over shared memory, each written out — so every
+  sequence of a batch keeps its decode step's bits. A Q4_K or 32-value-block warp holds both lanes' sums over eight
+  n-tiles in its 128 registers (no stack frame); a Q6_K warp sums one lane at a time, parking the first in the
+  level-one table. On the RTX 3060 at 16 rows, against the GEMV that took
+  them (`lk_gemv_blk<F, 1, 16>`): Llama-3.2-1B's gate and up 374 → 123 µs, its Q6_K head 5,926 → 1,038 µs, Qwen3-8B's
+  gate 530 → 157 µs, Gemma-3-1B's Q5_0 gate and up 389 → 97 µs. At 16 sequences of a 1,024-token prompt: Llama-3.2-1B
+  Q4_K_M 678 → 1,907 tok/s, Qwen3-8B Q4_K_M 132 → 411, Gemma-2-2B Q4_K_M 780.
+- `codegen_cuda::lane` multiplies a BF16 or F16 matrix on the 16-bit tensor cores under the quantized numerics
+  (PARITY-WEIGHT-FORMATS, phase 2): the activation rounded in registers to one word of the matrix's format, or two (the
+  second the first's remainder), its rows summed in `f32` — up to `GEMV_ROWS` activation rows in the GEMV's lanes
+  (`lk_h16_mma_rows`, up to sixteen output rows a warp, `kernels::sixteen_rows_a_warp`), more rows by the 16-bit GEMM
+  (`lk_gemm_h16`, a batch's too, dense, in parts and as a gated pair), and the precise numerics on the CUDA cores as
+  phase 1 left them. `model::reference` rounds a 16-bit product's activation as the lane does, each binary16 or bfloat16
+  rounding near a half-way point a call a run may take the other way (`BF16_WORD`, `F16_WORD`).
+- `codegen_cuda::lane`'s attention takes a step's chunks warp-local where its block's heads fit a warp's registers
+  (`kernels::attn_warp_heads`: `f32` sums, at most eight heads 64, 128 or 256 wide): each warp a run of keys, each lane
+  a key's eight, four or two values (`kernels::attn_lane_values`), the warps' partials combined over shared memory a
+  pass of heads at a time (`attn_warp_pass`, `attn_warp_slots`); such a block holds two blocks a multiprocessor in
+  waves, where three spilled. A 16-row chunk of Qwen3-8B at depth 8,192 on the 3060: 1.5 ms by the tile chunks, 0.94
+  warp-local.
+- `codegen_cuda::lane`'s chunk attention on the f16 tensor cores takes a stream-K schedule (`Launch::Attention`'s
+  `stream`, `kernels::attn_mma_stream`, `attn_mma_schedule`): behind the blocks of the whole waves, an item a block, the
+  blocks the chip holds at once split the remaining items' tiles evenly, each part's partial folded by the last of its
+  item's parts to arrive, in key order — an item one block covers whole is the bits one block computes. Over a binary16
+  cache at every width, over another where heads and values are at most 128 wide. On the 3060 at Llama-3.2-1B's shape
+  after 3,584 keys over the `f32` cache: 1,236 µs one block an item, 866 µs under the schedule.
+- `delta_qk_norm`, the CUDA lane's own rule in the one IR's table (`LaneShim::rules`, after `gdn_input_epilogue`; the
+  class `delta_qk_norm`): a gated delta step norms each query and key head it reads itself (`Launch::Delta`'s `qk`)
+  where a block of its layer's inputs' launch holds less than a head; a launch that norms each head in the block that
+  computes it keeps its norms. `tensor_graph::fuse::Rewriter::hand_over` moves a fold's parts to the op that reads
+  them: the inputs' fold keeps the rest, each member computing what a handed part read in its place.
+- `codegen_cuda::lane`'s prefill chunks before the prompt's last run none of the launches only the output reads
+  (`emit::output_only`: the final norm, the head, the arg-max; the arg-max's advance of the position kept apart,
+  `lk_advance`), in graphs of their own (`--whole-chunks` runs them whole), K-29 part 1. With the I2FP sums below, each
+  4,096-token prompt of Qwen3-8B, Gemma-3, Qwen3.5 and Gemma-2 the 3060 measured behind llama.cpp's (its binary16 cache)
+  leads it: Qwen3-8B Q4_K_M 2,063 ms against 2,175.
 
 
 
@@ -150,6 +320,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `RduChipFacts::simd` records each SIMD stage's formats; the RDU target's elementwise and row-reduce units take
   them; `from_qwen_ops::cache_precision` holds a key or value cache at the products' narrowest float, and the set-row
   forms write a cache at that width.
+- `codegen_cuda::lane` uploads an MXFP4 matrix's rows regrouped, each row's sub-blocks 16 to a group, a group's 16
+  exponents before its 16 nibble words (`kernels::row_bytes`, `kernels::MXFP4_GROUP`; `lk_mx_exp`, `lk_mx_nib`,
+  `lk_mx_row_bytes` and `lk_mx_regroup` in the block library, one layout map the decoders and `upload_mxfp4` share), 4.25
+  bits a weight kept: every reader takes a sub-block's nibbles as one aligned 16-byte word and its exponent as one byte,
+  where the tensor-core GEMM's fetch read a 17-byte block a byte at a time. A block format's staged unit is
+  `kernels::unit` (MXFP4's group of 272 bytes) and the bytes an upload keeps past its rows `kernels::tail_bytes`.
+  gpt-oss-20b's 512-row prefill on the 3060: 257.2 ms before, 232.9 after.
+- `codegen_cuda::lane`'s `lk_gemv_gdn` (K-09) copies each row's convolution operands and gate constants into shared
+  memory by `cp.async` from the warp's idle lanes while the row's dot streams, where each warp read its ring and taps
+  after the dot; only the blocks holding a normed head's rows fence and count. A convolution of more than
+  `kernels::GDN_TAPS` (4) taps keeps the layer's inputs apart. Qwen3.5-0.8B's decode step on the 3060: 293 tokens a
+  second before, 308 after, every logit the same.
+- `codegen_cuda::lane`'s block-format tensor-core GEMM holds two blocks a multiprocessor on a 64-row tile under one word
+  (`lk_gemm_blk_blocks`, its launch bounds), Q2_K, Q3_K and Q5_K kept at one, whose halves' scales and offsets beside the
+  multiply need more registers; an expert mixture's grouped outputs store as `f32` directly. gpt-oss-20b's 512-row
+  prefill 241.6 ms → 187.5, DeepSeek-V2-Lite's 197.6 → 174.8, every token the same.
+- `codegen_cuda::lane`'s int8 tensor-core GEMMs read an `mma`'s int32 sum as a float by the conversion where it issues
+  on the float pipe (I2FP, sm_86 on; `lk_dot_f`, `lk_dot0`): the sum begins at zero, where it began at the bits of
+  1.5·2²³ and one float subtraction read it — the same float either way. The streamed Q8_0 GEMM under both numerics and
+  the block path and batch GEMV under one word: medians 3.5–8.9% faster, every output the same
+  (`a_block_gemm_reads_its_sums_the_same_on_every_architecture`).
+- `codegen_cuda::lane` uploads a Q6_K matrix's rows grouped eight blocks to a unit, the group's binary16 scales before
+  its blocks' other 208 bytes (`lk_q6_regroup`, `kernels::row_bytes`, 1,680 bytes a unit), so every block's levels are
+  aligned 16-byte words.
+- `codegen_cuda::lane`'s block-format GEMM stores a product's outputs at once where each is its sum into an `f32` array
+  — no bias, no epilogue step (`lk_gemm_blk`'s `PLAIN`, `emit::blk_plain`) — so the epilogue's general steps take no
+  registers from the tile's multiply: Qwen3.5-0.8B's 8,192-output in-projections at 512 rows on the 3060, in parts, 607
+  µs → 380.
 
 
 
@@ -323,6 +521,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   last use it stored the reference itself (`&LogosSeq`, `&LogosMap` or `&mut T`, which did not build), elsewhere a
   second handle on the caller's buffer, which a later write to the parameter changed: the stored list printed
   `[5, 1, 2]` where the language prints `[5, 1]` (`e2e_ref_semantics`).
+- `codegen_cuda::lane`'s spare holds what its graphs take: a captured node takes 21.2–21.6 KiB of the RTX 3060's
+  memory under driver 580 (Llama-3.2-1B's and Qwen3-8B's batch lanes, the free memory before and after their
+  graphs), where `residence::SPARE_A_LAUNCH` reserved 16 and Qwen3.8-27B's program ran out of memory instantiating
+  its 19th graph; it now reserves 24, and every program prints the memory its graphs took (`GRAPH_BYTES:`).
+- `tensor_graph::graph::Op::writes` names every table and state a fused op's parts write however deep they lie: a
+  fused op holding another (a merged projection holding a key's norm, rotation and cache insert) left out the cache
+  row its inner part lands, so the dataflow facts every rule reads missed the write. The optimized graphs every shim
+  builds are unchanged (`fusion_class_lock::a_fused_op_writes_every_table_and_state_its_parts_write`).
 - `codegen_sva::timing_graph`: a box is its module, its outputs' `Cost` and the `Area` an instance takes
   (`script`, `netlist`, `synthesize`), the area written as `logos_box_area` only when it is not none, so a netlist
   cached by its script's hash is the same one. `spatial::decode_engine::rtl::ram::memory_boxes` names every memory the

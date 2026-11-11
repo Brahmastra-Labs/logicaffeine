@@ -268,9 +268,10 @@ pub struct TransposeSpec {
     pub cols: usize,
 }
 
-/// `P = the first K of every N of X` / `the last K of every N of X` — one part of every group of `every` consecutive
-/// elements of `X`'s `n`: the `width` elements from offset `from` of each group, in order (`P[g·width + i] =
-/// X[g·every + from + i]`). A head's part of a row of heads, or a part of every cached row.
+/// `P = the first K of every N of X` / `the last K of every N of X` / `the K after the first F of every N of X` — one
+/// part of every group of `every` consecutive elements of `X`'s `n`: the `width` elements from offset `from` of each
+/// group, in order (`P[g·width + i] = X[g·every + from + i]`). A head's part of a row of heads, or a part of every
+/// cached row.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeadSliceSpec {
     pub x: Symbol,
@@ -1278,8 +1279,8 @@ fn match_head_slice<'a>(body: &'a [Stmt<'a>]) -> Option<HeadSliceSpec> {
     None
 }
 
-/// Recognize `Let P be the first K of every N of X` / `the last K of every N of X` — a loop over the groups, each
-/// pushing its `K` elements `X[(g·N + i) + from]`.
+/// Recognize `Let P be the first K of every N of X` / `the last K of every N of X` / `the K after the first F of every N
+/// of X` — a loop over the groups, each pushing its `K` elements `X[(g·N + i) + from]`.
 pub fn recognize_head_slice(stmts: &[Stmt]) -> Option<HeadSliceSpec> {
     find_in_bodies(stmts, match_head_slice)
 }
@@ -2795,8 +2796,8 @@ struct Heads<'a> {
 }
 
 /// The loops of an attention desugar's heads, whatever its softmax: the head loop (the `While` among `body`'s statements
-/// whose body Lets the per-head `scores`), its body, its bound, the `kvh` divisor, and the score loop's bound and inner
-/// bound.
+/// whose body Lets the per-head `scores`), its body, its bound, the `kvh` divisor, and the score loop's index, bound and
+/// inner bound.
 struct HeadLoops<'a> {
     /// The head loop's body.
     body: &'a [Stmt<'a>],
@@ -2806,6 +2807,8 @@ struct HeadLoops<'a> {
     group: usize,
     /// The positions attended: the score loop's bound.
     bound: &'a Expr<'a>,
+    /// The score loop's index, the position each score is of.
+    at: Symbol,
     /// The head dimension: the score loop's inner bound.
     hd: usize,
 }
@@ -2835,13 +2838,13 @@ fn head_loops<'a>(body: &'a [Stmt<'a>]) -> Option<HeadLoops<'a>> {
         } => as_int(right).map(|g| g as usize),
         _ => None,
     })?;
-    let (bound, hd) = hbody.iter().find_map(|st| match st {
+    let (at, bound, hd) = hbody.iter().find_map(|st| match st {
         Stmt::While {
             cond:
                 Expr::BinaryOp {
                     op: BinaryOpKind::LtEq,
+                    left: Expr::Identifier(at),
                     right,
-                    ..
                 },
             body: sb,
             ..
@@ -2854,16 +2857,16 @@ fn head_loops<'a>(body: &'a [Stmt<'a>]) -> Option<HeadLoops<'a>> {
                     None
                 }
             })
-            .map(|hd| (*right, hd as usize)),
+            .map(|hd| (*at, *right, hd as usize)),
         _ => None,
     })?;
-    Some(HeadLoops { body: hbody, h, group, bound, hd })
+    Some(HeadLoops { body: hbody, h, group, bound, at, hd })
 }
 
 /// The head loop of a float attention desugar among `body`'s statements, with its value width, its score scale, its
 /// window and its sinks.
 fn attention_heads<'a>(body: &'a [Stmt<'a>]) -> Option<Heads<'a>> {
-    let HeadLoops { body: hbody, h, group, bound, hd } = head_loops(body)?;
+    let HeadLoops { body: hbody, h, group, bound, at, hd } = head_loops(body)?;
     // The weighted sum writes the output: its loop runs over the value head width.
     let vd = hbody.iter().find_map(|st| match st {
         Stmt::While { cond, body: wb, .. } if wb.iter().any(|s| matches!(s, Stmt::SetIndex { .. })) => {
@@ -2888,16 +2891,31 @@ fn attention_heads<'a>(body: &'a [Stmt<'a>]) -> Option<Heads<'a>> {
     let scale = (pushed.to_bits() != (1.0f64 / (hd as f64).sqrt()).to_bits()).then(|| Factor::new(pushed));
     // A window binds its first position in the head loop, and the score loop starts there: `max(1, n − (W − 1))` for
     // the last `W`, `((n − 1)/C)·C + 1` for a chunk of `C`.
-    let window = hbody.iter().find_map(|st| match st {
-        Stmt::Let { value: Expr::Call { args, .. }, .. } => match args.as_slice() {
+    let windowed = hbody.iter().find_map(|st| match st {
+        Stmt::Let { var, value: Expr::Call { args, .. }, .. } => match args.as_slice() {
             [one, Expr::BinaryOp { op: BinaryOpKind::Subtract, left, right }] if as_int(one) == Some(1) && same_length(left, bound) => {
-                as_int(right).map(|k| Window::Sliding(k as usize + 1))
+                as_int(right).map(|k| (*var, Window::Sliding(k as usize + 1)))
             }
             _ => None,
         },
-        Stmt::Let { value, .. } => chunk_start(value, bound).map(Window::Chunked),
+        Stmt::Let { var, value, .. } => chunk_start(value, bound).map(|c| (*var, Window::Chunked(c))),
         _ => None,
     });
+    // The score loop starts at the first position, or at the window's: one starting anywhere else (a row's own start,
+    // `with rows starting at R`) is no attention this spec holds.
+    let start = hbody.iter().find_map(|st| match st {
+        Stmt::Let { var, value, .. } if *var == at => Some(*value),
+        _ => None,
+    })?;
+    let from_window_or_one = match (windowed, start) {
+        (Some((lo, _)), Expr::Identifier(x)) => *x == lo,
+        (None, first) => as_int(first) == Some(1),
+        _ => false,
+    };
+    if !from_window_or_one {
+        return None;
+    }
+    let window = windowed.map(|(_, w)| w);
     // Sinks start the softmax's maximum at `max(scores[1], S[head])`.
     let sinks = hbody.iter().find_map(|st| match st {
         Stmt::Let { value: Expr::Call { args, .. }, .. } => match args.as_slice() {

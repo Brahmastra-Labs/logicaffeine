@@ -35,6 +35,7 @@ pub fn emit_fused_row_solution(
     inputs: &[&str],
     output: &str,
 ) -> SolSolution {
+    assert_eq!(spec.weight_rows, 1, "the SOL-ExecBench kernel reads one weight row; `compile_to_sol_solution` refuses a norm in lanes");
     let chip = knobs.chip;
     let layernorm = matches!(spec.reduce, RowReduceKind::LayerNorm);
     let residual = !layernorm && spec.residual.is_some();

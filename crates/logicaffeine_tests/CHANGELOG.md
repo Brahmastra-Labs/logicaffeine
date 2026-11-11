@@ -71,6 +71,105 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `model_hf_intake_lock`, `model_tiny_checkpoint_lock` and `model_conformance_lock`;
   `spatial_mixed_precision_lock`'s held cache and island-reads-an-accumulator tests;
   `spatial_one_ir_lock::every_op_family_lowers_from_its_own_file`.
+- `lane_compile_lock::a_steps_delta_rule_takes_its_heads_norms_only_where_its_inputs_launch_holds_no_whole_head`: on
+  every gated delta case in Q8_0 and in BF16 and F16, under every numerics, the decode step with `delta_qk_norm` is the
+  one with it held but for each inputs' launch whose blocks hold less than a head — its convolutions writing the heads
+  unnormed, the delta rule reading them norming them by the convolutions' epsilon; a launch holding whole heads keeps
+  its norms. Both outcomes are met.
+- `fusion_class_lock::a_chips_rule_hands_a_folds_parts_to_the_op_reading_them`: a chip rule handing a one-row gated
+  delta layer's query and key norms from its input epilogue to the delta rule (`Rewriter::hand_over`) leaves the
+  epilogue's convolutions ending at their SiLU and the rule one `delta_qk_norm` op reading the SiLU's results, every
+  fold whole (`folds_are_whole`: covers, results, kept tensors), meaning what the lifted graph means through a run of
+  steps; held, the graph is the reference's.
+- `cpu_shim_lock::every_op_the_census_locks_name_the_cpu_a_computer_of_it_computes_as_the_evaluator_does`: the lane
+  sums, the signed root, the mean and the spread over lanes, a norm with a weight row a lane, a capped attention and a
+  gated delta rule gated by a sigmoid and by SiLU, and the n-gram ids, each linked by the CPU tier at the precise point
+  and under one word, built and run within `PRECISE` of the evaluator; `tensor_lane_gate_lock`, `tensor_lane_mix_lock`,
+  `tensor_lane_norm_lock`, `tensor_softcap_lock`, `tensor_gated_delta_gate_lock` and `qwen4_exp_ngram_lock` name
+  `codegen_cpu/link.rs` among the files that compute their ops (Tristen's ruling).
+- `cpu_shim_lock` (PARITY-CPU-SHIM): every CPU instruction set under each numerics, cache and fusion point answers every
+  registered class — linked whole exactly where `codegen_cpu::kernels::LINKED_WHOLE` says, a fused one as its parts with
+  fusion off — the library computes what its reference computes (each product's outputs the bits they are alone in any
+  grouping), every tiny architecture's cut links within 1e-5 of the evaluator under the precise point and each op within
+  3e-2 of the evaluator's under one word, and a long cache attends a split at a time as the evaluator computes.
+- `weight_format_lock` (PARITY-WEIGHT-FORMATS): a BF16 or F16 checkpoint holds the `f32` checkpoint's values, streams
+  two bytes a weight read in place, its products read their activation `f32`, and every program of Llama, Qwen3,
+  Gemma-3 and Qwen3.5 in both formats builds with its widening in registers; an MXFP4 matrix regrouped at upload is the
+  stored matrix under its layout map (`a_repacked_matrix_is_the_stored_matrix_under_its_layout_map`, evaluated from the
+  kernels' own source), and its tensor-core GEMM fetches each sub-block's nibbles in one load
+  (`an_mxfp4_gemm_fetches_each_sub_blocks_nibbles_in_one_load`, read off the PTX). `tiny_models::write_checkpoint_in`
+  writes a checkpoint as llama.cpp's converter does in a 16-bit format, and
+  `cuda_lane_lock::every_weight_format_computes_what_its_dequantized_matrix_computes` holds those to the reference.
+- K-09's gated delta input epilogue: `fusion_class_lock::a_gated_delta_layers_input_epilogue_takes_its_gates_products_where_they_stay_apart`,
+  `lane_compile_lock::a_gated_delta_layers_input_projections_are_one_launch_with_conv_and_gates`, and
+  `cuda_lane_lock::the_gdn_input_epilogue_computes_what_its_launches_compute_apart` over
+  `tiny_models::gated_delta_cases` (gates in `f32` and Q8_0, 2048 wide, Qwen3.8's heads, heads of 512);
+  `lane_compile_lock::a_gated_delta_layer_of_five_taps_keeps_its_inputs_apart` holds the inputs' launch to the four taps
+  its warps copy in.
+- `lane_compile_lock::every_one_word_expert_gemm_takes_two_blocks_a_multiprocessor`: every grouped expert GEMM under
+  one word in Q8_0 and every block format but Q2_K, Q3_K and Q5_K uses at most 128 registers with no spill and two
+  blocks' shared memory fit a multiprocessor; those three, one block with no spill.
+- Every fusion class of `benchmarks/fusion_parity.json` held on the CUDA lane: `lane_compile_lock`'s
+  `a_scaled_norm_is_one_row_kernel`, `a_scaled_projection_scales_in_its_epilogue`,
+  `a_relu_square_compiles_and_folds_into_its_producer`, `a_capped_attention_caps_inside_its_kernel`,
+  `every_attention_kernel_takes_a_cap_and_a_mask`, `a_chunked_local_attention_keeps_its_own_chunk_inside_its_kernel`,
+  `a_quantized_cache_is_written_and_read_in_its_format` and `a_tensor_parallel_step_folds_each_all_reduce_into_its_norm`;
+  `cuda_lane_lock`'s `a_scaled_projection_computes_what_its_launches_compute_apart`,
+  `a_relu_square_computes_what_the_reference_computes`, `relu_square_and_the_soft_cap_meet_their_edge_values`,
+  `a_capped_attention_computes_what_its_reference_computes`, `a_chunked_local_attention_computes_what_its_reference_computes`,
+  `the_lanes_e4m3_cache_rounds_as_the_model_rounds`, `an_e4m3_cache_decodes_alike_in_every_form_and_near_its_reference`
+  and `a_tensor_parallel_step_computes_what_its_launches_compute_apart`; `model_reference_lock`'s
+  `e4m3_rounds_every_f32_to_its_nearest_code_ties_to_even` and `an_e4m3_cache_keeps_each_key_and_value_as_vllms_fp8_cache_does`;
+  `numerics_contract_lock::every_cache_scheme_declares_its_bound`; `bringup_lock`'s VM runs of the four new tiny
+  architectures.
+- The greedy form (`CudaKnobs::logits` `Unread`, `cap_argmax`): `fusion_class_lock::a_cap_before_an_argmax_is_dropped_and_the_argmax_is_unchanged`,
+  `lane_compile_lock::a_greedy_step_folds_its_final_cap_into_its_arg_max`,
+  `cuda_lane_lock::a_greedy_step_generates_what_its_capped_logits_pick`, `cap_argmax`'s hold-back witness, and in
+  `tensor_rule_proof_lock` the identity that an arg-max reads through a soft cap with
+  `proven::an_arg_max_reads_through_an_increasing_map_and_not_a_decreasing_one`; `cuda_knob_consumers_lock` honors
+  `logits`. `fusion_class_lock::an_all_reduce_feeding_an_add_and_norm_fuses` (PARITY-ALLREDUCE-NORM's own witness: two
+  to eight ranks, a sandwich, a tree-shaped sum and a summand no product writes left apart, Qwen3 and Llama split).
+  `lane_compile_lock::every_attention_kernel_takes_a_cap_and_a_mask` builds every capped program with nvcc.
+  `fusion_class_lock::a_norms_all_reduce_carries_only_its_sum_of_squares` (PARITY-ALLREDUCE-NORM's second witness: two
+  to eight parts joined as a fold and as a tree, each part written by a product apart from the norm, five ways the
+  norm stays apart, a whole QK norm split over two and four chips in the decode step and a batch), `lane_compile_lock::a_tensor_parallel_whole_qk_norm_sends_one_sum_of_squares_a_chip`,
+  `cuda_lane_lock::a_tensor_parallel_whole_qk_norm_computes_what_its_launches_compute_apart`, the rule's hold-back
+  witness, and `tensor_latent_attention_lock::a_part_after_the_first_f_of_every_head_is_the_middle_of_each`;
+  `one_ir_lock::the_shared_table_fires_what_the_lane_fires` gains `qwen3-whole-over-2`, where the rule fires.
+- OLMo 2: `tiny_models::Tiny::Olmo2`, `bringup_lock::the_vm_runs_olmo2_to_the_references_tokens`,
+  `model_tiny_checkpoint_lock`'s `an_olmo2_checkpoint_reads_back_as_its_spec` (OLMo 3's windows too) and
+  `an_olmo2_checkpoint_whose_qk_norm_is_a_heads_is_refused_by_name`, OLMo 2's row of `model_triage_lock`'s readers, five
+  AllenAI releases in `model_hf_intake_lock::every_published_configuration_reads` (`scripts/accel/fetch-hf-configs.sh`),
+  `model_golden_lock::olmo2_1b_matches_its_llama_cpp_goldens` and
+  `cuda_lane_lock::olmo2_1b_meets_every_activation_precisions_bar` (and on long prompts) over its goldens in
+  `benchmarks/models/olmo2-1b/`.
+- `tensor_attention_masks_lock` (PARITY-ATTENTION-VARIANTS-INLINE): every mask alone and beside a window, chunks, a
+  scale, a cap and sinks, in the single query's form and a causal block's, the `f64` formula on the VM, the
+  tree-walker, C and AOT-Rust; each misfit refused by name; no masked attention lifted as the unmasked one.
+- `model_reference_lock::a_cache_in_int8_rows_keeps_each_heads_row_as_the_meaning_does` and
+  `a_cache_in_int8_rows_makes_its_codes_and_scales_calls_a_run_may_take_the_other_way`: the reference's int8-row caches,
+  plain and turned, keep the first layer's rows exactly as `Keep::keep_row` does, every row as codes under a binary16
+  scale, the logits within a tenth of their largest, and record each code and each scale near its other outcome as a
+  call whose flip moves one head's row (a scale to its binary16 neighbour, bit for bit).
+- `d5005_lower_graph_lock::the_engines_hadamard_cache_is_the_shared_symbols_link` (PARITY-KV-CACHE-QUANT): the engine's
+  int8 and rotated int8 caches are `Keep::Int8Rows` and `Keep::Int8RowsRotated` in its contract, its program turns every
+  attention block's queries, keys and values under the rotated one, and its run sits nearer the reference keeping its
+  rows by that scheme than the exact one.
+- `fusion_class_lock::a_quantized_cache_row_reads_back_what_its_scheme_keeps` (PARITY-KV-CACHE-QUANT's class witness):
+  every cache scheme's rows within its bound, the turned int8 rows' worst error under a third of the plain rows' over
+  32 uniform rows each with one channel a hundred times the rest, and the D5005 engine's int8 and Hadamard rows within
+  the same bounds.
+  `lane_compile_lock::a_tensor_parallel_post_norm_folds_its_all_reduce_into_the_norm` and Gemma 3 in
+  `cuda_lane_lock::a_tensor_parallel_step_computes_what_its_launches_compute_apart` hold a split post-norm. The
+  attention kernel tests (`cuda_lane_lock::the_tiled_attention_computes_what_the_attention_computes`,
+  `the_flash_attention_computes_what_the_attention_computes`, `the_tensor_core_attention_computes_what_the_attention_computes`,
+  `the_two_word_attention_computes_what_the_attention_computes` and `the_shared_row_attention_computes_what_the_attention_computes`) hold each shape capped at 50 and, where windowed, in
+  chunks of its span (`attention_variants`), each chunk's boundary inside a tile. Gemma-2-2B joins the real checkpoints:
+  its llama.cpp goldens in `benchmarks/models/gemma2-2b/`, `model_golden_lock::gemma2_2b_matches_its_llama_cpp_goldens`
+  and `cuda_lane_lock::gemma2_2b_meets_every_activation_precisions_bar` (and on long prompts).
+- `tiny_models::ALL` gains MiniCPM, Arcee, Granite and Gemma 2, the architectures that carry `norm_scale`, `relu_sqr`,
+  `gemm_scale` and the soft caps; `model_tiny_checkpoint_lock` and `model_triage_lock` read them back and triage them.
+- `model_conformance_lock`: Granite's multipliers (embedding, residual, attention scale, logits after the head), MiniCPM's scaled head (the output norm scaled before the head) and Arcee's ungated relu² FFN each prefill and decode on the VM to the reference's logits; `each_multiplier_moves_the_logits` keeps the reference from ignoring a multiplier. `model_tiny_checkpoint_lock`: Granite, MiniCPM and Arcee checkpoints read back as their specs, MiniCPM's absent multipliers read llama.cpp's defaults and Granite's absent ones read none.
 - `timing_calibration_lock`'s `no_build_whose_memory_quartus_built_in_its_fabric_is_calibrated`, `timing_graph_lock`'s
   `a_box_given_its_area_by_its_caller_adds_it_for_every_instance_as_a_declared_one_does`, `d5005_rtl_lock`'s
   `the_timing_model_boxes_every_memory_the_generator_writes_its_parts_included` and the timing graph's unit
@@ -111,6 +210,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   link, and the entry's run line, `largo lean check` and the `logos-kernel` binary check through `dag::arena::run`.
 - `arena_scoreboard_lock` holds every measured test to its peak-memory ceiling as well as its instruction ceiling
   (`logos-arena-ceilings/3`).
+- With Tristen's approval (rulings 1–3 and 5–8 of the fusion round): `lane_compile_lock`'s staged-unit lock takes Q6_K's
+  unit as its group of eight blocks, its arena lock places a zeroed state a form holds alone, its latent-attention byte
+  lock quantizes the expert stacks, its wide-chunk locks count and find the block GEMM, dense and in parts, with either
+  epilogue and its attention-wave lock names the tile chunks; `cuda_lane_lock`'s spare lock types the `.weight` matrices
+  as its doc says and its stream-K lock's helper is `halves`. `shim_lock` knows the CPU shim, and the classes the CPU
+  tier links whole leave `AWAITING_A_LINK`; `one_ir_lock`'s shared-table differential names the lane's own
+  `delta_qk_norm` beside `gemv_parts` and `latent_expanded`, and its lane-link differential sets aside a chunk
+  attention's stream-K count (`Attention::stream`, a split count the schedule sets after the link);
+  `cuda_lane_lock`'s 16-bit `delta_qk_norm` lock keeps its norms on Qwen3.5 with the real checkpoint's heads (sixteen
+  rows a warp, a block a whole head of 128), where the tiny model at 2048 wide, its gates' four outputs taking four rows
+  a warp, moves them; the lane pins (`one_ir_identity/lane.txt`) and the tiny fusion map are
+  re-recorded for the round's kernels, `delta_qk_norm`, `allreduce_sumsq_norm` and `cap_argmax`.
+- `model_conformance_lock::a_qk_norm_across_every_head_equals_the_reference` holds the boundary the sum-of-squares
+  all-reduce draws: a QK norm across every head splits over chips that each hold whole KV heads, and over more chips
+  than KV heads it is refused by name.
+- With Tristen's approval: six older-rule `lane_compile_lock` tests hold `gdn_input_epilogue` back where they hold the
+  rules apart, the hybrid step's census counts `gemv_gdn`, and the lane census fixtures of Qwen3.5-0.8B (159 → 123
+  launches), DeepSeek-V2-Lite and gpt-oss-20b (a16eceecb's norm-width rule) are re-recorded; `a_matrix_takes_the_bytes_its_upload_carves`
+  carves MXFP4's regrouped rows, and the staged unit's lock is
+  `every_block_formats_staged_unit_is_its_decoded_unit` (MXFP4's unit its group of 16 sub-blocks, Q6_K's its group of
+  eight blocks, every other format's its checkpoint block); `cuda_lane_lock::the_block_projections_last_block_norms_as_the_norm_launch_does` takes Llama
+  and DeepSeek-V2 wide in Q4_K, and `the_mixtures_last_step_norms_as_the_norm_launch_does` holds every chunk's fold and
+  the decode step's only where its down block holds the norm — the folds K-18's `block_holds_its_norm` leaves.
+- With Tristen's approval, as the classes they named moved onto the lane: `shim_lock`'s refused-part example is
+  `dual_norm` (was `norm_scale`), and `norm_scale`, `gemm_scale` and `relu_sqr` leave `AWAITING_A_LINK`;
+  `lane_compile_lock::what_the_lane_cannot_compile_is_refused_by_name` refuses a fused query, key and value projection
+  (was a soft cap); `one_ir_lock::the_shared_table_fires_what_the_lane_fires` compares Qwen3 four times as wide split
+  over two ranks too, its floor counting that lane's one form, and Gemma 2 with its logits unread, where `cap_argmax`
+  fires. The lane identity pins (`one_ir_identity/lane.txt`),
+  `fusion_map_tiny.json` and `layer_tour_qwen35.md` (K-09's `gemv_gdn`) are re-recorded over the new kernels and
+  models; the spatial identity pins gain the four new families' 32 artifacts alone, every pinned digest kept.
+  `tensor_softcap_lock`'s cap-less shims are the forward and the D5005 engine, the CUDA lane at every knob point now
+  resolving every capped program (`…_and_every_spatial_shim_and_the_cuda_lane_resolve_it`).
+  `lane_compile_lock::a_tensor_parallel_step_folds_each_all_reduce_into_its_norm` holds every fold but the last to
+  writing its residual on, the last feeding the output norm alone. `cuda_lane_lock::a_capped_attention_computes_what_its_reference_computes` and
+  `a_chunked_local_attention_computes_what_its_reference_computes` hold one word over their short prompt alone, a
+  prompt past a chunk making more near roundings than the reference's near calls account for.
+  `fusion_class_lock::an_all_reduce_feeding_an_add_and_norm_fuses` holds an all-reduce a post-norm takes alone to that
+  norm's own op, the residual's add and norm after it its own (was both norms in one op, which no program forms), and
+  Gemma 3 split over chips to a fold a post-norm; `cuda_knobs_lock`'s `KNOB_FIELDS` names `logits`. `common::lane_cuts`
+  lifts a form with the io its plan took (whether its host reads its logits).
+- `common::identity_pins::hold` adds pins without moving one: `LOGOS_UPDATE_FIXTURES=new` records only the artifacts
+  a family's fixture does not pin, `new:<prefix>,…` only those whose key begins with a prefix named, each pinned digest
+  kept and a header line naming what was added on which tree — new artifacts recorded beside moved ones that await
+  their own approval.
+- `model_triage_lock`: a Llama- or Qwen3-shaped checkpoint is read exactly as Gemma, GLM-4, Llama, MiniCPM, Phi-3, Qwen2 and Qwen3, a Qwen3-MoE one also as MiniMax-M2, a Gemma 3 one also as Gemma 2 and GLM-4: the true readers once the triage reads under every architecture an arm reads.
 
 ### Fixed
 - `bringup_lock` follows the chips it tests: the SN50 brings up an expert mixture (it deploys SambaNova's published families), the D5005 refuses it naming "experts"; the undescribed checkpoint is written with no metadata (`tiny_models::write_bare_checkpoint`), since every tiny checkpoint now carries its keys.
@@ -1377,7 +1522,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The fusion ledger credits the compiled generation lane.** `benchmarks/fusion_parity.json` marks 28 of its 36 classes `compiled`, 11 before: the QK-norm, rotation and cache-row writes, the gated products and their quantization, merged and paired projections, projection biases, the folded shared expert, experts grouped over a chunk's rows, split-K decode attention, tiled prefill attention, latent attention, the delta rule, the convolution with its SiLU and the arg-max on the device — each citing its census in `lane_compile_lock` and its values test in `cuda_lane_lock`; windows and sinks inside the attention kernel are `partial`. `fusion_parity_lock` accepts a census through the lane's compiler (`census_compiles`: a `lane_compile_lock` test, every one of which compiles through `codegen_cuda::lane`) beside the single-token forward, raises its floor to 28, and `a_census_must_compile_through_a_compiler` refuses a GPU values test or a hand-written lane's test as a census. `lane_compile_lock::the_decode_step_attends_a_long_cache_in_chunks_one_launch_a_layer` is the split-K decode census.
 - **Where a lane's matrices live.** `lane_compile_lock` walks every architecture's plan under every numerics, and an expert model with its head tied, down a budget a byte smaller at a time: one more matrix moves each time, in the order a step misses them least (a tied table after the expert stacks, read whole by the head), the two sides summing to the whole, to the refusal a byte under the arrays that cannot move; it pins the program's placement constants, its order and each upload's rank to the plan, a matrix's bytes to its pooled arrays, and a tied head to its table's upload. `cuda_lane_lock` builds every tiny architecture and the wide models in every block format once under every numerics and runs each on the memory it finds free and on `--device-bytes` of its whole, half its matrices and none — the same tokens and logits bit for bit, each placement `residence::place`'s, and the refusal by name before it allocates — and runs Llama-3.2-1B while another process holds all of the device but half its matrices, which it moves to host memory on its own and generates the same. gpt-oss-20b joins the real checkpoints held to every activation precision's bar, on the RTX 3060.
 - **Every format the reader dequantizes, the lane reads.** `lane_compile_lock::every_format_the_reader_dequantizes_the_lane_reads` holds every block format `model::quant` reads to a lane decoder (`kernels::decodes`) and to `tiny_models::BLOCK_FORMATS`, the one list every lane lock runs — the GPU locks' six lists of their own folded into it — so a format the reader gains turns the census red until the lane decodes it and every lock runs it; IQ4_NL and IQ4_XS join them.
-- **The staged per-head matmul fits a block's default shared memory.** `lane_compile_lock::every_staged_per_head_launch_fits_the_default_shared_memory` holds every staged launch of DeepSeek-V2's wide program, in each format the staged decode reads, to its rows plus `kernels::AXPY_SUMS` within 48 KB, and `cuda_lane_lock::the_staged_per_head_matmul_takes_the_shared_memory_its_tile_leaves` holds `AXPY_SUMS` to the static shared memory the driver reports for the kernel in each of those formats. `lane_compile_lock::every_block_formats_staged_unit_is_its_checkpoint_block` holds the kernels' `lk_unit_bytes`, `lk_unit_subs` and `lk_axpy_pitch`, evaluated on the host from their source, to each format's checkpoint block and to `kernels::axpy_pitch`.
+- **The staged per-head matmul fits a block's default shared memory.** `lane_compile_lock::every_staged_per_head_launch_fits_the_default_shared_memory` holds every staged launch of DeepSeek-V2's wide program, in each format the staged decode reads, to its rows plus `kernels::AXPY_SUMS` within 48 KB, and `cuda_lane_lock::the_staged_per_head_matmul_takes_the_shared_memory_its_tile_leaves` holds `AXPY_SUMS` to the static shared memory the driver reports for the kernel in each of those formats. `lane_compile_lock::every_block_formats_staged_unit_is_its_decoded_unit` (then named for the checkpoint block) holds the kernels' `lk_unit_bytes`, `lk_unit_subs` and `lk_axpy_pitch`, evaluated on the host from their source, to each format's checkpoint block and to `kernels::axpy_pitch`.
 - **Every row-reading kernel decodes in registers.** `lane_compile_lock::every_row_reading_kernel_keeps_its_decode_in_registers` compiles the decode step of an expert model with every matrix in each format under both quantized numerics and holds every projection, gated-pair and expert kernel to no stack frame and no spill, as `ptxas` reports it.
 - **A real IQ4_XS checkpoint.** Llama 3.2 1B as bartowski's IQ4_XS quantization (its projections IQ4_XS, its values Q5_K, its tied table Q6_K) joins the real checkpoints: llama.cpp's goldens of it and of its f32 copy (`examples/gguf_f32`) in `benchmarks/models/llama3.2-1b-iq4xs`, `model_golden_lock::llama3_2_1b_iq4xs_matches_its_llama_cpp_goldens` (the reference's top logits within 1e-5 of llama.cpp's f32 run), and `cuda_lane_lock::llama3_2_1b_iq4xs_meets_every_activation_precisions_bar`: the precise and two-word lanes follow llama.cpp's f32 run 499 of 512 steps, its shipped run 411.
 - **DeepSeek's latent attention, held piece by piece and whole.** `tensor_latent_attention_lock` holds the head slices, joins and per-head matmul, an attention reading values narrower than its keys at a given scale, and the absorbed latent-attention step to their `f64` formulas (the absorbed step to the expanded attention it computes) on the VM, the tree-walker, C and AOT-Rust, their lifting into `HeadSliceSpec`, `JoinSpec`, `HeadMatmulSpec` and `AttentionSpec::{vd, scale}`, their refusals by name, and the spatial IR's lowering of the narrower values and the absorbed step (its `f32` twin within 2⁻¹⁶ of the VM); `tensor_moe_weighting_lock` holds `without renormalizing` the same way. The probe corpus gains `head_slice`, `join` and `head_matmul` for the backend matrix and both spatial ledgers (`PROGRAM_PATH_FLOOR` 31, the kernel registry's frozen total 887). `common/tiny_models.rs` adds two DeepSeek-V2s (the Lite layout with one `attn_kv_b`, and a low-rank query with `attn_k_b`/`attn_v_b`), each with a dense first layer, a shared expert and un-renormalized routing, so every lane lock over `ALL` covers latent attention; `lane_compile_lock::the_latent_step_absorbs_each_heads_query_and_reads_its_values_in_the_cache` pins their step's census, its per-head products' layouts and its strided values, and `cuda_lane_lock`'s precision bar adds DeepSeek-V2-Lite.

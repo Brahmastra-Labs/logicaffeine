@@ -526,6 +526,7 @@ const CONSUMERS: &[(&str, &str)] = &[
     ("spatial/link.rs", "computes"),
     ("spatial/passes/from_qwen_ops.rs", "computes"),
     ("codegen_cuda/fused_row.rs", "computes"),
+    ("codegen_cpu/link.rs", "computes"),
     ("spatial/passes/from_tensor_op.rs", "refuses"),
     ("tensor_graph/fuse.rs", "refuses"),
     ("codegen_cuda/forward_shim.rs", "refuses"),

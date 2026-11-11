@@ -24,7 +24,7 @@ use logicaffeine_compile::codegen_cuda::lane::{compile, LaneOptions};
 use logicaffeine_compile::codegen_cuda::qwen_emit::Q8MatKind;
 use logicaffeine_compile::codegen_cuda::{
     emit_fused_row, emit_fused_row_solution, emit_swiglu, lower_matmul_to_cuda_with, CudaChip,
-    CachePrecision, CudaKnobs, LoadWidth, MatmulPrecision, StatePrecision,
+    CachePrecision, CudaKnobs, LoadWidth, Logits, MatmulPrecision, StatePrecision,
 };
 use logicaffeine_compile::intern::Interner;
 use logicaffeine_compile::model::spec::ModelSpec;
@@ -32,7 +32,7 @@ use logicaffeine_compile::tensor_recognize::{
     Epsilon, FusedRowSpec, MatmulSpec, RowReduceKind, SwiGluSpec,
 };
 
-const HONORED: &[&str] = &["precision", "chip", "cuda_graphs", "fuse_quant", "activations", "recurrent_state", "cache_precision"];
+const HONORED: &[&str] = &["precision", "chip", "cuda_graphs", "fuse_quant", "activations", "recurrent_state", "cache_precision", "logits"];
 const NOT_YET_READ: &[&str] = &["gemv_load", "kv_cache"];
 
 /// Every tiny architecture with its checkpoint, written once per process.
@@ -126,6 +126,7 @@ fn flipped(knob: &str) -> CudaKnobs {
         "activations" => k.activations = Q8MatKind::Int8Act,
         "recurrent_state" => k.recurrent_state = StatePrecision::Bf16,
         "cache_precision" => k.cache_precision = CachePrecision::F16,
+        "logits" => k.logits = Logits::Unread,
         other => panic!("`{other}` is a knob this lock does not know how to flip — add it"),
     }
     assert_ne!(k, CudaKnobs::default(), "flipping `{knob}` must move it off its default");

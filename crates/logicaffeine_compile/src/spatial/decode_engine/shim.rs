@@ -87,9 +87,9 @@ impl Shim for EngineShim<'_> {
             GemvNormEpilogue | PrefillNormEpilogues | AttnResidualNorm | RecomputeFanout | ElementwiseChains | ElementwiseRegions => Decompose,
             QkNormRope | QkNormRopeKvAppend | RopeKvAppend | RopeQkOneLaunch | QkNormRopeGateSplit | QkvHeadEpilogue => Decompose,
             HorizontalNormRopeInsert | CrossLayerLaunch | ConvParts | ConvSiluL2norm | GdnGateProjections | GdnInputEpilogue => Decompose,
-            GdnPostConvPrep | GdnDecodeWhole | GemvGateUpGlu | MergedGateUp | GemmDequantInkernel | FusedSampling | LastLayerRows => Decompose,
+            GdnPostConvPrep | GdnDecodeWhole | GemvGateUpGlu | MergedGateUp | GemmDequantInkernel | FusedSampling | LastLayerRows | DeltaQkNorm => Decompose,
             NormQuant | AddNormQuant | GluActMulQuant | ElementwiseQuant | GdnOutputQuant | GemvQuant | AttnOutputQuant | GdnStep => Decompose,
-            AttnOutputGate | RowWriteQuant => Decompose,
+            AttnOutputGate | RowWriteQuant | CapArgmax => Decompose,
             GemmBias | GemmScale | AffineInputFold => Refuse("the engine's matvec unit adds no bias and scales by no factor"),
             EmbedScale => Refuse("the engine reads its embedding unscaled"),
             Mla | MlaPrologue | MlaUnabsorbInFold => Refuse("the engine has no unit for multi-head latent attention"),
@@ -109,8 +109,9 @@ impl Shim for EngineShim<'_> {
             KvCacheQuant | HadamardRotation => Refuse("the engine's cache format is its numerics', not a fusion"),
             CompensatedResidual => Refuse("the engine sums its residual uncompensated"),
             HostResidentKv => Refuse("the engine keeps its caches in its card's memory"),
+            HostWeightStreaming | HostLayersOnCpu => Refuse("the engine keeps its weights and computes every layer on its card"),
             PersistentLayerMegakernel | CudaGraphs => Refuse("the engine runs a program of commands, not kernel launches"),
-            AllreduceNorm => Refuse("the engine runs on one card"),
+            AllreduceNorm | AllreduceSumsqNorm => Refuse("the engine runs on one card"),
         }
     }
 
@@ -133,8 +134,8 @@ impl Shim for EngineShim<'_> {
                 }
                 Some(TensorOpSpec::HeadMatmul(_)) => Some(Refusal::Mixer { layer: 0, what: "multi-head latent attention" }.gap()),
                 Some(TensorOpSpec::Scale(_)) => Some(Refusal::EmbeddingScale.gap()),
-                Some(spec @ (TensorOpSpec::Relu(_)
-                | TensorOpSpec::IntRequant(_)
+                Some(TensorOpSpec::Relu(_)) => Some(Refusal::Ffn { layer: 0, what: "ReLU" }.gap()),
+                Some(spec @ (TensorOpSpec::IntRequant(_)
                 | TensorOpSpec::IntClamp(_)
                 | TensorOpSpec::LutAttention(_)
                 | TensorOpSpec::FullAttention(_)
@@ -204,6 +205,6 @@ impl Shim for EngineShim<'_> {
         };
         // Integer dots are exact in i64 (36 bits used); a block's or a group's sum is exact in a 64-place window over
         // i128 and rounded to f32 once.
-        Some(Contract { point: format!("the engine: {n:?}"), activations: Some(activations), cache, state, attention, fused: Bound::EXACT, accumulator_bits: 64 })
+        Some(Contract { point: format!("the engine: {n:?}"), activations: Some(activations), sixteen: None, cache, state, attention, fused: Bound::EXACT, accumulator_bits: 64 })
     }
 }

@@ -114,6 +114,11 @@ enum Node {
     Real { src: usize },
     /// An op's result computed exactly from its operands.
     Arith { op: Arith, args: Vec<usize>, sort: Sort, len: usize },
+    /// Each of `src`'s values taken by `fun`, one function of one value known only to be strictly increasing: a soft
+    /// cap.
+    Increasing { fun: String, src: usize, len: usize },
+    /// The 1-based index of the first greatest of `src`'s first `n` values.
+    ArgMax { src: usize, n: usize },
 }
 
 /// A function the meaning leaves open: its name and its signature.
@@ -157,6 +162,8 @@ impl Terms {
             Node::Store { table, .. } => (self.sorts[*table], self.lens[*table]),
             Node::Real { src } => (Sort::Real, self.lens[*src]),
             Node::Arith { sort, len, .. } => (*sort, *len),
+            Node::Increasing { len, .. } => (Sort::Real, *len),
+            Node::ArgMax { .. } => (Sort::Int, 1),
         };
         let id = self.nodes.len();
         self.nodes.push(node.clone());
@@ -447,6 +454,12 @@ impl Run<'_> {
                 let args: Vec<usize> = ins.iter().map(|&i| terms.as_sort(i, sort)).collect();
                 Ok((Some(terms.node(Node::Arith { op: op_, args, sort, len })), Vec::new()))
             }
+            TensorOpSpec::Softcap(c) if self.exact => {
+                let (src, len) = (terms.as_sort(ins[0], Sort::Real), self.len_of(at, &op.out)?);
+                let fun = format!("softcap!{}", hex(&c.cap.get().to_bits().to_be_bytes()));
+                Ok((Some(terms.node(Node::Increasing { fun, src, len })), Vec::new()))
+            }
+            TensorOpSpec::ArgMax(a) if self.exact => Ok((Some(terms.node(Node::ArgMax { src: ins[0], n: a.n })), Vec::new())),
             _ => {
                 let args: Vec<Sort> = ins.iter().map(|&i| terms.sorts[i]).collect();
                 let shape = shape_of(spec);
@@ -639,8 +652,9 @@ fn obligation_under(reference: &TensorGraph, rewritten: &TensorGraph, exact: boo
         assert!(!proven.contains(&(x.min(y), x.max(y))), "a proven pair is one class: `{from}` chosen twice");
         let (premises, cited) = premises_of(&terms, &class, &[x, y], &[x, y], &facts, &format!("`{from}` is one term on both sides"));
         let (lx, ly) = (cited.local[&x], cited.local[&y]);
-        // Terms computed by exact arithmetic are compared value by value at each index, each a polynomial in values the
-        // step starts with; any other two at one index the solver chooses, which index maps over a symbolic row need.
+        // Terms computed by exact arithmetic, or by a meaning the lemma states (a cap's order, an arg-max's index), are
+        // compared value by value at each index; any other two at one index the solver chooses, which index maps over a
+        // symbolic row need.
         let goal = if cited.arithmetic {
             let len = terms.lens[x].max(terms.lens[y]);
             let each: Vec<String> = (0..len).map(|i| format!("(= (select |n{lx}| {i}) (select |n{ly}| {i}))")).collect();
@@ -700,6 +714,8 @@ fn renamed(node: &Node, f: &dyn Fn(usize) -> usize) -> Node {
         Node::Store { table, src, at: place, unit, n } => Node::Store { table: f(*table), src: f(*src), at: at(place), unit: *unit, n: *n },
         Node::Real { src } => Node::Real { src: f(*src) },
         Node::Arith { op, args, sort, len } => Node::Arith { op: op.clone(), args: args.iter().map(|&a| f(a)).collect(), sort: *sort, len: *len },
+        Node::Increasing { fun, src, len } => Node::Increasing { fun: fun.clone(), src: f(*src), len: *len },
+        Node::ArgMax { src, n } => Node::ArgMax { src: f(*src), n: *n },
     }
 }
 
@@ -753,7 +769,8 @@ fn reach(terms: &Terms, class: &[usize], from: usize) -> BTreeSet<usize> {
     out
 }
 
-/// A lemma's terms as it numbers them, the facts it assumes, and whether it defines a term by exact arithmetic.
+/// A lemma's terms as it numbers them, the facts it assumes, and whether it defines a term by exact arithmetic or by a
+/// meaning it states.
 struct Cited {
     local: BTreeMap<usize, usize>,
     assumed: Vec<String>,
@@ -800,6 +817,9 @@ fn premises_of(terms: &Terms, class: &[usize], roots: &[usize], split: &[usize],
     let mut text = format!("; lemma: {what}\n(set-logic ALL)\n");
     let mut declared: BTreeMap<&str, Sort> = BTreeMap::new();
     let mut funs: BTreeSet<usize> = BTreeSet::new();
+    let mut increasing: BTreeSet<&str> = BTreeSet::new();
+    let mut ordered: Vec<(&str, usize, usize)> = Vec::new();
+    let mut picks: Vec<(usize, usize, usize)> = Vec::new();
     for &n in &defined {
         match &terms.nodes[n] {
             Node::Start { name, sort, .. } => {
@@ -808,6 +828,11 @@ fn premises_of(terms: &Terms, class: &[usize], roots: &[usize], split: &[usize],
             Node::Apply { f, .. } => {
                 funs.insert(*f);
             }
+            Node::Increasing { fun, src, len } => {
+                increasing.insert(fun);
+                ordered.push((fun, *src, *len));
+            }
+            Node::ArgMax { src, n: count } => picks.push((n, *src, *count)),
             _ => {}
         }
     }
@@ -831,6 +856,13 @@ fn premises_of(terms: &Terms, class: &[usize], roots: &[usize], split: &[usize],
         text.push_str(&line);
         text.push('\n');
     }
+    let mut assumed = Vec::new();
+    for fun in &increasing {
+        let _ = writeln!(text, "(declare-fun |g!{fun}| (Real) Real)");
+    }
+    for &(n, _, _) in &picks {
+        let _ = writeln!(text, "(declare-const |am{}| Int)", local[&n]);
+    }
     for &n in &shown {
         let body = if opaque_names.contains(&n) {
             let (sort, len) = (terms.sorts[n], terms.lens[n]);
@@ -840,12 +872,32 @@ fn premises_of(terms: &Terms, class: &[usize], roots: &[usize], split: &[usize],
         };
         let _ = writeln!(text, "(define-fun |n{}| () (Array Int {}) {body})", local[&n], terms.sorts[n].smt());
     }
-    let mut assumed = Vec::new();
+    // A strictly increasing function keeps the order of every two of the values it takes; stated between those values
+    // alone, which the axiom over every two reals implies, so the premises keep a model a solver finds.
+    for &(fun, src, len) in &ordered {
+        let why = format!("`{fun}` is strictly increasing");
+        let _ = writeln!(text, "; assumed: {why}");
+        let x = |i: usize| format!("(select |n{}| {i})", local[&src]);
+        for (i, k) in (0..len).flat_map(|i| (0..len).map(move |k| (i, k))).filter(|(i, k)| i != k) {
+            let _ = writeln!(text, "(assert (=> (< {} {}) (< (|g!{fun}| {}) (|g!{fun}| {}))))", x(i), x(k), x(i), x(k));
+        }
+        assumed.push(why);
+    }
+    // An arg-max is the index its definition pins, position by position: every value at most the one there, every value
+    // before it less.
+    for &(n, src, count) in &picks {
+        let (am, x) = (format!("|am{}|", local[&n]), format!("|n{}|", local[&src]));
+        let at = format!("(select {x} (- {am} 1))");
+        let _ = writeln!(text, "(assert (and (<= 1 {am}) (<= {am} {count})))");
+        for k in 0..count {
+            let _ = writeln!(text, "(assert (<= (select {x} {k}) {at}))\n(assert (=> (< {} {am}) (< (select {x} {k}) {at})))", k + 1);
+        }
+    }
     for (node, index, lo, hi, why) in facts.iter().filter(|f| local.contains_key(&f.0)) {
         let _ = writeln!(text, "; assumed: {why}\n(assert {})", within(local[node], *index, *lo, *hi));
         assumed.push(why.clone());
     }
-    let arithmetic = defined.iter().any(|&n| matches!(terms.nodes[n], Node::Arith { .. }));
+    let arithmetic = defined.iter().any(|&n| matches!(terms.nodes[n], Node::Arith { .. } | Node::Increasing { .. } | Node::ArgMax { .. }));
     (text, Cited { local, assumed, arithmetic })
 }
 
@@ -869,7 +921,7 @@ fn children(node: &Node) -> Vec<usize> {
             }
             c
         }
-        Node::Real { src } => vec![*src],
+        Node::Real { src } | Node::Increasing { src, .. } | Node::ArgMax { src, .. } => vec![*src],
         Node::Arith { args, .. } => args.clone(),
     }
 }
@@ -930,6 +982,8 @@ fn expr(terms: &Terms, n: usize, local: &BTreeMap<usize, usize>) -> String {
             clamp(format!("(ite {inside} (select |n{}| {from}) (select |n{}| j))", id(src), id(table)))
         }
         Node::Real { src } => clamp(format!("(to_real (select |n{}| j))", id(src))),
+        Node::Increasing { fun, src, .. } => clamp(format!("(|g!{fun}| (select |n{}| j))", id(src))),
+        Node::ArgMax { .. } => format!("(lambda ((j Int)) (ite (= j 0) |am{}| 0))", id(&n)),
         Node::Arith { op, args, .. } => {
             let at = |k: usize, index: String| format!("(select |n{}| {index})", id(&args[k]));
             clamp(match op {

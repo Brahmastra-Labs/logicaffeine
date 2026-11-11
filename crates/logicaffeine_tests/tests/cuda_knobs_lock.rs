@@ -38,6 +38,7 @@ const KNOB_FIELDS: &[&str] = &[
     "activations",
     "recurrent_state",
     "cache_precision",
+    "logits",
 ];
 
 fn gemm_program(m: usize, n: usize, k: usize) -> String {

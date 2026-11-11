@@ -570,6 +570,61 @@ fn state_writes_are_explicit() {
     }
 }
 
+/// Every attention's cache keeps its rows a unit at a time where a cache is kept so (`TensorGraph::cache_units`): on every
+/// tiny cut, each cache of `caches` in units of one width that divides its rows — a cache an attention reads whole in
+/// that attention's heads (its keys' head width, its values'), a latent an attention reads a part of in whole rows —
+/// and fusing, under the reference or under a CPU that reads a slice in place, moves no unit.
+#[cfg(feature = "codegen")]
+#[test]
+fn every_attentions_cache_is_kept_in_units_of_its_heads() {
+    use logicaffeine_compile::tensor_graph::front::TensorOpSpec;
+    use logicaffeine_compile::tensor_graph::fuse::{leaves, optimize};
+    use logicaffeine_compile::codegen_cpu::shim::{CpuActivations, CpuCache, CpuIsa, CpuShim};
+    use logicaffeine_compile::tensor_graph::graph::{Access, Role, Sym};
+    use logicaffeine_compile::tensor_graph::shim::{ReferenceShim, Shim};
+    let (mut direct, mut latent) = (0usize, 0usize);
+    for (what, _, _, g) in tiny_cut_graphs() {
+        let units = g.cache_units();
+        assert_eq!(units.keys().cloned().collect::<BTreeSet<_>>(), g.caches(), "{what}: a unit set for every cache");
+        for (cache, widths) in &units {
+            let cols = g.tensors[cache].cols;
+            assert!(widths.len() == 1 && widths.iter().all(|&w| w > 0 && cols % w == 0), "{what}: `{cache}` in units of one width dividing its {cols} values a row: {widths:?}");
+        }
+        let leaf_ops: Vec<_> = g.ops.iter().flat_map(|o| leaves(o.clone())).collect();
+        let sliced_from = |t: &str| leaf_ops.iter().find(|o| o.out == t && matches!(o.sym, Sym::Prim(TensorOpSpec::HeadSlice(_)))).map(|o| o.ins[0].clone());
+        let mut parted: BTreeSet<String> = BTreeSet::new();
+        for op in &leaf_ops {
+            let Sym::Prim(TensorOpSpec::Attention(a)) = &op.sym else { continue };
+            for (k, (read, width)) in op.ins[1..3].iter().zip([a.hd, a.vd]).enumerate() {
+                let state = |t: &str| g.tensors.get(t).is_some_and(|t| t.role == Role::State);
+                if state(read) && op.access.get(k + 1).is_none_or(|x| *x == Access::Whole) {
+                    assert_eq!(units[read], BTreeSet::from([width]), "{what}: `{read}`, read whole by an attention, in its heads of {width}");
+                    direct += 1;
+                } else if state(read) {
+                    parted.insert(read.clone());
+                } else {
+                    let mut t = read.clone();
+                    while let Some(src) = sliced_from(&t) {
+                        t = src;
+                    }
+                    if state(&t) {
+                        parted.insert(t);
+                    }
+                }
+            }
+        }
+        for cache in &parted {
+            assert_eq!(units[cache], BTreeSet::from([g.tensors[cache].cols]), "{what}: `{cache}`, an attention reading a part of it, in whole rows");
+            latent += 1;
+        }
+        let cpu = CpuShim { isa: CpuIsa::X86Avx2Vnni, activations: CpuActivations::OneWord, cache: CpuCache::Int8Rows, fuse: true };
+        for shim in [&ReferenceShim as &dyn Shim, &cpu] {
+            assert_eq!(optimize(&g, shim, &[]).graph.cache_units(), units, "{what}: fusing under {} moves no cache's unit", shim.name());
+        }
+    }
+    assert!(direct > 0 && latent > 0, "caches read whole ({direct}) and latents read in part ({latent}) both judged");
+}
+
 /// IR-1: a graph lifted from a cut of a model's program records the cut's identity, and it is the identity the CUDA
 /// lane records for the same cut: one program, one name, in every representation.
 #[cfg(feature = "codegen")]
@@ -620,9 +675,9 @@ fn every_lifted_graph_records_its_cut() {
 fn the_shared_table_fires_what_the_lane_fires() {
     use std::collections::BTreeMap;
 
-    use logicaffeine_compile::codegen_cuda::knobs::CudaKnobs;
+    use logicaffeine_compile::codegen_cuda::knobs::{CudaKnobs, Logits};
     use logicaffeine_compile::codegen_cuda::lane::plan::Launch;
-    use logicaffeine_compile::codegen_cuda::lane::{compile_batch_holding, FormKind, LaneOptions};
+    use logicaffeine_compile::codegen_cuda::lane::{compile_batch_holding, compile_split_holding, FormKind, LaneOptions};
     use logicaffeine_compile::codegen_cuda::lane_shim::LaneShim;
     use logicaffeine_compile::codegen_cuda::qwen_emit::Q8MatKind;
     use logicaffeine_compile::model::quant::GgmlType;
@@ -640,26 +695,40 @@ fn the_shared_table_fires_what_the_lane_fires() {
     mod tiny_models;
     use tiny_models::Tiny;
 
-    let shared: BTreeSet<&str> = rule_names().into_iter().chain([ADVANCE.name, "fused_quant", "gemv_parts", "latent_expanded"]).collect();
+    let shared: BTreeSet<&str> = rule_names().into_iter().chain([ADVANCE.name, "fused_quant", "delta_qk_norm", "gemv_parts", "latent_expanded"]).collect();
     let set = |ops: &[usize]| ops.iter().copied().collect::<BTreeSet<usize>>().into_iter().collect::<Vec<usize>>();
     // Every tiny architecture in Q8_0 with chunks of 4 rows, within the GEMV's; the wide models with their matrices in
     // the block formats by turns and chunks of 32 rows, on the tensor cores; the medium models in Q4_K, whose wide
-    // products the GEMV takes four rows a warp.
+    // products the GEMV takes four rows a warp; Qwen3 four times as wide split over two ranks, its decode step's
+    // all-reduces each folded into its norm, and again with MiniMax-M2's QK norm across every head, each side normed by
+    // its ranks' parts; and Gemma 2 with its logits unread, each final cap folded into its arg-max.
     enum Weights {
         Q8,
         Turns,
         Q4k,
     }
-    let mut models: Vec<(String, ModelSpec, Weights, usize, usize)> =
-        tiny_models::ALL.iter().map(|&t| (t.name().to_string(), t.spec(24), Weights::Q8, 24, 4)).collect();
+    let mut models: Vec<(String, ModelSpec, Weights, usize, usize, usize, Logits)> =
+        tiny_models::ALL.iter().map(|&t| (t.name().to_string(), t.spec(24), Weights::Q8, 24, 4, 1, Logits::Written)).collect();
     models.extend(
-        [Tiny::Qwen3, Tiny::Qwen3Moe, Tiny::Qwen35, Tiny::GptOss, Tiny::DeepSeek2].map(|t| (format!("{}-wide", t.name()), t.wide(64), Weights::Turns, 64, 32)),
+        [Tiny::Qwen3, Tiny::Qwen3Moe, Tiny::Qwen35, Tiny::GptOss, Tiny::DeepSeek2]
+            .map(|t| (format!("{}-wide", t.name()), t.wide(64), Weights::Turns, 64, 32, 1, Logits::Written)),
     );
-    models.extend([Tiny::Qwen3, Tiny::Qwen35, Tiny::DeepSeek2].map(|t| (format!("{}-medium", t.name()), t.medium(64), Weights::Q4k, 64, 4)));
+    models.extend(
+        [Tiny::Qwen3, Tiny::Qwen35, Tiny::DeepSeek2].map(|t| (format!("{}-medium", t.name()), t.medium(64), Weights::Q4k, 64, 4, 1, Logits::Written)),
+    );
+    models.push(("qwen3-wide-over-2".to_string(), Tiny::Qwen3.wide(24), Weights::Q8, 24, 1, 2, Logits::Written));
+    let mut whole = Tiny::Qwen3.wide(24);
+    for layer in &mut whole.layers {
+        if let logicaffeine_compile::model::spec::Mixer::Attention(a) = &mut layer.mixer {
+            a.qk_norm_whole = true;
+        }
+    }
+    models.push(("qwen3-whole-over-2".to_string(), whole, Weights::Q8, 24, 1, 2, Logits::Written));
+    models.push(("gemma2-greedy".to_string(), Tiny::Gemma2.spec(24), Weights::Q8, 24, 4, 1, Logits::Unread));
     let mut differ = Vec::new();
     let mut compared = 0usize;
     let mut fired_anywhere: BTreeSet<String> = BTreeSet::new();
-    for (name, spec, weights, ctx, prefill) in &models {
+    for (name, spec, weights, ctx, prefill, tp, logits) in &models {
         let ckpt = scratch::dir("logos_one_ir_lock").join(format!("{name}.gguf"));
         // The matrices a block format takes: rows of whole super-blocks.
         let matrices: Vec<String> = tiny_models::tensors(spec)
@@ -685,11 +754,14 @@ fn the_shared_table_fires_what_the_lane_fires() {
         let configurations =
             [(Q8MatKind::Dequant, true), (Q8MatKind::Int8Act, true), (Q8MatKind::Int8Act, false), (Q8MatKind::TwoPassInt8, true), (Q8MatKind::TwoPassInt8, false)];
         for (numerics, fuse_quant) in configurations {
-            let knobs = CudaKnobs { activations: numerics, fuse_quant, ..CudaKnobs::default() };
+            let knobs = CudaKnobs { activations: numerics, fuse_quant, logits: *logits, ..CudaKnobs::default() };
             // A batch's launches over its sequences as one (`sequences`) are the lane's schedule, laid over its buffers
-            // after the plan: held, the batch's launches are its plan's.
-            let lane = compile_batch_holding(spec, &ckpt, &LaneOptions { ctx: *ctx, knobs, prefill: *prefill }, 2, &["sequences"])
-                .unwrap_or_else(|e| panic!("{name} {numerics:?}: the lane: {e}"));
+            // after the plan: held, the batch's launches are its plan's. A split step is its decode step alone.
+            let lane = match tp {
+                1 => compile_batch_holding(spec, &ckpt, &LaneOptions { ctx: *ctx, knobs, prefill: *prefill }, 2, &["sequences"]),
+                _ => compile_split_holding(spec, &ckpt, &LaneOptions { ctx: *ctx, knobs, prefill: 1 }, *tp, &[]),
+            }
+            .unwrap_or_else(|e| panic!("{name} {numerics:?}: the lane: {e}"));
             for form in &lane.forms {
                 let what = format!("{name} {numerics:?} fuse_quant={fuse_quant} {}", form.tag());
                 let g = lane_cuts::lifted(form, &what);
@@ -781,7 +853,8 @@ fn the_shared_table_fires_what_the_lane_fires() {
         }
     }
     assert!(differ.is_empty(), "{} of {compared} forms differ:\n{}", differ.len(), differ.join("\n"));
-    assert!(compared >= models.len() * 5 * 4, "the differential compares every form: {compared}");
+    let forms: usize = models.iter().map(|m| if m.5 > 1 { 5 } else { 5 * 4 }).sum();
+    assert!(compared >= forms, "the differential compares every form: {compared}");
     // The rules the lane links: those whose every class the lane runs whole under its default knobs.
     let lane = LaneShim { knobs: CudaKnobs::default(), batch: false, held: Vec::new() };
     let built = classes_built();
@@ -833,7 +906,7 @@ fn the_lane_link_builds_the_lanes_launches() {
             Launch::Gemv { per_warp, .. } | Launch::GemvGlu { per_warp, .. } => *per_warp = 1,
             Launch::GemvF32 { split, .. } => *split = 1,
             Launch::GateProj { parts, .. } => *parts = 1,
-            Launch::Attention { shared, .. } => *shared = None,
+            Launch::Attention { shared, stream, .. } => (*shared, *stream) = (None, 0),
             _ => {}
         }
         l

@@ -62,7 +62,6 @@ const fn ex(source: &'static str, pattern: &'static [&'static str]) -> Exemplar 
 
 const NO_SUGAR: &str = "no sugar writes it yet";
 const SCHEDULE: &str = "a schedule property: how a chip runs a program, which no program states";
-const MULTI_CHIP: &str = "it spans chips, and no exemplar runs on more than one";
 const NUMERICS: &str = "a value's representation, which a chip's numerics choose and no program states";
 
 use Kind::{Fused, Numerics, Placement, Primitive, Schedule};
@@ -172,6 +171,8 @@ registry! {
         &["SetRow", "SetRow"],
     );
     HostResidentKv = "host_resident_kv", Schedule, Book, Exemplar::None(SCHEDULE);
+    HostWeightStreaming = "host_weight_streaming", Schedule, Book, Exemplar::None(SCHEDULE);
+    HostLayersOnCpu = "host_layers_on_cpu", Schedule, Book, Exemplar::None(SCHEDULE);
     Mla = "mla", Fused, Ledger, Exemplar::None("its pattern is a whole latent attention block, held by the tiny DeepSeek-V2 cuts");
     MlaPrologue = "mla_prologue", Fused, Book, Exemplar::None("its pattern is a whole latent attention block, held by the tiny DeepSeek-V2 cuts");
     FlashDecode = "flash_decode", Primitive, Ledger, ex(
@@ -278,6 +279,7 @@ registry! {
         &["Sigmoid", "Decay", "GatedDelta"],
     );
     FusedSampling = "fused_sampling", Fused, Ledger, ex("## Main\nLet X be a 1 by 8 tensor of Real.\nLet next be argmax of X.\n", &["ArgMax"]);
+    CapArgmax = "cap_argmax", Fused, Ours, ex("## Main\nLet X be a 1 by 8 tensor of Real.\nLet Y be X capped at 30.0.\nLet next be argmax of Y.\n", &["Softcap", "ArgMax"]);
     Sampling = "sampling", Primitive, Book, Exemplar::None(NO_SUGAR);
     LastLayerRows = "last_layer_rows", Fused, Book, Exemplar::None("its pattern is a prefill chunk's last layer, held by the tiny prefill cuts");
     StridedRead = "strided_read", Placement, Ours, ex(
@@ -298,7 +300,14 @@ registry! {
     );
     CudaGraphs = "cuda_graphs", Schedule, Ledger, Exemplar::None(SCHEDULE);
     PersistentLayerMegakernel = "persistent_layer_megakernel", Schedule, Book, Exemplar::None(SCHEDULE);
-    AllreduceNorm = "allreduce_norm", Fused, Ledger, Exemplar::None(MULTI_CHIP);
+    AllreduceNorm = "allreduce_norm", Fused, Ledger, ex(
+        "## Main\nLet A be a 1 by 8 tensor of Real.\nLet B be a 1 by 8 tensor of Real.\nLet M be a 8 by 8 tensor of Real.\nLet N be a 8 by 8 tensor of Real.\nLet R be a 1 by 8 tensor of Real.\nLet W be a 1 by 8 tensor of Real.\nLet P be A matmul M.\nLet Q be B matmul N.\nLet S be P plus Q.\nLet T be R plus S.\nLet Y be rmsnorm of T with weight W.\n",
+        &["Matmul", "Matmul", "Elementwise", "Elementwise", "FusedRow"],
+    );
+    AllreduceSumsqNorm = "allreduce_sumsq_norm", Fused, Book, ex(
+        "## Main\nLet A be a 1 by 4 tensor of Real.\nLet B be a 1 by 4 tensor of Real.\nLet W be a 1 by 8 tensor of Real.\nLet J be A joined with B.\nLet Y be rmsnorm of J with weight W.\nLet P be the first 4 of every 8 of Y.\nLet Q be the last 4 of every 8 of Y.\n",
+        &["Join", "FusedRow", "HeadSlice", "HeadSlice"],
+    );
     ConvSiluL2norm = "conv_silu_l2norm", Fused, Ours, ex(
         "## Main\nLet X be a 1 by 64 tensor of Real.\nLet W be a 4 by 64 tensor of Real.\nLet C be a 4 by 64 tensor of Real.\nLet Y be causal conv of X with weight W state C over 4 taps.\nLet S be silu of Y.\nLet N be l2norm of S across 2 heads.\n",
         &["CausalConv", "Silu", "L2Norm"],
@@ -306,6 +315,7 @@ registry! {
     GdnOutputQuant = "gdn_output_quant", Fused, Ours, Exemplar::None(NUMERICS);
     GemvQuant = "gemv_quant", Fused, Ours, Exemplar::None(NUMERICS);
     ElementwiseQuant = "elementwise_quant", Fused, Ours, Exemplar::None(NUMERICS);
+    DeltaQkNorm = "delta_qk_norm", Fused, Ours, Exemplar::None("a chip's own fold of a gated delta layer's step and the norms its inputs' launch hands it, held by the tiny Qwen3.5 cuts");
 }
 
 impl ClassId {

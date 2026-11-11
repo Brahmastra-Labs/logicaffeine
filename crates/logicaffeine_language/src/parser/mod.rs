@@ -406,13 +406,26 @@ enum Window {
 }
 
 /// The clauses an attention takes after its length: `within a window of W` or `within chunks of C`, `scaled by S`,
-/// `capped at C`, `with sinks S`.
+/// `capped at C`, `with sinks S`, then its masks ([`AttentionMasks`]).
 #[derive(Clone, Copy, Debug)]
-struct AttentionOptions {
+struct AttentionOptions<'a> {
     window: Option<Window>,
     scale: Option<f64>,
     cap: Option<f64>,
     sinks: Option<Symbol>,
+    masks: AttentionMasks<'a>,
+}
+
+/// An attention's masks after its sinks, in this order: `with linear biases M`, ALiBi — `M` a slope a query head, each
+/// score of a key at position `j` for a query at `n` taking `−M[h]·|n − j|`; `with a bidirectional prefix of P`, a causal
+/// block's first `P` positions attending one another whole (prefix-LM): a row at `n` attends `max(n, P)` positions;
+/// `with rows starting at S`, each row attending from its own first position `S[r]` (packed sequences, each causal
+/// within itself).
+#[derive(Clone, Copy, Debug, Default)]
+struct AttentionMasks<'a> {
+    biases: Option<Symbol>,
+    prefix: Option<&'a Expr<'a>>,
+    starts: Option<Symbol>,
 }
 
 /// Recursive descent parser for natural language to first-order logic.
@@ -3112,6 +3125,86 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(Some(sym))
     }
 
+    /// An attention's masks after its sinks ([`AttentionMasks`]), each optional, in their order: `with linear biases M`
+    /// (`M` a declared 1×`heads` tensor of Real, a slope a query head), `with a bidirectional prefix of P` (a causal
+    /// block's only; `P` a whole number, a name or a parenthesized expression), `with rows starting at S` (`S` a declared
+    /// 1×`rows` tensor of Int, each row's first attended position).
+    fn take_attention_masks(&mut self, heads: i64, rows: i64, block: bool) -> ParseResult<AttentionMasks<'a>> {
+        let mut masks = AttentionMasks::default();
+        let declared = |s: &Self, what: &str, want: (i64, i64), int: bool| -> ParseResult<Symbol> {
+            let sym = s.peek().lexeme;
+            let shape = s.tensor_shapes.get(&sym).copied();
+            if shape != Some(want) || s.tensor_int.contains(&sym) != int {
+                let kind = if int { "Int" } else { "Real" };
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(format!(
+                        "`attention … {what}` — it must be a declared {}×{} tensor of {kind}, and `{}` is {}.",
+                        want.0,
+                        want.1,
+                        s.interner.resolve(sym),
+                        shape.map_or("no declared tensor".to_string(), |(r, c)| format!("{r}×{c}")),
+                    )),
+                    span: s.current_span(),
+                });
+            }
+            Ok(sym)
+        };
+        if self.check_word("with") && self.check_word_at(self.current + 1, "linear") {
+            self.advance();
+            self.advance();
+            if !self.check_word("biases") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom("`attention … with linear biases M` — expected `biases` after `linear`.".to_string()),
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+            masks.biases = Some(declared(self, "with linear biases M", (1, heads), false)?);
+            self.advance();
+        }
+        if self.check_word("with") && self.check_word_at(self.current + 2, "bidirectional") {
+            self.advance();
+            self.advance();
+            self.advance();
+            for w in ["prefix", "of"] {
+                if !self.check_word(w) {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(format!("`attention … with a bidirectional prefix of P` — expected `{w}`.")),
+                        span: self.current_span(),
+                    });
+                }
+                self.advance();
+            }
+            if !block {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom(
+                        "`attention … with a bidirectional prefix of P` — a prefix spans a causal block's rows (`causal attention … from P`); a single query attends its own positions.".to_string(),
+                    ),
+                    span: self.current_span(),
+                });
+            }
+            masks.prefix = Some(self.parse_row_index()?.ok_or_else(|| ParseError {
+                kind: ParseErrorKind::Custom("`attention … with a bidirectional prefix of P` — P is a whole number, a name or a parenthesized expression.".to_string()),
+                span: self.current_span(),
+            })?);
+        }
+        if self.check_word("with") && self.check_word_at(self.current + 1, "rows") && self.check_word_at(self.current + 2, "starting") {
+            self.advance();
+            self.advance();
+            self.advance();
+            if !self.check_word("at") {
+                return Err(ParseError {
+                    kind: ParseErrorKind::Custom("`attention … with rows starting at S` — expected `at` after `starting`.".to_string()),
+                    span: self.current_span(),
+                });
+            }
+            self.advance();
+            masks.starts = Some(declared(self, "with rows starting at S", (1, rows), true)?);
+            self.advance();
+        }
+        Ok(masks)
+    }
+
     /// An attention's optional `scaled by S` clause, after its window: `S` a positive number, the factor every score
     /// takes in place of `1/√HD`.
     fn take_attention_scale(&mut self) -> ParseResult<Option<f64>> {
@@ -3631,8 +3724,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         ]
     }
 
-    /// `Let P be the first K of every N of X` / `the last K of every N of X` → for each of the `groups` groups `g` of `N`
-    /// consecutive elements of `X`, push its `K` elements from offset `from`: `P ← X[(g·N + i) + from]`, `i` in `1..=K`.
+    /// `Let P be the first K of every N of X` / `the last K of every N of X` / `the K after the first F of every N of X` →
+    /// for each of the `groups` groups `g` of `N` consecutive elements of `X`, push its `K` elements from offset `from`:
+    /// `P ← X[(g·N + i) + from]`, `i` in `1..=K`.
     fn desugar_tensor_head_slice(
         &mut self,
         var: Symbol,
@@ -3681,6 +3775,243 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let per_row = Vec::from(self.counted(h, heads, per_head));
         let mut stmts = vec![Stmt::Let { var, ty: None, value: new_seq, mutable: true }];
         stmts.extend(self.counted(r, rows, per_row));
+        Stmt::Splice { body: self.te_block(stmts) }
+    }
+
+    /// `Let P be O spread over L lanes [by S]` → for each row `t` and lane `l`, push row `t` of `O`, each element times
+    /// `S`'s entry `(t, l)` when `by S` is given: `P ← O[t·C + i] · S[(t·L + l) + 1]`, `i` in `1..=C`. A hyper-connected
+    /// residual's injection: the sublayer's output laid in every lane, each by its own weight.
+    #[allow(clippy::too_many_arguments)]
+    fn desugar_tensor_lane_spread(
+        &mut self,
+        var: Symbol,
+        x: Symbol,
+        by: Option<Symbol>,
+        rows: i64,
+        lanes: i64,
+        cols: i64,
+    ) -> Stmt<'a> {
+        let new_seq = self.new_tensor_seq(false);
+        let (t, l) = (self.fresh_desugar_temp("ls_t"), self.fresh_desugar_temp("ls_l"));
+        let copy = self.part_copy(var, cols, |s, iv| {
+            let row = s.te_bin(BinaryOpKind::Multiply, s.te_id(t), s.te_int(cols));
+            let read = s.te_index(s.te_id(x), s.te_bin(BinaryOpKind::Add, row, s.te_id(iv)));
+            match by {
+                Some(w) => {
+                    let lane = s.te_bin(
+                        BinaryOpKind::Add,
+                        s.te_bin(BinaryOpKind::Multiply, s.te_id(t), s.te_int(lanes)),
+                        s.te_id(l),
+                    );
+                    let weight = s.te_index(s.te_id(w), s.te_bin(BinaryOpKind::Add, lane, s.te_int(1)));
+                    s.te_bin(BinaryOpKind::Multiply, read, weight)
+                }
+                None => read,
+            }
+        });
+        let per_row = Vec::from(self.counted(l, lanes, Vec::from(copy)));
+        let mut stmts = vec![Stmt::Let { var, ty: None, value: new_seq, mutable: true }];
+        stmts.extend(self.counted(t, rows, per_row));
+        Stmt::Splice { body: self.te_block(stmts) }
+    }
+
+    /// `Let M be the mean of X over L lanes` → for each row `t` and column `c`, the sum of the column's `L` lanes, then
+    /// that sum over `L`: `s ← s + X[((t·(L·C) + l·C) + c) + 1]` over `l`, `M ← s / L`. A hyper-connected residual's
+    /// lanes mixed into the one row a sublayer reads.
+    fn desugar_tensor_lane_mean(&mut self, var: Symbol, x: Symbol, rows: i64, lanes: i64, cols: i64) -> Stmt<'a> {
+        let new_seq = self.new_tensor_seq(false);
+        let s = self.fresh_desugar_temp("lm_s");
+        let (t, c, l) = (self.fresh_desugar_temp("lm_t"), self.fresh_desugar_temp("lm_c"), self.fresh_desugar_temp("lm_l"));
+        let at = self.te_bin(
+            BinaryOpKind::Add,
+            self.te_bin(
+                BinaryOpKind::Add,
+                self.te_bin(
+                    BinaryOpKind::Add,
+                    self.te_bin(BinaryOpKind::Multiply, self.te_id(t), self.te_int(lanes * cols)),
+                    self.te_bin(BinaryOpKind::Multiply, self.te_id(l), self.te_int(cols)),
+                ),
+                self.te_id(c),
+            ),
+            self.te_int(1),
+        );
+        let sum = Stmt::Set {
+            target: s,
+            value: self.te_bin(BinaryOpKind::Add, self.te_id(s), self.te_index(self.te_id(x), at)),
+        };
+        let mut per_column = vec![Stmt::Set { target: s, value: self.te_float(0.0) }];
+        per_column.extend(self.counted(l, lanes, vec![sum]));
+        per_column.push(Stmt::Push {
+            value: self.te_bin(BinaryOpKind::Divide, self.te_id(s), self.te_float(lanes as f64)),
+            collection: self.te_id(var),
+        });
+        let per_row = Vec::from(self.counted(c, cols, per_column));
+        let mut stmts = vec![
+            Stmt::Let { var, ty: None, value: new_seq, mutable: true },
+            Stmt::Let { var: s, ty: None, value: self.te_float(0.0), mutable: true },
+        ];
+        stmts.extend(self.counted(t, rows, per_row));
+        Stmt::Splice { body: self.te_block(stmts) }
+    }
+
+    /// `Let G be the lane sums of X over L lanes` → for each row `t` and lane `l`, the sum of the lane's `C` elements:
+    /// `s ← s + X[((t·(L·C) + l·C) + c) + 1]` over `c`, `G ← s`. A per-lane dot after a `hadamard`.
+    fn desugar_tensor_lane_sums(&mut self, var: Symbol, x: Symbol, rows: i64, lanes: i64, cols: i64) -> Stmt<'a> {
+        let new_seq = self.new_tensor_seq(false);
+        let s = self.fresh_desugar_temp("lsum_s");
+        let (t, l, c) = (self.fresh_desugar_temp("lsum_t"), self.fresh_desugar_temp("lsum_l"), self.fresh_desugar_temp("lsum_c"));
+        let at = self.te_bin(
+            BinaryOpKind::Add,
+            self.te_bin(
+                BinaryOpKind::Add,
+                self.te_bin(
+                    BinaryOpKind::Add,
+                    self.te_bin(BinaryOpKind::Multiply, self.te_id(t), self.te_int(lanes * cols)),
+                    self.te_bin(BinaryOpKind::Multiply, self.te_id(l), self.te_int(cols)),
+                ),
+                self.te_id(c),
+            ),
+            self.te_int(1),
+        );
+        let sum = Stmt::Set {
+            target: s,
+            value: self.te_bin(BinaryOpKind::Add, self.te_id(s), self.te_index(self.te_id(x), at)),
+        };
+        let mut per_lane = vec![Stmt::Set { target: s, value: self.te_float(0.0) }];
+        per_lane.extend(self.counted(c, cols, vec![sum]));
+        per_lane.push(Stmt::Push { value: self.te_id(s), collection: self.te_id(var) });
+        let per_row = Vec::from(self.counted(l, lanes, per_lane));
+        let mut stmts = vec![
+            Stmt::Let { var, ty: None, value: new_seq, mutable: true },
+            Stmt::Let { var: s, ty: None, value: self.te_float(0.0), mutable: true },
+        ];
+        stmts.extend(self.counted(t, rows, per_row));
+        Stmt::Splice { body: self.te_block(stmts) }
+    }
+
+    /// `Let Y be the signed root of X` → for every element `v`, its sign `g` (1, −1 or 0) times `sqrt(max(abs(v), E))`:
+    /// `sign(v)·√max(|v|, E)`, the per-lane gate's root in Qwen3.8-Flash-Next's n-gram embedding.
+    fn desugar_tensor_signed_root(&mut self, var: Symbol, x: Symbol, total: i64, eps: f64) -> Stmt<'a> {
+        let new_seq = self.new_tensor_seq(false);
+        let (sqrt_sym, max_sym, abs_sym) = (self.interner.intern("sqrt"), self.interner.intern("max"), self.interner.intern("abs"));
+        let (p, v, g) = (self.fresh_desugar_temp("sr_p"), self.fresh_desugar_temp("sr_v"), self.fresh_desugar_temp("sr_g"));
+        let set_sign = |s: &Self, value: f64| s.te_block(vec![Stmt::Set { target: g, value: s.te_float(value) }]);
+        let sign = Stmt::If {
+            cond: self.te_bin(BinaryOpKind::Gt, self.te_id(v), self.te_float(0.0)),
+            then_block: set_sign(self, 1.0),
+            else_block: Some(self.te_block(vec![Stmt::If {
+                cond: self.te_bin(BinaryOpKind::Lt, self.te_id(v), self.te_float(0.0)),
+                then_block: set_sign(self, -1.0),
+                else_block: Some(set_sign(self, 0.0)),
+            }])),
+        };
+        let root = self.te_call(
+            sqrt_sym,
+            vec![self.te_call(max_sym, vec![self.te_call(abs_sym, vec![self.te_id(v)]), self.te_float(eps)])],
+        );
+        let body = self.te_block(vec![
+            Stmt::Set { target: v, value: self.te_index(self.te_id(x), self.te_id(p)) },
+            sign,
+            Stmt::Push { value: self.te_bin(BinaryOpKind::Multiply, self.te_id(g), root), collection: self.te_id(var) },
+            Stmt::Set { target: p, value: self.te_bin(BinaryOpKind::Add, self.te_id(p), self.te_int(1)) },
+        ]);
+        let stmts = vec![
+            Stmt::Let { var, ty: None, value: new_seq, mutable: true },
+            Stmt::Let { var: v, ty: None, value: self.te_float(0.0), mutable: true },
+            Stmt::Let { var: g, ty: None, value: self.te_float(0.0), mutable: true },
+            Stmt::Let { var: p, ty: None, value: self.te_int(1), mutable: true },
+            Stmt::While { cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(p), self.te_int(total)), body, decreasing: None },
+        ];
+        Stmt::Splice { body: self.te_block(stmts) }
+    }
+
+    /// `Let I be the ngram ids of T after R by M modulo V from O ending at E` — over token ROWS, as `row t of Emb` reads
+    /// them (a token's id plus one), `0` in `R` where no token was → for each row `t` of `T` in turn: `x` is
+    /// `(t − 1)·M[1]`; for each place `k` from 1 to `N − 1` (`N = |M|`) back, the row there (`R[N − k]`; `E` where it is
+    /// `0`, and once an `E` lies between) less one times `M[k + 1]` is exclusive-ored into `x`, and `x` — the hash of the
+    /// n-gram of order `k + 1` — modulo each of that order's `P` heads' `V`, plus its `O`, plus one (the table row) is
+    /// pushed; then `R` shifts left and takes `t`. Row `r` of `I` is token `r`'s `(N − 1)·P` table rows, order by order;
+    /// `R` ends holding the last `N − 1` token rows. A `scalar` `T` is one token's row, read whole.
+    #[allow(clippy::too_many_arguments)]
+    fn desugar_tensor_ngram_ids(
+        &mut self,
+        var: Symbol,
+        ids: (Symbol, Symbol, Symbol, Symbol, Symbol),
+        scalar: bool,
+        tokens: i64,
+        ngram: i64,
+        per_order: i64,
+        eos: i64,
+    ) -> Stmt<'a> {
+        let (t, r, m, v, o) = ids;
+        let new_seq = self.new_tensor_seq(true);
+        let (x, b, seen, cur) = (
+            self.fresh_desugar_temp("ng_x"),
+            self.fresh_desugar_temp("ng_b"),
+            self.fresh_desugar_temp("ng_seen"),
+            self.fresh_desugar_temp("ng_t"),
+        );
+        let (ti, k, h, s) = (
+            self.fresh_desugar_temp("ng_i"),
+            self.fresh_desugar_temp("ng_k"),
+            self.fresh_desugar_temp("ng_h"),
+            self.fresh_desugar_temp("ng_s"),
+        );
+        let add = |p: &Self, a: &'a Expr<'a>, c: &'a Expr<'a>| p.te_bin(BinaryOpKind::Add, a, c);
+        let less_one = |p: &Self, a: Symbol| p.te_bin(BinaryOpKind::Subtract, p.te_id(a), p.te_int(1));
+        let item = |p: &Self, coll: Symbol, at: &'a Expr<'a>| p.te_index(p.te_id(coll), at);
+        let when = |p: &Self, test: Symbol, is: i64, set: Symbol, to: i64| Stmt::If {
+            cond: p.te_bin(BinaryOpKind::Eq, p.te_id(test), p.te_int(is)),
+            then_block: p.te_block(vec![Stmt::Set { target: set, value: p.te_int(to) }]),
+            else_block: None,
+        };
+        let head = add(self, add(self, self.te_bin(BinaryOpKind::Multiply, self.te_id(k), self.te_int(per_order)), self.te_id(h)), self.te_int(1));
+        let row = add(
+            self,
+            add(self, self.te_bin(BinaryOpKind::Modulo, self.te_id(x), item(self, v, head)), item(self, o, head)),
+            self.te_int(1),
+        );
+        let per_head = vec![Stmt::Push { value: row, collection: self.te_id(var) }];
+        let back = item(self, r, self.te_bin(BinaryOpKind::Subtract, self.te_int(ngram - 1), self.te_id(k)));
+        let mut per_place = vec![
+            Stmt::Set { target: b, value: back },
+            when(self, b, 0, b, eos),
+            when(self, b, eos, seen, 1),
+            when(self, seen, 1, b, eos),
+            Stmt::Set {
+                target: x,
+                value: self.te_bin(
+                    BinaryOpKind::BitXor,
+                    self.te_id(x),
+                    self.te_bin(BinaryOpKind::Multiply, less_one(self, b), item(self, m, add(self, self.te_id(k), self.te_int(2)))),
+                ),
+            },
+        ];
+        per_place.extend(self.counted(h, per_order, per_head));
+        let shift = vec![Stmt::SetIndex {
+            collection: self.te_id(r),
+            index: add(self, self.te_id(s), self.te_int(1)),
+            value: item(self, r, add(self, self.te_id(s), self.te_int(2))),
+        }];
+        let mut per_token = vec![
+            Stmt::Set {
+                target: cur,
+                value: if scalar { self.te_id(t) } else { item(self, t, add(self, self.te_id(ti), self.te_int(1))) },
+            },
+            Stmt::Set { target: seen, value: self.te_int(0) },
+            Stmt::Set {
+                target: x,
+                value: self.te_bin(BinaryOpKind::Multiply, less_one(self, cur), item(self, m, self.te_int(1))),
+            },
+        ];
+        per_token.extend(self.counted(k, ngram - 1, per_place));
+        per_token.extend(self.counted(s, ngram - 2, shift));
+        per_token.push(Stmt::SetIndex { collection: self.te_id(r), index: self.te_int(ngram - 1), value: self.te_id(cur) });
+        let mut stmts = vec![Stmt::Let { var, ty: None, value: new_seq, mutable: true }];
+        for temp in [x, b, seen, cur] {
+            stmts.push(Stmt::Let { var: temp, ty: None, value: self.te_int(0), mutable: true });
+        }
+        stmts.extend(self.counted(ti, tokens, per_token));
         Stmt::Splice { body: self.te_block(stmts) }
     }
 
@@ -7149,7 +7480,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         vc: Symbol,
         shape: AttentionShape,
         upto: Option<&'a Expr<'a>>,
-        options: AttentionOptions,
+        options: AttentionOptions<'a>,
     ) -> Stmt<'a> {
         self.desugar_tensor_attention_block(var, q, kc, vc, shape, upto, options)
     }
@@ -7166,10 +7497,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         vc: Symbol,
         shape: AttentionShape,
         upto: Option<&'a Expr<'a>>,
-        options: AttentionOptions,
+        options: AttentionOptions<'a>,
     ) -> Stmt<'a> {
         let AttentionShape { h, kv, hd, vd, l, rows } = shape;
-        let AttentionOptions { window, scale, cap, sinks } = options;
+        let AttentionOptions { window, scale, cap, sinks, masks } = options;
         let group = if kv > 0 { h / kv } else { 1 };
         let scale = scale.unwrap_or(1.0f64 / (hd as f64).sqrt());
         const EU: f64 = std::f64::consts::E;
@@ -7199,8 +7530,27 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.fresh_desugar_temp("at_jwv"),
             self.fresh_desugar_temp("at_awv"),
         );
-        // A window's first position and the scores it keeps, bound per head.
-        let windowed = window.map(|w| (w, self.fresh_desugar_temp("at_lo"), self.fresh_desugar_temp("at_cnt")));
+        // The first position a query keeps and the scores it keeps, bound per head: a window's, a row's own start's, or the
+        // later of the two.
+        let windowed = (window.is_some() || masks.starts.is_some()).then(|| (self.fresh_desugar_temp("at_lo"), self.fresh_desugar_temp("at_cnt")));
+        // A bidirectional prefix: `P` bound once, each row reaching `max(n, P)`.
+        let prefix = masks.prefix.map(|p| (p, self.fresh_desugar_temp("at_pre"), self.fresh_desugar_temp("at_reach")));
+        let start_reason = masks.starts.map(|s| {
+            let message = format!(
+                "attention row start out of range: a row of {} at position n attends from a position in 1..=n",
+                self.interner.resolve(s)
+            );
+            let message = self.interner.intern(&message);
+            &*self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(message)))
+        });
+        let prefix_reason = prefix.map(|_| {
+            let message = format!(
+                "bidirectional prefix out of range: {} has {l} positions, and a prefix of P needs 1 ≤ P ≤ {l} and, where the block's first row is inside it, P within the block's {rows} rows",
+                self.interner.resolve(kc)
+            );
+            let message = self.interner.intern(&message);
+            &*self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(message)))
+        });
         // The positions attended: all `L`, or the first `P` — bound once, and checked to be in `1..=L`. A block's first
         // row is at `P`, its last at `P + rows − 1`, and the whole span is checked; each row then binds its own length.
         let block = rows > 1;
@@ -7224,6 +7574,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             (None, None)
         };
         let bound = if block { row_len } else { len };
+        // The positions a row reaches: its own, or past them through a bidirectional prefix.
+        let reach = match prefix {
+            Some((_, _, r)) => Some(r),
+            None => bound,
+        };
         let id = |s: Symbol| self.te_id(s);
         let fl = |v: f64| self.te_float(v);
         let it = |n: i64| self.te_int(n);
@@ -7249,7 +7604,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             body: self.te_block(body),
             decreasing: None,
         };
-        let over_cache = |vv: Symbol, body: Vec<Stmt<'a>>| match bound {
+        let over_cache = |vv: Symbol, body: Vec<Stmt<'a>>| match reach {
             Some(n) => Stmt::While {
                 cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(vv), self.te_id(n)),
                 body: self.te_block(body),
@@ -7262,12 +7617,16 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             Some(n) => id(n),
             None => it(l),
         };
+        let reached = match reach {
+            Some(n) => id(n),
+            None => it(l),
+        };
         let first = match windowed {
-            Some((_, lo, _)) => id(lo),
+            Some((lo, _)) => id(lo),
             None => it(1),
         };
         let over_scores = |vv: Symbol, body: Vec<Stmt<'a>>| match windowed {
-            Some((_, _, cnt)) => Stmt::While {
+            Some((_, cnt)) => Stmt::While {
                 cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(vv), self.te_id(cnt)),
                 body: self.te_block(body),
                 decreasing: None,
@@ -7275,7 +7634,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             None => over_cache(vv, body),
         };
         let score_of = |j: Symbol| match windowed {
-            Some((_, lo, _)) => item(scores, add(sub(id(j), id(lo)), it(1))),
+            Some((lo, _)) => item(scores, add(sub(id(j), id(lo)), it(1))),
             None => item(scores, id(j)),
         };
         // A block row's query sits `(row−1)·H·HD` into the block, and its output `(row−1)·H·VD`.
@@ -7324,9 +7683,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 },
                 score_inner,
                 Stmt::Push {
-                    value: match cap {
-                        Some(c) => self.capped(mul(id(acc_sc), fl(scale)), c),
-                        None => mul(id(acc_sc), fl(scale)),
+                    value: {
+                        let scored = match cap {
+                            Some(c) => self.capped(mul(id(acc_sc), fl(scale)), c),
+                            None => mul(id(acc_sc), fl(scale)),
+                        };
+                        // ALiBi: the key's distance from the query, times its head's slope, off the score.
+                        match masks.biases {
+                            Some(m) => {
+                                let distance = self.te_call(max_sym, vec![sub(attended, id(j_sc)), sub(id(j_sc), attended)]);
+                                sub(scored, mul(item(m, id(head)), distance))
+                            }
+                            None => scored,
+                        }
                     },
                     collection: id(scores),
                 },
@@ -7410,21 +7779,36 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 mutable: true,
             },
         ];
-        if let Some((w, lo, cnt)) = windowed {
+        if let Some((lo, cnt)) = windowed {
+            let from_window = window.map(|w| match w {
+                Window::Sliding(w) => self.te_call(max_sym, vec![it(1), sub(attended, it(w - 1))]),
+                Window::Chunked(c) => add(mul(dv(sub(attended, it(1)), it(c)), it(c)), it(1)),
+            });
+            let from_start = masks.starts.map(|st| item(st, row.map_or_else(|| it(1), id)));
+            if let (Some(start), Some(reason)) = (from_start, start_reason) {
+                let in_range = self.te_bin(
+                    BinaryOpKind::And,
+                    self.te_bin(BinaryOpKind::GtEq, start, it(1)),
+                    self.te_bin(BinaryOpKind::LtEq, start, attended),
+                );
+                head_body.push(Stmt::RuntimeAssert { condition: in_range, hard: true, dim: None, reason: Some(reason) });
+            }
+            let value = match (from_window, from_start) {
+                (Some(a), Some(b)) => self.te_call(max_sym, vec![a, b]),
+                (Some(a), None) | (None, Some(a)) => a,
+                (None, None) => unreachable!("a lower bound comes from a window or a row's start"),
+            };
             head_body.extend([
                 Stmt::Let {
                     var: lo,
                     ty: None,
-                    value: match w {
-                        Window::Sliding(w) => self.te_call(max_sym, vec![it(1), sub(attended, it(w - 1))]),
-                        Window::Chunked(c) => add(mul(dv(sub(attended, it(1)), it(c)), it(c)), it(1)),
-                    },
+                    value,
                     mutable: false,
                 },
                 Stmt::Let {
                     var: cnt,
                     ty: None,
-                    value: add(sub(attended, id(lo)), it(1)),
+                    value: add(sub(reached, id(lo)), it(1)),
                     mutable: false,
                 },
             ]);
@@ -7507,44 +7891,74 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             out_zero,
         ]);
         match (row, row_len, len) {
-            // Each row: its length `P + row − 1`, then every head of it.
-            (Some(r), Some(rl), Some(from)) => stmts.extend([
-                Stmt::Let {
-                    var: r,
+            // Each row: its length `P + row − 1` (and how far it reaches through a prefix), then every head of it.
+            (Some(r), Some(rl), Some(from)) => {
+                if let (Some((p, pre, _)), Some(reason)) = (prefix, prefix_reason) {
+                    // The rows inside the prefix read keys up to `P`, which only this block writes.
+                    let last = add(id(from), it(rows - 1));
+                    let fits = self.te_bin(
+                        BinaryOpKind::And,
+                        self.te_bin(BinaryOpKind::And, self.te_bin(BinaryOpKind::GtEq, id(pre), it(1)), self.te_bin(BinaryOpKind::LtEq, id(pre), it(l))),
+                        self.te_bin(BinaryOpKind::Or, self.te_bin(BinaryOpKind::GtEq, id(from), id(pre)), self.te_bin(BinaryOpKind::LtEq, id(pre), last)),
+                    );
+                    stmts.extend([
+                        Stmt::Let { var: pre, ty: None, value: p, mutable: false },
+                        Stmt::RuntimeAssert { condition: fits, hard: true, dim: None, reason: Some(reason) },
+                    ]);
+                }
+                let mut row_body = vec![Stmt::Let {
+                    var: rl,
                     ty: None,
-                    value: it(1),
-                    mutable: true,
-                },
-                while_le(
-                    r,
-                    rows,
-                    vec![
-                        Stmt::Let {
-                            var: rl,
-                            ty: None,
-                            value: sub(add(id(from), id(r)), it(1)),
-                            mutable: false,
-                        },
-                        Stmt::Let {
-                            var: head,
-                            ty: None,
-                            value: it(1),
-                            mutable: true,
-                        },
-                        head_loop,
-                        incr(r),
-                    ],
-                ),
-            ]),
-            _ => stmts.extend([
-                Stmt::Let {
-                    var: head,
-                    ty: None,
-                    value: it(1),
-                    mutable: true,
-                },
-                head_loop,
-            ]),
+                    value: sub(add(id(from), id(r)), it(1)),
+                    mutable: false,
+                }];
+                if let Some((_, pre, reach)) = prefix {
+                    row_body.push(Stmt::Let { var: reach, ty: None, value: self.te_call(max_sym, vec![id(rl), id(pre)]), mutable: false });
+                }
+                row_body.extend([
+                    Stmt::Let {
+                        var: head,
+                        ty: None,
+                        value: it(1),
+                        mutable: true,
+                    },
+                    head_loop,
+                    incr(r),
+                ]);
+                stmts.extend([
+                    Stmt::Let {
+                        var: r,
+                        ty: None,
+                        value: it(1),
+                        mutable: true,
+                    },
+                    while_le(r, rows, row_body),
+                ]);
+            }
+            _ => {
+                // A block of one row inside a prefix reads keys past its own, which nothing has written.
+                if let (Some((p, pre, reach)), Some(reason), Some(n)) = (prefix, prefix_reason, len) {
+                    let fits = self.te_bin(
+                        BinaryOpKind::And,
+                        self.te_bin(BinaryOpKind::And, self.te_bin(BinaryOpKind::GtEq, id(pre), it(1)), self.te_bin(BinaryOpKind::LtEq, id(pre), it(l))),
+                        self.te_bin(BinaryOpKind::GtEq, id(n), id(pre)),
+                    );
+                    stmts.extend([
+                        Stmt::Let { var: pre, ty: None, value: p, mutable: false },
+                        Stmt::RuntimeAssert { condition: fits, hard: true, dim: None, reason: Some(reason) },
+                        Stmt::Let { var: reach, ty: None, value: self.te_call(max_sym, vec![id(n), id(pre)]), mutable: false },
+                    ]);
+                }
+                stmts.extend([
+                    Stmt::Let {
+                        var: head,
+                        ty: None,
+                        value: it(1),
+                        mutable: true,
+                    },
+                    head_loop,
+                ]);
+            }
         }
         let body = self.te_block(stmts);
         Stmt::Splice { body }
@@ -7975,8 +8389,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     /// `rows I of T` — `I` a declared Int tensor of row indices, `T` a declared table: `X` binds `|I|` rows of `T`'s
-    /// width, row `k` being row `I[k]` of `T`. Consumes nothing and returns `None` unless `rows <name> of <name>` is
-    /// there; past that the shape is committed and indices that are not Int, or a table not declared, are refused.
+    /// width, row `k` being row `I[k]` of `T`; `rows I of T side by side` binds the same values a row of `X` for each row
+    /// of `I`, its rows' rows one after another (an n-gram embedding's heads, a token's rows joined into one). Consumes
+    /// nothing and returns `None` unless `rows <name> of <name>` is there; past that the shape is committed and indices
+    /// that are not Int, or a table not declared, are refused.
     fn try_parse_tensor_rows(&mut self, var: Symbol) -> ParseResult<Option<Stmt<'a>>> {
         if !(self.check_word("rows")
             && matches!(self.tokens.get(self.current + 2).map(|t| &t.kind), Some(TokenType::Preposition(sym)) if self.interner.resolve(*sym) == "of"))
@@ -8010,9 +8426,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             });
         }
         self.advance();
+        // `side by side`: row `r` of `X` is the rows `I`'s row `r` names, one after another — the same values in the
+        // same order, `ir` rows of `ic · cols`.
+        let side_by_side = self.check_word("side") && self.peek_word_at(1, "by") && self.peek_word_at(2, "side");
+        if side_by_side {
+            for _ in 0..3 {
+                self.advance();
+            }
+        }
         let int = self.tensor_int.contains(&table);
         self.user_bound.insert(var);
-        self.bind_tensor(var, (ir * ic, cols), int);
+        self.bind_tensor(var, if side_by_side { (ir, ic * cols) } else { (ir * ic, cols) }, int);
         Ok(Some(self.desugar_tensor_rows(
             var,
             idx,
@@ -8945,6 +9369,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let scale = self.take_attention_scale()?;
             let cap = self.take_cap("attention …")?;
             let sinks = self.take_sinks(h)?;
+            let masks = self.take_attention_masks(h, qr, true)?;
             if h <= 0 || qc % h != 0 {
                 return Err(ParseError { kind: ParseErrorKind::Custom(format!("`causal attention` query Q cols ({qc}) must be H·HD (a multiple of H={h}).")), span: self.current_span() });
             }
@@ -8973,7 +9398,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 vc,
                 AttentionShape { h, kv, hd, vd, l: kcr, rows: qr },
                 Some(from),
-                AttentionOptions { window, scale, cap, sinks },
+                AttentionOptions { window, scale, cap, sinks, masks },
             )));
         }
         // `Let Y be causal conv of X with weight WC state CS over T taps` — depthwise causal conv1d with a
@@ -9445,6 +9870,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             let scale = self.take_attention_scale()?;
             let cap = self.take_cap("attention …")?;
             let sinks = self.take_sinks(h)?;
+            let masks = self.take_attention_masks(h, 1, false)?;
             if h <= 0 || qc % h != 0 {
                 return Err(ParseError {
                     kind: ParseErrorKind::Custom(format!(
@@ -9481,7 +9907,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 vc,
                 AttentionShape { h, kv, hd, vd, l, rows: 1 },
                 upto,
-                AttentionOptions { window, scale, cap, sinks },
+                AttentionOptions { window, scale, cap, sinks, masks },
             )));
         }
         // `Let x be row tok of Emb` — the embedding lookup: row `tok` (1-based) of a declared tensor, as a
@@ -10230,35 +10656,52 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(Some(self.desugar_tensor_new(var, rows, cols, is_float)))
     }
 
-    /// `Let P be the first K of every N of X` / `the last K of every N of X` — the `K` elements at the start (or the end)
-    /// of every group of `N` consecutive elements of `X`, in order: one part of every head of a row of heads. `X` is
-    /// `R × C` with `N` dividing `C`, and `P` is `R × (C/N)·K`. Consumes nothing unless `the first|last K of every` is
-    /// there.
+    /// `Let P be the first K of every N of X` / `the last K of every N of X` / `the K after the first F of every N of X` —
+    /// the `K` elements at the start, at the end, or `F` past the start of every group of `N` consecutive elements of `X`,
+    /// in order: one part of every head of a row of heads. `X` is `R × C` with `N` dividing `C`, and `P` is
+    /// `R × (C/N)·K`. Consumes nothing unless `the first|last K of every` or `the K after the first F of every` is there.
     fn try_parse_tensor_head_slice(&mut self, var: Symbol) -> ParseResult<Option<Stmt<'a>>> {
+        let number_at = |at: usize| matches!(self.tokens.get(self.current + at).map(|t| &t.kind), Some(TokenType::Number(_)));
         let last = self.peek_word_at(1, "last");
-        if !(self.check_article()
-            && (self.peek_word_at(1, "first") || last)
-            && matches!(self.tokens.get(self.current + 2).map(|t| &t.kind), Some(TokenType::Number(_)))
-            && self.peek_word_at(3, "of")
-            && self.peek_word_at(4, "every"))
-        {
+        let edge = (self.peek_word_at(1, "first") || last) && number_at(2) && self.peek_word_at(3, "of") && self.peek_word_at(4, "every");
+        let after = number_at(1)
+            && self.peek_word_at(2, "after")
+            && self.peek_word_at(3, "the")
+            && self.peek_word_at(4, "first")
+            && number_at(5)
+            && self.peek_word_at(6, "of")
+            && self.peek_word_at(7, "every");
+        if !(self.check_article() && (edge || after)) {
             return Ok(None);
         }
-        let which = if last { "last" } else { "first" };
         self.advance();
-        self.advance();
-        let k = self.take_int_literal().unwrap_or(0);
+        let (k, skip) = if after {
+            let k = self.take_int_literal().unwrap_or(0);
+            self.advance();
+            self.advance();
+            self.advance();
+            (k, Some(self.take_int_literal().unwrap_or(0)))
+        } else {
+            self.advance();
+            (self.take_int_literal().unwrap_or(0), None)
+        };
+        // The part as written, `K` its width: `first K`, `last K`, `K after the first F`.
+        let written = |k: &str| match skip {
+            Some(f) => format!("{k} after the first {f}"),
+            None => format!("{} {k}", if last { "last" } else { "first" }),
+        };
         self.advance();
         self.advance();
         let Some(n) = self.take_int_literal() else {
             return Err(ParseError {
-                kind: ParseErrorKind::Custom(format!("`the {which} K of every N of X` — N must be a whole number.")),
+                kind: ParseErrorKind::Custom(format!("`the {} of every N of X` — N must be a whole number.", written("K"))),
                 span: self.current_span(),
             });
         };
+        let part = written(&k.to_string());
         if !self.check_preposition_is("of") {
             return Err(ParseError {
-                kind: ParseErrorKind::Custom(format!("`the {which} {k} of every {n} of X` — expected `of X`.")),
+                kind: ParseErrorKind::Custom(format!("`the {part} of every {n} of X` — expected `of X`.")),
                 span: self.current_span(),
             });
         }
@@ -10266,15 +10709,30 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let x = self.peek().lexeme;
         let Some(&(rows, cols)) = self.tensor_shapes.get(&x) else {
             return Err(ParseError {
-                kind: ParseErrorKind::Custom(format!("`the {which} {k} of every {n} of X` — X must be a declared tensor.")),
+                kind: ParseErrorKind::Custom(format!("`the {part} of every {n} of X` — X must be a declared tensor.")),
                 span: self.current_span(),
             });
         };
         self.advance();
-        if k < 1 || n < 1 || k > n {
+        if let Some(f) = skip.filter(|&f| f < 1) {
             return Err(ParseError {
                 kind: ParseErrorKind::Custom(format!(
-                    "`the {which} {k} of every {n} of {}` — a part of {k} must fit in a group of {n}.",
+                    "`the {part} of every {n} of {}` — F must be at least 1: the part after the first {f} is `the first {k} of every {n}`.",
+                    self.interner.resolve(x)
+                )),
+                span: self.current_span(),
+            });
+        }
+        let from = match skip {
+            Some(f) => f,
+            None if last => n - k,
+            None => 0,
+        };
+        if k < 1 || n < 1 || k > n || from + k > n {
+            let past = skip.map_or(String::new(), |f| format!(" after the first {f}"));
+            return Err(ParseError {
+                kind: ParseErrorKind::Custom(format!(
+                    "`the {part} of every {n} of {}` — a part of {k}{past} must fit in a group of {n}.",
                     self.interner.resolve(x)
                 )),
                 span: self.current_span(),
@@ -10283,17 +10741,193 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if cols % n != 0 {
             return Err(ParseError {
                 kind: ParseErrorKind::Custom(format!(
-                    "`the {which} {k} of every {n} of {}` — its {cols} columns are not whole groups of every {n}.",
+                    "`the {part} of every {n} of {}` — its {cols} columns are not whole groups of every {n}.",
                     self.interner.resolve(x)
                 )),
                 span: self.current_span(),
             });
         }
         let int = self.tensor_int.contains(&x);
-        let from = if last { n - k } else { 0 };
         self.user_bound.insert(var);
         self.bind_tensor(var, (rows, cols / n * k), int);
         Ok(Some(self.desugar_tensor_head_slice(var, x, rows * cols / n, n, from, k, int)))
+    }
+
+    /// `Let M be the mean of X over L lanes` — each row of `X` (`R × L·C`) as the mean of its `L` lanes of `C`, `M`
+    /// `R × C`: a hyper-connected residual's lanes mixed into one row. Consumes nothing unless `the mean of X over` is
+    /// there with `X` a declared tensor.
+    fn try_parse_tensor_lane_mean(&mut self, var: Symbol) -> ParseResult<Option<Stmt<'a>>> {
+        let named = self.tokens.get(self.current + 3).map(|t| t.lexeme);
+        if !(self.check_article()
+            && self.peek_word_at(1, "mean")
+            && self.peek_word_at(2, "of")
+            && named.is_some_and(|x| self.tensor_shapes.contains_key(&x))
+            && self.peek_word_at(4, "over"))
+        {
+            return Ok(None);
+        }
+        let x = named.expect("checked above");
+        let (rows, width) = self.tensor_shapes[&x];
+        for _ in 0..5 {
+            self.advance();
+        }
+        let refuse = |s: &Self, why: String| ParseError { kind: ParseErrorKind::Custom(why), span: s.current_span() };
+        let lanes = self
+            .take_int_literal()
+            .filter(|l| *l >= 1)
+            .ok_or_else(|| refuse(self, "`the mean of X over L lanes` — L must be a whole number of lanes.".to_string()))?;
+        if !self.check_word("lanes") {
+            return Err(refuse(self, format!("`the mean of X over {lanes} lanes` — expected `lanes`.")));
+        }
+        self.advance();
+        if width % lanes != 0 {
+            return Err(refuse(
+                self,
+                format!("`the mean of {} over {lanes} lanes` — its {width} columns are not {lanes} lanes of one width.", self.interner.resolve(x)),
+            ));
+        }
+        self.user_bound.insert(var);
+        self.bind_tensor(var, (rows, width / lanes), false);
+        Ok(Some(self.desugar_tensor_lane_mean(var, x, rows, lanes, width / lanes)))
+    }
+
+    /// `Let G be the lane sums of X over L lanes` — each of a row's `L` lanes of `C` (`X` `R × L·C`) summed on its own, `G`
+    /// `R × L`. Consumes nothing unless `the lane sums of X over` is there with `X` a declared tensor.
+    fn try_parse_tensor_lane_sums(&mut self, var: Symbol) -> ParseResult<Option<Stmt<'a>>> {
+        let named = self.tokens.get(self.current + 4).map(|t| t.lexeme);
+        if !(self.check_article()
+            && self.peek_word_at(1, "lane")
+            && self.peek_word_at(2, "sums")
+            && self.peek_word_at(3, "of")
+            && named.is_some_and(|x| self.tensor_shapes.contains_key(&x))
+            && self.peek_word_at(5, "over"))
+        {
+            return Ok(None);
+        }
+        let x = named.expect("checked above");
+        let (rows, width) = self.tensor_shapes[&x];
+        for _ in 0..6 {
+            self.advance();
+        }
+        let refuse = |s: &Self, why: String| ParseError { kind: ParseErrorKind::Custom(why), span: s.current_span() };
+        let lanes = self
+            .take_int_literal()
+            .filter(|l| *l >= 1)
+            .ok_or_else(|| refuse(self, "`the lane sums of X over L lanes` — L must be a whole number of lanes.".to_string()))?;
+        if !self.check_word("lanes") {
+            return Err(refuse(self, format!("`the lane sums of X over {lanes} lanes` — expected `lanes`.")));
+        }
+        self.advance();
+        if width % lanes != 0 {
+            return Err(refuse(
+                self,
+                format!("`the lane sums of {} over {lanes} lanes` — its {width} columns are not {lanes} lanes of one width.", self.interner.resolve(x)),
+            ));
+        }
+        self.user_bound.insert(var);
+        self.bind_tensor(var, (rows, lanes), false);
+        Ok(Some(self.desugar_tensor_lane_sums(var, x, rows, lanes, width / lanes)))
+    }
+
+    /// `Let Y be the signed root of X [with epsilon E]` — every element `v` of `X` as `sign(v)·√max(|v|, E)` (E 1e-6
+    /// unless given), `Y` of `X`'s shape. Consumes nothing unless `the signed root of X` is there.
+    fn try_parse_tensor_signed_root(&mut self, var: Symbol) -> ParseResult<Option<Stmt<'a>>> {
+        let named = self.tokens.get(self.current + 4).map(|t| t.lexeme);
+        if !(self.check_article()
+            && self.peek_word_at(1, "signed")
+            && self.peek_word_at(2, "root")
+            && self.peek_word_at(3, "of")
+            && named.is_some_and(|x| self.tensor_shapes.contains_key(&x)))
+        {
+            return Ok(None);
+        }
+        let x = named.expect("checked above");
+        let (rows, cols) = self.tensor_shapes[&x];
+        for _ in 0..5 {
+            self.advance();
+        }
+        let eps = self.take_epsilon("the signed root")?;
+        self.user_bound.insert(var);
+        self.bind_tensor(var, (rows, cols), false);
+        Ok(Some(self.desugar_tensor_signed_root(var, x, rows * cols, eps)))
+    }
+
+    /// `Let I be the ngram ids of T after R by M modulo V from O ending at E` — the rows of a hashed n-gram table
+    /// (Qwen3.8-Flash-Next's per-layer embedding) each token's n-grams name: `T` the token rows, `R` the `N − 1` before
+    /// the first (`0` where none was; read and written), `M` the `N` multipliers, `V` and `O` each head's modulus and
+    /// first row (`N − 1` orders of equally many heads), `E` the row of the token that ends a document. `T` may be a
+    /// variable that is not a tensor, one token's row, as a decode step's `tok` is. `I` is `|T|` by `|V|` table rows, of
+    /// Int. Consumes nothing unless `the ngram ids of T` is there.
+    fn try_parse_tensor_ngram_ids(&mut self, var: Symbol) -> ParseResult<Option<Stmt<'a>>> {
+        let named = self.tokens.get(self.current + 4).map(|t| t.lexeme);
+        if !(self.check_article()
+            && self.peek_word_at(1, "ngram")
+            && self.peek_word_at(2, "ids")
+            && self.peek_word_at(3, "of")
+            && named.is_some_and(|x| self.tensor_shapes.contains_key(&x) || self.user_bound.contains(&x)))
+        {
+            return Ok(None);
+        }
+        for _ in 0..4 {
+            self.advance();
+        }
+        let refuse = |s: &Self, why: String| ParseError { kind: ParseErrorKind::Custom(why), span: s.current_span() };
+        const FORM: &str = "`the ngram ids of T after R by M modulo V from O ending at E`";
+        // A variable that is not a tensor is one token's row, as a decode step's `tok` is.
+        let scalar = named.filter(|x| !self.tensor_shapes.contains_key(x));
+        let operand = |s: &mut Self, role: &str| -> ParseResult<(Symbol, i64)> {
+            let name = s.peek().lexeme;
+            let Some(&(rows, cols)) = s.tensor_shapes.get(&name) else {
+                return Err(refuse(s, format!("{FORM} — {role} must be a declared tensor.")));
+            };
+            if !s.tensor_int.contains(&name) {
+                return Err(refuse(s, format!("{FORM} — {role} {} must be a tensor of Int.", s.interner.resolve(name))));
+            }
+            s.advance();
+            Ok((name, rows * cols))
+        };
+        let (t, tokens) = match scalar {
+            Some(tok) => {
+                self.advance();
+                (tok, 1)
+            }
+            None => operand(self, "the tokens T")?,
+        };
+        let clause = |s: &mut Self, word: &str, role: &str| -> ParseResult<(Symbol, i64)> {
+            if !s.check_word(word) {
+                return Err(refuse(s, format!("{FORM} — expected `{word}`.")));
+            }
+            s.advance();
+            operand(s, role)
+        };
+        let (r, history) = clause(self, "after", "the history R")?;
+        let (m, ngram) = clause(self, "by", "the multipliers M")?;
+        let (v, heads) = clause(self, "modulo", "the moduli V")?;
+        let (o, offsets) = clause(self, "from", "the offsets O")?;
+        if !(self.check_word("ending") && self.peek_word_at(1, "at")) {
+            return Err(refuse(self, format!("{FORM} — expected `ending at E`.")));
+        }
+        self.advance();
+        self.advance();
+        let eos = self
+            .take_int_literal()
+            .filter(|e| *e >= 1)
+            .ok_or_else(|| refuse(self, format!("{FORM} — E, the row of the token that ends a document, must be a whole number from 1.")))?;
+        if ngram < 2 {
+            return Err(refuse(self, format!("{FORM} — M holds {ngram} multiplier(s): an n-gram is at least 2 tokens.")));
+        }
+        if history != ngram - 1 {
+            return Err(refuse(self, format!("{FORM} — the history R holds {history} tokens; {ngram} multipliers reach {} back.", ngram - 1)));
+        }
+        if heads != offsets || heads == 0 || heads % (ngram - 1) != 0 {
+            return Err(refuse(
+                self,
+                format!("{FORM} — {heads} moduli and {offsets} offsets are not equally many heads for each of the {} orders.", ngram - 1),
+            ));
+        }
+        self.user_bound.insert(var);
+        self.bind_tensor(var, (tokens, heads), true);
+        Ok(Some(self.desugar_tensor_ngram_ids(var, (t, r, m, v, o), scalar.is_some(), tokens, ngram, heads / (ngram - 1), eos)))
     }
 
     /// An integer literal, negative when a `-` precedes it.
@@ -10454,6 +11088,52 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.user_bound.insert(var);
             self.bind_tensor(var, (rows, cols), false);
             return Ok(Some(self.desugar_tensor_cap(var, x, rows * cols, cap)));
+        }
+        // `Let P be O spread over L lanes [by S]` — every row of `O` (`R × C`) laid in each of `L` lanes, lane `l` of row
+        // `t` times `S`'s entry `(t, l)` (`S` `R × L`) when `by S` is given: a hyper-connection's injection, `R × L·C`.
+        if self.check_word("spread") {
+            let Some((x, (rows, cols))) = (match lhs {
+                Expr::Identifier(x) => self.tensor_shapes.get(x).map(|&shape| (*x, shape)),
+                _ => None,
+            }) else {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            };
+            self.advance();
+            let refuse = |s: &Self, why: String| ParseError { kind: ParseErrorKind::Custom(why), span: s.current_span() };
+            if !self.check_word("over") {
+                return Err(refuse(self, "`O spread over L lanes` — expected `over` after `spread`.".to_string()));
+            }
+            self.advance();
+            let lanes = self
+                .take_int_literal()
+                .filter(|l| *l >= 1)
+                .ok_or_else(|| refuse(self, "`O spread over L lanes` — L must be a whole number of lanes.".to_string()))?;
+            if !self.check_word("lanes") {
+                return Err(refuse(self, format!("`O spread over {lanes} lanes` — expected `lanes`.")));
+            }
+            self.advance();
+            let by = if self.check_word("by") {
+                self.advance();
+                let s = self.peek().lexeme;
+                match self.tensor_shapes.get(&s) {
+                    Some(&shape) if shape == (rows, lanes) => {}
+                    Some(&(sr, sc)) => {
+                        return Err(refuse(
+                            self,
+                            format!("`O spread over {lanes} lanes by S` — S holds a weight for each lane of each of O's {rows} rows, {rows}×{lanes}, and is {sr}×{sc}."),
+                        ))
+                    }
+                    None => return Err(refuse(self, format!("`O spread over {lanes} lanes by S` — S must be a declared tensor."))),
+                }
+                self.advance();
+                Some(s)
+            } else {
+                None
+            };
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (rows, lanes * cols), false);
+            return Ok(Some(self.desugar_tensor_lane_spread(var, x, by, rows, lanes, cols)));
         }
         // `Let J be A joined with B [across H heads]` — every row of `A` then the same row of `B`; across `H` heads, every
         // head's part of `A` then its part of `B`.
@@ -13186,6 +13866,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             return Ok(stmt);
         }
         if let Some(stmt) = self.try_parse_tensor_head_slice(var)? {
+            return Ok(stmt);
+        }
+        if let Some(stmt) = self.try_parse_tensor_lane_mean(var)? {
+            return Ok(stmt);
+        }
+        if let Some(stmt) = self.try_parse_tensor_lane_sums(var)? {
+            return Ok(stmt);
+        }
+        if let Some(stmt) = self.try_parse_tensor_signed_root(var)? {
+            return Ok(stmt);
+        }
+        if let Some(stmt) = self.try_parse_tensor_ngram_ids(var)? {
             return Ok(stmt);
         }
         if let Some(stmt) = self.try_parse_tensor_unary(var)? {

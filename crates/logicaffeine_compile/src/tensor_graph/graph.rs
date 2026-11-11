@@ -144,7 +144,8 @@ impl Dst {
 
 /// The names a step reads and writes across steps: its token(s), its position, its logits and its next token — its first
 /// sequence's, and a batch's every other sequence's in `more`, sequence `b`'s next token written to item `b` of the
-/// token tensor.
+/// token tensor. `logits_read` when the host reads every sequence's logits; where it does not, it takes the next tokens
+/// alone.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StepIo {
     pub token: String,
@@ -152,6 +153,7 @@ pub struct StepIo {
     pub logits: String,
     pub next: String,
     pub more: Vec<SeqIo>,
+    pub logits_read: bool,
 }
 
 impl StepIo {
@@ -160,10 +162,18 @@ impl StepIo {
         std::iter::once(self.position.as_str()).chain(self.more.iter().map(|q| q.position.as_str())).collect()
     }
 
-    /// Every name the step reads or writes across steps: its tokens and every sequence's position, logits and next token.
+    /// Every name the step reads or writes across steps: its tokens and every sequence's position, logits (where the host
+    /// reads them) and next token.
     pub fn names(&self) -> Vec<&str> {
-        let firsts = [self.token.as_str(), self.position.as_str(), self.logits.as_str(), self.next.as_str()];
-        firsts.into_iter().chain(self.more.iter().flat_map(|q| [q.position.as_str(), q.logits.as_str(), q.next.as_str()])).collect()
+        let mut out = vec![self.token.as_str(), self.position.as_str()];
+        out.extend(self.logits_read.then_some(self.logits.as_str()));
+        out.push(self.next.as_str());
+        for q in &self.more {
+            out.push(q.position.as_str());
+            out.extend(self.logits_read.then_some(q.logits.as_str()));
+            out.push(q.next.as_str());
+        }
+        out
     }
 }
 
@@ -283,9 +293,14 @@ impl Op {
 }
 
 /// Whether a tensor a part of `f` writes is one the fused op writes outside itself: a table or wider tensor a part lands
-/// rows or units in, or state a part updates — not an intermediate one part computes for another.
+/// rows or units in, or state a part updates — a part of a part among them — not an intermediate one part computes for
+/// another.
 fn p_lands_outside(f: &Fused, t: &str) -> bool {
-    f.parts.iter().any(|p| p.dst.buf == t && p.dst.own().is_none()) || f.parts.iter().any(|p| p.state_inputs().iter().any(|&k| p.ins[k] == t))
+    f.parts.iter().any(|p| {
+        (p.dst.buf == t && p.dst.own().is_none())
+            || p.state_inputs().iter().any(|&k| p.ins[k] == t)
+            || matches!(&p.sym, Sym::Fused(inner) if p_lands_outside(inner, t))
+    })
 }
 
 /// The ops that touch each tensor of a graph ([`TensorGraph::touches`]).
@@ -468,8 +483,14 @@ impl TensorGraph {
     /// steps, `storage` where each constant's values live.
     pub fn of_cut(spec: &ModelSpec, cut: Cut, io: Option<StepIo>, storage: &dyn Fn(&str) -> Storage) -> Result<TensorGraph, GraphError> {
         let (authored, identity) = crate::model::program::written(spec, cut);
-        let rp = super::front::recognize_stages(&authored.0).map_err(|e| GraphError::Unwalked { why: format!("{e:?}") })?;
-        TensorGraph::lift(&rp, Some(identity), io, storage)
+        TensorGraph::lift_written(&authored.0, Some(identity), io, storage)
+    }
+
+    /// The graph of a cut's written source as the front end walks it, recording the cut's identity and the names its step
+    /// carries across steps (`io`): a backend handed a cut as source lifts it here, never walking the source itself.
+    pub fn lift_written(source: &str, identity: Option<Identity>, io: Option<StepIo>, storage: &dyn Fn(&str) -> Storage) -> Result<TensorGraph, GraphError> {
+        let rp = super::front::recognize_stages(source).map_err(|e| GraphError::Unwalked { why: format!("{e:?}") })?;
+        TensorGraph::lift(&rp, identity, io, storage)
     }
 
     /// The graph of one op over operands the source declares, each `(symbol, length, fill)`, and its result `out`: a
@@ -673,19 +694,30 @@ impl TensorGraph {
     /// The attention caches: every state tensor an attention reads its keys or values from, itself or through the
     /// head slices cut from it (a latent cache's values are its rows' first part).
     pub fn caches(&self) -> BTreeSet<String> {
+        self.cache_units().into_keys().collect()
+    }
+
+    /// Every attention's cache ([`Self::caches`]) with the widths of the units a cache kept a row at a time keeps its
+    /// rows in: a head's row where an attention reads the whole cache — its keys' head width, or its values' — and the
+    /// cache's whole row where an attention reads a part of it, sliced or in place (a latent's).
+    pub fn cache_units(&self) -> BTreeMap<String, BTreeSet<usize>> {
         let members = self.members();
         let producer: BTreeMap<&str, &Op> = members.iter().map(|o| (o.out.as_str(), *o)).collect();
-        let mut out = BTreeSet::new();
-        for op in members.iter().filter(|o| matches!(o.sym, Sym::Prim(TensorOpSpec::Attention(_)))) {
-            for read in &op.ins[1..3] {
-                let mut t = read.as_str();
+        let mut out: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
+        for op in &members {
+            let Sym::Prim(TensorOpSpec::Attention(a)) = &op.sym else { continue };
+            for (k, (read, width)) in op.ins[1..3].iter().zip([a.hd, a.vd]).enumerate() {
+                let (mut t, mut sliced) = (read.as_str(), matches!(op.access.get(k + 1), Some(Access::Strided(_))));
                 loop {
-                    if self.tensors.get(t).is_some_and(|x| x.role == Role::State) {
-                        out.insert(t.to_string());
+                    if let Some(x) = self.tensors.get(t).filter(|x| x.role == Role::State) {
+                        out.entry(t.to_string()).or_default().insert(if sliced { x.cols } else { width });
                         break;
                     }
                     match producer.get(t) {
-                        Some(p) if matches!(p.sym, Sym::Prim(TensorOpSpec::HeadSlice(_))) => t = &p.ins[0],
+                        Some(p) if matches!(p.sym, Sym::Prim(TensorOpSpec::HeadSlice(_))) => {
+                            t = &p.ins[0];
+                            sliced = true;
+                        }
                         _ => break,
                     }
                 }

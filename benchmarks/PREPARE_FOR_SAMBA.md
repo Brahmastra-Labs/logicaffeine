@@ -38,7 +38,7 @@ ledger for the RDU class. The split:
 - this book owns the RDU lowering, the schedule, the chip model and the time model, the model intake a bring-up test
   needs, the exam and the scorecard.
 
-**Counts.** 187 tickets on the board, 103 exam tests, 1,482 checkboxes, 219 ticked.
+**Counts.** 187 tickets on the board, 105 exam tests, 1,493 checkboxes, 251 ticked.
 
 Read at:
 
@@ -339,6 +339,7 @@ regime does not depend on them.
 | SCALE-n | the D1 cell at n sockets, and its ratio to the 1-socket or 8-socket cell |
 | COMPILE | wall seconds from a checkpoint to a deployable bundle |
 | BRINGUP | wall time from receiving an unseen checkpoint to the first token that equals the reference, every code change counted |
+| AGILITY | wall seconds from an op written in LOGOS, which no sugar or kernel names, to its fused, certified section (E10.4) |
 | SYNC | synchronization boundaries a token: barriers, kernel calls and host returns |
 | MBU | model bandwidth utilization in the D regimes |
 | D | decode at the protocol a published result states: its batch, input and output lengths beside the row |
@@ -1096,10 +1097,10 @@ to the f64 reference's.
 
 - [x] **E1.1** A Llama-family checkpoint read from its Hugging Face directory alone, with no GGUF anywhere: its first token equals the reference's. Lock: `samba_exam_bringup_lock::a_hugging_face_directory_brings_up_with_no_gguf`. Ticket: INTAKE-6 (receipt: `logs/samba/exam1-green-3.log`).
 - [x] **E1.2** Hidden widths of 2,880 (gpt-oss) and 7,168 (DeepSeek-V3): widths that are not powers of two tile with no remainder lost. Lock: `samba_exam_bringup_lock::hidden_widths_of_2880_and_7168_bring_up`. Ticket: INTAKE-6, the configuration from INTAKE-5's generator (receipt: `logs/samba/exam1-green-3.log`).
-- [x] **E1.3** Head dimensions 64, 80, 96, 112, 128 and 256, and latent attention's 192 = 128 + 64 split. Lock: `samba_exam_bringup_lock::every_published_head_dim_brings_up`. Ticket: INTAKE-6, CHIP-2, ARCH-ROPE, the configuration from INTAKE-5's generator. Today 64, 96 and 128 hold; 80 and 112 need 10 and 14 accumulator tiles to write the KV cache where the unit model has 8 (CHIP-2), 256 streams a rotary table whose rows are not whole tiles (ARCH-ROPE), and latent attention is refused (INTAKE-6).
+- [x] **E1.3** Head dimensions 64, 80, 96, 112, 128 and 256, and latent attention's 192 = 128 + 64 split. Lock: `samba_exam_bringup_lock::every_published_head_dim_brings_up`. Ticket: INTAKE-6, CHIP-2, ARCH-ROPE, the configuration from INTAKE-5's generator. Every head dimension holds with Qwen3.5's partial rotation of 24 dimensions, and latent attention's split holds. A full rotation of a head of 80 or 112 brings up too (E1.16): its rotary rows (40 and 56 wide) start mid-tile, and a cache of them past the page is read through the window of whole tiles around the block's rows (`spatial_rope_window_lock::a_flat_rotation_whose_cache_is_past_a_page_reads_its_rows_through_a_window`; receipt `logs/samba/broad-sitemem.log`). Over a cache past one site, a prefill block and a decode of heads of 80 and 112 bring up too (E1.17).
 - [x] **E1.4** Vocabularies of 151,936, 163,840, 201,088 and 248,320: the head and its arg-max over each, padded and unpadded (GPT-2's 50,257, which no tile divides). Lock: `samba_exam_bringup_lock::every_published_vocabulary_brings_up`. Ticket: INTAKE-6, the configuration from INTAKE-5's generator (receipt: `logs/samba/exam1-green-2.log`).
 - [x] **E1.5** One KV head (multi-query) and as many KV heads as query heads. Lock: `samba_exam_bringup_lock::one_kv_head_and_all_kv_heads_bring_up`. Ticket: INTAKE-6, the configuration from INTAKE-5's generator (receipt: `logs/samba/exam1-green-2.log`).
-- [ ] **E1.6** Query-head counts no tensor-parallel width of 16 divides (24, 40, 56). Lock: `samba_exam_bringup_reds_lock::head_counts_no_width_divides_bring_up_at_16_sockets`. Ticket: MULTI-4.
+- [ ] **E1.6** Query-head counts no tensor-parallel width of 16 divides (24, 40, 56). Lock: `samba_exam_bringup_reds_lock::head_counts_no_width_divides_bring_up_at_16_sockets`. Ticket: MULTI-4. The authored program shards them over 16 chips (MULTI-4's balanced runs); `largo emit rdu --tp 16` refuses them before anything lowers by the serving stacks' rule, every head count divided by the width (`fit::admits_tp`: "the 24 query heads do not split over 16 chips", `logs/samba/probe-e16-1.log`), which `emit_rdu_e2e::a_tensor_parallel_width_the_model_does_not_split_over_is_refused` pins. Tristen (2026-11-09): `--tp` takes every width the author writes; its refusal lock moves to the widths the author cannot write, and a vLLM-format plan keeps vLLM's rule that the width divides every head count.
 - [ ] **E1.7** A prime layer count (61, as DeepSeek-V3) and a single layer. Lock: `samba_exam_bringup_reds_lock::prime_and_single_layer_counts_bring_up`. Ticket: INTAKE-6, NUM-1, the configuration from INTAKE-5's generator. Today the single (Llama) layer brings up, and the 61-layer hybrid lowers and runs but emits the wrong token: the bf16 datapath's logits drift from the f64 reference's by up to 1.6% of the largest logit at 3 layers, 3.9% at 13, 6.3% at 25 and 17.8% at 61, past the 0.32 margin (6.6%) between this checkpoint's top two tokens (`logs/samba/diag-2.log`). The drift is NUM-1's: fp32 islands in the bf16 datapath.
 - [ ] **E1.8** Tied and untied embeddings, QKV biases and an output bias. Lock: `samba_exam_bringup_reds_lock::tied_untied_and_biased_checkpoints_bring_up`. Ticket: INTAKE-6, the configuration from INTAKE-5's generator. Today the untied head and gpt-oss's biased projections bring up token for token; the tied head's reference leads its second token (44) by 0.014, an eighth of the bf16 bound's 0.106 (`logs/samba/e1-8-lead.log`), and the bundle emits 44 on the bf16 datapath and with the SIMD path's fp32 witness alike (`logs/samba/e1-8-simd-fp32.log`): a near-tie the matrix path's bf16 inputs reorder, held within the bound by `rdu_bringup_lock`. An exact token on a lead under the datapath's bound is Tristen's ruling (the row's criterion, or an fp32 matrix path).
 - [x] **E1.9** An architecture string the compiler has never seen: refused within a second, every missing piece named. Lock: `samba_exam_bringup_lock::an_unknown_architecture_is_refused_with_its_missing_pieces`. Ticket: INTAKE-9.
@@ -1126,7 +1127,7 @@ windowed model and the expert mixture, and waits in the reds suite on Qwen 3.5's
 - [ ] **E2.3** Perplexity on a fixed text within the contract's bound. Lock: `samba_exam_quality_lock::perplexity_on_a_fixed_text_is_within_the_contract`. Ticket: NUM-7.
 - [ ] **E2.4** Batch invariance: a sequence's tokens are bit-identical alone and beside 63 others. Lock: `samba_exam_correctness_reds_lock::a_sequence_decodes_alike_alone_and_in_a_batch_of_64`. Ticket: NUM-8.
 - [x] **E2.5** Determinism: two runs of one bundle give bit-identical logits. Lock: `samba_exam_correctness_lock::two_runs_of_one_bundle_are_bit_identical`. Ticket: NUM-8.
-- [ ] **E2.6** An empty prompt and a prompt of one beginning-of-sequence token. Lock: `samba_exam_runner_lock::empty_and_bos_only_prompts_decode_as_the_reference`. Ticket: INTAKE-4.
+- [ ] **E2.6** An empty prompt and a prompt of one beginning-of-sequence token. Lock: `samba_exam_correctness_reds_lock::empty_and_bos_only_prompts_decode_as_the_reference`. Ticket: NUM-1.
 - [ ] **E2.7** A prompt that fills the context to its last position, and one past it refused by name. Lock: `samba_exam_correctness_reds_lock::the_last_position_decodes_and_the_next_is_refused`. Ticket: MEM-3.
 - [ ] **E2.8** 4,096 repetitions of one token. Lock: `samba_exam_numerics_lock::a_long_repetition_decodes_as_the_reference`. Ticket: NUM-1.
 - [x] **E2.9** A residual channel at 1e4 (the outlier channels large models carry) through bf16 sums. Lock: `samba_exam_correctness_lock::an_outlier_channel_survives_bf16_sums`. Ticket: NUM-1.
@@ -1139,10 +1140,10 @@ Their headline number is decode: steady-state time per token, its share of the r
 The suite is `samba_exam_decode_lock`, written by EXAM-3.
 
 - [ ] **E3.1** D1 on every Tier A model, modeled, with provenance. Lock: `samba_exam_decode_lock::d1_is_modeled_for_every_tier_a_model`. Ticket: TIME-3.
-- [ ] **E3.2** D8, D16 and D64 with every weight read once a step for the whole batch. Lock: `samba_exam_decode_lock::batched_decode_reads_every_weight_once_a_step`. Ticket: SCHED-4.
+- [ ] **E3.2** D8, D16 and D64 with every weight read once a step for the whole batch. Lock: `samba_exam_decode_reds_lock::batched_decode_reads_every_weight_once_a_step`. Ticket: SCHED-4. Red for what a sequence's own sections read: the dense attention and Gemma 3 read every weight once a step at 8, 16 and 64, but Qwen 3.5's per-sequence key norm, gate norm and conv weights, and gpt-oss's router, experts and their biases, are read by one section a sequence (`logs/samba/probe-batchread-3.log`).
 - [ ] **E3.3** L32K, L64K and L262K on Qwen3.8-Flash-Next and Qwen3.8-27B. Lock: `samba_exam_decode_lock::long_context_decode_runs_to_262144`. Ticket: MEM-3.
 - [ ] **E3.4** The bandwidth utilization of every D cell beside the published figure. Lock: `samba_exam_decode_lock::every_d_cell_reports_its_bandwidth_utilization`. Ticket: TIME-6.
-- [ ] **E3.5** At most 4 synchronization boundaries a token on a looped deployment. Lock: `samba_exam_decode_lock::a_looped_deployment_synchronizes_at_most_four_times_a_token`. Ticket: SCHED-3.
+- [ ] **E3.5** At most 4 synchronization boundaries a token on a looped deployment. Lock: `samba_exam_decode_lock::a_looped_deployment_synchronizes_at_most_four_times_a_token`. Ticket: SCHED-3. Today a tiny decode layer is 19 to 31 sections, a barrier between each (Llama 19, Qwen3 21, Gemma 3 24, gpt-oss 27, Qwen3.5 31); declaring the kind program's results — its output and its carried state — forwards only 0 to 4 of them, the rest being sections no map joins (`logs/samba/probe-declared-1.log`).
 - [ ] **E3.6** Decode at 1,048,576 positions with YaRN on Qwen3.8-Flash-Next. Lock: `samba_exam_decode_lock::decode_at_one_million_positions_runs`. Ticket: QWEN4-6.
 - [ ] **E3.7** Steady state over 10 prompts that generate 64 to 2,048 tokens, their protocol. Lock: `samba_exam_decode_lock::the_decode_protocol_matches_theirs`. Ticket: SCORE-3.
 
@@ -1151,11 +1152,11 @@ The suite is `samba_exam_decode_lock`, written by EXAM-3.
 Prefill is compute-bound where decode is memory-bound; an evaluation that scores serving scores both.
 The suite is `samba_exam_prefill_lock`, written by EXAM-4.
 
-- [ ] **E4.1** TTFT-8K on every Tier A model. Lock: `samba_exam_prefill_lock::ttft_8k_is_modeled_for_every_tier_a_model`. Ticket: TIME-3.
-- [ ] **E4.2** A 262,144-token prompt in chunks leaves the cache a run of 262,144 decode steps leaves. Lock: `samba_exam_prefill_lock::a_chunked_long_prompt_leaves_the_decode_cache`. Ticket: MEM-3.
-- [ ] **E4.3** Prefill on a GPU and decode on the RDU: the handed cache decodes the tokens a cache built on the RDU decodes. Lock: `samba_exam_prefill_lock::a_gpu_prefilled_cache_decodes_on_the_rdu`. Ticket: SERVE-RDU-3.
-- [ ] **E4.4** A chunk whose length is not a multiple of the tile height. Lock: `samba_exam_prefill_lock::a_ragged_chunk_prefills_as_the_reference`. Ticket: SCHED-2.
-- [ ] **E4.5** A prompt sharing a prefix with a cached one prefills only its suffix. Lock: `samba_exam_prefill_lock::a_shared_prefix_prefills_only_its_suffix`. Ticket: MEM-5.
+- [ ] **E4.1** TTFT-8K on every Tier A model. Lock: `samba_exam_prefill_time_lock::ttft_8k_is_modeled_for_every_tier_a_model`. Ticket: TIME-3.
+- [ ] **E4.2** A 262,144-token prompt in chunks leaves the cache a run of 262,144 decode steps leaves. Lock: `samba_exam_long_prompt_lock::a_chunked_long_prompt_leaves_the_decode_cache`. Ticket: MEM-3.
+- [ ] **E4.3** Prefill on a GPU and decode on the RDU: the handed cache decodes the tokens a cache built on the RDU decodes. Lock: `samba_exam_card_prefill_lock::a_gpu_prefilled_cache_decodes_on_the_rdu`. Ticket: SERVE-RDU-3.
+- [x] **E4.4** A chunk whose length is not a multiple of the tile height. Lock: `samba_exam_prefill_lock::ragged_chunks_leave_the_state_one_chunk_leaves`. Ticket: SCHED-2. A prompt of 7 prefilled as 3 then 4, 1 then 6, 5 then 2, and 2, 2 then 3 leaves every carried tensor one chunk of 7 leaves, value for value, on the SN50 and the GPU target; the one chunk's state is held to the reference by E2's rows (receipt `logs/samba/broad-sitemem.log`).
+- [ ] **E4.5** A prompt sharing a prefix with a cached one prefills only its suffix. Lock: `samba_exam_prefix_cache_lock::a_shared_prefix_prefills_only_its_suffix`. Ticket: MEM-5.
 
 ### 10.5 E5: Socket scaling
 
@@ -1201,14 +1202,14 @@ The suite is `samba_exam_spec_lock`, written by EXAM-7.
 A compiler team measures the compiler itself: how long it takes, what it produces, whether it says what it did.
 The suite is `samba_exam_compiler_lock`, written by EXAM-8.
 
-- [ ] **E8.1** Compile time for 70B, 405B and 671B models inside the budget. Lock: `samba_exam_compiler_lock::large_models_compile_inside_the_budget`. Ticket: SCHED-8.
-- [ ] **E8.2** One program a layer kind: 64 layers compile as their distinct kinds. Lock: `samba_exam_compiler_lock::layers_of_one_kind_compile_once`. Ticket: SCHED-8.
-- [ ] **E8.3** One checkpoint compiled twice gives byte-identical bundles. Lock: `samba_exam_compiler_lock::a_checkpoint_compiles_to_identical_bytes`. Ticket: SCHED-8.
-- [ ] **E8.4** A new batch size recompiles only what the batch changes. Lock: `samba_exam_compiler_lock::a_new_batch_size_recompiles_only_what_it_changes`. Ticket: SCHED-8.
-- [ ] **E8.5** PCU, PMU and SRAM use reported for every section. Lock: `samba_exam_compiler_lock::every_section_reports_its_unit_use`. Ticket: TIME-6.
-- [ ] **E8.6** Every refusal names its statement and reason; no partial program exits 0. Lock: `samba_exam_compiler_lock::no_partial_program_exits_zero`. Ticket: SCHED-10.
-- [ ] **E8.7** The fusion report lists every class fired and declined in every section. Lock: `samba_exam_compiler_lock::the_fusion_report_covers_every_section`. Ticket: SCHED-10.
-- [ ] **E8.8** Every program's placement certificate passes the independent checker. Lock: `samba_exam_compiler_lock::every_placement_certificate_rechecks`. Ticket: ACCESS-3.
+- [ ] **E8.1** Compile time for 70B, 405B and 671B models inside the budget. Lock: `samba_exam_compile_time_lock::large_models_compile_inside_the_budget`. Ticket: SCHED-8.
+- [x] **E8.2** One program a layer kind: 64 layers compile as their distinct kinds. Lock: `samba_exam_compiler_lock::layers_of_one_kind_compile_once`. Ticket: SCHED-8. A checkpoint of 64 layers, its architecture's layers repeated, emits the files and the kinds its own 3 layers do, each layer bound to the program of the few layers' layer it equals (receipt `logs/samba/slot5-rerun.log`).
+- [x] **E8.3** One checkpoint compiled twice gives byte-identical bundles. Lock: `samba_exam_compiler_lock::a_checkpoint_compiles_to_identical_bytes`. Ticket: SCHED-8. Two compiles into two directories: every file of the bundle the same bytes (receipt `logs/samba/slot5-rerun.log`).
+- [ ] **E8.4** A new batch size recompiles only what the batch changes. Lock: `samba_exam_recompile_lock::a_new_batch_size_recompiles_only_what_it_changes`. Ticket: SCHED-8.
+- [ ] **E8.5** PCU, PMU and SRAM use reported for every section. Lock: `samba_exam_unit_use_lock::every_section_reports_its_unit_use`. Ticket: TIME-6.
+- [x] **E8.6** Every refusal names its statement and reason; no partial program exits 0. Lock: `samba_exam_refusal_lock::no_partial_program_exits_zero`. Ticket: SCHED-10. An attention over more positions than its cache holds — wrong on every tier — beside a SiLU that lowers, and two such attentions: `largo emit rdu` exits 1, writes no file of a bundle and nothing to stdout, and names each refused statement by its index, binder and op with its reason, counting what it cannot host (receipt `logs/samba/green-heads.log`).
+- [ ] **E8.7** The fusion report lists every class fired and declined in every section. Lock: `samba_exam_fusion_report_lock::the_fusion_report_covers_every_section`. Ticket: SCHED-10.
+- [ ] **E8.8** Every program's placement certificate passes the independent checker. Lock: `samba_exam_certificate_lock::every_placement_certificate_rechecks`. Ticket: ACCESS-3.
 
 ### 10.9 E9: Programs larger than a chip
 
@@ -1229,7 +1230,7 @@ The suite is `samba_exam_agility_lock`, written by EXAM-10.
 - [ ] **E10.1** A novel activation written in LOGOS runs on the RDU as a generic section on its first compile. Lock: `samba_exam_agility_lock::a_new_activation_runs_on_its_first_compile`. Ticket: SCHED-10.
 - [ ] **E10.2** A novel attention mask written in LOGOS runs on its first compile. Lock: `samba_exam_agility_lock::a_new_attention_mask_runs_on_its_first_compile`. Ticket: ARCH-WINDOW.
 - [ ] **E10.3** A novel recurrence written in LOGOS runs as a sequential section, then chunked. Lock: `samba_exam_agility_lock::a_new_recurrence_runs_then_chunks`. Ticket: KERNEL-3.
-- [ ] **E10.4** The time from a written op to its fused, certified form, recorded. Lock: `samba_exam_agility_lock::the_time_to_a_fused_new_op_is_recorded`. Ticket: CLIMB-6.
+- [ ] **E10.4** The time from a written op to its fused, certified form, recorded. Lock: `samba_exam_agility_lock::the_time_to_a_fused_new_op_is_recorded`. Ticket: CLIMB-6. Recorded as an AGILITY row of `benchmarks/silicon/samba_cells.json` (measured, with its log), the lock failing past 60 s (Tristen, 2026-11-09).
 - [ ] **E10.5** A novel routing function written in LOGOS. Lock: `samba_exam_agility_lock::a_new_routing_function_runs`. Ticket: ARCH-ROUTING.
 
 ### 10.11 E11: The kernel micro-exam
@@ -1934,7 +1935,7 @@ cargo nextest run -p logicaffeine-tests --test pnr_certificate_lock
 | Labels | `infrastructure` `rdu` |
 | Depends on | none |
 | Touches | `crates/logicaffeine_compile/src/spatial/lower/rdu.rs`; the drop format (new) |
-| Status | open |
+| Status | done but its fourth edge case: a drop for more chips than the runner's machine emulates |
 
 **Goal.** When the evaluator runs our artifacts and we see nothing else, the drop must carry its own proof: the manifest, the weights or their source, every program's certificate, the goldens of the tiny configuration, a runner that executes the bundle on our evaluator, and the expected output with its digest. A drop verifies itself on a machine with only the runner.
 
@@ -1948,7 +1949,8 @@ cargo nextest run -p logicaffeine-tests --test pnr_certificate_lock
   same log)
 
 **Edge cases.**
-- [ ] A drop whose weights are fetched, not carried: their digests are carried.
+- [x] A drop whose weights are fetched, not carried: their digests are carried (receipt:
+  `rdu_drop_lock::a_drop_of_fetched_weights_checks_against_the_checkpoint_it_is_given`).
 - [ ] A drop for a chip count the runner's machine cannot emulate: the per-chip programs run in turn.
 
 **Implementation.** `largo drop CHECKPOINT -o DIR` (`spatial::drop::write_drop`) writes the bundle `largo emit rdu
@@ -3289,9 +3291,9 @@ refused by name.
 
 **RED tests.**
 - [ ] `model_hf_intake_lock::every_section_6_architecture_has_an_arm`: fails today: 7 of them.
-- [ ] `model_hf_intake_lock::mixtral_is_read_as_experts`: fails today: read as dense.
-- [ ] `model_hf_intake_lock::an_unknown_key_is_refused_by_name`: fails today: keys are read selectively, the rest
-  ignored.
+- [x] `model_hf_intake_lock::mixtral_is_read_as_experts`: failed (read as dense) (receipt: `logs/samba/broad-heads.log`).
+- [x] `model_hf_intake_lock::an_unknown_key_is_refused_by_name`: failed (keys read selectively, the rest ignored)
+  (receipt: `logs/samba/broad-heads.log`; E1.10).
 - [x] `model_hf_intake_lock::a_qwen2moe_directory_reads_as_its_converted_gguf` and
   `model_tiny_checkpoint_lock::a_qwen2moe_checkpoint_reads_back_as_its_spec`, `…::a_qwen2moe_checkpoint_reads_llama_cpps_widths`:
   the `qwen2moe` arm (llama.cpp `models/qwen2moe.cpp`: a softmax router whose kept weights stay unrenormalized, a shared
@@ -3702,7 +3704,7 @@ cargo nextest run -p logicaffeine-tests --test bringup_lock
 **Goal.** A test can hand over a PyTorch module, as the Plasticine kit does (`get_model_info`: the model, dummy inputs,
 an optional loss and its arguments [PTUT]). Export it (`torch.export`) to an ATen graph, map each ATen op to the one IR's
 primitives, refuse an unmapped op by name, and enter it through `model::author` as a new spec kind so one writer of
-models still holds. **Ruling owed (Tristen):** that an imported graph enters as a spec kind written by the author.
+models still holds. Tristen (2026-11-09): an imported graph enters as a spec kind the author writes.
 
 **Read first.**
 - The kit's `get_model_info` contract (section 2.1).
@@ -4129,7 +4131,7 @@ fold before the running max, the logit cap in the head before the arg-max.
   (receipt: `logs/samba/green-softcap-9.log`).
 - [x] `tensor_softcap_lock::the_front_end_lifts_the_cap_into_the_spec_apart_from_the_scale`,
   `…the_sn50_computes_a_capped_decode_step`, `…every_consumer_of_an_attention_spec_is_held_to_its_cap`,
-  `…every_shim_without_the_cap_refuses_the_capped_op_by_name_and_every_spatial_shim_resolves_it`,
+  `…every_shim_without_the_cap_refuses_the_capped_op_by_name_and_every_spatial_shim_and_the_cuda_lane_resolve_it`,
   `…the_backward_pass_refuses_a_cap_by_name_until_its_rule_is_written`,
   `…the_graph_evaluator_computes_every_capped_op_as_the_vm_does`: failed (no `softcap` field, no `Softcap` op,
   `logs/samba/red-softcap-head-2.log`) (receipt: `logs/samba/green-softcap-9.log`, 12/12).
@@ -5190,7 +5192,7 @@ cargo nextest run -p logicaffeine-tests --test qwen4_exp_hyper_lock
 | Labels | `primitive` `rdu` `model:qwen4exp` |
 | Depends on | QWEN4-1, KERNEL-6 |
 | Touches | the n-gram lowering (new) |
-| Status | open |
+| Status | in progress: the sugar, the tensor graph's op and the lane-program lowering land, exact on the SN50 and the SN40L; the product-table lowering is open |
 
 **Goal.** The ids are `((t0·m0) ⊕ (t1·m1) ⊕ (t2·m2)) mod V_h` over 64-bit integers; the RDU's integer type is 32 bits.
 Lower the hash exactly, two ways, and keep the faster: limb arithmetic on 32-bit lanes (KERNEL-6), and per-token product
@@ -5283,7 +5285,7 @@ cargo nextest run -p logicaffeine-tests --test qwen4_exp_ngram_lock
 | Labels | `primitive` `rdu` `model:qwen4exp` |
 | Depends on | QWEN4-4, QWEN4-2 |
 | Touches | the n-gram lowering (new) |
-| Status | open |
+| Status | done on the VM and on the SN50's fp32 twin; the table's place in DDR is QWEN4-4's |
 
 **Goal.** Lower what follows the gather: the key and value projections, the per-lane gate against the normalized
 stream, the dilated depthwise convolution (kernel 4, dilation 3) with its state carried per sequence, and the addition
@@ -5311,7 +5313,7 @@ runs it unchanged; the token history and the ring are carried state (`tok`, `tok
 a chunk's or a batch's).
 
 **Success.**
-- [ ] Equal to the reference over a 64-token decode (receipt: the lock).
+- [x] Equal to the reference over a 64-token decode (receipt: `logs/samba/live-new-3.log`).
 
 **Mutants to kill.**
 - [ ] Dilation 1 where 3 belongs.
@@ -5322,7 +5324,7 @@ a chunk's or a batch's).
 cargo nextest run -p logicaffeine-tests --test qwen4_exp_ngram_lock
 ```
 
-**Done when.** Layer 2 of qwen4_exp runs.
+**Done when.** Layer 2 of qwen4_exp runs (on the tiny twin's shapes: `the_sn50_computes_a_decode_step_with_the_embedding`).
 
 #### QWEN4-6 · Qwen sparse attention at 262,144 positions
 
@@ -5332,7 +5334,7 @@ cargo nextest run -p logicaffeine-tests --test qwen4_exp_ngram_lock
 | Labels | `primitive` `rdu` `model:qwen4exp` |
 | Depends on | ARCH-SPARSE, QWEN4-1 |
 | Touches | the qwen4_exp locks (new) |
-| Status | open |
+| Status | in progress: within its dense limit a QSA layer is written as the attention it carries (`author::check_at`); the selection past it is open |
 
 **Goal.** Bind ARCH-SPARSE to qwen4_exp's indexer (4 heads × 128, 1 KV head, pooling by 4, 512 blocks plus the tail)
 and attention (24 query heads, 2 KV heads, 256 wide, gated), and run decode at 262,144 positions and, with YaRN, at
@@ -7651,7 +7653,7 @@ layers split over two chips hand their hidden state on, each side's state agreed
   (handed REDs, frozen, NUM-1): the SN50's own bf16 prefill and decode drift past the bound (Qwen3 0.143 against 0.100, gpt-oss 0.575 against 0.137).
   With fp32 elementwise on the SN50 (its fp32 twin) every one of these holds for all four architectures, so the hand-off
   is exact and what is left is NUM-1.
-- [ ] `samba_exam_prefill_lock::a_gpu_prefilled_cache_decodes_on_the_rdu` (E4.3): the CUDA lane's prefill on the card
+- [ ] `samba_exam_card_prefill_lock::a_gpu_prefilled_cache_decodes_on_the_rdu` (E4.3): the CUDA lane's prefill on the card
   handing its cache to the RDU bundle.
 
 **Edge cases.**
@@ -9112,7 +9114,7 @@ cargo nextest run -p logicaffeine-tests --test frozen_reds_lock
 | Phase | exam |
 | Labels | `exam` |
 | Depends on | none |
-| Touches | the `samba_exam_kernel_lock` suite (new); `crates/logicaffeine_tests/tests/frozen_reds_lock.rs` fixture rows |
+| Touches | the `samba_exam_kernel_lock` and `samba_exam_kernel_reds_lock` suites (new); `crates/logicaffeine_tests/tests/frozen_reds_lock.rs` fixture rows |
 | Status | open |
 
 **Goal.** Write every test of section 10.11 as a handed RED in `samba_exam_kernel_lock`, each failing today for the reason its ticket

@@ -16,8 +16,8 @@
 use std::collections::BTreeMap;
 
 use crate::tensor_graph::front::TensorOpSpec;
-use crate::tensor_graph::fuse::{binary, class, gates_rows, gemv, leaves, Weights};
-use crate::tensor_graph::graph::{Access, Dst as IrDst, Fused, Op, RowSel as IrRowSel, Sym, TensorGraph};
+use crate::tensor_graph::fuse::{allreduce_partials, binary, class, gates_rows, gemv, leaves, parts_norm, Weights};
+use crate::tensor_graph::graph::{Access, Dst as IrDst, Elem, Fused, Op, RowSel as IrRowSel, Sym, TensorGraph};
 use crate::tensor_graph::shim::{Shim, Support};
 use crate::tensor_graph::symbols::ClassId;
 use crate::tensor_recognize::qwen::{Activation, GateAct, RowIndex, Window};
@@ -25,8 +25,8 @@ use crate::tensor_recognize::RowReduceKind;
 
 use super::lane::kernels;
 use super::lane::plan::{
-    attended_span, Advance, ConvPart, Dst, GemmPart, Launch, Part, PreNorm, RopeSide, Router, RowSel, SharedExperts, StepIo, GEMV_ROWS,
-    QBLOCK,
+    attended_span, Advance, ConvPart, Dst, GemmPart, Launch, NormedPart, Part, PreNorm, RopeSide, Router, RowPart, RowSel, ScaleBy, Epilogue,
+    SharedExperts, StepIo, GEMV_ROWS, QBLOCK,
 };
 use super::lane::weights::{Placement, Rows};
 use super::lane_shim::{chunks_apart, LaneShim, Latent};
@@ -188,8 +188,50 @@ impl Link<'_> {
         match l {
             Launch::Gemv { y, .. } | Launch::GemvF32 { y, .. } | Launch::Rope { y, .. } | Launch::Moe { y, .. } | Launch::Join { y, .. } | Launch::HeadGemv { y, .. } => *y = to,
             Launch::Norm { into, .. } => *into = Some(to),
+            // Each part lands at its place in the row, where the row lands.
+            Launch::NormParts { normed, cols, .. } => {
+                for o in normed {
+                    let at = o.y.unit.map_or(0, |u| u.offset);
+                    let unit = Part { pitch: to.unit.map_or(*cols, |u| u.pitch), offset: to.unit.map_or(0, |u| u.offset) + at };
+                    o.y = Dst { unit: Some(unit), ..to.clone() };
+                }
+            }
             _ => {}
         }
+    }
+
+    /// The widths of the parts row `t` of `rows` rows is made of, in order: the operands of the join of rows that makes
+    /// it, each taken apart in turn where it is made of parts too, or the results its producers write into its units
+    /// (`join_in_place`), each a join's taken apart alike. A norm of such a row sums it by parts, as a row normed by its
+    /// parts where they live sums them (`allreduce_sumsq_norm`).
+    fn row_parts(&self, t: &str, rows: usize) -> Option<Vec<usize>> {
+        let join = |op: &Op| match op.prim() {
+            Some(TensorOpSpec::Join(j)) if j.heads == 1 && j.rows == rows && op.access.iter().all(|a| *a == Access::Whole) => {
+                let side = |x: &str, w: usize| self.row_parts(x, rows).unwrap_or_else(|| vec![w]);
+                let mut parts = side(&op.ins[0], j.wa);
+                parts.extend(side(&op.ins[1], j.wb));
+                Some(parts)
+            }
+            _ => None,
+        };
+        if let Some(i) = self.g.producer(t) {
+            return join(&self.g.ops[i]);
+        }
+        let pitch = self.g.tensors.get(t)?.len() / rows;
+        let mut units: Vec<(usize, &Op)> = Vec::new();
+        for o in self.g.ops.iter().filter(|o| o.dst.buf == t) {
+            let u = o.dst.unit.filter(|u| u.pitch == pitch && o.dst.row.is_none())?;
+            units.push((u.offset, o));
+        }
+        units.sort_by_key(|(at, _)| *at);
+        let mut parts = Vec::new();
+        for (at, o) in &units {
+            if *at != parts.iter().sum::<usize>() {
+                return None;
+            }
+            parts.extend(join(o).unwrap_or_else(|| vec![o.dst.unit.map_or(0, |u| u.width)]));
+        }
+        (units.len() > 1 && parts.iter().sum::<usize>() == pitch).then_some(parts)
     }
 
     /// A lifted op's launch, as the lane lowers its kind.
@@ -208,10 +250,13 @@ impl Link<'_> {
                     if !r.transposed || r.rows != m.n || r.cols != m.k {
                         return refuse("the weight's checkpoint rows are not the projection's outputs");
                     }
+                    if kernels::sixteen(r.ty) && numerics != Q8MatKind::Dequant && !kernels::sixteen_fits(m.k) {
+                        return refuse("a 16-bit product on the tensor cores is whole 32s of its inputs");
+                    }
                     let rows = kernels::gemm_blk_rows(kernels::format_arg(r.ty), numerics == Q8MatKind::TwoPassInt8);
                     let tiles = m.n.div_ceil(kernels::GEMM_TILE_N) * m.m.div_ceil(rows);
                     let tail = match kernels::gemm_blk_tail(tiles, knobs.chip.sms, m.k.div_ceil(128)) {
-                        (whole, split) if split > 1 && m.m > GEMV_ROWS && numerics != Q8MatKind::Dequant && !batch => Some((whole, split)),
+                        (whole, split) if split > 1 && m.m > GEMV_ROWS && numerics != Q8MatKind::Dequant && !batch && !kernels::sixteen(r.ty) => Some((whole, split)),
                         _ => None,
                     };
                     Launch::Gemv {
@@ -219,18 +264,19 @@ impl Link<'_> {
                         w: w.clone(),
                         format: r.ty,
                         bias: None,
+                        epi: None,
                         y: Dst::to(&out),
                         k: m.k,
                         n: m.n,
                         m: m.m,
-                        per_warp: 1,
+                        per_warp: if kernels::sixteen(r.ty) { kernels::sixteen_rows_a_warp(numerics, m.n) } else { 1 },
                         f32: true,
                         quant: false,
                         tail,
                         batch,
                     }
                 } else if self.values(w) {
-                    Launch::GemvF32 { x: ins[0].clone(), w: w.clone(), bias: None, y: Dst::to(&out), k: m.k, n: m.n, m: m.m, split: 1, batch }
+                    Launch::GemvF32 { x: ins[0].clone(), w: w.clone(), bias: None, epi: None, y: Dst::to(&out), k: m.k, n: m.n, m: m.m, split: 1, batch }
                 } else {
                     return refuse("a matmul by a computed matrix has no kernel");
                 }
@@ -254,9 +300,27 @@ impl Link<'_> {
                 if r.bias.is_some() {
                     return refuse("an RMSNorm with a bias");
                 }
+                if r.weight_rows > 1 {
+                    return refuse("a norm in lanes (`in L lanes`), each row by its own row of the weight — the lane's norms read one weight row");
+                }
                 let mut it = ins.iter().skip(1);
                 let w = r.weight.map(|_| it.next().expect("the weight operand").clone());
                 let add = r.residual.map(|_| it.next().expect("the residual operand").clone());
+                // A row joined from parts is summed by parts: each part's sum of squares as a norm of it alone sums it,
+                // the sums added in order — what the row normed by its parts where they live computes.
+                let parts = self.row_parts(&ins[0], r.rows).filter(|p| add.is_none() && op.access[0] == Access::Whole && p.len() <= kernels::NORM_PARTS_MAX && p.iter().sum::<usize>() == r.cols);
+                if let Some(widths) = parts {
+                    let at: Vec<usize> = widths.iter().scan(0, |o, w| Some(std::mem::replace(o, *o + w))).collect();
+                    let unit = |offset: usize| Some(Part { pitch: r.cols, offset });
+                    return Ok(Launch::NormParts {
+                        parts: widths.iter().zip(&at).map(|(&cols, &o)| RowPart { x: ins[0].clone(), part: unit(o), cols }).collect(),
+                        normed: at.iter().enumerate().map(|(k, &o)| NormedPart { part: k, y: Dst { unit: unit(o), ..Dst::to(&out) } }).collect(),
+                        w,
+                        rows: r.rows,
+                        cols: r.cols,
+                        eps: r.eps,
+                    });
+                }
                 Launch::Norm {
                     x: ins[0].clone(),
                     part: None,
@@ -271,6 +335,8 @@ impl Link<'_> {
                     rows: r.rows,
                     cols: r.cols,
                     eps: r.eps,
+                    scale: None,
+                    fold: Vec::new(),
                 }
             }
             TensorOpSpec::Rope(r) => {
@@ -343,21 +409,23 @@ impl Link<'_> {
                     rows: d.rows,
                     eps: d.eps,
                     seqs: 1,
+                    qk: None,
                 }
             }
-            TensorOpSpec::Softcap(_) => return refuse("a soft-capped tensor (`capped at C`)"),
+            TensorOpSpec::Softcap(s) => Launch::Softcap { x: ins[0].clone(), y: out, n: s.n, cap: s.cap.get() },
+            TensorOpSpec::LaneSums(_) | TensorOpSpec::SignedRoot(_) => {
+                return refuse("a lane sum or a signed root (`the lane sums of X over L lanes`, `the signed root of X`)")
+            }
+            TensorOpSpec::NgramIds(_) => return refuse("an n-gram hash (`the ngram ids of T after R by M modulo V from O ending at E`)"),
+            TensorOpSpec::LaneMean(_) | TensorOpSpec::LaneSpread(_) => {
+                return refuse("a hyper-connected residual's lanes (`the mean of X over L lanes`, `O spread over L lanes`)")
+            }
             TensorOpSpec::Attention(a) => {
-                if a.softcap.is_some() {
-                    return refuse("a soft-capped attention (`capped at C`)");
-                }
                 if a.kv == 0 || a.h % a.kv != 0 {
                     return refuse("query heads that do not group evenly over the key/value heads");
                 }
                 if a.hd % 4 != 0 || a.vd % 2 != 0 {
                     return refuse("a key head not a whole number of four-value words, or a value head of an odd width");
-                }
-                if matches!(a.window, Some(Window::Chunked(_))) {
-                    return refuse("a chunked-local attention — the lane's mask keeps a window's last positions");
                 }
                 let window = a.window.map(Window::span);
                 let span = attended_span(a.l, window);
@@ -386,10 +454,12 @@ impl Link<'_> {
                     len: a.l,
                     rows: a.rows,
                     window,
+                    chunked: matches!(a.window, Some(Window::Chunked(_))),
                     sinks: a.sinks.map(|_| rest.next().cloned().expect("the sinks operand")),
                     vstride: a.kv * a.vd,
                     voff: 0,
                     scale: a.scale.map_or(1.0 / (a.hd as f64).sqrt(), |s| s.get()),
+                    cap: a.softcap.map(|c| c.get()),
                     per_block,
                     splits,
                     parallel: chunks_apart(splits, a.rows, a.h / per_block, knobs.chip.sms),
@@ -400,6 +470,7 @@ impl Link<'_> {
                     quant: false,
                     gate: None,
                     goff: 0,
+                    stream: 0,
                 }
             }
             TensorOpSpec::Moe(m) => {
@@ -416,6 +487,9 @@ impl Link<'_> {
                 };
                 if !(ok(&ins[2], m.ne * m.dff, m.d, false) && ok(&ins[3], m.ne * m.dff, m.d, false) && ok(&ins[4], m.ne * m.d, m.dff, false)) {
                     return refuse("an expert mixture whose experts are not quantized checkpoint rows");
+                }
+                if [1, 2, 3, 4].iter().any(|&k| self.rows_of(&ins[k]).is_some_and(|r| kernels::sixteen(r.ty))) {
+                    return refuse("an expert mixture or its router in a 16-bit float format — the expert kernels decode quantized sub-blocks");
                 }
                 let mut rest = ins[5..].iter();
                 let mut constant = |b: bool| -> Result<Option<String>, String> {
@@ -478,27 +552,29 @@ impl Link<'_> {
                 };
                 Launch::Gather { table, index: ins[1].clone(), out, cols: r.cols, rows: r.count, format, scale: None }
             }
-            TensorOpSpec::ArgMax(a) => Launch::ArgMax { x: ins[0].clone(), out, n: a.n, advance: None, rows: 1 },
+            TensorOpSpec::ArgMax(a) => Launch::ArgMax { x: ins[0].clone(), out, n: a.n, advance: None, rows: 1, cap: None, y: None },
             TensorOpSpec::SetRow(r) => {
                 Launch::SetRow { table: ins[0].clone(), index: row_sel(&r.index, ins.get(2))?, src: ins[1].clone(), cols: r.cols, count: r.count, seq: None, f32: true, quant: false }
             }
             TensorOpSpec::Transpose(_) | TensorOpSpec::FullAttention(_) => return refuse("a transpose or an unmasked block attention has no kernel yet"),
-            TensorOpSpec::LaneSums(_) | TensorOpSpec::SignedRoot(_) => {
-                return refuse("a lane sum or a signed root (`the lane sums of X over L lanes`, `the signed root of X`)")
-            }
-            TensorOpSpec::NgramIds(_) => return refuse("an n-gram hash (`the ngram ids of T after R by M modulo V from O ending at E`)"),
-            TensorOpSpec::LaneMean(_) | TensorOpSpec::LaneSpread(_) => {
-                return refuse("a hyper-connected residual's lanes (`the mean of X over L lanes`, `O spread over L lanes`)")
+            TensorOpSpec::Relu(r) => {
+                if self.g.tensors.get(&ins[0]).is_some_and(|t| t.elem == Elem::Int) {
+                    return refuse("a ReLU of integers");
+                }
+                Launch::Relu { x: ins[0].clone(), out, n: r.n, square: false, f32: true, quant: false }
             }
             TensorOpSpec::Scatter(_) => return refuse("a scatter of rows has no kernel yet"),
             TensorOpSpec::Map(_) => return refuse("a map the program wrote as a loop has no kernel yet"),
-            TensorOpSpec::IntRequant(_) | TensorOpSpec::IntClamp(_) | TensorOpSpec::Relu(_) | TensorOpSpec::LutAttention(_) => {
-                return refuse("a requant, a clamp, a ReLU or a LUT attention has no kernel yet")
+            TensorOpSpec::IntRequant(_) | TensorOpSpec::IntClamp(_) | TensorOpSpec::LutAttention(_) => {
+                return refuse("a requant, a clamp or a LUT attention has no kernel yet")
             }
             TensorOpSpec::HeadSlice(h) => Launch::Slice { x: ins[0].clone(), y: out, groups: h.n / h.every, every: h.every, from: h.from, width: h.width },
             TensorOpSpec::Join(j) => Launch::Join { a: ins[0].clone(), b: ins[1].clone(), y: Dst::to(&out), rows: j.rows, heads: j.heads, ha: j.wa / j.heads, hb: j.wb / j.heads, yz: 0 },
             TensorOpSpec::HeadMatmul(m) => {
                 let Some(r) = self.rows_of(&ins[1]) else { return refuse("a per-head matmul by a matrix that is not checkpoint rows") };
+                if kernels::sixteen(r.ty) {
+                    return refuse("a per-head matmul by a 16-bit float matrix — the per-head kernels decode quantized sub-blocks");
+                }
                 let rows_out = match (r.transposed, r.rows, r.cols) {
                     (true, rows, cols) if rows == m.heads * m.b && cols == m.a => true,
                     (false, rows, cols) if rows == m.heads * m.a && cols == m.b => false,
@@ -546,6 +622,62 @@ impl Link<'_> {
                 (*x, *add, *sum) = (a, Some(b), op.keeps.first().cloned());
                 l
             }
+            // The norm folds every partial of the all-reduce its added operand is, each where it lives, in the order the
+            // adds folded them.
+            ClassId::AllreduceNorm => {
+                let (mut partials, sum) = allreduce_partials(op).ok_or("an all-reduce and the norm its sum feeds")?;
+                let mut l = self.one(parts.last().ok_or("an all-reduce's norm")?)?;
+                let Launch::Norm { x, add, fold, .. } = &mut l else { return Err("an all-reduce's norm".into()) };
+                // Added to the residual, the norm folds every partial onto it; normed alone (a post-norm), it reads its
+                // last partial onto the others' fold — one addition, which commutes, so the program's sum bit for bit.
+                if *x == sum {
+                    *x = match add.take() {
+                        Some(residual) => residual,
+                        None => partials.pop().ok_or("an all-reduce of partials")?,
+                    };
+                } else if add.as_deref() == Some(sum.as_str()) {
+                    *add = None;
+                } else {
+                    return Err("an all-reduce the norm adds".into());
+                }
+                *fold = partials;
+                l
+            }
+            // Each part normed where it lives, by the whole row's sum of squares from each part's sum, and written where
+            // the slice that takes it back lands.
+            ClassId::AllreduceSumsqNorm => {
+                let (parts, n, slices) = parts_norm(op).ok_or("a row normed by parts")?;
+                return Ok(Launch::NormParts {
+                    parts: parts.into_iter().map(|(x, cols)| RowPart { x, part: None, cols }).collect(),
+                    normed: slices.into_iter().map(|(part, _, y)| NormedPart { part, y: dst(&y) }).collect(),
+                    w: n.w,
+                    rows: n.rows,
+                    cols: n.cols,
+                    eps: n.eps,
+                });
+            }
+            // The norm scales its result as it stores it, the sum it writes on unscaled.
+            ClassId::NormScale => {
+                let Some(TensorOpSpec::Scale(s)) = parts[1].prim() else { return Err("a norm's scale".into()) };
+                let mut l = self.one(&parts[0])?;
+                let Launch::Norm { out, scale, .. } = &mut l else { return Err("a scale on a norm".into()) };
+                (*out, *scale) = (op.out.clone(), Some(s.factor.get()));
+                l
+            }
+            // The ReLU's result squared as it is stored: by its own launch, or last in the epilogue of the product it is
+            // folded into.
+            ClassId::ReluSqr => {
+                let mut l = self.one(&parts[0])?;
+                match &mut l {
+                    Launch::Relu { out, square, .. } => (*out, *square) = (op.out.clone(), true),
+                    Launch::Gemv { y, epi, .. } | Launch::GemvF32 { y, epi, .. } => {
+                        epi.get_or_insert_with(Epilogue::default).relu_sq = true;
+                        *y = Dst::to(&op.out);
+                    }
+                    _ => return Err("a squared ReLU".into()),
+                }
+                l
+            }
             ClassId::NormThenAdd => {
                 let (inner, outer) = (&parts[0], &parts[1]);
                 let Launch::Norm { w, eps, .. } = self.one(inner)? else { return Err("a sandwich's inner norm".into()) };
@@ -583,6 +715,39 @@ impl Link<'_> {
                 (*out, *gate) = (op.out.clone(), Some((gated.b, gated.gate.ok_or("a gate's activation")?)));
                 l
             }
+            // The product scales its result as it stores it: a bias before the scale is its own bias, a constant added
+            // after it (`parts[0]` a scaled product then) the epilogue's last step.
+            ClassId::GemmScale => {
+                let mut l = self.one(&parts[0])?;
+                let (Launch::Gemv { y, n, m, epi, .. } | Launch::GemvF32 { y, n, m, epi, .. }) = &mut l else { return Err("a scale on a product".into()) };
+                let (n, m) = (*n, *m);
+                let own = |t: &str| -> Result<bool, String> {
+                    match self.g.tensors.get(t).map(|x| x.len()) {
+                        Some(len) if self.values(t) && len == n => Ok(false),
+                        Some(len) if self.values(t) && len == n * m => Ok(true),
+                        _ => Err(format!("a product's epilogue reads `{t}`, a constant neither a row of its outputs nor their shape")),
+                    }
+                };
+                let constant = || -> Result<String, String> {
+                    let b = binary(&parts[1]).ok_or("a scale or bias on a product")?;
+                    Ok(if b.a == parts[0].out { b.b } else { b.a })
+                };
+                let e = epi.get_or_insert_with(Epilogue::default);
+                if e.scale.is_some() {
+                    let c = constant()?;
+                    e.after = Some((c.clone(), own(&c)?));
+                } else {
+                    e.scale = Some(match parts[1].prim() {
+                        Some(TensorOpSpec::Scale(s)) => ScaleBy::Factor(s.factor.get()),
+                        _ => {
+                            let c = constant()?;
+                            if own(&c)? { ScaleBy::Each(c) } else { ScaleBy::Row(c) }
+                        }
+                    });
+                }
+                *y = Dst::to(&op.out);
+                l
+            }
             ClassId::GemmBias => {
                 let mut l = self.one(&parts[0])?;
                 let (Launch::Gemv { bias, y, .. } | Launch::GemvF32 { bias, y, .. }) = &mut l else { return Err("a bias on a product".into()) };
@@ -604,6 +769,18 @@ impl Link<'_> {
                     let Some(TensorOpSpec::L2Norm(n)) = parts[1].prim() else { return Err("a convolution's L2 norm".into()) };
                     *l2 = Some((n.cols, n.eps));
                 }
+                l
+            }
+            // A step's delta rule norming its query and key heads itself: the rule reading them as the inputs' launch
+            // wrote them, `qk` its norms' epsilon.
+            ClassId::DeltaQkNorm => {
+                let (delta, norms) = parts.split_last().ok_or("a delta rule norming its heads")?;
+                let mut l = self.one(delta)?;
+                let Launch::Delta { q, k, qk, .. } = &mut l else { return Err("a delta rule norming its heads".into()) };
+                let unnormed = |t: &str| norms.iter().find(|n| n.out == t).map(|n| n.ins[0].clone());
+                let (Some(uq), Some(uk)) = (unnormed(q), unnormed(k)) else { return Err("a delta rule's normed query and key".into()) };
+                let Some(TensorOpSpec::L2Norm(n)) = norms[0].prim() else { return Err("a delta rule's norms of its heads".into()) };
+                (*q, *k, *qk) = (uq, uk, Some(n.eps));
                 l
             }
             ClassId::ConvParts => {
@@ -670,9 +847,13 @@ impl Link<'_> {
                     return Err("a gated pair of products by checkpoint rows".into());
                 };
                 let gemv_rows = m <= GEMV_ROWS || self.numerics() == Q8MatKind::Dequant || batch;
-                let paired = !gemv_rows && fg == fu && n % (kernels::GEMM_TILE_N / 2) == 0;
+                let paired = !gemv_rows && fg == fu && !kernels::sixteen(fg) && n % (kernels::GEMM_TILE_N / 2) == 0;
                 let tail = tail.filter(|_| paired).map(|(whole, split)| (2 * whole, split));
-                Launch::GemvGlu { x, wg, wu, formats: [fg, fu], biases: [bg, bu], act, out: op.out.clone(), f32: true, quant: false, k, n, m, per_warp: 1, tail, batch }
+                if (kernels::sixteen(fg) || kernels::sixteen(fu)) && fg != fu {
+                    return Err("a gated pair of 16-bit products is one format".into());
+                }
+                let per_warp = if kernels::sixteen(fg) { kernels::sixteen_rows_a_warp(self.numerics(), n) } else { 1 };
+                Launch::GemvGlu { x, wg, wu, formats: [fg, fu], biases: [bg, bu], act, out: op.out.clone(), f32: true, quant: false, k, n, m, per_warp, tail, batch }
             }
             ClassId::SharedExpertFusion => {
                 let mixture = parts.iter().find(|p| matches!(p.prim(), Some(TensorOpSpec::Moe(_)))).ok_or("the mixture")?;
@@ -712,6 +893,15 @@ impl Link<'_> {
                 let (cos, sin, pos, hd, half) = shared.ok_or("a launch of rotations")?;
                 Launch::RopeParts { sides, cos, sin, pos, hd, half, seqs: false }
             }
+            ClassId::CapArgmax => {
+                let Some(TensorOpSpec::Softcap(s)) = parts[0].prim() else { return Err("a soft cap before an arg-max".into()) };
+                let mut l = self.one(&parts[1])?;
+                let Launch::ArgMax { x, cap, y, .. } = &mut l else { return Err("an arg-max of a soft cap".into()) };
+                // The capped row is written as the arg-max reads it where something past the fold reads it.
+                let capped = parts[0].out.clone();
+                (*x, *cap, *y) = (op.ins[0].clone(), Some(s.cap.get()), op.keeps.contains(&capped).then_some(capped));
+                l
+            }
             ClassId::FusedSampling => {
                 let mut l = self.one(&parts[0])?;
                 let Launch::ArgMax { out, advance, .. } = &mut l else { return Err("an arg-max".into()) };
@@ -734,6 +924,7 @@ impl Link<'_> {
                 match &mut l {
                     Launch::Norm { f32, quant, .. }
                     | Launch::Binary { f32, quant, .. }
+                    | Launch::Relu { f32, quant, .. }
                     | Launch::SwiGlu { f32, quant, .. }
                     | Launch::Delta { f32, quant, .. }
                     | Launch::GemvGlu { f32, quant, .. }
@@ -746,6 +937,23 @@ impl Link<'_> {
                     _ => return Err("a producer that quantizes in its epilogue".into()),
                 }
                 l
+            }
+            // A gated delta layer's inputs: its products as one GEMV in parts, then its convolutions over the parts they
+            // read, then its gates — from two parts, or projected from the activation in `f32` — each as it runs alone.
+            ClassId::GdnInputEpilogue => {
+                let inputs = self.shim.gdn_inputs(f, self.g)?;
+                let products: Vec<_> = inputs.products.iter().map(|p| gemv(p, self.g).ok_or("a gated delta layer's product")).collect::<Result<_, _>>()?;
+                let projections = self.projections(&products)?;
+                let normed = inputs.convs.iter().find_map(|c| c.l2);
+                let convs = Launch::ConvParts {
+                    parts: inputs.convs.iter().map(|c| ConvPart { x: c.x.clone(), w: c.w.clone(), ring: c.ring.clone(), y: c.y.clone(), chan: c.chan, l2: c.l2.is_some() }).collect(),
+                    taps: inputs.convs[0].taps,
+                    block: normed.map_or(256, |(cols, _)| cols),
+                    eps: normed.map(|(_, eps)| eps),
+                    seqs: 1,
+                };
+                let gates = self.one(inputs.gating)?;
+                Launch::Fold { first: Box::new(Launch::Fold { first: Box::new(projections), then: Box::new(convs) }), then: Box::new(gates) }
             }
             ClassId::MergedQkv | ClassId::QkvHeadEpilogue => {
                 let members: Vec<&Op> = if f.class == ClassId::QkvHeadEpilogue { vec![op] } else { parts.iter().collect() };
@@ -760,21 +968,7 @@ impl Link<'_> {
                     };
                     products.push(gemv(product, self.g).ok_or("products of one activation")?);
                 }
-                let first = &products[0];
-                let Weights::Rows(format) = first.weights else { return Err("products by checkpoint rows".into()) };
-                let gemm: Vec<GemmPart> = products.iter().map(|p| GemmPart { w: p.w.clone(), bias: p.bias.clone(), y: dst(&p.dst), n: p.n }).collect();
-                let projections = if self.shim.on_tensor_cores(first) {
-                    let n: usize = gemm.iter().map(|p| p.n).sum();
-                    let rows = kernels::gemm_blk_rows(kernels::format_arg(format), self.numerics() == Q8MatKind::TwoPassInt8);
-                    let tiles = n.div_ceil(kernels::GEMM_TILE_N) * first.m.div_ceil(rows);
-                    let tail = match kernels::gemm_blk_tail(tiles, self.shim.knobs.chip.sms, first.k.div_ceil(128)) {
-                        (whole, split) if split > 1 => Some((whole, split)),
-                        _ => None,
-                    };
-                    Launch::GemmParts { x: first.x.clone(), format, k: first.k, m: first.m, parts: gemm, tail, per_warp: 1, batch: false }
-                } else {
-                    Launch::GemmParts { x: first.x.clone(), format, k: first.k, m: first.m, parts: gemm, tail: None, per_warp: self.shim.per_warp(first), batch: self.shim.batch }
-                };
+                let projections = self.projections(&products)?;
                 if sides.is_empty() {
                     projections
                 } else {
@@ -793,6 +987,26 @@ impl Link<'_> {
         };
         self.place(op, &mut l);
         Ok(l)
+    }
+
+    /// Products of one activation side by side as one launch: on the tensor cores past the GEMV's rows, the GEMV in
+    /// parts at or below them, its rows a warp the parts' (`LaneShim::parts_per_warp`).
+    fn projections(&self, products: &[crate::tensor_graph::fuse::GemvForm]) -> Result<Launch, String> {
+        let first = products.first().ok_or("products of one activation")?;
+        let Weights::Rows(format) = first.weights else { return Err("products by checkpoint rows".into()) };
+        let gemm: Vec<GemmPart> = products.iter().map(|p| GemmPart { w: p.w.clone(), bias: p.bias.clone(), y: dst(&p.dst), n: p.n }).collect();
+        Ok(if self.shim.on_tensor_cores(first) {
+            let n: usize = gemm.iter().map(|p| p.n).sum();
+            let rows = kernels::gemm_blk_rows(kernels::format_arg(format), self.numerics() == Q8MatKind::TwoPassInt8);
+            let tiles = n.div_ceil(kernels::GEMM_TILE_N) * first.m.div_ceil(rows);
+            let tail = match kernels::gemm_blk_tail(tiles, self.shim.knobs.chip.sms, first.k.div_ceil(128)) {
+                (whole, split) if split > 1 => Some((whole, split)),
+                _ => None,
+            };
+            Launch::GemmParts { x: first.x.clone(), format, k: first.k, m: first.m, parts: gemm, tail, per_warp: 1, batch: false }
+        } else {
+            Launch::GemmParts { x: first.x.clone(), format, k: first.k, m: first.m, parts: gemm, tail: None, per_warp: self.shim.parts_per_warp(products), batch: self.shim.batch }
+        })
     }
 
     /// Whether every op that reads `x` — itself, or a view of its whole blocks — reads it as a product's quantized
@@ -821,8 +1035,12 @@ impl Link<'_> {
         }
         readers.iter().all(|(op, t)| {
             let projected = op.ins.iter().enumerate().any(|(k, n)| n == t && self.shim.activation(op, k, self.g).is_some());
-            let f32_router = leaves((*op).clone()).iter().any(|l| matches!(l.prim(), Some(TensorOpSpec::Moe(_))) && self.values(&l.ins[1]));
-            projected && !f32_router && !matches!(op.sym, Sym::Quantize(_))
+            // A part that reads it `f32` beside: an expert mixture's `f32` router, or a product by values — a gated delta
+            // layer's gates projected in `f32` beside its GEMV.
+            let plain = leaves((*op).clone()).iter().any(|l| {
+                (matches!(l.prim(), Some(TensorOpSpec::Moe(_))) && self.values(&l.ins[1])) || gemv(l, self.g).is_some_and(|p| p.x == *t && p.weights == Weights::Values)
+            });
+            projected && !plain && !matches!(op.sym, Sym::Quantize(_))
         })
     }
 
@@ -855,6 +1073,7 @@ impl Link<'_> {
             len: a.l,
             rows: a.rows,
             scale: a.scale.map_or(1.0 / (a.hd as f64).sqrt(), |s| s.get()),
+            cap: a.softcap.map(|c| c.get()),
             wkb: absorb.ins[1].clone(),
             fk: rk.ty,
             kro: rk.transposed,

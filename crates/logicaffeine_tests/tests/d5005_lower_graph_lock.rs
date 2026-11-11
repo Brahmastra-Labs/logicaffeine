@@ -84,6 +84,65 @@ fn the_program_read_off_the_step_graph_is_the_hand_lowering_at_every_knob_point(
     }
 }
 
+/// The engine's int8 caches are the shared symbol's schemes (PARITY-KV-CACHE-QUANT, `kv_cache_quant` and
+/// `hadamard_rotation`): the engine's contract keeps an int8 cache's rows as `Keep::Int8Rows` and a rotated one's as
+/// `Keep::Int8RowsRotated`, the schemes whose meaning `Keep::keep_row` is and whose bound the lane's caches declare too;
+/// the program read off the step graph turns every attention block's queries, keys and values a head at a time before
+/// the cache is appended and the attention reads it under the rotated scheme, and turns nothing under the plain one;
+/// and the engine's run over each cache sits nearer the reference whose caches keep their rows by that scheme than the
+/// one whose caches keep them exact — what the engine keeps is what the shared scheme keeps. The tiny Qwen3, whose keys
+/// are normed, and the tiny Llama, whose keys are not, at the most precise point but for the cache.
+#[test]
+fn the_engines_hadamard_cache_is_the_shared_symbols_link() {
+    use logicaffeine_compile::model::reference::{KvStorage, Reference};
+    use logicaffeine_compile::spatial::decode_engine::model::{CacheFormat, EngineModel};
+    use logicaffeine_compile::spatial::decode_engine::program::{Command, Slot};
+    use logicaffeine_compile::tensor_graph::numerics::Keep;
+    use logicaffeine_compile::tensor_graph::shim::Shim;
+    let dir = tempfile::tempdir().unwrap();
+    let prompt = [5u32, 17, 2, 30, 41, 8, 63, 12, 77, 3, 90];
+    for t in [Tiny::Qwen3, Tiny::Llama] {
+        let spec = t.wide(64);
+        let path = dir.path().join(format!("{}.gguf", t.name()));
+        tiny_models::write_checkpoint(&spec, &path);
+        let graph = step(&spec);
+        let attentions = spec.layers.iter().filter(|l| matches!(l.mixer, Mixer::Attention(_))).count();
+        assert!(attentions > 0, "the tiny {}: its layers attend", t.name());
+        for (cache, keep, kv) in [(CacheFormat::Int8, Keep::Int8Rows, KvStorage::Int8Rows), (CacheFormat::Int8Hadamard, Keep::Int8RowsRotated, KvStorage::Int8RowsRotated)] {
+            let numerics = EngineNumerics { cache, ..EngineNumerics::precise() };
+            let what = format!("the tiny {} over an {cache:?} cache", t.name());
+            let contract = EngineShim { spec: &spec, numerics }.numerics().expect("the engine declares its contract");
+            assert_eq!(contract.cache, keep, "{what}: the engine keeps its cache as the shared scheme");
+            let read = lower_graph(&graph, &spec, numerics).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let turns: Vec<(Slot, usize)> = read.commands.iter().filter_map(|c| match c { Command::Hadamard { slot, width } => Some((*slot, *width)), _ => None }).collect();
+            if cache == CacheFormat::Int8Hadamard {
+                for slot in [Slot::Query, Slot::Key, Slot::Value] {
+                    assert_eq!(turns.iter().filter(|(s, _)| *s == slot).count(), attentions, "{what}: every attention block turns its {slot:?} heads");
+                }
+                for l in &spec.layers {
+                    if let Mixer::Attention(a) = &l.mixer {
+                        assert!(turns.contains(&(Slot::Key, a.head_dim)) && turns.contains(&(Slot::Value, a.value_dim)), "{what}: a head at a time");
+                    }
+                }
+            } else {
+                assert!(turns.is_empty(), "{what}: a plain int8 cache turns nothing: {turns:?}");
+            }
+            let mut engine = EngineModel::new(spec.clone(), Gguf::open(&path).unwrap(), numerics).unwrap_or_else(|e| panic!("{what}: {e:?}"));
+            let sequence = engine.sequence();
+            let got = engine.step(&[(sequence, prompt.to_vec())]).unwrap_or_else(|e| panic!("{what}: {e:?}"));
+            let ran: Vec<f32> = got[0].last().expect("the prompt's last logits").clone();
+            let distance = |kv: KvStorage| -> f64 {
+                let mut r = Reference::new(spec.clone(), Gguf::open(&path).unwrap()).unwrap().with_kv_storage(kv);
+                let want = r.step(&prompt).unwrap();
+                let top = want.iter().fold(1f64, |m, v| m.max(v.abs()));
+                ran.iter().zip(&want).map(|(g, w)| (f64::from(*g) - w).abs()).fold(0f64, f64::max) / top
+            };
+            let (near, far) = (distance(kv), distance(KvStorage::Exact));
+            assert!(near < far, "{what}: the run sits nearer the reference keeping its rows as {keep:?} ({near:.3e}) than the exact one ({far:.3e})");
+        }
+    }
+}
+
 /// What the engine has no unit for in each architecture, as the refusal names it.
 fn refused() -> Vec<(Tiny, &'static str)> {
     vec![
@@ -92,6 +151,10 @@ fn refused() -> Vec<(Tiny, &'static str)> {
         (Tiny::GptOss, "attention sinks"),
         (Tiny::DeepSeek2, "multi-head latent attention"),
         (Tiny::DeepSeek2Split, "multi-head latent attention"),
+        (Tiny::MiniCpm, "a scaled embedding"),
+        (Tiny::Granite, "a scaled embedding"),
+        (Tiny::Gemma2, "a scaled embedding"),
+        (Tiny::Arcee, "an FFN gated by other than SiLU"),
     ]
 }
 

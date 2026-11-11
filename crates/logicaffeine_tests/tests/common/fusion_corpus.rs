@@ -63,15 +63,16 @@ pub fn lifted(source: &str, rows: bool, io: Option<StepIo>) -> TensorGraph {
 
 pub fn io(cut: Cut) -> StepIo {
     match cut {
-        Cut::Prefill { .. } => StepIo { token: "toks".into(), position: "pos_s0".into(), logits: "logits".into(), next: "next".into(), more: Vec::new() },
+        Cut::Prefill { .. } => StepIo { token: "toks".into(), position: "pos_s0".into(), logits: "logits".into(), next: "next".into(), more: Vec::new(), logits_read: true },
         Cut::Batch { rows, .. } => StepIo {
             token: "toks".into(),
             position: "pos_s0".into(),
             logits: "logits_s0".into(),
             next: "next_s0".into(),
             more: (1..rows).map(|b| SeqIo { position: format!("pos_s{b}"), logits: format!("logits_s{b}"), next: format!("next_s{b}") }).collect(),
+            logits_read: true,
         },
-        _ => StepIo { token: "tok".into(), position: "pos".into(), logits: "logits".into(), next: "next".into(), more: Vec::new() },
+        _ => StepIo { token: "tok".into(), position: "pos".into(), logits: "logits".into(), next: "next".into(), more: Vec::new(), logits_read: true },
     }
 }
 
@@ -135,6 +136,24 @@ pub const HOLD_BACKS: &[(&str, &str, &str, &str)] = &[
         "the inner norm's input written in place between it and the outer norm",
         "## Main\nLet X be a 4 by 8 tensor of Real.\nLet W be a 1 by 8 tensor of Real.\nLet V be a 1 by 8 tensor of Real.\nLet A be a 4 by 8 tensor of Real.\nLet R be a 1 by 8 tensor of Real.\nLet pos be 2.\nLet N be rmsnorm of X with weight W.\nSet row pos of X to R.\nLet S be A plus N.\nLet Y be rmsnorm of S with weight V.\n",
         "## Main\nLet X be a 4 by 8 tensor of Real.\nLet W be a 1 by 8 tensor of Real.\nLet V be a 1 by 8 tensor of Real.\nLet A be a 4 by 8 tensor of Real.\nLet R be a 1 by 8 tensor of Real.\nLet pos be 2.\nLet N be rmsnorm of X with weight W.\nLet S be A plus N.\nLet Y be rmsnorm of S with weight V.\n",
+    ),
+    (
+        "allreduce_norm",
+        "a partial read by a second op",
+        "## Main\nLet A be a 1 by 8 tensor of Real.\nLet B be a 1 by 8 tensor of Real.\nLet M be a 8 by 8 tensor of Real.\nLet N be a 8 by 8 tensor of Real.\nLet R be a 1 by 8 tensor of Real.\nLet W be a 1 by 8 tensor of Real.\nLet P be A matmul M.\nLet Q be B matmul N.\nLet S be P plus Q.\nLet T be R plus S.\nLet Y be rmsnorm of T with weight W.\nLet Z be P scaled by 2.0.\n",
+        "## Main\nLet A be a 1 by 8 tensor of Real.\nLet B be a 1 by 8 tensor of Real.\nLet M be a 8 by 8 tensor of Real.\nLet N be a 8 by 8 tensor of Real.\nLet R be a 1 by 8 tensor of Real.\nLet W be a 1 by 8 tensor of Real.\nLet P be A matmul M.\nLet Q be B matmul N.\nLet S be P plus Q.\nLet T be R plus S.\nLet Y be rmsnorm of T with weight W.\n",
+    ),
+    (
+        "allreduce_sumsq_norm",
+        "a joined row a second op reads",
+        "## Main\nLet A be a 1 by 4 tensor of Real.\nLet B be a 1 by 4 tensor of Real.\nLet W be a 1 by 8 tensor of Real.\nLet J be A joined with B.\nLet Y be rmsnorm of J with weight W.\nLet P be the first 4 of every 8 of Y.\nLet Q be the last 4 of every 8 of Y.\nLet Z be J scaled by 2.0.\n",
+        "## Main\nLet A be a 1 by 4 tensor of Real.\nLet B be a 1 by 4 tensor of Real.\nLet W be a 1 by 8 tensor of Real.\nLet J be A joined with B.\nLet Y be rmsnorm of J with weight W.\nLet P be the first 4 of every 8 of Y.\nLet Q be the last 4 of every 8 of Y.\n",
+    ),
+    (
+        "cap_argmax",
+        "a capped row a second op reads",
+        "## Main\nLet X be a 1 by 8 tensor of Real.\nLet Y be X capped at 30.0.\nLet next be argmax of Y.\nLet Z be Y scaled by 2.0.\n",
+        "## Main\nLet X be a 1 by 8 tensor of Real.\nLet Y be X capped at 30.0.\nLet next be argmax of Y.\n",
     ),
     (
         "norm_scale",

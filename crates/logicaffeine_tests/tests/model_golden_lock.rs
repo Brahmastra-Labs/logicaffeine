@@ -170,6 +170,19 @@ fn gemma3_1b_matches_its_llama_cpp_goldens() {
     check("gemma3-1b");
 }
 
+/// Gemma 2 2B: every attention score soft-capped at 50 and the logits at 30, every other layer windowed (PARITY-SOFTCAP).
+#[test]
+fn gemma2_2b_matches_its_llama_cpp_goldens() {
+    check("gemma2-2b");
+}
+
+/// OLMo 2 1B (the 0425 instruct release as AllenAI quantizes it): no norm before either sublayer, a norm after each, its
+/// queries and keys each normed across every head.
+#[test]
+fn olmo2_1b_matches_its_llama_cpp_goldens() {
+    check("olmo2-1b");
+}
+
 #[test]
 fn gpt_oss_20b_matches_its_llama_cpp_goldens() {
     check("gpt-oss-20b");

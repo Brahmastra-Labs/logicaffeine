@@ -111,7 +111,7 @@ impl Shim for ReferenceShim {
     }
 
     fn numerics(&self) -> Option<Contract> {
-        Some(Contract { point: "the meaning".to_string(), activations: None, cache: Keep::Exact, state: Keep::Exact, attention: None, fused: Bound::EXACT, accumulator_bits: 64 })
+        Some(Contract { point: "the meaning".to_string(), activations: None, sixteen: None, cache: Keep::Exact, state: Keep::Exact, attention: None, fused: Bound::EXACT, accumulator_bits: 64 })
     }
 }
 

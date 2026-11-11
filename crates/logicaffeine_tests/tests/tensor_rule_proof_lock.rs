@@ -323,6 +323,15 @@ const IDENTITIES: &[Identity] = &[
             (format!("{ins}Let S be X scaled by 0.375.\nLet Y be S matmul M.\n"), format!("{ins}Let P be X matmul M.\nLet Y be P scaled by 0.375.\n"))
         },
     },
+    Identity {
+        name: "an arg-max reads through a soft cap, which is strictly increasing",
+        classes: &[ClassId::CapArgmax],
+        dims: 1,
+        pair: |d| {
+            let ins = format!("## Main\n{}", decl("X", 1, d[0]));
+            (format!("{ins}Let Y be X capped at 30.0.\nLet next be argmax of Y.\n"), format!("{ins}Let next be argmax of X.\n"))
+        },
+    },
 ];
 
 /// Every shape with each of `dims` sizes from 1 to `bound`.
@@ -433,6 +442,23 @@ mod proven {
         let (mut g, rewritten) = row_through_a_view();
         g.tensors.get_mut("pos").expect("the position").range = Some((5, 5));
         assert_eq!(discharge(&obligation(&g, &rewritten).expect("an obligation"), TIMEOUT_MS), Verdict::Vacuous);
+    }
+
+    /// An arg-max means the first index of its row's greatest value: through a scale by a positive factor it picks what
+    /// the row's own arg-max picks, and through a negative one Z3 finds a row it moves.
+    #[test]
+    fn an_arg_max_reads_through_an_increasing_map_and_not_a_decreasing_one() {
+        let ins = format!("## Main\n{}", decl("X", 1, 8));
+        let raw = graph(&format!("{ins}Let next be argmax of X.\n"));
+        for (factor, proven) in [("2.0", true), ("-2.0", false)] {
+            let scaled = graph(&format!("{ins}Let Y be X scaled by {factor}.\nLet next be argmax of Y.\n"));
+            let verdict = discharge(&identity(&scaled, &raw).expect("an obligation"), TIMEOUT_MS);
+            if proven {
+                assert_eq!(verdict, Verdict::Proven, "a scale by {factor}");
+            } else {
+                assert!(matches!(verdict, Verdict::Refuted(_)), "a scale by {factor}: {verdict:?}");
+            }
+        }
     }
 
     /// Z3 refutes the move a write between forbids: a meaning of the rope under which the moved read differs.

@@ -47,6 +47,18 @@ pub fn every_lane_cut() -> Vec<LaneCut> {
     out
 }
 
+/// `tinies`' decode steps, prefill chunks of `prefill` and batches of 2 over a cache of `ctx` positions, under the plain
+/// and the quantized numerics, as lane cuts (each named `<architecture>-ctx<ctx>`).
+pub fn long_cache_cuts(tinies: &[Tiny], ctx: usize, prefill: usize) -> Vec<LaneCut> {
+    let mut out = Vec::new();
+    for &t in tinies {
+        let name = format!("{}-ctx{ctx}", t.name());
+        let ckpt = scratch::dir("logos_lane_corpus").join(format!("{name}.gguf"));
+        cuts(&mut out, &name, &t.spec(ctx), &ckpt, &LaneOptions { ctx, knobs: CudaKnobs::default(), prefill }, &[Q8MatKind::Dequant, Q8MatKind::Int8Act]);
+    }
+    out
+}
+
 /// `spec`'s lane, written to `ckpt` and compiled under each of `numerics` with a batch of 2, as one cut a form.
 fn cuts(out: &mut Vec<LaneCut>, name: &str, spec: &ModelSpec, ckpt: &Path, options: &LaneOptions, numerics: &[Q8MatKind]) {
     tiny_models::write_checkpoint(spec, ckpt);

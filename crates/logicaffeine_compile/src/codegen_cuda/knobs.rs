@@ -107,10 +107,24 @@ pub struct CudaKnobs {
     /// `f32`, or bf16 — computed in `f32`, rounded to bf16 after every row the delta rule walks. Default
     /// [`StatePrecision::F32`].
     pub recurrent_state: StatePrecision,
-    /// The precision the compiled generation lane stores an attention's key and value cache in: `f32`, or binary16 —
-    /// each row computed in `f32` and rounded to the nearest as it is written, every read of the cache taking the
-    /// rounded row. Default [`CachePrecision::F32`].
+    /// The precision the compiled generation lane stores an attention's key and value cache in: `f32`, binary16 or fp8
+    /// e4m3 — each row computed in `f32` and rounded to the nearest as it is written, every read of the cache taking
+    /// the rounded row. Default [`CachePrecision::F32`].
     pub cache_precision: CachePrecision,
+    /// Whether the host reads every step's logits: written for it (`--logits` writes them), or unread — the host takes
+    /// only the next token the device picks, so an op the logits feed alone folds into the arg-max's read
+    /// (`cap_argmax`). Default [`Logits::Written`].
+    pub logits: Logits,
+}
+
+/// Whether the host reads a step's logits (`CudaKnobs::logits`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Logits {
+    /// Every step's logits written for the host.
+    #[default]
+    Written,
+    /// The host takes the next token alone; the step writes no logits it would not need for that.
+    Unread,
 }
 
 /// The precision an attention's cache is stored in (`CudaKnobs::cache_precision`).
@@ -121,6 +135,9 @@ pub enum CachePrecision {
     F32,
     /// Two bytes a value: binary16, rounded to the nearest, ties to even, as llama.cpp's default cache keeps it.
     F16,
+    /// One byte a value: OCP fp8 e4m3, rounded to the nearest, ties to even, saturating at ±448, as vLLM's
+    /// `fp8_e4m3` cache keeps it at a scale of one (`kv_cache_quant`).
+    E4m3,
 }
 
 /// The precision a recurrent memory is stored in between steps (`CudaKnobs::recurrent_state`).
@@ -148,6 +165,7 @@ impl Default for CudaKnobs {
             chip: CudaChip::rtx3060(),
             recurrent_state: StatePrecision::F32,
             cache_precision: CachePrecision::F32,
+            logits: Logits::Written,
         }
     }
 }
@@ -229,6 +247,13 @@ impl CudaKnobs {
                         so the logits move from the f32 cache's by the rounding's share of each score",
             },
             KnobTradeoff {
+                knob: "logits",
+                default: "Written",
+                wins: "greedy generation reads only each step's next token: a soft cap on the logits folds into the \
+                       arg-max's read, one launch and the capped row's write and read gone a token (Gemma 2)",
+                loses: "the host gets no logits to sample from, score or check: `--logits` is refused",
+            },
+            KnobTradeoff {
                 knob: "chip",
                 default: "rtx3060 (the local Ampere sm_86 dev GPU)",
                 wins: "targeting the actual deployment silicon — a B200 kernel uses sm_100 5th-gen tensor cores, fp8/nvfp4, and a larger shared-memory budget",
@@ -259,4 +284,5 @@ pub const STRICTLY_BETTER: &[&str] = &[
     "scale folded into the accumulator — no separate dequant pass over the weights",
     "no host-side recompute of device-resident results — read back once",
     "native-arch codegen (-O2, compiled for the target's own SM arch) — no reason to deoptimize",
+    "a prefill chunk before the prompt's last computes no output — only what the caches and the carried state read",
 ];

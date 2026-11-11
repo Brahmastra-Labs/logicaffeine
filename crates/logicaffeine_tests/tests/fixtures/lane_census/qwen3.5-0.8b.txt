@@ -1,27 +1,27 @@
-159 launches a token
+123 launches a token
 embedding (1): gather_norm
-layer 0 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
-layer 1 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
-layer 2 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
+layer 0 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
+layer 1 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
+layer 2 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
 layer 3 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
-layer 4 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
-layer 5 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
-layer 6 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
+layer 4 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
+layer 5 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
+layer 6 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
 layer 7 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
-layer 8 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
-layer 9 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
-layer 10 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
+layer 8 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
+layer 9 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
+layer 10 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
 layer 11 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
-layer 12 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
-layer 13 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
-layer 14 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
+layer 12 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
+layer 13 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
+layer 14 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
 layer 15 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
-layer 16 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
-layer 17 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
-layer 18 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
+layer 16 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
+layer 17 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
+layer 18 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
 layer 19 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
-layer 20 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
-layer 21 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
-layer 22 (7): gemv_parts conv gates delta gemv_norm gemv_glu gemv_norm
+layer 20 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
+layer 21 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
+layer 22 (5): gemv_gdn delta gemv_norm gemv_glu gemv_norm
 layer 23 (5): gemv_rope attention gemv_norm gemv_glu gemv_norm
 head (2): gemv_q8 argmax
