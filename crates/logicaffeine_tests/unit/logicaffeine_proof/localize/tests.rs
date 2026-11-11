@@ -294,3 +294,28 @@ fn a_correspondence_that_leaves_most_of_the_cone_is_set_aside() {
     assert!(matches!(&report.verdict, Verdict::Unsafe(run) if replays(&g, run)), "{:?}", report.verdict);
     assert_eq!(report.kept, 21, "every latch searched");
 }
+
+#[test]
+fn a_reduced_cones_induction_too_shallow_for_the_cone_is_searched_again_without_it() {
+    // The random circuits with k-induction on and each cone first reduced by its signal correspondence. The reduced
+    // cone can be inductive at a depth the cone is not, its equalities doing the work deeper clocks do for the cone;
+    // that induction is no certificate of the cone, so the reduced cone is searched again without induction. Every
+    // verdict is the oracle's, its certificate checking on the whole circuit; the cones that take the second search are
+    // counted from the reduction itself.
+    let opts = Options { correspond: true, pdr: pdr::Options { induction: 4, ..pdr::Options::default() }, ..Options::default() };
+    let (mut safe, mut shallow) = (0, 0);
+    for seed in 0..500u64 {
+        let aig = random_circuit(seed, 2 + (seed % 6) as usize, 1 + (seed % 3) as usize, 4 + (seed % 12) as usize);
+        let (cut, _) = cone(&aig);
+        if let Some(corr) = scorr::find(&cut, &scorr::Options::default()).filter(|c| c.merged() > 0) {
+            let reduced = scorr::reduce(&cut, &corr);
+            if cone(&reduced).1.len() * 100 <= cut.latches().len() * CORRESPOND_KEEPS {
+                if let Verdict::Induction(k) = prove_safe(&reduced, &Options { correspond: false, ..opts }).verdict {
+                    shallow += usize::from(!check_induction(&cut, k));
+                }
+            }
+        }
+        safe += usize::from(assert_oracles(&aig, &prove_safe(&aig, &opts).verdict, &format!("seed {seed}")));
+    }
+    assert!(shallow >= 10 && safe >= 50, "{shallow} reduced cones inductive too shallow for the cone, {safe} safe");
+}
