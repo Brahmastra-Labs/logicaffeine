@@ -268,6 +268,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   last use it stored the reference itself (`&LogosSeq`, `&LogosMap` or `&mut T`, which did not build), elsewhere a
   second handle on the caller's buffer, which a later write to the parameter changed: the stored list printed
   `[5, 1, 2]` where the language prints `[5, 1]` (`e2e_ref_semantics`).
+- `codegen_sva::timing_graph`: a box is its module, its outputs' `Cost` and the `Area` an instance takes
+  (`script`, `netlist`, `synthesize`), the area written as `logos_box_area` only when it is not none, so a netlist
+  cached by its script's hash is the same one. `spatial::decode_engine::rtl::ram::memory_boxes` names every memory the
+  generator writes in a Verilog text, each width and each `_part` a stack or the pipelined store is built of, as the
+  box the model times it as, a held read with `held_read_area` (three LUTs and three registers a bit, storeprobe-a's
+  pass-through): the `timing_calibrate`, `d5005_preflight` and `timing_report` examples box by it. `timing_calibrate`
+  refuses a synthesis whose top holds fewer memory bits in Quartus's report than the model maps as memories.
+  ends the page's main (`DriveError::Failed`).
 
 ## [0.11.0] - 2026-11-02
 

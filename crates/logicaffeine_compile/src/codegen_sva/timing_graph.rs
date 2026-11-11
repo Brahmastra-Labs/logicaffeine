@@ -423,8 +423,10 @@ const KEPT: &[&str] = &[
     "$add", "$sub", "$neg", "$lt", "$le", "$gt", "$ge", "$div", "$mod", "$divfloor", "$modfloor", "$mul", "$mem_v2",
 ];
 
-/// The yosys script that maps `top` with `params` set and writes `timing.json`.
-pub fn script(top: &str, params: &[(&str, &str)], boxes: &[(&str, Cost)]) -> String {
+/// The yosys script that maps `top` with `params` set and writes `timing.json`, each module of `boxes` a box: its
+/// outputs' [`Cost`] ([`BOX_OUT`]) and the [`Area`] an instance of it takes ([`BOX_AREA`]), each written only when it
+/// is not none.
+pub fn script(top: &str, params: &[(&str, &str)], boxes: &[(&str, Cost, Area)]) -> String {
     let mut hierarchy = format!("hierarchy -check -top {top}");
     for (name, value) in params {
         hierarchy.push_str(&format!(" -chparam {name} {value}"));
@@ -433,11 +435,15 @@ pub fn script(top: &str, params: &[(&str, &str)], boxes: &[(&str, Cost)]) -> Str
     let mut steps = vec!["read_verilog -sv design.v".to_string()];
     // A box is emptied before the hierarchy is elaborated, so nothing under it ever is; a box no module is named is
     // an error, not a design timed whole.
-    for (b, out) in boxes {
+    for (b, out, area) in boxes {
         steps.push(format!("select -assert-any ={b}"));
         steps.push(format!("blackbox ={b}"));
         if *out != Cost::NONE {
             steps.push(format!("setattr -mod -set {BOX_OUT} \"{},{},{},{}\" ={b}", out.lut, out.carry, out.dsp, out.memory));
+        }
+        if *area != Area::default() {
+            let Area { luts, carry, half_dsps, flops, memory_bits } = area;
+            steps.push(format!("setattr -mod -set {BOX_AREA} \"{luts},{carry},{half_dsps},{flops},{memory_bits}\" ={b}"));
         }
     }
     steps.extend([
@@ -484,8 +490,8 @@ pub fn modules_numbered(verilog: &str, prefixes: &[&str]) -> Vec<String> {
 }
 
 /// The netlist [`script`] writes for `top` of `verilog` with `params` set, as yosys JSON.
-pub fn netlist(verilog: &str, top: &str, params: &[(&str, &str)], boxes: &[(&str, Cost)]) -> Result<String, TimingError> {
-    let roots: Vec<&str> = std::iter::once(top).chain(boxes.iter().map(|(b, _)| *b)).collect();
+pub fn netlist(verilog: &str, top: &str, params: &[(&str, &str)], boxes: &[(&str, Cost, Area)]) -> Result<String, TimingError> {
+    let roots: Vec<&str> = std::iter::once(top).chain(boxes.iter().map(|(b, _, _)| *b)).collect();
     let run = yosys_run(&super::netlist::reachable_modules(verilog, &roots), &script(top, params, boxes), &["timing.json"])?;
     if !run.ok {
         return Err(run.refused().into());
@@ -495,7 +501,7 @@ pub fn netlist(verilog: &str, top: &str, params: &[(&str, &str)], boxes: &[(&str
 }
 
 /// Map `top` of `verilog` with `params` set, each module of `boxes` a box, and read its timing graph.
-pub fn synthesize(verilog: &str, top: &str, params: &[(&str, &str)], boxes: &[(&str, Cost)], delays: &Delays) -> Result<TimingGraph, TimingError> {
+pub fn synthesize(verilog: &str, top: &str, params: &[(&str, &str)], boxes: &[(&str, Cost, Area)], delays: &Delays) -> Result<TimingGraph, TimingError> {
     read(&netlist(verilog, top, params, boxes)?, delays)
 }
 

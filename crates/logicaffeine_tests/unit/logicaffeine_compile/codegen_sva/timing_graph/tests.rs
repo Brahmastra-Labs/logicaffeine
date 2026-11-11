@@ -375,7 +375,7 @@ fn the_script_keeps_arithmetic_and_clocked_memories_whole_and_leaves_the_rest_as
 
 #[test]
 fn a_box_is_made_a_black_box_once_it_is_known_a_module_before_the_hierarchy_is_elaborated() {
-    let s = script("logos_d5005_shell", &[], &[("logos_engine", Cost::NONE), ("logos_ram_w64", Cost::MEMORY)]);
+    let s = script("logos_d5005_shell", &[], &[("logos_engine", Cost::NONE, Area::default()), ("logos_ram_w64", Cost::MEMORY, Area::default())]);
     let order = [
         "read_verilog -sv design.v",
         "select -assert-any =logos_engine",
@@ -394,6 +394,18 @@ fn a_box_is_made_a_black_box_once_it_is_known_a_module_before_the_hierarchy_is_e
     assert!(!script("logos_d5005_shell", &[], &[]).contains("blackbox"), "no box, no black box");
     assert_eq!(s.matches("setattr").count(), 1, "a box whose outputs leave it at once says nothing more");
     assert_eq!(script("m", &[], &[]), script("m", &[], &[]), "a pure function of its arguments");
+}
+
+#[test]
+fn a_box_that_takes_an_area_says_so_and_one_that_takes_none_writes_nothing_more() {
+    let area = Area { luts: 1536, carry: 2, half_dsps: 3, flops: 1536, memory_bits: 5 };
+    let held = script("logos_store_w512", &[], &[("logos_bram_re_w512_part", Cost::MEMORY, area)]);
+    let set = "setattr -mod -set logos_box_area \"1536,2,3,1536,5\" =logos_bram_re_w512_part";
+    let (blackbox, said) = (held.find("blackbox =logos_bram_re_w512_part").unwrap(), held.find(set).unwrap_or_else(|| panic!("{held}")));
+    assert!(blackbox < said && said < held.find("hierarchy").unwrap(), "the area is the box's, set before the hierarchy:\n{held}");
+    let plain = script("logos_store_w512", &[], &[("logos_bram_re_w512_part", Cost::MEMORY, Area::default())]);
+    assert!(!plain.contains(BOX_AREA), "a box that takes no area writes none, so its netlist's script is what it was:\n{plain}");
+    assert_eq!(held.replace(&format!("{set}\n"), ""), plain, "the area is the one step between them");
 }
 
 #[test]

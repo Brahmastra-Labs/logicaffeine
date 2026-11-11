@@ -286,6 +286,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Large programs parse in linear time.** The lexer and the parser ran three scans over the rest of the file per
   construct; a 186k-line program parses in 6 s of CPU where it took 157 s (`header_trailing_colon_lock`;
   `logicaffeine_language`).
+- **The timing model prices the pipelined token-row store as Quartus builds it, and the calibration is held against
+  every synthesis the build ledger records.** The model boxed only the memories each width names, so the store's own
+  layers (`logos_bram_w512_part`) were elaborated: each of its 71 layers took 576 LUTs of byte-lane write logic the
+  M20K's byte enables absorb, and preflight saw the store's logic at nearly three times Quartus's. Every memory the RAM
+  generator writes, its `_part`s included, is now one block RAM in the timing report, preflight and the calibration
+  alike, a read held under an enable with the pass-through Quartus builds beside its block. A synthesis whose memory
+  Quartus built in its fabric (the memory probes declared in a generate block, read in MLABs without a register, or
+  asking for registers) is refused by how many of its bits, as one the model cannot map is: the calibration is
+  re-recorded over the ledger's builds since 10-23 and holds every fit within its spread. Locked by
+  `timing_calibration_lock`, `timing_graph_lock` and `d5005_rtl_lock`.
 
 ## [0.11.0] - 2026-11-02
 

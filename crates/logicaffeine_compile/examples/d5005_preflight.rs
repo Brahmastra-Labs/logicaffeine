@@ -19,8 +19,8 @@ use std::process::exit;
 
 use logicaffeine_compile::codegen_sva::preflight::{device_library, preflight_domains, Design, Target, Timed};
 use logicaffeine_compile::codegen_sva::quartus::Ledger;
-use logicaffeine_compile::codegen_sva::timing_graph::{modules_numbered, synthesize, Calibration, Cost, Delays};
-use logicaffeine_compile::spatial::decode_engine::rtl::ram::{bram_name, bram_re_name, ram_ce_name, ram_name};
+use logicaffeine_compile::codegen_sva::timing_graph::{synthesize, Area, Calibration, Cost, Delays};
+use logicaffeine_compile::spatial::decode_engine::rtl::ram::memory_boxes;
 
 fn fail(why: impl std::fmt::Display) -> ! {
     eprintln!("d5005_preflight: {why}");
@@ -30,13 +30,6 @@ fn fail(why: impl std::fmt::Display) -> ! {
 fn number<T: std::str::FromStr>(flag: &str, v: Option<&String>) -> T {
     let v = v.unwrap_or_else(|| fail(format!("{flag} takes a value")));
     v.parse().unwrap_or_else(|_| fail(format!("{flag}: not a number: {v}")))
-}
-
-/// The memories of `verilog` the engine's RAM generator writes, each a module per width, but `top`.
-fn memory_modules(verilog: &str, top: &str) -> Vec<String> {
-    let names = [ram_name(8), bram_name(8), bram_re_name(8), ram_ce_name(8)];
-    let prefixes: Vec<&str> = names.iter().map(|n| n.trim_end_matches(|c: char| c.is_ascii_digit())).collect();
-    modules_numbered(verilog, &prefixes).into_iter().filter(|m| m != top).collect()
 }
 
 fn main() {
@@ -49,7 +42,7 @@ fn main() {
     let (mut ledger_path, mut calibration_path) = (data.join("quartus_builds.json"), data.join("timing_calibration.json"));
     let mut delays = Delays { lut: 100, carry: 7, dsp: 460, memory: 330 };
     let (mut ns, mut period) = (0.55, None::<f64>);
-    let (mut verilog, mut params, mut boxes, mut memories) = (String::new(), Vec::new(), Vec::<(String, Cost)>::new(), false);
+    let (mut verilog, mut params, mut boxes, mut memories) = (String::new(), Vec::new(), Vec::<(String, Cost, Area)>::new(), false);
     let mut parts: Vec<(String, u32)> = Vec::new();
     let mut it = rest.iter();
     while let Some(a) = it.next() {
@@ -69,8 +62,8 @@ fn main() {
             "--box" => {
                 let b = it.next().unwrap_or_else(|| fail("--box takes a module"));
                 boxes.push(match b.split_once('=') {
-                    None => (b.clone(), Cost::NONE),
-                    Some((m, "memory")) => (m.to_string(), Cost::MEMORY),
+                    None => (b.clone(), Cost::NONE, Area::default()),
+                    Some((m, "memory")) => (m.to_string(), Cost::MEMORY, Area::default()),
                     Some((_, other)) => fail(format!("--box {b}: a box's outputs are plain or =memory, not {other}")),
                 });
             }
@@ -104,14 +97,14 @@ fn main() {
     let text = std::fs::read_to_string(&calibration_path).unwrap_or_else(|e| fail(format!("{}: {e}", calibration_path.display())));
     let calibration: Calibration = serde_json::from_str(&text).unwrap_or_else(|e| fail(format!("{}: {e}", calibration_path.display())));
     if memories {
-        for m in memory_modules(&verilog, top) {
-            if !boxes.iter().any(|(b, _)| *b == m) {
-                boxes.push((m, Cost::MEMORY));
+        for (m, cost, area) in memory_boxes(&verilog, top) {
+            if !boxes.iter().any(|(b, _, _)| *b == m) {
+                boxes.push((m, cost, area));
             }
         }
     }
     let pairs: Vec<(&str, &str)> = params.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-    let boxed: Vec<(&str, Cost)> = boxes.iter().map(|(b, c)| (b.as_str(), *c)).collect();
+    let boxed: Vec<(&str, Cost, Area)> = boxes.iter().map(|(b, c, a)| (b.as_str(), *c, *a)).collect();
     let design_of = |module: &str| -> Design {
         let graph = synthesize(&verilog, module, &pairs, &boxed, &delays).unwrap_or_else(|e| fail(format!("{module}: {e}")));
         Design::of(&graph).unwrap_or_else(|e| fail(format!("{module}: {e}")))

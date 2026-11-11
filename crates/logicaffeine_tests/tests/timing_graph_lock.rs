@@ -3,7 +3,7 @@
 //! certificate re-checked.
 
 use logicaffeine_compile::codegen_sva::netlist::{clock_sources, ClockDriver, ClockSource};
-use logicaffeine_compile::codegen_sva::timing_graph::{synthesize, Boxed, Cost, Delays, End, TimingError, TimingGraph};
+use logicaffeine_compile::codegen_sva::timing_graph::{synthesize, Area, Boxed, Cost, Delays, End, TimingError, TimingGraph};
 use logicaffeine_proof::cycle_ratio::{check, Bound};
 
 fn graph(verilog: &str, top: &str, params: &[(&str, &str)]) -> TimingGraph {
@@ -314,7 +314,7 @@ fn named(g: &TimingGraph, nodes: &[usize]) -> Vec<String> {
 
 #[test]
 fn a_box_ends_the_paths_into_it_and_starts_the_paths_out_of_it_and_none_of_its_logic_is_timed() {
-    let g = synthesize(SHELL, "shell", &[], &[("engine_box", Cost::NONE)], &Delays::LEVELS).unwrap_or_else(|e| panic!("{e}"));
+    let g = synthesize(SHELL, "shell", &[], &[("engine_box", Cost::NONE, Area::default())], &Delays::LEVELS).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(g.flops, 6, "the box's registers are its own");
     let [b] = g.boxes.as_slice() else { panic!("one box: {:?}", g.boxes) };
     assert_eq!((b.cell.as_str(), b.module.as_str()), ("engine", "engine_box"), "the instance and the module it is of");
@@ -363,7 +363,7 @@ fn a_module_the_source_declares_a_black_box_is_a_box_without_being_named() {
 
 #[test]
 fn a_box_no_module_is_named_is_refused_by_its_name() {
-    let err = synthesize(SHELL, "shell", &[], &[("engine_bx", Cost::NONE)], &Delays::LEVELS).unwrap_err();
+    let err = synthesize(SHELL, "shell", &[], &[("engine_bx", Cost::NONE, Area::default())], &Delays::LEVELS).unwrap_err();
     let TimingError::Netlist(e) = err else { panic!("{err:?}") };
     assert!(e.to_string().contains("engine_bx"), "{e}");
 }
@@ -391,7 +391,7 @@ fn a_ram_boxed_as_a_memory_is_timed_as_the_block_ram_it_maps_to() {
              endmodule";
     let delays = Delays { lut: 100, carry: 7, dsp: 460, memory: 330 };
     let open = synthesize(v, "user", &[], &[], &delays).unwrap_or_else(|e| panic!("{e}"));
-    let boxed = synthesize(v, "user", &[], &[("ram16", Cost::MEMORY)], &delays).unwrap_or_else(|e| panic!("{e}"));
+    let boxed = synthesize(v, "user", &[], &[("ram16", Cost::MEMORY, Area::default())], &delays).unwrap_or_else(|e| panic!("{e}"));
     assert!(open.boxes.is_empty());
     assert_eq!(boxed.boxes.len(), 1);
     assert_eq!(boxed.boxes[0].out, Cost::MEMORY);
@@ -444,6 +444,17 @@ fn a_box_declared_with_its_area_adds_it_for_every_instance() {
     assert_eq!(g.area_under("").half_dsps, 0, "a box with no area declared takes none");
     let bad = DEVICE.replace("3,1,2,4,0", "3,1");
     assert!(matches!(synthesize(&bad, "device_top", &[], &[], &Delays::LEVELS), Err(TimingError::Json(_))), "an area of two counts");
+}
+
+#[test]
+fn a_box_given_its_area_by_its_caller_adds_it_for_every_instance_as_a_declared_one_does() {
+    let bare = DEVICE.replace(", logos_box_area = \"3,1,2,4,0\"", "");
+    let given = Area { luts: 3, carry: 1, half_dsps: 2, flops: 4, memory_bits: 0 };
+    let g = synthesize(&bare, "device_top", &[], &[("hard_unit", Cost::NONE, given)], &Delays::LEVELS).unwrap_or_else(|e| panic!("{e}"));
+    let declared = synthesize(DEVICE, "device_top", &[], &[], &Delays::LEVELS).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(g.area_under(""), declared.area_under(""), "the area the caller gives is the one the stand-in declares");
+    let none = synthesize(&bare, "device_top", &[], &[("hard_unit", Cost::NONE, Area::default())], &Delays::LEVELS).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(none.area_under("").luts, 0, "a box given no area takes none");
 }
 
 /// The Stratix 10 delays are fit27's measured worst-path figures in hundredths of a level, a level a LUT's 0.139 ns and

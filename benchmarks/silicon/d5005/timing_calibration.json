@@ -396,7 +396,7 @@
               "memory_bits": 259040
             },
             "model": {
-              "luts": 109672,
+              "luts": 109668,
               "carry": 17621,
               "half_dsps": 557,
               "flops": 21749,
@@ -467,7 +467,7 @@
         {
           "path": "cv",
           "quartus": 28.6,
-          "predicted": 2753,
+          "predicted": 2797,
           "area": {
             "quartus": {
               "aluts": 52,
@@ -487,7 +487,7 @@
         {
           "path": "mp",
           "quartus": 52.9,
-          "predicted": 3650,
+          "predicted": 3694,
           "area": {
             "quartus": {
               "aluts": 344,
@@ -527,7 +527,7 @@
         {
           "path": "mw",
           "quartus": 52.9,
-          "predicted": 3650,
+          "predicted": 3694,
           "area": {
             "quartus": {
               "aluts": 391,
@@ -1600,7 +1600,7 @@
         {
           "path": "",
           "quartus": 219.1,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 80764,
@@ -1609,7 +1609,7 @@
               "memory_bits": 66560
             },
             "model": {
-              "luts": 177053,
+              "luts": 177089,
               "carry": 26071,
               "half_dsps": 134,
               "flops": 5757,
@@ -1620,7 +1620,7 @@
         {
           "path": "ac",
           "quartus": 203.7,
-          "predicted": 18344,
+          "predicted": 18419,
           "area": {
             "quartus": {
               "aluts": 676,
@@ -1629,7 +1629,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 1061,
+              "luts": 1076,
               "carry": 212,
               "half_dsps": 0,
               "flops": 0,
@@ -3880,7 +3880,7 @@
         {
           "path": "mb",
           "quartus": 219.1,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 380,
@@ -3889,7 +3889,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 605,
+              "luts": 606,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -3920,7 +3920,7 @@
         {
           "path": "mu",
           "quartus": 219.1,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 379,
@@ -3929,7 +3929,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 556,
+              "luts": 545,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -4580,7 +4580,7 @@
         {
           "path": "sv",
           "quartus": 219.1,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 684,
@@ -4589,7 +4589,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 1156,
+              "luts": 1189,
               "carry": 212,
               "half_dsps": 0,
               "flops": 0,
@@ -4600,7 +4600,7 @@
         {
           "path": "tf",
           "quartus": 219.1,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 10175,
@@ -4620,7 +4620,7 @@
         {
           "path": "tf|t1[0].a",
           "quartus": 216.9,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 677,
@@ -4640,7 +4640,7 @@
         {
           "path": "tf|t1[1].a",
           "quartus": 216.9,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 663,
@@ -4660,7 +4660,7 @@
         {
           "path": "tf|t1[2].a",
           "quartus": 216.9,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 670,
@@ -4680,7 +4680,7 @@
         {
           "path": "tf|t1[3].a",
           "quartus": 216.9,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 665,
@@ -4700,7 +4700,7 @@
         {
           "path": "tf|t1[4].a",
           "quartus": 216.9,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 677,
@@ -4720,7 +4720,7 @@
         {
           "path": "tf|t1[5].a",
           "quartus": 216.9,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 664,
@@ -4740,7 +4740,7 @@
         {
           "path": "tf|t1[6].a",
           "quartus": 216.9,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 672,
@@ -4760,7 +4760,7 @@
         {
           "path": "tf|t1[7].a",
           "quartus": 219.1,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 703,
@@ -4780,7 +4780,7 @@
         {
           "path": "tf|t2[0].a",
           "quartus": 216.9,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 693,
@@ -4800,7 +4800,7 @@
         {
           "path": "tf|t2[1].a",
           "quartus": 216.9,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 675,
@@ -4820,7 +4820,7 @@
         {
           "path": "tf|t2[2].a",
           "quartus": 216.9,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 681,
@@ -4840,7 +4840,7 @@
         {
           "path": "tf|t2[3].a",
           "quartus": 219.1,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 687,
@@ -4860,7 +4860,7 @@
         {
           "path": "tf|t3[0].a",
           "quartus": 216.9,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 680,
@@ -4880,7 +4880,7 @@
         {
           "path": "tf|t3[1].a",
           "quartus": 219.1,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 686,
@@ -4900,7 +4900,7 @@
         {
           "path": "tf|t4",
           "quartus": 219.1,
-          "predicted": 19952,
+          "predicted": 19851,
           "area": {
             "quartus": {
               "aluts": 682,
@@ -4942,7 +4942,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 169750,
+              "luts": 169748,
               "carry": 29511,
               "half_dsps": 138,
               "flops": 5731,
@@ -5002,7 +5002,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 573,
+              "luts": 560,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5022,7 +5022,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 560,
+              "luts": 573,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5082,7 +5082,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 573,
+              "luts": 560,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5102,7 +5102,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 560,
+              "luts": 573,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5162,7 +5162,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 573,
+              "luts": 560,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5182,7 +5182,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 560,
+              "luts": 573,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5242,7 +5242,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 573,
+              "luts": 560,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5262,7 +5262,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 560,
+              "luts": 573,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5322,7 +5322,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 573,
+              "luts": 560,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5342,7 +5342,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 560,
+              "luts": 573,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5402,7 +5402,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 573,
+              "luts": 560,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5422,7 +5422,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 560,
+              "luts": 573,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5482,7 +5482,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 573,
+              "luts": 560,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5502,7 +5502,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 560,
+              "luts": 573,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5562,7 +5562,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 573,
+              "luts": 560,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5582,7 +5582,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 560,
+              "luts": 573,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5642,7 +5642,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 573,
+              "luts": 560,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5662,7 +5662,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 560,
+              "luts": 573,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5722,7 +5722,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 573,
+              "luts": 560,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5742,7 +5742,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 560,
+              "luts": 573,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5802,7 +5802,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 573,
+              "luts": 560,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5822,7 +5822,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 560,
+              "luts": 573,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5882,7 +5882,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 573,
+              "luts": 560,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5902,7 +5902,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 560,
+              "luts": 573,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5962,7 +5962,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 573,
+              "luts": 560,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -5982,7 +5982,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 560,
+              "luts": 573,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -6042,7 +6042,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 573,
+              "luts": 560,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -6062,7 +6062,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 560,
+              "luts": 573,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -6122,7 +6122,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 573,
+              "luts": 560,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -6142,7 +6142,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 560,
+              "luts": 573,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -6202,7 +6202,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 573,
+              "luts": 560,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -6222,7 +6222,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 560,
+              "luts": 573,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -49327,7 +49327,7 @@
               "memory_bits": 289408
             },
             "model": {
-              "luts": 7391,
+              "luts": 7392,
               "carry": 12458,
               "half_dsps": 214,
               "flops": 675,
@@ -51120,7 +51120,7 @@
               "memory_bits": 26739456
             },
             "model": {
-              "luts": 1061396,
+              "luts": 1061421,
               "carry": 181551,
               "half_dsps": 946,
               "flops": 2114,
@@ -54820,7 +54820,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 535,
+              "luts": 576,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -54840,7 +54840,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 557,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -54860,7 +54860,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 554,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -56680,7 +56680,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 535,
+              "luts": 576,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -56700,7 +56700,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 557,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -56720,7 +56720,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 554,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -58540,7 +58540,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 535,
+              "luts": 576,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -58560,7 +58560,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 557,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -58580,7 +58580,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 554,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -60400,7 +60400,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 535,
+              "luts": 576,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -60420,7 +60420,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 557,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -60440,7 +60440,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 554,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -62260,7 +62260,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 535,
+              "luts": 576,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -62280,7 +62280,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 557,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -62300,7 +62300,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 554,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -73420,7 +73420,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 535,
+              "luts": 576,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -73440,7 +73440,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 557,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -73460,7 +73460,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 554,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -77140,7 +77140,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 535,
+              "luts": 576,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -77160,7 +77160,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 557,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -77180,7 +77180,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 554,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -79000,7 +79000,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 535,
+              "luts": 576,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -79020,7 +79020,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 557,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -79040,7 +79040,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 554,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -80860,7 +80860,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 535,
+              "luts": 576,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -80880,7 +80880,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 557,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -80900,7 +80900,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 576,
+              "luts": 554,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -80920,7 +80920,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 1510,
+              "luts": 1509,
               "carry": 338,
               "half_dsps": 2,
               "flops": 0,
@@ -80940,7 +80940,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 972,
+              "luts": 973,
               "carry": 212,
               "half_dsps": 0,
               "flops": 0,
@@ -80960,7 +80960,7 @@
               "memory_bits": 0
             },
             "model": {
-              "luts": 504,
+              "luts": 503,
               "carry": 126,
               "half_dsps": 2,
               "flops": 0,
@@ -82926,13 +82926,53 @@
       "build": "streaming-n1-syn-hoisted",
       "verilog_sha256": "15d46ddd072296235f9a000c05d6ccb75435ffe0cc0d461d0e4adfc9ef69e3b8",
       "why": "ERROR: Assert `arg->is_signed == sig.as_wire()->is_signed' failed in frontends/ast/genrtlil.cc:2063."
+    },
+    {
+      "build": "ram-probe-d",
+      "verilog_sha256": "57cafa46a56f41d2dc88588ff2c2be7f5dabaa589a1bf810df49e4fcf2ec871c",
+      "why": "its top is 3 logic levels deep, under the 10 the delays are measured over: a level either way is most of it"
+    },
+    {
+      "build": "ram-probe3-b",
+      "verilog_sha256": "179bbb2a034674948a32f7283cf90b19917eccad7ee076fd1681483d693a9291",
+      "why": "Quartus built 2228384 of the 2228736 memory bits the model maps as memories in its fabric, holding 352 in memory blocks"
+    },
+    {
+      "build": "ram-probe3-c",
+      "verilog_sha256": "179bbb2a034674948a32f7283cf90b19917eccad7ee076fd1681483d693a9291",
+      "why": "its top is 3 logic levels deep, under the 10 the delays are measured over: a level either way is most of it"
+    },
+    {
+      "build": "shallow-probe2",
+      "verilog_sha256": "0141444c2827c54120b9c18de5a234cdbbff66beab6bf06246bafe89d9671a9d",
+      "why": "Quartus built 9216 of the 279552 memory bits the model maps as memories in its fabric, holding 270336 in memory blocks"
+    },
+    {
+      "build": "shallow-probe3",
+      "verilog_sha256": "6875b3c084f164c2e8ed824127a12afd670b03082344d36a8a2ae79ada20bbe3",
+      "why": "Quartus built 576576 of the 610368 memory bits the model maps as memories in its fabric, holding 33792 in memory blocks"
+    },
+    {
+      "build": "shallow-probe4",
+      "verilog_sha256": "d3d91a97e7fa0611da8cc871afe7fb8b6e357fc277c257f028f7b452acb47a57",
+      "why": "Quartus built 42240 of the 42240 memory bits the model maps as memories in its fabric, holding 0 in memory blocks"
+    },
+    {
+      "build": "storeprobe-a",
+      "verilog_sha256": "e1a34e91669cb847cf5bfe47bfe3c3ab56cf0118865b035e9b4dccc8a175504c",
+      "why": "its top is 3 logic levels deep, under the 10 the delays are measured over: a level either way is most of it"
+    },
+    {
+      "build": "storeprobe-b",
+      "verilog_sha256": "e8b619fe86df415e9737835a31a418e9f53e65ec0318e806db3884a930119cf0",
+      "why": "its top is 2 logic levels deep, under the 10 the delays are measured over: a level either way is most of it"
     }
   ],
   "area": {
-    "scale": 0.533275380405853,
+    "scale": 0.5332729638212558,
     "carry": 0.65,
     "floor": 10000,
     "instances": 36,
-    "error": 0.13562826166600486
+    "error": 0.13563615768075776
   }
 }

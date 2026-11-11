@@ -25,6 +25,8 @@
 
 use std::fmt::Write as _;
 
+use crate::codegen_sva::timing_graph::{Area, Cost};
+
 /// The deepest memory kept in MLABs: an MLAB's depth. A memory this shallow asking for nothing is built by Quartus Prime
 /// Pro in an M20K block for every forty bits of its width, a sixteenth of the block's depth or less filled (hybrid9c2:
 /// 5,142 blocks, 44% of the device's, on 2.2 Mbit, and a fit that failed routing with each column core spread over its
@@ -93,6 +95,40 @@ pub fn ram_ce_name(w: usize) -> String {
 /// the memory as the step before left it, at an address the registers that step set, as the falling-edge read does.
 pub fn ram_ce_verilog(widths: &[usize]) -> String {
     memories(widths, ram_ce_name, "the read registered on the rising edges cr is high on and held between them", Read::Enabled)
+}
+
+/// The pass-through Quartus Prime Pro builds in the fabric beside a held read (`logos_bram_re_w<W>`,
+/// `logos_ram_ce_w<W>`): the block takes the address register for the read's enable, so its read-during-write is made
+/// beside it. Each 512-bit layer of the store read under its enable (storeprobe-a) took 764 ALUTs and 1,555 registers
+/// beside its block, the layer read every clock (storeprobe-b) none: three of the timing model's LUTs a bit at the area
+/// fit's ALUTs a LUT, and three registers a bit.
+pub fn held_read_area(width: usize) -> Area {
+    let w = width as u64;
+    Area { luts: 3 * w, flops: 3 * w, ..Area::default() }
+}
+
+/// The memories `verilog` defines that this generator writes, but `top`, each as the timing model boxes it: every
+/// memory a width (`logos_ram_w64`, `logos_bram_re_w512`, …) and every `_part` a stack or the pipelined store is built
+/// of, timed as the block RAM it is (its read a [`Cost::MEMORY`]), a held read with the pass-through Quartus builds
+/// beside its block ([`held_read_area`]).
+pub fn memory_boxes(verilog: &str, top: &str) -> Vec<(String, Cost, Area)> {
+    let kinds = [(ram_name(8), false), (bram_name(8), false), (bram_re_name(8), true), (ram_ce_name(8), true)];
+    verilog
+        .lines()
+        .filter_map(|l| l.strip_prefix("module "))
+        .map(|rest| rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '_').collect::<String>())
+        .filter(|name| name != top)
+        .filter_map(|name| {
+            let stem = name.strip_suffix("_part").unwrap_or(&name);
+            let (width, held) = kinds.iter().find_map(|(kind, held)| {
+                let digits = stem.strip_prefix(kind.trim_end_matches(|c: char| c.is_ascii_digit()))?;
+                let whole = !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit());
+                Some((digits.parse::<usize>().ok().filter(|_| whole)?, *held))
+            })?;
+            let area = if held { held_read_area(width) } else { Area::default() };
+            Some((name, Cost::MEMORY, area))
+        })
+        .collect()
 }
 
 /// Clocks the pipelined token-row store (`logos_store_w512`, [`store_verilog`]) takes from a read's address to its word:

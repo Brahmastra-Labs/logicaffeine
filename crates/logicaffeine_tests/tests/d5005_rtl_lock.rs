@@ -4501,6 +4501,36 @@ fn memory_forms() -> [(&'static str, fn(&[usize]) -> String, fn(usize) -> String
     ]
 }
 
+/// The timing model boxes every memory `rtl::ram` writes as the block RAM it is, each form a width and the `_part` a
+/// stacked form is built of, but the module it times: a read held under an enable with the pass-through Quartus builds
+/// beside its block (`held_read_area`), the others with no area of their own. The pipelined store's layers are its own
+/// `_part`s, read every clock: boxed with none, so a store's area is not its byte lanes' write logic.
+#[test]
+fn the_timing_model_boxes_every_memory_the_generator_writes_its_parts_included() {
+    use logicaffeine_compile::codegen_sva::timing_graph::{Area, Cost};
+    use logicaffeine_compile::spatial::decode_engine::rtl::ram::{held_read_area, memory_boxes, store_verilog};
+    for (form, verilog, name, _, stacked) in memory_forms() {
+        for w in [8, 64, 512] {
+            let held = matches!(form, "held" | "enabled");
+            let area = if held { held_read_area(w) } else { Area::default() };
+            let mut want: Vec<(String, Cost, Area)> = Vec::new();
+            if stacked {
+                want.push((format!("{}_part", name(w)), Cost::MEMORY, area));
+            }
+            want.push((name(w), Cost::MEMORY, area));
+            assert_eq!(memory_boxes(&verilog(&[w]), "top"), want, "{form} at {w} bits");
+            let alone = memory_boxes(&verilog(&[w]), &name(w));
+            assert!(alone.iter().all(|(m, _, _)| *m != name(w)), "{form} at {w}: the module timed is no box of its own: {alone:?}");
+        }
+    }
+    assert_eq!(held_read_area(512), Area { luts: 1536, flops: 1536, ..Area::default() }, "three LUTs and three registers a bit");
+    let store = memory_boxes(&store_verilog(), "logos_store_w512");
+    assert!(store.contains(&("logos_bram_w512_part".into(), Cost::MEMORY, Area::default())), "the store's layers: {store:?}");
+    assert!(store.iter().all(|(m, _, _)| m != "logos_store_w512"), "the store is no memory box of its own: {store:?}");
+    let near = "module logos_ram_w64x(input clk);\nendmodule\nmodule logos_bram_w(input clk);\nendmodule\nmodule logos_ram_w+8(input clk);\nendmodule\n";
+    assert!(memory_boxes(near, "top").is_empty(), "a name that is no form's and a width is no memory: {:?}", memory_boxes(near, "top"));
+}
+
 /// The pipelined token-row store (`logos_store_w512`, which a build whose core reads the store for the host alone reads
 /// through) reads what the store of one clock (`logos_bram_re_w512`) reads, STORE_READ_LATENCY clocks after its address
 /// instead of one: both banks under the same clocks of random reads held between the clocks `re` is high on, writes under

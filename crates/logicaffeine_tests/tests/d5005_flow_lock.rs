@@ -4491,7 +4491,7 @@ fn stages_past_their_bound_in(
     threads: usize,
     wide_nets: Option<&[(&str, usize)]>,
 ) -> Vec<String> {
-    use logicaffeine_compile::codegen_sva::timing_graph::{modules_numbered, synthesize, Cost, Delays};
+    use logicaffeine_compile::codegen_sva::timing_graph::{modules_numbered, synthesize, Area, Cost, Delays};
     use logicaffeine_compile::spatial::decode_engine::rtl::ram::{bram_name, bram_re_name, ram_ce_name, ram_name};
     use logicaffeine_proof::cycle_ratio::Bound;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -4513,10 +4513,10 @@ fn stages_past_their_bound_in(
                     loop {
                         let k = next.fetch_add(1, Ordering::SeqCst);
                         let Some(stage) = mine.get(k) else { break };
-                        let mut boxes: Vec<(&str, Cost)> = all.iter().filter(|o| o.top != stage.top).map(|o| (o.top, Cost::NONE)).collect();
-                        boxes.extend(TIMED_APART.iter().map(|m| (*m, Cost::NONE)));
-                        boxes.extend(memories.iter().filter(|m| m.as_str() != stage.top).map(|m| (m.as_str(), Cost::MEMORY)));
-                        boxes.extend(parts_built_by(v, stage.top).into_iter().map(|m| (m, Cost::MEMORY)));
+                        let mut boxes: Vec<(&str, Cost, Area)> = all.iter().filter(|o| o.top != stage.top).map(|o| (o.top, Cost::NONE, Area::default())).collect();
+                        boxes.extend(TIMED_APART.iter().map(|m| (*m, Cost::NONE, Area::default())));
+                        boxes.extend(memories.iter().filter(|m| m.as_str() != stage.top).map(|m| (m.as_str(), Cost::MEMORY, Area::default())));
+                        boxes.extend(parts_built_by(v, stage.top).into_iter().map(|m| (m, Cost::MEMORY, Area::default())));
                         let pairs: Vec<(&str, &str)> = stage.params.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
                         let top = stage.top;
                         let g = synthesize(v, top, &pairs, &boxes, &Delays::LEVELS).unwrap_or_else(|e| panic!("{top}: {e}"));

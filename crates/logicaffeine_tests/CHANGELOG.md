@@ -71,6 +71,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `model_hf_intake_lock`, `model_tiny_checkpoint_lock` and `model_conformance_lock`;
   `spatial_mixed_precision_lock`'s held cache and island-reads-an-accumulator tests;
   `spatial_one_ir_lock::every_op_family_lowers_from_its_own_file`.
+- `timing_calibration_lock`'s `no_build_whose_memory_quartus_built_in_its_fabric_is_calibrated`, `timing_graph_lock`'s
+  `a_box_given_its_area_by_its_caller_adds_it_for_every_instance_as_a_declared_one_does`, `d5005_rtl_lock`'s
+  `the_timing_model_boxes_every_memory_the_generator_writes_its_parts_included` and the timing graph's unit
+  `a_box_that_takes_an_area_says_so_and_one_that_takes_none_writes_nothing_more`: a memory Quartus built in its fabric
+  is no calibrated build, a box takes the area its caller gives it, and every memory the RAM generator writes is boxed.
 
 
 ### Changed

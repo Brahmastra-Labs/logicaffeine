@@ -2,18 +2,20 @@
 //! end, mapped again from its own Verilog (checked by SHA-256 against the ledger) through `codegen_sva::timing_graph`,
 //! beside the Max Depth, ALUTs, registers, DSP blocks and memory bits Quartus reported for each instance in that build's
 //! synthesis report, and the ALUTs fitted to the model's LUTs and carry bits over every instance of at least 10,000
-//! (`timing_graph::fit_area`). Every memory the engine's RAM
-//! generator writes (`spatial::decode_engine::rtl::ram`) is a box timed as the block RAM it is, so a wide one's byte
-//! lanes are never elaborated. A build whose Verilog the model cannot map is recorded as refused, with why, and the
-//! rest calibrate without it.
+//! (`timing_graph::fit_area`). Every memory the engine's RAM generator writes, its `_part`s included
+//! (`spatial::decode_engine::rtl::ram::memory_boxes`), is a box timed as the block RAM it is, so a wide one's byte
+//! lanes are never elaborated. A build whose Verilog the model cannot map, whose memory Quartus built in its fabric, or
+//! whose top is too shallow to measure the delays by (`DEPTH_FLOOR`), is recorded as refused, with why, and the rest
+//! calibrate without it.
 //!
 //!     timing_calibrate <quartus_builds.json> <timing_calibration.json> [--delays <lut>,<carry>,<dsp>,<memory>] [--netlists <dir>] [--fit]
 //!
 //! `--delays` holds the model to other delays than `Delays::LEVELS`. `--netlists <dir>` keeps each yosys netlist
-//! there by the Verilog's SHA-256 and that of the script that made it (which names the top and the parameters), and
-//! reads it back on the next run instead of elaborating again. `--fit` fits the delays to the builds' top-level Max
-//! Depth (`timing_graph::fit`), searching one delay at a time against a LUT's: the carry from 0 to 30 hundredths of a
-//! LUT, then the DSP block's and the memory read's from none to three LUTs, and records every build at the delays fitted.
+//! there by the Verilog's SHA-256 and that of the script that made it (which names the top and the parameters), or the
+//! refusal yosys gave it, and reads it back on the next run instead of elaborating again. `--fit` fits the delays to
+//! the builds' top-level Max Depth (`timing_graph::fit`), searching one delay at a time against a LUT's, each in turn
+//! until none moves: the carry from 0 to 30 hundredths of a LUT, the DSP block's and the memory read's from none to
+//! three LUTs in tenths of one; and records every build at the delays fitted.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -21,10 +23,10 @@ use std::process::exit;
 
 use logicaffeine_compile::codegen_sva::quartus::{parse_hierarchy, Ledger};
 use logicaffeine_compile::codegen_sva::timing_graph::{
-    fit, fit_area, modules_numbered, netlist, read, script, CalibratedInstance, Calibration, CalibrationRow, Cost, Delays,
-    InstanceArea, QuartusArea, RefusedBuild, TimingGraph, AREA_CARRIES,
+    fit, fit_area, netlist, read, script, CalibratedInstance, Calibration, CalibrationRow, Delays, InstanceArea,
+    QuartusArea, RefusedBuild, TimingGraph, AREA_CARRIES,
 };
-use logicaffeine_compile::spatial::decode_engine::rtl::ram::{bram_name, bram_re_name, ram_ce_name, ram_name};
+use logicaffeine_compile::spatial::decode_engine::rtl::ram::memory_boxes;
 use logicaffeine_compile::crypto_accel::sha256;
 
 fn fail(why: impl std::fmt::Display) -> ! {
@@ -32,12 +34,28 @@ fn fail(why: impl std::fmt::Display) -> ! {
     exit(1)
 }
 
-/// The memories of `verilog` the engine's RAM generator writes, each a module per width, but `top`: boxes timed as
-/// block RAMs.
-fn memory_boxes(verilog: &str, top: &str) -> Vec<(String, Cost)> {
-    let names = [ram_name(8), bram_name(8), bram_re_name(8), ram_ce_name(8)];
-    let prefixes: Vec<&str> = names.iter().map(|n| n.trim_end_matches(|c: char| c.is_ascii_digit())).collect();
-    modules_numbered(verilog, &prefixes).into_iter().filter(|m| m != top).map(|m| (m, Cost::MEMORY)).collect()
+/// Why a build is outside the model, when Quartus built some of the memory bits the model maps as memories in its
+/// fabric instead: the model times and sizes every memory as the block it asks for, and a memory Quartus made of
+/// registers and multiplexers (declared in a generate block, or read in MLABs without a register and without
+/// `no_rw_check`, or asking for logic) is neither its timing nor its area.
+fn built_in_logic(graph: &TimingGraph, quartus: &BTreeMap<String, (f64, QuartusArea)>) -> Option<String> {
+    let model = graph.area_under("").memory_bits;
+    let held = quartus.get("").map_or(0, |(_, area)| area.memory_bits);
+    (held < model).then(|| {
+        format!("Quartus built {} of the {model} memory bits the model maps as memories in its fabric, holding {held} in memory blocks", model - held)
+    })
+}
+
+/// The least logic levels a build's top has to reach to measure the delays by: below it a level either way is most of
+/// its depth, as a few LUTs either way are most of an instance below [`AREA_FLOOR`].
+const DEPTH_FLOOR: f64 = 10.0;
+
+/// Why a build is no measure of the delays, when its top is shallower than [`DEPTH_FLOOR`].
+fn too_shallow(quartus: &BTreeMap<String, (f64, QuartusArea)>) -> Option<String> {
+    let depth = quartus.get("").map_or(0.0, |(d, _)| *d);
+    (depth < DEPTH_FLOOR).then(|| {
+        format!("its top is {depth} logic levels deep, under the {DEPTH_FLOOR} the delays are measured over: a level either way is most of it")
+    })
 }
 
 /// The least ALUTs an instance has to be drawn into the area fit: below it a few LUTs either way is most of one.
@@ -131,22 +149,38 @@ fn main() {
         let pairs: Vec<(&str, &str)> = params.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
         let text = String::from_utf8_lossy(&verilog);
         let memories = memory_boxes(&text, &top);
-        let boxes: Vec<(&str, Cost)> = memories.iter().map(|(m, c)| (m.as_str(), *c)).collect();
+        let boxes: Vec<(&str, _, _)> = memories.iter().map(|(m, c, a)| (m.as_str(), *c, *a)).collect();
         let made_by = hex(script(&top, &pairs, &boxes).as_bytes());
         let key = format!("{}-{}-{top}.json", &sha[..16], &made_by[..16]);
-        let json = match cache.as_ref().map(|d| d.join(&key)) {
-            Some(file) if file.exists() => Ok(std::fs::read_to_string(&file).unwrap_or_else(|e| fail(format!("{}: {e}", file.display())))),
-            cached => netlist(&text, &top, &pairs, &boxes).inspect(|text| {
-                if let Some(file) = cached {
-                    std::fs::create_dir_all(file.parent().expect("a directory")).unwrap_or_else(|e| fail(e));
-                    std::fs::write(&file, text).unwrap_or_else(|e| fail(format!("{}: {e}", file.display())));
-                }
-            }),
+        let refusal = cache.as_ref().map(|d| d.join(format!("{key}.refused")));
+        let json = match (cache.as_ref().map(|d| d.join(&key)), &refusal) {
+            (Some(file), _) if file.exists() => Ok(std::fs::read_to_string(&file).unwrap_or_else(|e| fail(format!("{}: {e}", file.display())))),
+            (_, Some(file)) if file.exists() => Err(std::fs::read_to_string(file).unwrap_or_else(|e| fail(format!("{}: {e}", file.display())))),
+            (cached, _) => netlist(&text, &top, &pairs, &boxes)
+                .inspect(|text| {
+                    if let Some(file) = cached {
+                        std::fs::create_dir_all(file.parent().expect("a directory")).unwrap_or_else(|e| fail(e));
+                        std::fs::write(&file, text).unwrap_or_else(|e| fail(format!("{}: {e}", file.display())));
+                    }
+                })
+                .map_err(|e| {
+                    let said = e.to_string();
+                    if let Some(file) = &refusal {
+                        std::fs::create_dir_all(file.parent().expect("a directory")).unwrap_or_else(|e| fail(e));
+                        std::fs::write(file, &said).unwrap_or_else(|e| fail(format!("{}: {e}", file.display())));
+                    }
+                    said
+                }),
         };
-        match json.and_then(|json| read(&json, &delays)) {
-            Ok(graph) => builds.push(Build { name: row.name.clone(), top, sha, graph, quartus }),
-            Err(e) => {
-                let said = e.to_string();
+        match json.and_then(|json| read(&json, &delays).map_err(|e| e.to_string())) {
+            Ok(graph) => match built_in_logic(&graph, &quartus).or_else(|| too_shallow(&quartus)) {
+                Some(why) => {
+                    println!("{}: refused: {why}", row.name);
+                    refused.push(RefusedBuild { build: row.name.clone(), verilog_sha256: sha, why });
+                }
+                None => builds.push(Build { name: row.name.clone(), top, sha, graph, quartus }),
+            },
+            Err(said) => {
                 let why = said.lines().find(|l| l.contains("ERROR")).or(said.lines().next()).unwrap_or_default().trim().to_string();
                 println!("{}: refused: {why}", row.name);
                 refused.push(RefusedBuild { build: row.name.clone(), verilog_sha256: sha, why });
@@ -162,18 +196,29 @@ fn main() {
             })
             .collect();
         let ratio = |d: &Delays, x: i64| (x as f64 * 100.0 / d.lut as f64).round() as i64;
-        let carries: Vec<Delays> = (0..=30).map(|carry| Delays { lut: 100, carry, dsp: 100, memory: 100 }).collect();
-        let by_carry = fit(&mut samples, &carries);
-        println!("fit carry: {:?}, error {:.4}", by_carry.delays, by_carry.error);
-        let carry = ratio(&by_carry.delays, by_carry.delays.carry);
-        let dsps: Vec<Delays> = (0..=6).map(|k| Delays { lut: 100, carry, dsp: 50 * k, memory: 100 }).collect();
-        let by_dsp = fit(&mut samples, &dsps);
-        println!("fit dsp: {:?}, error {:.4}", by_dsp.delays, by_dsp.error);
-        let dsp = ratio(&by_dsp.delays, by_dsp.delays.dsp);
-        let memories: Vec<Delays> = (0..=6).map(|k| Delays { lut: 100, carry, dsp, memory: 50 * k }).collect();
-        let fitted = fit(&mut samples, &memories);
-        println!("fit memory: {:?}, error {:.4}", fitted.delays, fitted.error);
-        delays = fitted.delays;
+        let mut at = Delays { lut: 100, carry: 0, dsp: 100, memory: 100 };
+        let mut seen = vec![at];
+        let mut fitted = None;
+        loop {
+            let carries: Vec<Delays> = (0..=30).map(|carry| Delays { carry, ..at }).collect();
+            let by_carry = fit(&mut samples, &carries);
+            let carry = ratio(&by_carry.delays, by_carry.delays.carry);
+            let dsps: Vec<Delays> = (0..=30).map(|k| Delays { carry, dsp: 10 * k, ..at }).collect();
+            let by_dsp = fit(&mut samples, &dsps);
+            let dsp = ratio(&by_dsp.delays, by_dsp.delays.dsp);
+            let memories: Vec<Delays> = (0..=30).map(|k| Delays { carry, dsp, memory: 10 * k, ..at }).collect();
+            let by_memory = fit(&mut samples, &memories);
+            let memory = ratio(&by_memory.delays, by_memory.delays.memory);
+            println!("fit: {:?}, error {:.4}", by_memory.delays, by_memory.error);
+            let next = Delays { lut: 100, carry, dsp, memory };
+            fitted = Some(by_memory);
+            if seen.contains(&next) {
+                break;
+            }
+            seen.push(next);
+            at = next;
+        }
+        delays = fitted.expect("a round of the search").delays;
         for (b, (graph, _)) in builds.iter_mut().zip(samples) {
             b.graph = graph;
         }

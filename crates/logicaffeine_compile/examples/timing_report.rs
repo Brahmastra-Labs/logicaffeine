@@ -9,16 +9,17 @@
 //! told by instance `--within` levels down (1 unless given). An argument that is not a file and holds `=` sets a
 //! parameter of the top. Each `--box` module is timed apart: its instances' inputs end paths and their outputs start
 //! them, a memory's after its read, and its own logic is never elaborated. `--box-memories` boxes every memory the
-//! engine's RAM generator names (`spatial::decode_engine::rtl::ram`) as one: a block RAM timed as its read, without the
-//! minutes yosys spends elaborating a wide one's byte lanes. Each `--path` endpoint's deepest path is printed node by node, with the
+//! engine's RAM generator writes (`spatial::decode_engine::rtl::ram::memory_boxes`, the `_part`s a stack or the
+//! pipelined store is built of included) as one: a block RAM timed as its read, without the minutes yosys spends
+//! elaborating a wide one's byte lanes. Each `--path` endpoint's deepest path is printed node by node, with the
 //! depth each is reached at.
 
 use std::collections::HashMap;
 use std::path::Path;
 use std::process::exit;
 
-use logicaffeine_compile::codegen_sva::timing_graph::{modules_numbered, synthesize, Cost, Delays, End, TimingGraph};
-use logicaffeine_compile::spatial::decode_engine::rtl::ram::{bram_name, bram_re_name, ram_ce_name, ram_name};
+use logicaffeine_compile::codegen_sva::timing_graph::{synthesize, Area, Cost, Delays, End, TimingGraph};
+use logicaffeine_compile::spatial::decode_engine::rtl::ram::memory_boxes;
 use logicaffeine_proof::cycle_ratio::Bound;
 
 fn fail(why: impl std::fmt::Display) -> ! {
@@ -60,13 +61,6 @@ fn spent(g: &TimingGraph, path: &[usize], levels: usize) -> Vec<(String, i64)> {
     out
 }
 
-/// The memories of `verilog` the engine's RAM generator writes, each a module per width, but `top`.
-fn memory_modules(verilog: &str, top: &str) -> Vec<String> {
-    let names = [ram_name(8), bram_name(8), bram_re_name(8), ram_ce_name(8)];
-    let prefixes: Vec<&str> = names.iter().map(|n| n.trim_end_matches(|c: char| c.is_ascii_digit())).collect();
-    modules_numbered(verilog, &prefixes).into_iter().filter(|m| m != top).collect()
-}
-
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.len() < 2 {
@@ -76,7 +70,7 @@ fn main() {
     let top = &args[0];
     let (mut verilog, mut params, mut delays, mut ns) = (String::new(), Vec::new(), Delays::LEVELS, None);
     let (mut ends, mut deepest, mut within) = (50usize, 12usize, 1usize);
-    let (mut boxes, mut paths): (Vec<(String, Cost)>, Vec<String>) = (Vec::new(), Vec::new());
+    let (mut boxes, mut paths): (Vec<(String, Cost, Area)>, Vec<String>) = (Vec::new(), Vec::new());
     let mut memories = false;
     let mut rest = args[1..].iter();
     while let Some(a) = rest.next() {
@@ -95,8 +89,8 @@ fn main() {
             "--box" => {
                 let b = rest.next().unwrap_or_else(|| fail("--box takes a module"));
                 boxes.push(match b.split_once('=') {
-                    None => (b.clone(), Cost::NONE),
-                    Some((m, "memory")) => (m.to_string(), Cost::MEMORY),
+                    None => (b.clone(), Cost::NONE, Area::default()),
+                    Some((m, "memory")) => (m.to_string(), Cost::MEMORY, Area::default()),
                     Some((_, other)) => fail(format!("--box {b}: a box's outputs are plain or =memory, not {other}")),
                 });
             }
@@ -127,13 +121,13 @@ fn main() {
     };
     let pairs: Vec<(&str, &str)> = params.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     if memories {
-        for m in memory_modules(&verilog, top) {
-            if !boxes.iter().any(|(b, _)| *b == m) {
-                boxes.push((m, Cost::MEMORY));
+        for (m, cost, area) in memory_boxes(&verilog, top) {
+            if !boxes.iter().any(|(b, _, _)| *b == m) {
+                boxes.push((m, cost, area));
             }
         }
     }
-    let boxed: Vec<(&str, Cost)> = boxes.iter().map(|(b, c)| (b.as_str(), *c)).collect();
+    let boxed: Vec<(&str, Cost, Area)> = boxes.iter().map(|(b, c, a)| (b.as_str(), *c, *a)).collect();
     let g = synthesize(&verilog, top, &pairs, &boxed, &delays).unwrap_or_else(|e| fail(e));
     let depth = g.depth().unwrap_or_else(|e| fail(e));
     println!("{top}{}: {} nodes, {} edges, {} flip-flops, delays {delays:?}", if params.is_empty() { String::new() } else { format!(" {params:?}") }, g.nodes.len(), g.edges.len(), g.flops);

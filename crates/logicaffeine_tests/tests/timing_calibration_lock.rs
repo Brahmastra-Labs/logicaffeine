@@ -136,6 +136,19 @@ fn every_refusal_says_what_refused_it() {
     }
 }
 
+/// The model times and sizes every memory as the block it asks for, so a build Quartus made some of those memories in
+/// its fabric for is outside it: refused, by how many of the bits, and never calibrated.
+#[test]
+fn no_build_whose_memory_quartus_built_in_its_fabric_is_calibrated() {
+    let c = calibration();
+    for r in &c.rows {
+        let top = r.instances.iter().find(|i| i.path.is_empty()).and_then(|i| i.area).unwrap_or_else(|| panic!("{}: the top's area", r.build));
+        assert!(top.quartus.memory_bits >= top.model.memory_bits, "{}: Quartus holds {} memory bits, the model maps {}", r.build, top.quartus.memory_bits, top.model.memory_bits);
+    }
+    let built = c.refused.iter().filter(|r| r.why.starts_with("Quartus built ")).count();
+    assert!(built >= 1, "the ledger's memory probes built in flip-flops are refused for it: {:?}", c.refused);
+}
+
 #[test]
 fn every_instance_holds_its_area_both_ways_and_quartus_counts_the_ledgers() {
     let ledger = ledger();
