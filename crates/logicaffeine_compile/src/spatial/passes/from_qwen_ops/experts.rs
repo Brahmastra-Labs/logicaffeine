@@ -1440,6 +1440,8 @@ pub(super) fn moe_up_partials(
     let (d_t, f_t) = (d / tw, dff / tw);
     let nc = d_t / cd;
     let precision = elem_precision(target)?;
+    // The experts' gate and up weights are the products' operands, held at the products' float.
+    let operand = products_float(target)?;
     let acc = AccPolicy::F32.interm_precision();
     let ix = index_type(target, ne as u64 + 1)?;
     let (x_name, x_fill) = names.operand(0);
@@ -1475,7 +1477,7 @@ pub(super) fn moe_up_partials(
         TensorRole::Param,
         ne * dff,
         d,
-        precision,
+        operand,
         crate::spatial::passes::from_tensor_op::init_of(wg_fill, ne * dff * d),
     );
     let wu = t.tensor(
@@ -1483,7 +1485,7 @@ pub(super) fn moe_up_partials(
         TensorRole::Param,
         ne * dff,
         d,
-        precision,
+        operand,
         crate::spatial::passes::from_tensor_op::init_of(wu_fill, ne * dff * d),
     );
     let gp = t.tensor(
@@ -1506,8 +1508,8 @@ pub(super) fn moe_up_partials(
     let pg_in = t.buffer_deep("in_pick_gate", 1, 1, ix);
     let pu_in = t.buffer_deep("in_pick_up", 1, 1, ix);
     let x_in = t.buffer("in_x", cd, x_dtype);
-    let wg_in = t.buffer("in_gate", cd, precision);
-    let wu_in = t.buffer("in_up", cd, precision);
+    let wg_in = t.buffer("in_gate", cd, operand);
+    let wu_in = t.buffer("in_up", cd, operand);
     let g_out = t.buffer("gate_out", 1, acc);
     let u_out = t.buffer("up_out", 1, acc);
     let hold = |mut v: Vec<(LoopVar, usize)>| {
@@ -1595,7 +1597,7 @@ pub(super) fn moe_up_partials(
         format!("moe_up_{ne}x{k}_{d}x{dff}_c{cd}"),
         items,
         AccPolicy::F32,
-        approx("mixture-of-experts gate/up partials", precision),
+        approx("mixture-of-experts gate/up partials", operand),
         target,
     )?;
     prog.work.plan = Some(chunked_plan(nc, k * f_t));
@@ -1840,6 +1842,8 @@ pub(super) fn moe_down_partials(
     let (d_t, f_t) = (d / tw, dff / tw);
     let nc = f_t / cd;
     let precision = elem_precision(target)?;
+    // The experts' down weights are the products' operands, held at the products' float.
+    let operand = products_float(target)?;
     let acc = AccPolicy::F32.interm_precision();
     let ix = index_type(target, ne as u64 + 1)?;
     let (wd_name, wd_fill) = names.operand(4);
@@ -1873,7 +1877,7 @@ pub(super) fn moe_down_partials(
         TensorRole::Param,
         ne * d,
         dff,
-        precision,
+        operand,
         crate::spatial::passes::from_tensor_op::init_of(wd_fill, ne * d * dff),
     );
     let dp = t.tensor(
@@ -1887,7 +1891,7 @@ pub(super) fn moe_down_partials(
     let sc_in = t.buffer_deep("in_scaler", 1, 1, precision);
     let pk_in = t.buffer_deep("in_pick", 1, 1, ix);
     let h_in = t.buffer("in_hidden", cd, acc);
-    let w_in = t.buffer("in_down", cd, precision);
+    let w_in = t.buffer("in_down", cd, operand);
     let d_out = t.buffer("down_out", 1, acc);
     let hold = |mut v: Vec<(LoopVar, usize)>| {
         v.push((crate::spatial::passes::LV_SUB_H, 0));
@@ -1965,7 +1969,7 @@ pub(super) fn moe_down_partials(
         format!("moe_down_{ne}x{k}_{d}x{dff}_c{cd}"),
         items,
         AccPolicy::F32,
-        approx("mixture-of-experts down partials", precision),
+        approx("mixture-of-experts down partials", operand),
         target,
     )?;
     prog.work.plan = Some(chunked_plan(nc, k * d_t));

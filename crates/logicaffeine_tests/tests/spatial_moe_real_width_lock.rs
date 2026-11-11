@@ -459,9 +459,8 @@ fn crowded() -> SpatialTarget {
     t
 }
 
-/// Small enough that a gate/up chunk holds half of a four-tile row, large enough for every other section, at the SN50's
-/// fp32 islands (80 to 96 KiB do; 64 KiB fits no item of the gate/up section, 112 KiB holds a whole row a chunk).
-const CROWDED_SITE_BYTES: usize = 96 * 1024;
+/// Small enough that a gate/up chunk holds half of a four-tile row, large enough for every other section.
+const CROWDED_SITE_BYTES: usize = 64 * 1024;
 
 #[test]
 fn a_site_holding_several_items_writes_every_chunk_of_each() {

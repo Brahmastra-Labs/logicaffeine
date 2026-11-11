@@ -113,13 +113,23 @@ pub struct TpRefusal {
 /// The widths an RDU deployment over `tp` chips takes: every width the author writes. The author shares each head count
 /// and the FFN's columns over the chips in balanced runs, so 24 query heads deploy over 16 chips, some holding one more
 /// than others; the layers it does not yet split — a latent attention, an expert mixture, an attention with biases or
-/// sinks — are refused by its own name for what is missing (`author::check_tp`). A plan for a serving stack keeps the
-/// stack's own rule ([`serving_admits_tp`]).
+/// sinks — are refused by its own name for what is missing (`author::check_tp`). One chip is no split: the model's own
+/// step, which every model the author writes takes. A plan for a serving stack keeps the stack's own rule
+/// ([`serving_admits_tp`]).
 pub fn admits_tp(spec: &crate::model::spec::ModelSpec, tp: usize) -> Result<(), TpRefusal> {
     if tp == 0 {
         return Err(TpRefusal { tp, why: "a tensor-parallel width of zero chips".into() });
     }
-    crate::model::author::check_tp(spec, tp).map_err(|e| TpRefusal { tp, why: format!("{} over {tp} chips is not written yet: {}", spec.arch, e.0) })
+    authored_over(spec, tp).map_err(|why| TpRefusal { tp, why })
+}
+
+/// Whether the author writes `spec` over `tp` chips: one chip is the model's own step (`author::check`), more its
+/// tensor-parallel split (`author::check_tp`).
+fn authored_over(spec: &crate::model::spec::ModelSpec, tp: usize) -> Result<(), String> {
+    match tp {
+        1 => crate::model::author::check(spec).map_err(|e| format!("{} is not written yet: {}", spec.arch, e.0)),
+        _ => crate::model::author::check_tp(spec, tp).map_err(|e| format!("{} over {tp} chips is not written yet: {}", spec.arch, e.0)),
+    }
 }
 
 /// ★ A SERVING STACK'S TENSOR-PARALLEL WIDTH DIVIDES THE MODEL. Megatron splits attention and the Gated DeltaNet BY HEAD
@@ -167,7 +177,7 @@ pub fn serving_admits_tp(spec: &crate::model::spec::ModelSpec, tp: usize) -> Res
             }
         }
     }
-    crate::model::author::check_tp(spec, tp).or_else(|e| refuse(format!("{} over {tp} chips is not written yet: {}", spec.arch, e.0)))
+    authored_over(spec, tp).or_else(refuse)
 }
 
 /// [`serving_admits_tp`] for the Qwen3.8 configuration the fit report and the serving plans size.

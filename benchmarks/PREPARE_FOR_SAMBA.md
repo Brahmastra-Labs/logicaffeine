@@ -38,7 +38,7 @@ ledger for the RDU class. The split:
 - this book owns the RDU lowering, the schedule, the chip model and the time model, the model intake a bring-up test
   needs, the exam and the scorecard.
 
-**Counts.** 187 tickets on the board, 105 exam tests, 1,493 checkboxes, 251 ticked.
+**Counts.** 187 tickets on the board, 105 exam tests, 1,493 checkboxes, 255 ticked.
 
 Read at:
 
@@ -1129,10 +1129,10 @@ windowed model and the expert mixture, and waits in the reds suite on Qwen 3.5's
 - [x] **E2.5** Determinism: two runs of one bundle give bit-identical logits. Lock: `samba_exam_correctness_lock::two_runs_of_one_bundle_are_bit_identical`. Ticket: NUM-8.
 - [ ] **E2.6** An empty prompt and a prompt of one beginning-of-sequence token. Lock: `samba_exam_correctness_reds_lock::empty_and_bos_only_prompts_decode_as_the_reference`. Ticket: NUM-1.
 - [ ] **E2.7** A prompt that fills the context to its last position, and one past it refused by name. Lock: `samba_exam_correctness_reds_lock::the_last_position_decodes_and_the_next_is_refused`. Ticket: MEM-3.
-- [ ] **E2.8** 4,096 repetitions of one token. Lock: `samba_exam_numerics_lock::a_long_repetition_decodes_as_the_reference`. Ticket: NUM-1.
+- [x] **E2.8** 4,096 repetitions of one token. Lock: `samba_exam_numerics_lock::a_long_repetition_decodes_as_the_reference`. Ticket: NUM-1. Qwen 3, Qwen 3.5, Gemma 3 and gpt-oss, each prefilled in chunks of 1,024 rows on the SN50, decode the next token within the datapath's bound of the reference (receipt `logs/samba/e28-direct.log`, 1,843 s): Qwen 3.5's chunked gated delta solved by halves, gpt-oss's chunk taking its sinks a tile a head.
 - [x] **E2.9** A residual channel at 1e4 (the outlier channels large models carry) through bf16 sums. Lock: `samba_exam_correctness_lock::an_outlier_channel_survives_bf16_sums`. Ticket: NUM-1.
 - [x] **E2.10** A NaN or an infinity in an input, propagated as the reference propagates it and never masked. Lock: `samba_exam_correctness_lock::nan_and_infinity_propagate_as_the_reference_propagates_them`. Ticket: NUM-7.
-- [ ] **E2.11** fp32 softmax and norm islands bring the SN50 target's relative logit drift to the Wormhole target's for the same source. Lock: `samba_exam_numerics_lock::fp32_islands_bring_the_sn50_drift_to_wormholes`. Ticket: NUM-1.
+- [x] **E2.11** fp32 softmax and norm islands bring the SN50 target's relative logit drift to the Wormhole target's for the same source. Lock: `samba_exam_numerics_lock::fp32_islands_bring_the_sn50_drift_to_wormholes`. Ticket: NUM-1. The islands hold every harness shape's decode step within an eighth over Wormhole's datapath (receipt `logs/samba/green-fixes-1.log`).
 
 ### 10.3 E3: The decode matrix
 
@@ -1155,7 +1155,7 @@ The suite is `samba_exam_prefill_lock`, written by EXAM-4.
 - [ ] **E4.1** TTFT-8K on every Tier A model. Lock: `samba_exam_prefill_time_lock::ttft_8k_is_modeled_for_every_tier_a_model`. Ticket: TIME-3.
 - [ ] **E4.2** A 262,144-token prompt in chunks leaves the cache a run of 262,144 decode steps leaves. Lock: `samba_exam_long_prompt_lock::a_chunked_long_prompt_leaves_the_decode_cache`. Ticket: MEM-3.
 - [ ] **E4.3** Prefill on a GPU and decode on the RDU: the handed cache decodes the tokens a cache built on the RDU decodes. Lock: `samba_exam_card_prefill_lock::a_gpu_prefilled_cache_decodes_on_the_rdu`. Ticket: SERVE-RDU-3.
-- [x] **E4.4** A chunk whose length is not a multiple of the tile height. Lock: `samba_exam_prefill_lock::ragged_chunks_leave_the_state_one_chunk_leaves`. Ticket: SCHED-2. A prompt of 7 prefilled as 3 then 4, 1 then 6, 5 then 2, and 2, 2 then 3 leaves every carried tensor one chunk of 7 leaves, value for value, on the SN50 and the GPU target; the one chunk's state is held to the reference by E2's rows (receipt `logs/samba/broad-sitemem.log`).
+- [x] **E4.4** A chunk whose length is not a multiple of the tile height. Lock: `samba_exam_prefill_lock::ragged_chunks_leave_the_state_one_chunk_leaves`. Ticket: SCHED-2. A prompt of 7 prefilled as 3 then 4, 1 then 6, 5 then 2, and 2, 2 then 3 leaves every carried tensor one chunk of 7 leaves, value for value, on the SN50 and the GPU target; the one chunk's state is held to the reference by E2's rows (receipts `logs/samba/broad-sitemem.log`; at the islands' fp32, `logs/samba/green-fixes-1.log`: a per-head norm's flat and blocked forms, which a chunk's rows choose between, agree bit for bit since the evaluator rounds each operation to fp32, `spatial_rewrite_lock::a_per_head_norm_is_the_same_bits_in_its_flat_and_blocked_forms`).
 - [ ] **E4.5** A prompt sharing a prefix with a cached one prefills only its suffix. Lock: `samba_exam_prefix_cache_lock::a_shared_prefix_prefills_only_its_suffix`. Ticket: MEM-5.
 
 ### 10.5 E5: Socket scaling
@@ -6876,14 +6876,14 @@ accumulation's floor.
 - `crates/logicaffeine_tests/tests/rdu_index_datatype_lock.rs`: how a precision is admitted.
 
 **RED tests.**
-- [ ] `spatial_mixed_precision_reds_lock::the_sn50_drift_falls_to_wormholes`: fails today (frozen; RED receipt:
-  `logs/samba/red-num1.log`): every harness shape's decode step drifts past an eighth over Wormhole's datapath —
+- [x] `spatial_mixed_precision_reds_lock::the_sn50_drift_falls_to_wormholes` (receipt: `logs/samba/land-reds.log`):
+  failed (frozen; RED receipt `logs/samba/red-num1.log`): every harness shape's decode step drifts past an eighth over Wormhole's datapath —
   fp32 in every unit but the products', on the SN50's geometry — Qwen3.5 0.56% against 0.41%, Qwen3.5-MoE 0.87%
   against 0.70%, DeepSeek-V3 1.24% against 0.69%, Llama 4 0.91% against 0.41% (`logs/samba/num1-probe-2.log`; the
   Wormhole target itself lowers no decode step, its token gather needing the Int32 it lacks; the fp32 twin drifts by
   nothing measurable, so the floor is the bf16 products').
-- [ ] `spatial_mixed_precision_reds_lock::every_island_is_fp32`: fails today (frozen; `logs/samba/red-num1.log`): an
-  RMSNorm's output is bf16 on the SN50.
+- [x] `spatial_mixed_precision_reds_lock::every_island_is_fp32` (receipt: `logs/samba/land-reds.log`): failed (frozen;
+  `logs/samba/red-num1.log`): an RMSNorm's output was bf16 on the SN50.
 - [x] `spatial_mixed_precision_lock::qwen3next_decodes_on_the_fp32_twin_as_the_reference_computes`: Qwen3-Next's own
   checkpoint, its prompt prefilled and next token decoded with every program lowered for the SN50 with fp32 in place of
   bf16, is the f64 reference's within 1e-4 of the largest logit, where the SN50's bf16 bundle drifts 0.106 against a
@@ -6962,6 +6962,30 @@ length; the island chip's 0.4% to 3.3% of the largest logit (past 2% at prompts 
 and cache's rounding through this checkpoint's peaked attention (`logs/samba/num1-probe-1.log`). It stays a handed RED.
 With the islands, a sequence decodes bit for bit alike alone and beside 63 others (E2.4's four architectures, every
 layer's output and the logits; `logs/samba/num8-probe-4.log`).
+
+The landing's GREEN on main found four more, each fixed in the implementation (`logs/samba/probe-land-suspects.log`,
+the landing tree's own failures, against `logs/samba/land-green.log`):
+- an expert's gate, up and down weights were held at the elementwise float, fp32 on the island chip, twice their
+  bytes, so a real-width mixture's down chunk shrank until its combine fit no site (Mixtral and Qwen3.8-2.4T-A95B,
+  `NoLegalTiling` at 1,040 sites). What only products read is held at the products' float (`products_float` in
+  `crates/logicaffeine_compile/src/spatial/passes/from_qwen_ops.rs`, the cache's rule with it), and
+  `spatial_moe_real_width_lock`'s crowded site is the 64 KB it was sized for;
+- E2.8's Qwen 3.5 reached NaN in its second chunk of 1,024 rows: the chunked gated delta inverted `I + A` by a power
+  series whose terms grow as the chunk's binomial coefficients (past 10⁸ on one repeated key) and cancel; it inverts by
+  halves, every factor a block's inverse (`tensor_gdn_row_blocks_lock::a_chunk_that_repeats_one_token_computes_the_vms_values_on_sn50`,
+  RED `logs/samba/red-solve-halves.log`);
+- at fp32 a value depended on whether `fuse_generic` fused (the evaluator carried a fused body's interior in f64), so a
+  per-head norm's flat and blocked forms differed by an ulp and E4.4's chunkings by as much; the evaluator rounds each
+  operation of a pointwise or folded body to fp32 (`spatial_rewrite_lock`, RED `logs/samba/red-exact.log`);
+- gpt-oss's chunk of 1,024 rows did not lower: the flash fold spread one sink tile per item, a section as wide as the
+  chunk's rows; its sinks are one tile a head (`spatial_attention_window_lock::a_long_prefill_with_sinks_spreads_one_sink_tile_a_head`,
+  RED `logs/samba/red-sinks-by-head.log`).
+The locks that held the SN50 as the bf16 chip moved as ruled, old against new in `logs/samba/num1-lock-moves.md`:
+`sn50_target_lock`'s precisions (the SIMD stages' modeled formats beside the witnessed matrix path), the true fp32 twins
+of `spatial_attention_real_width_lock` and `tensor_latent_attention_lock`, and `spatial_op_gap_ledger_lock`, whose four
+compositions now all work. `spatial_nope_attention_lock`'s CHIP bound is crossed by a near-tie: tiny Llama 4's layer-1
+router separates its top two experts by 0.00133 of logits near 0.63, below one bf16 rounding of its input, and the island
+chip routes the other (`logs/samba/nope-near-tie-evidence.log`).
 
 Tristen's rulings (2026-11-07), on which the pass lands:
 - A key or value cache is stored at the products' float: bf16 on the SN50, the island rounding a key or value once on

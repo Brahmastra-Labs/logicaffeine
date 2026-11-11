@@ -241,9 +241,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   4,096-token prompt of Qwen3-8B, Gemma-3, Qwen3.5 and Gemma-2 the 3060 measured behind llama.cpp's (its binary16 cache)
   leads it: Qwen3-8B Q4_K_M 2,063 ms against 2,175.
 
-
-
-
 ### Changed
 
 - `codegen_c::from_program`: a closure body's captured values take the kinds every `MakeClosure` that builds it stores
@@ -316,10 +313,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `ngram`, `pointwise`, `products`, `recurrent`, `relayout`, `rope`, `rows`, `shape`, `written`) over the shared
   builders it keeps; `tensor_graph::fuse` filters each candidate join by its ops' kinds and shapes before the dataflow
   check, so a graph of 10,000 nodes compiles in time linear in its size; `spatial::fit::admits_tp` is the author's rule
-  (`author::check_tp`) and `serving_admits_tp` vLLM's.
+  (one chip for every model `author::check` takes, more by `author::check_tp`) and `serving_admits_tp` vLLM's.
 - `RduChipFacts::simd` records each SIMD stage's formats; the RDU target's elementwise and row-reduce units take
-  them; `from_qwen_ops::cache_precision` holds a key or value cache at the products' narrowest float, and the set-row
-  forms write a cache at that width.
+  them; `from_qwen_ops::products_float` holds what only products read — an expert's weights, and a key or value cache
+  (`cache_precision`) — at the products' narrowest float, and the set-row forms write a cache at that width.
 - `codegen_cuda::lane` uploads an MXFP4 matrix's rows regrouped, each row's sub-blocks 16 to a group, a group's 16
   exponents before its 16 nibble words (`kernels::row_bytes`, `kernels::MXFP4_GROUP`; `lk_mx_exp`, `lk_mx_nib`,
   `lk_mx_row_bytes` and `lk_mx_regroup` in the block library, one layout map the decoders and `upload_mxfp4` share), 4.25
@@ -348,8 +345,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   — no bias, no epilogue step (`lk_gemm_blk`'s `PLAIN`, `emit::blk_plain`) — so the epilogue's general steps take no
   registers from the tile's multiply: Qwen3.5-0.8B's 8,192-output in-projections at 512 rows on the 3060, in parts, 607
   µs → 380.
-
-
 
 ### Fixed
 
@@ -537,6 +532,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   pass-through): the `timing_calibrate`, `d5005_preflight` and `timing_report` examples box by it. `timing_calibrate`
   refuses a synthesis whose top holds fewer memory bits in Quartus's report than the model maps as memories.
   ends the page's main (`DriveError::Failed`).
+- `spatial::passes::from_qwen_ops::recurrent`'s chunked gated delta inverts a chunk's unit lower-triangular `I + A`
+  by halves (`X_ℓ = X_{ℓ−1} − X_{ℓ−1} (A ⊙ M_ℓ) X_{ℓ−1}`, `M_ℓ` each block's lower-left quarter) in the `⌈log₂ C⌉`
+  sections the power series `(I + N)(I + N²)(I + N⁴)…` took, every factor bounded by the answer.
+- `spatial::eval` rounds each operation of a float `Generic` body with no contraction axis, and each constant, to
+  fp32; a contraction's product stays exact, summed and rounded once at the accumulator.
+- A flash fold of several query tiles reads its sinks one tile a head (`from_qwen_ops::attention::sink_tiles`), each
+  item through the index a compile-time table (`{out}__flash_sink_heads`) gives it; a fold of one query tile and a
+  regrouped decode read one tile an item, as before.
 
 ## [0.11.0] - 2026-11-02
 

@@ -250,16 +250,23 @@ pub(crate) fn elem_precision(target: &SpatialTarget) -> Result<Precision, Spatia
     })
 }
 
-/// ★ A KEY OR VALUE CACHE IS HELD AT THE PRODUCTS' FLOAT. An attention reads its cache only into its score and value
-/// products, and a matrix path multiplies in the narrowest float it offers, so that float is what a cache is stored at
-/// where the elementwise datapath also holds it (a row write moves the cache in it): an fp32 island beside bf16 products
-/// rounds a key or value once, on its way into the cache, and the cache moves the bytes a bf16 one does. A target with
-/// no float product, or one whose elementwise datapath lacks it, holds a cache at its elementwise float.
-pub(crate) fn cache_precision(target: &SpatialTarget) -> Result<Precision, SpatialReject> {
+/// ★ A PRODUCT'S OPERANDS ARE HELD AT THE PRODUCTS' FLOAT. A matrix path multiplies in the narrowest float it offers,
+/// so that float is what a value read only into products is stored at where the elementwise datapath also holds it —
+/// an expert's weights, which its gate, up and down products read, and a key or value cache ([`cache_precision`]) — and
+/// their sums stay at the accumulator's width. An fp32 island beside bf16 products rounds such a value once, on its way
+/// in, and it moves the bytes a bf16 one does. A target with no float product, or one whose elementwise datapath lacks
+/// it, holds it at its elementwise float.
+pub(crate) fn products_float(target: &SpatialTarget) -> Result<Precision, SpatialReject> {
     match [Precision::Bf16, Precision::Fp16, Precision::Fp32].into_iter().find(|p| target.matmul_supports(*p)) {
         Some(p) if target.generic_holds(p) => Ok(p),
         _ => elem_precision(target),
     }
+}
+
+/// ★ A KEY OR VALUE CACHE IS HELD AT THE PRODUCTS' FLOAT ([`products_float`]). An attention reads its cache only into
+/// its score and value products; a row write moves the cache in it.
+pub(crate) fn cache_precision(target: &SpatialTarget) -> Result<Precision, SpatialReject> {
+    products_float(target)
 }
 
 /// The width in elements of a buffer holding `page_tiles` tiles.

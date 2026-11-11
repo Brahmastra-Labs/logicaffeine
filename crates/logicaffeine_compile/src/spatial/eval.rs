@@ -1623,20 +1623,22 @@ impl<'a> Eval<'a> {
                     b: &TensorBody,
                     operand: &dyn Fn(usize) -> f64,
                     axis: &dyn Fn(LoopVar) -> usize,
+                    held: fn(f64) -> f64,
                 ) -> f64 {
+                    let at = |x: &TensorBody| apply(x, operand, axis, held);
                     match b {
                         TensorBody::Operand(i) => operand(*i),
-                        TensorBody::Const(bits) => f64::from_bits(*bits),
-                        TensorBody::Add(x, y) => apply(x, operand, axis) + apply(y, operand, axis),
-                        TensorBody::Sub(x, y) => apply(x, operand, axis) - apply(y, operand, axis),
-                        TensorBody::Mul(x, y) => apply(x, operand, axis) * apply(y, operand, axis),
-                        TensorBody::Min(x, y) => apply(x, operand, axis).min(apply(y, operand, axis)),
-                        TensorBody::Max(x, y) => apply(x, operand, axis).max(apply(y, operand, axis)),
-                        TensorBody::FloorDiv(x, y) => (apply(x, operand, axis) / apply(y, operand, axis)).floor(),
-                        TensorBody::Shr { arg, by } => (apply(arg, operand, axis) / 2f64.powi(*by as i32)).floor(),
+                        TensorBody::Const(bits) => held(f64::from_bits(*bits)),
+                        TensorBody::Add(x, y) => held(at(x) + at(y)),
+                        TensorBody::Sub(x, y) => held(at(x) - at(y)),
+                        TensorBody::Mul(x, y) => held(at(x) * at(y)),
+                        TensorBody::Min(x, y) => at(x).min(at(y)),
+                        TensorBody::Max(x, y) => at(x).max(at(y)),
+                        TensorBody::FloorDiv(x, y) => held((at(x) / at(y)).floor()),
+                        TensorBody::Shr { arg, by } => held((at(arg) / 2f64.powi(*by as i32)).floor()),
                         TensorBody::Unary { kind, arg } => {
-                            let v = apply(arg, operand, axis);
-                            match kind {
+                            let v = at(arg);
+                            held(match kind {
                                 SfpuKind::Exp => v.exp(),
                                 SfpuKind::Recip => 1.0 / v,
                                 SfpuKind::Rsqrt { eps_nano, over } => {
@@ -1655,7 +1657,7 @@ impl<'a> Eval<'a> {
                                         0.0
                                     }
                                 }
-                            }
+                            })
                         }
                         // Branch-free: decided by POSITION, both branches meaningful at every point.
                         TensorBody::Select {
@@ -1664,13 +1666,20 @@ impl<'a> Eval<'a> {
                             otherwise,
                         } => {
                             if holds(cond, operand, axis) {
-                                apply(then, operand, axis)
+                                at(then)
                             } else {
-                                apply(otherwise, operand, axis)
+                                at(otherwise)
                             }
                         }
                     }
                 }
+                // ★ AN FP32 DATAPATH ROUNDS EVERY OPERATION. A pointwise or folded body runs on the float datapath, whose
+                // registers hold fp32: each operation's result, and each constant, is the fp32 value the part keeps. So a
+                // body `fuse_generic` spliced from two stages computes exactly what the two computed apart, the fp32 page
+                // between them holding what a register holds, and a value never depends on whether a pass fused — nor on
+                // which form a program's size chose. A contraction's body is one product of its dot, summed exact and
+                // rounded once at the accumulator, as the matrix path's is.
+                let held: fn(f64) -> f64 = if k_ax.is_some() { |x| x } else { |x| x as f32 as f64 };
                 // ★ A GATHER IS AN OFFSET WHOSE LAST TERM IS DATA. An operand map with an `IndirectTerm` adds
                 // `v · stride`, where `v` is the INDEX operand read through ITS OWN map at the same point —
                 // so a per-row index broadcasts along the row, a per-element index moves with it. The index
@@ -1710,7 +1719,7 @@ impl<'a> Eval<'a> {
                             0
                         }
                     };
-                    apply(body, &operand, &axis)
+                    apply(body, &operand, &axis, held)
                 };
                 let value = |r: usize, c: usize| -> f64 {
                     match k_ax {

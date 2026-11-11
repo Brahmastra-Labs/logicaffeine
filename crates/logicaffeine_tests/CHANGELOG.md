@@ -70,7 +70,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and `samba_exam_certificate_lock`; the intake's reader, twin and conformance tests for every new family in
   `model_hf_intake_lock`, `model_tiny_checkpoint_lock` and `model_conformance_lock`;
   `spatial_mixed_precision_lock`'s held cache and island-reads-an-accumulator tests;
-  `spatial_one_ir_lock::every_op_family_lowers_from_its_own_file`.
+  `spatial_one_ir_lock::every_op_family_lowers_from_its_own_file`;
+  `tensor_gdn_row_blocks_lock::a_chunk_that_repeats_one_token_computes_the_vms_values_on_sn50`;
+  `spatial_rewrite_lock::{across_an_fp32_page_fusion_changes_no_value,
+  a_per_head_norm_is_the_same_bits_in_its_flat_and_blocked_forms}`;
+  `spatial_attention_window_lock::{a_fold_of_several_query_tiles_starts_each_heads_softmax_from_its_own_sink,
+  a_long_prefill_with_sinks_spreads_one_sink_tile_a_head}`.
 - `lane_compile_lock::a_steps_delta_rule_takes_its_heads_norms_only_where_its_inputs_launch_holds_no_whole_head`: on
   every gated delta case in Q8_0 and in BF16 and F16, under every numerics, the decode step with `delta_qk_norm` is the
   one with it held but for each inputs' launch whose blocks hold less than a head — its convolutions writing the heads
@@ -176,7 +181,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `a_box_that_takes_an_area_says_so_and_one_that_takes_none_writes_nothing_more`: a memory Quartus built in its fabric
   is no calibrated build, a box takes the area its caller gives it, and every memory the RAM generator writes is boxed.
 
-
 ### Changed
 - The Arena corpus at lean-kernel-arena `8139f284`: 247 cases, the 11 new ones (six `bugs/` rejects, `other/inductive-undeclared-universe` and four `corner-cases/`) vendored by `scripts/lean/arena-crown/vendor-corpus.py` from the official archive or from the corner cases rebuilt byte-identical at `d7f74a9e`; a regenerated export is now looked for in every round held, newest first, and `cedar`, re-exported at every round since, keeps its regenerated export with the new digests in its evidence. `arena_corpus_lock`, `arena_entry_lock`, the Arena README, the rehearsal and the scoreboard pin the round.
 - `arena_entry_lock` holds the Lean Kernel Arena entries to the kernel's `unchecked-access` feature: each entry builds its checker with it, the kernel declares it, and `the_measured_snapshot_is_built_as_the_entry_builds` compares `snapshot.sh`'s `cargo build` arguments with the entry's as well as their `RUSTFLAGS`, so a measurement cannot run a build the Arena would not. An entry trains its profile on accept tests it exports itself with the Arena's `lka.py build-test`, each through its own run line, either into the profile directory or into a profile written apart and merged with an explicit weight (`every_build_trains_its_profile_on_the_run_line_over_accept_cases`, which requires each export before its training and the merge to weigh exactly the profiles written apart); `the_entries_train_on_the_same_tests_with_the_same_weights`; and `the_measured_snapshot_trains_as_the_entry_trains` holds `snapshot.sh`'s training inputs and weights to the entry's.
@@ -256,6 +260,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   kept and a header line naming what was added on which tree — new artifacts recorded beside moved ones that await
   their own approval.
 - `model_triage_lock`: a Llama- or Qwen3-shaped checkpoint is read exactly as Gemma, GLM-4, Llama, MiniCPM, Phi-3, Qwen2 and Qwen3, a Qwen3-MoE one also as MiniMax-M2, a Gemma 3 one also as Gemma 2 and GLM-4: the true readers once the triage reads under every architecture an arm reads.
+- `spatial_op_gap_ledger_lock`'s ledger is empty: every probed op reaches the SN50's neutral artifact within the
+  one-ulp rule, its four compositions (a partial rotation, full attention, attention, the gated delta) by the fp32
+  islands and the evaluator's fp32 operations; the count is frozen at zero.
 
 ### Fixed
 - `bringup_lock` follows the chips it tests: the SN50 brings up an expert mixture (it deploys SambaNova's published families), the D5005 refuses it naming "experts"; the undescribed checkpoint is written with no metadata (`tiny_models::write_bare_checkpoint`), since every tiny checkpoint now carries its keys.

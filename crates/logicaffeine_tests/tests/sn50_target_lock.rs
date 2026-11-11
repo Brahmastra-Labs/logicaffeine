@@ -257,12 +257,19 @@ fn sn50_rdu_is_derived_from_the_facts_and_declares_exactly_what_it_models() {
         432 * 1024 * 1024 / 1040,
         "the per-PCU local memory is the SRAM spread over the PCUs"
     );
+    // The matrix path carries only witnessed precisions; the SIMD stages beside it compute in the SN40L's formats, a
+    // fact the SN50's record does not give and so a modeled one, cited to where it came from.
+    assert_eq!(
+        (facts.simd.value, facts.simd.provenance),
+        (&[Precision::Fp32, Precision::Bf16, Precision::Int32][..], Provenance::Modeled)
+    );
+    assert!(facts.simd.cite.contains("SN40L"), "{}", facts.simd.cite);
     assert_eq!(
         t.precisions,
-        [Precision::Int8, Precision::Bf16]
+        [Precision::Int8, Precision::Bf16, Precision::Fp32, Precision::Int32]
             .into_iter()
             .collect::<BTreeSet<_>>(),
-        "only witnessed precisions"
+        "the witnessed precisions and the SIMD stages' modeled formats"
     );
     assert!(t.matmul_supports(Precision::Int8) && t.matmul_supports(Precision::Bf16));
     assert!(

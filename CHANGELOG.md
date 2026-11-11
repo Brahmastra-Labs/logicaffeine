@@ -165,9 +165,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   2-SAT, Horn, parity, GF(p)/ℤ/m, SoS and Nullstellensatz routes re-check their certificates in release builds, and
   the SAT command line writes only proofs checked against the formula (`solve::certified_proof`).
 
-
-
-
 ### Changed
 
 - **The kernel's Lean checker spends 29% fewer instructions on Mathlib.** `logicaffeine-kernel`'s value
@@ -208,14 +205,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The SN40L and SN50 hold fp32 islands beside bf16 products.** Each PCU SIMD stage computes in FP32, BF16
   and INT32 (published for the SN40L, modeled on the SN50), so norms, softmaxes, the logits an arg-max reads, routers
   and a gated delta rule's carried state run at fp32 while every product stays on the matrix path's bf16 and int8; a
-  key or value cache is held at the products' bf16, rounded once on its way in. The SN50's drift from the f64
+  expert's weights and a key or value cache are held at the products' bf16, a cache rounded once on its way in. The SN50's drift from the f64
   reference falls to Tenstorrent Wormhole's, and a 4,096-token repetition decodes as the reference does
   (`samba_exam_numerics_lock`, `spatial_mixed_precision_lock`).
 - **`largo emit rdu --tp` takes every tensor-parallel width the author writes**: heads in balanced runs where the
   width divides none (24, 40 or 56 heads over 16 chips); a width the author cannot write is refused with its reason, and
   the vLLM-format plan keeps vLLM's divisibility rule.
-
-
 
 ### Fixed
 
@@ -373,6 +368,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   asking for registers) is refused by how many of its bits, as one the model cannot map is: the calibration is
   re-recorded over the ledger's builds since 10-23 and holds every fit within its spread. Locked by
   `timing_calibration_lock`, `timing_graph_lock` and `d5005_rtl_lock`.
+- **A prompt of one token repeated thousands of times prefills on the spatial chips.** A chunk of the gated delta
+  rule inverted its `I + A` by a power series whose partial sums grow as the chunk's binomial coefficients (past 10⁸ on
+  32 rows of one repeated key) and cancel back to the answer; fp32 lost it, the state drifted chunk by chunk, and
+  Qwen 3.5's 4,096 repetitions reached NaN. The chunk now inverts by halves, every factor a block's own inverse
+  (`tensor_gdn_row_blocks_lock`, `samba_exam_numerics_lock::a_long_repetition_decodes_as_the_reference`).
+- **A value the spatial evaluator computes no longer depends on whether a pass fused.** Each operation of a pointwise
+  or folded float body is rounded to fp32 as the datapath's registers hold it, so a fused body computes the bits its
+  stages computed apart, a per-head norm's flat and blocked forms agree bit for bit, and a prompt prefilled in chunks of
+  any size leaves the state one chunk leaves (`spatial_rewrite_lock`, `samba_exam_prefill_lock`).
+- **A long prefill chunk with attention sinks lowers on the spatial chips.** gpt-oss's chunk of 1,024 rows spread one
+  sink tile per fold item, a section as wide as the chunk's rows that no site held; its sinks are one tile a head, each
+  item reading its head's (`spatial_attention_window_lock`).
 
 ## [0.11.0] - 2026-11-02
 

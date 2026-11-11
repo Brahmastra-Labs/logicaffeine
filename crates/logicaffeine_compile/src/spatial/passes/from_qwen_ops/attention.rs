@@ -1227,9 +1227,29 @@ pub(super) fn flash_heads_name(names: &StageNames) -> String {
     format!("{}__heads", names.out)
 }
 
-/// The tensor a flash fold reads its rows' sinks from: one tile per item, row `r`'s sink in element `r`.
+/// The tensor a flash fold reads its rows' sinks from: one tile per sink tile ([`sink_tiles`]), row `r`'s sink in
+/// element `r`.
 pub(super) fn flash_sinks_name(names: &StageNames) -> String {
     format!("{}__flash_sinks", names.out)
+}
+
+/// The compile-time table naming each item's query head, whose sink tile the item reads ([`sink_tiles`]).
+pub(super) fn flash_sink_heads_name(names: &StageNames) -> String {
+    format!("{}__flash_sink_heads", names.out)
+}
+
+/// ★ A SINK IS ITS QUERY HEAD'S, WHATEVER THE ROW. A fold of one query tile has an item per head, each reading its own
+/// sink tile; a regrouped decode an item per K/V head, its query heads down the tile. A fold of several query tiles has
+/// an item per tile and head, and its sinks are one tile per head — `per_row`, never the chunk's rows — each item reading
+/// its head's through the index a compile-time table gives it. Returns the sink tiles and whether the items read them
+/// through that table.
+pub(super) fn sink_tiles(g: &FlashGeometry, target: &SpatialTarget) -> (usize, bool) {
+    let (_, per_row, tiles_q, items) = fold_items(g, target);
+    if g.grouped || tiles_q == 1 {
+        (items, false)
+    } else {
+        (per_row, true)
+    }
 }
 
 pub(super) fn flash_fold(
@@ -1572,16 +1592,49 @@ pub(super) fn flash_fold_paged(
             );
         }
         Some(_) => {
+            let (sink_t, by_head) = sink_tiles(&g, target);
             let sinks = t.tensor(
                 &flash_sinks_name(names),
                 TensorRole::Input,
                 1,
-                items * tw,
+                sink_t * tw,
                 precision,
-                crate::spatial::passes::from_tensor_op::init_of(&Fill::Unknown, items * tw),
+                crate::spatial::passes::from_tensor_op::init_of(&Fill::Unknown, sink_t * tw),
             );
             let sk_in = t.buffer_deep("in_sinks", 1, 1, precision);
-            let l_sk = t.load_block_at("load_sinks", sinks, 0, vec![(LV_ITEM_Y, 1)], 1, 1, 1, sk_in);
+            let l_sk = if by_head {
+                let hx = index_type(target, per_row as u64)?;
+                let entries: Vec<i64> =
+                    (0..items).flat_map(|y| std::iter::once((y % per_row) as i64).chain(std::iter::repeat_n(0, tw - 1))).collect();
+                let table = t.tensor(&flash_sink_heads_name(names), TensorRole::Param, 1, items * tw, hx, TensorInit::Values(entries));
+                let head_in = t.buffer_deep("in_sink_head", 1, 1, hx);
+                let l_head = t.load_block_at("load_sink_head", table, 0, vec![(LV_ITEM_Y, 1)], 1, 1, 1, head_in);
+                let l = t.stage(
+                    "load_sinks",
+                    StageKind::Load {
+                        tensor: sinks,
+                        pattern: AccessPattern {
+                            origin: TileAddr {
+                                base: 0,
+                                steps: Vec::new(),
+                                indirect: Some(IndirectTile { index: head_in, tile_stride: 1, elems_per_tile: 1, bound: (0, per_row - 1) }),
+                            },
+                            block_h: 1,
+                            block_w: 1,
+                            stride_w: 1,
+                            stride_h: sink_t,
+                        },
+                        num_blocks: 1,
+                        multicast: None,
+                    },
+                    vec![head_in],
+                    vec![sk_in],
+                );
+                t.edge(l_head, head_in, l);
+                l
+            } else {
+                t.load_block_at("load_sinks", sinks, 0, vec![(LV_ITEM_Y, 1)], 1, 1, 1, sk_in)
+            };
             let row_of_page = ElemAccess {
                 base: 0,
                 terms: vec![(LV_GEN_ROW, 1)],
@@ -2079,9 +2132,10 @@ pub(super) fn flash_attention(
     let mut sections = Vec::new();
     // ★ A SINK IS THE RUNNING SOFTMAX'S FIRST TERM. Each fold row starts from its head's sink logit as its maximum, with a
     // sum of one and no value, so every block's update carries the sink's term to the end. The sinks are first spread
-    // one tile per item, a row's sink in its own column ([`flash_sinks_name`]).
+    // one tile per sink tile ([`sink_tiles`]), a row's sink in its own column ([`flash_sinks_name`]).
     if let Some(si) = g.sinks {
-        let (tw, (_, per_row, _, items)) = (target.tile.cols, fold_items(&g, target));
+        let (tw, (_, per_row, _, _)) = (target.tile.cols, fold_items(&g, target));
+        let (sink_t, _) = sink_tiles(&g, target);
         let head_of = |e: usize| {
             let (y, row) = (e / tw, e % tw);
             if g.grouped {
@@ -2090,7 +2144,7 @@ pub(super) fn flash_attention(
                 Some(y % per_row)
             }
         };
-        sections.push(spread_sinks(names.operand(si), g.q.per_row, &flash_sinks_name(&fold_names), items * tw, &head_of, target)?);
+        sections.push(spread_sinks(names.operand(si), g.q.per_row, &flash_sinks_name(&fold_names), sink_t * tw, &head_of, target)?);
     }
     sections.push(p);
     if packed {

@@ -86,17 +86,10 @@ fn backend() -> RduSpatialBackend {
 /// SHRINK-ONLY: every (op, stage) cell that does not work on the SN50 lane today, with the piece it is
 /// waiting on. A stage that fails lists every later stage too (`a_stage_implies_its_predecessors`), so the
 /// ledger is total over the cells that fail and the count is the honest distance to "everything".
-const SPATIAL_OP_GAPS: &[(&str, Stage, &str)] = &[
-    // ── compositions whose bf16 answer lands past the one-ulp rule: the ops lower, certify and ship; the chip's
-    //    rounding through their chain of stages is more than one ulp of the ×1e6 rounding ────────────────────
-    ("rope_partial", Stage::Neutral, "the rotation's two bf16 products and their difference round past one ulp (Show #6: 7625000 vs VM 7600000)"),
-    ("full_attention", Stage::Neutral, "scores → softmax → weighted sum round past one ulp in bf16 (Show #4: 5312500 vs VM 5339523)"),
-    ("gated_delta", Stage::Neutral, "the predict / update / read chain rounds past one ulp in bf16 (Show #4: 4000000 vs VM 3991800)"),
-    ("attention", Stage::Neutral, "scores → softmax → weighted sum round past one ulp in bf16 (Show #4: 5312500 vs VM 5339523)"),
-];
+const SPATIAL_OP_GAPS: &[(&str, Stage, &str)] = &[];
 
 /// Today's row count. Re-freeze DOWNWARD when cells start working; never up.
-const FROZEN_GAP_COUNT: usize = 4;
+const FROZEN_GAP_COUNT: usize = 0;
 
 /// SHRINK-ONLY: programs the front end lifts as a DIFFERENT op than the one they name — a fragment of the
 /// desugar matched as the whole program, which then goes through tiling, placement, choreography and a

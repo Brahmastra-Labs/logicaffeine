@@ -878,6 +878,68 @@ fn the_chunked_block_gated_delta_computes_the_vms_values_on_sn50() {
     }
 }
 
+/// [`gd_dense`] over a block that repeats one token: every row's query, key and value the same, and its gates near one
+/// (`β ≈ 0.98`, `α ≈ 0.99`) — a long prompt of one repeated token, as a model's own projections write it.
+fn gd_repeated(g: &Gd) -> String {
+    let (qk, vw) = (g.nk * g.d, g.nv * g.d);
+    let row = |name: &str, cols: usize, salt: usize, at: &dyn Fn(usize) -> f64| {
+        let mut s = format!("Let {name} be a {} by {cols} tensor of Real.\n", g.rows);
+        for i in 0..g.rows * cols {
+            s += &format!("Set item {} of {name} to {:?}.\n", i + 1, at((i % cols) * 31 + salt));
+        }
+        s
+    };
+    let mut s = String::from("## Main\n");
+    s += &row("Q0", qk, 7, &val);
+    s += &row("K0", qk, 8, &val);
+    s += &row("V0", vw, 9, &val);
+    s += &row("Z", vw, 10, &val);
+    s += &row("B0", g.nv, 11, &|i| 4.0 + val(i) / 8.0);
+    s += &row("A0", g.nv, 12, &|i| 4.6 + val(i) / 8.0);
+    s += &declare("S", vw, g.d, 13);
+    s += &declare("GN", 1, g.d, 14);
+    let heads = g.rows * g.nk;
+    s += &format!("Let Q be l2norm of Q0 across {heads} heads.\nLet K be l2norm of K0 across {heads} heads.\n");
+    s += "Let B be sigmoid of B0.\nLet A be sigmoid of A0.\nLet V be V0 plus V0.\n";
+    s += &format!("Let O be gated delta of Q over K and V with gate Z beta B decay A state S norm GN with {} heads {} groups.\n", g.nv, g.nk);
+    s += "Let P be O plus O.\n";
+    s += &show_all("P", g.rows * vw);
+    s += &show_all("S", vw * g.d);
+    s
+}
+
+#[test]
+fn a_chunk_that_repeats_one_token_computes_the_vms_values_on_sn50() {
+    // Every key of the chunk the same and its gates near one: the chunk's triangular solve inverts `I + A` with `A`'s
+    // entries near one below the diagonal. The inverse is small (each entry at most `β`), and a solve that reaches it
+    // through terms far larger than it — a power series whose partial sums grow as the chunk's binomial coefficients —
+    // loses it to cancellation, on the fp32 twin as on the chip. One full chunk, and a full chunk and a partial one.
+    for g in [
+        Gd {
+            rows: 32,
+            nk: 1,
+            nv: 2,
+            d: 32,
+        },
+        Gd {
+            rows: 40,
+            nk: 1,
+            nv: 2,
+            d: 32,
+        },
+    ] {
+        let spans = [g.rows * g.nv * g.d, g.nv * g.d * g.d];
+        chip_verdict_within(
+            &gd_repeated(&g),
+            &format!("chunked gated delta over one repeated token {g:?}"),
+            Chip::Normwise {
+                spans: &spans,
+                depth: g.rows,
+            },
+        );
+    }
+}
+
 /// [`gd_dense`] with the decay DECLARED — values in `(0.1, 0.9)` — rather than computed: a declared tensor's padding
 /// rows are zero, so a chunk past the block's last row holds `α = 0`, whose `ln α` must never reach a row of the block.
 fn gd_declared_decay(g: &Gd) -> String {

@@ -153,6 +153,19 @@ filter = '(binary(qwen38_batched_decode_lock) & test(=the_batched_step_is_the_vm
 slow-timeout = { period = "300s", terminate-after = 12 }
 priority = 90
 
+# The Samba exam's E2.8: four tiny models each prefilled 4,096 repetitions of one token in chunks of 1,024 rows on the
+# SN50 and its next token decoded there — each 1,024-row prefill compiled once (~2 min) and its chunks run through the
+# spatial evaluator. MEASURED 2026-11-11 alone at nice 19 beside a slot holder's run (load 33-56): 1,843 s. It starts
+# with the wall-clock heavies under a 60-min backstop.
+[[profile.default.overrides]]
+filter = 'binary(samba_exam_numerics_lock) & test(=a_long_repetition_decodes_as_the_reference)'
+slow-timeout = { period = "300s", terminate-after = 12 }
+
+[[profile.full.overrides]]
+filter = 'binary(samba_exam_numerics_lock) & test(=a_long_repetition_decodes_as_the_reference)'
+slow-timeout = { period = "300s", terminate-after = 12 }
+priority = 90
+
 # The subprocess-harness e2e tests spawn `cargo build/run` against per-slot
 # sharded target dirs (/tmp/logos_e2e_cache_<NEXTEST_TEST_GROUP_SLOT>, see
 # tests/common/mod.rs get_shared_target_dir). max-threads doubles as the shard

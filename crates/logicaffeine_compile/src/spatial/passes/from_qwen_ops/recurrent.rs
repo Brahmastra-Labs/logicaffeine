@@ -1435,9 +1435,9 @@ pub(super) fn moved_runs(
     t.finish(format!("move_runs_{out}"), row_items(n_t, 1), AccPolicy::for_result(dt), NumericsClaim::Exact, target)
 }
 
-/// `⌈log₂ c⌉`, at least 1: how many factors `(I + N)(I + N²)(I + N⁴)…` invert `I + N` for a strictly lower `c × c` `N`
-/// — `N^{2^m}` vanishes once `2^m ≥ c`.
-pub(super) fn solve_factors(c: usize) -> usize {
+/// `⌈log₂ c⌉`, at least 1: how many levels invert a unit lower-triangular `c × c` matrix by halves — level `ℓ` inverts its
+/// diagonal blocks of `2^ℓ` rows, the whole matrix once `2^ℓ ≥ c`.
+pub(super) fn solve_levels(c: usize) -> usize {
     (usize::BITS - c.saturating_sub(1).leading_zeros()).max(1) as usize
 }
 
@@ -1454,10 +1454,10 @@ pub(super) fn stepped_sections(rows: usize) -> usize {
 }
 
 /// Sections a chunked block of `rows` rows takes on `tile`-row chunks: per chunk the gates, `A` and `QKΓ`, the solve's
-/// factors, `U`/`W`, `Δ`, the output and the memory update; per block the two gate broadcasts.
+/// levels, `U`/`W`, `Δ`, the output and the memory update; per block the two gate broadcasts.
 pub(super) fn chunked_sections(rows: usize, tile: usize) -> usize {
     2 + (0..rows.div_ceil(tile))
-        .map(|c| 6 + solve_factors((rows - c * tile).min(tile)))
+        .map(|c| 6 + solve_levels((rows - c * tile).min(tile)))
         .sum::<usize>()
 }
 
@@ -1471,13 +1471,13 @@ pub(super) fn chunked_sections(rows: usize, tile: usize) -> usize {
 ///   S_C = e^{g_C} S₀ + Δᵀ diag(e^{g_C − g}) K          the memory the chunk leaves
 /// ```
 ///
-/// Every product is ONE contraction (`LV_GEN_K`), and the unit lower-triangular solve is the product
-/// `(I + N)(I + N²)(I + N⁴)…` with `N = −A` — `⌈log₂ C⌉` doublings, not `C` steps. The memory is read and written once
+/// Every product is ONE contraction (`LV_GEN_K`), and the unit lower-triangular solve inverts `I + A` by halves — each
+/// diagonal block from its two halves' inverses, `⌈log₂ C⌉` levels, not `C` steps. The memory is read and written once
 /// per chunk instead of three times per row.
 ///
 /// A chunk is ONE TILE ROW of the block's rows, so a head's chunk of `Q`, `K`, `V`, `Z` is a `1 × nb` page of the DENSE
 /// table — the tables are read dense, and the layout pass bridges a flat one once. A computed page has one consumer, so
-/// what the algebra uses twice (`G`, `A`, the solve's factors, `U`, `W`, `Δ`) crosses a section as a per-chunk tensor,
+/// what the algebra uses twice (`G`, `A`, the solve's levels, `U`, `W`, `Δ`) crosses a section as a per-chunk tensor,
 /// loaded once per reader. A partial last chunk masks its rows on the contraction variable; its padding rows compute to
 /// zero, never to a NaN (a masked exponential is SELECTED away, never multiplied by zero).
 pub(super) fn chunked_gated_delta(
@@ -1705,7 +1705,7 @@ pub(super) fn chunked_gated_delta(
 
     for c in 0..rows.div_ceil(tr) {
         let cc = (rows - c * tr).min(tr);
-        let factors = solve_factors(cc);
+        let levels = solve_levels(cc);
         // Row `r` of the block, as a tile of a `rows`-row table: tile row `c`.
         let gate_base = c * hv;
 
@@ -1923,140 +1923,105 @@ pub(super) fn chunked_gated_delta(
             finish(t, "a", c, tile_items())?
         });
 
-        // ── The solve: `X = (I + N)(I + N²)(I + N⁴)…` with `N = −A`, factor by factor. Section `j` forms `X_{j−1}` from
-        // `X_{j−2}` and `P_{j−1} = N^{2^{j−1}}`, and squares `P_{j−1}` into `P_j` for the section after it.
-        for j in 0..factors {
+        // ── The solve: `X = (I + A)⁻¹` by halves. A diagonal block of `I + A` of `2s` rows is `[[I + A₁₁, 0], [A₂₁, I + A₂₂]]`,
+        // whose inverse is `[[X₁₁, 0], [−X₂₂ A₂₁ X₁₁, X₂₂]]` from its halves' inverses — so level `ℓ` forms every block of
+        // `2^ℓ` rows from the blocks of `2^{ℓ−1}` before it: `X_ℓ = X_{ℓ−1} − X_{ℓ−1} (A ⊙ M_ℓ) X_{ℓ−1}`, `M_ℓ` the lower-left
+        // quarter of every block of `2^ℓ` rows. Section `j` is level `j + 1`; level 1's halves are single rows, each its own
+        // inverse.
+        //
+        // ★ EVERY FACTOR IS AN INVERSE. Each `X_ℓ` inverts the chunk's blocks of `2^ℓ` rows, as small as the whole inverse is
+        // (an entry is at most `β` where the keys repeat), so no product reaches past the answer. A power series
+        // `(I + N)(I + N²)(I + N⁴)…` takes the same `⌈log₂ C⌉` sections through partial sums that grow as the chunk's
+        // binomial coefficients (`N¹⁶` past 10⁸ on 32 rows of one repeated key) and cancel back to the answer, which fp32
+        // cannot hold.
+        let quarter = |level: usize| {
+            let (s, h) = (1usize << level, 1usize << (level - 1));
+            index_tile(&move |t, i| if t / s == i / s && (t / h) % 2 == 1 && (i / h) % 2 == 0 { 1.0 } else { 0.0 })
+        };
+        for j in 0..levels {
             sections.push({
                 let mut t = Template::new(target)?;
-                // `P_j`: `A²` at the first factor (`N² = A²`), then the previous power squared.
-                if j + 1 < factors {
-                    let src = chunk_tensor(
-                        &mut t,
-                        c,
-                        &if j == 0 {
-                            "a".to_string()
-                        } else {
-                            format!("p{j}")
-                        },
-                        TensorRole::Input,
-                        hv * tw,
-                    );
-                    let dst = chunk_tensor(
-                        &mut t,
-                        c,
-                        &format!("p{}", j + 1),
-                        TensorRole::Output,
-                        hv * tw,
-                    );
-                    let (pin, pin2) = (
-                        t.buffer("in_p", 1, precision),
-                        t.buffer("in_p2", 1, precision),
-                    );
-                    let lp = t.load_block_at("load_p", src, 0, head_steps(1), 1, 1, hv, pin);
-                    let lp2 = t.load_block_at("load_p2", src, 0, head_steps(1), 1, 1, hv, pin2);
-                    let out = t.buffer("p_sq", 1, precision);
-                    let s = t.stage(
-                        "gd_square",
-                        generic(
-                            contract(tr, tw, tr),
-                            vec![
-                                m(&[(LV_GEN_ROW, w1 as i64), (LV_GEN_K, 1)]),
-                                m(&[(LV_GEN_K, w1 as i64), (LV_GEN_COL, 1)]),
-                            ],
-                            ident_map(w1),
-                            *mul(op(0), op(1)),
-                        ),
-                        vec![pin, pin2],
-                        vec![out],
-                    );
-                    let st = t.store_block("store_p", dst, 0, head_steps(1), 1, 1, hv, out);
-                    t.edge(lp, pin, s);
-                    t.edge(lp2, pin2, s);
-                    t.edge(s, out, st);
-                }
+                let a = chunk_tensor(&mut t, c, "a", TensorRole::Input, hv * tw);
+                let mask = param(&mut t, &format!("quarter{}", j + 1), quarter(j + 1));
                 let x_out = chunk_tensor(&mut t, c, &format!("x{j}"), TensorRole::Output, hv * tw);
+                let (ain, min) = (t.buffer("in_a", 1, precision), t.buffer("in_quarter", 1, precision));
+                let la = t.load_block_at("load_a", a, 0, head_steps(1), 1, 1, hv, ain);
+                let lm = t.load("load_quarter", mask, vec![], 1, min);
                 let out = t.buffer("x", 1, precision);
                 if j == 0 {
-                    // `X₀ = I − A`.
-                    let a = chunk_tensor(&mut t, c, "a", TensorRole::Input, hv * tw);
+                    // `X₁ = I − A ⊙ M₁`: the rows in pairs, the second of each holding its one entry left of the diagonal.
                     let id = param(&mut t, "eye", eye());
-                    let (ain, iin) = (
-                        t.buffer("in_a", 1, precision),
-                        t.buffer("in_eye", 1, precision),
-                    );
-                    let la = t.load_block_at("load_a", a, 0, head_steps(1), 1, 1, hv, ain);
+                    let iin = t.buffer("in_eye", 1, precision);
                     let li = t.load("load_eye", id, vec![], 1, iin);
                     let s = t.stage(
-                        "gd_x0",
+                        "gd_x1",
                         generic(
                             pointwise(tw),
-                            vec![ident_map(w1), ident_map(w1)],
+                            vec![ident_map(w1), ident_map(w1), ident_map(w1)],
                             ident_map(w1),
-                            *sub(op(1), op(0)),
+                            *sub(op(2), mul(op(0), op(1))),
                         ),
-                        vec![ain, iin],
+                        vec![ain, min, iin],
                         vec![out],
                     );
                     t.edge(la, ain, s);
+                    t.edge(lm, min, s);
                     t.edge(li, iin, s);
                     let st = t.store_block("store_x", x_out, 0, head_steps(1), 1, 1, hv, out);
                     t.edge(s, out, st);
                 } else {
-                    // `X_j = X_{j−1} + X_{j−1}·P_j`.
-                    let x_prev = chunk_tensor(
-                        &mut t,
-                        c,
-                        &format!("x{}", j - 1),
-                        TensorRole::Input,
-                        hv * tw,
+                    // `X_{j+1} = X_j − (X_j (A ⊙ M_{j+1})) X_j`.
+                    let x_prev = chunk_tensor(&mut t, c, &format!("x{}", j - 1), TensorRole::Input, hv * tw);
+                    let (xl, xr, xs) = (
+                        t.buffer("in_x_left", 1, precision),
+                        t.buffer("in_x_right", 1, precision),
+                        t.buffer("in_x_sub", 1, precision),
                     );
-                    let p = chunk_tensor(&mut t, c, &format!("p{j}"), TensorRole::Input, hv * tw);
-                    let (xin, pin, xin2) = (
-                        t.buffer("in_x", 1, precision),
-                        t.buffer("in_xp_p", 1, precision),
-                        t.buffer("in_x_add", 1, precision),
+                    let lxl = t.load_block_at("load_x_left", x_prev, 0, head_steps(1), 1, 1, hv, xl);
+                    let lxr = t.load_block_at("load_x_right", x_prev, 0, head_steps(1), 1, 1, hv, xr);
+                    let lxs = t.load_block_at("load_x_sub", x_prev, 0, head_steps(1), 1, 1, hv, xs);
+                    let (am, xam, z) = (t.buffer("am", 1, precision), t.buffer("xam", 1, precision), t.buffer("xamx", 1, precision));
+                    let left = m(&[(LV_GEN_ROW, w1 as i64), (LV_GEN_K, 1)]);
+                    let right = m(&[(LV_GEN_K, w1 as i64), (LV_GEN_COL, 1)]);
+                    let s0 = t.stage(
+                        "gd_quarter",
+                        generic(pointwise(tw), vec![ident_map(w1), ident_map(w1)], ident_map(w1), *mul(op(0), op(1))),
+                        vec![ain, min],
+                        vec![am],
                     );
-                    let lx = t.load_block_at("load_x", x_prev, 0, head_steps(1), 1, 1, hv, xin);
-                    let lp = t.load_block_at("load_xp_p", p, 0, head_steps(1), 1, 1, hv, pin);
-                    let lx2 =
-                        t.load_block_at("load_x_add", x_prev, 0, head_steps(1), 1, 1, hv, xin2);
-                    let xp = t.buffer("xp", 1, precision);
                     let s1 = t.stage(
-                        "gd_xp",
-                        generic(
-                            contract(tr, tw, tr),
-                            vec![
-                                m(&[(LV_GEN_ROW, w1 as i64), (LV_GEN_K, 1)]),
-                                m(&[(LV_GEN_K, w1 as i64), (LV_GEN_COL, 1)]),
-                            ],
-                            ident_map(w1),
-                            *mul(op(0), op(1)),
-                        ),
-                        vec![xin, pin],
-                        vec![xp],
+                        "gd_x_am",
+                        generic(contract(tr, tw, tr), vec![left.clone(), right.clone()], ident_map(w1), *mul(op(0), op(1))),
+                        vec![xl, am],
+                        vec![xam],
                     );
                     let s2 = t.stage(
+                        "gd_x_am_x",
+                        generic(contract(tr, tw, tr), vec![left, right], ident_map(w1), *mul(op(0), op(1))),
+                        vec![xam, xr],
+                        vec![z],
+                    );
+                    let s3 = t.stage(
                         "gd_x",
-                        generic(
-                            pointwise(tw),
-                            vec![ident_map(w1), ident_map(w1)],
-                            ident_map(w1),
-                            *add(op(0), op(1)),
-                        ),
-                        vec![xp, xin2],
+                        generic(pointwise(tw), vec![ident_map(w1), ident_map(w1)], ident_map(w1), *sub(op(0), op(1))),
+                        vec![xs, z],
                         vec![out],
                     );
-                    t.edge(lx, xin, s1);
-                    t.edge(lp, pin, s1);
-                    t.edge(s1, xp, s2);
-                    t.edge(lx2, xin2, s2);
+                    t.edge(la, ain, s0);
+                    t.edge(lm, min, s0);
+                    t.edge(s0, am, s1);
+                    t.edge(lxl, xl, s1);
+                    t.edge(s1, xam, s2);
+                    t.edge(lxr, xr, s2);
+                    t.edge(lxs, xs, s3);
+                    t.edge(s2, z, s3);
                     let st = t.store_block("store_x", x_out, 0, head_steps(1), 1, 1, hv, out);
-                    t.edge(s2, out, st);
+                    t.edge(s3, out, st);
                 }
                 finish(t, &format!("solve{j}"), c, tile_items())?
             });
         }
-        let x_last = format!("x{}", factors - 1);
+        let x_last = format!("x{}", levels - 1);
 
         // ── U and W: `U[t, e] = Σ_i X[t, i] β_i v_i[e]`, `W[t, b] = Σ_i X[t, i] β_i e^{g_i} k_i[b]`.
         sections.push({

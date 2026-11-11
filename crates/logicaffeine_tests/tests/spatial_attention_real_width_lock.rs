@@ -44,7 +44,9 @@ fn sn50() -> SpatialTarget {
     SpatialTarget::sn50_rdu()
 }
 
-/// SN50 with Fp32 wherever it offers a float — the compiler's own wide twin of the same lowering.
+/// SN50 with Fp32 in place of Bf16 on the matmul, pointwise and row units — the compiler's own wide twin of the same
+/// lowering. A matmul takes the narrowest float its unit offers and a cache is held at the products' float, so Fp32
+/// BESIDE Bf16 would still hold the cache at bf16; in its place, every value is fp32.
 fn fp32_twin() -> SpatialTarget {
     let mut t = sn50();
     for c in &mut t.compute {
@@ -52,11 +54,12 @@ fn fp32_twin() -> SpatialTarget {
         | ComputeCap::Elementwise { precisions }
         | ComputeCap::RowReduce { precisions } = c
         {
-            if precisions.contains(&Precision::Bf16) {
+            if precisions.remove(&Precision::Bf16) {
                 precisions.insert(Precision::Fp32);
             }
         }
     }
+    t.precisions.remove(&Precision::Bf16);
     t.precisions.insert(Precision::Fp32);
     t
 }

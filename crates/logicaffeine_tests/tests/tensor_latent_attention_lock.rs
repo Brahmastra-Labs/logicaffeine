@@ -220,17 +220,19 @@ fn absorbed_latent_attention_is_the_expanded_attention() {
     close(&shown(&src), &round9(&want), "the absorbed step");
 }
 
-/// The SN50 descriptor with Fp32 wherever it offers a float: the compiler carries every activation at Fp32, so a
-/// lowering's arithmetic is its wiring, not its rounding.
+/// The SN50 descriptor with Fp32 in place of Bf16: the compiler carries every activation, product and cache at Fp32, so
+/// a lowering's arithmetic is its wiring, not its rounding. A matmul takes the narrowest float its unit offers and a
+/// cache is held at the products' float, so Fp32 BESIDE Bf16 would still hold the cache at bf16.
 fn fp32_twin() -> SpatialTarget {
     let mut t = SpatialTarget::sn50_rdu();
     for c in &mut t.compute {
         if let ComputeCap::MatmulTile { precisions, .. } | ComputeCap::Elementwise { precisions } | ComputeCap::RowReduce { precisions } = c {
-            if precisions.contains(&Precision::Bf16) {
+            if precisions.remove(&Precision::Bf16) {
                 precisions.insert(Precision::Fp32);
             }
         }
     }
+    t.precisions.remove(&Precision::Bf16);
     t.precisions.insert(Precision::Fp32);
     t
 }

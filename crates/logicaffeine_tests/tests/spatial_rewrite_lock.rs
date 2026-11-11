@@ -805,6 +805,72 @@ fn fusion_computes_what_the_unfused_chain_computes() {
     });
 }
 
+/// ★ ACROSS AN FP32 PAGE, FUSION CHANGES NO VALUE. Fusion keeps an inner result in the destination registers where the
+/// chain packed it to a page; across a bf16 page the two round differently and `fuse_generic` leaves them apart, but an
+/// fp32 page holds exactly what an fp32 register holds. So on the SN50's fp32 islands the fused and the unfused chain
+/// are the same arithmetic, and must agree to the last bit — a fused body that carried its inner result wider than the
+/// datapath does would make a value depend on whether a pass fused, and with it on how a program's size chose its form.
+#[test]
+fn across_an_fp32_page_fusion_changes_no_value() {
+    use logicaffeine_compile::spatial::passes::{fuse_generic, persist, place, size_buffers, synthesize_handshakes, tile, verify};
+    let sn50 = SpatialTarget::sn50_rdu();
+    let rest = |p: SpatialProgram| -> SpatialProgram {
+        let p = tile::tile(&p, &sn50).expect("tile");
+        let p = place::place(&p, &sn50).expect("place");
+        let p = logicaffeine_compile::spatial::passes::fuse_readers::fuse_readers(&p, &sn50).expect("fuse_readers");
+        let p = size_buffers::size_buffers(&p, &sn50).expect("size_buffers");
+        let p = synthesize_handshakes::synthesize_handshakes(&p, &sn50).expect("synthesize_handshakes");
+        let p = persist::persist(&p, &sn50).expect("persist");
+        verify::verify(&p, &sn50).expect("verify")
+    };
+    let template = swiglu_template(&sn50);
+    assert!(
+        template.buffers.iter().all(|b| b.dtype != logicaffeine_compile::codegen_sva::fabric_target::Precision::Bf16),
+        "the chain's pages are the islands' fp32"
+    );
+    let unfused = rest(template.clone());
+    let fused = rest(fuse_generic::fuse_generic(&template, &sn50).expect("fuse_generic"));
+    assert!(compute_stage_count(&fused) < compute_stage_count(&unfused), "fusion fired, so the comparison is not vacuous");
+    let corpus = seeded_corpus(&unfused, &[1, 2, 3, 7, 42]);
+    equivalent_under(&unfused, &fused, &corpus).unwrap_or_else(|d| panic!("the fused chain computes other bits than the unfused one: {d}"));
+}
+
+/// ★ A NORM'S FORMS ARE ONE ARITHMETIC. A per-head norm is lowered flat while its heads fit a page and blocked, a head an
+/// item, when they do not, so a prefill chunk's row count chooses the form. Each head's sum, root and rescale are the
+/// same operations in either, and the same heads come out the same bits whatever else the program holds.
+#[test]
+fn a_per_head_norm_is_the_same_bits_in_its_flat_and_blocked_forms() {
+    use logicaffeine_compile::spatial::eval::eval_choreography_every_tensor;
+    use logicaffeine_compile::spatial::pipeline::compile_program_to_spatial;
+    let sn50 = SpatialTarget::sn50_rdu();
+    let d = sn50.tile.cols;
+    let x = |i: usize| (((i * 7919 + 13) % 2000) as f64 - 1000.0) / 997.0;
+    let first_two = |heads: usize, op: &str| -> Vec<f64> {
+        let n = heads * d;
+        let mut src = format!("## Main\nLet X be a 1 by {n} tensor of Real.\nLet G be a 1 by {d} tensor of Real.\n");
+        for i in 0..n {
+            src += &format!("Set item {} of X to {:?}.\n", i + 1, x(i));
+        }
+        for i in 0..d {
+            src += &format!("Set item {} of G to {:?}.\n", i + 1, 0.5 + x(i + 7) / 4.0);
+        }
+        src += &format!("Let Y be {}.\nShow item 1 of Y.\n", op.replace("{heads}", &heads.to_string()));
+        let p = compile_program_to_spatial(&src, &sn50).expect("a tensor program").into_whole().unwrap_or_else(|why| panic!("{heads} heads: {why}"));
+        let out = eval_choreography_every_tensor(&p, &inputs_from_fills(&p)).expect("evaluates");
+        let y = p.tensors.iter().find(|t| t.name == "Y").expect("Y");
+        let Value::Float(v) = out.tensors.get(&y.id).expect("written").clone() else { panic!("Y through integers") };
+        v[..2 * d].to_vec()
+    };
+    for op in ["l2norm of X across {heads} heads", "rmsnorm of X with weight G across {heads} heads"] {
+        let flat = first_two(2, op);
+        for heads in [8, 14, 40] {
+            let other = first_two(heads, op);
+            let differ: Vec<usize> = (0..flat.len()).filter(|&i| flat[i].to_bits() != other[i].to_bits()).collect();
+            assert!(differ.is_empty(), "`{op}`: the first two heads of {heads} differ from 2 heads' at {} of {} values, first {:?}", differ.len(), flat.len(), differ.first().map(|&i| (flat[i], other[i])));
+        }
+    }
+}
+
 /// The compute stages of a program — how many register windows its site will open.
 fn compute_stage_count(p: &SpatialProgram) -> usize {
     p.stages

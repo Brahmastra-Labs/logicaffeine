@@ -390,5 +390,38 @@
    ]
   }
  ],
- "rows": []
+ "rows": [
+  {
+   "boot": {
+    "host": "dcdev-ubuntu",
+    "id": "bc0b1c20-6031-4dd4-9742-32c8abdf60e7",
+    "load_seconds": 0.001447185
+   },
+   "bundle_digest": "89b1c27a773588b5f1fb007c12133a0dc3dd6f42251869b894903ab719f5f878",
+   "cell": "C-SN50-SQUAREPLUS-AGILITY",
+   "conditions": "squareplus over 64 Reals, written as a loop and a function of the program's own: one compile from the source to its certified SN50 section, the slowest of five, on this host",
+   "date": "2026-11-11",
+   "log": "logs/samba/agility-e10_4.log",
+   "program": {
+    "cut": "agility:squareplus",
+    "source_sha256": "7882357b0eed46bf1044dff0a82dccf4ade38bbeb0146789e61c69f34b48da11",
+    "spec_digest": "f9c9184e775d2d32b68b39121306efd4ba72696920855f2a7705ccd0b7466987"
+   },
+   "provenance": "measured",
+   "runs": {
+    "agility_s": [
+     0.029158983,
+     0.003805789,
+     0.003469744,
+     0.002668764,
+     0.00214092
+    ]
+   },
+   "side": "ours",
+   "values": {
+    "agility_s": 0.029158983
+   },
+   "won": false
+  }
+ ]
 }

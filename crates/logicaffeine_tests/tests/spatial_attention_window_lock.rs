@@ -186,6 +186,36 @@ fn a_flash_attention_starts_its_softmax_from_the_sinks() {
     ]);
 }
 
+/// A causal block of `rows` rows from position 5 over `heads` query heads and `groups` key/value heads `hd` wide.
+fn causal_heads(rows: usize, heads: usize, groups: usize, hd: usize, l: usize, w: usize) -> Case {
+    Case { rows, heads, groups, hd, l, op: format!("causal attention of Q over K and V with {heads} heads {groups} groups from pos within a window of {w}"), sinks: false }
+}
+
+#[test]
+fn a_fold_of_several_query_tiles_starts_each_heads_softmax_from_its_own_sink() {
+    // A prefill chunk of several query tiles: an item per tile and head, each reading its head's sink — the same sink for
+    // every tile of the head. Two heads over two key/value heads, and two over one, across three query tiles.
+    agree(&[
+        with_sinks(causal_heads(70, 2, 2, 32, 80, 4)),
+        with_sinks(causal_heads(70, 2, 1, 32, 80, 4)),
+    ]);
+}
+
+#[test]
+fn a_long_prefill_with_sinks_spreads_one_sink_tile_a_head() {
+    // gpt-oss's shape (four heads of 16 over two key/value heads, a window of four, sinks) over a chunk of 1,024 rows: the
+    // fold's sinks are one tile per head whatever the chunk's rows, so the chunk lowers whole on the SN50.
+    let c = with_sinks(causal_heads(1024, 4, 2, 16, 1032, 4));
+    let (src, _) = programs(&c);
+    let prog = compile_program_to_spatial(&src, &SpatialTarget::sn50_rdu())
+        .expect("a tensor program")
+        .into_whole()
+        .unwrap_or_else(|why| panic!("a chunk of 1,024 rows with sinks: {why}"));
+    let tw = SpatialTarget::sn50_rdu().tile.cols;
+    let sinks = prog.tensors.iter().find(|t| t.name.ends_with("__flash_sinks")).expect("the fold's sinks");
+    assert_eq!(sinks.elems.cols, 4 * tw, "one sink tile for each of the four heads");
+}
+
 #[test]
 fn a_sink_changes_the_attention() {
     // Not vacuous: the sinks pull weight off the positions, so the result moves.
