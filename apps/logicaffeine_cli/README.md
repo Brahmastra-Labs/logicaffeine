@@ -47,6 +47,8 @@ The subcommands of the clap `Commands` enum in `src/cli.rs`, each dispatched by 
 | `test [filter]` | Run the project's `## Test` blocks, each in an isolated world, with a deterministic report |
 | `replay <bundle>` | Re-run a recorded `.replay` bundle: reproduced, fixed, or diverged |
 | `bringup <checkpoint>` | Bring a model (a GGUF file or a Hugging Face directory) up on every chip from its one program: the CPU tiers, the CUDA lane, the D5005 decode engine, the SN50 and the fabric, each artifact naming the cut of the program it was lowered from; `--run` runs it on every chip here — a prompt, or every prompt of a golden with `--prompts` — and reports tokens, speed and agreement |
+| `drop <checkpoint>` | Write a self-checking SN50 drop: the certified decode bundle, the checkpoint whose weights it binds (or its sha256, `--fetch-weights`), the goldens our spatial evaluator decodes, and the sha256 of every file |
+| `check-drop <dir>` | Verify a drop on a machine with only `largo`: every file's sha256, every program's certificate, every golden decoded again bit for bit |
 | `expand <file>` | Show the functions an LGX page's components, actions and routes lower to (LGX is the LOGOS web framework) |
 | `repl` | Interactive session: imperative statements plus English→FOL logic mode (`:help` inside) |
 | `dap` | Debug a program over the Debug Adapter Protocol on stdio, reverse execution included (`stepBack`, `reverseContinue`); it serializes the same `DebugSession` the Studio's debugger renders |

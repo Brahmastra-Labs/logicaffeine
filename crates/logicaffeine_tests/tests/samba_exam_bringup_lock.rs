@@ -23,11 +23,24 @@ mod cli;
 mod tiny_models;
 #[path = "common/samba_bringup.rs"]
 mod samba_bringup;
+#[path = "common/samba_handoff.rs"]
+#[allow(dead_code)]
+mod samba_handoff;
+#[path = "common/samba_exam.rs"]
+#[allow(dead_code)]
+mod samba_exam;
 
 use logicaffeine_compile::model::hf::HfCheckpoint;
+use logicaffeine_compile::model::program::Cut;
 use logicaffeine_compile::model::reference::WeightSource;
 use logicaffeine_compile::model::spec::{Attention, Mixer, ModelSpec};
+use logicaffeine_compile::spatial::handoff::contract;
+use logicaffeine_compile::spatial::ir::SpatialProgram;
+use logicaffeine_compile::spatial::target::SpatialTarget;
 use samba_bringup::{bring_up, brings_up, every, CTX};
+use samba_exam::{reference_after, within_the_datapath};
+use samba_handoff::{authored, run_at, Model, NEXT};
+use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 use tiny_models::{write_checkpoint, Tiny};
 
@@ -112,11 +125,95 @@ fn every_published_head_dim_brings_up() {
     for layer in &mut spec.layers {
         if let Mixer::Mla(m) = &mut layer.mixer {
             (m.qk_nope, m.qk_rope) = (128, 64);
-            m.rope.dims = 64;
+            m.rope.as_mut().expect("DeepSeek's latent attention rotates").dims = 64;
         }
     }
     shapes.push(("latent attention of 128 + 64".to_string(), spec));
     every(shapes.into_iter().map(|(what, spec)| (what.clone(), (what, spec))), |(what, spec)| brings_up(spec, &what));
+}
+
+#[test]
+fn heads_that_are_not_whole_tiles_turned_whole_bring_up() {
+    // Heads of 80 and of 112 under a full rotation, NeoX's (Qwen 3) and Llama's interleaved one: each head shares tiles
+    // with its neighbours and each rotary row (40 and 56 wide) starts mid-tile, so the decode turns its heads as one flat
+    // stage reading the row at the step's position.
+    let mut shapes = Vec::new();
+    for t in [Tiny::Qwen3, Tiny::Llama] {
+        for head_dim in [80, 112] {
+            let mut spec = t.spec(CTX);
+            for a in attentions(&mut spec) {
+                a.head_dim = head_dim;
+                a.value_dim = head_dim;
+                a.scale = 1.0 / (head_dim as f64).sqrt();
+                if let Some(rope) = a.rope.as_mut() {
+                    rope.dims = head_dim;
+                }
+            }
+            shapes.push((format!("{t:?} heads of {head_dim}, turned whole"), spec));
+        }
+    }
+    every(shapes.into_iter().map(|(what, spec)| (what.clone(), (what, spec))), |(what, spec)| brings_up(spec, &what));
+}
+
+/// The cache E1.17's prompts are prefilled into: 64 positions, whose keys of 2 K/V heads of 80 are 320 tiles as a flat row,
+/// past what one SN50 site holds.
+const LONG: usize = 64;
+
+/// Whether `p` attends through its heads' windows: the table of the windowed flash fold's windows is among its tensors.
+fn attends_through_windows(p: &SpatialProgram) -> bool {
+    p.tensors.iter().any(|t| t.name.ends_with("__flash_windows"))
+}
+
+#[test]
+fn heads_that_are_not_whole_tiles_bring_up_over_a_cache_past_a_site() {
+    // Heads of 80 and of 112 under a full rotation, over a cache of LONG positions: a prompt of 37 — past a tile of query
+    // rows and of cached positions — prefilled on the SN50, and the token after it decoded there, every layer's attention
+    // streaming the cache past the flash fold with each head read through the run of tiles around it. Qwen 3's QK-norm
+    // over grouped K/V heads, Gemma 3's sliding windows turning by their own base, Gemma 2's capped scores.
+    let sn50 = SpatialTarget::sn50_rdu();
+    let mut shapes = Vec::new();
+    for t in [Tiny::Qwen3, Tiny::Gemma3, Tiny::Gemma2] {
+        for head_dim in [80, 112] {
+            let mut spec = t.spec(LONG);
+            for a in attentions(&mut spec) {
+                a.head_dim = head_dim;
+                a.value_dim = head_dim;
+                a.scale = 1.0 / (head_dim as f64).sqrt();
+                if let Some(rope) = a.rope.as_mut() {
+                    rope.dims = head_dim;
+                }
+            }
+            shapes.push((format!("{t:?} heads of {head_dim} over a cache of {LONG}"), spec));
+        }
+    }
+    every(shapes.into_iter().map(|(what, spec)| (what.clone(), (what, spec))), |(what, spec)| {
+        let m = Model::write(spec, &what);
+        let prompt: Vec<u32> = (0..37u32).map(|i| (i * 5 + 3) % m.spec.vocab as u32).collect();
+        let named = |n: &str| Some(n.to_string());
+        let prefill = authored(&m, Cut::Prefill { rows: prompt.len(), ctx: LONG }, &sn50);
+        assert!(attends_through_windows(&prefill), "{what}: the prefill streams its cache through its heads' windows");
+        // The program counts tokens and positions from 1.
+        let given = BTreeMap::from([
+            ("toks".to_string(), prompt.iter().map(|t| f64::from(t + 1)).collect()),
+            ("pos_s0".to_string(), vec![1.0]),
+        ]);
+        let left = run_at(&m, &prefill, LONG, &named, &given);
+        let handed = contract(&m.spec, LONG).expect("the contract").take(prompt.len(), &left).unwrap_or_else(|e| panic!("{what}: {e}"));
+        let mut given = handed.state.clone();
+        given.insert("tok".into(), vec![f64::from(NEXT + 1)]);
+        given.insert("pos".into(), vec![(prompt.len() + 1) as f64]);
+        let x = run_at(&m, &authored(&m, Cut::DecodeEmbed, &sn50), LONG, &named, &given)["x"].clone();
+        given.insert("x".into(), x);
+        for layer in 0..m.spec.layers.len() {
+            let p = authored(&m, Cut::DecodeLayer { layer, ctx: LONG }, &sn50);
+            assert!(attends_through_windows(&p), "{what}: layer {layer}'s decode streams its cache through its heads' windows");
+            let out = format!("xo{layer}");
+            let v = run_at(&m, &p, LONG, &named, &given)[&out].clone();
+            given.insert(out, v);
+        }
+        let logits = run_at(&m, &authored(&m, Cut::DecodeHead, &sn50), LONG, &named, &given)["logits"].clone();
+        within_the_datapath(&m, &logits, &reference_after(&m, &prompt, NEXT), &what);
+    });
 }
 
 #[test]

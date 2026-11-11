@@ -78,6 +78,78 @@ pub struct SoftcapSpec {
     pub cap: Factor,
 }
 
+/// `M = the mean of X over L lanes` — each row of `X` (`rows × lanes·cols`) as the mean of its `lanes` lanes of `cols`:
+/// `M[t, c] = (Σ_l X[t, l·cols + c]) / lanes`. A hyper-connected residual's lanes mixed into the one row a sublayer
+/// reads (the gate a product before it).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaneMeanSpec {
+    pub x: Symbol,
+    pub out: Symbol,
+    pub rows: usize,
+    pub lanes: usize,
+    pub cols: usize,
+}
+
+/// `P = O spread over L lanes [by S]` — each row of `O` (`rows × cols`) laid in every one of `lanes` lanes, lane `l` of
+/// row `t` times `S[t, l]` (`S` `rows × lanes`) when `by` is given: `P[t, l·cols + c] = O[t, c]·S[t, l]`. A
+/// hyper-connected residual's injection, which the residual adds after it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaneSpreadSpec {
+    pub x: Symbol,
+    pub by: Option<Symbol>,
+    pub out: Symbol,
+    pub rows: usize,
+    pub lanes: usize,
+    pub cols: usize,
+}
+
+/// `G = the lane sums of X over L lanes` — each of a row's `lanes` lanes of `cols` (`X` `rows × lanes·cols`) summed on
+/// its own: `G[t, l] = Σ_c X[t, l·cols + c]`. A per-lane dot after a product (the n-gram embedding's gate).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LaneSumsSpec {
+    pub x: Symbol,
+    pub out: Symbol,
+    pub rows: usize,
+    pub lanes: usize,
+    pub cols: usize,
+}
+
+/// `Y = the signed root of X` — every element `v` as `sign(v)·√max(|v|, eps)` over `n` entries (the n-gram embedding's
+/// per-lane gate before its sigmoid).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SignedRootSpec {
+    pub x: Symbol,
+    pub out: Symbol,
+    pub n: usize,
+    pub eps: super::Epsilon,
+}
+
+/// `I = the ngram ids of T after R by M modulo V from O ending at E` — for each of `tokens` token rows (a token's id
+/// plus one), the table rows its n-grams of order 2 to `ngram` hash to, `per_order` heads an order:
+/// `((t₀·M₀ ⊕ t₁·M₁ ⊕ …) mod V[h]) + O[h] + 1` over the ids `t_k`, a place where no token was, or beyond an end of
+/// document (row `eos`), reading as the end of document. `R`, the `ngram − 1` token rows before the first (`0` where
+/// none was), is read AND written: the carried state of a decode step, zero for a fresh sequence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NgramIdsSpec {
+    pub tokens_in: Symbol,
+    pub history: Symbol,
+    pub multipliers: Symbol,
+    pub moduli: Symbol,
+    pub offsets: Symbol,
+    pub out: Symbol,
+    pub tokens: usize,
+    pub ngram: usize,
+    pub per_order: usize,
+    pub eos: i64,
+}
+
+impl NgramIdsSpec {
+    /// The heads, every order's together: the ids a token names.
+    pub fn heads(&self) -> usize {
+        (self.ngram - 1) * self.per_order
+    }
+}
+
 /// `A = decay(Ar, Dt, Alog)` — Gated DeltaNet's per-head forget gate `(1 + e^(Ar+Dt))^Alog` over `n` heads.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecaySpec {
@@ -150,6 +222,28 @@ pub struct SetRowSpec {
     pub cols: usize,
     /// The rows written: 1 for `Set row`, `R` for the block `Set rows from P`, rows `P … P + R − 1`.
     pub count: usize,
+}
+
+/// A scatter of rows: for `k` from 1 to `count` in turn, row `k` of the `source_rows × cols` source `X` lands on row
+/// `I[k]` (1-based) of the `rows × cols` table `T`. Without a `fold` it replaces the row, so a row named twice keeps the
+/// later write; with one it is folded into the row it lands on (`old ⊕ r`), so a row named twice takes both. `T` is read
+/// AND written: carried state. The meaning of the loop the program writes, which is the VM's own:
+///
+/// `Repeat for k from 1 to N:` `Let at be item k of I.` `Let r be row k of X.` `Set row at of T to r.` — or, folding,
+/// `Let old be row at of T.` `Let sum be old plus r.` `Set row at of T to sum.` after the reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScatterSpec {
+    pub table: Symbol,
+    pub indices: Symbol,
+    pub source: Symbol,
+    pub rows: usize,
+    pub cols: usize,
+    /// The source's rows: the loop reads its first `count`.
+    pub source_rows: usize,
+    /// The index tensor's length: the loop reads its first `count`.
+    pub index_len: usize,
+    pub count: usize,
+    pub fold: Option<super::ElementwiseOp>,
 }
 
 /// `C = full attention of Q over K and V with H heads` — bidirectional multi-head self-attention over `t`
@@ -1231,6 +1325,353 @@ pub fn recognize_join(stmts: &[Stmt]) -> Option<JoinSpec> {
     find_in_bodies(stmts, match_join)
 }
 
+// ── a hyper-connected residual's lanes ─────────────────────────────────────────────────────────────────
+
+fn match_lane_spread<'a>(body: &'a [Stmt<'a>]) -> Option<LaneSpreadSpec> {
+    for (i, out) in anchors(body) {
+        let found = (|| {
+            let mut c = Cursor::new(body, i + 1);
+            let t = c.int_let(0)?;
+            let rows = c.loop_(t, false)?;
+            let mut rb = Cursor::new(rows.body, 0);
+            let l = rb.int_let(0)?;
+            let lanes = rb.loop_(l, false)?;
+            want(matches!(rb.set(), Some((inc, _)) if inc == t) && rb.next().is_none())?;
+            let mut lb = Cursor::new(lanes.body, 0);
+            let (value, iv, cols) = part_copy(&mut lb, out)?;
+            want(matches!(lb.set(), Some((inc, _)) if inc == l) && lb.next().is_none())?;
+            // `O[t·C + i]`, times `S[(t·L + l) + 1]` with `by S`.
+            let (read, weight) = match as_binop(value, BinaryOpKind::Multiply) {
+                Some((read, weight)) => (read, Some(weight)),
+                None => (value, None),
+            };
+            let (x, at) = indexed(read)?;
+            let (row, iv_id) = as_binop(at, BinaryOpKind::Add)?;
+            let (t_id, width) = as_binop(row, BinaryOpKind::Multiply)?;
+            want(is_ident(t_id, t) && is_int(width, cols) && is_ident(iv_id, iv))?;
+            let by = match weight {
+                Some(w) => {
+                    let (s, at) = indexed(w)?;
+                    let (lane, one) = as_binop(at, BinaryOpKind::Add)?;
+                    let (row, l_id) = as_binop(lane, BinaryOpKind::Add)?;
+                    let (t_id, stride) = as_binop(row, BinaryOpKind::Multiply)?;
+                    want(is_int(one, 1) && is_ident(l_id, l) && is_ident(t_id, t) && is_int(stride, lanes.bound))?;
+                    Some(s)
+                }
+                None => None,
+            };
+            want(rows.bound >= 1 && lanes.bound >= 1)?;
+            Some(LaneSpreadSpec { x, by, out, rows: rows.bound as usize, lanes: lanes.bound as usize, cols: cols as usize })
+        })();
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
+
+/// Recognize `Let P be O spread over L lanes [by S]` — a loop over the rows, in it a loop over the lanes, each lane
+/// pushing the row of `O` (`O[t·C + i]`), times the lane's weight `S[(t·L + l) + 1]` with `by S`.
+pub fn recognize_lane_spread(stmts: &[Stmt]) -> Option<LaneSpreadSpec> {
+    find_in_bodies(stmts, match_lane_spread)
+}
+
+fn match_lane_mean<'a>(body: &'a [Stmt<'a>]) -> Option<LaneMeanSpec> {
+    for (i, out) in anchors(body) {
+        let found = (|| {
+            let mut c = Cursor::new(body, i + 1);
+            let s = c.float_let(0.0)?;
+            let t = c.int_let(0)?;
+            let rows = c.loop_(t, false)?;
+            want(c.next().is_none())?;
+            let mut rb = Cursor::new(rows.body, 0);
+            let col = rb.int_let(0)?;
+            let cols = rb.loop_(col, false)?;
+            want(matches!(rb.set(), Some((inc, _)) if inc == t) && rb.next().is_none())?;
+            // Each column: `s = 0`, the sum over its lanes, then `s / L` pushed.
+            let mut cb = Cursor::new(cols.body, 0);
+            want(matches!(cb.set(), Some((z, zero)) if z == s && is_float(zero, 0.0)))?;
+            let l = cb.int_let(0)?;
+            let lanes = cb.loop_(l, false)?;
+            let (value, into) = cb.push()?;
+            want(into == out && matches!(cb.set(), Some((inc, _)) if inc == col) && cb.next().is_none())?;
+            let (sum, by) = as_binop(value, BinaryOpKind::Divide)?;
+            want(is_ident(sum, s) && is_float(by, lanes.bound as f64))?;
+            // `s = s + X[((t·(L·C) + l·C) + c) + 1]`, then the lane counter.
+            let mut lb = Cursor::new(lanes.body, 0);
+            let (acc, value) = lb.set()?;
+            want(acc == s && matches!(lb.set(), Some((inc, _)) if inc == l) && lb.next().is_none())?;
+            let (prior, read) = as_binop(value, BinaryOpKind::Add)?;
+            want(is_ident(prior, s))?;
+            let (x, at) = indexed(read)?;
+            let (at, one) = as_binop(at, BinaryOpKind::Add)?;
+            let (at, c_id) = as_binop(at, BinaryOpKind::Add)?;
+            let (row, lane) = as_binop(at, BinaryOpKind::Add)?;
+            let (t_id, row_width) = as_binop(row, BinaryOpKind::Multiply)?;
+            let (l_id, width) = as_binop(lane, BinaryOpKind::Multiply)?;
+            want(
+                is_int(one, 1)
+                    && is_ident(c_id, col)
+                    && is_ident(t_id, t)
+                    && is_int(row_width, lanes.bound * cols.bound)
+                    && is_ident(l_id, l)
+                    && is_int(width, cols.bound),
+            )?;
+            want(rows.bound >= 1 && lanes.bound >= 1 && cols.bound >= 1)?;
+            Some(LaneMeanSpec { x, out, rows: rows.bound as usize, lanes: lanes.bound as usize, cols: cols.bound as usize })
+        })();
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
+
+/// Recognize `Let M be the mean of X over L lanes` — a loop over the rows, in it a loop over the columns, each column
+/// summing its lanes `X[((t·(L·C) + l·C) + c) + 1]` and pushing the sum over `L`.
+pub fn recognize_lane_mean(stmts: &[Stmt]) -> Option<LaneMeanSpec> {
+    find_in_bodies(stmts, match_lane_mean)
+}
+
+fn match_lane_sums<'a>(body: &'a [Stmt<'a>]) -> Option<LaneSumsSpec> {
+    for (i, out) in anchors(body) {
+        let found = (|| {
+            let mut c = Cursor::new(body, i + 1);
+            let s = c.float_let(0.0)?;
+            let t = c.int_let(0)?;
+            let rows = c.loop_(t, false)?;
+            want(c.next().is_none())?;
+            let mut rb = Cursor::new(rows.body, 0);
+            let l = rb.int_let(0)?;
+            let lanes = rb.loop_(l, false)?;
+            want(matches!(rb.set(), Some((inc, _)) if inc == t) && rb.next().is_none())?;
+            // Each lane: `s = 0`, the sum over its columns, then `s` pushed.
+            let mut lb = Cursor::new(lanes.body, 0);
+            want(matches!(lb.set(), Some((z, zero)) if z == s && is_float(zero, 0.0)))?;
+            let col = lb.int_let(0)?;
+            let cols = lb.loop_(col, false)?;
+            let (value, into) = lb.push()?;
+            want(into == out && is_ident(value, s) && matches!(lb.set(), Some((inc, _)) if inc == l) && lb.next().is_none())?;
+            // `s = s + X[((t·(L·C) + l·C) + c) + 1]`, then the column counter.
+            let mut cb = Cursor::new(cols.body, 0);
+            let (acc, value) = cb.set()?;
+            want(acc == s && matches!(cb.set(), Some((inc, _)) if inc == col) && cb.next().is_none())?;
+            let (prior, read) = as_binop(value, BinaryOpKind::Add)?;
+            want(is_ident(prior, s))?;
+            let (x, at) = indexed(read)?;
+            let (at, one) = as_binop(at, BinaryOpKind::Add)?;
+            let (at, c_id) = as_binop(at, BinaryOpKind::Add)?;
+            let (row, lane) = as_binop(at, BinaryOpKind::Add)?;
+            let (t_id, row_width) = as_binop(row, BinaryOpKind::Multiply)?;
+            let (l_id, width) = as_binop(lane, BinaryOpKind::Multiply)?;
+            want(
+                is_int(one, 1)
+                    && is_ident(c_id, col)
+                    && is_ident(t_id, t)
+                    && is_int(row_width, lanes.bound * cols.bound)
+                    && is_ident(l_id, l)
+                    && is_int(width, cols.bound),
+            )?;
+            want(rows.bound >= 1 && lanes.bound >= 1 && cols.bound >= 1)?;
+            Some(LaneSumsSpec { x, out, rows: rows.bound as usize, lanes: lanes.bound as usize, cols: cols.bound as usize })
+        })();
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
+
+/// Recognize `Let G be the lane sums of X over L lanes` — a loop over the rows, in it a loop over the lanes, each lane
+/// summing its columns `X[((t·(L·C) + l·C) + c) + 1]` and pushing the sum.
+pub fn recognize_lane_sums(stmts: &[Stmt]) -> Option<LaneSumsSpec> {
+    find_in_bodies(stmts, match_lane_sums)
+}
+
+/// `Set g to <value>` alone in a block: the value.
+fn sets_only<'a>(block: &'a [Stmt<'a>], g: Symbol) -> Option<&'a Expr<'a>> {
+    match block {
+        [Stmt::Set { target, value }] if *target == g => Some(*value),
+        _ => None,
+    }
+}
+
+fn match_signed_root<'a>(body: &'a [Stmt<'a>], interner: &Interner) -> Option<SignedRootSpec> {
+    let call = |e: &'a Expr<'a>, name: &str| call_of(e, interner, name);
+    for (i, out) in anchors(body) {
+        let found = (|| {
+            let mut c = Cursor::new(body, i + 1);
+            let v = c.float_let(0.0)?;
+            let g = c.float_let(0.0)?;
+            let p = c.int_let(1)?;
+            let elems = c.loop_(p, true)?;
+            want(c.next().is_none())?;
+            let mut b = Cursor::new(elems.body, 0);
+            let (vv, read) = b.set()?;
+            want(vv == v)?;
+            let (x, at) = indexed(read)?;
+            want(is_ident(at, p))?;
+            // The sign: 1 above zero, −1 below, 0 at it.
+            let Some(Stmt::If { cond, then_block, else_block: Some(otherwise) }) = b.next() else { return None };
+            let (cv, zero) = as_binop(cond, BinaryOpKind::Gt)?;
+            want(is_ident(cv, v) && is_float(zero, 0.0) && sets_only(then_block, g).is_some_and(|e| is_float(e, 1.0)))?;
+            let [Stmt::If { cond, then_block, else_block: Some(at_zero) }] = otherwise else { return None };
+            let (cv, zero) = as_binop(cond, BinaryOpKind::Lt)?;
+            want(is_ident(cv, v) && is_float(zero, 0.0))?;
+            want(sets_only(then_block, g).is_some_and(|e| is_float(e, -1.0)) && sets_only(at_zero, g).is_some_and(|e| is_float(e, 0.0)))?;
+            // `g · sqrt(max(abs(v), eps))`, pushed, then the counter.
+            let (value, into) = b.push()?;
+            let (gs, root) = as_binop(value, BinaryOpKind::Multiply)?;
+            want(into == out && is_ident(gs, g))?;
+            let [inner] = call(root, "sqrt")? else { return None };
+            let [magnitude, eps] = call(inner, "max")? else { return None };
+            let [arg] = call(magnitude, "abs")? else { return None };
+            want(is_ident(arg, v))?;
+            let eps = as_float(eps).filter(|e| *e > 0.0)?;
+            want(matches!(b.set(), Some((inc, _)) if inc == p) && b.next().is_none() && elems.bound >= 1)?;
+            Some(SignedRootSpec { x, out, n: elems.bound as usize, eps: super::Epsilon::new(eps) })
+        })();
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
+
+/// Recognize `Let Y be the signed root of X` — a loop over the elements, each taking its sign by two comparisons and
+/// pushing the sign times `sqrt(max(abs(v), E))`.
+pub fn recognize_signed_root(stmts: &[Stmt], interner: &Interner) -> Option<SignedRootSpec> {
+    find_in_bodies(stmts, |b| match_signed_root(b, interner))
+}
+
+/// `If <ident> == <int>: Set <target> to <value>` with no else: `(ident, int, target, value)`.
+fn if_equal_sets<'a>(s: &'a Stmt<'a>) -> Option<(Symbol, i64, Symbol, &'a Expr<'a>)> {
+    let Stmt::If { cond, then_block, else_block: None } = s else { return None };
+    let (l, r) = as_binop(cond, BinaryOpKind::Eq)?;
+    let [Stmt::Set { target, value }] = then_block else { return None };
+    Some((as_ident(l)?, as_int(r)?, *target, *value))
+}
+
+/// `v − 1`.
+fn less_one(e: &Expr, v: Symbol) -> bool {
+    as_binop(e, BinaryOpKind::Subtract).is_some_and(|(a, one)| is_ident(a, v) && is_int(one, 1))
+}
+
+/// `((k · per) + h) + 1` → `per`.
+fn head_at(e: &Expr, k: Symbol, h: Symbol) -> Option<i64> {
+    let (at, one) = as_binop(e, BinaryOpKind::Add)?;
+    let (kp, hh) = as_binop(at, BinaryOpKind::Add)?;
+    let (kk, per) = as_binop(kp, BinaryOpKind::Multiply)?;
+    want(is_int(one, 1) && is_ident(hh, h) && is_ident(kk, k))?;
+    as_int(per)
+}
+
+fn match_ngram_ids<'a>(body: &'a [Stmt<'a>]) -> Option<NgramIdsSpec> {
+    for (i, out) in anchors(body) {
+        let found = (|| {
+            let mut c = Cursor::new(body, i + 1);
+            let (x, b, seen, cur) = (c.int_let(0)?, c.int_let(0)?, c.int_let(0)?, c.int_let(0)?);
+            let ti = c.int_let(0)?;
+            let tokens = c.loop_(ti, false)?;
+            // Each token row: `cur = T[ti + 1]`, `seen = 0`, `x = (cur − 1) · M[1]`.
+            let mut tb = Cursor::new(tokens.body, 0);
+            let (cv, read) = tb.set()?;
+            want(cv == cur)?;
+            // A token tensor read at `ti + 1`, or one token's row in a variable.
+            let tokens_in = match indexed(read) {
+                Some((t, at)) => {
+                    let (at_i, one) = as_binop(at, BinaryOpKind::Add)?;
+                    want(is_ident(at_i, ti) && is_int(one, 1))?;
+                    t
+                }
+                None => {
+                    want(tokens.bound == 1)?;
+                    as_ident(read)?
+                }
+            };
+            want(matches!(tb.set(), Some((sv, zero)) if sv == seen && is_int(zero, 0)))?;
+            let (xv, first) = tb.set()?;
+            let (cur_less, m1) = as_binop(first, BinaryOpKind::Multiply)?;
+            let (multipliers, m_at) = indexed(m1)?;
+            want(xv == x && less_one(cur_less, cur) && is_int(m_at, 1))?;
+            // Each place `k` back: the row there — `E` where none was, and once an `E` lies between — less one, times
+            // `M[k + 2]`, exclusive-ored in.
+            let k = tb.int_let(0)?;
+            let places = tb.loop_(k, false)?;
+            let mut pb = Cursor::new(places.body, 0);
+            let (bv, back) = pb.set()?;
+            let (history, back_at) = indexed(back)?;
+            let (last, kk) = as_binop(back_at, BinaryOpKind::Subtract)?;
+            want(bv == b && is_ident(kk, k) && is_int(last, places.bound))?;
+            let (b0, zero, b0v, eos_e) = if_equal_sets(pb.next()?)?;
+            let eos = as_int(eos_e)?;
+            want(b0 == b && zero == 0 && b0v == b && eos >= 1)?;
+            let (bb, at_eos, sv, one) = if_equal_sets(pb.next()?)?;
+            want(bb == b && at_eos == eos && sv == seen && is_int(one, 1))?;
+            let (ss, one, bv2, to_eos) = if_equal_sets(pb.next()?)?;
+            want(ss == seen && one == 1 && bv2 == b && is_int(to_eos, eos))?;
+            let (xv, mixed) = pb.set()?;
+            let (prior, term) = as_binop(mixed, BinaryOpKind::BitXor)?;
+            let (b_less, mk) = as_binop(term, BinaryOpKind::Multiply)?;
+            let (mm, mk_at) = indexed(mk)?;
+            let (k_id, two) = as_binop(mk_at, BinaryOpKind::Add)?;
+            want(xv == x && is_ident(prior, x) && less_one(b_less, b) && mm == multipliers && is_ident(k_id, k) && is_int(two, 2))?;
+            // Each head of the order: the table row `((x mod V[head]) + O[head]) + 1` pushed.
+            let h = pb.int_let(0)?;
+            let heads = pb.loop_(h, false)?;
+            want(matches!(pb.set(), Some((inc, _)) if inc == k) && pb.next().is_none())?;
+            let mut hb = Cursor::new(heads.body, 0);
+            let (id, into) = hb.push()?;
+            want(into == out && matches!(hb.set(), Some((inc, _)) if inc == h) && hb.next().is_none())?;
+            let (id, one) = as_binop(id, BinaryOpKind::Add)?;
+            want(is_int(one, 1))?;
+            let (modded, offset) = as_binop(id, BinaryOpKind::Add)?;
+            let (x_id, modulus) = as_binop(modded, BinaryOpKind::Modulo)?;
+            let (moduli, v_at) = indexed(modulus)?;
+            let (offsets, o_at) = indexed(offset)?;
+            want(is_ident(x_id, x) && head_at(v_at, k, h) == Some(heads.bound) && head_at(o_at, k, h) == Some(heads.bound))?;
+            // The history shifts left and takes the token: `R[s + 1] = R[s + 2]`, then `R[N − 1] = cur`.
+            let s = tb.int_let(0)?;
+            let shift = tb.loop_(s, false)?;
+            want(shift.bound == places.bound - 1)?;
+            let mut sb = Cursor::new(shift.body, 0);
+            let (rr, to, from) = sb.set_index()?;
+            let (rr2, from_at) = indexed(from)?;
+            let (to_s, to_one) = as_binop(to, BinaryOpKind::Add)?;
+            let (from_s, from_two) = as_binop(from_at, BinaryOpKind::Add)?;
+            want(rr == history && rr2 == history && is_ident(to_s, s) && is_int(to_one, 1) && is_ident(from_s, s) && is_int(from_two, 2))?;
+            want(matches!(sb.set(), Some((inc, _)) if inc == s) && sb.next().is_none())?;
+            let (rr, newest, value) = tb.set_index()?;
+            want(rr == history && is_int(newest, places.bound) && is_ident(value, cur))?;
+            want(matches!(tb.set(), Some((inc, _)) if inc == ti) && tb.next().is_none() && c.next().is_none())?;
+            want(tokens.bound >= 1 && places.bound >= 1 && heads.bound >= 1)?;
+            Some(NgramIdsSpec {
+                tokens_in,
+                history,
+                multipliers,
+                moduli,
+                offsets,
+                out,
+                tokens: tokens.bound as usize,
+                ngram: places.bound as usize + 1,
+                per_order: heads.bound as usize,
+                eos,
+            })
+        })();
+        if found.is_some() {
+            return found;
+        }
+    }
+    None
+}
+
+/// Recognize `Let I be the ngram ids of T after R by M modulo V from O ending at E` — a loop over the tokens, in it a
+/// loop over the places back folding each place's product into the hash and pushing the order's heads' ids, then the
+/// history's shift.
+pub fn recognize_ngram_ids(stmts: &[Stmt]) -> Option<NgramIdsSpec> {
+    find_in_bodies(stmts, match_ngram_ids)
+}
+
 // ── the row sugars: gather, arg-max, scatter ───────────────────────────────────────────────────────────
 
 /// `Let at be <index>. Require that at ≥ 1 and at ≤ rows.` — the checked row index every row sugar opens
@@ -1382,6 +1823,89 @@ fn match_set_row<'a>(body: &'a [Stmt<'a>]) -> Option<SetRowSpec> {
 /// Recognize `Set row i of T to S`.
 pub fn recognize_set_row(stmts: &[Stmt]) -> Option<SetRowSpec> {
     find_in_bodies(stmts, match_set_row)
+}
+
+/// The scatter a counted loop the program wrote means, when its turn is exactly a scatter's ([`ScatterSpec`]): `Repeat
+/// for k from 1 to N` whose turn reads its index `at = I[k]` and the source row `r = row k of X` (in either order), then
+/// — folding — reads `old = row at of T` and takes `sum = old plus r` (either way round), and writes row `at` of `T` last.
+/// `len_of` is the length of a tensor the program has bound before the loop, so a turn past the index tensor's end, which
+/// fails on every tier, is no scatter. Whatever else a turn does — another statement, another name, a row read twice —
+/// is not one either.
+///
+/// ★ THE LOOP IS LIFTED BY WHAT IT MEANS, NEVER BY AN OP IT HOLDS. Each turn's row read, sum and row write are ops of
+/// their own, read once a turn; the loop's meaning is the scatter they make together over every turn.
+pub fn recognize_scatter(
+    s: &Stmt,
+    interner: &Interner,
+    len_of: &dyn Fn(Symbol) -> Option<usize>,
+) -> Option<ScatterSpec> {
+    use logicaffeine_language::ast::stmt::Pattern;
+    let Stmt::Repeat { pattern: Pattern::Identifier(k), iterable, body } = s else {
+        return None;
+    };
+    let Expr::Range { start, end } = iterable else {
+        return None;
+    };
+    want(is_int(start, 1))?;
+    let count = as_int(end).filter(|n| *n >= 1)? as usize;
+    let k = *k;
+    let (write, reads) = body.split_last()?;
+    let Stmt::Splice { body: write } = write else {
+        return None;
+    };
+    let set = match_set_row(write)?;
+    let RowIndex::Named(at) = set.index else {
+        return None;
+    };
+    want(set.count == 1)?;
+    let (mut index, mut row, mut old, mut sum) = (None, None, None, None);
+    for st in reads {
+        match st {
+            Stmt::Let { var, value, .. } if *var == at && index.is_none() => {
+                let (i, by) = indexed(value)?;
+                want(is_ident(by, k))?;
+                index = Some(i);
+            }
+            Stmt::Splice { body } => match (match_row_gather(body), super::recognize_elementwise(body, interner)) {
+                (Some(g), _) if g.index == RowIndex::Named(k) && row.is_none() => row = Some(g),
+                (Some(g), _) if g.index == RowIndex::Named(at) && index.is_some() && old.is_none() => old = Some(g),
+                (None, Ok(e)) if row.is_some() && old.is_some() && sum.is_none() => sum = Some(e),
+                _ => return None,
+            },
+            _ => return None,
+        }
+    }
+    let (indices, row) = (index?, row?);
+    let (table, source) = (set.table, row.table);
+    want(set.cols == row.cols && table != source && indices != table && indices != source)?;
+    let r = row.out;
+    let fold = match (old, sum) {
+        (None, None) => {
+            want(set.source == r)?;
+            None
+        }
+        (Some(old), Some(sum)) => {
+            want(old.table == table && old.rows == set.rows && old.cols == set.cols)?;
+            let operands = [sum.a, sum.b];
+            want(sum.row.is_none() && sum.n == set.cols && sum.c == set.source)?;
+            want(operands.contains(&old.out) && operands.contains(&r) && old.out != r)?;
+            Some(sum.op)
+        }
+        _ => return None,
+    };
+    let index_len = len_of(indices)?;
+    want(count <= row.rows && count <= index_len)?;
+    Some(ScatterSpec {
+        table,
+        indices,
+        source,
+        rows: set.rows,
+        cols: set.cols,
+        source_rows: row.rows,
+        index_len,
+        count,
+        fold,
+    })
 }
 
 fn match_argmax<'a>(body: &'a [Stmt<'a>]) -> Option<ArgMaxSpec> {

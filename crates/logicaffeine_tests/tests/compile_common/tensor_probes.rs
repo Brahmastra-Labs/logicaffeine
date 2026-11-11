@@ -250,6 +250,97 @@ pub const SOFTCAP: OpProbe = OpProbe {
     needs: &[],
     expect: None,
 };
+// ---- a hyper-connected residual's lanes ------------------------------------------------------------------
+// Y = the mean of X over 2 lanes — X = [2, 4 | 6, 8], two lanes of 2: [(2 + 6)/2, (4 + 8)/2] = [4, 6], exact.
+pub const LANE_MEAN: OpProbe = OpProbe {
+    op: "lane_mean",
+    family: "lane_mean",
+    kind: "LaneMean",
+    program: concat!(
+        "## Main\n",
+        "Let X be a 1 by 4 tensor of Real.\n",
+        "Set item 1 of X to 2.0.\nSet item 2 of X to 4.0.\nSet item 3 of X to 6.0.\nSet item 4 of X to 8.0.\n",
+        "Let Y be the mean of X over 2 lanes.\n",
+        "Show round(item 1 of Y * 1000000).\nShow round(item 2 of Y * 1000000).\n",
+    ),
+    shows: 2,
+    needs: &[],
+    expect: Some(&["4000000", "6000000"]),
+};
+// Y = X spread over 2 lanes — the row of X in each of two lanes: [2, 4, 6, 8, 2, 4, 6, 8], exact.
+pub const LANE_SPREAD: OpProbe = OpProbe {
+    op: "lane_spread",
+    family: "lane_spread",
+    kind: "LaneSpread",
+    program: concat!(
+        "## Main\n",
+        "Let X be a 1 by 4 tensor of Real.\n",
+        "Set item 1 of X to 2.0.\nSet item 2 of X to 4.0.\nSet item 3 of X to 6.0.\nSet item 4 of X to 8.0.\n",
+        "Let Y be X spread over 2 lanes.\n",
+        "Show round(item 1 of Y * 1000000).\nShow round(item 2 of Y * 1000000).\n",
+        "Show round(item 3 of Y * 1000000).\nShow round(item 4 of Y * 1000000).\n",
+        "Show round(item 5 of Y * 1000000).\nShow round(item 6 of Y * 1000000).\n",
+        "Show round(item 7 of Y * 1000000).\nShow round(item 8 of Y * 1000000).\n",
+    ),
+    shows: 8,
+    needs: &[],
+    expect: Some(&["2000000", "4000000", "6000000", "8000000", "2000000", "4000000", "6000000", "8000000"]),
+};
+// Y = the lane sums of X over 2 lanes — X = [2, 4 | 6, 8]: [2 + 4, 6 + 8] = [6, 14], exact.
+pub const LANE_SUMS: OpProbe = OpProbe {
+    op: "lane_sums",
+    family: "lane_sums",
+    kind: "LaneSums",
+    program: concat!(
+        "## Main\n",
+        "Let X be a 1 by 4 tensor of Real.\n",
+        "Set item 1 of X to 2.0.\nSet item 2 of X to 4.0.\nSet item 3 of X to 6.0.\nSet item 4 of X to 8.0.\n",
+        "Let Y be the lane sums of X over 2 lanes.\n",
+        "Show round(item 1 of Y * 1000000).\nShow round(item 2 of Y * 1000000).\n",
+    ),
+    shows: 2,
+    needs: &[],
+    expect: Some(&["6000000", "14000000"]),
+};
+// Y = the signed root of X — X = [4, -9, 0, 0.25]: [2, -3, 0, 0.5], exact.
+pub const SIGNED_ROOT: OpProbe = OpProbe {
+    op: "signed_root",
+    family: "signed_root",
+    kind: "SignedRoot",
+    program: concat!(
+        "## Main\n",
+        "Let X be a 1 by 4 tensor of Real.\n",
+        "Set item 1 of X to 4.0.\nSet item 2 of X to -9.0.\nSet item 3 of X to 0.0.\nSet item 4 of X to 0.25.\n",
+        "Let Y be the signed root of X.\n",
+        "Show round(item 1 of Y * 1000000).\nShow round(item 2 of Y * 1000000).\n",
+        "Show round(item 3 of Y * 1000000).\nShow round(item 4 of Y * 1000000).\n",
+    ),
+    shows: 4,
+    needs: &[],
+    expect: Some(&["2000000", "-3000000", "0", "500000"]),
+};
+// Y = the ngram ids of T after R by M modulo V from O ending at 1 — token rows [6, 3] (ids 5, 2) after a fresh history
+// (rows 0: none, reading as the end of document, id 0), multipliers [3, 5, 7], one head an order (moduli [11, 13], offsets
+// [0, 11]): token 5's hashes are 15 and 15 → rows 15 mod 11 + 1 = 5 and 15 mod 13 + 11 + 1 = 14; token 2's are
+// 2·3 ⊕ 5·5 = 31 and 31 → rows 10 and 17, exact.
+pub const NGRAM_IDS: OpProbe = OpProbe {
+    op: "ngram_ids",
+    family: "ngram_ids",
+    kind: "NgramIds",
+    program: concat!(
+        "## Main\n",
+        "Let T be a 1 by 2 tensor of Int.\nSet item 1 of T to 6.\nSet item 2 of T to 3.\n",
+        "Let R be a 1 by 2 tensor of Int.\n",
+        "Let M be a 1 by 3 tensor of Int.\nSet item 1 of M to 3.\nSet item 2 of M to 5.\nSet item 3 of M to 7.\n",
+        "Let V be a 1 by 2 tensor of Int.\nSet item 1 of V to 11.\nSet item 2 of V to 13.\n",
+        "Let O be a 1 by 2 tensor of Int.\nSet item 1 of O to 0.\nSet item 2 of O to 11.\n",
+        "Let Y be the ngram ids of T after R by M modulo V from O ending at 1.\n",
+        "Show item 1 of Y.\nShow item 2 of Y.\nShow item 3 of Y.\nShow item 4 of Y.\n",
+    ),
+    shows: 4,
+    needs: &[],
+    expect: Some(&["5", "14", "10", "17"]),
+};
 // ---- DeepSeek's latent-attention pieces ---------------------------------------------------------------
 // P = the last 2 of every 3 of Q — each group's part from offset 1: [2, 3, 5, 6, 8, 9, 11, 12], exact.
 pub const HEAD_SLICE: OpProbe = OpProbe {
@@ -696,6 +787,11 @@ pub const OP_PROBES: &[OpProbe] = &[
     SET_ROW,
     SCALE,
     SOFTCAP,
+    LANE_MEAN,
+    LANE_SPREAD,
+    LANE_SUMS,
+    SIGNED_ROOT,
+    NGRAM_IDS,
     HEAD_SLICE,
     JOIN,
     HEAD_MATMUL,
@@ -736,6 +832,11 @@ pub const IMPLEMENTED_PROBES: &[OpProbe] = &[
     SET_ROW,
     SCALE,
     SOFTCAP,
+    LANE_MEAN,
+    LANE_SPREAD,
+    LANE_SUMS,
+    SIGNED_ROOT,
+    NGRAM_IDS,
     HEAD_SLICE,
     JOIN,
     HEAD_MATMUL,
@@ -779,6 +880,11 @@ pub const BACKEND_MATRIX_PROBES: &[OpProbe] = &[
     SET_ROW,
     SCALE,
     SOFTCAP,
+    LANE_MEAN,
+    LANE_SPREAD,
+    LANE_SUMS,
+    SIGNED_ROOT,
+    NGRAM_IDS,
     HEAD_SLICE,
     JOIN,
     HEAD_MATMUL,
@@ -826,6 +932,11 @@ pub const SUGAR_TO_PROBE: &[(&str, &str)] = &[
     ("set_row", "set_row"),
     ("scale", "scale"),
     ("cap", "softcap"),
+    ("lane_mean", "lane_mean"),
+    ("lane_spread", "lane_spread"),
+    ("lane_sums", "lane_sums"),
+    ("signed_root", "signed_root"),
+    ("ngram_ids", "ngram_ids"),
     ("head_slice", "head_slice"),
     ("join", "join"),
     ("head_matmul", "head_matmul"),

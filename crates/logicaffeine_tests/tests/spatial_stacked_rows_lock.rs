@@ -15,7 +15,7 @@
 //!      the tile boundary, exactly.
 //!   3. A ROW WRITTEN INTO A MATRIX TALLER THAN A TILE ROW lands in its tile row, read back whole, exactly.
 //!   4. A STACK WIDER THAN A SITE HOLDS normalizes in the blocked sections over the matrix — the per-row sum a
-//!      `B × d` by `d × 1` matmul.
+//!      `B × d` by `d × 1` matmul; a LayerNorm as wide centres each row on its mean in a pass of its own first.
 //!   5. A ROW OUTSIDE A DENSE TABLE FAULTS, as it does on every tier.
 //!   6. A PER-HEAD NORM KEEPS THE FLAT ROW: the stack rule changes nothing about a row viewed as heads.
 //!   7. A TABLE WRITTEN ROW BY ROW IN SEVERAL SECTIONS — dense or flat — holds every row, each write ordered after
@@ -300,6 +300,57 @@ fn a_wide_stack_normalizes_in_the_blocked_sections_over_the_matrix() {
     let out = evaluated(&p).expect("the wide stack evaluates");
     let vm = vm_values(&src, &[("Z", 640)]);
     within(&tensor(&p, &out, "Z"), &vm[0], "Z");
+}
+
+/// ── 4b. A LAYERNORM WIDER THAN A SITE HOLDS takes the two-pass blocked sections: the row's sum and its centred
+/// squares' sum each a matmul, the row centred on its mean before it is squared, then the rescale and the bias — one row
+/// of Qwen3.8's width and a stack.
+#[test]
+fn a_wide_layernorm_centres_each_row_in_the_blocked_sections() {
+    for (rows, cols) in [(1, 5120), (2, 320)] {
+        let src = format!(
+            "## Main\n{}{}{}Let Xn be layernorm of X with weight g and bias b.\nLet Z be Xn plus Xn.\n",
+            declare("X", rows, cols, 7),
+            declare("g", 1, cols, 9),
+            declare("b", 1, cols, 10)
+        );
+        let what = format!("a layernorm over {rows} by {cols}");
+        let p = composed(&src);
+        let sums = p
+            .stages
+            .iter()
+            .filter(|s| matches!(s.kind, StageKind::Compute(logicaffeine_compile::spatial::ir::ComputeOp::MatmulTiles { .. })))
+            .count();
+        assert!(sums >= 2, "{what}: the row's sum and its centred squares' sum are matmuls, not the resident row ({sums})");
+        assert_eq!((shape(&p, "Xn__sum"), shape(&p, "Xn__ssq")), ((rows, 1), (rows, 1)), "{what}: one sum of each a row");
+        let out = evaluated(&p).expect("the wide layernorm evaluates");
+        let vm = vm_values(&src, &[("Z", rows * cols)]);
+        within(&tensor(&p, &out, "Z"), &vm[0], &what);
+    }
+}
+
+/// ── 4c. A LAYERNORM OF ROWS FAR FROM ZERO keeps their spread: rows about 64 with a spread of about one, each input a
+/// value bf16 holds (a half apart in [62, 66]). A row of 16,384 sums near 2²⁰, which bf16 would hold only to a multiple
+/// of 4,096 — a mean off by up to an eighth of the spread — so the sums cross from section to section at the
+/// accumulator's width, and a change that narrowed them would fail here.
+#[test]
+fn a_wide_layernorm_of_rows_far_from_zero_keeps_their_spread() {
+    for (rows, cols) in [(1, 16384), (2, 4096)] {
+        let mut x = format!("Let X be a {rows} by {cols} tensor of Real.\n");
+        for i in 0..rows * cols {
+            x.push_str(&format!("Set item {} of X to {:?}.\n", i + 1, 64.0 + (((i * 7919) % 9) as f64 - 4.0) / 2.0));
+        }
+        let src = format!(
+            "## Main\n{x}{}{}Let Xn be layernorm of X with weight g and bias b.\nLet Z be Xn plus Xn.\n",
+            declare("g", 1, cols, 9),
+            declare("b", 1, cols, 10)
+        );
+        let what = format!("a layernorm over {rows} by {cols} about 64");
+        let p = composed(&src);
+        let out = evaluated(&p).expect("the wide layernorm evaluates");
+        let vm = vm_values(&src, &[("Z", rows * cols)]);
+        within(&tensor(&p, &out, "Z"), &vm[0], &what);
+    }
 }
 
 /// ── 5. A ROW OUTSIDE A DENSE TABLE FAULTS — read or written — where every tier's run-time check fails.

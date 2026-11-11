@@ -6,12 +6,18 @@
 //! right for the lengths a model actually runs: a decode step attends over every cached position, and a
 //! vision block attends every row to every row.
 //!
+//! A head that is not whole tiles (80, 112, 72, 120) shares tiles with its neighbours. Where the three flat sections fit
+//! a site it stays flat; past that the same fold reads each head through its WINDOW — the run of tiles its columns fall
+//! in, from its offset in the first — and the heads are packed side by side after (or, a decode's grouped heads, ungrouped
+//! from their tile rows).
+//!
 //! Every case here must lower whole, certify, and evaluate within the program-path ledger's two-part rule:
 //!   – WIRING: the same source lowered for an SN50 descriptor that also offers Fp32 agrees with the VM to a
 //!     relative 2⁻¹⁶ (a wrong dataflow is off by O(1));
-//!   – CHIP PRECISION: the bf16 program is within `sections + 1` bf16 ulps — ulps of the MAGNITUDE the output is
-//!     summed from, `Σ_j p_j·|v_j|`, which is the forward-error model of a dot product. An output whose terms
-//!     cancel toward zero is only ever as exact as the terms it cancelled, never as exact as its own ulp.
+//!   – CHIP PRECISION: the chip's program — fp32 islands over a cache held at bf16 — is within `sections + 1` bf16
+//!     ulps — ulps of the MAGNITUDE the output is summed from, `Σ_j p_j·|v_j|`, which is the forward-error model of a
+//!     dot product. An output whose terms cancel toward zero is only ever as exact as the terms it cancelled, never as
+//!     exact as its own ulp.
 //!
 //! The magnitudes come from an attention written out here in f64 — a third oracle, checked against the VM too.
 //!
@@ -244,10 +250,11 @@ fn verdict(case: &Case, what: &str) {
     let dtype = shown_tensor(&sp, &shows_of(src)[0].tensor)
         .expect("shown tensor")
         .dtype;
+    let held = |name: &str| sp.tensors.iter().find(|t| t.name == name).unwrap_or_else(|| panic!("{what}: no {name}")).dtype;
     assert_eq!(
-        dtype,
-        Precision::Bf16,
-        "{what}: the chip program carries bf16"
+        (dtype, held("K"), held("V")),
+        (Precision::Fp32, Precision::Bf16, Precision::Bf16),
+        "{what}: the chip's attention computes in fp32 over a cache held at bf16"
     );
     for (i, ((g, v), (_, magnitude))) in got.iter().zip(&want).zip(&case.reference).enumerate() {
         let bound = ((sections + 1) as f64 * ulp_bf16(*magnitude) * 1e6).max(1.0);
@@ -277,4 +284,38 @@ fn qwen38_attention_geometry_over_a_real_cache() {
         &decode(24, 4, 256, 40),
         "qwen38 attention h24 kv4 hd256 l40",
     );
+}
+
+#[test]
+fn heads_that_are_not_whole_tiles_attend_a_cache_past_a_site() {
+    // Heads whose columns start inside a tile — Phi-2's and StableLM's 80, 112, 72 and 120 — over caches whose keys a site
+    // cannot hold whole: each head read through the run of tiles around it, the heads packed side by side after.
+    //   80 × 16 (MHA), the cache ending inside a tile; 80 × 8 over 2 K/V heads (GQA, a group of four whole tiles); 72 × 4
+    //   over 2 (a group of two, 144 wide, not whole tiles: an item a query head); 112; 72, whose heads start at four
+    //   offsets; 120 over one K/V head (a group of four, whole tiles: regrouped); 4 heads of 120 over 4, whose last head's
+    //   query and K/V windows are clamped to end inside their 15-tile rows; 5 heads of 80, the last packed alone; full
+    //   attention over two tiles of rows, and over a row count no tile divides.
+    verdict(&decode(16, 16, 80, 33), "decode h16 kv16 hd80 l33");
+    verdict(&decode(8, 2, 80, 40), "decode h8 kv2 hd80 l40");
+    verdict(&decode(4, 2, 72, 40), "decode h4 kv2 hd72 l40");
+    verdict(&decode(4, 4, 112, 40), "decode h4 kv4 hd112 l40");
+    verdict(&decode(8, 8, 72, 40), "decode h8 kv8 hd72 l40");
+    verdict(&decode(4, 1, 120, 40), "decode h4 kv1 hd120 l40");
+    verdict(&decode(4, 4, 120, 40), "decode h4 kv4 hd120 l40");
+    verdict(&decode(5, 5, 80, 40), "decode h5 kv5 hd80 l40");
+    verdict(&full(64, 8, 80), "full t64 h8 hd80");
+    verdict(&full(40, 5, 80), "full t40 h5 hd80");
+}
+
+#[test]
+fn heads_that_are_not_whole_tiles_over_a_small_cache_stay_flat() {
+    // Where the three flat sections fit a site — 2 heads of 80 over a cache of 5 — they stay: the cache is not laid out
+    // as tiles, and no head is read through a window.
+    let case = decode(2, 2, 80, 5);
+    for target in [sn50(), fp32_twin()] {
+        let (sp, sections) = composed(&case.src, &target, "decode h2 kv2 hd80 l5");
+        assert_eq!(sections, 3, "on {}: the scores, the softmax and the weighted sum", target.name);
+        assert!(!sp.tensors.iter().any(|t| t.name.ends_with("__flash_windows")), "on {}: no head read through a window", target.name);
+    }
+    verdict(&case, "decode h2 kv2 hd80 l5");
 }

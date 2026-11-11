@@ -1000,6 +1000,10 @@ fn body_expr(
                 }
                 SfpuKind::Silu => format!("({x} / (1.to[{t}] + exp(0.to[{t}] - {x})))"),
                 SfpuKind::Relu => format!("max({x}, 0.to[{t}])"),
+                SfpuKind::Sign => format!(
+                    "mux({x} > 0.to[{t}], 1.to[{t}], mux({x} < 0.to[{t}], {}, 0.to[{t}]))",
+                    lit_of(-1.0, ty, true)
+                ),
                 SfpuKind::Ln if ctx.flavor == SpatialFlavor::Fabric => {
                     return Err(SpatialLowerError::Unsupported("a natural log outside `e^(a·ln b)` with b positive, on the fabric flavor — Tungsten prints `ln` as a bare `log(…)` its contexts shadow"));
                 }

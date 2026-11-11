@@ -11,6 +11,7 @@ use crate::intern::{Interner, Symbol};
 use logicaffeine_language::ast::stmt::{BinaryOpKind, Expr, Literal, Stmt, TypeExpr};
 use std::collections::HashMap;
 
+pub mod map;
 pub mod qwen;
 
 /// A recognized matmul: `C(M×N) = A(M×K) · B(K×N)`, row-major, over the named `Seq of Int` arrays.
@@ -576,6 +577,28 @@ impl ElementwiseOp {
     }
 }
 
+/// ★ A BLOCK THE PROGRAM WROTE BY HAND IS NOT THE OP IT HOLDS. Every sugar desugars into a `Splice`, so a `Repeat` or a
+/// `While` with a desugar inside is the program's own loop, running the op once a turn beside whatever else it holds,
+/// and an `If` with a desugar or a loop inside runs it on one arm. Neither is lifted as the op — the recognizers would
+/// find it inside and drop the rest — so the walk lists the block and the program is refused by naming it. A loop the
+/// program wrote that IS an op (a counted loop nest of products) holds no desugar and is lifted as the op it is.
+pub fn holds_an_op_by_hand(s: &Stmt) -> bool {
+    fn holds(stmts: &[Stmt], loops: bool) -> bool {
+        stmts.iter().any(|s| match s {
+            Stmt::Splice { .. } => true,
+            Stmt::While { body, .. } => loops || holds(body, loops),
+            Stmt::Repeat { body, .. } => holds(body, loops),
+            Stmt::If { then_block, else_block, .. } => holds(then_block, loops) || else_block.is_some_and(|e| holds(e, loops)),
+            _ => false,
+        })
+    }
+    match s {
+        Stmt::If { then_block, else_block, .. } => holds(then_block, true) || else_block.is_some_and(|e| holds(e, true)),
+        Stmt::Repeat { body, .. } | Stmt::While { body, .. } => holds(body, false),
+        _ => false,
+    }
+}
+
 /// The recognized shape of an elementwise tensor op: two source tensors `a`, `b`, a destination `c`, the
 /// operator, and the shared element count `n`.
 #[derive(Debug, Clone, Copy)]
@@ -868,8 +891,9 @@ pub struct FusedRowSpec {
 }
 
 /// Recognize the fused row-op idiom. First it lifts the PER-ROW WEIGHTED RMSNorm shape (a row loop whose
-/// normalize body `Push (X[idx] / denom) * W[col]` gives `x`, `weight`, `y`, and whose enclosing loop bounds
-/// give `rows`/`cols`); failing that it falls back to the weightless flat `rmsnorm`/`softmax` sugar
+/// normalize body `Push (X[(r − 1)·cols + j] / denom) * W[j]` gives `x`, `weight`, `y`, and whose enclosing loop bounds
+/// give `rows`/`cols`; a weight read at `((r − 1) mod L)·cols + j` gives `weight_rows` `L`, and an operand read anywhere
+/// else is no norm); failing that it falls back to the weightless flat `rmsnorm`/`softmax` sugar
 /// (`rows == 1`, `cols == n`) via [`recognize_reduction`]. Backend-agnostic (CUDA + Tenstorrent).
 pub fn recognize_fused_row(
     stmts: &[Stmt],
@@ -905,58 +929,128 @@ pub fn recognize_fused_row(
     })
 }
 
-/// A LayerNorm-normalize body `((X[idx] - mean) / denom) * W[col] + B[col]`. Returns `(x, weight, bias, denom)`;
-/// `None` for any other shape. The top-level `+ B[col]` (bias shift) is what distinguishes it from RMSNorm.
-fn match_layernorm_push(value: &Expr) -> Option<(Symbol, Symbol, Symbol, Symbol)> {
+/// How a row op's normalize loop reads its operands: the row counter (`None` with no row loop), the column counter
+/// and the row's width, each counter counting from 1.
+struct RowReads<'c> {
+    row: Option<Symbol>,
+    col: Symbol,
+    cols: i64,
+    consts: &'c HashMap<Symbol, i64>,
+}
+
+impl RowReads<'_> {
+    fn affine(&self, index: &Expr) -> Option<Affine> {
+        eval_affine(index, self.consts, &HashMap::new())
+    }
+
+    /// `(row − 1)·cols + col` — the entry of the row and column — or `col` with no row loop.
+    fn entry(&self, index: &Expr) -> bool {
+        let mut want = Affine::var(self.col);
+        if let Some(r) = self.row {
+            want = want.add(&Affine::var(r).sub(&Affine::constant(1)).scale(self.cols));
+        }
+        self.affine(index) == Some(want)
+    }
+
+    /// `col` — the column, one value per column shared by every row.
+    fn column(&self, index: &Expr) -> bool {
+        self.affine(index) == Some(Affine::var(self.col))
+    }
+
+    /// How many rows of the row's width a weight read at `index` holds: 1 read at the column, `L` read at
+    /// `((row − 1) mod L)·cols + col` (row `r` taking the weight's row `r mod L`), `None` read anywhere else.
+    fn weight_rows(&self, index: &Expr) -> Option<usize> {
+        if self.column(index) {
+            return Some(1);
+        }
+        let row = self.row?;
+        let (a, b) = as_binop(index, BinaryOpKind::Add)?;
+        let strided = if self.column(b) { a } else if self.column(a) { b } else { return None };
+        let (p, q) = as_binop(strided, BinaryOpKind::Multiply)?;
+        let constant = |e: &Expr| self.affine(e).filter(Affine::is_const).map(|a| a.cst);
+        let (lane, stride) = match (constant(p), constant(q)) {
+            (None, Some(s)) => (p, s),
+            (Some(s), None) => (q, s),
+            _ => return None,
+        };
+        let (counted, lanes) = as_binop(lane, BinaryOpKind::Modulo)?;
+        let lanes = constant(lanes).filter(|l| *l >= 1)?;
+        (stride == self.cols && self.affine(counted) == Some(Affine::var(row).sub(&Affine::constant(1))))
+            .then_some(lanes as usize)
+    }
+}
+
+/// A LayerNorm-normalize body `((X[idx] - mean) / denom) * W[col] + B[col]`, every operand read at its row's entry or
+/// its column. Returns `(x, weight, bias, denom)`; `None` for any other shape. The top-level `+ B[col]` (bias shift) is
+/// what distinguishes it from RMSNorm.
+fn match_layernorm_push(value: &Expr, reads: &RowReads) -> Option<(Symbol, Symbol, Symbol, Symbol)> {
     let (scaled, b_index) = as_binop(value, BinaryOpKind::Add)?;
-    let (b_coll, _) = as_index(b_index)?;
+    let (b_coll, b_at) = as_index(b_index)?;
     let (div, w_index) = as_binop(scaled, BinaryOpKind::Multiply)?;
-    let (w_coll, _) = as_index(w_index)?;
+    let (w_coll, w_at) = as_index(w_index)?;
     let (sub, denom) = as_binop(div, BinaryOpKind::Divide)?;
     // The divisor is the row's `sqrt(var + eps)` scalar — a plain identifier, never a per-element expression.
     let denom = as_ident(denom)?;
     let (x_read, mean) = as_binop(sub, BinaryOpKind::Subtract)?;
     as_ident(mean)?;
-    let (x_coll, _) = as_index(x_read)?;
+    let (x_coll, x_at) = as_index(x_read)?;
+    (reads.entry(x_at) && reads.column(w_at) && reads.column(b_at)).then_some(())?;
     Some((as_ident(x_coll)?, as_ident(w_coll)?, as_ident(b_coll)?, denom))
 }
 
+/// A weighted RMSNorm's normalize body.
+struct WeightedPush {
+    x: Symbol,
+    residual: Option<Symbol>,
+    weight: Symbol,
+    weight_rows: usize,
+    denom: Symbol,
+}
+
 /// A weighted-normalize body `(REDUCED / denom) * W[..]`, where `REDUCED` is `X[idx]` (plain RMSNorm) or
-/// `X[idx] + residual[idx]` (fused-add-RMSNorm). Returns `(x, residual, weight, denom)`; `None` for any other shape.
-/// Specific enough that only the (fused-add) weighted-RMSNorm desugar matches.
-fn match_weighted_push(value: &Expr) -> Option<(Symbol, Option<Symbol>, Symbol, Symbol)> {
+/// `X[idx] + residual[idx]` (fused-add-RMSNorm), each read at its row's entry, and the weight read at the column or a
+/// lane's column ([`RowReads::weight_rows`]). `None` for any other shape: specific enough that only the (fused-add)
+/// weighted-RMSNorm desugar matches.
+fn match_weighted_push(value: &Expr, reads: &RowReads) -> Option<WeightedPush> {
     let (div, w_index) = as_binop(value, BinaryOpKind::Multiply)?;
     let (reduced, denom) = as_binop(div, BinaryOpKind::Divide)?;
     // The divisor must be the scalar `denom` binding (a plain identifier), NOT a per-element expression — this
     // rejects e.g. SwiGLU's `(gate / (1 + e^-gate)) * up`, whose divisor is a binop, not the row's rsqrt scalar.
     let denom = as_ident(denom)?;
-    let (w_coll, _widx) = as_index(w_index)?;
+    let (w_coll, w_at) = as_index(w_index)?;
     let weight = as_ident(w_coll)?;
+    let weight_rows = reads.weight_rows(w_at)?;
     // Fused-add: the reduced value is `X[idx] + residual[idx]`.
-    if let Some((a, b)) = as_binop(reduced, BinaryOpKind::Add) {
-        let (x_coll, _) = as_index(a)?;
-        let (r_coll, _) = as_index(b)?;
-        return Some((as_ident(x_coll)?, Some(as_ident(r_coll)?), weight, denom));
-    }
-    // Plain: the reduced value is `X[idx]`.
-    let (x_coll, _xidx) = as_index(reduced)?;
-    Some((as_ident(x_coll)?, None, weight, denom))
+    let (x, residual) = match as_binop(reduced, BinaryOpKind::Add) {
+        Some((a, b)) => {
+            let (x_coll, x_at) = as_index(a)?;
+            let (r_coll, r_at) = as_index(b)?;
+            (reads.entry(x_at) && reads.entry(r_at)).then_some(())?;
+            (as_ident(x_coll)?, Some(as_ident(r_coll)?))
+        }
+        None => {
+            let (x_coll, x_at) = as_index(reduced)?;
+            reads.entry(x_at).then_some(())?;
+            (as_ident(x_coll)?, None)
+        }
+    };
+    Some(WeightedPush { x, residual, weight, weight_rows, denom })
 }
 
 /// Search for the weighted per-row RMSNorm shape (and the LayerNorm and per-row softmax shapes beside it), tracking
-/// the stack of enclosing loop bounds so the innermost bound is `cols` and the next-out is `rows`. Returns the spec
+/// the stack of enclosing counted loops so the innermost is the column's and the next-out the row's. Returns the spec
 /// and the norm's divisor, whose assignment holds its epsilon (none for a softmax).
 fn search_weighted_rmsnorm(
     stmts: &[Stmt],
     consts: &HashMap<Symbol, i64>,
-    bounds: &mut Vec<i64>,
+    bounds: &mut Vec<(Symbol, i64)>,
     binder: Option<Symbol>,
 ) -> Option<(FusedRowSpec, Option<Symbol>)> {
     for s in stmts {
         match s {
             Stmt::While { cond, body, .. } => {
                 let pushed = ew_loop_bound(cond, consts)
-                    .map(|(_, n)| bounds.push(n))
+                    .map(|counted| bounds.push(counted))
                     .is_some();
                 if let Some(spec) = search_weighted_rmsnorm(body, consts, bounds, binder) {
                     return Some(spec);
@@ -991,17 +1085,15 @@ fn search_weighted_rmsnorm(
                 if !pushes_into_binder(y, binder) {
                     continue;
                 }
-                let cols = *bounds.last()?;
-                let rows = if bounds.len() >= 2 {
-                    bounds[bounds.len() - 2]
-                } else {
-                    1
-                };
-                if cols == 0 || rows == 0 {
+                let (col, cols) = *bounds.last()?;
+                let row = bounds.len().checked_sub(2).map(|at| bounds[at]);
+                let rows = row.map_or(1, |(_, n)| n);
+                if cols <= 0 || rows <= 0 {
                     continue;
                 }
+                let reads = RowReads { row: row.map(|(r, _)| r), col, cols, consts };
                 // LayerNorm first (its `+ B[col]` shift is the most specific shape), then weighted RMSNorm.
-                if let Some((x, weight, bias, denom)) = match_layernorm_push(value) {
+                if let Some((x, weight, bias, denom)) = match_layernorm_push(value, &reads) {
                     let spec = FusedRowSpec {
                         rows: rows as usize,
                         cols: cols as usize,
@@ -1016,7 +1108,7 @@ fn search_weighted_rmsnorm(
                     };
                     return Some((spec, Some(denom)));
                 }
-                if let Some(x) = match_softmax_push(value) {
+                if let Some(x) = match_softmax_push(value, &reads) {
                     let spec = FusedRowSpec {
                         rows: rows as usize,
                         cols: cols as usize,
@@ -1031,20 +1123,20 @@ fn search_weighted_rmsnorm(
                     };
                     return Some((spec, None));
                 }
-                if let Some((x, residual, weight, denom)) = match_weighted_push(value) {
+                if let Some(p) = match_weighted_push(value, &reads) {
                     let spec = FusedRowSpec {
                         rows: rows as usize,
                         cols: cols as usize,
                         reduce: RowReduceKind::RmsNorm,
-                        x,
+                        x: p.x,
                         y,
-                        weight: Some(weight),
-                        weight_rows: 1,
-                        residual,
+                        weight: Some(p.weight),
+                        weight_rows: p.weight_rows,
+                        residual: p.residual,
                         bias: None,
                         eps: Epsilon::DEFAULT,
                     };
-                    return Some((spec, Some(denom)));
+                    return Some((spec, Some(p.denom)));
                 }
             }
             _ => {}
@@ -1053,10 +1145,10 @@ fn search_weighted_rmsnorm(
     None
 }
 
-/// A per-row softmax normalize body `e^(X[idx] - m) / s` — the value the row loop pushes. Returns the
-/// source tensor. `m` (the row max) and `s` (the row's sum of exponentials) must be plain identifiers:
-/// they are the row scalars, and requiring them rejects any per-element divisor.
-fn match_softmax_push(value: &Expr) -> Option<Symbol> {
+/// A per-row softmax normalize body `e^(X[idx] - m) / s` — the value the row loop pushes, `X` read at its row's
+/// entry. Returns the source tensor. `m` (the row max) and `s` (the row's sum of exponentials) must be plain
+/// identifiers: they are the row scalars, and requiring them rejects any per-element divisor.
+fn match_softmax_push(value: &Expr, reads: &RowReads) -> Option<Symbol> {
     let (expo, s_denom) = as_binop(value, BinaryOpKind::Divide)?;
     as_ident(s_denom)?;
     let (base, shifted) = as_binop(expo, BinaryOpKind::Pow)?;
@@ -1065,7 +1157,8 @@ fn match_softmax_push(value: &Expr) -> Option<Symbol> {
     }
     let (x_index, m) = as_binop(shifted, BinaryOpKind::Subtract)?;
     as_ident(m)?;
-    let (x_coll, _) = as_index(x_index)?;
+    let (x_coll, x_at) = as_index(x_index)?;
+    reads.entry(x_at).then_some(())?;
     as_ident(x_coll)
 }
 

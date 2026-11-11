@@ -483,6 +483,15 @@ impl Link<'_> {
                 Launch::SetRow { table: ins[0].clone(), index: row_sel(&r.index, ins.get(2))?, src: ins[1].clone(), cols: r.cols, count: r.count, seq: None, f32: true, quant: false }
             }
             TensorOpSpec::Transpose(_) | TensorOpSpec::FullAttention(_) => return refuse("a transpose or an unmasked block attention has no kernel yet"),
+            TensorOpSpec::LaneSums(_) | TensorOpSpec::SignedRoot(_) => {
+                return refuse("a lane sum or a signed root (`the lane sums of X over L lanes`, `the signed root of X`)")
+            }
+            TensorOpSpec::NgramIds(_) => return refuse("an n-gram hash (`the ngram ids of T after R by M modulo V from O ending at E`)"),
+            TensorOpSpec::LaneMean(_) | TensorOpSpec::LaneSpread(_) => {
+                return refuse("a hyper-connected residual's lanes (`the mean of X over L lanes`, `O spread over L lanes`)")
+            }
+            TensorOpSpec::Scatter(_) => return refuse("a scatter of rows has no kernel yet"),
+            TensorOpSpec::Map(_) => return refuse("a map the program wrote as a loop has no kernel yet"),
             TensorOpSpec::IntRequant(_) | TensorOpSpec::IntClamp(_) | TensorOpSpec::Relu(_) | TensorOpSpec::LutAttention(_) => {
                 return refuse("a requant, a clamp, a ReLU or a LUT attention has no kernel yet")
             }

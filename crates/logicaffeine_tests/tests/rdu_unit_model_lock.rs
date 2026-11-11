@@ -460,6 +460,7 @@ fn an_sdk_number_drops_in_without_code() {
             "ddr_bandwidth_gbps",
             "hbm_bandwidth_gbps",
             "index_datatype",
+            "simd",
             "unit_model.acc_tiles",
             "unit_model.counter_nest",
             "unit_model.datapath_bits",

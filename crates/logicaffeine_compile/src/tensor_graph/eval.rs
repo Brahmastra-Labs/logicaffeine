@@ -16,6 +16,7 @@ use std::fmt;
 
 use logicaffeine_base::numeric::{float_max, float_min};
 
+use crate::tensor_recognize::map::{Cmp, Cond, Fun, MapSpec, Term};
 use crate::tensor_recognize::qwen::{GateAct, MoeAct, MoeGroups, MoeScore, RowIndex};
 use crate::tensor_recognize::{ElementwiseOp, Fill, RowReduceKind};
 
@@ -326,6 +327,217 @@ fn silu(x: f64) -> f64 {
 /// The result an op computes, and the operands it writes in place (by position) with their new values.
 type Computed = (Option<Data>, Vec<(usize, Data)>);
 
+/// One value of a map's turn, in the VM's own types.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum V {
+    Int(i64),
+    Real(f64),
+}
+
+impl V {
+    /// The value as a Real: an Int widens as the VM widens it when a Real meets it.
+    fn real(self) -> f64 {
+        match self {
+            V::Int(i) => i as f64,
+            V::Real(r) => r,
+        }
+    }
+}
+
+/// `round` as the library rounds a Real to a whole one: through the magic constant.
+fn round_r(y: f64) -> f64 {
+    (y + 6_755_399_441_055_744.0) - 6_755_399_441_055_744.0
+}
+
+/// The library's `pow2int`: `2^k` by repeated doubling or halving.
+fn pow2int(k: i64) -> f64 {
+    let mut r = 1.0;
+    if k >= 0 {
+        for _ in 0..k {
+            r *= 2.0;
+        }
+        return r;
+    }
+    for _ in 0..-k {
+        r *= 0.5;
+    }
+    r
+}
+
+/// The library's `exp`, operation for operation (`assets/std/math.lg`): a reduction by `ln 2` and its polynomial.
+fn lib_exp(x: f64) -> f64 {
+    let kr = round_r(x * 1.442_695_040_888_963_4);
+    let r = (x - (kr * 0.693_147_180_369_123_8)) - (kr * 1.908_214_929_270_587_7e-10);
+    let mut p = 1.147_074_559_772_972_5e-11;
+    for c in [
+        1.605_904_383_682_161_3e-10,
+        2.087_675_698_786_81e-9,
+        2.505_210_838_544_172e-8,
+        2.755_731_922_398_588_8e-7,
+        2.755_731_922_398_589_3e-6,
+        2.480_158_730_158_73e-5,
+        0.000_198_412_698_412_698_4,
+        0.001_388_888_888_888_889,
+        0.008_333_333_333_333_333,
+        0.041_666_666_666_666_664,
+        0.166_666_666_666_666_66,
+        0.5,
+        1.0,
+        1.0,
+    ] {
+        p = c + r * p;
+    }
+    p * pow2int(kr.floor() as i64)
+}
+
+/// The library's `ln`, operation for operation: the mantissa brought into `[2/3, 4/3)` by halving and doubling, then
+/// the `atanh` series.
+fn lib_ln(x: f64) -> f64 {
+    let (mut m, mut e) = (x, 0.0);
+    while m >= 1.333_333_333_333_333_3 {
+        m *= 0.5;
+        e += 1.0;
+    }
+    while m < 0.666_666_666_666_666_6 {
+        m *= 2.0;
+        e -= 1.0;
+    }
+    let y = (m - 1.0) / (m + 1.0);
+    let y2 = y * y;
+    let (mut term, mut result, mut k) = (y, y, 1.0);
+    while k <= 12.0 {
+        term *= y2;
+        result += term / ((2.0 * k) + 1.0);
+        k += 1.0;
+    }
+    (e * 0.693_147_180_369_123_8) + ((e * 1.908_214_929_270_587_7e-10) + (2.0 * result))
+}
+
+/// The library's `tanh`: `sinh / cosh`, each from two calls of its `exp`.
+fn lib_tanh(x: f64) -> f64 {
+    let sinh = (lib_exp(x) - lib_exp(0.0 - x)) / 2.0;
+    let cosh = (lib_exp(x) + lib_exp(0.0 - x)) / 2.0;
+    sinh / cosh
+}
+
+/// The value a map's turn at place `p` computes for `t`, as the VM computes the statements it was read from; `done` the
+/// values the turns before it wrote.
+fn turn(at: usize, m: &MapSpec, t: &Term, p: usize, ins: &[Data], done: &[V]) -> Result<V, EvalError> {
+    let read = |k: usize, i: usize| match &ins[k] {
+        Data::Int(v) => V::Int(v[i]),
+        Data::Real(v) => V::Real(v[i]),
+    };
+    let int = |a: V, b: V, f: fn(i64, i64) -> Option<i64>, what: &str| match (a, b) {
+        (V::Int(x), V::Int(y)) => f(x, y).map(V::Int).ok_or_else(|| EvalError::Overflow { op: at, what: what.into() }),
+        _ => Err(EvalError::Operand { op: at, tensor: String::new(), why: format!("{what} of Reals") }),
+    };
+    let two = |a: &Term, b: &Term| -> Result<(V, V), EvalError> { Ok((turn(at, m, a, p, ins, done)?, turn(at, m, b, p, ins, done)?)) };
+    let arith = |a: V, b: V, i: fn(i64, i64) -> Option<i64>, r: fn(f64, f64) -> f64, what: &str| match (a, b) {
+        (V::Int(_), V::Int(_)) => int(a, b, i, what),
+        _ => Ok(V::Real(r(a.real(), b.real()))),
+    };
+    Ok(match t {
+        Term::Here(k) => read(*k, p),
+        Term::Fixed(k, i) => read(*k, *i),
+        Term::Position(k) => {
+            let inner: usize = m.extents[k + 1..].iter().product();
+            V::Int((p / inner % m.extents[*k]) as i64 + 1)
+        }
+        Term::Earlier => {
+            let back = p.checked_sub(m.stride()).ok_or_else(|| EvalError::OutOfRange { op: at, what: format!("the element before place {p}, on the first turn") })?;
+            done[back]
+        }
+        Term::Int(v) => V::Int(*v),
+        Term::Real(v) => V::Real(*v),
+        Term::Add(a, b) => {
+            let (a, b) = two(a, b)?;
+            arith(a, b, i64::checked_add, |x, y| x + y, "a sum")?
+        }
+        Term::Sub(a, b) => {
+            let (a, b) = two(a, b)?;
+            arith(a, b, i64::checked_sub, |x, y| x - y, "a difference")?
+        }
+        Term::Mul(a, b) => {
+            let (a, b) = two(a, b)?;
+            arith(a, b, i64::checked_mul, |x, y| x * y, "a product")?
+        }
+        Term::Div(a, b) => {
+            let (a, b) = two(a, b)?;
+            V::Real(a.real() / b.real())
+        }
+        Term::Quot(a, b) | Term::FloorDiv(a, b) | Term::Rem(a, b) => {
+            let (a, b) = two(a, b)?;
+            if b == V::Int(0) {
+                return Err(EvalError::DivideByZero { op: at });
+            }
+            match t {
+                Term::Quot(..) => int(a, b, i64::checked_div, "a quotient")?,
+                Term::Rem(..) => int(a, b, i64::checked_rem, "a remainder")?,
+                _ => int(a, b, |x, y| {
+                    let q = x.checked_div(y)?;
+                    Some(if x % y != 0 && ((x < 0) != (y < 0)) { q - 1 } else { q })
+                }, "a floored quotient")?,
+            }
+        }
+        Term::Pow(a, b) => match two(a, b)? {
+            (V::Int(x), V::Int(k)) => {
+                let k = u32::try_from(k).map_err(|_| EvalError::Operand { op: at, tensor: String::new(), why: "an Int raised to a negative power".into() })?;
+                V::Int(x.checked_pow(k).ok_or_else(|| EvalError::Overflow { op: at, what: "a power".into() })?)
+            }
+            (x, k) => V::Real(x.real().powf(k.real())),
+        },
+        Term::Call(f, args) => {
+            let vs = args.iter().map(|a| turn(at, m, a, p, ins, done)).collect::<Result<Vec<V>, _>>()?;
+            match (f, vs.as_slice()) {
+                (Fun::Exp, [x]) => V::Real(lib_exp(x.real())),
+                (Fun::Ln, [x]) => V::Real(lib_ln(x.real())),
+                (Fun::Tanh, [x]) => V::Real(lib_tanh(x.real())),
+                (Fun::Sqrt, [x]) => V::Real(x.real().sqrt()),
+                (Fun::Abs, [V::Int(x)]) => V::Int(x.checked_abs().ok_or_else(|| EvalError::Overflow { op: at, what: "an absolute value".into() })?),
+                (Fun::Abs, [x]) => V::Real(x.real().abs()),
+                (Fun::Min, [V::Int(x), V::Int(y)]) => V::Int(*x.min(y)),
+                (Fun::Max, [V::Int(x), V::Int(y)]) => V::Int(*x.max(y)),
+                (Fun::Min, [x, y]) => V::Real(float_min(x.real(), y.real())),
+                (Fun::Max, [x, y]) => V::Real(float_max(x.real(), y.real())),
+                _ => return Err(EvalError::Operand { op: at, tensor: String::new(), why: format!("{f:?} of {} values", vs.len()) }),
+            }
+        }
+        Term::Select { cond, then, otherwise } => {
+            if holds(at, m, cond, p, ins, done)? {
+                turn(at, m, then, p, ins, done)?
+            } else {
+                turn(at, m, otherwise, p, ins, done)?
+            }
+        }
+    })
+}
+
+/// Whether a map's branch condition holds at place `p`: Ints compared exactly, a Real by its `f64`.
+fn holds(at: usize, m: &MapSpec, c: &Cond, p: usize, ins: &[Data], done: &[V]) -> Result<bool, EvalError> {
+    Ok(match c {
+        Cond::Cmp(op, a, b) => {
+            let (a, b) = (turn(at, m, a, p, ins, done)?, turn(at, m, b, p, ins, done)?);
+            let order = match (a, b) {
+                (V::Int(x), V::Int(y)) => Some(x.cmp(&y)),
+                _ => a.real().partial_cmp(&b.real()),
+            };
+            use std::cmp::Ordering::{Equal, Greater, Less};
+            match (op, order) {
+                (_, None) => *op == Cmp::NotEq,
+                (Cmp::Lt, Some(o)) => o == Less,
+                (Cmp::LtEq, Some(o)) => o != Greater,
+                (Cmp::Gt, Some(o)) => o == Greater,
+                (Cmp::GtEq, Some(o)) => o != Less,
+                (Cmp::Eq, Some(o)) => o == Equal,
+                (Cmp::NotEq, Some(o)) => o != Equal,
+            }
+        }
+        Cond::And(p_, q) => holds(at, m, p_, p, ins, done)? && holds(at, m, q, p, ins, done)?,
+        Cond::Or(p_, q) => holds(at, m, p_, p, ins, done)? || holds(at, m, q, p, ins, done)?,
+        Cond::Not(q) => !holds(at, m, q, p, ins, done)?,
+    })
+}
+
 #[allow(clippy::too_many_lines)]
 fn prim(at: usize, spec: &TensorOpSpec, names: &[String], ins: &[Data], env: &BTreeMap<String, Data>) -> Result<Computed, EvalError> {
     let real = |k: usize, len: usize| -> Result<Vec<f64>, EvalError> {
@@ -510,6 +722,102 @@ fn prim(at: usize, spec: &TensorOpSpec, names: &[String], ins: &[Data], env: &BT
             };
             let joined = both(&ins[0], &ins[1]).unwrap_or_else(|| Data::Real(join(&ins[0].reals(), &ins[1].reals(), j.rows, j.heads, ha, hb)));
             Ok((Some(joined), Vec::new()))
+        }
+        TensorOpSpec::LaneMean(m) => {
+            let x = real(0, m.rows * m.lanes * m.cols)?;
+            let lanes_f = m.lanes as f64;
+            let mut y = Vec::with_capacity(m.rows * m.cols);
+            for t in 0..m.rows {
+                for c in 0..m.cols {
+                    let mut s = 0.0f64;
+                    for l in 0..m.lanes {
+                        s = s + x[(t * m.lanes + l) * m.cols + c];
+                    }
+                    y.push(s / lanes_f);
+                }
+            }
+            out(y)
+        }
+        TensorOpSpec::LaneSpread(p) => {
+            let x = real(0, p.rows * p.cols)?;
+            let by = match p.by {
+                Some(_) => Some(real(1, p.rows * p.lanes)?),
+                None => None,
+            };
+            let mut y = Vec::with_capacity(p.rows * p.lanes * p.cols);
+            for t in 0..p.rows {
+                for l in 0..p.lanes {
+                    for c in 0..p.cols {
+                        let v = x[t * p.cols + c];
+                        y.push(match &by {
+                            Some(s) => v * s[t * p.lanes + l],
+                            None => v,
+                        });
+                    }
+                }
+            }
+            out(y)
+        }
+        TensorOpSpec::LaneSums(m) => {
+            let x = real(0, m.rows * m.lanes * m.cols)?;
+            let mut y = Vec::with_capacity(m.rows * m.lanes);
+            for t in 0..m.rows {
+                for l in 0..m.lanes {
+                    let mut s = 0.0f64;
+                    for c in 0..m.cols {
+                        s = s + x[(t * m.lanes + l) * m.cols + c];
+                    }
+                    y.push(s);
+                }
+            }
+            out(y)
+        }
+        TensorOpSpec::SignedRoot(r) => {
+            let eps = r.eps.get();
+            out(real(0, r.n)?
+                .into_iter()
+                .take(r.n)
+                .map(|v| {
+                    let sign = if v > 0.0 { 1.0 } else if v < 0.0 { -1.0 } else { 0.0 };
+                    sign * v.abs().max(eps).sqrt()
+                })
+                .collect())
+        }
+        TensorOpSpec::NgramIds(g) => {
+            let (n, heads) = (g.ngram, g.heads());
+            for (k, len) in [g.tokens, n - 1, n, heads, heads].into_iter().enumerate() {
+                need(at, &names[k], &ins[k], len)?;
+            }
+            let (t, mut r, m, v, o) =
+                (ints(at, &names[0], &ins[0])?, ints(at, &names[1], &ins[1])?, ints(at, &names[2], &ins[2])?, ints(at, &names[3], &ins[3])?, ints(at, &names[4], &ins[4])?);
+            if let Some(h) = v.iter().take(heads).position(|&p| p == 0) {
+                return Err(EvalError::Operand { op: at, tensor: names[3].clone(), why: format!("head {} has a modulus of zero", h + 1) });
+            }
+            // Token rows in and table rows out, as the program's rows count from one; a row of `0` is no token.
+            let product = |row: i64, m: i64| checked(at, "an n-gram's product", row.checked_sub(1).and_then(|id| id.checked_mul(m)));
+            let mut ids = Vec::with_capacity(g.tokens * heads);
+            for &cur in t.iter().take(g.tokens) {
+                let (mut x, mut seen) = (product(cur, m[0])?, false);
+                for k in 0..n - 1 {
+                    let mut back = r[n - 2 - k];
+                    if back == 0 {
+                        back = g.eos;
+                    }
+                    seen |= back == g.eos;
+                    if seen {
+                        back = g.eos;
+                    }
+                    x ^= product(back, m[k + 1])?;
+                    for h in 0..g.per_order {
+                        let head = k * g.per_order + h;
+                        let row = x.checked_rem(v[head]).unwrap_or(0).checked_add(o[head]).and_then(|r| r.checked_add(1));
+                        ids.push(checked(at, "an n-gram's row", row)?);
+                    }
+                }
+                r.copy_within(1..n - 1, 0);
+                r[n - 2] = cur;
+            }
+            Ok((Some(Data::Int(ids)), vec![(1, Data::Int(r))]))
         }
         TensorOpSpec::CausalConv(c) => {
             let x = real(0, c.rows * c.chan)?;
@@ -698,6 +1006,81 @@ fn prim(at: usize, spec: &TensorOpSpec, names: &[String], ins: &[Data], env: &BT
             };
             Ok((None, vec![(0, table)]))
         }
+        TensorOpSpec::Scatter(s) => {
+            let idx = ints(at, &names[2], &ins[2])?;
+            need(at, &names[0], &ins[0], s.rows * s.cols)?;
+            need(at, &names[1], &ins[1], s.source_rows * s.cols)?;
+            need(at, &names[2], &ins[2], s.count)?;
+            let mut table = ins[0].clone();
+            // Turn `k` in order, as the loop runs it: a row named again is written again.
+            for (k, &row) in idx.iter().take(s.count).enumerate() {
+                if row < 1 || row as usize > s.rows {
+                    return Err(EvalError::OutOfRange { op: at, what: format!("row {row} of `{}`'s {} rows", names[0], s.rows) });
+                }
+                let (to, from) = ((row - 1) as usize * s.cols, k * s.cols);
+                match (&mut table, &ins[1]) {
+                    (Data::Int(t), Data::Int(x)) => {
+                        for j in 0..s.cols {
+                            t[to + j] = match s.fold {
+                                None => x[from + j],
+                                Some(ElementwiseOp::Add) => checked(at, "a sum", t[to + j].checked_add(x[from + j]))?,
+                                Some(ElementwiseOp::Mul) => checked(at, "a product", t[to + j].checked_mul(x[from + j]))?,
+                            };
+                        }
+                    }
+                    (Data::Real(t), x) => {
+                        let x = x.reals();
+                        for j in 0..s.cols {
+                            t[to + j] = match s.fold {
+                                None => x[from + j],
+                                Some(ElementwiseOp::Add) => t[to + j] + x[from + j],
+                                Some(ElementwiseOp::Mul) => t[to + j] * x[from + j],
+                            };
+                        }
+                    }
+                    (Data::Int(_), Data::Real(_)) => {
+                        return Err(EvalError::Operand { op: at, tensor: names[1].clone(), why: "Reals written into a table of Ints".into() })
+                    }
+                }
+            }
+            Ok((None, vec![(0, table)]))
+        }
+        TensorOpSpec::Map(m) => {
+            let n = m.n();
+            for (k, d) in ins.iter().enumerate() {
+                let fixed = {
+                    let mut most = None;
+                    m.body.visit(&mut |t| {
+                        if let Term::Fixed(j, at) = t {
+                            if *j == k {
+                                most = most.max(Some(*at + 1));
+                            }
+                        }
+                    });
+                    most.unwrap_or(0)
+                };
+                let here = if m.body.reads_here(k) { n } else { 0 };
+                need(at, &names[k], d, here.max(fixed))?;
+            }
+            // The turns in order: a recurrence reads what the turn one step before along the outer loop wrote.
+            let mut values: Vec<V> = Vec::with_capacity(n);
+            for p in 0..n {
+                let v = turn(at, m, &m.body, p, ins, &values)?;
+                values.push(v);
+            }
+            let data = if m.real {
+                Data::Real(values.into_iter().map(V::real).collect())
+            } else {
+                Data::Int(values.into_iter().map(|v| match v {
+                    V::Int(i) => Ok(i),
+                    V::Real(_) => Err(EvalError::Operand { op: at, tensor: names.first().cloned().unwrap_or_default(), why: "a Real written into a tensor of Ints".into() }),
+                }).collect::<Result<_, _>>()?)
+            };
+            Ok(match m.in_place() {
+                Some(k) => (None, vec![(k, data)]),
+                None => (Some(data), Vec::new()),
+            })
+        }
         TensorOpSpec::IntRequant(r) => {
             let x = ints(at, &names[0], &ins[0])?;
             let y = x
@@ -755,6 +1138,10 @@ fn fused_row(at: usize, r: &crate::tensor_recognize::FusedRowSpec, names: &[Stri
         })
     };
     let (w, res, bias) = (next(r.weight.is_some()), next(r.residual.is_some()), next(r.bias.is_some()));
+    if r.weight.is_some() {
+        // The weight is the operand after `x`, `weight_rows` rows of the row's width.
+        need(at, &names[1], &ins[1], r.weight_rows * r.cols)?;
+    }
     let eps = r.eps.get();
     let cols_f = r.cols as f64;
     let mut y = Vec::with_capacity(n);
@@ -776,13 +1163,15 @@ fn fused_row(at: usize, r: &crate::tensor_recognize::FusedRowSpec, names: &[Stri
                         Some(res) => x[row * r.cols + i] + res[row * r.cols + i],
                         None => x[row * r.cols + i],
                     };
+                    // Row `row` takes the weight's row `row mod weight_rows`: a hyper-connected residual's lane.
+                    let w_row = &w[(row % r.weight_rows.max(1)) * r.cols..][..r.cols];
                     let mut ss = 0.0f64;
                     for i in 0..r.cols {
                         ss = ss + elem(i) * elem(i);
                     }
                     let denom = (ss / cols_f + eps).sqrt();
                     for j in 0..r.cols {
-                        y.push(elem(j) / denom * w[j]);
+                        y.push(elem(j) / denom * w_row[j]);
                     }
                 }
             }
@@ -819,8 +1208,9 @@ fn fused_row(at: usize, r: &crate::tensor_recognize::FusedRowSpec, names: &[Stri
                     vs = vs + (v - mean) * (v - mean);
                 }
                 let denom = (vs / cols_f + eps).sqrt();
+                let w_row = &w[(row % r.weight_rows.max(1)) * r.cols..][..r.cols];
                 for (j, v) in xr.iter().enumerate() {
-                    y.push((v - mean) / denom * w[j] + b[j]);
+                    y.push((v - mean) / denom * w_row[j] + b[j]);
                 }
             }
         }

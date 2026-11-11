@@ -8,7 +8,7 @@
 //! ([`PRE_TOKENIZER_DIGESTS`]). This reader encodes the probe with the directory's own `tokenizer.json`, run as the
 //! `tokenizers` library runs it ([`HfTokenizer`]), and looks the digest up in the same table.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io;
 use std::path::Path;
 
@@ -19,6 +19,14 @@ use super::tiktoken::{byte_level, Tiktoken};
 use super::{invalid, Family, Hparams};
 use crate::crypto_accel::sha256;
 use crate::model::gguf::MetaValue;
+
+/// llama.cpp's `models/templates/MiniMax-M1.jinja` at the pinned commit, the chat template the converter's MiniMax-01
+/// class writes where a directory ships no `chat_template.jinja`.
+const MINIMAX_M1_TEMPLATE: &str = include_str!("minimax_m1.jinja");
+
+/// llama.cpp's `models/templates/llama-cpp-rwkv-world.jinja` at the pinned commit, the chat template the converter
+/// writes for an RWKV world vocabulary whose tokenizer files name none.
+const RWKV_WORLD_TEMPLATE: &str = include_str!("rwkv_world.jinja");
 
 /// The text whose tokenization names a byte-pair pre-tokenizer (the converter's `chktxt`).
 pub const PRE_TOKENIZER_PROBE: &str = "\n \n\n \n\n\n \t \t\t \t\n  \n   \n    \n     \n🚀 (normal) 😶\u{200d}🌫️ (multiple emojis concatenated) ✅ 🦙🦙 3 33 333 3333 33333 333333 3333333 33333333 3.3 3..3 3...3 កាន់តែពិសេសអាច😁 ?我想在apple工作1314151天～ ------======= нещо на Български ''''''```````\"\"\"\"......!!!!!!?????? I've been 'told he's there, 'RE you sure? 'M not sure I'll make it, 'D you like some tea? We'Ve a'lL";
@@ -175,6 +183,19 @@ fn read_json(path: &Path) -> io::Result<Option<Value>> {
     serde_json::from_str(&text).map(Some).map_err(|e| invalid(format!("{}: {e}", path.display())))
 }
 
+/// The size of `dir`'s tokenizer's own vocabulary, its added tokens aside: the `tokenizers` library's
+/// `get_vocab_size(with_added_tokens=False)`, which transformers 4 reports as a fast tokenizer's `vocab_size`.
+pub(super) fn base_vocab_size(dir: &Path) -> io::Result<usize> {
+    let path = dir.join("tokenizer.json");
+    let tj = read_json(&path)?.ok_or_else(|| invalid(format!("{}: no tokenizer.json", dir.display())))?;
+    let vocab = &tj["model"]["vocab"];
+    vocab
+        .as_object()
+        .map(Map::len)
+        .or_else(|| vocab.as_array().map(Vec::len))
+        .ok_or_else(|| invalid(format!("{}: a model with no vocabulary", path.display())))
+}
+
 /// Python's truth value of a JSON value: absent, `null`, `false`, zero and empty strings, arrays and objects are false.
 fn truthy(v: Option<&Value>) -> bool {
     match v {
@@ -207,20 +228,97 @@ pub(super) fn tokenizer_meta(dir: &Path, h: &Hparams, f: Family) -> io::Result<B
     w.str("general.architecture", f.arch());
     let sentencepiece_file = dir.join("tokenizer.model").is_file();
     match f {
-        Family::Llama => llama(dir, h, &mut w)?,
+        // `LlamaModel.set_vocab`, which Mistral 3's text class inherits.
+        Family::Llama | Family::Mistral3 => llama(dir, h, &mut w)?,
         // `Qwen2Model.set_vocab`, which Qwen3's class inherits; the mixtures' and Qwen3.5's classes read tokenizer.json.
         Family::Qwen2 | Family::Qwen3 if sentencepiece_file => sentencepiece(dir, h, &mut w)?,
-        Family::Gemma3 if sentencepiece_file => {
-            sentencepiece(dir, h, &mut w)?;
+        // `Gemma3NModel.set_vocab` hides `vocab_size_per_layer_input` from the lookup, so its vocabulary runs to the whole
+        // `vocab_size`, the multimodal tokens' places padded.
+        Family::Gemma3 | Family::Gemma3n if sentencepiece_file => {
+            let mut map = h.map.clone();
+            if f == Family::Gemma3n {
+                map.remove("vocab_size_per_layer_input");
+            }
+            sentencepiece(dir, &Hparams { map, architecture: h.architecture.clone() }, &mut w)?;
             w.bool("tokenizer.ggml.add_space_prefix", false);
         }
         // `Glm4Model.set_vocab` and `_set_vocab_glm` (GLM-4.5's class): the byte-pair vocabulary with special tokens
         // named by their text, each kept only where the files name none of its kind.
+        Family::Phi3 | Family::PhiMoe => phi3(dir, h, &mut w)?,
+        // `Mamba2Model.set_vocab`: the vocabulary padded to a multiple of `pad_vocab_size_multiple` (16), read from a
+        // SentencePiece model where the directory ships one, else from tokenizer.json; the converter's built-in
+        // GPT-NeoX vocabulary, for a directory with neither, is not read.
+        Family::Mamba2 => {
+            let pad = h.u64(&["pad_vocab_size_multiple"]).filter(|&p| p > 0).unwrap_or(16);
+            let vocab = h.u64(&["vocab_size"]).ok_or_else(|| invalid("config.json: no vocab_size"))?;
+            let mut map = h.map.clone();
+            map.insert("vocab_size".into(), Value::from(vocab.div_ceil(pad) * pad));
+            let padded = Hparams { map, architecture: h.architecture.clone() };
+            if dir.join("tokenizer.model").is_file() {
+                sentencepiece(dir, &padded, &mut w)?
+            } else if dir.join("tokenizer.model.v3").is_file() {
+                return Err(invalid(format!("{}: tokenizer.model.v3, which the converter asks be renamed tokenizer.model", dir.display())));
+            } else if dir.join("tokenizer.json").is_file() {
+                gpt2(dir, &padded, &mut w, &[])?
+            } else {
+                return Err(invalid(format!("{}: no tokenizer files; the converter's built-in GPT-NeoX vocabulary is not read", dir.display())));
+            }
+        }
+        // `JambaModel.set_vocab`: a SentencePiece model where the directory ships one, else the fast tokenizer's
+        // vocabulary as `LlamaHfVocab` reads it; no space prefix either way.
+        Family::Jamba => {
+            if sentencepiece_file {
+                sentencepiece(dir, h, &mut w)?;
+            } else {
+                llama_hf(dir, &mut w)?;
+            }
+            w.bool("tokenizer.ggml.add_space_prefix", false);
+        }
+        // `NemotronHModel.set_vocab`: the byte-pair vocabulary through the tokenizer, padded to a multiple of 8 with
+        // `[PAD<n>]` entries.
+        Family::NemotronH => {
+            let vocab = h.u64(&["vocab_size"]).ok_or_else(|| invalid("config.json: no vocab_size"))?;
+            let mut map = h.map.clone();
+            map.insert("vocab_size".into(), Value::from(vocab.div_ceil(8) * 8));
+            gpt2(dir, &Hparams { map, architecture: h.architecture.clone() }, &mut w, &[])?
+        }
         Family::Glm4 => gpt2(dir, h, &mut w, &[("eos", "<|endoftext|>"), ("eot", "<|user|>"), ("unk", "<|endoftext|>"), ("bos", "<|endoftext|>")])?,
-        Family::Glm4Moe => gpt2(dir, h, &mut w, &[("bos", "[gMASK]"), ("eot", "<|user|>"), ("unk", "<|endoftext|>"), ("eom", "<|observation|>")])?,
+        Family::Glm4Moe | Family::GlmDsa => {
+            gpt2(dir, h, &mut w, &[("bos", "[gMASK]"), ("eot", "<|user|>"), ("unk", "<|endoftext|>"), ("eom", "<|observation|>")])?
+        }
+        // `DeepseekV32Model.set_vocab`: the byte-pair vocabulary of a tokenizer that adds its beginning token, as the
+        // converter asserts. transformers 4, the converter's own requirement, reads the flag from tokenizer_config.json
+        // and rebuilds the post-processor around it (`bos $A`), so the probe the pre-tokenizer is named by begins with
+        // that token; transformers 5 drops the flag beside a tokenizer.json, and the class converts nothing.
+        Family::Deepseek32 => {
+            let tc = read_json(&dir.join("tokenizer_config.json"))?;
+            if tc.as_ref().and_then(|c| c.get("add_bos_token")).and_then(Value::as_bool) != Some(true) {
+                return Err(invalid("tokenizer_config.json: add_bos_token is not true, which the converter's DeepSeek-V3.2 class asserts"));
+            }
+            if tc.as_ref().and_then(|c| c.get("add_eos_token")).and_then(Value::as_bool) == Some(true) {
+                return Err(invalid("tokenizer_config.json: add_eos_token is true, a probe the converter's table names no pre-tokenizer for"));
+            }
+            gpt2_probed(dir, h, &mut w, &[], true)?
+        }
         // `DeepseekV2Model.set_vocab`: a directory with no `tokenizer.json` is read through its tokenizer code, and the
         // converter writes only Kimi K2's tiktoken vocabulary.
         Family::Deepseek2 if !dir.join("tokenizer.json").is_file() && dir.join("tiktoken.model").is_file() => kimi(dir, h, &mut w)?,
+        // `KimiLinearModel.set_vocab`: a byte-pair tokenizer.json where the directory ships one, else Kimi's tiktoken
+        // vocabulary as DeepSeek's class reads Kimi K2's.
+        Family::KimiLinear if !dir.join("tokenizer.json").is_file() => {
+            kimi(dir, h, &mut w)?;
+            kimi_linear_eos(dir, &mut w)?;
+        }
+        // `MiniMaxText01Model.set_vocab`: the byte-pair vocabulary, its chat template replaced by the directory's
+        // `chat_template.jinja`, else by the pinned llama.cpp's `models/templates/MiniMax-M1.jinja`.
+        Family::Rwkv7 => rwkv_world(dir, h, &mut w)?,
+        Family::Gemma4 => gemma4(dir, &mut w)?,
+        Family::Minimax01 => {
+            gpt2(dir, h, &mut w, &[])?;
+            let jinja = dir.join("chat_template.jinja");
+            let template = if jinja.is_file() { std::fs::read_to_string(&jinja)? } else { MINIMAX_M1_TEMPLATE.to_string() };
+            w.str("tokenizer.chat_template", &template);
+        }
         _ => gpt2(dir, h, &mut w, &[])?,
     }
     Ok(w.0)
@@ -272,6 +370,83 @@ fn llama(dir: &Path, h: &Hparams, w: &mut Keys) -> io::Result<()> {
     if vocab_size == 49152 {
         w.bool("tokenizer.ggml.add_bos_token", false);
     }
+    Ok(())
+}
+
+/// `Phi3MiniModel.set_vocab`, which PhiMoE's class inherits: the byte-pair vocabulary where `tokenizer_config.json` names
+/// the `GPT2Tokenizer` (Phi-4), else the pieces of `tokenizer.model` each typed by its own kind (a user-defined piece a
+/// normal one), the added tokens of `added_tokens.json` within the vocabulary, and then every added token
+/// `tokenizer_config.json` and `tokenizer.json` list, each user-defined, or control where it is special, with its text as
+/// written; the special tokens read without merges.
+fn phi3(dir: &Path, h: &Hparams, w: &mut Keys) -> io::Result<()> {
+    let tc = read_json(&dir.join("tokenizer_config.json"))?;
+    if let Some(tc) = &tc {
+        let class = tc.get("tokenizer_class").ok_or_else(|| invalid("tokenizer_config.json: no tokenizer_class, which the converter's Phi-3 class reads"))?;
+        if class.as_str() == Some("GPT2Tokenizer") {
+            return gpt2(dir, h, w, &[]);
+        }
+    }
+    let path = dir.join("tokenizer.model");
+    if !path.is_file() {
+        return Err(invalid(format!("{}: no tokenizer.model, which the converter's Phi-3 class reads", dir.display())));
+    }
+    let pieces = sentencepiece_pieces(&std::fs::read(&path)?)?;
+    let vocab_size = h.u64(&["vocab_size"]).map_or(pieces.len(), |n| n as usize);
+    if pieces.len() > vocab_size {
+        return Err(invalid(format!("{}: {} pieces past a vocabulary of {vocab_size}", path.display(), pieces.len())));
+    }
+    let mut tokens: Vec<Vec<u8>> = (0..vocab_size).map(|i| format!("[PAD{i}]").into_bytes()).collect();
+    let mut scores = vec![-10000.0f32; vocab_size];
+    let mut types = vec![UNUSED; vocab_size];
+    for (id, p) in pieces.iter().enumerate() {
+        tokens[id] = p.text.clone();
+        scores[id] = p.score;
+        types[id] = match p.kind {
+            2 => UNKNOWN,
+            3 => CONTROL,
+            5 => UNUSED,
+            6 => BYTE,
+            _ => NORMAL,
+        };
+    }
+    if let Some(Value::Object(added)) = read_json(&dir.join("added_tokens.json"))? {
+        for (text, id) in added {
+            let id = id.as_u64().ok_or_else(|| invalid(format!("added_tokens.json: {text} has no id")))? as usize;
+            if id < vocab_size {
+                tokens[id] = text.into_bytes();
+                scores[id] = -1000.0;
+                types[id] = USER_DEFINED;
+            }
+        }
+    }
+    let mut listed: Vec<(usize, String, bool)> = Vec::new();
+    if let Some(Value::Object(decoder)) = tc.as_ref().and_then(|c| c.get("added_tokens_decoder")) {
+        for (id, data) in decoder {
+            let id: usize = id.parse().map_err(|_| invalid(format!("tokenizer_config.json: added token id `{id}`")))?;
+            let content = data["content"].as_str().ok_or_else(|| invalid(format!("tokenizer_config.json: added token {id} has no content")))?;
+            listed.push((id, content.to_string(), truthy(data.get("special"))));
+        }
+    }
+    if let Some(tj) = read_json(&dir.join("tokenizer.json"))? {
+        for a in tj["added_tokens"].as_array().into_iter().flatten() {
+            let id = a["id"].as_u64().ok_or_else(|| invalid("tokenizer.json: an added token without an id"))? as usize;
+            listed.push((id, a["content"].as_str().unwrap_or_default().to_string(), truthy(a.get("special"))));
+        }
+    }
+    for (id, content, special) in listed {
+        if id >= vocab_size {
+            return Err(invalid(format!("added token {id} `{content}` past a vocabulary of {vocab_size}")));
+        }
+        tokens[id] = content.into_bytes();
+        scores[id] = -1000.0;
+        types[id] = if special { CONTROL } else { USER_DEFINED };
+    }
+    w.str("tokenizer.ggml.model", "llama");
+    w.str("tokenizer.ggml.pre", "default");
+    w.strings("tokenizer.ggml.tokens", &tokens);
+    w.put("tokenizer.ggml.scores", MetaValue::Array { ty: FLOAT32, items: scores.into_iter().map(MetaValue::F32).collect() });
+    w.put("tokenizer.ggml.token_type", MetaValue::Array { ty: INT32, items: types.into_iter().map(MetaValue::I32).collect() });
+    SpecialVocab::load(dir, false, Some(tokens.len()), &SPECIAL_TYPES)?.write(w);
     Ok(())
 }
 
@@ -415,6 +590,12 @@ struct Added {
 /// the probe digest, and the special tokens and merges. `named` are the converter's `_set_special_token` calls after the
 /// files are read: each kind's id the added token of that text, where the files set no id of the kind.
 fn gpt2(dir: &Path, h: &Hparams, w: &mut Keys, named: &[(&str, &str)]) -> io::Result<()> {
+    gpt2_probed(dir, h, w, named, false)
+}
+
+/// [`gpt2`], the probe that names the pre-tokenizer begun with the beginning token where `bos_first` (a tokenizer whose
+/// post-processor transformers rebuilt around `bos $A`).
+fn gpt2_probed(dir: &Path, h: &Hparams, w: &mut Keys, named: &[(&str, &str)], bos_first: bool) -> io::Result<()> {
     let tj_path = dir.join("tokenizer.json");
     let tj = read_json(&tj_path)?
         .ok_or_else(|| invalid(format!("{}: no tokenizer.json (a vocabulary only a slow tokenizer reads)", dir.display())))?;
@@ -487,7 +668,14 @@ fn gpt2(dir: &Path, h: &Hparams, w: &mut Keys, named: &[(&str, &str)]) -> io::Re
             .ok_or_else(|| invalid(format!("{}: no added token `{text}`, the converter's {typ} token", tj_path.display())))?;
         specials.set_id(typ, &Value::from(*id))?;
     }
-    let pre = pre_tokenizer_name(&tj, &tj_path)?;
+    let first = if bos_first {
+        let bos = tc.as_ref().and_then(|c| c.get("bos_token")).and_then(|b| b.as_str().or_else(|| b.get("content").and_then(Value::as_str)));
+        let id = bos.and_then(|b| vocab.get(b)).ok_or_else(|| invalid(format!("{}: no beginning token in the vocabulary", tj_path.display())))?;
+        Some(*id as u32)
+    } else {
+        None
+    };
+    let pre = pre_tokenizer_name(&tj, &tj_path, first)?;
 
     w.str("tokenizer.ggml.model", "gpt2");
     w.str("tokenizer.ggml.pre", &pre);
@@ -495,6 +683,259 @@ fn gpt2(dir: &Path, h: &Hparams, w: &mut Keys, named: &[(&str, &str)]) -> io::Re
     w.put("tokenizer.ggml.token_type", MetaValue::Array { ty: INT32, items: types.into_iter().map(MetaValue::I32).collect() });
     specials.write(w);
     Ok(())
+}
+
+/// `TextModel._set_vocab_rwkv_world`: `<s>` (a control token), then each line of `rwkv_vocab_v20230424.txt` — an id, a
+/// Python string or bytes literal, its length in bytes — written as the token's bytes escaped as Python's `repr` of
+/// bytes escapes them (the quotes dropped), then `[PAD<i>]` entries to `vocab_size` (65,536 where unset); the
+/// tokenizer files' special tokens and chat template (llama.cpp's RWKV world template where they name none), `\n\n`
+/// (261) as the end of a turn, and 0 as the beginning and end token whatever the files say.
+fn rwkv_world(dir: &Path, h: &Hparams, w: &mut Keys) -> io::Result<()> {
+    let path = dir.join("rwkv_vocab_v20230424.txt");
+    let text = std::fs::read_to_string(&path).map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))?;
+    let vocab_size = h.u64(&["vocab_size"]).unwrap_or(65536) as usize;
+    let mut tokens: Vec<Vec<u8>> = vec![b"<s>".to_vec()];
+    let mut types = vec![CONTROL];
+    for line in text.split_inclusive('\n') {
+        let parts: Vec<&str> = line.split(' ').collect();
+        if parts.len() < 3 {
+            return Err(invalid(format!("{}: `{}` is not an id, a literal and a length", path.display(), line.trim_end())));
+        }
+        let literal = parts[1..parts.len() - 1].join(" ");
+        let bytes = python_literal(&literal).ok_or_else(|| invalid(format!("{}: `{literal}` is not a Python string or bytes literal", path.display())))?;
+        let length: usize = parts[parts.len() - 1].trim().parse().map_err(|_| invalid(format!("{}: `{}` is not a length", path.display(), line.trim_end())))?;
+        if bytes.len() != length {
+            return Err(invalid(format!("{}: `{literal}` is {} bytes, not the {length} its line says", path.display(), bytes.len())));
+        }
+        tokens.push(python_bytes_repr(&bytes));
+        types.push(NORMAL);
+    }
+    if tokens.len() > vocab_size {
+        return Err(invalid(format!("{}: {} tokens past a vocabulary of {vocab_size}", path.display(), tokens.len())));
+    }
+    for i in tokens.len()..vocab_size {
+        tokens.push(format!("[PAD{i}]").into_bytes());
+        types.push(UNUSED);
+    }
+    let mut specials = SpecialVocab::load(dir, false, None, &SPECIAL_TYPES)?;
+    if specials.chat_template.is_none() {
+        specials.chat_template = Some(Template::One(RWKV_WORLD_TEMPLATE.to_string()));
+    }
+    specials.set_id("eot", &Value::from(261))?;
+    specials.force_id("bos", 0);
+    specials.force_id("eos", 0);
+    w.str("tokenizer.ggml.model", "rwkv");
+    w.strings("tokenizer.ggml.tokens", &tokens);
+    w.put("tokenizer.ggml.token_type", MetaValue::Array { ty: INT32, items: types.into_iter().map(MetaValue::I32).collect() });
+    specials.write(w);
+    Ok(())
+}
+
+/// The value of a Python string or bytes literal (`ast.literal_eval` of one): a string's as UTF-8, a bytes literal's
+/// bytes; `None` for any other text.
+fn python_literal(s: &str) -> Option<Vec<u8>> {
+    let (bytes, rest) = match s.strip_prefix('b').or_else(|| s.strip_prefix('B')) {
+        Some(r) => (true, r),
+        None => (false, s),
+    };
+    let quote = rest.chars().next().filter(|&q| q == '\'' || q == '"')?;
+    let body = rest.strip_prefix(quote)?.strip_suffix(quote)?;
+    let mut out = Vec::new();
+    let mut chars = body.chars().peekable();
+    let push = |out: &mut Vec<u8>, c: char| {
+        let mut buf = [0u8; 4];
+        out.extend_from_slice(c.encode_utf8(&mut buf).as_bytes());
+    };
+    while let Some(c) = chars.next() {
+        if c == quote {
+            return None;
+        }
+        if c != '\\' {
+            if bytes && !c.is_ascii() {
+                return None;
+            }
+            push(&mut out, c);
+            continue;
+        }
+        let e = chars.next()?;
+        let hex = |chars: &mut std::iter::Peekable<std::str::Chars>, n: usize| -> Option<u32> {
+            let digits: String = (0..n).map(|_| chars.next()).collect::<Option<_>>()?;
+            u32::from_str_radix(&digits, 16).ok()
+        };
+        match e {
+            '\n' => {}
+            '\\' | '\'' | '"' => push(&mut out, e),
+            'a' => out.push(0x07),
+            'b' => out.push(0x08),
+            'f' => out.push(0x0c),
+            'n' => out.push(b'\n'),
+            'r' => out.push(b'\r'),
+            't' => out.push(b'\t'),
+            'v' => out.push(0x0b),
+            'x' => {
+                let v = hex(&mut chars, 2)?;
+                if bytes {
+                    out.push(v as u8);
+                } else {
+                    push(&mut out, char::from_u32(v)?);
+                }
+            }
+            '0'..='7' => {
+                let mut v = e.to_digit(8)?;
+                for _ in 0..2 {
+                    match chars.peek().and_then(|c| c.to_digit(8)) {
+                        Some(d) => {
+                            v = v * 8 + d;
+                            chars.next();
+                        }
+                        None => break,
+                    }
+                }
+                if bytes {
+                    out.push((v & 0xff) as u8);
+                } else {
+                    push(&mut out, char::from_u32(v)?);
+                }
+            }
+            'u' if !bytes => push(&mut out, char::from_u32(hex(&mut chars, 4)?)?),
+            'U' if !bytes => push(&mut out, char::from_u32(hex(&mut chars, 8)?)?),
+            other => {
+                out.push(b'\\');
+                push(&mut out, other);
+            }
+        }
+    }
+    Some(out)
+}
+
+/// Python's `repr` of `bytes` with its `b` and quotes dropped (`repr(token)[2:-1]`): the quote it chooses (a double one
+/// where the bytes hold a single quote and no double) and the backslash escaped, tab, newline and return by name, every
+/// other byte outside printable ASCII as `\xhh`.
+fn python_bytes_repr(b: &[u8]) -> Vec<u8> {
+    let quote = if b.contains(&b'\'') && !b.contains(&b'"') { b'"' } else { b'\'' };
+    let mut out = Vec::with_capacity(b.len());
+    for &c in b {
+        match c {
+            _ if c == quote || c == b'\\' => out.extend_from_slice(&[b'\\', c]),
+            b'\t' => out.extend_from_slice(b"\\t"),
+            b'\n' => out.extend_from_slice(b"\\n"),
+            b'\r' => out.extend_from_slice(b"\\r"),
+            0x20..=0x7e => out.push(c),
+            _ => out.extend_from_slice(format!("\\x{c:02x}").as_bytes()),
+        }
+    }
+    out
+}
+
+/// `TextModel._set_vocab_llama_hf` (`gguf.LlamaHfVocab`): a fast tokenizer's byte-fallback byte-pair vocabulary in id
+/// order, every entry scored −1000 and typed a byte (`<0xXX>`), a control token where it is one of the tokenizer's special
+/// tokens (its named ones and its additional ones, as transformers lists them), else normal; then the added tokens past
+/// the model's vocabulary, control where special, else user-defined; `SpecialVocab`'s ids and flags over as many entries.
+fn llama_hf(dir: &Path, w: &mut Keys) -> io::Result<()> {
+    let (tokens, types) = llama_hf_entries(dir)?;
+    let n = tokens.len();
+    w.str("tokenizer.ggml.model", "llama");
+    w.str("tokenizer.ggml.pre", "default");
+    w.strings("tokenizer.ggml.tokens", &tokens);
+    w.put("tokenizer.ggml.scores", MetaValue::Array { ty: FLOAT32, items: vec![MetaValue::F32(-1000.0); n] });
+    w.put("tokenizer.ggml.token_type", MetaValue::Array { ty: INT32, items: types.into_iter().map(MetaValue::I32).collect() });
+    SpecialVocab::load(dir, false, Some(n), &SPECIAL_TYPES)?.write(w);
+    Ok(())
+}
+
+/// `Gemma4Model.set_vocab`: `LlamaHfVocab`'s entries under the `gemma4` model, the channel, tool-call, tool-response and
+/// quote markers a chat parser reads kept visible (user-defined), every merge, no space prefix, the beginning token
+/// added.
+fn gemma4(dir: &Path, w: &mut Keys) -> io::Result<()> {
+    const VISIBLE: [&str; 7] = ["<|channel>", "<channel|>", "<|tool_call>", "<tool_call|>", "<|tool_response>", "<tool_response|>", "<|\"|>"];
+    let (tokens, mut types) = llama_hf_entries(dir)?;
+    for (t, ty) in tokens.iter().zip(&mut types) {
+        if VISIBLE.iter().any(|v| v.as_bytes() == t.as_slice()) {
+            *ty = USER_DEFINED;
+        }
+    }
+    let n = tokens.len();
+    w.str("tokenizer.ggml.model", "gemma4");
+    w.strings("tokenizer.ggml.tokens", &tokens);
+    w.put("tokenizer.ggml.scores", MetaValue::Array { ty: FLOAT32, items: vec![MetaValue::F32(-1000.0); n] });
+    w.put("tokenizer.ggml.token_type", MetaValue::Array { ty: INT32, items: types.into_iter().map(MetaValue::I32).collect() });
+    SpecialVocab::load(dir, true, None, &SPECIAL_TYPES)?.write(w);
+    w.bool("tokenizer.ggml.add_space_prefix", false);
+    w.bool("tokenizer.ggml.add_bos_token", true);
+    Ok(())
+}
+
+/// `LlamaHfVocab.all_tokens`: a fast tokenizer's byte-fallback byte-pair vocabulary in id order — a byte (`<0xXX>`), a
+/// control token where it is one of the tokenizer's special tokens (its named ones and its additional ones, as
+/// transformers lists them), else normal — then the added tokens past the model's vocabulary, control where special,
+/// else user-defined.
+fn llama_hf_entries(dir: &Path) -> io::Result<(Vec<Vec<u8>>, Vec<i32>)> {
+    let tj_path = dir.join("tokenizer.json");
+    let tj = read_json(&tj_path)?.ok_or_else(|| invalid(format!("{}: no tokenizer.json, which LlamaHfVocab reads", dir.display())))?;
+    let m = &tj["model"];
+    let llama3 = m["type"].as_str() == Some("BPE") && truthy(m.get("ignore_merges")) && !truthy(Some(m.get("byte_fallback").unwrap_or(&Value::Bool(true))));
+    if llama3 || m["type"].as_str() != Some("BPE") || !truthy(m.get("byte_fallback")) || tj["decoder"]["type"].as_str() != Some("Sequence") {
+        return Err(invalid(format!("{}: not a byte-fallback byte-pair vocabulary with a sequence decoder, which LlamaHfVocab reads", tj_path.display())));
+    }
+    let mut vocab: HashMap<String, u64> = HashMap::new();
+    for (text, id) in m["vocab"].as_object().into_iter().flatten() {
+        vocab.insert(text.clone(), id.as_u64().ok_or_else(|| invalid(format!("{}: `{text}` has no id", tj_path.display())))?);
+    }
+    let base = vocab.len() as u64;
+    let mut added: BTreeMap<u64, (String, bool)> = BTreeMap::new();
+    for a in tj["added_tokens"].as_array().into_iter().flatten() {
+        let id = a["id"].as_u64().ok_or_else(|| invalid(format!("{}: an added token without an id", tj_path.display())))?;
+        let content = a["content"].as_str().unwrap_or_default().to_string();
+        vocab.insert(content.clone(), id);
+        added.insert(id, (content, truthy(a.get("special"))));
+    }
+    // `all_special_tokens`: the named special tokens and the additional ones, from tokenizer_config.json over
+    // special_tokens_map.json, and transformers 5's model-specific ones — every other key of tokenizer_config.json
+    // ending in `_token` that names a token (Gemma 4's `boi_token`, `think_token` and the rest).
+    const NAMED: [&str; 7] = ["bos_token", "eos_token", "unk_token", "sep_token", "pad_token", "cls_token", "mask_token"];
+    let text_of = |v: &Value| v.as_str().map(str::to_string).or_else(|| v.get("content").and_then(Value::as_str).map(str::to_string));
+    let mut specials: Vec<String> = Vec::new();
+    for file in ["special_tokens_map.json", "tokenizer_config.json"] {
+        let Some(c) = read_json(&dir.join(file))? else { continue };
+        for key in NAMED {
+            if let Some(t) = c.get(key).and_then(text_of) {
+                specials.push(t);
+            }
+        }
+        for key in ["additional_special_tokens", "extra_special_tokens"] {
+            match c.get(key) {
+                Some(Value::Array(list)) => specials.extend(list.iter().filter_map(text_of)),
+                Some(Value::Object(named)) => specials.extend(named.values().filter_map(text_of)),
+                _ => {}
+            }
+        }
+        if file == "tokenizer_config.json" {
+            if let Some(o) = c.as_object() {
+                specials.extend(o.iter().filter(|(k, _)| k.ends_with("_token") && !NAMED.contains(&k.as_str())).filter_map(|(_, v)| text_of(v)));
+            }
+        }
+    }
+    let special_ids: BTreeSet<u64> = specials.iter().filter_map(|t| vocab.get(t).copied()).collect();
+    let reverse: HashMap<u64, &str> = vocab.iter().map(|(t, &id)| (id, t.as_str())).collect();
+    let mut tokens = Vec::new();
+    let mut types = Vec::new();
+    for id in 0..base {
+        let text = reverse.get(&id).ok_or_else(|| invalid(format!("{}: no token of id {id}", tj_path.display())))?;
+        let byte = text.len() == 6 && text.starts_with("<0x") && text.ends_with('>') && text[3..5].bytes().all(|b| b.is_ascii_hexdigit());
+        types.push(if byte {
+            BYTE
+        } else if special_ids.contains(&id) {
+            CONTROL
+        } else {
+            NORMAL
+        });
+        tokens.push(text.as_bytes().to_vec());
+    }
+    for (id, (text, _)) in added.range(base..) {
+        types.push(if special_ids.contains(id) { CONTROL } else { USER_DEFINED });
+        tokens.push(text.as_bytes().to_vec());
+    }
+    Ok((tokens, types))
 }
 
 /// `DeepseekV2Model.set_vocab`'s Kimi K2 path: the tiktoken vocabulary written as a byte-pair one — each mergeable token
@@ -562,6 +1003,23 @@ fn kimi(dir: &Path, h: &Hparams, w: &mut Keys) -> io::Result<()> {
     Ok(())
 }
 
+/// `KimiLinearModel.set_vocab`'s end token, written over `SpecialVocab`'s: the tiktoken tokenizer's own (`eos_id`), its
+/// `eos_token` (`[EOS]` where tokenizer_config.json names none) among its special tokens.
+fn kimi_linear_eos(dir: &Path, w: &mut Keys) -> io::Result<()> {
+    let tc = read_json(&dir.join("tokenizer_config.json"))?;
+    let named = tc.as_ref().and_then(|c| c.get("eos_token")).and_then(|e| e.as_str().or_else(|| e.get("content").and_then(Value::as_str)));
+    let eos = named.unwrap_or("[EOS]");
+    let t = Tiktoken::open(dir)?;
+    let id = t
+        .specials()
+        .iter()
+        .find(|(text, _)| text == eos)
+        .map(|&(_, id)| id)
+        .ok_or_else(|| invalid(format!("{}: the end token `{eos}` is none of the tiktoken vocabulary's special tokens", dir.display())))?;
+    w.u32("tokenizer.ggml.eos_token_id", id);
+    Ok(())
+}
+
 /// `PreTrainedTokenizerBase.clean_up_tokenization`.
 fn clean_up_tokenization(s: &str) -> String {
     s.replace(" .", ".")
@@ -578,9 +1036,12 @@ fn clean_up_tokenization(s: &str) -> String {
 
 /// `get_vocab_base_pre`: the name the converter's table gives the digest of the probe's ids, the probe encoded as the
 /// Hugging Face tokenizer encodes it (its special tokens added) and the ids written as a Python list.
-fn pre_tokenizer_name(tj: &Value, path: &Path) -> io::Result<String> {
+fn pre_tokenizer_name(tj: &Value, path: &Path, first: Option<u32>) -> io::Result<String> {
     let tokenizer = HfTokenizer::from_json(tj).map_err(|e| invalid(format!("{}: {e}", path.display())))?;
-    let ids = tokenizer.encode(PRE_TOKENIZER_PROBE, true);
+    let ids: Vec<u32> = match first {
+        None => tokenizer.encode(PRE_TOKENIZER_PROBE, true),
+        Some(bos) => std::iter::once(bos).chain(tokenizer.encode(PRE_TOKENIZER_PROBE, false)).collect(),
+    };
     let listed = format!("[{}]", ids.iter().map(u32::to_string).collect::<Vec<_>>().join(", "));
     let digest: String = sha256(listed.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
     pre_tokenizer_named(&digest)
@@ -647,6 +1108,14 @@ impl SpecialVocab {
             self.ids.push((typ.to_string(), tid as u32));
         }
         Ok(())
+    }
+
+    /// An id set over whatever the files gave the kind (the converter's `special_token_ids[typ] = id`).
+    fn force_id(&mut self, typ: &str, id: u32) {
+        match self.ids.iter_mut().find(|(t, _)| t == typ) {
+            Some(e) => e.1 = id,
+            None => self.ids.push((typ.to_string(), id)),
+        }
     }
 
     fn set_add(&mut self, typ: &str, v: bool) {

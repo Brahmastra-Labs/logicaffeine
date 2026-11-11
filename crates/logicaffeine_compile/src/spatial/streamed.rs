@@ -18,8 +18,7 @@
 //! its binding.
 
 use super::ir::SpatialProgram;
-use super::pipeline::compile_program_to_spatial_tp_agreeing_stored;
-use super::pipeline::{compile_program_to_spatial_agreeing_stored, dense_tables_of};
+use super::pipeline::{compile_program_to_spatial_traced, dense_tables_of};
 use super::target::SpatialTarget;
 use super::tensor_parallel::TpManifest;
 use crate::model::author::{layer_input, stacked_layer_input, TpAuthored};
@@ -68,6 +67,8 @@ pub struct LayerKind {
     /// The state a step of this kind carries to the next, in the representative's names — what a deployment allocates
     /// once for a session. A table the step assembles whole is the step's own.
     pub carried: BTreeSet<String>,
+    /// What the kind's program was made from, section by section ([`super::lineage::Lineage`]).
+    pub lineage: super::lineage::Lineage,
 }
 
 /// How one layer of the forward runs: which kind, and how the kind program's tensor names map onto this
@@ -115,6 +116,9 @@ pub struct StreamedModel {
     /// Where the deployment keeps every program's carried state — the SRAM or HBM/DDR — and what it reserves for the
     /// largest program's own footprint ([`super::residency::plan_deployment`]); every state tensor carries its tier.
     pub residency: super::residency::ResidencyPlan,
+    /// What the embedding program and the head were made from, section by section ([`super::lineage::Lineage`]).
+    pub embed_lineage: Option<super::lineage::Lineage>,
+    pub head_lineage: super::lineage::Lineage,
 }
 
 /// The name layer `to` gives the tensor that layer `from` calls `name`. The hidden-state input is named by
@@ -255,6 +259,8 @@ pub fn layer_kinds(spec: &ModelSpec, source_of: &dyn Fn(usize) -> (String, BTree
             },
             Mixer::GatedDelta(_) => "gated deltanet".to_string(),
             Mixer::Mla(_) => "latent attention".to_string(),
+            Mixer::Recurrent(r) => r.what().to_string(),
+            Mixer::None => "no mixer".to_string(),
         };
         if matches!(layer.ffn, Ffn::Moe(_)) {
             name.push_str(", experts");
@@ -303,8 +309,8 @@ fn lower_certified(
     dense: &BTreeSet<String>,
     tp: Option<&TpManifest>,
     q8: &BTreeSet<String>,
-) -> Result<SpatialProgram, StreamedReject> {
-    lower_certified_carrying(src, target, program, dense, tp, q8).map(|(p, _)| p)
+) -> Result<(SpatialProgram, super::lineage::Lineage), StreamedReject> {
+    lower_certified_carrying(src, target, program, dense, tp, q8).map(|(p, _, lineage)| (p, lineage))
 }
 
 /// [`lower_certified`], and the state the program carries from one step to the next.
@@ -315,22 +321,18 @@ fn lower_certified_carrying(
     dense: &BTreeSet<String>,
     tp: Option<&TpManifest>,
     q8: &BTreeSet<String>,
-) -> Result<(SpatialProgram, BTreeSet<String>), StreamedReject> {
+) -> Result<(SpatialProgram, BTreeSet<String>, super::lineage::Lineage), StreamedReject> {
     let reject = |why: String| StreamedReject {
         program: program.to_string(),
         why,
     };
-    let lowering = match tp {
-        Some(m) => compile_program_to_spatial_tp_agreeing_stored(src, target, m, dense, q8),
-        None => compile_program_to_spatial_agreeing_stored(src, target, dense, q8),
-    }
-    .map_err(|e| reject(format!("{e:?}")))?;
+    let (lowering, lineage) = compile_program_to_spatial_traced(src, target, dense, tp, q8).map_err(|e| reject(format!("{e:?}")))?;
     let carried = lowering.carried.iter().cloned().collect();
     let p = lowering.into_whole().map_err(reject)?;
     if p.certificate.is_none() {
         return Err(reject("the lowering carries no certificate".to_string()));
     }
-    Ok((p, carried))
+    Ok((p, carried, lineage))
 }
 
 /// Lower `spec` as one program per layer kind plus the head, and bind every layer to its kind.
@@ -624,6 +626,10 @@ fn lower_streamed(
     let embed = embed
         .map(|src| lower_certified(&fill(src), target, "embed", &dense, None, &none))
         .transpose()?;
+    let (embed, embed_lineage) = match embed {
+        Some((p, lineage)) => (Some(p), Some(lineage)),
+        None => (None, None),
+    };
     let mut kinds: Vec<LayerKind> = Vec::new();
     let mut layers = Vec::with_capacity(spec.layers.len());
     for l in 0..spec.layers.len() {
@@ -636,7 +642,7 @@ fn lower_streamed(
             Some(k) => k,
             None => {
                 let (src, tp, q8, identity) = generated[l].clone();
-                let (program, carried) = lower_certified_carrying(
+                let (program, carried, lineage) = lower_certified_carrying(
                     &fill(&src),
                     target,
                     &format!("layer {l} ({name})"),
@@ -651,6 +657,7 @@ fn lower_streamed(
                     program,
                     tp,
                     carried,
+                    lineage,
                 });
                 kinds.len() - 1
             }
@@ -669,7 +676,7 @@ fn lower_streamed(
             identity: generated[l].3,
         });
     }
-    let mut head = lower_certified(&fill(head), target, "head", &dense, None, head_q8)?;
+    let (mut head, head_lineage) = lower_certified(&fill(head), target, "head", &dense, None, head_q8)?;
     let mut embed = embed;
     let instances: Vec<usize> = (0..kinds.len())
         .map(|k| layers.iter().filter(|l| l.kind == k).count())
@@ -694,5 +701,7 @@ fn lower_streamed(
         head_identity,
         layers,
         residency,
+        embed_lineage,
+        head_lineage,
     })
 }

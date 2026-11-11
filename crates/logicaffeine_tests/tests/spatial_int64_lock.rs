@@ -12,12 +12,15 @@
 //!   lane operation exact;
 //! - a lane program only ever computes on 32-bit lanes, and the chip's integer width is what decides a lowering is
 //!   needed;
+//! - every program, as the decision fabric's cells, computes its operation on the fabric's 64-bit ALU, each lane kept to
+//!   its 32 bits where the ALU would carry past them;
 //! - the n-gram hash's row ids, computed on 32-bit lanes, equal `model::ngram_hash`'s.
 //!
 //! Run: `cargo nextest run -p logicaffeine-tests --test spatial_int64_lock`
 
 #![cfg(feature = "codegen")]
 
+use logicaffeine_compile::codegen_sva::fabric_rtl::{eval_decision_fabric_heap, DecisionFabric, Src};
 use logicaffeine_compile::model::ngram_hash::NgramHash;
 use logicaffeine_compile::spatial::target::SpatialTarget;
 use logicaffeine_compile::spatial::wide_int::{lower, needs_limbs, prove, prove_program, KernelVerdict, LaneOp, Op64, ProofKind};
@@ -190,6 +193,51 @@ fn a_lane_program_computes_only_on_32_bit_lanes() {
         assert_eq!(program.outputs(), 2, "{op:?}: a 64-bit result is two lanes");
         assert_eq!(program.inputs(), 2 * op.arity(), "{op:?}: each 64-bit operand is two lanes");
     }
+}
+
+/// `op`'s program as decision-fabric cells, run by the fabric's 64-bit ALU on `a` and `b`: each lane the ALU computes,
+/// held to 32 bits, and the 64-bit result they make.
+fn on_the_fabric(op: Op64, a: u64, b: u64) -> u64 {
+    let program = lower(op);
+    let inputs: Vec<Src> = (0..program.inputs()).map(Src::In).collect();
+    let mut cells = Vec::new();
+    let [lo, hi] = program.cells(&inputs, &mut cells);
+    let values: Vec<i64> = [a, a >> 32, b, b >> 32][..program.inputs()].iter().map(|v| i64::from(*v as u32)).collect();
+    let lane = |result: Src| {
+        let fabric = DecisionFabric { n_in: values.len(), cells: cells.clone(), result, escaped_first_return: false };
+        let v = eval_decision_fabric_heap(&fabric, &values, &mut Vec::new());
+        assert!((0..=i64::from(u32::MAX)).contains(&v), "{op:?}({a:#x}, {b:#x}): a lane of {v:#x} is wider than 32 bits");
+        v as u64
+    };
+    lane(lo) | lane(hi) << 32
+}
+
+#[test]
+fn every_program_computes_its_operation_as_fabric_cells_on_a_wider_alu() {
+    // The fabric's ALU wraps at 64 bits, past a lane's 32: an add, a subtract, a product's low half and a left shift
+    // carry past them there (a subtract below zero, a shift of a lane's top bits, the product of two wide lanes), and
+    // each is masked back to its lane.
+    let edges = edge_values();
+    let mut seed = 0x0DDB_1A5E_5BAD_5EEDu64;
+    for op in operations() {
+        let mut cases: Vec<(u64, u64)> = Vec::new();
+        for &a in &edges {
+            for &b in &edges {
+                cases.push((a, b));
+            }
+        }
+        for _ in 0..256 {
+            cases.push((xorshift(&mut seed), xorshift(&mut seed)));
+        }
+        for (a, b) in cases {
+            let (got, want) = (on_the_fabric(op, a, b), op.apply(a, b));
+            assert_eq!(got, want, "{op:?}({a:#x}, {b:#x}) as fabric cells is {got:#x}, its definition {want:#x}");
+        }
+    }
+    // The ALU's wraps the masks undo, each made to happen.
+    assert_eq!(on_the_fabric(Op64::Sub, 0, 1), u64::MAX, "a lane subtracted below zero");
+    assert_eq!(on_the_fabric(Op64::Shl(1), 1 << 31, 0), 1 << 32, "a lane's top bit shifted out of it");
+    assert_eq!(on_the_fabric(Op64::Shl(33), u64::MAX, 0), u64::MAX << 33, "a lane shifted across");
 }
 
 #[test]

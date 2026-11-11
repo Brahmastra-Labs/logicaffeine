@@ -616,6 +616,7 @@ fn golden_lines(
                                     ),
                                     SfpuKind::Silu => format!("(({a}) / (1.0 + std::exp(-({a}))))"),
                                     SfpuKind::Relu => format!("std::fmax(0.0, {a})"),
+                                    SfpuKind::Sign => format!("(double)((({a}) > 0.0) - (({a}) < 0.0))"),
                                     SfpuKind::Ln => {
                                         return Err(SpatialLowerError::Unsupported(
                                             "a golden for a natural-log transform on Tensix",

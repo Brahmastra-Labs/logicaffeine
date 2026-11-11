@@ -89,7 +89,7 @@ fn every_matrix_streams_once_a_step() {
                 let mixer = match l.mixer {
                     Mixer::GatedDelta(_) => 5,
                     Mixer::Attention(_) => 4,
-                    Mixer::Mla(_) => unreachable!("not a qwen35 block"),
+                    Mixer::Mla(_) | Mixer::Recurrent(_) | Mixer::None => unreachable!("not a qwen35 block"),
                 };
                 mixer + 3
             })
@@ -134,7 +134,7 @@ fn each_blocks_state_is_carried_by_its_own_commands() {
             match layer.mixer {
                 Mixer::GatedDelta(_) => assert_eq!((convs, deltas, appends, attends), (1, 1, 0, 0), "{name}: block {l}'s ring and memory"),
                 Mixer::Attention(_) => assert_eq!((convs, deltas, appends, attends), (0, 0, 1, 1), "{name}: block {l}'s cache"),
-                Mixer::Mla(_) => unreachable!("not a qwen35 block"),
+                Mixer::Mla(_) | Mixer::Recurrent(_) | Mixer::None => unreachable!("not a qwen35 block"),
             }
         }
         let advances: Vec<usize> = p.commands.iter().enumerate().filter(|(_, c)| matches!(c, Command::Advance)).map(|(i, _)| i).collect();

@@ -209,6 +209,8 @@ pub fn hand_lowering(spec: &ModelSpec, numerics: EngineNumerics) -> Program {
             Mixer::GatedDelta(gd) => delta(&mut c, l, gd),
             Mixer::Attention(a) => attention(&mut c, l, a, numerics),
             Mixer::Mla(_) => unreachable!("the engine refuses multi-head latent attention"),
+            Mixer::Recurrent(r) => unreachable!("the engine refuses {}", r.what()),
+            Mixer::None => unreachable!("the engine refuses a block with no mixer"),
         }
         c.push(Command::Add { from: Slot::Out, to: Slot::Residual });
         c.push(Command::Norm { weight: format!("blk.{l}.{}.weight", spec.ffn_norm), from: Slot::Residual, to: Slot::Normed });

@@ -10,6 +10,9 @@
 //!   position the host writes;
 //! - a table a row write updates holds its fill's range joined with every row ever written into it. The walk repeats
 //!   until no interval widens, so a cache carried from step to step is closed over its writes;
+//! - a table rows are scattered into holds its range joined with its source's when the last write is kept; one the turns
+//!   are summed into carries the sums from step to step, bounded by nothing. A scatter's indices hold the rows of its
+//!   table, as a gather's do;
 //! - an integer op the analysis does not model writes a value bounded by nothing, the whole of i64 — never by the zero
 //!   its declaration starts it at.
 //!
@@ -123,6 +126,7 @@ fn index_domains(rp: &RecognizedProgram) -> BTreeMap<String, Interval> {
         let (index, rows) = match &st.op {
             TensorOpSpec::RowGather(g) => (named(Some(g.index)), g.rows),
             TensorOpSpec::RowsGather(g) => (Some(rp.name(g.indices).to_string()), g.rows),
+            TensorOpSpec::Scatter(s) => (Some(rp.name(s.indices).to_string()), s.rows),
             TensorOpSpec::SetRow(w) => (named(Some(w.index)), w.rows),
             TensorOpSpec::Attention(a) => (named(a.pos), a.l),
             TensorOpSpec::LutAttention(a) => (named(a.pos), a.l),
@@ -173,6 +177,9 @@ fn op_range(op: &TensorOpSpec, rp: &RecognizedProgram, r: &BTreeMap<String, Inte
         TensorOpSpec::Transpose(t) => of(t.x),
         TensorOpSpec::RowGather(g) => of(g.table),
         TensorOpSpec::RowsGather(g) => of(g.table),
+        // A kept scatter leaves each element its own value or a source row's. A folded one carries what it folds into its
+        // table from step to step, bounded by nothing.
+        TensorOpSpec::Scatter(s) if s.fold.is_none() => Some(join(of(s.table)?, of(s.source)?)),
         TensorOpSpec::ArgMax(a) => Some((1, a.n as i64)),
         // The attended position with the largest score is at distance zero, so it weighs the table's first entry; a
         // first entry of at least one and no negative entry make the divisor positive, and the context — a mean of the

@@ -447,6 +447,21 @@ pub fn pretty_neutral(p: &SpatialProgram) -> String {
     out
 }
 
+/// The file beside a program's `certificate.json` that carries its certificate whole.
+pub const WHOLE_CERTIFICATE_FILE: &str = "certificate.whole.json";
+
+/// A program's certificate whole, as [`WHOLE_CERTIFICATE_FILE`] carries it: everything the independent checker
+/// ([`ChoreographyCertificate::recheck`]) reads.
+pub fn whole_certificate(cert: &ChoreographyCertificate) -> String {
+    format!("{}\n", serde_json::to_string(cert).expect("a certificate serializes"))
+}
+
+/// The certificate [`WHOLE_CERTIFICATE_FILE`] carries, read back — to be rechecked against the program it travels with
+/// ([`ChoreographyCertificate::recheck`]), nothing re-derived.
+pub fn parse_certificate(json: &str) -> Result<ChoreographyCertificate, String> {
+    serde_json::from_str(json).map_err(|e| format!("the whole certificate does not read back: {e}"))
+}
+
 /// Parse a `logos.spatial.neutral` artifact (v1 or v2, spatial lane) back into the program it describes.
 pub fn parse_neutral(json: &str) -> Result<SpatialProgram, String> {
     let v: Value = serde_json::from_str(json).map_err(|e| e.to_string())?;

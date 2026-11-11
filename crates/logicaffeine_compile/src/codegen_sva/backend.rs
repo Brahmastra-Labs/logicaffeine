@@ -10,7 +10,7 @@
 use super::fabric_grid::{emit_config_grid_verilog, emit_grid_verilog, Grid};
 use super::fabric_rtl::FabricOp;
 use super::fabric_target::FabricTarget;
-use super::pnr_certificate::{certify_external_placement, PlacementCertificate};
+use super::pnr_certificate::{certify_external_placement, recheck_external_placement, PlacementCertificate, PlacementFault};
 use crate::spatial::lower::rdu::{neutral_envelope, GridBody, NeutralBody, GATED_REASON};
 use crate::spatial::rdu_chip::{RduChip, RduChipFacts};
 
@@ -60,7 +60,21 @@ pub trait TargetBackend {
         result: usize,
         width: u32,
     ) -> Option<PlacementCertificate> {
-        certify_external_placement(g, source, result, width)
+        let cert = certify_external_placement(g, source, result, width)?;
+        self.recheck(&cert, g, source, result, width).ok()?;
+        Some(cert)
+    }
+    /// The reader's side of [`Self::certify`]: `cert` held to the obligation rebuilt from the placement `g` and its
+    /// `source`, never to the formula it carries, the refusal naming this backend and the placement.
+    fn recheck(
+        &self,
+        cert: &PlacementCertificate,
+        g: &Grid,
+        source: &[FabricOp],
+        result: usize,
+        width: u32,
+    ) -> Result<(), PlacementFault> {
+        recheck_external_placement(cert, g, source, result, width).map_err(|f| f.within(self.name()))
     }
 }
 

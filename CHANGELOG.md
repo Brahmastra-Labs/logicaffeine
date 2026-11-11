@@ -66,6 +66,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   another input when it runs — the clock, the console, a file — is still refused by name, as is the offline
   specializer's first projection of a program that reads its arguments (`futamura_arguments_lock`,
   `futamura_textbook_lock`; `logicaffeine_compile`).
+- **Every architecture of the Samba book's third tier is read from its GGUF and its Hugging Face directory.**
+  Mistral 3 and Ministral 3 (the attention temperature on every layer, positions counted from zero, YaRN; the
+  multimodal releases read as their text models), PhiMoE (its LayerNorms, sparsemixer routing of two experts and its
+  window, as transformers computes them), DeepSeek-V3.2's and GLM-5's indexed sparse attention, LFM2, Mamba-2,
+  Falcon-H1, Nemotron-H, Jamba, Gemma 3n, Gemma 4, Kimi-Linear, MiniMax-Text-01 and MiniMax-M1, and RWKV-7 (both its
+  flash-linear-attention and its Hugging Face configurations): each arm reads its checkpoint as llama.cpp's converter
+  writes it, its tokenizer as the `tokenizers` library encodes, and its published configurations by name, and refuses
+  by name every setting its GGUF cannot carry. On a tiny random twin of each family the f64 reference computes
+  transformers' own forward within a millionth (RWKV-7, which transformers does not hold, llama.cpp's), and perturbing
+  each family's own part moves the logits far past that (`model_hf_intake_lock`, `model_tiny_checkpoint_lock`). Where
+  llama.cpp computes otherwise than the model's own code an arm follows the model, and says so: a latent attention's
+  latent norms take the publishers' 1e-6 whatever the model's epsilon (GLM-5, Kimi-K2-0905 and -Thinking, Kimi-Linear).
+  The author, the decode engine and the CUDA lanes refuse the new mixers and feed-forwards by name. A Mamba-2 or RWKV-7
+  GGUF, whose blocks hold no attention, no longer divides by a head count of zero.
+- **An op nobody has written a sugar or a kernel for runs on the spatial chips on its first compile.** A counted
+  loop the program writes is lifted by what its turns compute together: a scatter of rows with repeated indices, the
+  last write kept or every write summed; a map of every element of a tensor through scalar arithmetic, the library's
+  functions, the program's own functions and branches (a novel activation, a hand-written attention mask, a router's
+  scores); and a recurrence along the outer loop, lowered turn by turn or, linear in its carry, as a chunked scan.
+  Each lowers on the SN50 as one section and computes what the VM prints (`spatial_scatter_lock`,
+  `spatial_written_map_lock`, `samba_exam_agility_lock`); the time from such an op to its fused, certified section is a
+  measured row of the Samba cell ledger (`agility_s`).
+- **Every RDU bundle reports what its compiler did, and its certificates hold to the program.** Each program
+  directory carries `report.json` (every fusion decision with its outcome: `fired`, `fired, run apart` with the
+  sections it runs in, or the rule that refused it; each section's PCU, PMU and SRAM use against the chip's) and
+  `certificate.whole.json`, the certificate an independent checker rechecks. A SAT refutation in a certificate is held
+  to its stage's own obligation, rebuilt from the program, so a sound refutation of another formula is refused naming
+  the stage, in the choreography certificate and in a vendor placement read back. `largo emit rdu --cache DIR` compiles
+  through a section cache: a new batch, context or chip compiles only the sections it changes, the bundle byte for
+  byte the one an uncached compile writes (`samba_exam_fusion_report_lock`, `samba_exam_unit_use_lock`,
+  `samba_exam_certificate_lock`, `samba_exam_recompile_lock`).
+
+
+
 
 ### Changed
 
@@ -104,6 +138,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   measured on the value engine above, checks Mathlib in 402.37 G instructions at a 7.88 GiB peak (from 409.15 G and
   9.06 GiB), navier-stokes-euler at 3.72 GiB (from 4.16), cslib at 4.47 (from 4.59), `std` at 2.83 (from 2.98) and
   `init` at 2.72 (from 2.84), every verdict correct and first on 234 of the 247 tests.
+- **The SN40L and SN50 hold fp32 islands beside bf16 products.** Each PCU SIMD stage computes in FP32, BF16
+  and INT32 (published for the SN40L, modeled on the SN50), so norms, softmaxes, the logits an arg-max reads, routers
+  and a gated delta rule's carried state run at fp32 while every product stays on the matrix path's bf16 and int8; a
+  key or value cache is held at the products' bf16, rounded once on its way in. The SN50's drift from the f64
+  reference falls to Tenstorrent Wormhole's, and a 4,096-token repetition decodes as the reference does
+  (`samba_exam_numerics_lock`, `spatial_mixed_precision_lock`).
+- **`largo emit rdu --tp` takes every tensor-parallel width the author writes**: heads in balanced runs where the
+  width divides none (24, 40 or 56 heads over 16 chips); a width the author cannot write is refused with its reason, and
+  the vLLM-format plan keeps vLLM's divisibility rule.
+
+
 
 ### Fixed
 

@@ -2248,6 +2248,8 @@ pub struct RduArtifact {
     pub neutral_json: String,
     pub placement_txt: String,
     pub certificate_json: String,
+    /// The certificate whole, for the independent checker (`None` for a lane whose certificate is no choreography's).
+    pub whole_certificate_json: Option<String>,
     pub report_json: String,
     pub spatial_source: Option<String>,
     /// The SDK-gated artifact itself, for a bridge to ingest (`None` for a lane whose envelope carries no
@@ -2274,6 +2276,24 @@ pub struct RduProgramFiles {
     pub neutral_json: String,
     pub placement_txt: String,
     pub certificate_json: String,
+    /// The program's certificate whole, what the independent checker rechecks against the program
+    /// ([`crate::spatial::lower::rdu::parse_certificate`]).
+    pub whole_certificate_json: String,
+    /// The program's report section by section ([`crate::spatial::lower::rdu_report::program_report`]).
+    pub report_json: String,
+}
+
+impl RduProgramFiles {
+    /// The files of the program's directory, by name: what every writer of a bundle writes under [`Self::dir`].
+    pub fn files(&self) -> [(&'static str, &str); 5] {
+        [
+            ("neutral.json", &self.neutral_json),
+            ("placement.txt", &self.placement_txt),
+            ("certificate.json", &self.certificate_json),
+            (crate::spatial::lower::rdu::WHOLE_CERTIFICATE_FILE, &self.whole_certificate_json),
+            ("report.json", &self.report_json),
+        ]
+    }
 }
 
 pub const RDU_STREAMED_MANIFEST_SCHEMA: &str = "logos.rdu.streamed_manifest";
@@ -2475,7 +2495,8 @@ pub fn compile_model_to_rdu_streamed(
     };
 
     let mut render = |dir: &str,
-                      program: &crate::spatial::ir::SpatialProgram|
+                      program: &crate::spatial::ir::SpatialProgram,
+                      lineage: Option<&crate::spatial::lineage::Lineage>|
      -> Result<(u64, bool), String> {
         let artifact = match RduSpatialBackend::with_facts(facts.clone()).lower(program) {
             Ok(SpatialArtifact::SdkGated(a)) => a,
@@ -2498,6 +2519,8 @@ pub fn compile_model_to_rdu_streamed(
             neutral_json: artifact.json,
             placement_txt: artifact.pretty,
             certificate_json: format!("{}\n", serde_json::to_string_pretty(&cert).expect("JSON")),
+            whole_certificate_json: crate::spatial::lower::rdu::whole_certificate(&artifact.certificate),
+            report_json: crate::spatial::lower::rdu_report::program_report(program, digest, lineage, &facts),
         })
         .map_err(|e| format!("rdu backend: writing {dir}: {e}"))?;
         Ok((digest, rechecked))
@@ -2505,7 +2528,7 @@ pub fn compile_model_to_rdu_streamed(
 
     let embed = match &model.embed {
         Some(p) => {
-            let (digest, rechecked) = render("embed", p)?;
+            let (digest, rechecked) = render("embed", p, model.embed_lineage.as_ref())?;
             let program = model.embed_identity.map(|id| id.line());
             Some(
                 serde_json::json!({ "dir": "embed", "program": program, "schedule_digest": format!("{digest:016x}"), "rechecked": rechecked, "tensors": bindings(p, &|n| n.to_string(), None, &none) }),
@@ -2516,14 +2539,14 @@ pub fn compile_model_to_rdu_streamed(
     let mut kinds = Vec::new();
     for k in &model.kinds {
         let dir = k.name.replace(' ', "_");
-        let (digest, rechecked) = render(&dir, &k.program)?;
+        let (digest, rechecked) = render(&dir, &k.program, Some(&k.lineage))?;
         kinds.push(serde_json::json!({
             "name": k.name, "dir": dir, "representative_layer": k.representative, "program": k.identity.line(),
             "schedule_digest": format!("{digest:016x}"), "rechecked": rechecked,
             "sections": k.program.sections.len(), "stages": k.program.stages.len(),
         }));
     }
-    let (head_digest, head_rechecked) = render("head", &model.head)?;
+    let (head_digest, head_rechecked) = render("head", &model.head, Some(&model.head_lineage))?;
     let layers: Vec<serde_json::Value> = model
         .layers
         .iter()
@@ -2708,7 +2731,7 @@ pub fn compile_to_rdu(
         first_function, lane_of, lower_loop_lane, lower_whole_program_lane,
     };
     use crate::spatial::passes::SpatialReject;
-    use crate::spatial::pipeline::compile_program_to_spatial;
+    use crate::spatial::pipeline::compile_program_to_spatial_traced;
     fn custom(msg: String) -> ParseError {
         ParseError {
             kind: crate::error::ParseErrorKind::Custom(msg),
@@ -2726,8 +2749,8 @@ pub fn compile_to_rdu(
         // program was `matmul_1x4x8`, one q-projection, with nothing saying so. A partial lowering
         // reported as a whole one is the single failure this campaign cannot ship: the people reading
         // these bundles design the chip, and they will ask what it covers.
-        RduLane::Tensor => match compile_program_to_spatial(source, &target) {
-            Ok(lowering) => match lowering.program.as_ref() {
+        RduLane::Tensor => match compile_program_to_spatial_traced(source, &target, &Default::default(), None, &Default::default()) {
+            Ok((lowering, lineage)) => match lowering.program.as_ref() {
                 Some(program) => {
                     let coverage = serde_json::json!({
                         "whole_program": true,
@@ -2736,7 +2759,7 @@ pub fn compile_to_rdu(
                         "sections": lowering.sections,
                         "state_tensors": lowering.state,
                     });
-                    lower_rdu_spatial(program, chip, &facts, RduLane::Tensor, Some(coverage)).map_err(custom)
+                    lower_rdu_spatial(program, chip, &facts, RduLane::Tensor, Some(coverage), Some(&lineage)).map_err(custom)
                 }
                 None => {
                     let first: Vec<String> = lowering
@@ -2767,7 +2790,7 @@ pub fn compile_to_rdu(
             Ok(loop_lane_artifact(art, chip, &facts))
         }
         RduLane::WholeProgram => match lower_whole_program_lane(source, chip) {
-            Ok(program) => lower_rdu_spatial(&program, chip, &facts, RduLane::WholeProgram, None).map_err(custom),
+            Ok(program) => lower_rdu_spatial(&program, chip, &facts, RduLane::WholeProgram, None, None).map_err(custom),
             Err(reject) => {
                 let loop_verdict = match first_function(source) {
                     Some((name, _)) => match counted_loop_fabric(source, &name) {
@@ -2850,6 +2873,7 @@ fn loop_lane_artifact(
         neutral_json: serde_json::to_string(&envelope).expect("the loop envelope serializes"),
         placement_txt: art.pretty,
         certificate_json: art.certificate_json,
+        whole_certificate_json: None,
         report_json: pretty(&report),
         spatial_source: Some(art.spatial_source),
         neutral: None,
@@ -2866,6 +2890,7 @@ fn lower_rdu_spatial(
     facts: &crate::spatial::rdu_chip::RduChipFacts,
     lane: RduLane,
     coverage: Option<serde_json::Value>,
+    lineage: Option<&crate::spatial::lineage::Lineage>,
 ) -> Result<RduArtifact, String> {
     use crate::spatial::fit::{
         CertificateSummary, ChipBlock, IiBlock, ProgramSummary, HONESTY, PROVENANCE_MODELED,
@@ -2918,7 +2943,7 @@ fn lower_rdu_spatial(
     };
     let pretty =
         |v: &serde_json::Value| format!("{}\n", serde_json::to_string_pretty(v).expect("JSON"));
-    let report = serde_json::json!({
+    let mut report = serde_json::json!({
         "schema": RDU_EMIT_REPORT_SCHEMA,
         "version": 1,
         "provenance": PROVENANCE_MODELED,
@@ -2938,12 +2963,16 @@ fn lower_rdu_spatial(
         "notes": notes,
         "chip_facts": ChipBlock::of(facts),
     });
+    if let Some(fields) = report.as_object_mut() {
+        fields.extend(crate::spatial::lower::rdu_report::section_report(program, lineage, facts));
+    }
     Ok(RduArtifact {
         chip: chip.as_str(),
         lane,
         neutral_json: artifact.json.clone(),
         placement_txt: artifact.pretty.clone(),
         certificate_json: pretty(&certificate),
+        whole_certificate_json: Some(crate::spatial::lower::rdu::whole_certificate(&artifact.certificate)),
         report_json: pretty(&report),
         spatial_source,
         neutral: Some(artifact),

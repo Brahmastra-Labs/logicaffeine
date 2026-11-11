@@ -85,7 +85,7 @@ fn weights_of(spec: &ModelSpec) -> (Vec<(String, Binding, bool)>, BTreeMap<Strin
 /// declared rows.
 fn transposes(view: &View) -> bool {
     match view {
-        View::Same => false,
+        View::Same | View::Dilated { .. } => false,
         View::Transposed | View::HeadBlocks { .. } => true,
         View::NeoxPairs { transpose, .. } | View::RowRange { transpose, .. } | View::HeadPart { transpose, .. } => *transpose,
         View::FusedPart { bias, .. } => !bias,

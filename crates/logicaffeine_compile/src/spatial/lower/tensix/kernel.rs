@@ -605,7 +605,7 @@ fn compute_includes(ops: &[ChoreoOp]) -> Vec<&'static str> {
                             need("api/compute/eltwise_unary/rsqrt.h", out);
                             need("api/compute/eltwise_unary/binop_with_scalar.h", out);
                         }
-                        SfpuKind::Silu | SfpuKind::Relu => {
+                        SfpuKind::Silu | SfpuKind::Relu | SfpuKind::Sign => {
                             need("api/compute/compute_kernel_api.h", out)
                         }
                         // Refused by `emit_sfpu`; there is no header to pull for it.
@@ -813,6 +813,7 @@ fn emit_sfpu(e: &mut Emitter, kind: SfpuKind, tiles: usize) -> Result<(), Spatia
         SfpuKind::Rsqrt { .. } => ("rsqrt_tile_init", "rsqrt_tile"),
         SfpuKind::Silu => ("silu_tile_init", "silu_tile"),
         SfpuKind::Relu => ("relu_tile_init", "relu_tile"),
+        SfpuKind::Sign => ("sign_tile_init", "sign_tile"),
         SfpuKind::Ln => {
             return Err(SpatialLowerError::Unsupported(
                 "a natural-log SFPU transform on Tensix (no log_tile sequence is printed)",

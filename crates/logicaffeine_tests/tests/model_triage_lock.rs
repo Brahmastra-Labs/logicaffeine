@@ -3,9 +3,9 @@
 //!
 //! The checkpoint is read under every architecture an arm of `ModelSpec::from_source` reads — the names its match
 //! arms carry, read from its source. A reading whose decode step reads exactly the checkpoint's tensors names a family
-//! the checkpoint carries under another name — Llama's, Qwen2's and Qwen3's tensors are alike and only their names
-//! choose the rotation's pairing, so a Llama-shaped checkpoint names all three; every other tiny family is the one
-//! reading that fits. With no exact reading the refusal names the nearest and the tensors it lacks and leaves unread.
+//! the checkpoint carries under another name — Llama's, Qwen2's, Qwen3's, Gemma's, GLM-4's, Phi-3's, MiniCPM's and
+//! Mistral 3's tensors are alike and only their names and keys choose the rotation's pairing, the activation, the
+//! multipliers and the temperature, so a Llama-shaped checkpoint names all eight; every other tiny family is the one reading that fits. With no exact reading the refusal names the nearest and the tensors it lacks and leaves unread.
 //! The whole triage of a checkpoint takes well under a second.
 //!
 //! Run: `cargo nextest run -p logicaffeine-tests --cargo-profile test-opt --test model_triage_lock`
@@ -49,13 +49,22 @@ fn renamed(spec: &ModelSpec, arch: &str, keep: &dyn Fn(&str) -> bool, extra: &[&
 /// The architectures whose arms read exactly `t`'s tensors.
 fn readers(t: Tiny) -> BTreeSet<&'static str> {
     match t {
-        Tiny::Llama | Tiny::LlamaTied | Tiny::Qwen3 => ["llama", "qwen2", "qwen3"].into(),
-        // `llama` reads a checkpoint that counts experts as Mixtral's, and a QK-norm where its tensors are.
-        Tiny::Qwen3Moe => ["llama", "qwen3moe"].into(),
+        Tiny::Llama | Tiny::LlamaTied | Tiny::Qwen3 => ["gemma", "glm4", "llama", "minicpm", "mistral3", "phi3", "qwen2", "qwen3"].into(),
+        // `llama` reads a checkpoint that counts experts as Mixtral's, and a QK-norm where its tensors are; MiniMax-M2's
+        // mixture reads the same experts and router.
+        Tiny::Qwen3Moe => ["llama", "minimax-m2", "qwen3moe"].into(),
         Tiny::Qwen35 => ["qwen35"].into(),
-        Tiny::Gemma3 => ["gemma3"].into(),
+        // Gemma 2's and GLM-4's sandwich norms are Gemma 3's tensors too.
+        Tiny::Gemma3 => ["gemma2", "gemma3", "glm4"].into(),
         Tiny::GptOss => ["gpt-oss"].into(),
         Tiny::DeepSeek2 | Tiny::DeepSeek2Split => ["deepseek2"].into(),
+        // Granite's arm reads Llama's tensors wherever the checkpoint carries the logit scale it requires.
+        Tiny::Granite | Tiny::MiniCpm => ["gemma", "glm4", "granite", "llama", "minicpm", "mistral3", "phi3", "qwen2", "qwen3"].into(),
+        Tiny::Arcee => ["arcee"].into(),
+        // Gemma 3's and GLM-4's arms read a QK-norm only where its tensors are.
+        Tiny::Gemma2 => ["gemma2", "gemma3", "glm4"].into(),
+        // Every other arm norms before each sublayer.
+        Tiny::Olmo2 => ["olmo2"].into(),
     }
 }
 

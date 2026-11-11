@@ -999,6 +999,10 @@ pub enum SfpuKind {
     /// The natural logarithm — the inverse of `Exp`, which no composition of the others reaches. The
     /// GDN decay `(1+e^u)^R` is `exp(R·ln(1+e^u))`: a real power needs a real log.
     Ln,
+    /// `1` above zero, `−1` below it and `0` at it — a comparison, which no composition of the others reaches exactly:
+    /// `x / |x|` divides by zero at zero, and a clamp of `x·K` is a sign only above `1/K`. One SFPU instruction on
+    /// Tensix (`sign_tile`); a compare and a mux on a PCU.
+    Sign,
 }
 
 /// The pooling function of a reduction (over whichever axis is marked [`IterKind::Reduce`]).
@@ -2019,6 +2023,13 @@ pub enum IrViolation {
     ArgMaxOutputNotInteger {
         stage: StageId,
         found: Precision,
+    },
+    /// A `Generic` whose parallel row axis is longer than a tile's rows: a page holds a tile's rows, so a row past them
+    /// lands on an earlier one.
+    GenericRowsPastTile {
+        stage: StageId,
+        rows: usize,
+        tile_rows: usize,
     },
     /// A tensor role used outside the contract that gives it meaning; `until` names the phase that
     /// owns that contract (`B-P7` sections for an activation, `B-P6` the cross-token carry for state).
@@ -3731,6 +3742,12 @@ impl SpatialProgram {
                         }
                     }
                 }
+                // ★ A PAGE HOLDS A TILE'S ROWS. A point's row lands at tile row `r mod rows`, so a parallel row axis
+                // longer than the tile writes two rows into one place: refused where every backend's program is
+                // checked, not first where an evaluator meets it.
+                if let Some(r) = iters.first().filter(|r| matches!(r.kind, IterKind::Parallel) && r.extent > self.tile.rows) {
+                    return Err(IrViolation::GenericRowsPastTile { stage: s.id, rows: r.extent, tile_rows: self.tile.rows });
+                }
             }
         }
         Ok(())
@@ -3882,21 +3899,36 @@ impl SpatialProgram {
         // ★ A COMPOSED PROGRAM'S PLAN IS ITS LAST SECTION'S, so it is held to that section's result and that section's
         // items — not to the first result the program has, nor to every section's items. A program whose every
         // effect is an update of carried state (a table written row by row) has no `Output` to stand in for it.
+        //
+        // ★ A RESULT WRITTEN IN PARTS BY SEVERAL SECTIONS IS WHOLE ONLY ACROSS THEM. A last section whose items write a part
+        // of it — the heads past the last whole group of a packing, after the groups' section — is held to its items'
+        // blocks, as an update of carried state is.
         let last = self.sections.len().checked_sub(1);
-        let items = match last.and_then(|k| self.sections.get(k)) {
-            Some(sp) => sp.items.1 - sp.items.0,
-            None => self.work.items.len(),
+        let (first, end) = match last.and_then(|k| self.sections.get(k)) {
+            Some(sp) => sp.items,
+            None => (0, self.work.items.len()),
         };
+        let items = end - first;
         if let Some(out) = self.section_result(last) {
+            let blocks = (1, items);
             let expected = if out.role.is_fully_covered() {
                 (
                     out.tiles.rows_t.div_ceil(p.per_site_m),
                     out.tiles.cols_t.div_ceil(p.per_site_n),
                 )
             } else {
-                (1, items)
+                blocks
             };
-            if p.grid != expected {
+            let in_part = || {
+                let mut written = vec![false; out.tiles.count()];
+                for tile in self.work.items[first..end].iter().flat_map(|it| it.out.tiles(out.tiles.cols_t)) {
+                    if let Some(w) = written.get_mut(tile) {
+                        *w = true;
+                    }
+                }
+                written.contains(&false)
+            };
+            if p.grid != expected && !(p.grid == blocks && out.role.is_fully_covered() && in_part()) {
                 return Err(IrViolation::GridMismatch {
                     expected,
                     found: p.grid,

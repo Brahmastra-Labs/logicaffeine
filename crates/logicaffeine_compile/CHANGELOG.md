@@ -49,6 +49,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   textbook projection, the resident-server and the cdylib engines) calls it.
 - `core_operators::guards_source`: `peGuardCondition`, the finishing pass's reading of the operator table's guards,
   generated into `pe_source.logos` between `GUARDS_BEGIN` and `GUARDS_END` and locked to the table.
+- `model::spec::Mixer::Recurrent` (`ShortConv`, `Ssd`, `Selective`, `Parallel`, `DeltaAttention`, `Lightning`,
+  `Rwkv7`) and `Mixer::None`; `Ffn::None`, `Ffn::ChannelMix` and `Ffn::DenseAndMoe`; `ModelSpec::norm`, `head_bias`
+  and `parts`; `Temperature::offset`; `Mla::rope` an `Option` and `Mla::latent_norm_eps` (`MLA_LATENT_NORM_EPS`);
+  `Gating::SparseMixer`. `model::hf` reads the new families' keys, tensors and tokenizers (vendored MiniMax-M1 and RWKV
+  World chat templates) and Python's non-finite floats in either spelling; `model::reference` computes every new
+  mixer and part; `model::author` writes a latent norm's own epsilon where it is not the model's.
+- `tensor_recognize::qwen::recognize_scatter` and `tensor_recognize::map::recognize_map` lift a counted loop by what
+  its turns compute together (`TensorOpSpec::Scatter`, `TensorOpSpec::Map`, its recurrent kind `Scan`);
+  `spatial::passes::from_qwen_ops::{from_scatter, from_map}` lower them (an owner-computes rewrite of the carried
+  table; `Generic` stages, a recurrence stepped or as a chunked scan); `tensor_graph::eval` evaluates both as the VM
+  runs the loops; `spatial::value_range` ranges a scatter; the CUDA lanes and the decode engine refuse them by name.
+- `spatial::lower::rdu_report::program_report`; `compile::RduProgramFiles::{whole_certificate_json, report_json,
+  files}`; `spatial::lineage::Lineage::runs_apart`; `spatial::certificate::{compute_obligation, checked, RecheckFault}`;
+  `codegen_sva::pnr_certificate::{Obligation, PlacementCertificate::{carries, refutes}}`, every reader of an external
+  placement rebuilding its obligation before it replays the proof; `spatial::compile_cache`, the section cache.
+
+
+
 
 ### Changed
 
@@ -118,6 +136,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   constructor per shape the specializer met, whose fields are that shape's run-time parts. A residual `Inspect` on
   the sum opens it to the shape each arm knows, and the arms of a residual `Inspect` merge by shape as an `If`'s
   branches do, so a variant set under a run-time branch compiles to the program's own branches at no dispatch.
+- `spatial::passes::from_qwen_ops` is one file per op family (`attention`, `convolution`, `experts`, `gathers`,
+  `ngram`, `pointwise`, `products`, `recurrent`, `relayout`, `rope`, `rows`, `shape`, `written`) over the shared
+  builders it keeps; `tensor_graph::fuse` filters each candidate join by its ops' kinds and shapes before the dataflow
+  check, so a graph of 10,000 nodes compiles in time linear in its size; `spatial::fit::admits_tp` is the author's rule
+  (`author::check_tp`) and `serving_admits_tp` vLLM's.
+- `RduChipFacts::simd` records each SIMD stage's formats; the RDU target's elementwise and row-reduce units take
+  them; `from_qwen_ops::cache_precision` holds a key or value cache at the products' narrowest float, and the set-row
+  forms write a cache at that width.
+
+
 
 ### Fixed
 

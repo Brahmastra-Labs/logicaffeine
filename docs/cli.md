@@ -80,6 +80,8 @@ The full subcommand set (from the `Commands` enum in `cli.rs`):
 | `largo opts <file> [--json]` | Report which optimizations fired for a file, and which enabled or preempted which |
 | `largo replay <bundle> [--verify]` | Re-run a recorded `.replay` bundle and report reproduced, fixed, or diverged |
 | `largo bringup <checkpoint> [--target <chips>] [--ctx <n>] -o <dir>` | Bring a model up on every chip from its one program: the CUDA lane, the D5005 decode engine, the SN50 |
+| `largo drop <checkpoint> [--ctx <n>] [--prompt <ids>] [--tokens <n>] [--fetch-weights] -o <dir>` | Write a self-checking SN50 drop: the decode bundle, its weights, the goldens our evaluator decodes, and the sha256 of every file |
+| `largo check-drop <dir> [--weights <checkpoint>]` | Verify a drop: every digest, every program's certificate, every golden decoded again bit for bit |
 | `largo expand <file>` | Show what an LGX page became: the functions its components, actions and routes lower to |
 
 **Agents**
@@ -349,7 +351,7 @@ the target:
 | `cuda` | A single-file CUDA program: `logos_cuda.cu` (the kernel and its host launcher), a `Makefile` and `logos_oracle.c`; bare, the `.cu` |
 | `analog` | A mixed-signal bundle for a modeled FPAA: `netlist.sp` (a behavioral ngspice netlist), `schedule.json` (the gain schedule), `budget.json` (the itemized error budget) and `cert.json` (the per-net range certificate); bare, the netlist |
 | `plasticine` | An open reconfigurable-dataflow bundle for the first function, a counted loop: `Logos_<fn>.scala` (Spatial source), `Logos_<fn>_test.scala` (the same loop as a regression-harness app checking the VM's answer), `placement.json` and `report.json` (the modeled report row); bare, the Spatial source |
-| `rdu` | The SambaNova RDU: a certified neutral placement, SDK-gated for the vendor config — `neutral.json`, `placement.txt`, `certificate.json`, `report.json`, plus the `--format`'s files; bare, the placement text (or the format's artifact) with the lane and chip on stderr |
+| `rdu` | The SambaNova RDU: a certified neutral placement, SDK-gated for the vendor config — `neutral.json`, `placement.txt`, `certificate.json`, `certificate.whole.json` (what an independent checker rechecks), `report.json` (each fusion decision's outcome — `fired`, `fired, run apart` with the sections it runs in, or the rule that refused it — and each section's unit and SRAM use), plus the `--format`'s files; bare, the placement text (or the format's artifact) with the lane and chip on stderr |
 
 The `tenstorrent` and `cuda` bundles carry `logos_oracle.c`: the program's C-tier translation that
 the device code is derived from, buildable on the host as the reference answer.
@@ -366,8 +368,9 @@ target:
 | `--model <model>` | Lower a whole model instead of a file: `qwen38` (Qwen3.8-27B, every layer), `qwen38-tiny`, `qwen38-mini` (the tiny shape with heads that split over two or four chips), or a Qwen3.5/3.8 checkpoint's `.gguf`, whose program is read from the checkpoint. One certified program per layer kind (a directory each holding `neutral.json`, `placement.txt` and `certificate.json`) plus the head, the model constants, `program.lg` (the model's program the bundle deploys) and a `manifest.json` binding every layer and naming the cut of the program each part was lowered from (`LOGOS program: <cut>, sha256 <hex>`). Needs `-o DIR`, takes no file |
 | `--ctx <n>` | With `--model`: the decode deployment with a KV cache of `n` positions — an embedding program, layer kinds whose attention appends to and reads the cache, and a head that emits the next token. Without it the bundle is the authored forward |
 | `--batch <n>` | With `--model --ctx`: `n` sequences per decode step, every weight read once for all of them; `auto` takes the most sequences whose per-step working set stays in a chip's SRAM. The default is one |
-| `--tp <n>` | With `--model --ctx`: tensor-parallel over `n` chips, each with its own heads, FFN columns and weight slice; `n` must split the model's heads (Qwen3.8-27B: 1, 2, 4 or 8). `auto` takes the widest width the heads admit within the chip's scale-up domain. The default is one chip |
+| `--tp <n>` | With `--model --ctx`: tensor-parallel over `n` chips, each with its own heads, FFN columns and weight slice; `n` is any width the author writes the model at, heads in balanced runs where `n` divides none (Qwen3.8-27B's 24 heads over 16 chips); a width the author cannot write is refused with its reason. `auto` takes the widest width the heads admit within the chip's scale-up domain. The default is one chip |
 | `--prefill <n>` | With `--model --ctx`: prefill a chunk of `n` prompt tokens of one sequence per step, into the decode bundle's state; `n` must not exceed the context, and a prefill bundle is one sequence on one chip |
+| `--cache <dir>` | Compile through the section cache in `<dir>`: every section an earlier compile there passed is reused, so a new batch, context or chip compiles only the sections it changes, and the bundle is byte for byte the one an uncached compile writes. Stderr says how many sections were compiled and how many reused |
 
 ```bash
 largo emit rust                       # generated Rust on stdout
@@ -425,6 +428,36 @@ largo bringup llama.gguf --target cuda --ctx 1024 -o llama/
 largo bringup qwen3.5-0.8b.gguf --target cuda --run --golden benchmarks/models/qwen3.5-0.8b/golden-f32.json -o qwen35/
 largo bringup models/qwen3.5-0.8b/hf --target vm,sn50 -o qwen35-hf/
 largo bringup qwen3.5-0.8b.gguf --target jit,c --run --golden benchmarks/models/qwen3.5-0.8b/golden-f32.json --prompts all -o qwen35/
+```
+
+### `drop`
+
+Writes a drop of a checkpoint for the SN50 that proves itself on a machine with only `largo`. Under `<dir>/bundle/` it
+writes the certified decode bundle `largo emit rdu --model <checkpoint> --ctx <n>` writes (a program per layer kind,
+the embedding and the head, each beside its certificate, `manifest.json` and `program.lg`) and the checkpoint whose
+weights the manifest binds, under `bundle/weights/`. It then decodes the golden: the prompt (`--prompt`, token ids from
+0, `5,17,2,30` unless given) and `--tokens` more (8 unless given), on the spatial evaluator from an empty state, a decode
+step a token, each weight read through the binding its program was authored with. `drop.json` records the tokens, the
+sha256 of the last step's logits, the f64 reference's tokens beside them, and the sha256 of every file of the drop.
+`--fetch-weights` records the checkpoint's sha256 in place of carrying it. `--ctx` is 64 unless given.
+
+```bash
+largo drop qwen3.5-0.8b.gguf --ctx 64 --prompt 5,17,2 --tokens 8 -o qwen35-drop/
+largo drop qwen3.5-0.8b.gguf --ctx 64 --fetch-weights -o qwen35-drop/
+```
+
+### `check-drop`
+
+Verifies a drop `largo drop` wrote. Every file is held to the sha256 `drop.json` records, and a file missing, extra or
+changed is refused by name; every program is parsed and certified again, and its schedule digest held to the one the
+manifest records, so a program changed and digested again is refused by its certificate; and every golden is decoded
+again on the spatial evaluator and its tokens and its logits' sha256 held to the drop's, bit for bit. A drop that
+fetches its weights reads them from `--weights`, refusing a checkpoint whose sha256 is not the one recorded. It prints
+what it verified, or exits non-zero naming the file, the program or the golden that failed.
+
+```bash
+largo check-drop qwen35-drop/
+largo check-drop qwen35-drop/ --weights qwen3.5-0.8b.gguf
 ```
 
 ### `expand`

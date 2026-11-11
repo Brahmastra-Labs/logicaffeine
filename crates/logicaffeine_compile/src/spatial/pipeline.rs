@@ -3,7 +3,7 @@
 use super::ir::*;
 #[allow(unused_imports)]
 use super::ir::{BlockPlan, EnginePacking};
-use super::link::{dense_tables, link, Form, Prelude};
+use super::link::{dense_tables, link, Agreed, Form, Prelude};
 use super::passes::from_tensor_op::{from_matmul, MatmulNames};
 use super::passes::recognize_stages::{float_tensors, links, state_tensors, Link, TensorOpSpec};
 use super::passes::{
@@ -124,31 +124,36 @@ pub fn run_passes_uncertified(
     run_pass_list(p, target, before)
 }
 
+/// `passes` over `p` in order, each result validated — through the thread's compile cache
+/// ([`super::compile_cache`]), which holds what a list made of a template an earlier compile handed it.
 fn run_pass_list(
     p: SpatialProgram,
     target: &SpatialTarget,
     passes: &[(&str, Pass)],
 ) -> Result<SpatialProgram, SpatialReject> {
-    let mut cur = p;
-    let tr = std::env::var("LOGOS_PASS_TIME").is_ok() && cur.name.contains("gd_");
-    for (name, pass) in passes {
-        let t0 = std::time::Instant::now();
-        cur = pass(&cur, target)?;
-        let dt = t0.elapsed();
-        cur.validate()?;
-        if tr {
-            eprintln!(
-                "TIME {} {name}: {:?} stages={} buffers={} edges={} items={}",
-                cur.name,
-                dt,
-                cur.stages.len(),
-                cur.buffers.len(),
-                cur.edges.len(),
-                cur.work.items.len()
-            );
+    let names: Vec<&str> = passes.iter().map(|(name, _)| *name).collect();
+    super::compile_cache::passed(p, target, &names, |p| {
+        let mut cur = p;
+        let tr = std::env::var("LOGOS_PASS_TIME").is_ok() && cur.name.contains("gd_");
+        for (name, pass) in passes {
+            let t0 = std::time::Instant::now();
+            cur = pass(&cur, target)?;
+            let dt = t0.elapsed();
+            cur.validate()?;
+            if tr {
+                eprintln!(
+                    "TIME {} {name}: {:?} stages={} buffers={} edges={} items={}",
+                    cur.name,
+                    dt,
+                    cur.stages.len(),
+                    cur.buffers.len(),
+                    cur.edges.len(),
+                    cur.work.items.len()
+                );
+            }
         }
-    }
-    Ok(cur)
+        Ok(cur)
+    })
 }
 
 /// The source-level names and recognized fills of ONE lifted statement — the binder, then every operand
@@ -172,6 +177,11 @@ impl StageNames {
 fn recognize_any(source: &str) -> Result<TensorGraph, SpatialReject> {
     crate::ui_bridge::with_parsed_program(source, |parsed, interner| {
         let (stmts, _, _) = parsed.map_err(|e| SpatialReject::Parse(format!("{e:?}")))?;
+        if stmts.iter().any(crate::tensor_recognize::holds_an_op_by_hand) {
+            return Err(SpatialReject::NotLowered(
+                "an op inside a loop or branch the program wrote — the block runs it once a turn or on one arm, so it is not the op",
+            ));
+        }
         let operand = |s, len: usize| (s, len, recognize_fill(stmts, s));
         let matmul = recognize_matmul(stmts, interner);
         if let Ok(spec) = matmul {
@@ -194,7 +204,7 @@ fn recognize_any(source: &str) -> Result<TensorGraph, SpatialReject> {
         if let Ok(spec) = reduction {
             let (rows, cols) = (spec.rows, spec.cols);
             let ins = std::iter::once(operand(spec.x, rows * cols))
-                .chain(spec.weight.map(|s| operand(s, cols)))
+                .chain(spec.weight.map(|s| operand(s, spec.weight_rows * cols)))
                 .chain(spec.residual.map(|s| operand(s, rows * cols)))
                 .chain(spec.bias.map(|s| operand(s, cols)))
                 .collect();
@@ -456,6 +466,20 @@ pub fn compile_program_to_spatial_tp_agreeing_stored(
     lower_program(source, target, dense, Some(manifest), q8, &Results::EveryNamed)
 }
 
+/// [`compile_program_to_spatial_agreeing_stored`] — or, given a tensor-parallel `manifest`,
+/// [`compile_program_to_spatial_tp_agreeing_stored`] — and what the program was made from: every lifted op, the shared
+/// optimizer's decisions over them on this chip and, when the lowering is whole, the ops each section of the program
+/// holds ([`super::lineage::Lineage`]).
+pub fn compile_program_to_spatial_traced(
+    source: &str,
+    target: &SpatialTarget,
+    dense: &std::collections::BTreeSet<String>,
+    manifest: Option<&super::tensor_parallel::TpManifest>,
+    q8: &std::collections::BTreeSet<String>,
+) -> Result<(ProgramLowering, super::lineage::Lineage), SpatialReject> {
+    lower_program_on(source, target, dense, manifest, q8, None, &Results::EveryNamed)
+}
+
 /// Where a composed program's sections are certified.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SectionCertification {
@@ -480,11 +504,11 @@ fn lower_program(
     q8: &std::collections::BTreeSet<String>,
     results: &Results,
 ) -> Result<ProgramLowering, SpatialReject> {
-    lower_program_on(source, target, dense, tp, q8, None, results)
+    lower_program_on(source, target, dense, tp, q8, None, results).map(|(lowering, _)| lowering)
 }
 
 /// [`lower_program`] of the statements `chip` names alone, when it does: composed, and certified each section at a time
-/// where the composition does not certify.
+/// where the composition does not certify — with the program's lineage.
 fn lower_program_on(
     source: &str,
     target: &SpatialTarget,
@@ -493,7 +517,7 @@ fn lower_program_on(
     q8: &std::collections::BTreeSet<String>,
     chip: Option<(u16, &super::tensor_parallel::TpManifest)>,
     results: &Results,
-) -> Result<ProgramLowering, SpatialReject> {
+) -> Result<(ProgramLowering, super::lineage::Lineage), SpatialReject> {
     let composed = lower_program_stored(
         source,
         target,
@@ -504,7 +528,7 @@ fn lower_program_on(
         chip,
         results,
     )?;
-    if composed.whole().is_some() {
+    if composed.0.whole().is_some() {
         return Ok(composed);
     }
     lower_program_stored(
@@ -566,7 +590,7 @@ fn lower_chips(
     let transfers = super::tensor_parallel::transfers(&rp.stages, manifest);
     let none = std::collections::BTreeSet::new();
     let mut chips = (0..manifest.chips)
-        .map(|c| lower_program_on(source, target, &none, None, &none, Some((c as u16, manifest)), results))
+        .map(|c| lower_program_on(source, target, &none, None, &none, Some((c as u16, manifest)), results).map(|(lowering, _)| lowering))
         .collect::<Result<Vec<_>, _>>()?;
     for (c, pl) in chips.iter_mut().enumerate() {
         if let Some(p) = pl.program.as_mut() {
@@ -606,6 +630,7 @@ pub fn lower_program_with(
         None,
         &Results::EveryNamed,
     )
+    .map(|(lowering, _)| lowering)
 }
 
 /// ★ ONE VIEW OF A VALUE, HOWEVER MANY PRODUCTS READ IT. A Q8_0 product reads its activation through the `K/32 × 32` view
@@ -631,26 +656,50 @@ fn share_q8_views(
     sections.into_iter().filter(|p| !makes_view(p)).collect()
 }
 
-/// One op's section templates awaiting their passes, and what names it where it is refused.
+/// The lifted ops whose work one section holds ([`super::lineage::Lineage`]): none for a layout bridge.
+type Origin = std::collections::BTreeSet<usize>;
+
+/// `next`'s sections after `acc`'s, where the last of `acc` and the first of `next` joined into one section: the joined
+/// section holds both's ops.
+fn join_origins(acc: &mut Vec<Origin>, next: Vec<Origin>) {
+    let mut next = next.into_iter();
+    match (acc.last_mut(), next.next()) {
+        (Some(last), Some(first)) => last.extend(first),
+        (None, Some(first)) => acc.push(first),
+        _ => {}
+    }
+    acc.extend(next);
+}
+
+/// The ops each of an op's agreed sections holds ([`Agreed`]): its own sections `own`'s, a layout bridge none.
+fn agreed_origins(agreed: &Agreed, own: Vec<Origin>) -> Vec<Origin> {
+    let bridges = |n: usize| std::iter::repeat_with(Origin::new).take(n);
+    bridges(agreed.before.len()).chain(own).chain(bridges(agreed.after.len())).collect()
+}
+
+/// One op's section templates awaiting their passes, the lifted ops it computes, and what names it where it is refused.
 struct Held {
     at: usize,
     stmt_index: usize,
     out: String,
     kind: String,
+    covers: Origin,
     templates: Vec<SpatialProgram>,
 }
 
-/// Statements whose templates joined ([`super::passes::forward`]): their templates as joined.
+/// Statements whose templates joined ([`super::passes::forward`]): their templates as joined, and the lifted ops each
+/// holds.
 struct Run {
     held: Vec<Held>,
     joined: Vec<SpatialProgram>,
+    origins: Vec<Origin>,
 }
 
 /// A statement's place in the lowering, in program order: a run of joined statements, or sections already made (an
-/// all-reduce) or none (a statement that did not lower).
+/// all-reduce, with the ops each holds) or none (a statement that did not lower).
 enum Piece {
     Run(Run),
-    Done(Vec<SpatialProgram>),
+    Done(Vec<SpatialProgram>, Vec<Origin>),
 }
 
 /// ★ WHAT OUTSIDE A PROGRAM READS ITS TENSORS, the program's caller says. Its host may read any tensor it is handed, and a
@@ -666,7 +715,36 @@ pub enum Results {
     Only(std::collections::BTreeSet<String>),
 }
 
-/// [`lower_program_with`] with the weights `q8` the deployment stores Q8_0, and the results `results` its caller reads.
+/// `source` lifted, its weights `q8` read as the deployment stores them (Q8_0), and the shared optimizer's rewrite of it
+/// under `target`'s spatial shim — under a tensor-parallel deployment's `manifest`, the shim that keeps every fusion
+/// within one chip ([`super::tensor_parallel::TensorParallelShim`]). The lowering links the ops the rewrite leaves, and
+/// the rewrite's report is every fusion decided over the program ([`super::lineage::Lineage::fusion`]).
+pub fn optimized_on(
+    source: &str,
+    target: &SpatialTarget,
+    q8: &std::collections::BTreeSet<String>,
+    manifest: Option<&super::tensor_parallel::TpManifest>,
+) -> Result<(Lifted, crate::tensor_graph::fuse::Optimized), SpatialReject> {
+    let storage = |t: &str| {
+        if q8.contains(t) {
+            Storage::Rows { format: crate::model::quant::GgmlType::Q8_0, transposed: true }
+        } else {
+            Storage::Values
+        }
+    };
+    let lifted = TensorGraph::lift_source(source, &storage)?;
+    let spatial = super::shim::SpatialShim { target };
+    let optimized = match manifest {
+        Some(manifest) => {
+            crate::tensor_graph::fuse::optimize(&lifted.graph, &super::tensor_parallel::TensorParallelShim { base: &spatial, manifest }, &[])
+        }
+        None => crate::tensor_graph::fuse::optimize(&lifted.graph, &spatial, &[]),
+    };
+    Ok((lifted, optimized))
+}
+
+/// [`lower_program_with`] with the weights `q8` the deployment stores Q8_0, and the results `results` its caller reads —
+/// and the program's lineage.
 #[allow(clippy::too_many_arguments)]
 fn lower_program_stored(
     source: &str,
@@ -677,30 +755,22 @@ fn lower_program_stored(
     q8: &std::collections::BTreeSet<String>,
     chip: Option<(u16, &super::tensor_parallel::TpManifest)>,
     results: &Results,
-) -> Result<ProgramLowering, SpatialReject> {
+) -> Result<(ProgramLowering, super::lineage::Lineage), SpatialReject> {
     use super::tensor_parallel::{allreduce_section, relocate};
     let certification = sections;
     let passes = |t: SpatialProgram| match certification {
         SectionCertification::Composed => run_passes_uncertified(t, target),
         SectionCertification::EachSection => run_passes(t, target),
     };
-    let storage = |t: &str| {
-        if q8.contains(t) {
-            Storage::Rows { format: crate::model::quant::GgmlType::Q8_0, transposed: true }
-        } else {
-            Storage::Values
-        }
-    };
-    let Lifted { program: whole, graph } = TensorGraph::lift_source(source, &storage)?;
-    // The ops the shared optimizer leaves this chip, in order: under its shim, each a statement the front end lifted. A
-    // tensor-parallel program's fusions stay within one chip ([`super::tensor_parallel::TensorParallelShim`]).
-    let spatial = super::shim::SpatialShim { target };
-    let parallel = tp.or(chip.map(|(_, m)| m)).map(|manifest| super::tensor_parallel::TensorParallelShim { base: &spatial, manifest });
-    let shim: &dyn crate::tensor_graph::shim::Shim = match &parallel {
-        Some(s) => s,
-        None => &spatial,
-    };
-    let g = crate::tensor_graph::fuse::optimize(&graph, shim, &[]).graph;
+    // The ops the shared optimizer leaves this chip, in order: under its shim, each a statement the front end lifted.
+    let (Lifted { program: whole, .. }, optimized) = optimized_on(source, target, q8, tp.or(chip.map(|(_, m)| m)))?;
+    let crate::tensor_graph::fuse::Optimized { graph: g, report: fusion, .. } = optimized;
+    // Each lifted op as the lineage names it: the statement, its binder and its op.
+    let lifted_ops: Vec<super::lineage::LiftedOp> = whole
+        .stages
+        .iter()
+        .map(|st| super::lineage::LiftedOp { stmt_index: st.stmt_index, binder: st.out.clone(), op: st.op.kind().to_string() })
+        .collect();
     // The statement each op lifts, by which a refusal names it.
     let stmts: Vec<usize> = g.ops.iter().map(|op| whole.stages[op.covers[0]].stmt_index).collect();
     let stmt_of = |k: usize| stmts[k];
@@ -751,7 +821,8 @@ fn lower_program_stored(
     let prelude = Prelude::of(&g, &linked, target, dense, ranges.clone(), q8, &|out| tp.and_then(|m| m.chip_of.get(out).copied()));
     let mut twins = std::collections::BTreeSet::new();
     let mut q8_views = std::collections::BTreeSet::new();
-    let mut sections: Vec<SpatialProgram> = Vec::new();
+    // A collective's links so far, by its result: its one section computes every link of its fold.
+    let mut folds: std::collections::BTreeMap<String, Origin> = std::collections::BTreeMap::new();
     let mut lowered = 0usize;
     // ★ A RESULT ONLY THE NEXT STATEMENT READS IS FORWARDED ([`super::passes::forward`]), wherever the caller has
     // declared the program's results ([`Results`]) and the tensor between two statements is read by nothing else — no
@@ -810,6 +881,7 @@ fn lower_program_stored(
         // means, so the VM can check the decomposition; on the chips it is the partials folded where they live. The
         // chain's earlier links compute nothing on their own, and its last is where the all-reduce stands.
         if let Some(c) = tp.and_then(|m| m.collective_folding(&op.out)) {
+            folds.entry(c.out.clone()).or_default().extend(op.covers.iter().copied());
             if op.out == c.out {
                 let n = match op.prim() {
                     Some(TensorOpSpec::Elementwise(e)) => e.n,
@@ -818,9 +890,9 @@ fn lower_program_stored(
                 let floats = float_out.contains(&c.out) || c.partials.iter().any(|x| float_out.contains(x));
                 let mut narrow = |t: SpatialProgram| narrow_storage(t, &mut known, target);
                 match allreduce_section(c, g.shape_of(&c.out, n), floats, target, certification, &mut narrow) {
-                    Ok(p) => pieces.push(Piece::Done(vec![p])),
+                    Ok(p) => pieces.push(Piece::Done(vec![p], vec![folds.remove(&c.out).unwrap_or_default()])),
                     Err(e) => {
-                        pieces.push(Piece::Done(Vec::new()));
+                        pieces.push(Piece::Done(Vec::new(), Vec::new()));
                         missing.push(MissingStage {
                             stmt_index: stmt_of(k),
                             binder: op.out.clone(),
@@ -830,7 +902,7 @@ fn lower_program_stored(
                     }
                 }
             } else {
-                pieces.push(Piece::Done(Vec::new()));
+                pieces.push(Piece::Done(Vec::new(), Vec::new()));
             }
             lowered += 1;
             continue;
@@ -858,7 +930,8 @@ fn lower_program_stored(
                     match link(&one, 0, &prelude, Form::Section { floats: float_out.contains(&m.out) }, NumericsPolicy::Exact, target) {
                         Ok(ts) => {
                             alone.extend(ts.iter().cloned());
-                            held.push(Held { at: k, stmt_index: lifted_stmts[m.covers[0]], out: m.out.clone(), kind: m.kind().to_string(), templates: ts });
+                            let covers = m.covers.iter().copied().collect();
+                            held.push(Held { at: k, stmt_index: lifted_stmts[m.covers[0]], out: m.out.clone(), kind: m.kind().to_string(), covers, templates: ts });
                         }
                         Err(e) => {
                             refused = Some(e);
@@ -876,16 +949,24 @@ fn lower_program_stored(
                                 super::passes::forward::forward(&h.templates[0], &acc, &h.out).filter(|j| keeps(j, &h.out, &known)).map(|j| j.program)
                             });
                         }
-                        Ok((held, joined.map_or(alone, |p| vec![p])))
+                        let origins: Vec<Origin> = match joined {
+                            Some(_) => vec![held.iter().flat_map(|h| h.covers.iter().copied()).collect()],
+                            None => held.iter().flat_map(|h| h.templates.iter().map(|_| h.covers.clone())).collect(),
+                        };
+                        Ok((held, joined.map_or(alone, |p| vec![p]), origins))
                     }
                 }
             }
             _ => link(&g, k, &prelude, Form::Section { floats }, NumericsPolicy::Exact, target)
                 .map(|ts| share_q8_views(ts, prelude.views.get(&k), &mut q8_views))
-                .map(|ts| (vec![Held { at: k, stmt_index: stmt_of(k), out: op.out.clone(), kind: op.kind().to_string(), templates: ts.clone() }], ts)),
+                .map(|ts| {
+                    let covers: Origin = op.covers.iter().copied().collect();
+                    let origins = vec![covers.clone(); ts.len()];
+                    (vec![Held { at: k, stmt_index: stmt_of(k), out: op.out.clone(), kind: op.kind().to_string(), covers, templates: ts.clone() }], ts, origins)
+                }),
         };
         match made {
-            Ok((held, ts)) => {
+            Ok((held, ts, made_origins)) => {
                 let joint = match pieces.last() {
                     Some(Piece::Run(run)) => {
                         let last = run.held.last().expect("a run holds a statement");
@@ -901,13 +982,14 @@ fn lower_program_stored(
                         run.joined.pop();
                         run.joined.push(j.program);
                         run.joined.extend(ts.into_iter().skip(1));
+                        join_origins(&mut run.origins, made_origins);
                         run.held.extend(held);
                     }
-                    _ => pieces.push(Piece::Run(Run { held, joined: ts })),
+                    _ => pieces.push(Piece::Run(Run { held, joined: ts, origins: made_origins })),
                 }
             }
             Err(e) => {
-                pieces.push(Piece::Done(Vec::new()));
+                pieces.push(Piece::Done(Vec::new(), Vec::new()));
                 missing.push(MissingStage {
                     stmt_index: stmt_of(k),
                     binder: op.out.clone(),
@@ -921,7 +1003,7 @@ fn lower_program_stored(
     let alone = |h: &Held,
                  known: &mut std::collections::BTreeMap<String, super::value_range::Interval>,
                  twins: &mut std::collections::BTreeSet<String>|
-     -> Result<Vec<SpatialProgram>, String> {
+     -> Result<(Vec<SpatialProgram>, Vec<Origin>), String> {
         let ps = h
             .templates
             .iter()
@@ -929,10 +1011,13 @@ fn lower_program_stored(
             .map(|t| passes(narrow_storage(t, known, target)))
             .collect::<Result<Vec<_>, _>>()
             .map_err(|e| format!("{e:?}"))?;
-        let ps = prelude.agree_layouts(&g, ps, twins, &passes, target).map_err(|e| format!("{e:?}"))?;
+        let own = vec![h.covers.clone(); ps.len()];
+        let agreed = prelude.agree_layouts(&g, ps, twins, &passes, target).map_err(|e| format!("{e:?}"))?;
+        let held = agreed_origins(&agreed, own);
+        let ps = agreed.into_vec();
         match tp {
-            Some(m) => ps.iter().map(|p| relocate(p, &h.out, m).map_err(|e| format!("{e:?}"))).collect(),
-            None => Ok(ps),
+            Some(m) => ps.iter().map(|p| relocate(p, &h.out, m).map_err(|e| format!("{e:?}"))).collect::<Result<Vec<_>, _>>().map(|ps| (ps, held)),
+            None => Ok((ps, held)),
         }
     };
     // A run's joined templates planned, or `None` where the passes refuse one.
@@ -947,21 +1032,26 @@ fn lower_program_stored(
             .collect::<Result<Vec<_>, _>>()
             .ok()
     };
-    let place = |ps: Vec<SpatialProgram>, twins: &mut std::collections::BTreeSet<String>| -> Option<Vec<SpatialProgram>> {
+    let place = |ps: Vec<SpatialProgram>, own: Vec<Origin>, twins: &mut std::collections::BTreeSet<String>| -> Option<(Vec<SpatialProgram>, Vec<Origin>)> {
         let ps = ps.into_iter().map(|p| run_passes_after_tile(p, target, certify)).collect::<Result<Vec<_>, _>>().ok()?;
-        prelude.agree_layouts(&g, ps, twins, &passes, target).ok()
+        let agreed = prelude.agree_layouts(&g, ps, twins, &passes, target).ok()?;
+        let held = agreed_origins(&agreed, own);
+        Some((agreed.into_vec(), held))
     };
+    // Sections lowered, and the lifted ops each holds, side by side.
+    type Lowered = (Vec<SpatialProgram>, Vec<Origin>);
     let lower_alone = |run: &Run,
-                           sections: &mut Vec<SpatialProgram>,
+                           (sections, origins): &mut Lowered,
                            missing: &mut Vec<MissingStage>,
                            lowered: &mut usize,
                            known: &mut std::collections::BTreeMap<String, super::value_range::Interval>,
                            twins: &mut std::collections::BTreeSet<String>| {
         for h in &run.held {
             match alone(h, known, twins) {
-                Ok(mut ps) => {
+                Ok((mut ps, mut held)) => {
                     *lowered += 1;
                     sections.append(&mut ps);
+                    origins.append(&mut held);
                 }
                 Err(why) => missing.push(MissingStage { stmt_index: h.stmt_index, binder: h.out.clone(), kind: h.kind.clone(), why }),
             }
@@ -971,7 +1061,7 @@ fn lower_program_stored(
     // sections join, and placed and scheduled.
     let mut planned: Vec<(Run, Vec<SpatialProgram>)> = Vec::new();
     let flush_planned = |planned: &mut Vec<(Run, Vec<SpatialProgram>)>,
-                             sections: &mut Vec<SpatialProgram>,
+                             out: &mut Lowered,
                              missing: &mut Vec<MissingStage>,
                              lowered: &mut usize,
                              known: &mut std::collections::BTreeMap<String, super::value_range::Interval>,
@@ -980,10 +1070,10 @@ fn lower_program_stored(
         // The chain cut into units: neighbouring runs whose planned sections join are one unit, its sections as joined;
         // each unit is placed, and its layouts agreed, on its own, so a layout bridge is judged against the roles of the
         // statements it serves, never the whole chain's.
-        let mut units: Vec<(Vec<usize>, Vec<SpatialProgram>)> = Vec::new();
+        let mut units: Vec<(Vec<usize>, Vec<SpatialProgram>, Vec<Origin>)> = Vec::new();
         for (k, (run, ps)) in chain.iter().enumerate() {
             let joint = match (k.checked_sub(1), units.last()) {
-                (Some(p), Some((_, joined))) => {
+                (Some(p), Some((_, joined, _))) => {
                     let prev = chain[p].0.held.last().expect("a run holds a statement");
                     chain[p]
                         .1
@@ -996,40 +1086,45 @@ fn lower_program_stored(
                 _ => None,
             };
             match (joint, units.last_mut()) {
-                (Some(j), Some((runs, joined))) => {
+                (Some(j), Some((runs, joined, held))) => {
                     joined.pop();
                     joined.push(j.program);
                     joined.extend(ps.iter().skip(1).cloned());
+                    join_origins(held, run.origins.clone());
                     runs.push(k);
                 }
-                _ => units.push((vec![k], ps.clone())),
+                _ => units.push((vec![k], ps.clone(), run.origins.clone())),
             }
         }
-        for (runs, ps) in units {
+        for (runs, ps, held) in units {
             if runs.len() > 1 {
-                if let Some(mut ps) = place(ps, twins) {
+                if let Some((mut ps, mut held)) = place(ps, held, twins) {
                     *lowered += runs.iter().map(|k| chain[*k].0.held.len()).sum::<usize>();
-                    sections.append(&mut ps);
+                    out.0.append(&mut ps);
+                    out.1.append(&mut held);
                     continue;
                 }
             }
             for k in runs {
                 let (run, ps) = &chain[k];
-                match place(ps.clone(), twins) {
-                    Some(mut ps) => {
+                match place(ps.clone(), run.origins.clone(), twins) {
+                    Some((mut ps, mut held)) => {
                         *lowered += run.held.len();
-                        sections.append(&mut ps);
+                        out.0.append(&mut ps);
+                        out.1.append(&mut held);
                     }
-                    None => lower_alone(run, sections, missing, lowered, known, twins),
+                    None => lower_alone(run, out, missing, lowered, known, twins),
                 }
             }
         }
     };
+    let mut out: Lowered = (Vec::new(), Vec::new());
     for piece in pieces {
         match piece {
-            Piece::Done(mut ps) => {
-                flush_planned(&mut planned, &mut sections, &mut missing, &mut lowered, &mut known, &mut twins);
-                sections.append(&mut ps);
+            Piece::Done(mut ps, mut held) => {
+                flush_planned(&mut planned, &mut out, &mut missing, &mut lowered, &mut known, &mut twins);
+                out.0.append(&mut ps);
+                out.1.append(&mut held);
             }
             Piece::Run(run) => {
                 let ps = if tp.is_some() {
@@ -1049,14 +1144,15 @@ fn lower_program_stored(
                 match ps {
                     Some(ps) => planned.push((run, ps)),
                     None => {
-                        flush_planned(&mut planned, &mut sections, &mut missing, &mut lowered, &mut known, &mut twins);
-                        lower_alone(&run, &mut sections, &mut missing, &mut lowered, &mut known, &mut twins);
+                        flush_planned(&mut planned, &mut out, &mut missing, &mut lowered, &mut known, &mut twins);
+                        lower_alone(&run, &mut out, &mut missing, &mut lowered, &mut known, &mut twins);
                     }
                 }
             }
         }
     }
-    flush_planned(&mut planned, &mut sections, &mut missing, &mut lowered, &mut known, &mut twins);
+    flush_planned(&mut planned, &mut out, &mut missing, &mut lowered, &mut known, &mut twins);
+    let (sections, origins) = out;
     // ★ NO SECTION READS A RESULT NOTHING STORES. A statement's result a section loads is one some section stores; a
     // load of one nothing stores reads whatever the memory held. Every join is made to keep this; the composition is
     // refused, by the result's name, wherever one did not.
@@ -1090,10 +1186,11 @@ fn lower_program_stored(
     let state = state_tensors(&rp.stages);
     let n_sections = sections.len();
     let mut program = None;
+    let mut lineage_sections: Vec<Origin> = Vec::new();
     if lowered == rp.stages.len() && missing.is_empty() {
         // A tensor-parallel program's chips run their slices at once: its sections compose phase by phase. On one chip,
         // independent sections run at once on disjoint sites (`pack`).
-        let (sections, barriers) = match tp {
+        let (sections, barriers, order) = match tp {
             Some(_) => {
                 let (order, barriers) = super::tensor_parallel::phases(&sections);
                 let mut slots: Vec<Option<SpatialProgram>> =
@@ -1104,13 +1201,18 @@ fn lower_program_stored(
                         .map(|k| slots[*k].take().expect("each section once"))
                         .collect(),
                     Some(barriers),
+                    order,
                 )
             }
             None => match super::passes::pack::pack_phases(sections, target) {
-                Ok((sections, barriers)) => (sections, Some(barriers)),
-                Err(sections) => (sections, None),
+                Ok(packed) => (packed.sections, Some(packed.barrier_after), packed.order),
+                Err(sections) => {
+                    let order = (0..sections.len()).collect();
+                    (sections, None, order)
+                }
             },
         };
+        let ordered: Vec<Origin> = order.iter().map(|&k| origins[k].clone()).collect();
         match super::passes::compose::compose_phased(
             sections,
             &links(&rp.stages),
@@ -1125,7 +1227,11 @@ fn lower_program_stored(
             // more, and a composition whose barriers, buffers or ordering do not hold is refused HERE
             // rather than shipped as a bundle whose certificate covers one section of many.
             Ok(p) => match super::passes::verify::verify(&declare_ranges(p, &ranges), target) {
-                Ok(v) => program = Some(v),
+                Ok(v) => {
+                    assert_eq!(v.sections.len(), ordered.len(), "the composer keeps one span a section, in the order it was handed them");
+                    lineage_sections = ordered;
+                    program = Some(v)
+                }
                 Err(e) => missing.push(MissingStage {
                     stmt_index: rp.stages.last().map(|s| s.stmt_index).unwrap_or(0),
                     binder: rp.stages.last().map(|s| s.out.clone()).unwrap_or_default(),
@@ -1142,15 +1248,18 @@ fn lower_program_stored(
         }
     }
     let carried = super::passes::recognize_stages::carried_state(&rp);
-    Ok(ProgramLowering {
-        program,
-        statements,
-        lowered,
-        sections: n_sections,
-        missing,
-        state,
-        carried,
-    })
+    Ok((
+        ProgramLowering {
+            program,
+            statements,
+            lowered,
+            sections: n_sections,
+            missing,
+            state,
+            carried,
+        },
+        super::lineage::Lineage { ops: lifted_ops, fusion, sections: lineage_sections },
+    ))
 }
 
 /// ★ AN INTEGER BUFFER IS STORED AT THE NARROWEST PRECISION THAT HOLDS WHAT IT HOLDS. On a target whose datapath

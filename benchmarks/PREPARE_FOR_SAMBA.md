@@ -1109,14 +1109,17 @@ to the f64 reference's.
 - [ ] **E1.13** A Qwen3-Next checkpoint as its converter writes it (value heads grouped by key head, each key head's betas and alphas one projection, a gated shared expert in every block, a draft block after the last), from its Hugging Face directory and from its converted GGUF: each brings up within the bf16 datapath's bound. Lock: `samba_exam_bringup_reds_lock::a_qwen3next_checkpoint_brings_up_from_its_directory_and_its_gguf`. Ticket: INTAKE-2. Today both lower whole and run, the same bundle from either source, and a logit lands 0.106 from the reference's against the datapath's 0.071 (`logs/samba/green-gd-subtile-4.log`). The lowering is exact: on the SN50's fp32 twin the same model's decode is the reference's to fp32's rounding (`spatial_mixed_precision_lock::qwen3next_decodes_on_the_fp32_twin_as_the_reference_computes`, `logs/samba/q3next-fp32twin-2.log`), so the drift is the bf16 datapath's and closes with NUM-1.
 - [x] **E1.14** Gated DeltaNet heads that are not whole tiles (16, 8, 48 and 80), their memory past one tile, in a decode step and a block. Lock: `tensor_gdn_row_blocks_lock::a_gated_delta_whose_heads_are_not_whole_tiles_lowers_on_sn50_and_computes_the_vms_values`. Ticket: ARCH-GDN-VARIANTS (receipt: `logs/samba/green-gd-subtile-4.log`).
 - [x] **E1.15** A fused query-key-value projection (Phi-3's) and one with its bias (GLM-4's), both under Llama's interleaved rotation, and values half and twice as wide as the keys. Lock: `samba_exam_bringup_lock::a_fused_projection_and_values_unlike_the_keys_bring_up`. Ticket: AUTHOR-1 (receipt: `logs/samba/deploy-1.log`).
+- [x] **E1.16** Heads of 80 and of 112 under a full rotation, NeoX's and Llama's interleaved one: rotary rows that start mid-tile, read through a window of a cache past the page. Lock: `samba_exam_bringup_lock::heads_that_are_not_whole_tiles_turned_whole_bring_up`. Ticket: ARCH-ROPE. Each brings up from its checkpoint to the reference's token (receipt `logs/samba/slot5-rerun.log`).
+- [x] **E1.17** Heads of 80 and of 112 over a cache past one site: a prompt of 37 prefilled into a cache of 64 on the SN50 and the token after it decoded there, Qwen 3's QK-norm over grouped K/V heads, Gemma 3's sliding windows and Gemma 2's capped scores, each within the bf16 datapath's bound of the f64 reference. Lock: `samba_exam_bringup_lock::heads_that_are_not_whole_tiles_bring_up_over_a_cache_past_a_site`. Ticket: ARCH-ROPE. The prefill's and every decode layer's attention stream the cache past the flash fold with each head read through its window, the block's rotation turns a head an item through the same windows, and the heads are packed after (receipt `logs/samba/green-heads.log`). Tiny Llama (no QK-norm) and tiny gpt-oss (an expert router) miss the bound at this context with heads of whole tiles too; that is the bf16 products' drift, NUM-1's (`logs/samba/probe-e117arch-1.log`).
 
 ### 10.2 E2: Correctness against the references
 
 A bring-up that is fast and wrong loses. The references are the f32 reference forward and the pinned reference implementations; the bounds are the numerics contract's.
 The suites are `samba_exam_correctness_lock` (the rows that hold) and `samba_exam_correctness_reds_lock` (the rows
 still open), written by EXAM-2; the rows that need the reference implementations' goldens (INTAKE-4) are written into
-`samba_exam_quality_lock`, the row that needs a prompt runner over a bundle (ACCESS-4) into `samba_exam_runner_lock`, and
-the long-context and cross-chip numerics rows into `samba_exam_numerics_lock`, each when what it needs exists.
+`samba_exam_quality_lock`, and the long-context and cross-chip numerics rows into `samba_exam_numerics_lock`, each when
+what it needs exists. The row that runs a prompt through a bundle with ACCESS-4's runner (E2.6) holds on attention, the
+windowed model and the expert mixture, and waits in the reds suite on Qwen 3.5's bf16 margin (NUM-1).
 
 - [ ] **E2.1** Top-1 agreement with the f32 reference over the golden prompts, at least the reference implementation's own at the same bits. Lock: `samba_exam_quality_lock::top1_agreement_meets_the_reference_implementations`. Ticket: NUM-7.
 - [ ] **E2.2** KL divergence to the f32 reference within the contract's bound on every Tier A model. Lock: `samba_exam_quality_lock::kl_to_the_reference_is_within_the_contract`. Ticket: NUM-7.
@@ -1232,20 +1235,24 @@ The suite is `samba_exam_agility_lock`, written by EXAM-10.
 ### 10.11 E11: The kernel micro-exam
 
 The tests a compiler team writes first: one kernel shape at a time, each at the edge of a unit's capacity.
-The suite is `samba_exam_kernel_lock`, written by EXAM-11.
+EXAM-11 writes them: the rows that hold in `samba_exam_kernel_lock`, the open ones as handed REDs in
+`samba_exam_kernel_reds_lock`, and the rows whose surface is still a ruling in suites of their own once it is made.
 
-- [ ] **E11.1** A 7,168 × 18,432 bf16 GEMM at its modeled share of peak. Lock: `samba_exam_kernel_lock::a_large_gemm_reaches_its_modeled_share_of_peak`. Ticket: CHIP-2.
-- [ ] **E11.2** Decode attention at 131,072 positions at its modeled share of HBM bandwidth. Lock: `samba_exam_kernel_lock::long_decode_attention_reaches_its_bandwidth_share`. Ticket: TIME-6.
-- [ ] **E11.3** Top-2,048 among 131,072 scores. Lock: `samba_exam_kernel_lock::top_2048_of_131072_selects_as_the_reference`. Ticket: KERNEL-1.
-- [ ] **E11.4** Expert dispatch: 256 experts, top 8, batch 64. Lock: `samba_exam_kernel_lock::dispatch_of_256_experts_top_8_at_batch_64`. Ticket: KERNEL-2.
-- [ ] **E11.5** LayerNorm over 16,384 with fp32 accumulation. Lock: `samba_exam_kernel_lock::layernorm_over_16384_accumulates_in_fp32`. Ticket: NUM-1.
-- [ ] **E11.6** A chain of 200 pointwise ops fused into one section. Lock: `samba_exam_kernel_lock::a_chain_of_200_pointwise_ops_is_one_section`. Ticket: SCHED-10.
-- [ ] **E11.7** A graph of 10,000 nodes compiles in time linear in its size. Lock: `samba_exam_kernel_lock::a_graph_of_10000_nodes_compiles_linearly`. Ticket: SCHED-8.
-- [ ] **E11.8** One tensor fanned out to 64 consumers. Lock: `samba_exam_kernel_lock::one_tensor_feeds_64_consumers`. Ticket: SCHED-2.
-- [ ] **E11.9** Random gather and scatter with repeated indices. Lock: `samba_exam_kernel_lock::gather_and_scatter_with_repeated_indices`. Ticket: KERNEL-4.
-- [ ] **E11.10** Ragged sequence lengths in one batch. Lock: `samba_exam_kernel_lock::ragged_lengths_in_one_batch`. Ticket: SERVE-RDU-4.
-- [ ] **E11.11** A 248,320-way sampling step: temperature, top-p, top-k, min-p, seeded. Lock: `samba_exam_kernel_lock::sampling_over_248320_is_seeded_and_exact`. Ticket: SERVE-RDU-2.
-- [ ] **E11.12** 64-bit hash arithmetic on 32-bit lanes, exact on every input class. Lock: `samba_exam_kernel_lock::hash_arithmetic_is_exact_on_32_bit_lanes`. Ticket: KERNEL-6.
+- [ ] **E11.1** A 7,168 × 18,432 bf16 GEMM at its modeled share of peak. Lock: `samba_exam_kernel_rates_lock::a_large_gemm_reaches_its_modeled_share_of_peak`. Ticket: CHIP-2. Unwritten: a share needs the program's modeled time, which no artifact states yet (TIME-1), and where a bundle states it is Tristen's ruling.
+- [ ] **E11.2** Decode attention at 131,072 positions at its modeled share of HBM bandwidth. Lock: `samba_exam_kernel_rates_lock::long_decode_attention_reaches_its_bandwidth_share`. Ticket: TIME-6. Unwritten, as E11.1.
+- [ ] **E11.3** Top-2,048 among 131,072 scores. Lock: `samba_exam_kernel_select_lock::top_2048_of_131072_selects_as_the_reference`. Ticket: KERNEL-1. Unwritten: the language has no top-k, and its surface is Tristen's ruling (proposed: `the indices of the top K of X`, largest first, ties by position).
+- [ ] **E11.4** Expert dispatch: 256 experts, top 8, batch 64. Lock: `samba_exam_kernel_reds_lock::dispatch_of_256_experts_top_8_at_batch_64`. Ticket: KERNEL-2. The batch's 64 mixtures one statement a row as the author writes them; its values the VM's, and its DRAM bytes (`spatial::work`) at most its touched experts' worth of one token's, the touched experts computed from the router in the test. It fails today for its shape, not for KERNEL-2's reason: at d 16 and experts of 8, widths no tile divides, the mixture takes the flat form, which loads the router and all 256 experts whole and fits no site (`NoLegalTiling`, `logs/samba/red-e114.log`); every published mixture's widths are whole tiles and take the blocked form, which the row means to measure. Tristen (2026-11-09): re-pinned at d 32 and experts of 32. There the batch lowers whole (512 sections) and reads 14,680,064 DRAM bytes, 64 times one token's 229,376, against the bound's 7,418,880 for its 207 touched experts: each token reads its own experts, KERNEL-2's gap (`logs/samba/kernel2-probe-1.log`).
+- [ ] **E11.5** LayerNorm over 16,384 with fp32 accumulation. Lock: `samba_exam_kernel_reds_lock::layernorm_over_16384_accumulates_in_fp32`. Ticket: ARCH-NORMS. The SN50 had no blocked LayerNorm — a row of 16,384 needed 512 accumulator tiles against 8 (`logs/samba/kernel-red-2.log`) — and lowers it now in two passes, its sums crossing sections at the accumulator's fp32 (`spatial_stacked_rows_lock::a_wide_layernorm_of_rows_far_from_zero_keeps_their_spread`: rows of 16,384 about 64 on bf16-exact inputs, `logs/samba/red-ln-shift.log`). The frozen test still fails, on its own inputs: multiples of a quarter in [63, 65] are not all bf16 values (above 64 bf16 steps by a half), so loading them moves some by an eighth against a spread of about 0.6 and the first value lands 4.7% from the VM's (`logs/samba/slot3-red.log`); inputs a half apart in [62, 66] are exact. Re-pinning it so is Tristen's call.
+comment says: multiples of a quarter in [63, 65] are not all bf16 values (above 64 bf16 steps by a half), so loading
+them moves some by an eighth against a spread of about 0.6; inputs a half apart in [62, 66] are exact. Re-pinning it so
+is Tristen's call.
+- [ ] **E11.6** A chain of 200 pointwise ops fused into one section. Lock: `samba_exam_kernel_reds_lock::a_chain_of_200_pointwise_ops_is_one_section`. Ticket: SCHED-10. Today the chain computes as the VM does in 200 sections (`logs/samba/kernel-red-2.log`). The lock lowers with every named tensor a result, so each of the chain's 199 intermediates is stored and none is forwarded; declared results (`compile_program_to_spatial_returning`) join every pair of the five ops into one section and a run of up to 24 statements, past which a run's sections fit no site and fall back to its statements apart (`logs/samba/probe-chainjoin-2.log`, `-3.log`). Two pieces stand between that and one section: `fuse_generic` keeps two maps apart across a bf16 page, which rounds what a fused body would carry in its registers (a rounding the fused body would have to state), and a run past a site splits into none of the runs that would fit. Which results the lock lowers with is Tristen's ruling.
+- [ ] **E11.7** A graph of 10,000 nodes compiles in time linear in its size. Lock: `samba_exam_kernel_reds_lock::a_graph_of_10000_nodes_compiles_linearly`. Ticket: SCHED-8. Today a chain's lowering is superlinear: 10,000 statements are not lowered within twelve times the 45 s that 1,250 take (`logs/samba/slot3-red.log`), the time in the fuser's `elementwise_regions` (SCHED-8).
+- [x] **E11.8** One tensor fanned out to 64 consumers. Lock: `samba_exam_kernel_lock::one_tensor_feeds_64_consumers`. Ticket: SCHED-2 (receipt: `logs/samba/kernel-red-2.log`, where it held before it moved to the green suite).
+- [ ] **E11.9** Random gather and scatter with repeated indices. Lock: `samba_exam_kernel_reds_lock::gather_and_scatter_with_repeated_indices`. Ticket: KERNEL-4. Today the gather holds and the scatter, written as the VM's own loop, is refused by name (`logs/samba/kernel-red-2.log`); before the walk listed a loop the program wrote, it lowered whole as the loop's one row read (`spatial_recognize_stages_lock::a_loop_holding_an_op_is_listed_never_lifted_as_the_op`).
+- [x] **E11.10** Ragged sequence lengths in one batch. Lock: `samba_exam_kernel_lock::ragged_lengths_in_one_batch`. Ticket: SERVE-RDU-4 (receipt: `logs/samba/kernel-2.log`).
+- [ ] **E11.11** A 248,320-way sampling step: temperature, top-p, top-k, min-p, seeded. Lock: `samba_exam_kernel_select_lock::sampling_over_248320_is_seeded_and_exact`. Ticket: SERVE-RDU-2. Unwritten: neither the language nor a bundle has a sampler, and its surface and seeded generator are Tristen's ruling.
+- [x] **E11.12** 64-bit hash arithmetic on 32-bit lanes, exact on every input class. Lock: `samba_exam_kernel_lock::hash_arithmetic_is_exact_on_32_bit_lanes`. Ticket: KERNEL-6 (receipt: `logs/samba/kernel-2.log`).
 
 ### 10.12 E12: Multimodal input, serving and the Qwen 4 day zero
 
@@ -1897,6 +1904,9 @@ cargo nextest run -p logicaffeine-tests --test rdu_sambaflow_emit_lock
 - [ ] A vendor placement that fuses two of our sections into one kernel.
 - [ ] A placement that reorders a reduction: certified within the numerics contract, not bit for bit.
 - [ ] A placement the certificate cannot decide within its budget: reported as undecided, never as certified.
+- [ ] A certificate whose refutation proves some other unsatisfiable formula than its stage's obligation: refused by name.
+  `recheck` today replays the refutation of the formula the certificate carries and never rebuilds the obligation from
+  the program, so any unsatisfiable formula would pass; the checker rebuilds each obligation and compares.
 
 **Implementation.** A `PlacementReader` trait; a reader for the Plasticine chain's own mapping output as the first foreign schema (it exists today); the certificate path of `certify_external_placement` reused.
 
@@ -1932,18 +1942,25 @@ cargo nextest run -p logicaffeine-tests --test pnr_certificate_lock
 - Section 1 of this book, and the sections this ticket's Goal names.
 
 **RED tests.**
-- [ ] `rdu_drop_lock::a_drop_verifies_itself_with_only_its_runner`: fails today: no drop format exists
-- [ ] `rdu_drop_lock::a_drop_with_one_flipped_byte_refuses_itself`: fails today: no digests are carried
+- [x] `rdu_drop_lock::a_drop_verifies_itself_with_only_its_runner`: fails today: no drop format exists (receipt: green
+  in `logs/samba/live-new-3.log`; the RED: `largo drop` is no subcommand on HEAD)
+- [x] `rdu_drop_lock::a_drop_with_one_flipped_byte_refuses_itself`: fails today: no digests are carried (receipt: the
+  same log)
 
 **Edge cases.**
 - [ ] A drop whose weights are fetched, not carried: their digests are carried.
 - [ ] A drop for a chip count the runner's machine cannot emulate: the per-chip programs run in turn.
 
-**Implementation.** A drop writer over the existing `largo emit rdu --model` output, plus a runner and a manifest of digests.
+**Implementation.** `largo drop CHECKPOINT -o DIR` (`spatial::drop::write_drop`) writes the bundle `largo emit rdu
+--model` writes, the checkpoint it binds (or its digest with `--fetch-weights`), the goldens our spatial evaluator decodes
+from an empty state beside the f64 reference's tokens, and `drop.json`, the sha256 of every file; `largo check-drop DIR`
+(`spatial::drop::check_drop`) checks every digest, rechecks every program's certificate against the schedule digest the
+manifest records, and decodes the goldens again bit for bit.
 
 **Success.**
-- [ ] A tiny Qwen3.8 drop verifies on a clean checkout with only the runner (receipt: the lock and its log).
-- [ ] A drop with one flipped byte refuses (receipt: the lock).
+- [x] A tiny Qwen3.8 drop verifies on a clean checkout with only the runner (receipt: a dense model's and Qwen 3.5's
+  hybrid's drops, each verified from a copy with its checkpoint gone: `logs/samba/live-new-3.log`).
+- [x] A drop with one flipped byte refuses (receipt: the lock).
 
 **Mutants to kill.**
 - [ ] A runner that skips the certificate recheck.
@@ -2769,6 +2786,28 @@ equals the published peak.
 **Implementation.** A `PcuMode { Simd { lanes, stages }, Systolic { rows, cols } }` in the unit model; tile shapes
 derived from it; the tile pass reads them.
 
+What the sources fix (2026-11-06): the SN40L's clock is under 2 GHz [SN40L24, Table II], and its PCU is "a systolic array
+or a SIMD vector unit with M lanes" [HC24, the PCU slide] whose systolic inputs stream left to right and top to bottom
+through a broadcast buffer [SN40L24, section IV-A]; neither source states M or the array's shape. At 1040 PCUs and 638
+TFLOPS, a PCU must do at least 638·10¹² / (2 · 1040 · 2·10⁹) ≈ 154 bf16 multiply-adds a cycle at any clock under the
+bound. The inherited unit (16 lanes × 6 stages, 96 a cycle) reaches the published peak only at 3.19 GHz, past it; a
+16 × 16 array (a lane-wide vector on each streamed edge) reaches it at 638 / (2 · 1040 · 256) = 1.198 GHz, inside it.
+The model therefore solves the clock from the published peak and count over a modeled 16 × 16 array, labeled modeled,
+in place of Plasticine's 1 GHz. That moves every figure the RDU's clock converts: the pinned (1.0, modeled) clock of
+`spatial_roofs_lock`, the modeled-fact list of `rdu_unit_model_lock`, the Plasticine mesh's clock, and the envelope
+fixtures that carry the unit model — the re-records this ticket's Success names, owed Tristen's approval. The SN50's
+count is not public: at its published 1600 TFLOPS the same array needs 3.0 GHz over an inherited 1040 PCUs, or about
+2,608 PCUs at the SN40L's solved clock; which of the two is modeled is the same ruling. Tristen (2026-11-09): the 16 × 16 array with the clock
+solved from the published peak, and the SN50's count solved at the SN40L's clock (about 2,608 PCUs), both labeled
+modeled, the pins they move re-recorded. Built so, the SN50 at 2,608 PCUs holds 173,690 B a site, and the real-width Qwen3.8-27B
+decode bundle no longer lowers there: the fp32 flat-row relayout's least section is 2 × 33 × 4 KiB, the gated delta's
+output tiles nowhere under about 380 KB, the residency reserve (747 MB) exceeds the SRAM (453 MB), and its compile goes
+from 53 s to 183 s (`logs/samba/chip2-probe6.log` to `-probe8.log`). Tristen (2026-11-10): keep the count and make the
+passes fit small sites — a relayout splitting a tile row across pages, the gated delta's output tiled under a site,
+residency within the SRAM, the compile held.
+
+2,608 PCUs at the SN40L's solved clock; which of the two is modeled is the same ruling.
+
 **Success.**
 - [ ] The modeled peak equals the published peak for SN40L, and for SN50 once its count is known (receipt: the lock).
 - [ ] Every pinned spatial artifact that moves is re-recorded with approval (receipt: the lanes board).
@@ -3366,6 +3405,12 @@ refused by name.
 - [ ] A feature an arm reads that the author cannot write yet: the arm reads it, the author refuses it by name
   (INTAKE-9).
 - [ ] Two releases of one family with different key names.
+
+Tristen's rulings (2026-11-09): an arm means what the model computes where llama.cpp's graph departs from it — PhiMoE's
+LayerNorm, sparsemixer router and window, where llama.cpp's `phimoe` reuses Phi-3's graph — the departure stated in the
+arm and its test; a new spec mixer's refusing arm in every exhaustive match outside `model/` (the decode engine's, the
+CUDA lane's, the streamed lowering's) is added with the arm, its owning lane told; `model_triage_lock`'s census reads
+mistral3 among the Llama, Qwen3, Granite and MiniCPM tinies' exact readings.
 
 **Implementation.** One arm per family, a tiny configuration per family in the shared fixture, a known-keys list per
 arm.
@@ -4291,6 +4336,26 @@ factor tables, NTK), all through the rotation cache the decode step already read
 **Edge cases.**
 - [ ] A rotated width that is not a multiple of 4.
 - [ ] YaRN past its original context.
+- [x] Rotary rows that are not whole tiles from a cache past the page (heads of 80 and 112 turned whole): the block's
+  rows read through the window of whole tiles around them, clamped to end inside the table, at a literal or a named
+  position (receipt: `spatial_rope_window_lock::a_flat_rotation_whose_cache_is_past_a_page_reads_its_rows_through_a_window`,
+  `logs/samba/broad-sitemem.log`).
+- [x] Heads that are not whole tiles at a model's width: where the three flat sections fit no site, the flash fold reads
+  each head through its window — the run of tiles its columns fall in, from its offset in the first; the queries' window
+  from a compile-time table an item, the K/V head's from the tile its item's coordinate carries — and each head's values
+  land in whole tiles of its own, packed after a group of `tile / gcd(w, tile)` heads an item (`pack_heads`); a block's
+  rotation turns a head an item through the same windows (receipt: `spatial_attention_real_width_lock::heads_that_are_not_whole_tiles_attend_a_cache_past_a_site`,
+  `spatial_rope_window_lock::a_block_of_heads_that_are_not_whole_tiles_past_a_site_turns_each_head_through_its_window`,
+  E1.17, `logs/samba/green-heads.log`; 15 mutants killed, `logs/samba/mutants-heads.out` and
+  `logs/samba/mutants-heads-rerun.out`).
+- [x] A decode of grouped K/V heads that are not whole tiles folds one item a K/V head when a group of its query heads
+  is whole tiles (4 × 80, 2 × 112, 4 × 72): the group's rows regroup from column 0, the K/V head is read through its
+  window once a step, and the result ungroups a page at a time; a group that is not whole tiles keeps an item a query
+  head (receipt: `spatial_grouped_decode_attention_lock::grouped_heads_that_are_not_whole_tiles_fold_once_a_kv_head`,
+  `…::at_real_width_grouped_heads_that_are_not_whole_tiles_stream_each_window_once_a_step`, `logs/samba/green-heads.log`).
+- [ ] A K/V head's window is the run of tiles its columns fall in: for heads of 80 three tiles for two and a half, so a
+  decode reads a fifth more of the cache than its heads hold. Items of the `tile / gcd(hd, tile)` K/V heads that
+  realign with tiles read each tile once.
 
 **Implementation.** The cache generator computes each variant's angles and magnitudes; the rotation section reads the
 layout the variant needs.
@@ -4988,6 +5053,9 @@ Gemma's (1 + w) weight and embedding scale, LayerNorm with and without bias, and
 
 **Edge cases.**
 - [ ] A norm over a width that is not a multiple of a tile.
+- [x] A LayerNorm wider than a site: two passes in blocked sections, the row centred on its mean before it is squared
+  (`spatial_stacked_rows_lock::a_wide_layernorm_centres_each_row_in_the_blocked_sections`, one row of 5,120 and a
+  stack; receipt: `logs/samba/slot3b.log`).
 
 **Implementation.** Each form as a row section with its weights and epilogues.
 
@@ -5133,16 +5201,24 @@ definition.
 - `external/competitors/vllm/vllm/models/qwen4_exp/common/ngram_embedding.py`
 
 **RED tests.**
-- [ ] `qwen4_exp_ngram_lock::the_hash_equals_the_reference_on_every_input_class`: fails today.
-- [ ] `qwen4_exp_ngram_lock::both_lowerings_are_proved_equal_to_the_definition`: fails today.
+- [x] `qwen4_exp_ngram_lock::the_hash_equals_the_reference_on_every_input_class`: fails today (receipt: green in
+  `logs/samba/live-new-1.log`; the RED was not run before the sugar landed — the program does not parse on HEAD).
+- [ ] `qwen4_exp_ngram_lock::both_lowerings_are_proved_equal_to_the_definition`: fails today. The lane-program lowering's
+  half holds: `the_rdus_compute_the_rows_and_the_history_exactly_on_every_input_class` (`logs/samba/live-new-5.log`)
+  and `every_head_reads_a_proved_lane_program` (`logs/samba/live-new-4.log`; Qwen3.8-Flash-Next's sixteen remainders
+  in the ignored `every_head_of_qwen38s_hash_reads_a_proved_lane_program`).
 
 **Edge cases.**
-- [ ] The largest token id times the largest multiplier.
-- [ ] End-of-sequence padding for the first two positions.
-- [ ] A head vocabulary that is not a power of two.
+- [x] The largest token id times the largest multiplier (receipt: the input class `the largest token id`).
+- [x] End-of-sequence padding for the first two positions (receipt: `one token`, `a prompt shorter than the order`).
+- [x] A head vocabulary that is not a power of two (receipt: every head's modulus is a prime).
 
-**Implementation.** KERNEL-6's 64-bit primitives; the product tables generated at load; the proof by SMT over bit
-vectors, with the kernel rechecking it.
+**Implementation.** `Let I be the ngram ids of T after R by M modulo V from O ending at E` over token rows (`R` the
+rows before, `0` where none was, carried), lifted as `TensorOpSpec::NgramIds`. On a chip with a scalar datapath
+(`spatial::passes::from_qwen_ops::from_ngram_ids`) a head is one `ComputeOp::Scalar` stage whose cells are KERNEL-6's
+`Mul`, `Xor` and `Rem(p)` lane programs, each lane kept to 32 bits, beside the end of document's compares; the tokens
+are hashed a chunk an accumulator page holds the rows of, and the history is written back. Still to build: the product
+tables generated at load, and the proof by SMT over bit vectors with the kernel rechecking it.
 
 **Success.**
 - [ ] Both lowerings equal the reference and carry a proof (receipt: the lock).
@@ -5217,14 +5293,22 @@ into the 10,240-wide stream.
 - `external/competitors/vllm/vllm/models/qwen4_exp/common/ple.py`
 
 **RED tests.**
-- [ ] `qwen4_exp_ngram_lock::the_mixer_equals_the_reference`: fails today.
-- [ ] `qwen4_exp_ngram_lock::the_dilated_state_carries_across_steps`: fails today.
+- [x] `qwen4_exp_ple_lock::a_prompt_across_an_end_of_document_equals_the_reference_whole_in_chunks_and_a_token_at_a_time`:
+  fails today (receipt: green in `logs/samba/live-new-1.log`; the RED: `author::check` refused the embedding on HEAD).
+- [x] `qwen4_exp_ple_lock::sixty_four_decode_steps_after_the_prompt_equal_the_reference`: fails today (receipt: green
+  in `logs/samba/live-new-3.log`).
 
 **Edge cases.**
-- [ ] A sequence shorter than the dilated receptive field.
-- [ ] A sequence that joins a batch mid-run.
+- [x] A sequence shorter than the dilated receptive field (receipt: the prompt a token at a time from a fresh state).
+- [x] A sequence that joins a batch mid-run (receipt:
+  `qwen4_exp_ple_lock::a_batch_hashes_and_convolves_each_sequence_after_its_own_history`).
 
-**Implementation.** Products and row ops as sections; the dilated ring as the causal convolution's ring with a stride.
+**Implementation.** `model::author` writes the embedding on its layer: the n-gram hash (QWEN4-3), `rows … side by side`,
+the key and value projections, the lanes' norms, `the lane sums of …`, `the signed root of …`, the gates' spread, and
+the dilated convolution as the ordinary causal convolution over every position its taps span — `bind::View::Dilated`
+lays the kernel `(taps − 1)·ngram + 1` rows, tap `k` at row `k·ngram`, zero between, so every backend's convolution
+runs it unchanged; the token history and the ring are carried state (`tok`, `toks` or `tok_s{b}`, a decode step's,
+a chunk's or a batch's).
 
 **Success.**
 - [ ] Equal to the reference over a 64-token decode (receipt: the lock).
@@ -5259,14 +5343,21 @@ and attention (24 query heads, 2 KV heads, 256 wide, gated), and run decode at 2
 
 **RED tests.**
 - [ ] `qwen4_exp_qsa_lock::selection_matches_the_reference_above_the_budget`: fails today.
-- [ ] `qwen4_exp_qsa_lock::the_layer_is_dense_below_2051_tokens`: fails today.
+- [x] `qwen4_exp_qsa_lock::the_dense_limit_is_where_the_complete_blocks_fill_the_budget`: fails today (receipt: green
+  in `logs/samba/live-new-3.log` — the limit is 2,051 for Qwen3.8-Flash-Next, and the reference's QSA equals its dense
+  attention up to it and not one block past it; the RED: no `author::qsa_dense_limit` on HEAD).
+- [x] `qwen4_exp_qsa_lock::within_its_dense_limit_a_qsa_layer_is_written_dense_and_equals_the_reference`: fails today
+  (receipt: the same log; the RED: `author::check` refused every QSA layer on HEAD).
 - [ ] `qwen4_exp_qsa_lock::decode_runs_at_262144_positions`: fails today.
 
 **Edge cases.**
 - [ ] 2,050, 2,051 and 2,052 cached tokens.
 - [ ] Score ties at the 512th block.
 
-**Implementation.** ARCH-SPARSE's lowering with these shapes; the pooled-key cache as a carried table.
+**Implementation.** ARCH-SPARSE's lowering with these shapes; the pooled-key cache as a carried table. Within the
+dense limit (`author::qsa_dense_limit`, `(budget / block + 1)·block − 1`) the author writes the layer as its dense
+attention and the decode step lowers onto the SN50 whole; past it, and where no cache length is known, the selection
+is refused by name.
 
 **Success.**
 - [ ] Selection set equal to the reference's, or within the stated Jaccard bound with the bound recorded (receipt: the
@@ -5656,6 +5747,22 @@ counting sort by expert id with its inverse permutation for the combine.
 
 **Implementation.** Count, prefix-sum, scatter; the inverse kept for the combine.
 
+The batch today (2026-11-06): the author writes a batched decode's mixture one `moe of` a sequence, so a batch of B
+reads the router, every touched expert and their biases B times (`samba_exam_decode_reds_lock`, E3.2, red for gpt-oss
+at 8, 16 and 64). The form that reads each once, in the IR as it stands:
+- One mixture over the stack: `moe of X` for `X` a `B × d` table, each row routed on its own (the sugar's desugaring
+  takes a row loop; `MoeSpec` gains `rows`), or the tensor graph joining the B per-row mixtures that read rows of one
+  stack and write rows of another into that one node — the parser and `tensor_graph::fuse` are other lanes' files, so
+  which of the two is a coordination with their owners.
+- The router over the stack (one `B × E` contraction), then each row's top `K` as today (`moe_routing`).
+- The counting sort as dense compares, which needs no scatter: expert `e`'s count `Σ_{b,j} [pick(b,j) = e]`, its
+  offset the prefix sum, and pair `(b, j)`'s place `offset(e) + #{(b', j') before it with the same expert}` — `O((BK)²)`
+  integer compares, 262,144 at B 64 and K 8.
+- An expert's section folds its tokens to a trip read from its count (`spatial_trip_count_lock`'s mechanism: a loop
+  count read from an input before the section runs, the certificate proving every admitted count), its weights loaded
+  once, its token rows gathered through the permutation, each output row weighted and written to its place.
+- The combine reads each token's `K` rows through the inverse permutation and sums them.
+
 **Success.**
 - [ ] Equal to the VM; each expert's weights read once a step (receipt: the lock).
 
@@ -5857,6 +5964,18 @@ its fan-in.
 - [ ] A row of one element. A row whose length is prime.
 
 **Implementation.** The arg-max's block-and-merge form parameterized by the fold.
+
+Today (2026-11-06): a softmax of one row past a site's memory inside the page is streamed
+(`from_qwen_ops::streamed_softmax`): each block's `(m_b, Σ e^(x − m_b))`, one section combining them into the row's
+`(m, Z)` (the wide router's own statistics, `softmax_row_statistics`), then `e^(x − m)/Z` a tile an item. The same form
+computes a row past the page (a 1×5,120 softmax on the SN50, the VM's values), and is held off live until Tristen rules
+on `emit_rdu::emit_rdu_refuses_what_the_chip_cannot_host_by_name`, whose subject is that softmax as the unhostable
+program; the held routing and its matrix cases are in `logs/samba/held-softmax/`. The arg-max's
+block halves until a site holds its sections (`blocked_argmax`), and every row op past a site lowers
+(`spatial_site_memory_lock`). What is left is the width: the statistics are a section a block and the combining section
+reads one page a block, so a row of 248,320 is 970 sections and a combine past a site. The vocabulary-wide form is the
+arg-max's: one section whose items are the blocks, then a merge tree whose fan is what a site holds, the fold
+`(m, s) ⊕ (m', s') = (M, s·e^(m − M) + s'·e^(m' − M))`.
 
 **Success.**
 - [ ] Every fold equal to the VM at vocabulary width (receipt: the lock).
@@ -6230,7 +6349,10 @@ context change moves, and emit byte-identical bundles on every run.
 - [ ] 61 layers with 3 dense: two kinds. A 10,000-node graph.
 
 **Implementation.** Kind dedup by digest; a compile cache keyed by kind digest and shape; budgets recorded in the
-ledger.
+ledger. One program's lowering is not linear in its statements: a chain of `plus` lowers in 0.08 s at 125
+statements, 4.4 s at 500 and 44 s at 1,000 (`logs/samba/probe-chain-1.log`), every sample in the fuser's
+`elementwise_regions`, which regrows a region for every sink and drops it when no member joins two of its results
+(`logs/samba/probe-chain-gdb.log`); handed to the fuser's owners on the lanes board, the frozen E11.7 row its lock.
 
 **Success.**
 - [ ] Every Tier A model compiles inside the budget, byte-stable (receipt: the lock).
@@ -6765,7 +6887,11 @@ accumulation's floor.
   bf16, is the f64 reference's within 1e-4 of the largest logit, where the SN50's bf16 bundle drifts 0.106 against a
   bound of 0.071 (E1.13): the lowering is exact and the drift is the datapath's (receipt: `logs/samba/q3next-fp32twin-2.log`).
   A target that offers fp32 beside bf16 still multiplies in bf16, since a float matmul takes the narrowest float its unit
-  offers. So the fp32 twin replaces bf16 rather than adding fp32 to it. `common/samba_exam.rs`'s frozen `fp32_twin` (EXAM-2) adds
+  offers. At a cache of 64 and prompts of 3 to 63 the products' drift carries tiny Llama (no QK-norm) past the bf16
+  bound on whole-tile heads (64: 1.6–3.4 times it), and tiny gpt-oss further, its router choosing another expert on a
+  near-tie (64: 35 times at 37); the f64 graph of the same programs equals the reference to 1e-14, and each product adds
+  a relative 1.6e-3 on the twin (`logs/samba/probe-e117len-1.log`, `logs/samba/probe-graphoss-1.log`,
+  `logs/samba/probe-bisectoss-1.log`). So the fp32 twin replaces bf16 rather than adding fp32 to it. `common/samba_exam.rs`'s frozen `fp32_twin` (EXAM-2) adds
   it, so the E2 rows that use it multiply in bf16. Changing a frozen helper is Tristen's call.
 - [x] `tensor_gdn_row_blocks_lock::a_real_width_step_fits_a_site_with_fp32_beside_its_bf16_products`: Qwen3.8's 48 value
   heads over 16 key heads of 128 at fp32 lower whole, certify and move the memory once; failed: `NoLegalTiling`, an
@@ -6805,18 +6931,47 @@ and the four-times-wide tiny bring-ups. Two deployments' twins wait on it too, e
 `deploy_reds_lock`: Gemma 3's (2.04% of the largest logit on the bf16 datapath, held with the witness:
 `logs/samba/deploy-gemma-simd-fp32.log`) and Qwen 3.5's mixture's (2.54%, 1.34% with the witness:
 `logs/samba/diag-qwen35moe-simd-fp32.log`). The real-width footprints at fp32 (the gated delta, a decode attention's
-regroup, a flash fold) now fit by the paging above. Owed before it lands, each Tristen's word:
+regroup, a flash fold) now fit by the paging above. Owed before it lands, each Tristen's word (ruled 2026-11-07,
+below the list):
 - where a KV cache is stored. Written at the pointwise float, a cache at fp32 is read at four bytes an element where
   its products take two (`spatial_grouped_decode_attention_lock`'s and `spatial_trip_count_lock`'s byte counts). It
   is a storage format, NUM-6's;
 - gpt-oss's tiny bring-up. It drifts 0.175, 2.14% of its largest logit, against the 2% bound of the frozen
   `brings_up_close`, with no routing near-call: the closest is a margin of 0.124 on a score of 0.247, and flipping it
-  moves the logits by 3.2 (`logs/samba/probe-gptoss-1.log`). The bound or the datapath decides it;
+  moves the logits by 3.2 (`logs/samba/probe-gptoss-1.log`). The bound or the datapath decides it. Decoded on the
+  bundle from the reference's own cache it is past the bound at 5 of 7 positions, up to 1.11 against 0.109
+  (`logs/samba/probe-e27-4.log`, `logs/samba/probe-e27-5.log`); with each part alone on the bf16 SN50 and the rest on
+  the fp32 twin, layer 0 carries it all (`logs/samba/probe-e27-6.log`), and in layer 0 its windowed attention with
+  sinks is 2.25% from the twin's at the sixth position against 0.5% at the others, every input of it within bf16's
+  rounding (`logs/samba/probe-e27-7.log`);
+- E2.7, the last position. The 7-row prefill lowers whole and its cache rows are the twin's own rounding, no worse at
+  rows 5 to 7 than at 1 to 3 (`logs/samba/probe-e27-3.log`); from the reference's own cache the bf16 bundle's decode
+  is 0.136 from the reference against Qwen3's bound of 0.105, and past it at 3 of 7 positions
+  (`logs/samba/probe-e27-4.log`). Its frozen row names MEM-3;
 - the tests that hold the SN50 as the bf16 chip: `rdu_index_datatype_lock`'s tile datapath,
   `spatial_attention_real_width_lock`'s carries-bf16 rows, `spatial_algebra_semantics_lock`, `spatial_forward_lock`,
   and `spatial_moe_real_width_lock`'s crowded two-site target, whose 64 KB sites are sized for bf16 tiles;
 - the identity and fabric-segment re-records, and `spatial_op_gap_ledger_lock`'s partial rotation, which now works
   and leaves the gap ledger.
+
+gpt-oss, held to the 2% bound by the third ruling below, has no lowering error to find: every layer lowers in one form
+(27 sections) on the island SN50 and on the true fp32 twin, and the twin is the reference's to 2.7e-5 at every prompt
+length; the island chip's 0.4% to 3.3% of the largest logit (past 2% at prompts of 2, 3 and 5) is its bf16 products'
+and cache's rounding through this checkpoint's peaked attention (`logs/samba/num1-probe-1.log`). It stays a handed RED.
+With the islands, a sequence decodes bit for bit alike alone and beside 63 others (E2.4's four architectures, every
+layer's output and the logits; `logs/samba/num8-probe-4.log`).
+
+Tristen's rulings (2026-11-07), on which the pass lands:
+- A key or value cache is stored at the products' float: bf16 on the SN50, the island rounding a key or value once on
+  its way in (`cache_precision` in `crates/logicaffeine_compile/src/spatial/passes/from_qwen_ops.rs`: every attention
+  form loads its cache from there, and a row write into a table an attention reads as its keys or values runs there).
+  fp8 and int8 caches stay NUM-6's.
+- The locks that hold the SN50 as the bf16 chip move to the island chip, each change shown old against new in its
+  receipt, none weakened; the identity and fabric-segment pins are re-recorded.
+- gpt-oss keeps the 2% bound: the error in layer 0's windowed attention with sinks is found and fixed, gpt-oss a handed
+  RED until it is.
+- `fp32_twin` (`crates/logicaffeine_tests/tests/common/samba_exam.rs`) replaces bf16, products included, so the rows
+  that use it compare against an exact lowering.
 
 **Success.**
 - [ ] Drift at or under Wormhole's on every Tier A model (receipt: the lock).
@@ -7505,6 +7660,19 @@ layers split over two chips hand their hidden state on, each side's state agreed
   GPU target's fp32 elementwise cache into the SN50's bf16 bundle).
 - [x] A model split over two chips mid-stack: the hidden state at the cut, each chip its own layers' state.
 - [ ] A tensor-parallel decode: each chip's shard of the contract.
+- [ ] A prefill on the GPU target at a real model's width: the GPU target's cache write keeps its table whole in one
+  site, so 16 positions of 256, 32 of 512 and 64 of 1,024 are refused there (`LocalMemExceeded`) where the SN50 lowers
+  them (`logs/samba/probe-setrows-1.log`); the write's column block is sized by the page, not by what a site holds.
+- [x] A longer prompt prefilled on the GPU target: the tiny models' 7-row prefill did not lower for it — its rotation
+  of 28 heads of 16 kept the whole row resident and fit no site (`NoLegalTiling`, 28 tiles), and its per-head norm ran
+  28 rows on a 16-row tile (`logs/samba/probe-e27-2.log`). Both lower now (a rotation whose flat row fits no site turns
+  a head an item, `spatial_rope_window_lock::a_block_whose_whole_row_fits_no_site_turns_a_head_an_item`; a norm's rows
+  run a tile's rows at a time, `tensor_lane_norm_lock`; `logs/samba/slot3b.log`, `logs/samba/slot3-green.log`). A third
+  blocker was its per-head norms (28 heads of 16), past a block's memory inside its page: every row op past a site now
+  takes a head, a tile or a block of the row an item (`spatial_site_memory_lock`), and the whole prefill lowers, every
+  carried tensor the whole-row forms' value for value
+  (`spatial_disaggregation_lock::the_longest_prompt_a_decode_follows_prefills_whole_on_the_gpu_target`; receipt
+  `logs/samba/broad-sitemem.log`).
 
 **Implementation.** The author declares each carried tensor once, by name and shape, and the prefill program declares
 the same tensors the decode step reads, so the contract is read off the authored decode layers (`carried_state` of each
@@ -8533,9 +8701,16 @@ states, each frozen so no later change can weaken it. The family's tickets turn 
 
 **RED tests.**
 - [ ] `samba_exam_correctness_reds_lock::*`: every test of section 10.2, each red today for its stated reason. Written and
-  frozen: E2.4 (a sequence's logits beside 63 others differ in their last bits, NUM-8) and E2.7 (a chunk of 7 rows does
-  not lower — its stacked rows' QK-norm, rotation and attention reach past the SN50's 8 accumulator tiles — before the
-  last position is reached, MEM-3) (receipt: `logs/samba/reds-classify-2.log`). Owed: E2.1–E2.3 (the reference
+  frozen: E2.4 (a sequence's logits beside 63 others differ in their last bits, NUM-8) and E2.7 (receipt:
+  `logs/samba/reds-classify-2.log`). E2.7's chunk of 7 rows did not lower — its stacked rows' QK-norm, rotation and
+  attention reached past the SN50's 8 accumulator tiles (`logs/samba/e27-1.log`) — and lowers now: a per-row norm whose
+  rows straddle tiles takes a tile-aligned group of rows an item (`tensor_lane_norm_lock`), a column-blocked stage
+  moves a gather index or a vector of bounds by its item's first column once (a rope block's 112 table reads through
+  one, `spatial_rope_window_lock`), a flat attention's scores and weighted sum and a per-head matmul fold by columns,
+  a softmax's and a norm's per-row statistics run a tile's rows at a time (`spatial_column_blocks_lock`), and a
+  `Generic` with more parallel rows than a tile is refused at validation (`spatial_algebra_expansion_lock`) (receipts:
+  `logs/samba/live-e27-1.log`, `logs/samba/live-e27-2.log`). It is red now on the bf16 datapath's margin, NUM-1's
+  (`logs/samba/e27-2.log`). Owed: E2.1–E2.3 (the reference
   implementations' goldens, INTAKE-4), E2.6 (a prompt runner over a bundle, ACCESS-4), E2.8 (4,096 positions), E2.11 (the
   Wormhole target model runs no position-indexed op: it has no Int32 datapath, so the comparison the row names cannot
   run).
@@ -8948,7 +9123,14 @@ states, each frozen so no later change can weaken it. The family's tickets turn 
 - `crates/logicaffeine_tests/tests/frozen_reds_lock.rs`: how a handed RED is frozen.
 
 **RED tests.**
-- [ ] `samba_exam_kernel_lock::*`: every test of section 10.11, each red today for its stated reason (receipt: the RED log).
+- [ ] `samba_exam_kernel_reds_lock::*`: every test of section 10.11, each red today for its stated reason (receipt: the RED log).
+  Written and frozen: E11.5 (its blocked form landed for ARCH-NORMS; red on its own inputs, which bf16 cannot hold —
+  a re-pin owed), E11.6 (200
+  sections, SCHED-10), E11.7 (a superlinear lowering, SCHED-8) and E11.9 (the scatter refused, KERNEL-4)
+  (`logs/samba/kernel-red-2.log`, `logs/samba/slot3-red.log`). Holding and frozen in `samba_exam_kernel_lock`: E11.8, E11.10 and E11.12
+  (`logs/samba/kernel-2.log`, `logs/samba/kernel-red-2.log`). Owed, each on a ruling of its surface: E11.1 and E11.2 (a
+  modeled time a bundle states), E11.3 and E11.11 (top-k and sampling in the language). Written and frozen since: E11.4
+  (red for its sub-tile shape, which takes the flat mixture — a re-pin at widths of whole tiles owed, `logs/samba/red-e114.log`).
 
 **Edge cases.**
 - [ ] A prime-length reduction.

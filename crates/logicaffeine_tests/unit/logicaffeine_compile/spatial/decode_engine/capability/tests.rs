@@ -28,7 +28,7 @@ fn attention() -> Attention {
 }
 
 fn layer(mixer: Mixer) -> Layer {
-    Layer { mixer, ffn: Ffn::Dense { dff: 128, act: Act::Silu }, post_mixer_norm: false, post_ffn_norm: false }
+    Layer { mixer, ffn: Ffn::Dense { dff: 128, act: Act::Silu }, pre_norms: true, post_mixer_norm: false, post_ffn_norm: false }
 }
 
 /// A Qwen3.5-shaped model: a Gated-DeltaNet block, then an attention block, every feature the engine carries.
@@ -51,6 +51,11 @@ fn qwen35() -> ModelSpec {
         hyper: None,
         ple: None,
         indexer: None,
+        residual_scale: None,
+        logit_scale: None,
+        norm: crate::model::spec::Norm::Rms,
+        head_bias: false,
+        parts: Vec::new(),
     }
 }
 
@@ -122,7 +127,7 @@ fn every_attention_variant_the_unit_lacks_is_named() {
         (|a| a.window = Some(Window::Sliding(512)), "a sliding window"),
         (|a| a.sinks = true, "attention sinks"),
         (|a| a.softcap = Some(50.0), "soft-capped scores"),
-        (|a| a.temperature = Some(Temperature { floor: 8192.0, scale: 0.1 }), "a per-position query temperature"),
+        (|a| a.temperature = Some(Temperature { floor: 8192.0, scale: 0.1, offset: 1.0 }), "a per-position query temperature"),
         (|a| a.qk_unit_norm = true, "a weightless QK norm"),
     ];
     for (change, what) in cases {
@@ -177,9 +182,11 @@ fn every_block_and_model_feature_the_lowering_lacks_is_named() {
         qk_nope: 16,
         qk_rope: 8,
         v_dim: 16,
-        rope: rope(RopeScaling::None),
+        rope: Some(rope(RopeScaling::None)),
         scale: 0.2,
         kv_b_split: false,
+        indexer: None,
+        latent_norm_eps: 1e-6,
     };
     let mut spec = qwen35();
     spec.layers[0].mixer = Mixer::Mla(mla);
@@ -207,6 +214,7 @@ fn every_block_and_model_feature_the_lowering_lacks_is_named() {
         shared_gate: false,
         biases: false,
         groups: None,
+        latent: None,
     });
     assert_eq!(spec_refusals(&spec), vec![Refusal::Ffn { layer: 1, what: "experts" }]);
 

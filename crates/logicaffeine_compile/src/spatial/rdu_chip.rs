@@ -267,10 +267,14 @@ pub struct RduChipFacts {
     pub scale_up: Option<Fact<ScaleUp>>,
     pub pcu_count: Fact<usize>,
     pub pmu_count: Fact<usize>,
-    /// Precisions our fabric places AND witnesses — the only ones the descriptors advertise.
+    /// The matrix path's precisions our fabric places AND witnesses — the only ones a product is advertised in.
     pub witnessed: &'static [Precision],
-    /// Chip-supported precisions no witness has shipped for — never advertised, named in the envelope.
+    /// Chip-supported matrix-path precisions no witness has shipped for — never advertised, named in the envelope.
     pub witness_pending: &'static [Precision],
+    /// The precisions each SIMD stage of a PCU computes in: the elementwise and row-reduce datapath beside the matrix
+    /// path's systolic array, where norms, softmaxes, routers, recurrent state and long reductions run while the
+    /// products stay in [`Self::witnessed`].
+    pub simd: Fact<&'static [Precision]>,
     /// The integer type the PCU computes indices and addresses in: the widest integer compute datatype the
     /// part has. Every index a lowering carries onto the chip — a gathered row, an arg-max, a block start —
     /// rides it, and the integer accumulator of the matrix path is this wide; nothing wider exists on the part.
@@ -289,6 +293,9 @@ pub struct RduChipFacts {
 pub const BINARY: &str = "read in powers of two, as the vendor counts (1040 PMUs × 512 KB = 520 MB [DIAYN26])";
 
 const WITNESSED: &[Precision] = &[Precision::Int8, Precision::Bf16];
+
+/// The SIMD stages' compute formats ([SN40L24]).
+const SIMD: &[Precision] = &[Precision::Fp32, Precision::Bf16, Precision::Int32];
 
 /// The HBM stacks an RDU's 64 GiB is laid out as for a model that counts channels: four 16 GiB HBM2E stacks.
 pub const HBM_STACKS: usize = 4;
@@ -318,8 +325,8 @@ impl RduChipFacts {
 
     /// The SN40L: 1040 PCUs and 1040 PMUs of 512 KB at TSMC 5 nm, 638 TFLOPS bf16 a socket, 16 sockets a node, a three-tier
     /// memory of 520 MiB on-chip SRAM, 64 GiB of HBM at 1.6 TB/s and up to 1.5 TiB of DDR at over 100 GB/s. The PCU's
-    /// compute datatypes are BF16 / FP32 / INT32 / INT8: INT8 + BF16 are witnessed on the matrix path, FP32 is
-    /// chip-supported and witness-pending, and INT32 is the index datatype.
+    /// compute datatypes are BF16 / FP32 / INT32 / INT8: INT8 + BF16 are witnessed on the matrix path, where FP32 is
+    /// chip-supported and witness-pending; each SIMD stage computes in FP32, BF16 and INT32; INT32 is the index datatype.
     pub fn sn40l() -> RduChipFacts {
         RduChipFacts {
             chip: RduChip::Sn40l,
@@ -342,6 +349,10 @@ impl RduChipFacts {
             pmu_count: Fact::published(1040, "[HC24] 1040 PMUs; [DIAYN26] 1040 Pattern Memory Units a socket"),
             witnessed: WITNESSED,
             witness_pending: &[Precision::Fp32],
+            simd: Fact::published(
+                SIMD,
+                "[SN40L24] each SIMD stage supports common arithmetic, logical, and bit-wise operations in FP32, BF16, and INT32 formats; its Table IV runs BF16 weights and mixed BF16/FP32 activations",
+            ),
             index_datatype: Fact::published(
                 Precision::Int32,
                 "[SN40L24] the PCU supports BF16, FP32, INT32 and INT8 compute data types — INT32 is the widest integer (arXiv:2405.07518)",
@@ -362,7 +373,8 @@ impl RduChipFacts {
     /// HBM2E, DDR5 up to 512 GB (the datasheet: up to 2 TB), 8 chips per node and 16 per SambaRack, ten 800G ports a chip
     /// (seven make the node's full mesh, two reach the inter-node fabric) carrying 2 TB/s, 400G RoCEv2 scale-out. The
     /// PCU/PMU counts are NOT public ("a sea of PCUs and PMUs") — inherited from the SN40L and labeled modeled, and so
-    /// are the HBM and DDR bandwidths. FP8 and FP32 are chip-supported and witness-pending.
+    /// are the HBM and DDR bandwidths. FP8 and FP32 are chip-supported and witness-pending on the matrix path; the SIMD
+    /// stages' FP32, BF16 and INT32 are inherited from the SN40L and labeled modeled.
     pub fn sn50() -> RduChipFacts {
         RduChipFacts {
             chip: RduChip::Sn50,
@@ -388,6 +400,10 @@ impl RduChipFacts {
             pmu_count: Fact::modeled(1040, "not public; inherited from SN40L (1040 PMUs [HC24]) — the SN50 describes a sea of PCUs and PMUs without a count"),
             witnessed: WITNESSED,
             witness_pending: &[Precision::Fp8, Precision::Fp32],
+            simd: Fact::modeled(
+                SIMD,
+                "not public; inherited from the SN40L ([SN40L24]: each SIMD stage computes in FP32, BF16 and INT32) — the SN50's table names only BF16 and FP8",
+            ),
             index_datatype: Fact::modeled(
                 Precision::Int32,
                 "not public; inherited from the SN40L ([SN40L24]: BF16, FP32, INT32 and INT8 compute data types) — the SN50's table names only BF16 and FP8",
@@ -603,10 +619,13 @@ impl RduChipFacts {
         let index = self.index_datatype.value;
         let index_bits =
             super::target::precision_int_bits(index).expect("the index datatype is an integer");
-        // The tile datapath computes in the witnessed precisions AND the index datatype — the integer an
-        // address is computed in. The matrix dial stays exactly the witnessed set.
-        let elementwise: BTreeSet<Precision> =
-            scalar.precisions.iter().copied().chain([index]).collect();
+        // ★ FP32 ISLANDS, BF16 PRODUCTS. The elementwise and row-reduce units are the PCU's SIMD stages, which compute in
+        // their own formats beside the witnessed set, so a norm, a softmax, a router or a recurrent state is held at
+        // fp32 there while every product takes the matrix path's bf16 — the mixed BF16/FP32 activations the vendor's
+        // own rates run [SN40L24]. The tile datapath also computes in the index datatype, the integer an address is
+        // computed in; the matrix dial stays exactly the witnessed set.
+        let simd: BTreeSet<Precision> = scalar.precisions.iter().chain(self.simd.value).copied().collect();
+        let elementwise: BTreeSet<Precision> = simd.iter().copied().chain([index]).collect();
         SpatialTarget {
             name: self.chip.target_name(),
             sites: self.mesh(),
@@ -656,13 +675,11 @@ impl RduChipFacts {
                 ComputeCap::Elementwise {
                     precisions: elementwise,
                 },
-                ComputeCap::RowReduce {
-                    precisions: scalar.precisions.clone(),
-                },
+                ComputeCap::RowReduce { precisions: simd.clone() },
                 ComputeCap::Scalar(scalar.clone()),
             ],
             dram: scalar.mem,
-            precisions: scalar.precisions.clone(),
+            precisions: simd,
             noc_rule: None,
             write_ordering: WriteOrdering::Ordered,
             cycle: CycleModel::uncalibrated(),

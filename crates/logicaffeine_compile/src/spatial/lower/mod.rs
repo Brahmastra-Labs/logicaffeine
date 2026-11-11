@@ -6,6 +6,7 @@ pub mod fabric;
 pub mod fabric_board;
 pub mod rdu;
 pub mod rdu_lanes;
+pub mod rdu_report;
 pub mod rdu_sdk;
 pub mod sambaflow;
 pub mod spatial_lang;

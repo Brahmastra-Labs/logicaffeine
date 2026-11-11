@@ -18,12 +18,14 @@
 
 pub mod certificate;
 pub mod clock;
+pub mod compile_cache;
 pub mod cost;
 pub mod d5005;
 pub mod decode;
 pub mod decode_chip;
 pub mod decode_engine;
 pub mod describe;
+pub mod drop;
 pub mod equiv;
 pub mod eval;
 pub mod fit;
@@ -31,6 +33,7 @@ pub mod fpga_decode;
 pub mod handoff;
 pub mod int8_model;
 pub mod ir;
+pub mod lineage;
 pub mod link;
 pub mod lower;
 pub mod part;

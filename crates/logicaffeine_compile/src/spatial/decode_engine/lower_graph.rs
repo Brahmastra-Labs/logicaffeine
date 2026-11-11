@@ -200,7 +200,8 @@ impl<'a> Reader<'a> {
     fn norm(&mut self, x: &str) -> Result<(&'a Op, String), LowerError> {
         let op = self.take("FusedRow")?;
         match prim(op) {
-            TensorOpSpec::FusedRow(r) if r.reduce == RowReduceKind::RmsNorm && r.bias.is_none() && r.residual.is_none() => {}
+            TensorOpSpec::FusedRow(r)
+                if r.reduce == RowReduceKind::RmsNorm && r.bias.is_none() && r.residual.is_none() && r.weight_rows == 1 => {}
             other => {
                 return Err(LowerError::Unexpected { op: self.at - 1, kind: other.kind(), block: self.block.clone(), expected: "an RMS norm with a weight".into() });
             }
@@ -263,6 +264,8 @@ impl<'a> Reader<'a> {
             Mixer::GatedDelta(gd) => self.delta(l, &normed, gd)?,
             Mixer::Attention(a) => self.attention(l, &normed, a, numerics)?,
             Mixer::Mla(_) => return refuse("multi-head latent attention"),
+            Mixer::Recurrent(r) => return refuse(r.what()),
+            Mixer::None => return refuse("a block with no mixer"),
         };
         self.block = format!("layer {l}'s mixer add");
         let mixed = self.elementwise(ElementwiseOp::Add, x, &out)?.out.clone();
@@ -271,6 +274,9 @@ impl<'a> Reader<'a> {
             Ffn::Dense { act: Act::Silu, .. } => {}
             Ffn::Dense { .. } => return refuse("an FFN gated by other than SiLU"),
             Ffn::Moe(_) => return refuse("a mixture of experts"),
+            Ffn::None => return refuse("a block with no FFN"),
+            Ffn::ChannelMix { .. } => return refuse("RWKV's channel mix"),
+            Ffn::DenseAndMoe { .. } => return refuse("a dense FFN beside a mixture of experts"),
         }
         self.block = format!("layer {l}'s FFN");
         let (normed, weight) = self.norm(&mixed)?;

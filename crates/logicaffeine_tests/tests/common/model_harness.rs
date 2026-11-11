@@ -122,47 +122,74 @@ pub fn checkpoint(spec: &ModelSpec) -> Tensors {
                 }
                 add(&blk("attn_output"), &[h * vd, d]);
             }
+            Mixer::Recurrent(r) => {
+                for (name, dims) in r.tensors(spec.d) {
+                    add(&format!("blk.{l}.{name}"), &dims);
+                }
+            }
+            Mixer::None => {}
         }
         if layer.post_mixer_norm {
             add(&blk("post_attention_norm"), &[d]);
         }
-        add(&blk(spec.ffn_norm), &[d]);
-        match &layer.ffn {
-            Ffn::Dense { dff, .. } => {
-                let f = *dff as u64;
-                add(&blk("ffn_gate"), &[d, f]);
-                add(&blk("ffn_up"), &[d, f]);
-                add(&blk("ffn_down"), &[f, d]);
-            }
-            Ffn::Moe(m) => {
-                let (e, f) = (m.experts as u64, m.expert_dff as u64);
-                add(&blk("ffn_gate_inp"), &[d, e]);
-                add(&blk("ffn_gate_exps"), &[d, f, e]);
-                add(&blk("ffn_up_exps"), &[d, f, e]);
-                add(&blk("ffn_down_exps"), &[f, d, e]);
-                if m.gating == (Gating::Sigmoid { bias: true }) {
-                    add(&format!("blk.{l}.exp_probs_b.bias"), &[e]);
-                }
-                if m.biases {
-                    let bias = |s: &str| format!("blk.{l}.{s}.bias");
-                    add(&bias("ffn_gate_inp"), &[e]);
-                    add(&bias("ffn_gate_exps"), &[f, e]);
-                    add(&bias("ffn_up_exps"), &[f, e]);
-                    add(&bias("ffn_down_exps"), &[d, e]);
-                }
-                if m.shared_gate {
-                    add(&blk("ffn_gate_inp_shexp"), &[d]);
-                }
-                if m.shared_experts > 0 {
-                    let sf = m.shared_dff as u64;
-                    add(&blk("ffn_gate_shexp"), &[d, sf]);
-                    add(&blk("ffn_up_shexp"), &[d, sf]);
-                    add(&blk("ffn_down_shexp"), &[sf, d]);
-                }
-            }
+        // A block with no mixer norms its FFN by its one norm; one with no FFN has no FFN norm.
+        if layer.mixer != Mixer::None && layer.ffn != Ffn::None {
+            add(&blk(spec.ffn_norm), &[d]);
+        }
+        // The FFN's tensors as the spec lists them: a dense FFN's, a mixture's (its router, experts, selection bias,
+        // shared expert and biases), a channel mix's.
+        for (name, dims) in layer.ffn.tensors(spec.d) {
+            add(&format!("blk.{l}.{name}"), &dims);
         }
         if layer.post_ffn_norm {
             add(&blk("post_ffw_norm"), &[d]);
+        }
+    }
+    for part in &spec.parts {
+        for (name, dims) in part.tensors(spec) {
+            add(&name, &dims);
+        }
+    }
+    // A hyper-connected residual's mixes: before each mixer and each FFN (with each lane's share of the output), and the
+    // last one before the head — the lanes' norm, one weight row a lane, and the gate's and the shares' projections.
+    if let Some(hc) = spec.hyper {
+        let (width, rank, lanes) = ((hc.lanes * spec.d) as u64, hc.rank as u64, hc.lanes as u64);
+        let mut mix = |stem: &str, inject: bool| {
+            add(&format!("{stem}_norm.weight"), &[width]);
+            add(&format!("{stem}_down.weight"), &[width, rank]);
+            add(&format!("{stem}_up.weight"), &[rank, width]);
+            if inject {
+                add(&format!("{stem}_inject.weight"), &[width, lanes]);
+            }
+        };
+        for l in 0..spec.layers.len() {
+            mix(&format!("blk.{l}.hc_attn"), true);
+            mix(&format!("blk.{l}.hc_ffn"), true);
+        }
+        mix("output_hc", false);
+    }
+    // The per-layer n-gram embedding: its table (the rows its hash names), its key's (one for each lane) and its value's
+    // projections of a token's rows side by side, its three norms in lanes, and its dilated convolution's taps.
+    if let (Some(ple), Some(hc)) = (&spec.ple, spec.hyper) {
+        let (width, rows) = ((hc.lanes * spec.d) as u64, (ple.head_vocab.len() * ple.head_dim) as u64);
+        let blk = |s: &str| format!("blk.{}.{s}.weight", ple.layer);
+        add("per_layer_token_embd.weight", &[ple.head_dim as u64, author::ple_table_rows(ple) as u64]);
+        add(&blk("ple_key"), &[rows, width]);
+        add(&blk("ple_value"), &[rows, d]);
+        for norm in ["ple_norm_key", "ple_norm_query", "ple_norm_conv"] {
+            add(&blk(norm), &[width]);
+        }
+        add(&blk("ple_conv1d"), &[ple.conv_taps as u64, width]);
+    }
+    // QSA's indexer on each layer it selects for: the index queries' and the one index key's projections and norms.
+    if let Some(ix) = &spec.indexer {
+        let (heads, hd) = (ix.heads as u64, ix.head_dim as u64);
+        for &l in &ix.layers {
+            let part = |s: &str| format!("blk.{l}.indexer.{s}.weight");
+            add(&part("q_proj"), &[d, heads * hd]);
+            add(&part("k_proj"), &[d, hd]);
+            add(&part("q_norm"), &[hd]);
+            add(&part("k_norm"), &[hd]);
         }
     }
     t
@@ -183,7 +210,7 @@ fn factored(spec: &ModelSpec) -> Option<usize> {
 /// The rotary tables from the spec, and any `extra` tensor (a KV cache) from the values given. A rotation scaled by
 /// the checkpoint's frequency factors, and a latent attention's, take their tables from the host's own fill
 /// ([`host_values`]), which reads the factors and every scaling.
-fn given(spec: &ModelSpec, extra: &HashMap<String, Vec<f64>>) -> HashMap<String, Vec<f64>> {
+fn given(spec: &ModelSpec, extra: &HashMap<String, Vec<f64>>, ctx: usize) -> HashMap<String, Vec<f64>> {
     let rope = spec.layers.iter().find_map(|l| match &l.mixer {
         Mixer::Attention(a) => a.rope.clone(),
         _ => None,
@@ -191,7 +218,7 @@ fn given(spec: &ModelSpec, extra: &HashMap<String, Vec<f64>>) -> HashMap<String,
     let Some(rope) = rope.filter(|_| factored(spec).is_none()) else {
         return extra.clone();
     };
-    let (cos, sin) = rope_tables(&rope, CTX, None);
+    let (cos, sin) = rope_tables(&rope, ctx, None);
     let half = rope.dims / 2;
     let mut fills: HashMap<String, Vec<f64>> = extra.clone();
     fills.insert("Rcos".into(), cos.clone());
@@ -203,8 +230,8 @@ fn given(spec: &ModelSpec, extra: &HashMap<String, Vec<f64>>) -> HashMap<String,
 
 /// The values a declared weight `var` is filled with: a host table the spec computes, or its checkpoint tensor through
 /// its binding; `None` for carried state.
-fn weight_values(spec: &ModelSpec, var: &str, source: &mut dyn WeightSource) -> Option<Vec<f64>> {
-    if let Some(v) = host_values(spec, var, CTX, source).unwrap_or_else(|e| panic!("`{var}`: {e}")) {
+fn weight_values(spec: &ModelSpec, var: &str, source: &mut dyn WeightSource, ctx: usize) -> Option<Vec<f64>> {
+    if let Some(v) = host_values(spec, var, ctx, source).unwrap_or_else(|e| panic!("`{var}`: {e}")) {
         return Some(v);
     }
     match bind(spec, var).unwrap_or_else(|e| panic!("{var} is unbound: {e:?}")) {
@@ -213,8 +240,24 @@ fn weight_values(spec: &ModelSpec, var: &str, source: &mut dyn WeightSource) -> 
     }
 }
 
-/// `src` with each tensor in `fills` filled right after its declaration, then the logits and the token shown.
-fn written(src: &str, fills: &HashMap<String, Vec<f64>>, vocab: usize) -> String {
+/// The logits and the token a step leaves, shown: `logits` and `next`, or each of a batch's `bsz` sequences'.
+fn shows(vocab: usize, batch: Option<usize>) -> String {
+    let names: Vec<(String, String)> = match batch {
+        None => vec![("logits".into(), "next".into())],
+        Some(bsz) => (0..bsz).map(|b| (format!("logits_s{b}"), format!("next_s{b}"))).collect(),
+    };
+    let mut out = String::new();
+    for (logits, next) in names {
+        for k in 1..=vocab {
+            out.push_str(&format!("Show item {k} of {logits}.\n"));
+        }
+        out.push_str(&format!("Show {next}.\n"));
+    }
+    out
+}
+
+/// `src` with each tensor in `fills` filled right after its declaration, then `shows`.
+fn written(src: &str, fills: &HashMap<String, Vec<f64>>, shows: &str) -> String {
     let mut out = String::new();
     for line in src.lines() {
         out.push_str(line);
@@ -223,17 +266,16 @@ fn written(src: &str, fills: &HashMap<String, Vec<f64>>, vocab: usize) -> String
             continue;
         };
         if let Some(vals) = fills.get(var) {
+            let int = line.ends_with("tensor of Int.");
             for (i, v) in vals.iter().enumerate() {
                 if *v != 0.0 {
-                    out.push_str(&format!("Set item {} of {var} to {}.\n", i + 1, lit(*v)));
+                    let value = if int { format!("{}", *v as i64) } else { lit(*v) };
+                    out.push_str(&format!("Set item {} of {var} to {value}.\n", i + 1));
                 }
             }
         }
     }
-    for k in 1..=vocab {
-        out.push_str(&format!("Show item {k} of logits.\n"));
-    }
-    out.push_str("Show next.\n");
+    out.push_str(shows);
     out
 }
 
@@ -246,25 +288,47 @@ pub fn filled(spec: &ModelSpec, prog: &author::Authored, ckpt: &Tensors, extra: 
 
 /// [`filled`] with every weight read from `source`: a checkpoint on disk as a host opens it.
 pub fn filled_from(spec: &ModelSpec, prog: &author::Authored, source: &mut dyn WeightSource, extra: &HashMap<String, Vec<f64>>) -> String {
-    let mut fills = given(spec, extra);
+    written(&prog.0, &weight_fills(spec, prog, source, extra, CTX), &shows(spec.vocab, None))
+}
+
+/// [`filled`] for a program over a cache of `ctx` positions, its rotary tables `ctx` rows.
+pub fn filled_at(spec: &ModelSpec, prog: &author::Authored, ckpt: &Tensors, extra: &HashMap<String, Vec<f64>>, ctx: usize) -> String {
+    written(&prog.0, &weight_fills(spec, prog, &mut ckpt.clone(), extra, ctx), &shows(spec.vocab, None))
+}
+
+/// [`filled`] for a batch step of `bsz` sequences: each sequence's logits and token shown.
+pub fn filled_batch(spec: &ModelSpec, prog: &author::Authored, ckpt: &Tensors, extra: &HashMap<String, Vec<f64>>, bsz: usize) -> String {
+    written(&prog.0, &weight_fills(spec, prog, &mut ckpt.clone(), extra, CTX), &shows(spec.vocab, Some(bsz)))
+}
+
+/// Every declared weight's values from `source` through its binding, beside the rotary tables of `ctx` positions and
+/// `extra`.
+fn weight_fills(
+    spec: &ModelSpec,
+    prog: &author::Authored,
+    source: &mut dyn WeightSource,
+    extra: &HashMap<String, Vec<f64>>,
+    ctx: usize,
+) -> HashMap<String, Vec<f64>> {
+    let mut fills = given(spec, extra, ctx);
     for var in prog.1.keys().chain(prog.2.keys()) {
         if !fills.contains_key(var) {
-            if let Some(v) = weight_values(spec, var, source) {
+            if let Some(v) = weight_values(spec, var, source, ctx) {
                 fills.insert(var.clone(), v);
             }
         }
     }
-    written(&prog.0, &fills, spec.vocab)
+    fills
 }
 
 /// A program split over chips, filled as [`filled`] fills one: each chip's slice from the full tensor its manifest
 /// names, at the coordinates the slice maps it to, and each replicated weight whole.
 pub fn filled_split(spec: &ModelSpec, prog: &author::TpAuthored, ckpt: &Tensors, extra: &HashMap<String, Vec<f64>>) -> String {
     let (src, f32w, q8w, manifest) = prog;
-    let mut full = given(spec, extra);
+    let mut full = given(spec, extra, CTX);
     for var in f32w.keys().chain(q8w.keys()) {
         if !full.contains_key(var) {
-            if let Some(v) = weight_values(spec, var, &mut ckpt.clone()) {
+            if let Some(v) = weight_values(spec, var, &mut ckpt.clone(), CTX) {
                 full.insert(var.clone(), v);
             }
         }
@@ -275,7 +339,7 @@ pub fn filled_split(spec: &ModelSpec, prog: &author::TpAuthored, ckpt: &Tensors,
         let (rows, cols) = slice.shape();
         fills.insert(var.clone(), (0..rows * cols).map(|i| whole[slice.full_index(i / cols, i % cols)]).collect());
     }
-    written(src, &fills, spec.vocab)
+    written(src, &fills, &shows(spec.vocab, None))
 }
 
 /// The VM's logits and token (the token back to a 0-based id).
@@ -287,6 +351,15 @@ pub fn run(src: &str, vocab: usize) -> (Vec<f64>, u32) {
     (nums[..vocab].to_vec(), nums[vocab] as u32 - 1)
 }
 
+/// The VM's logits and token for each of a batch's `bsz` sequences (each token back to a 0-based id).
+pub fn run_batch(src: &str, vocab: usize, bsz: usize) -> Vec<(Vec<f64>, u32)> {
+    let vm = vm_outcome(src);
+    assert!(vm.error.is_none(), "VM error: {:?}", vm.error);
+    let nums: Vec<f64> = vm.output.split_whitespace().map(|s| s.parse().unwrap()).collect();
+    assert_eq!(nums.len(), bsz * (vocab + 1), "each sequence's logits and token");
+    nums.chunks(vocab + 1).map(|c| (c[..vocab].to_vec(), c[vocab] as u32 - 1)).collect()
+}
+
 pub fn assert_close(got: &[f64], want: &[f64], what: &str) {
     for (k, (g, w)) in got.iter().zip(want).enumerate() {
         assert!((g - w).abs() <= 1e-9 * w.abs().max(1.0), "{what}: logit {k} is {g}, the reference's {w}");
@@ -294,18 +367,24 @@ pub fn assert_close(got: &[f64], want: &[f64], what: &str) {
 }
 
 /// The decode step's carried state as the program holds it after the prompt: each attention layer's `CTX`-row
-/// caches (the prompt's positions filled, in the program's basis), and each Gated DeltaNet layer's memory and
+/// caches (the prompt's positions filled, in the program's basis), each latent attention's one cache of the latent and
+/// the shared rotated key, and each Gated DeltaNet layer's memory and
 /// convolution rings — a ring holds its last `taps` inputs, the oldest of which the step shifts out, so the
 /// reference's `taps − 1` fill its newer rows.
 pub fn carried(spec: &ModelSpec, reference: &Reference) -> HashMap<String, Vec<f64>> {
+    carried_at(spec, reference, CTX)
+}
+
+/// [`carried`] for a decode step over a cache of `ctx` positions.
+pub fn carried_at(spec: &ModelSpec, reference: &Reference, ctx: usize) -> HashMap<String, Vec<f64>> {
     let mut state = HashMap::new();
     for (l, layer) in spec.layers.iter().enumerate() {
         match &layer.mixer {
             Mixer::Attention(a) => {
                 let (k, v) = reference.cached(l);
                 let (akv, avd) = (a.kv_heads * a.head_dim, a.kv_heads * a.value_dim);
-                let mut kc = vec![0f64; CTX * akv];
-                let mut vc = vec![0f64; CTX * avd];
+                let mut kc = vec![0f64; ctx * akv];
+                let mut vc = vec![0f64; ctx * avd];
                 for (p, (kr, vr)) in k.iter().zip(v).enumerate() {
                     let kr = match &a.rope {
                         Some(r) if !r.neox => neox_order(kr, a.head_dim, r.dims),
@@ -328,8 +407,37 @@ pub fn carried(spec: &ModelSpec, reference: &Reference) -> HashMap<String, Vec<f
                     state.insert(format!("{var}{l}"), ring);
                 }
             }
-            Mixer::Mla(_) => unreachable!("no shape here has latent attention"),
+            Mixer::Mla(m) => {
+                // One row a position: the normed latent, then the shared rotated key in the program's basis.
+                let (lora, kw) = (m.kv_lora_rank, m.kv_lora_rank + m.qk_rope);
+                let mut kc = vec![0f64; ctx * kw];
+                for (p, row) in reference.cached(l).0.iter().enumerate() {
+                    kc[p * kw..p * kw + lora].copy_from_slice(&row[..lora]);
+                    let pe = match &m.rope {
+                        Some(r) if !r.neox => neox_order(&row[lora..], m.qk_rope, r.dims),
+                        _ => row[lora..].to_vec(),
+                    };
+                    kc[p * kw + lora..(p + 1) * kw].copy_from_slice(&pe);
+                }
+                state.insert(format!("Kc{l}"), kc);
+            }
+            Mixer::Recurrent(r) => panic!("the author writes no {}", r.what()),
+            Mixer::None => {}
         }
+    }
+    // The per-layer embedding's: the hash's last `ngram − 1` tokens as rows (an end of document where none was reads as
+    // one), and its dilated ring — the reference's `(taps − 1)·ngram` values in its newer rows, the one the step shifts out
+    // first.
+    if let (Some(ple), Some(hc)) = (&spec.ple, spec.hyper) {
+        let (tokens, conv) = reference.ple_state();
+        let width = hc.lanes * spec.d;
+        let history = tokens[tokens.len() - (ple.ngram - 1)..].iter().map(|&t| f64::from(t) + 1.0).collect();
+        state.insert(format!("Ph{}", ple.layer), history);
+        let mut ring = vec![0f64; (conv.len() + 1) * width];
+        for (t, row) in conv.iter().enumerate() {
+            ring[(t + 1) * width..(t + 2) * width].copy_from_slice(row);
+        }
+        state.insert(format!("Cp{}", ple.layer), ring);
     }
     state
 }
@@ -374,6 +482,7 @@ pub fn deepseek_v3_spec() -> ModelSpec {
         shared_gate: false,
         biases: false,
         groups: Some((8, 4)),
+        latent: None,
     });
     ModelSpec {
         arch: "deepseek2".to_string(),
@@ -388,6 +497,7 @@ pub fn deepseek_v3_spec() -> ModelSpec {
             .map(|l| Layer {
                 mixer: Mixer::Attention(attention.clone()),
                 ffn: if l == 0 { Ffn::Dense { dff: 24, act: Act::Silu } } else { moe.clone() },
+                pre_norms: true,
                 post_mixer_norm: false,
                 post_ffn_norm: false,
             })
@@ -397,6 +507,11 @@ pub fn deepseek_v3_spec() -> ModelSpec {
         hyper: None,
         ple: None,
         indexer: None,
+        residual_scale: None,
+        logit_scale: None,
+        norm: logicaffeine_compile::model::spec::Norm::Rms,
+        head_bias: false,
+        parts: Vec::new(),
     }
 }
 
@@ -436,6 +551,7 @@ pub fn qwen2_moe_spec() -> ModelSpec {
         shared_gate: true,
         biases: false,
         groups: None,
+        latent: None,
     });
     ModelSpec {
         arch: "qwen2moe".to_string(),
@@ -447,13 +563,18 @@ pub fn qwen2_moe_spec() -> ModelSpec {
         tied_output: false,
         final_logit_softcap: None,
         layers: (0..2)
-            .map(|_| Layer { mixer: Mixer::Attention(attention.clone()), ffn: moe.clone(), post_mixer_norm: false, post_ffn_norm: false })
+            .map(|_| Layer { mixer: Mixer::Attention(attention.clone()), ffn: moe.clone(), pre_norms: true, post_mixer_norm: false, post_ffn_norm: false })
             .collect(),
         mtp_blocks: 0,
         ffn_norm: "ffn_norm",
         hyper: None,
         ple: None,
         indexer: None,
+        residual_scale: None,
+        logit_scale: None,
+        norm: logicaffeine_compile::model::spec::Norm::Rms,
+        head_bias: false,
+        parts: Vec::new(),
     }
 }
 
@@ -500,6 +621,7 @@ pub fn qwen35_spec() -> ModelSpec {
             .map(|l| Layer {
                 mixer: if l == 2 { Mixer::Attention(attention.clone()) } else { Mixer::GatedDelta(gdn.clone()) },
                 ffn: Ffn::Dense { dff: 24, act: Act::Silu },
+                pre_norms: true,
                 post_mixer_norm: false,
                 post_ffn_norm: false,
             })
@@ -509,6 +631,11 @@ pub fn qwen35_spec() -> ModelSpec {
         hyper: None,
         ple: None,
         indexer: None,
+        residual_scale: None,
+        logit_scale: None,
+        norm: logicaffeine_compile::model::spec::Norm::Rms,
+        head_bias: false,
+        parts: Vec::new(),
     }
 }
 
@@ -528,6 +655,7 @@ pub fn qwen35_moe_spec() -> ModelSpec {
         shared_gate: true,
         biases: false,
         groups: None,
+        latent: None,
     });
     let mut spec = qwen35_spec();
     spec.arch = "qwen35moe".to_string();
@@ -558,7 +686,7 @@ pub fn llama4_spec() -> ModelSpec {
         qk_norm_whole: false,
     };
     let rotated = Attention { window: Some(Window::Chunked(3)), qk_unit_norm: true, ..base.clone() };
-    let plain = Attention { rope: None, temperature: Some(Temperature { floor: 2.0, scale: 0.5 }), ..base };
+    let plain = Attention { rope: None, temperature: Some(Temperature { floor: 2.0, scale: 0.5, offset: 1.0 }), ..base };
     let moe = Ffn::Moe(Moe {
         experts: 4,
         top_k: 1,
@@ -572,6 +700,7 @@ pub fn llama4_spec() -> ModelSpec {
         shared_gate: false,
         biases: false,
         groups: None,
+        latent: None,
     });
     ModelSpec {
         arch: "llama4".to_string(),
@@ -586,6 +715,7 @@ pub fn llama4_spec() -> ModelSpec {
             .map(|l| Layer {
                 mixer: Mixer::Attention(if l == 3 { plain.clone() } else { rotated.clone() }),
                 ffn: if l % 2 == 1 { moe.clone() } else { Ffn::Dense { dff: 24, act: Act::Silu } },
+                pre_norms: true,
                 post_mixer_norm: false,
                 post_ffn_norm: false,
             })
@@ -595,5 +725,10 @@ pub fn llama4_spec() -> ModelSpec {
         hyper: None,
         ple: None,
         indexer: None,
+        residual_scale: None,
+        logit_scale: None,
+        norm: logicaffeine_compile::model::spec::Norm::Rms,
+        head_bias: false,
+        parts: Vec::new(),
     }
 }

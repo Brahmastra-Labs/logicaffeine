@@ -43,6 +43,9 @@ pub fn kernel_refusal(op: &TensorOpSpec) -> Option<&'static str> {
             Some("an elementwise op over a row combined with every row of a block — its kernel reads both at one index")
         }
         T::Elementwise(_) => None,
+        T::FusedRow(r) if r.weight_rows > 1 => {
+            Some("a norm in lanes (`in L lanes`), each row by its own row of the weight — its kernels read one weight row")
+        }
         T::FusedRow(r) => match r.reduce {
             RowReduceKind::RmsNorm if r.bias.is_some() => Some("a bias on an RMSNorm — its kernel scales and never shifts"),
             RowReduceKind::Softmax if r.weight.is_some() || r.residual.is_some() || r.bias.is_some() => {
@@ -84,6 +87,13 @@ pub fn kernel_refusal(op: &TensorOpSpec) -> Option<&'static str> {
             Some("an expert mixture whose router is not a softmax weighting its experts' outputs — scored by sigmoids, biased in its choice, limited to groups, scaled, or weighting its inputs")
         }
         T::Moe(_) => None,
+        T::LaneSums(_) | T::SignedRoot(_) => {
+            Some("a lane sum or a signed root (`the lane sums of X over L lanes`, `the signed root of X`) — no kernel computes one")
+        }
+        T::NgramIds(_) => Some("an n-gram hash (`the ngram ids of T after R by M modulo V from O ending at E`) — no kernel hashes one"),
+        T::LaneMean(_) | T::LaneSpread(_) => {
+            Some("a hyper-connected residual's lanes (`the mean of X over L lanes`, `O spread over L lanes`) — no kernel mixes or spreads them")
+        }
         T::SwiGlu(_)
         | T::Sigmoid(_)
         | T::Gelu(_)
@@ -100,6 +110,8 @@ pub fn kernel_refusal(op: &TensorOpSpec) -> Option<&'static str> {
         | T::RowsGather(_)
         | T::ArgMax(_)
         | T::SetRow(_)
+        | T::Scatter(_)
+        | T::Map(_)
         | T::IntRequant(_)
         | T::IntClamp(_)
         | T::Relu(_)

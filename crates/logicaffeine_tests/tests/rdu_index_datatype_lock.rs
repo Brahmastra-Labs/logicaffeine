@@ -122,10 +122,10 @@ fn the_descriptor_derives_its_integers_from_the_fact_and_keeps_the_matrix_dial_w
     for t in [SpatialTarget::sn40l_rdu(), SpatialTarget::sn50_rdu()] {
         assert_eq!(
             t.elementwise_precisions(),
-            [Precision::Int8, Precision::Int32, Precision::Bf16]
+            [Precision::Int8, Precision::Int32, Precision::Bf16, Precision::Fp32]
                 .into_iter()
                 .collect(),
-            "{}: the tile datapath",
+            "{}: the tile datapath, the SIMD stages' fp32 beside the witnessed set",
             t.name
         );
         assert!(
@@ -134,7 +134,9 @@ fn the_descriptor_derives_its_integers_from_the_fact_and_keeps_the_matrix_dial_w
             t.name
         );
         assert!(
-            !t.matmul_supports(Precision::Int32) && !t.matmul_supports(Precision::Int64),
+            !t.matmul_supports(Precision::Int32)
+                && !t.matmul_supports(Precision::Int64)
+                && !t.matmul_supports(Precision::Fp32),
             "{}: the matrix dial stays the witnessed set",
             t.name
         );

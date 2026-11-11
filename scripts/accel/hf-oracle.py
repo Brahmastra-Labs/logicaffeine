@@ -16,9 +16,9 @@ port is of the file). `split` runs a `Split` pre-tokenizer with an Oniguruma `Re
 normalizer; `special` the converter's own `gguf.SpecialVocab` (the pinned llama.cpp's gguf-py) over a model directory:
 the special-token ids and the add flags it reads from `tokenizer.json`, `tokenizer_config.json` and `config.json`.
 `logits` runs transformers' own forward of the directory's model in float64 (its experts eager, as the grouped kernel
-takes no float64, and its attention eager, the one form that takes every model's score cap, its softmax kept at the
-inputs' precision where the eager forms round it to float32) over the token ids and returns the last position's
-logits — the model's maintainers' computation, the oracle the f64 reference is held to.
+takes no float64, and its attention eager, the one form that takes every model's score cap, its softmax and its norms'
+`.float()` kept at the inputs' precision where the eager forms round them to float32) over the token ids and returns
+the last position's logits — the model's maintainers' computation, the oracle the f64 reference is held to.
 `scaled` runs the converter's own `dequant_simple` (read out of the pinned llama.cpp's `conversion/base.py`), which
 turns an FP8 checkpoint's weights and their scales into the f32 it writes, over cases `{weight, weight_dtype,
 weight_dims, scale, scale_dtype, scale_dims, block}` (bytes in hex). Runs in a Python with tokenizers, and torch and
@@ -39,7 +39,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def float64_model(path):
     """The directory's model in float64 throughout: experts and attention eager, and every softmax a model asks for in
-    float32 (the eager attention's, a router's) kept at its input's precision instead."""
+    float32 (the eager attention's, a router's) and every `.float()` it takes of a float64 tensor (Gemma's RMSNorms')
+    kept at its input's precision instead."""
     import torch
     import transformers
 
@@ -51,6 +52,12 @@ def float64_model(path):
         return softmax(x, dim=dim, _stacklevel=_stacklevel, dtype=dtype)
 
     torch.nn.functional.softmax = kept
+    to_float = torch.Tensor.float
+
+    def float_kept(self, *args, **kwargs):
+        return self if self.dtype == torch.float64 else to_float(self, *args, **kwargs)
+
+    torch.Tensor.float = float_kept
     model = transformers.AutoModelForCausalLM.from_pretrained(
         path, dtype=torch.float64, experts_implementation="eager", attn_implementation="eager"
     )

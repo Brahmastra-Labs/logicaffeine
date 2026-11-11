@@ -128,6 +128,9 @@ impl Shim for EngineShim<'_> {
                     Some(Refusal::Attention { layer: 0, what: "soft-capped scores" }.gap())
                 }
                 Some(TensorOpSpec::Softcap(_)) => Some(Refusal::LogitSoftcap.gap()),
+                Some(TensorOpSpec::FusedRow(r)) if r.weight_rows > 1 => {
+                    Some(Refusal::Norm { layer: 0, what: "a norm in lanes, each by its own row of the weight" }.gap())
+                }
                 Some(TensorOpSpec::HeadMatmul(_)) => Some(Refusal::Mixer { layer: 0, what: "multi-head latent attention" }.gap()),
                 Some(TensorOpSpec::Scale(_)) => Some(Refusal::EmbeddingScale.gap()),
                 Some(spec @ (TensorOpSpec::Relu(_)
@@ -138,7 +141,14 @@ impl Shim for EngineShim<'_> {
                 | TensorOpSpec::Transpose(_)
                 | TensorOpSpec::HeadSlice(_)
                 | TensorOpSpec::Join(_)
-                | TensorOpSpec::RowsGather(_))) => Some(format!("a {}", spec.kind())),
+                | TensorOpSpec::LaneMean(_)
+                | TensorOpSpec::LaneSpread(_)
+                | TensorOpSpec::LaneSums(_)
+                | TensorOpSpec::SignedRoot(_)
+                | TensorOpSpec::NgramIds(_)
+                | TensorOpSpec::RowsGather(_)
+                | TensorOpSpec::Scatter(_)
+                | TensorOpSpec::Map(_))) => Some(format!("a {}", spec.kind())),
                 _ => None,
             };
             if let Some(what) = refused {

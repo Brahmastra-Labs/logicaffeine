@@ -272,6 +272,54 @@ fn a_norm_across_heads_differentiates_each_head_on_its_own() {
     check("l2norm across heads", vec![real("X", 1, 6, 81)], "Y", (1, 6), "Let Y be l2norm of X across 2 heads.\n", &["X"]);
 }
 
+/// A hyper-connected residual's mean over its lanes passes each lane its column's share of the gradient; a spread over
+/// the lanes sums each lane's gradient back into the row, by the lane's weight, and gives each weight its lane's dot.
+#[test]
+fn a_lane_mean_and_a_lane_spread_differentiate() {
+    check("lane mean", vec![real("X", 2, 6, 86)], "M", (2, 3), "Let M be the mean of X over 2 lanes.\n", &["X"]);
+    check("lane mean of three", vec![real("X", 1, 12, 87)], "M", (1, 4), "Let M be the mean of X over 3 lanes.\n", &["X"]);
+    check(
+        "weighted lane spread",
+        vec![real("O", 2, 3, 88), real("S", 2, 2, 89)],
+        "P",
+        (2, 6),
+        "Let P be O spread over 2 lanes by S.\n",
+        &["O", "S"],
+    );
+    check("lane copies", vec![real("O", 2, 3, 90)], "P", (2, 9), "Let P be O spread over 3 lanes.\n", &["O"]);
+}
+
+/// Lane sums pass each lane's gradient to every column of it; a signed root's slope is `1/(2√|x|)` above its floor.
+#[test]
+fn lane_sums_and_a_signed_root_differentiate() {
+    check("lane sums", vec![real("X", 2, 6, 91)], "G", (2, 3), "Let G be the lane sums of X over 3 lanes.\n", &["X"]);
+    // Values away from zero by far more than the step, so no central difference straddles the floor or the sign.
+    let away: Vec<f64> = (0..6).map(|i| [0.7, -1.3, 0.25, -0.4, 2.1, -0.09][i]).collect();
+    check("signed root", vec![real_with("X", 2, 3, away)], "Y", (2, 3), "Let Y be the signed root of X.\n", &["X"]);
+}
+
+/// A norm in lanes normalizes each lane of the row on its own, each by its own row of the weight — a hyper-connected
+/// residual's norm — so each row of the weight takes the gradient of its own lane's entries and no other's.
+#[test]
+fn a_norm_in_lanes_differentiates_each_lane_by_its_own_weight_row() {
+    check(
+        "rmsnorm in 2 lanes",
+        vec![real("X", 2, 8, 82), real("G", 1, 8, 83)],
+        "Y",
+        (2, 8),
+        "Let Y be rmsnorm of X with weight G in 2 lanes.\n",
+        &["X", "G"],
+    );
+    check(
+        "rmsnorm in 3 lanes",
+        vec![real("X", 1, 12, 84), real("G", 1, 12, 85)],
+        "Y",
+        (1, 12),
+        "Let Y be rmsnorm of X with weight G in 3 lanes.\n",
+        &["X", "G"],
+    );
+}
+
 /// The per-head query norm between two projections: the norm's gradient is the query's, in the query's own shape, so
 /// the projection before it differentiates through it.
 #[test]

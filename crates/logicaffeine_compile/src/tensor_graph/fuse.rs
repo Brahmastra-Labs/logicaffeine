@@ -234,10 +234,12 @@ pub struct NormForm {
     pub eps: Epsilon,
 }
 
-/// The RMS norm an op is: a lifted norm without a bias, or a norm a rule built.
+/// The RMS norm an op is: a lifted norm without a bias, or a norm a rule built. A norm in lanes, whose weight holds a
+/// row per lane (`weight_rows` above 1), is none: a [`NormForm`]'s weight is one row, and the kernels that fuse one read
+/// it so.
 pub fn norm(op: &Op) -> Option<NormForm> {
     let rms = |spec: &TensorOpSpec| match spec {
-        TensorOpSpec::FusedRow(r) if r.reduce == RowReduceKind::RmsNorm && r.bias.is_none() => Some(r.clone()),
+        TensorOpSpec::FusedRow(r) if r.reduce == RowReduceKind::RmsNorm && r.bias.is_none() && r.weight_rows == 1 => Some(r.clone()),
         _ => None,
     };
     match &op.sym {
@@ -1642,9 +1644,13 @@ fn region_member(op: &Op, g: &TensorGraph) -> Option<(usize, super::graph::Elem)
 /// region's results — as one op at the last one's place: each member moved down past nothing that writes what it reads
 /// or touches what it writes, a member's result read after the region written out beside it.
 fn elementwise_regions(r: &mut Rewriter) {
+    let joinable = joins_upstream(r);
     for y in (0..r.s.len()).rev() {
         let Some(sink) = r.s.slot(y) else { continue };
         let Some(form) = region_member(sink, r.g) else { continue };
+        if !joinable[y] {
+            continue;
+        }
         let mut members: Vec<usize> = vec![y];
         let mut joins = false;
         loop {
@@ -1684,6 +1690,29 @@ fn elementwise_regions(r: &mut Rewriter) {
         let gone: Vec<usize> = members.iter().copied().filter(|&k| k != y).collect();
         r.fuse("elementwise_regions", ClassId::ElementwiseRegions, y, &gone, ins, out, dst);
     }
+}
+
+/// A region needs a join, and a sink with none upstream grows no region: whether each slot's cone — the region members of
+/// its own form whose results it reads, and theirs — holds an op reading two of the cone's results, as a region's join
+/// does. It is taken over every such member, past the moves a member's order forbids, which only ever shrink a region, so
+/// it holds wherever a region could form; a fusion only takes members away, so it stays true where it was. A straight
+/// chain of pointwise ops has none, and its sinks are passed over without growing the chain behind each.
+fn joins_upstream(r: &Rewriter) -> Vec<bool> {
+    let mut up = vec![false; r.s.len()];
+    for i in 0..r.s.len() {
+        let Some(op) = r.s.slot(i) else { continue };
+        let Some(form) = region_member(op, r.g) else { continue };
+        let (mut fed, mut joined) = (0, false);
+        for t in &op.ins {
+            let Some(p) = r.s.producer(t) else { continue };
+            if region_member(r.s.get(p), r.g) == Some(form) && !r.carried(t) {
+                fed += 1;
+                joined |= p >= i || up[p];
+            }
+        }
+        up[i] = joined || fed >= 2;
+    }
+    up
 }
 
 /// A run of elementwise ops of one length in consecutive slots, each carrying the one before's result as exactly one

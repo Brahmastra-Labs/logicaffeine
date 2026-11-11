@@ -1021,6 +1021,7 @@ pub fn emit_forward(
                 // and normalizes. The standalone add kernel + its residual read-back disappear. Only Add fuses
                 // (norm needs the summed row), and only when the whole row lines up (e.n == rows*cols).
                 if let Some(r) = normed {
+                    assert_eq!(r.weight_rows, 1, "the forward's shim admits no norm with a weight row per lane");
                     let (cols, rows, y) = (r.cols, r.rows, interner.resolve(r.y));
                     let eps = format!("{:e}", r.eps.get());
                     let wparam = if r.weight.is_some() {
@@ -1156,6 +1157,7 @@ pub fn emit_forward(
                 launches.push_str(&format!("  k{i}_region<<<({n}+255)/256,256>>>({},{n});\n", args.join(",")));
             }
             Sym::Prim(TensorOpSpec::FusedRow(r)) => {
+                assert_eq!(r.weight_rows, 1, "the forward's shim admits no norm with a weight row per lane");
                 let (x, y) = (interner.resolve(r.x), interner.resolve(r.y));
                 let cols = r.cols;
                 let eps = format!("{:e}", r.eps.get());

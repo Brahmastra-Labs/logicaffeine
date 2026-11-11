@@ -24,14 +24,16 @@ use crate::intern::{Interner, Symbol};
 use crate::tensor_recognize::qwen::{
     recognize_argmax, recognize_attention, recognize_causal_attention, recognize_causal_conv,
     recognize_decay, recognize_full_attention, recognize_gated_delta, recognize_gelu, recognize_head_slice,
-    recognize_int_clamp, recognize_int_requant, recognize_join, recognize_l2norm, recognize_lut_attention, recognize_moe,
-    recognize_relu, recognize_rope, recognize_row_gather, recognize_rows_gather, recognize_scale, recognize_set_row,
+    recognize_int_clamp, recognize_int_requant, recognize_join, recognize_l2norm, recognize_lane_mean, recognize_lane_spread,
+    recognize_lane_sums, recognize_lut_attention, recognize_moe, recognize_ngram_ids, recognize_signed_root,
+    recognize_relu, recognize_rope, recognize_row_gather, recognize_rows_gather, recognize_scale, recognize_scatter, recognize_set_row,
     recognize_sigmoid, recognize_silu, recognize_softcap, recognize_transpose, ArgMaxSpec, AttentionSpec, CausalConvSpec,
     DecaySpec,
     FullAttentionSpec, GatedDeltaSpec, GeluSpec, HeadSliceSpec, IntClampSpec, IntRequantSpec, JoinSpec, L2NormSpec,
-    LutAttentionSpec, MoeSpec, ReluSpec, RopeSpec, RowGatherSpec, RowIndex, RowsGatherSpec, ScaleSpec, SetRowSpec,
+    LaneMeanSpec, LaneSpreadSpec, LaneSumsSpec, LutAttentionSpec, MoeSpec, NgramIdsSpec, SignedRootSpec, ReluSpec, RopeSpec, RowGatherSpec, RowIndex, RowsGatherSpec, ScaleSpec, ScatterSpec, SetRowSpec,
     SigmoidSpec, SiluSpec, SoftcapSpec, TransposeSpec,
 };
+use crate::tensor_recognize::map::{recognize_map, MapContext, MapSpec};
 use crate::tensor_recognize::{
     recognize_elementwise, recognize_fused_row, recognize_head_matmul, recognize_matmul, Fills,
     recognize_swiglu, ElementwiseSpec, Fill, FusedRowSpec, HeadMatmulSpec, MatmulSpec, SwiGluSpec,
@@ -56,6 +58,11 @@ pub enum TensorOpSpec {
     Transpose(TransposeSpec),
     HeadSlice(HeadSliceSpec),
     Join(JoinSpec),
+    LaneMean(LaneMeanSpec),
+    LaneSpread(LaneSpreadSpec),
+    LaneSums(LaneSumsSpec),
+    SignedRoot(SignedRootSpec),
+    NgramIds(NgramIdsSpec),
     HeadMatmul(HeadMatmulSpec),
     CausalConv(CausalConvSpec),
     GatedDelta(GatedDeltaSpec),
@@ -66,6 +73,8 @@ pub enum TensorOpSpec {
     RowsGather(RowsGatherSpec),
     ArgMax(ArgMaxSpec),
     SetRow(SetRowSpec),
+    Scatter(ScatterSpec),
+    Map(MapSpec),
     IntRequant(IntRequantSpec),
     IntClamp(IntClampSpec),
     Relu(ReluSpec),
@@ -91,6 +100,11 @@ impl TensorOpSpec {
             TensorOpSpec::Transpose(_) => "Transpose",
             TensorOpSpec::HeadSlice(_) => "HeadSlice",
             TensorOpSpec::Join(_) => "Join",
+            TensorOpSpec::LaneMean(_) => "LaneMean",
+            TensorOpSpec::LaneSpread(_) => "LaneSpread",
+            TensorOpSpec::LaneSums(_) => "LaneSums",
+            TensorOpSpec::SignedRoot(_) => "SignedRoot",
+            TensorOpSpec::NgramIds(_) => "NgramIds",
             TensorOpSpec::HeadMatmul(_) => "HeadMatmul",
             TensorOpSpec::CausalConv(_) => "CausalConv",
             TensorOpSpec::GatedDelta(_) => "GatedDelta",
@@ -101,6 +115,9 @@ impl TensorOpSpec {
             TensorOpSpec::RowsGather(_) => "RowsGather",
             TensorOpSpec::ArgMax(_) => "ArgMax",
             TensorOpSpec::SetRow(_) => "SetRow",
+            TensorOpSpec::Scatter(_) => "Scatter",
+            TensorOpSpec::Map(m) if m.recurs() => "Scan",
+            TensorOpSpec::Map(_) => "Map",
             TensorOpSpec::IntRequant(_) => "IntRequant",
             TensorOpSpec::IntClamp(_) => "IntClamp",
             TensorOpSpec::Relu(_) => "Relu",
@@ -126,6 +143,11 @@ impl TensorOpSpec {
             TensorOpSpec::Transpose(t) => t.out,
             TensorOpSpec::HeadSlice(s) => s.out,
             TensorOpSpec::Join(j) => j.out,
+            TensorOpSpec::LaneMean(m) => m.out,
+            TensorOpSpec::LaneSpread(p) => p.out,
+            TensorOpSpec::LaneSums(s) => s.out,
+            TensorOpSpec::SignedRoot(s) => s.out,
+            TensorOpSpec::NgramIds(s) => s.out,
             TensorOpSpec::HeadMatmul(m) => m.out,
             TensorOpSpec::CausalConv(c) => c.out,
             TensorOpSpec::GatedDelta(g) => g.out,
@@ -136,6 +158,8 @@ impl TensorOpSpec {
             TensorOpSpec::RowsGather(r) => r.out,
             TensorOpSpec::ArgMax(a) => a.out,
             TensorOpSpec::SetRow(r) => r.table,
+            TensorOpSpec::Scatter(s) => s.table,
+            TensorOpSpec::Map(m) => m.out,
             TensorOpSpec::IntRequant(r) => r.out,
             TensorOpSpec::IntClamp(c) => c.out,
             TensorOpSpec::Relu(r) => r.out,
@@ -145,11 +169,13 @@ impl TensorOpSpec {
 
     /// The tensors the op reads, in the spec's operand order: matmul `[a, b]`; elementwise `[a, b]`; swiglu
     /// `[gate, up]`; fused row `[x, weight?, residual?, bias?]` (the present ones); rope `[q, rc, rs, position?]`; the
-    /// unary maps and a scale `[x]`; decay `[ar, dt, alog]`; l2norm / transpose / head slice `[x]`; join `[a, b]`;
+    /// unary maps and a scale `[x]`; decay `[ar, dt, alog]`; l2norm / transpose / head slice `[x]`; join `[a, b]`; a lane
+    /// mean `[x]`; a lane spread `[x, by?]`; lane sums and a signed root `[x]`;
     /// per-head matmul `[x, w]`; causal conv `[x, wc, cs]`; gated
     /// delta `[q, k, v, z, b, a, st, gn]`; attention `[q, k, v, position?, sinks?]` and full attention `[q, k, v]`; moe `[x, wr, wg, wu, wd, router bias?, gate, up and down biases?]`;
     /// row gather `[table, index?]`; rows gather `[table, indices]`; arg-max `[x]`; set row `[table, source, index?]` (a NAMED index is an
-    /// operand — the data the row comes from; a literal one is part of the op).
+    /// operand — the data the row comes from; a literal one is part of the op); scatter `[table, source, indices]`; a map
+    /// the program wrote, the tensors and scalars its turns read, in the order they first read them.
     pub fn ins(&self) -> Vec<Symbol> {
         match self {
             TensorOpSpec::Matmul(m) => vec![m.a, m.b],
@@ -174,6 +200,11 @@ impl TensorOpSpec {
             TensorOpSpec::Transpose(t) => vec![t.x],
             TensorOpSpec::HeadSlice(s) => vec![s.x],
             TensorOpSpec::Join(j) => vec![j.a, j.b],
+            TensorOpSpec::LaneMean(m) => vec![m.x],
+            TensorOpSpec::LaneSpread(p) => std::iter::once(p.x).chain(p.by).collect(),
+            TensorOpSpec::LaneSums(s) => vec![s.x],
+            TensorOpSpec::SignedRoot(s) => vec![s.x],
+            TensorOpSpec::NgramIds(s) => vec![s.tokens_in, s.history, s.multipliers, s.moduli, s.offsets],
             TensorOpSpec::HeadMatmul(m) => vec![m.x, m.w],
             TensorOpSpec::CausalConv(c) => vec![c.x, c.wc, c.cs],
             TensorOpSpec::GatedDelta(g) => vec![g.q, g.k, g.v, g.z, g.b, g.a, g.st, g.gn],
@@ -196,6 +227,8 @@ impl TensorOpSpec {
                 .into_iter()
                 .chain(named(r.index))
                 .collect(),
+            TensorOpSpec::Scatter(s) => vec![s.table, s.source, s.indices],
+            TensorOpSpec::Map(m) => m.ins.clone(),
             TensorOpSpec::IntRequant(r) => vec![r.x],
             TensorOpSpec::IntClamp(c) => vec![c.x],
             TensorOpSpec::Relu(r) => vec![r.x],
@@ -207,13 +240,16 @@ impl TensorOpSpec {
     }
 
     /// The positions in [`Self::ins`] of the operands the op writes back in place — its carried state: the
-    /// conv ring, the GDN memory, and the table a row is written into (the KV cache's append). An attention only
+    /// conv ring, the GDN memory, the n-gram hash's token history, and the table a row is written into (the KV cache's
+    /// append) or rows are scattered into, and the tensor a map the program wrote keeps part of. An attention only
     /// READS its cache — masked or not — so it carries nothing; the cache is carried because `Set row` writes it.
     pub fn state_inputs(&self) -> Vec<usize> {
         match self {
             TensorOpSpec::CausalConv(_) => vec![2],
             TensorOpSpec::GatedDelta(_) => vec![6],
-            TensorOpSpec::SetRow(_) => vec![0],
+            TensorOpSpec::NgramIds(_) => vec![1],
+            TensorOpSpec::SetRow(_) | TensorOpSpec::Scatter(_) => vec![0],
+            TensorOpSpec::Map(m) => m.in_place().into_iter().collect(),
             _ => Vec::new(),
         }
     }
@@ -310,7 +346,9 @@ pub fn float_tensors(rp: &RecognizedProgram) -> BTreeSet<String> {
             // An index is an integer whatever it indexes.
             TensorOpSpec::ArgMax(_) => false,
             // A row moved out of — or into — a table has the TABLE's element kind; the index is not data here.
-            TensorOpSpec::RowGather(_) | TensorOpSpec::RowsGather(_) | TensorOpSpec::SetRow(_) => float.contains(&st.ins[0]),
+            TensorOpSpec::RowGather(_) | TensorOpSpec::RowsGather(_) | TensorOpSpec::SetRow(_) | TensorOpSpec::Scatter(_) => {
+                float.contains(&st.ins[0])
+            }
             TensorOpSpec::Matmul(_)
             | TensorOpSpec::Elementwise(_)
             | TensorOpSpec::Transpose(_)
@@ -320,6 +358,7 @@ pub fn float_tensors(rp: &RecognizedProgram) -> BTreeSet<String> {
             // An integer model's forms compute integers by construction; a ReLU keeps its operand's kind.
             TensorOpSpec::IntRequant(_) | TensorOpSpec::IntClamp(_) | TensorOpSpec::LutAttention(_) => false,
             TensorOpSpec::Relu(ref r) => !r.int,
+            TensorOpSpec::Map(ref m) => m.real,
             _ => true,
         };
         if is_float {
@@ -435,6 +474,21 @@ fn r_head_slice(s: &[Stmt], _: &Interner) -> Option<TensorOpSpec> {
 fn r_join(s: &[Stmt], _: &Interner) -> Option<TensorOpSpec> {
     recognize_join(s).map(TensorOpSpec::Join)
 }
+fn r_lane_mean(s: &[Stmt], _: &Interner) -> Option<TensorOpSpec> {
+    recognize_lane_mean(s).map(TensorOpSpec::LaneMean)
+}
+fn r_lane_spread(s: &[Stmt], _: &Interner) -> Option<TensorOpSpec> {
+    recognize_lane_spread(s).map(TensorOpSpec::LaneSpread)
+}
+fn r_lane_sums(s: &[Stmt], _: &Interner) -> Option<TensorOpSpec> {
+    recognize_lane_sums(s).map(TensorOpSpec::LaneSums)
+}
+fn r_signed_root(s: &[Stmt], i: &Interner) -> Option<TensorOpSpec> {
+    recognize_signed_root(s, i).map(TensorOpSpec::SignedRoot)
+}
+fn r_ngram_ids(s: &[Stmt], _: &Interner) -> Option<TensorOpSpec> {
+    recognize_ngram_ids(s).map(TensorOpSpec::NgramIds)
+}
 fn r_head_matmul(s: &[Stmt], _: &Interner) -> Option<TensorOpSpec> {
     recognize_head_matmul(s).map(TensorOpSpec::HeadMatmul)
 }
@@ -457,6 +511,11 @@ pub const RECOGNIZER_ORDER: &[(&str, Recognizer)] = &[
     ("head_matmul", r_head_matmul),
     ("matmul", r_matmul),
     ("softcap", r_softcap),
+    ("lane_mean", r_lane_mean),
+    ("lane_spread", r_lane_spread),
+    ("lane_sums", r_lane_sums),
+    ("signed_root", r_signed_root),
+    ("ngram_ids", r_ngram_ids),
     ("elementwise", r_elementwise),
     ("int_requant", r_int_requant),
     ("int_clamp", r_int_clamp),
@@ -480,9 +539,13 @@ pub const RECOGNIZER_ORDER: &[(&str, Recognizer)] = &[
 /// Walk a program's top-level statements into typed specs. `Err` only when the source does not parse; a
 /// statement that parses but is no op the walk knows is reported in `unrecognized`.
 pub fn recognize_stages(source: &str) -> Result<RecognizedProgram, SpatialReject> {
+    // The program's functions that are the library's own definitions, read off the text the parse sees: a map's turn
+    // calls `exp` by its meaning only where the program has not written its own.
+    let provenance = crate::loader::LibraryProvenance::of(crate::loader::apply_prelude(source).as_ref());
+    let library = |name: &str| provenance.functions().contains(name);
     crate::ui_bridge::with_parsed_tensor_program(source, |parsed, interner, shapes| {
         let (stmts, _types, _policies) = parsed.map_err(SpatialReject::Parse)?;
-        let mut rp = walk(stmts, interner);
+        let mut rp = walk_in(stmts, interner, &library);
         rp.shapes = shapes
             .iter()
             .filter(|(_, (r, c))| *r > 0 && *c > 0)
@@ -499,11 +562,20 @@ pub fn recognize_stages(source: &str) -> Result<RecognizedProgram, SpatialReject
 
 /// [`recognize_stages`] over statements already parsed — every backend's front end: the CUDA forward refuses what
 /// this walk reports as `unrecognized` or `unlifted_writes`, so both lanes agree on what a program's statements are.
-/// The shape table is the caller's to add (it comes from the parse, not the statements).
+/// The shape table is the caller's to add (it comes from the parse, not the statements). The library's functions are
+/// the ones the enclosing [`crate::loader::LibraryProvenance`] names; outside one, no function is the library's.
 pub fn walk(stmts: &[Stmt], interner: &Interner) -> RecognizedProgram {
+    walk_in(stmts, interner, &crate::loader::is_library_function)
+}
+
+/// [`walk`] with `library` naming the program's functions that are the standard library's own definitions: a map's turn
+/// calls one of them by its meaning, and inlines every other function the program defines.
+pub fn walk_in(stmts: &[Stmt], interner: &Interner, library: &dyn Fn(&str) -> bool) -> RecognizedProgram {
     let mut rp = RecognizedProgram::default();
     let mut tensors: std::collections::HashSet<Symbol> = Default::default();
     let (fills, assigned) = (Fills::of(stmts), assigned(stmts));
+    let functions = program_functions(stmts, interner, library);
+    let constants = literal_constants(stmts, &assigned);
     // The names declared, and the names a recognized stage reads or writes.
     let (mut declared, mut staged): (std::collections::HashSet<String>, std::collections::HashSet<String>) = Default::default();
     for (i, s) in stmts.iter().enumerate() {
@@ -554,8 +626,16 @@ pub fn walk(stmts: &[Stmt], interner: &Interner) -> RecognizedProgram {
             }
             continue;
         }
-        let one = std::slice::from_ref(s);
-        match RECOGNIZER_ORDER.iter().find_map(|(_, r)| r(one, interner)) {
+        let lifted = if crate::tensor_recognize::holds_an_op_by_hand(s) {
+            loop_meaning(s, interner, &rp, &fills, &tensors)
+        } else {
+            let constant = |t: Symbol| constants.get(&t).filter(|(at, _)| *at < i).map(|(_, c)| c.clone());
+            RECOGNIZER_ORDER
+                .iter()
+                .find_map(|(_, r)| r(std::slice::from_ref(s), interner))
+                .or_else(|| written_map(s, interner, &rp, &tensors, &staged, &functions, &constant))
+        };
+        match lifted {
             Some(op) => {
                 let out = op.out();
                 let ins = op.ins();
@@ -579,6 +659,133 @@ pub fn walk(stmts: &[Stmt], interner: &Interner) -> RecognizedProgram {
         }
     }
     rp
+}
+
+/// ★ A LOOP THE PROGRAM WROTE IS LIFTED BY ITS WHOLE MEANING, OR LISTED. A loop holding ops runs each of them once a turn,
+/// so none of them is the loop; what the turns make together may be one op — a scatter of rows
+/// ([`recognize_scatter`]) — and is lifted as that. `rp` is the walk so far: the tensors bound before the loop, and their
+/// lengths.
+///
+/// An index the program gives as a literal outside the table fails its row check on its turn, on every tier: such a loop
+/// means no scatter, and it stays listed. An index the program computes or reads from outside is data, checked where the
+/// scatter reads it.
+fn loop_meaning(
+    s: &Stmt,
+    interner: &Interner,
+    rp: &RecognizedProgram,
+    fills: &Fills,
+    tensors: &std::collections::HashSet<Symbol>,
+) -> Option<TensorOpSpec> {
+    let len_of = |t: Symbol| {
+        let name = interner.resolve(t);
+        rp.stages
+            .iter()
+            .rev()
+            .find(|st| st.out == name)
+            .map(|st| super::graph::out_len(&st.op))
+            .or_else(|| rp.declared.iter().find(|d| d.name == name).map(|d| d.len))
+    };
+    let sc = recognize_scatter(s, interner, &len_of)?;
+    let name = interner.resolve(sc.indices);
+    let written = rp.stages.iter().any(|st| st.out == name || st.op.state_inputs().iter().any(|&k| st.ins[k] == name));
+    let literal = (tensors.contains(&sc.indices) && !written).then(|| fills.fill(sc.indices));
+    if literal.as_ref().is_some_and(|f| matches!(f, Fill::ConstF(_) | Fill::FloatOverrides { .. } | Fill::RealPattern { .. })) {
+        return None;
+    }
+    let in_table = |p: usize| literal.as_ref().and_then(|f| int_at(f, p)).is_none_or(|v| v >= 1 && v as usize <= sc.rows);
+    (0..sc.count).all(in_table).then_some(TensorOpSpec::Scatter(sc))
+}
+
+/// ★ AN OP NOBODY HAS NAMED IS STILL AN OP. A counted loop the program wrote whose every turn computes one element of a
+/// tensor it declared — from the elements at the same place of others, fixed entries, the turn's position, constants, the
+/// library's functions and its own — is the map those turns make ([`recognize_map`]), lifted as one op. `rp` is the walk
+/// so far, `staged` the names its stages touch: a map writes a tensor no op has touched, every element once. `functions`
+/// are the program's own functions ([`program_functions`]), which a turn inlines.
+fn written_map(
+    s: &Stmt,
+    interner: &Interner,
+    rp: &RecognizedProgram,
+    tensors: &std::collections::HashSet<Symbol>,
+    staged: &std::collections::HashSet<String>,
+    functions: &HashMap<Symbol, (Vec<Symbol>, &[Stmt])>,
+    constant: &dyn Fn(Symbol) -> Option<crate::tensor_recognize::map::Term>,
+) -> Option<TensorOpSpec> {
+    if !matches!(s, Stmt::Repeat { .. }) {
+        return None;
+    }
+    let floats = float_tensors(rp);
+    let computed = |name: &str| rp.stages.iter().rev().find(|st| st.out == name);
+    let tensor = |t: Symbol| {
+        let name = interner.resolve(t);
+        if tensors.contains(&t) {
+            let d = rp.declared.iter().find(|d| d.name == name)?;
+            let real = match d.fill {
+                Fill::ConstF(_) | Fill::FloatOverrides { .. } | Fill::RealPattern { .. } => true,
+                Fill::Const(_) | Fill::Pattern { .. } | Fill::Overrides { .. } => false,
+                Fill::Unknown => return None,
+            };
+            return Some((d.len, real));
+        }
+        computed(name).map(|st| (super::graph::out_len(&st.op), floats.contains(name)))
+    };
+    let scalar = |t: Symbol| {
+        let name = interner.resolve(t);
+        computed(name).filter(|st| super::graph::out_len(&st.op) == 1).map(|_| floats.contains(name))
+    };
+    let fresh = |t: Symbol| tensors.contains(&t) && !staged.contains(interner.resolve(t));
+    // A function the program does not define itself — the library's `exp`, `ln` and `tanh`, the builtins — is called by
+    // its meaning; one it defines is inlined, whatever its name.
+    let library = |f: Symbol| matches!(interner.resolve(f), "exp" | "ln" | "tanh" | "sqrt" | "abs" | "min" | "max") && !functions.contains_key(&f);
+    let cx = MapContext { tensor: &tensor, scalar: &scalar, constant, fresh: &fresh, functions, library: &library };
+    recognize_map(s, interner, &cx).map(TensorOpSpec::Map)
+}
+
+/// The program's own functions by name, their parameters and bodies: every function it defines but those `library` names
+/// as the standard library's own definitions.
+fn program_functions<'s, 'a>(
+    stmts: &'s [Stmt<'a>],
+    interner: &Interner,
+    library: &dyn Fn(&str) -> bool,
+) -> HashMap<Symbol, (Vec<Symbol>, &'s [Stmt<'a>])> {
+    stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FunctionDef { name, params, body, is_native: false, .. } if !library(interner.resolve(*name)) => {
+                Some((*name, (params.iter().map(|(p, _)| *p).collect(), &body[..])))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The program's top-level names bound to a literal number and never assigned again, each with the statement that binds
+/// it: constants a map's turn after that statement reads by value.
+fn literal_constants(
+    stmts: &[Stmt],
+    assigned: &std::collections::HashSet<Symbol>,
+) -> HashMap<Symbol, (usize, crate::tensor_recognize::map::Term)> {
+    use crate::tensor_recognize::map::Term;
+    stmts
+        .iter()
+        .enumerate()
+        .filter_map(|(i, s)| match s {
+            Stmt::Let { var, value: Expr::Literal(Literal::Number(n)), .. } if !assigned.contains(var) => Some((*var, (i, Term::Int(*n)))),
+            Stmt::Let { var, value: Expr::Literal(Literal::Float(f)), .. } if !assigned.contains(var) => Some((*var, (i, Term::Real(*f)))),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Element `p` (0-based) of an integer fill, or `None` where the fill does not say: a float fill, data the compiler cannot
+/// see.
+fn int_at(fill: &Fill, p: usize) -> Option<i64> {
+    match fill {
+        Fill::Overrides { base, sets } => sets.iter().rev().find(|(i, _)| *i == p).map(|(_, v)| *v).or_else(|| int_at(base, p)),
+        _ => match fill.element(p as i64)? {
+            crate::tensor_recognize::Scalar::Int(v) => Some(v),
+            _ => None,
+        },
+    }
 }
 
 /// `Let A be a R by C tensor of T` — the declaration's desugar: the binder, a zero counter, and one counted

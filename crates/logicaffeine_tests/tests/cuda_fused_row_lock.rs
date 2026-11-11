@@ -53,6 +53,16 @@ fn rms_fused_add(rows: usize, cols: usize) -> FusedRowSpec {
     }
 }
 
+/// A per-row RMSNorm over `rows` rows whose row `r` takes the weight's row `r mod lanes` — a hyper-connected
+/// residual's lanes, each normed by its own row of the weight.
+fn rms_in_lanes(rows: usize, cols: usize, lanes: usize) -> FusedRowSpec {
+    FusedRowSpec {
+        weight: Some(Symbol::EMPTY),
+        weight_rows: lanes,
+        ..rms(rows, cols)
+    }
+}
+
 fn layernorm(rows: usize, cols: usize) -> FusedRowSpec {
     FusedRowSpec {
         reduce: RowReduceKind::LayerNorm,
@@ -222,6 +232,26 @@ fn cpu_weighted_rmsnorm_sum(rows: usize, cols: usize) -> f64 {
     total
 }
 
+/// CPU per-row RMSNorm whose row `r` takes the weight's row `r mod lanes`, over the emitter's fills `x[i]=(i%7)-3` and
+/// `w[k]=1+0.5·(k%3)` across all `lanes·cols` entries of the weight, summed.
+fn cpu_lane_rmsnorm_sum(rows: usize, cols: usize, lanes: usize) -> f64 {
+    let mut total = 0.0f64;
+    for r in 0..rows {
+        let mut ss = 0.0f64;
+        for i in 0..cols {
+            let x = ((r * cols + i) % 7) as f64 - 3.0;
+            ss += x * x;
+        }
+        let scale = 1.0 / (ss / cols as f64 + 1e-6).sqrt();
+        for i in 0..cols {
+            let x = ((r * cols + i) % 7) as f64 - 3.0;
+            let w = 1.0 + 0.5 * (((r % lanes) * cols + i) % 3) as f64;
+            total += x * scale * w;
+        }
+    }
+    total
+}
+
 /// CPU per-row FUSED-ADD weighted RMSNorm: reduced value is `x[i]+res[i]` with `res[i]=((i+1)%5)-2`.
 fn cpu_fused_add_rmsnorm_sum(rows: usize, cols: usize) -> f64 {
     let elem = |idx: usize| -> f64 {
@@ -322,6 +352,50 @@ fn per_row_weighted_rmsnorm_matches_the_cpu_reference_on_the_gpu() {
     assert!(
         (got - want).abs() < 1e-2,
         "weighted per-row RMSNorm Σ Y on GPU={got} must match CPU reference={want}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn a_norm_in_lanes_matches_the_cpu_reference_on_the_gpu() {
+    if !(have_nvcc() && have_gpu()) {
+        eprintln!("SKIP lane fused-row GPU: needs nvcc + /dev/nvidia0.");
+        return;
+    }
+    // Two tokens of four lanes: row `r` is lane `r mod 4`, normed over its own 10 columns and scaled by the weight's row
+    // of that lane. With 10 columns the four rows of the weight differ, so a kernel reading one row for every lane misses.
+    let knobs = CudaKnobs::default();
+    let (rows, cols, lanes) = (8usize, 10usize, 4usize);
+    let want = cpu_lane_rmsnorm_sum(rows, cols, lanes);
+    assert!(
+        (want - cpu_weighted_rmsnorm_sum(rows, cols)).abs() > 0.5,
+        "the lanes' weight rows move the reference"
+    );
+    let cu = emit_fused_row(&rms_in_lanes(rows, cols, lanes), &knobs);
+    let dir = std::env::temp_dir().join(format!("logos_fused_row_lanes_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    let (s, b) = (dir.join("k.cu"), dir.join("k"));
+    std::fs::write(&s, &cu).unwrap();
+    let c = std::process::Command::new("nvcc")
+        .args(["-O2", &knobs.chip.nvcc_arch_flag(), "-o"])
+        .arg(&b)
+        .arg(&s)
+        .output()
+        .unwrap();
+    assert!(
+        c.status.success(),
+        "the lane fused_row must compile:\n{}\n\n{cu}",
+        String::from_utf8_lossy(&c.stderr)
+    );
+    let out = String::from_utf8_lossy(&std::process::Command::new(&b).output().unwrap().stdout)
+        .trim()
+        .to_string();
+    let got: f64 = out
+        .parse()
+        .unwrap_or_else(|_| panic!("kernel produced no number: {out:?}"));
+    assert!(
+        (got - want).abs() < 1e-2,
+        "lane RMSNorm Σ Y on GPU={got} must match CPU reference={want}"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }

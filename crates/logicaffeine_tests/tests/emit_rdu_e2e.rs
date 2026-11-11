@@ -28,6 +28,9 @@
 
 #[path = "cli_common/mod.rs"]
 mod common;
+#[path = "common/tiny_models.rs"]
+#[allow(dead_code)]
+mod tiny_models;
 
 use common::*;
 use logicaffeine_compile::codegen_cuda::qwen38::{
@@ -1505,40 +1508,36 @@ fn the_batched_tensor_parallel_bundle_on_disk_runs_the_step_the_vm_runs() {
     assert_eq!(next, want, "the batched tensor-parallel bundle on disk emits different tokens than the VM's batched step");
 }
 
-/// ── A WIDTH THE MODEL'S HEADS DO NOT SPLIT OVER is refused before anything lowers, naming the heads and the widths
-/// that do split.
+/// ── A WIDTH THE AUTHOR DOES NOT WRITE is refused before anything lowers, naming the width, what is not written yet and
+/// the widths that are; a width the model's counts do not divide is one the author writes. The author shares heads and
+/// columns over the chips in balanced runs, so the tiny model's single key head deploys over two chips, and an expert
+/// mixture over chips is what it does not write yet.
 #[test]
-fn a_tensor_parallel_width_the_model_does_not_split_over_is_refused() {
+fn a_tensor_parallel_width_the_author_does_not_write_is_refused() {
     let dir = tempdir().unwrap();
+    let shared = dir.path().join("shared");
     let out = largo_in(
         dir.path(),
-        &[
-            "emit",
-            "rdu",
-            "--model",
-            "qwen38-tiny",
-            "--ctx",
-            "6",
-            "--tp",
-            "2",
-            "-o",
-            dir.path().join("b").to_str().unwrap(),
-        ],
+        &["emit", "rdu", "--model", "qwen38-tiny", "--ctx", "6", "--tp", "2", "-o", shared.to_str().unwrap()],
     );
-    assert_ne!(
-        out.status.code(),
-        Some(0),
-        "the tiny model's single key head does not split over two chips"
+    assert_eq!(out.status.code(), Some(0), "the tiny model's single key head is shared over two chips:\n{}", stderr(&out));
+    let manifest: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(shared.join("manifest.json")).expect("manifest.json")).unwrap();
+    assert_eq!(manifest["tensor_parallel"], 2, "the bundle is the two-chip plan");
+    let moe = dir.path().join("moe.gguf");
+    tiny_models::write_checkpoint(&tiny_models::Tiny::Qwen3Moe.spec(6), &moe);
+    let out = largo_in(
+        dir.path(),
+        &["emit", "rdu", "--model", moe.to_str().unwrap(), "--ctx", "6", "--tp", "2", "-o", dir.path().join("b").to_str().unwrap()],
     );
+    assert_ne!(out.status.code(), Some(0), "an expert mixture over two chips is not written yet");
     let err = stderr(&out);
     assert!(
-        err.contains("--tp 2") && err.contains("do not split over 2 chips"),
-        "the refusal names the width and the heads: {err}"
+        err.contains("--tp 2") && err.contains("a tensor-parallel expert mixture"),
+        "the refusal names the width and what is not written: {err}"
     );
-    assert!(
-        err.contains("splits over 1 chip"),
-        "and the widths that do split: {err}"
-    );
+    assert!(err.contains("splits over 1 chip"), "and the widths that are: {err}");
+    assert!(!dir.path().join("b").join("manifest.json").exists(), "nothing is written");
 }
 
 /// ── THE AUTO DIALS READ THE SERVING PLAN. `--tp auto` compiles the widest width the model's heads admit in the

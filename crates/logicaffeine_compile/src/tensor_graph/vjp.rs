@@ -277,6 +277,10 @@ fn vjp_stage(rp: &RecognizedProgram, st: &RecognizedStage, d_out: &str, out: &mu
             op: "ArgMax",
             why: "the index of the largest element is piecewise constant in every input",
         }),
+        TensorOpSpec::NgramIds(_) => Err(VjpRefusal::NoGradient {
+            op: "NgramIds",
+            why: "an n-gram's table rows are integers hashed from integer tokens",
+        }),
         TensorOpSpec::Rope(r) => rope_rule(rp, r, out, d_out),
         TensorOpSpec::Decay(_) => Err(VjpRefusal::NotDerived { op: "Decay" }),
         TensorOpSpec::CausalConv(_) => Err(VjpRefusal::NotDerived { op: "CausalConv" }),
@@ -331,8 +335,27 @@ fn vjp_stage(rp: &RecognizedProgram, st: &RecognizedStage, d_out: &str, out: &mu
         ),
         TensorOpSpec::Moe(_) => Err(VjpRefusal::NotDerived { op: "Moe" }),
         TensorOpSpec::SetRow(w) => set_row_rule(rp, w, out, d_out),
+        TensorOpSpec::Scatter(_) => Err(VjpRefusal::NotDerived { op: "Scatter" }),
+        TensorOpSpec::Map(_) => Err(VjpRefusal::NotDerived { op: "Map" }),
         TensorOpSpec::HeadSlice(h) => head_slice_rule(out, rp.name(h.x), h.every, h.from, h.width, h.n, d_out),
         TensorOpSpec::Join(j) => join_rule(out, (rp.name(j.a), rp.name(j.b)), (j.rows, j.heads, j.wa, j.wb), d_out),
+        TensorOpSpec::LaneMean(m) => lane_mean_rule(out, rp.name(m.x), (m.rows, m.lanes, m.cols), d_out),
+        TensorOpSpec::LaneSpread(p) => lane_spread_rule(out, (rp.name(p.x), p.by.map(|s| rp.name(s))), (p.rows, p.lanes, p.cols), d_out),
+        TensorOpSpec::LaneSums(s) => lane_sums_rule(out, rp.name(s.x), (s.rows, s.lanes, s.cols), d_out),
+        TensorOpSpec::SignedRoot(r) => {
+            // y = sign(x)·√max(|x|, ε): dx = dy / (2√|x|) where |x| > ε, and 0 where the floor holds y constant.
+            let x = rp.name(r.x).to_string();
+            let eps = r.eps.get();
+            let shape = out.shape(&x)?;
+            let dx = out.tensor(&format!("g_{x}"), shape);
+            let d_out = d_out.to_string();
+            out.each(shape, |o, depth, _, _, k| {
+                o.line(depth, format!("If abs(item {k} of {x}) > {eps:?}:"));
+                o.line(depth + 1, format!("Set item {k} of {dx} to (item {k} of {d_out}) * 0.5 / sqrt(abs(item {k} of {x}))."));
+            });
+            out.accumulate(&x, dx);
+            Ok(())
+        }
         TensorOpSpec::HeadMatmul(m) => head_matmul_rule(out, (rp.name(m.x), rp.name(m.w)), (m.m, m.heads, m.a, m.b), d_out),
         TensorOpSpec::IntRequant(_) => Err(VjpRefusal::NoGradient {
             op: "IntRequant",
@@ -390,6 +413,68 @@ fn join_rule(out: &mut Out, (a, b): (&str, &str), (rows, heads, wa, wb): (usize,
     out.line(3, format!("Set item {kb} of {db} to item {kk} of {d_out}."));
     out.accumulate(a, da);
     out.accumulate(b, db);
+    Ok(())
+}
+
+/// `M[t][c] = Σ_l X[t][l·C + c] / L`: `dX[t][l·C + c] = dM[t][c] / L`, every lane its column's share.
+fn lane_mean_rule(out: &mut Out, x: &str, (rows, lanes, cols): (usize, usize, usize), d_out: &str) -> Result<(), VjpRefusal> {
+    let dx = out.tensor(&format!("g_{x}"), (rows, lanes * cols));
+    let (t, l, c, k) = (out.names.fresh("t"), out.names.fresh("l"), out.names.fresh("c"), out.names.fresh("k"));
+    out.line(0, format!("Repeat for {t} from 1 to {rows}:"));
+    out.line(1, format!("Repeat for {l} from 1 to {lanes}:"));
+    out.line(2, format!("Repeat for {c} from 1 to {cols}:"));
+    out.line(3, format!("Let {k} be ({t} - 1) * {} + ({l} - 1) * {cols} + {c}.", lanes * cols));
+    out.line(3, format!("Set item {k} of {dx} to (item (({t} - 1) * {cols} + {c}) of {d_out}) / {lanes}.0."));
+    out.accumulate(x, dx);
+    Ok(())
+}
+
+/// `G[t][l] = Σ_c X[t][l·C + c]`: `dX[t][l·C + c] = dG[t][l]`, every column its lane's gradient.
+fn lane_sums_rule(out: &mut Out, x: &str, (rows, lanes, cols): (usize, usize, usize), d_out: &str) -> Result<(), VjpRefusal> {
+    let dx = out.tensor(&format!("g_{x}"), (rows, lanes * cols));
+    let (t, l, c) = (out.names.fresh("t"), out.names.fresh("l"), out.names.fresh("c"));
+    out.line(0, format!("Repeat for {t} from 1 to {rows}:"));
+    out.line(1, format!("Repeat for {l} from 1 to {lanes}:"));
+    out.line(2, format!("Repeat for {c} from 1 to {cols}:"));
+    out.line(
+        3,
+        format!(
+            "Set item (({t} - 1) * {} + ({l} - 1) * {cols} + {c}) of {dx} to item (({t} - 1) * {lanes} + {l}) of {d_out}.",
+            lanes * cols
+        ),
+    );
+    out.accumulate(x, dx);
+    Ok(())
+}
+
+/// `P[t][l·C + c] = O[t][c]·S[t][l]` (`S[t][l]` 1 without one): `dO[t][c] = Σ_l dP[t][l·C + c]·S[t][l]` and
+/// `dS[t][l] = Σ_c dP[t][l·C + c]·O[t][c]`.
+fn lane_spread_rule(
+    out: &mut Out,
+    (x, by): (&str, Option<&str>),
+    (rows, lanes, cols): (usize, usize, usize),
+    d_out: &str,
+) -> Result<(), VjpRefusal> {
+    let dx = out.tensor(&format!("g_{x}"), (rows, cols));
+    let ds = by.map(|s| out.tensor(&format!("g_{s}"), (rows, lanes)));
+    let (t, l, c, k, dp) = (out.names.fresh("t"), out.names.fresh("l"), out.names.fresh("c"), out.names.fresh("k"), out.names.fresh("y"));
+    out.line(0, format!("Repeat for {t} from 1 to {rows}:"));
+    out.line(1, format!("Repeat for {l} from 1 to {lanes}:"));
+    out.line(2, format!("Repeat for {c} from 1 to {cols}:"));
+    out.line(3, format!("Let {dp} be item (({t} - 1) * {} + ({l} - 1) * {cols} + {c}) of {d_out}.", lanes * cols));
+    out.line(3, format!("Let {k} be ({t} - 1) * {cols} + {c}."));
+    match (by, &ds) {
+        (Some(s), Some(ds)) => {
+            let w = format!("(item (({t} - 1) * {lanes} + {l}) of {s})");
+            out.line(3, format!("Set item {k} of {dx} to (item {k} of {dx}) + {dp} * {w}."));
+            out.line(3, format!("Set item (({t} - 1) * {lanes} + {l}) of {ds} to (item (({t} - 1) * {lanes} + {l}) of {ds}) + {dp} * (item {k} of {x})."));
+        }
+        _ => out.line(3, format!("Set item {k} of {dx} to (item {k} of {dx}) + {dp}.")),
+    }
+    out.accumulate(x, dx);
+    if let (Some(s), Some(ds)) = (by, ds) {
+        out.accumulate(s, ds);
+    }
     Ok(())
 }
 
@@ -556,6 +641,28 @@ fn l2norm_rule(out: &mut Out, x: &str, eps: Epsilon, d_out: &str, shape: (usize,
     Ok(())
 }
 
+/// The weight's entry at column `c` of the row a rule's row loop is at, as LOGOS text: column `c` of the weight's one
+/// row, or of the row's lane's row when the weight holds `weight_rows` rows — row `r` takes the weight's row
+/// `(r − 1) mod weight_rows` ([`crate::tensor_recognize::FusedRowSpec::weight_rows`]), whose first entry this binds.
+struct WeightRow(Option<String>);
+
+impl WeightRow {
+    fn of(out: &mut Out, row: &str, weight_rows: usize, cols: usize) -> WeightRow {
+        WeightRow((weight_rows > 1).then(|| {
+            let at = out.names.fresh("wb");
+            out.line(1, format!("Let {at} be (({row} - 1) % {weight_rows}) * {cols}."));
+            at
+        }))
+    }
+
+    fn index(&self, c: &str) -> String {
+        match &self.0 {
+            Some(at) => format!("({at} + {c})"),
+            None => c.to_string(),
+        }
+    }
+}
+
 fn rmsnorm_rule(
     rp: &RecognizedProgram,
     r: &crate::tensor_recognize::FusedRowSpec,
@@ -564,14 +671,14 @@ fn rmsnorm_rule(
     shape: (usize, usize),
 ) -> Result<(), VjpRefusal> {
     // u = x (+ residual); per row, q = 1/√(mean u² + ε); y = u·q·w.
-    // du_i = q·(w_i dy_i) − q³/C · u_i · Σ_j w_j dy_j u_j;  dw_i = Σ_rows dy_i · u_i · q.
+    // du_i = q·(w_i dy_i) − q³/C · u_i · Σ_j w_j dy_j u_j;  dw_i = Σ_rows dy_i · u_i · q, over the rows that read w_i.
     let x = rp.name(r.x).to_string();
     let residual = r.residual.map(|s| rp.name(s).to_string());
     let weight = r.weight.map(|s| rp.name(s).to_string());
     let cols = shape.1;
     let du = out.tensor(&format!("g_{x}"), out.shape(&x)?);
     let dw = weight.as_ref().map(|w| {
-        let s = out.shape(w).unwrap_or((1, cols));
+        let s = out.shape(w).unwrap_or((r.weight_rows, cols));
         out.tensor(&format!("g_{w}"), s)
     });
     let d_out = d_out.to_string();
@@ -579,11 +686,12 @@ fn rmsnorm_rule(
         Some(res) => format!("((item {k} of {x}) + (item {k} of {res}))"),
         None => format!("(item {k} of {x})"),
     };
+    let (row, base) = each_row(out, shape);
+    let lane = WeightRow::of(out, &row, r.weight_rows, cols);
     let w_of = |c_index: &str| match &weight {
-        Some(w) => format!("(item {c_index} of {w})"),
+        Some(w) => format!("(item {} of {w})", lane.index(c_index)),
         None => "1.0".to_string(),
     };
-    let (_, base) = each_row(out, shape);
     let ss = row_sum(out, cols, &base, |k| format!("{} * {}", u_of(k), u_of(k)));
     let q = out.names.fresh("q");
     out.line(1, format!("Let {q} be 1.0 / sqrt({ss} / {cols}.0 + {:?}).", r.eps.get()));
@@ -608,7 +716,8 @@ fn rmsnorm_rule(
         ),
     );
     if let Some(dw) = &dw {
-        out.line(2, format!("Set item {c2} of {dw} to (item {c2} of {dw}) + (item {k2} of {d_out}) * {} * {q}.", u_of(&k2)));
+        let at = lane.index(&c2);
+        out.line(2, format!("Set item {at} of {dw} to (item {at} of {dw}) + (item {k2} of {d_out}) * {} * {q}.", u_of(&k2)));
     }
     out.accumulate(&x, du.clone());
     if let Some(res) = residual {
@@ -635,7 +744,7 @@ fn layernorm_rule(
     let cols = shape.1;
     let dx = out.tensor(&format!("g_{x}"), out.shape(&x)?);
     let dw = weight.as_ref().map(|w| {
-        let s = out.shape(w).unwrap_or((1, cols));
+        let s = out.shape(w).unwrap_or((r.weight_rows, cols));
         out.tensor(&format!("g_{w}"), s)
     });
     let db = bias.as_ref().map(|b| {
@@ -643,11 +752,12 @@ fn layernorm_rule(
         out.tensor(&format!("g_{b}"), s)
     });
     let d_out = d_out.to_string();
+    let (row, base) = each_row(out, shape);
+    let lane = WeightRow::of(out, &row, r.weight_rows, cols);
     let w_of = |c_index: &str| match &weight {
-        Some(w) => format!("(item {c_index} of {w})"),
+        Some(w) => format!("(item {} of {w})", lane.index(c_index)),
         None => "1.0".to_string(),
     };
-    let (_, base) = each_row(out, shape);
     let sum = row_sum(out, cols, &base, |k| format!("(item {k} of {x})"));
     let mu = out.names.fresh("m");
     out.line(1, format!("Let {mu} be {sum} / {cols}.0."));
@@ -675,7 +785,8 @@ fn layernorm_rule(
         ),
     );
     if let Some(dw) = &dw {
-        out.line(2, format!("Set item {c2} of {dw} to (item {c2} of {dw}) + (item {k2} of {d_out}) * ((item {k2} of {x}) - {mu}) * {q}."));
+        let at = lane.index(&c2);
+        out.line(2, format!("Set item {at} of {dw} to (item {at} of {dw}) + (item {k2} of {d_out}) * ((item {k2} of {x}) - {mu}) * {q}."));
     }
     if let Some(db) = &db {
         out.line(2, format!("Set item {c2} of {db} to (item {c2} of {db}) + (item {k2} of {d_out})."));

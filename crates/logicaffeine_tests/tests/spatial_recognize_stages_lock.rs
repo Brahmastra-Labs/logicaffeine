@@ -292,6 +292,11 @@ fn cuda_kind(spec: &TensorOpSpec) -> Option<&'static str> {
         TensorOpSpec::Moe(_) => Some("Moe"),
         TensorOpSpec::Sigmoid(_)
         | TensorOpSpec::Softcap(_)
+        | TensorOpSpec::LaneMean(_)
+        | TensorOpSpec::LaneSpread(_)
+        | TensorOpSpec::LaneSums(_)
+        | TensorOpSpec::SignedRoot(_)
+        | TensorOpSpec::NgramIds(_)
         | TensorOpSpec::Scale(_)
         | TensorOpSpec::HeadSlice(_)
         | TensorOpSpec::Join(_)
@@ -306,6 +311,8 @@ fn cuda_kind(spec: &TensorOpSpec) -> Option<&'static str> {
         | TensorOpSpec::RowsGather(_)
         | TensorOpSpec::ArgMax(_)
         | TensorOpSpec::SetRow(_)
+        | TensorOpSpec::Scatter(_)
+        | TensorOpSpec::Map(_)
         | TensorOpSpec::IntRequant(_)
         | TensorOpSpec::IntClamp(_)
         | TensorOpSpec::Relu(_)
@@ -385,6 +392,47 @@ fn an_unrecognized_statement_is_reported_not_dropped() {
         vec![(12, "While i".to_string())],
         "the loop that is not a tensor op is listed by index, not skipped"
     );
+}
+
+/// A hand-written loop or branch that holds a tensor op is not that op: the op runs once a turn, reading the loop's
+/// index, or on one arm, and the block's other statements write what the op does not. The block is listed by index,
+/// never lifted as the op it holds, and the whole-program lowering refuses the program by naming it instead of
+/// lowering it without the block.
+#[test]
+fn a_loop_holding_an_op_is_listed_never_lifted_as_the_op() {
+    use logicaffeine_compile::spatial::pipeline::compile_program_to_spatial;
+    use logicaffeine_compile::spatial::target::SpatialTarget;
+    // A sum outside the block lifts, so the lowering is partial and its refusal names what it could not lift.
+    let decls = "## Main\n\
+                 Let T be a 8 by 16 tensor of Real.\n\
+                 Let X be a 6 by 16 tensor of Real.\n\
+                 Let I be a 1 by 6 tensor of Int.\n\
+                 Let D be X plus X.\n";
+    // Each case: the statements after the declarations and the sum, and the statement the walk lists — T(0), X(1),
+    // I(2) and D(3) come first.
+    for (what, body, listed) in [
+        (
+            "a scatter of rows",
+            "Repeat for k from 1 to 6:\n    Let at be item k of I.\n    Let r be row k of X.\n    Set row at of T to r.\n",
+            (4, "Repeat"),
+        ),
+        ("a row read once a turn", "Repeat for k from 1 to 6:\n    Let r be row k of X.\n", (4, "Repeat")),
+        (
+            "a sum taken in a counted loop",
+            "Let mutable i be 1.\nWhile i is at most 3:\n    Let C be X plus X.\n    Set i to i + 1.\n",
+            (5, "While i"),
+        ),
+        ("a sum taken on one arm", "Let n be 2.\nIf n is at least 1:\n    Let C be X plus X.\n", (5, "If")),
+    ] {
+        let src = format!("{decls}{body}Show item 1 of T.\n");
+        let rp = walk(&src);
+        let lifted: Vec<(&str, usize)> = rp.stages.iter().map(|s| (s.op.kind(), s.stmt_index)).collect();
+        assert_eq!(lifted, vec![("Elementwise", 3)], "{what}: only the sum outside the block lifts");
+        assert_eq!(rp.unrecognized, vec![(listed.0, listed.1.to_string())], "{what}: the block is listed by index");
+        let pl = compile_program_to_spatial(&src, &SpatialTarget::sn50_rdu()).expect("the walk");
+        assert!(pl.whole().is_none(), "{what}: the program lowers whole without its block");
+        assert!(pl.refusal().contains(listed.1), "{what}: the refusal names the block: {}", pl.refusal());
+    }
 }
 
 /// The spec kind each implemented probe's op lifts to — the probe's own `kind`, stated once in `tensor_probes`, or
@@ -505,6 +553,11 @@ fn own_recognizer(op: &str) -> Option<&'static str> {
         "set_row" => "set_row",
         "scale" => "scale",
         "softcap" => "softcap",
+        "lane_mean" => "lane_mean",
+        "lane_spread" => "lane_spread",
+        "lane_sums" => "lane_sums",
+        "signed_root" => "signed_root",
+        "ngram_ids" => "ngram_ids",
         "head_slice" => "head_slice",
         "join" => "join",
         "head_matmul" => "head_matmul",

@@ -77,6 +77,8 @@ pub fn spec_refusals(spec: &ModelSpec) -> Vec<Refusal> {
             Mixer::GatedDelta(g) if g.gate == GateActivation::Sigmoid => out.push(Refusal::Mixer { layer, what: "a Gated DeltaNet gated by a sigmoid" }),
             Mixer::GatedDelta(_) => {}
             Mixer::Mla(_) => out.push(Refusal::Mixer { layer, what: "multi-head latent attention" }),
+            Mixer::Recurrent(r) => out.push(Refusal::Mixer { layer, what: r.what() }),
+            Mixer::None => out.push(Refusal::Mixer { layer, what: "a block with no mixer" }),
             Mixer::Attention(a) => {
                 let mut attention = |cond: bool, what: &'static str| {
                     if cond {
@@ -97,7 +99,14 @@ pub fn spec_refusals(spec: &ModelSpec) -> Vec<Refusal> {
             Ffn::Dense { act: Act::Silu, .. } => {}
             Ffn::Dense { act: Act::GeluTanh, .. } => out.push(Refusal::Ffn { layer, what: "GELU" }),
             Ffn::Dense { act: Act::SwigluOai { .. }, .. } => out.push(Refusal::Ffn { layer, what: "gpt-oss's clamped SwiGLU" }),
+            Ffn::Dense { act: Act::ReluSquared, .. } => out.push(Refusal::Ffn { layer, what: "ReLU" }),
             Ffn::Moe(_) => out.push(Refusal::Ffn { layer, what: "experts" }),
+            Ffn::None => out.push(Refusal::Ffn { layer, what: "a block with no feed-forward" }),
+            Ffn::ChannelMix { .. } => out.push(Refusal::Ffn { layer, what: "RWKV's channel mix" }),
+            Ffn::DenseAndMoe { .. } => out.push(Refusal::Ffn { layer, what: "a dense FFN beside experts" }),
+        }
+        if !l.pre_norms {
+            out.push(Refusal::Norm { layer, what: "sublayers that read the residual unnormed" });
         }
         if l.post_mixer_norm {
             out.push(Refusal::Norm { layer, what: "a norm on the mixer's output" });

@@ -209,7 +209,7 @@ fn small_model_shaped() -> ModelSpec {
                 a.scale = 1.0 / 16.0;
             }
             Mixer::GatedDelta(g) => (g.k_heads, g.v_heads, g.head_dim) = (16, 16, 128),
-            Mixer::Mla(_) => {}
+            Mixer::Mla(_) | Mixer::Recurrent(_) | Mixer::None => {}
         }
         if let Ffn::Dense { dff, .. } = &mut layer.ffn {
             *dff = 3584;

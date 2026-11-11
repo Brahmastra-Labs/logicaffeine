@@ -65,6 +65,8 @@ fn picked(view: &View, n: usize) -> Option<(Vec<usize>, bool)> {
         View::HeadBlocks { stride, offset, width } => {
             Some(((0..n).filter(|r| (offset..offset + width).contains(&(r % stride))).collect(), true))
         }
+        // Zero rows between its taps: no pick of the tensor's rows.
+        View::Dilated { .. } => None,
     }
 }
 

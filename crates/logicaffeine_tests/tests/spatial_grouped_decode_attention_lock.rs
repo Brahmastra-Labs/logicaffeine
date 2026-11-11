@@ -517,3 +517,39 @@ fn heads_that_share_nothing_and_blocks_of_rows_keep_an_item_per_query_head() {
         "a block of rows: an item per query tile and head"
     );
 }
+
+// ─────────────────────────── heads that are not whole tiles ───────────────────────────
+
+/// The tiles a K/V head of `hd` is read through, of a cache row of `kv` such heads: the most any of them straddles.
+fn window_tiles(kv: usize, hd: usize) -> usize {
+    (0..kv).map(|x| ((x * hd) % 32 + hd).div_ceil(32)).max().unwrap_or(1)
+}
+
+#[test]
+fn grouped_heads_that_are_not_whole_tiles_fold_once_a_kv_head() {
+    // Heads of 80, 112 and 72 share tiles with their neighbours, but a group of a K/V head's query heads is whole tiles
+    // (4 × 80, 2 × 112, 4 × 72): its rows regroup from column 0, one item a K/V head reads that head's keys and values
+    // through its window, and the result ungroups a page at a time — after an append, over the whole cache, and over a
+    // literal prefix ending inside a tile row.
+    for s in [
+        Shape { ctx: 40, h: 8, kv: 2, hd: 80, reach: Reach::AppendUpTo(30) },
+        Shape { ctx: 40, h: 4, kv: 2, hd: 112, reach: Reach::Whole },
+        Shape { ctx: 48, h: 8, kv: 2, hd: 72, reach: Reach::Prefix(37) },
+    ] {
+        computes(&s);
+    }
+}
+
+#[test]
+fn at_real_width_grouped_heads_that_are_not_whole_tiles_stream_each_window_once_a_step() {
+    // Danube's 32 query heads over 8 K/V heads of 80 at a 4,096-position cache: one item a K/V head, each reading its
+    // head's window of every tile row once a step — no query head reads it again.
+    let s = Shape { ctx: 4096, h: 32, kv: 8, hd: 80, reach: Reach::AppendUpTo(1000) };
+    let p = composed(&source(&s, false), &sn50());
+    let fold = fold_section(&p);
+    assert_eq!(items_of(&p, fold), s.kv, "one fold item per K/V head");
+    for cache in ["Kc", "Vc"] {
+        let once = (s.ctx * s.kv * window_tiles(s.kv, s.hd) * 32 * 2) as u64;
+        assert_eq!(read_in(&p, fold, cache), once, "{cache}: each K/V head's window of every tile row read once a step ({once} bytes)");
+    }
+}

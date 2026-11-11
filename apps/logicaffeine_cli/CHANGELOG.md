@@ -11,6 +11,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `largo lean check [--dual] <export>`: a whole lean4export stream checked by the kernel's core, the code the Lean
   Kernel Arena runs; exit 0 accepted, 1 rejected, 2 declined, the reason on stderr. `largo lean import`'s independent
   recheck asks that core to decide the export too.
+- `largo emit rdu --cache DIR`: compile through the section cache in DIR, every section an earlier compile there
+  passed reused and the bundle byte for byte an uncached one; stderr says how many sections were compiled and reused.
+
+### Changed
+
+- `largo emit rdu --tp` takes every width the author writes, heads in balanced runs where the width divides
+  none; the bundle's program directories carry `report.json` and `certificate.whole.json`.
 
 ### Fixed
 

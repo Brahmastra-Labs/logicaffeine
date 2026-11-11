@@ -20,7 +20,7 @@ use super::pipeline::{check_datatypes, StageNames};
 use super::target::SpatialTarget;
 use super::value_range::Interval;
 use crate::tensor_graph::front::TensorOpSpec;
-use crate::tensor_graph::graph::{Op, Sym, TensorGraph};
+use crate::tensor_graph::graph::{Elem, Op, Sym, TensorGraph};
 use crate::tensor_recognize::{FusedRowSpec, Fill, RowReduceKind};
 
 /// The decisions the spatial chips make about a whole program before any op of it is linked.
@@ -77,7 +77,7 @@ impl Prelude {
         twins: &mut BTreeSet<String>,
         passes: &dyn Fn(SpatialProgram) -> Result<SpatialProgram, SpatialReject>,
         target: &SpatialTarget,
-    ) -> Result<Vec<SpatialProgram>, SpatialReject> {
+    ) -> Result<Agreed, SpatialReject> {
         use q::{relayout_dense_to_rows, relayout_rows_to_dense};
         // The op's own sections agree with one another: only a tensor the op uses in ONE role throughout — read, or
         // written — meets another op at an edge. A carry updated by one section and read by the next is neither.
@@ -137,15 +137,35 @@ impl Prelude {
                 renames.insert(t.name.clone(), twin);
             }
         }
-        let renamed = ps.into_iter().map(|mut p| {
-            for t in &mut p.tensors {
-                if let Some(twin) = renames.get(&t.name) {
-                    t.name = twin.clone();
+        let sections = ps
+            .into_iter()
+            .map(|mut p| {
+                for t in &mut p.tensors {
+                    if let Some(twin) = renames.get(&t.name) {
+                        t.name = twin.clone();
+                    }
                 }
-            }
-            p
-        });
-        Ok(before.into_iter().chain(renamed).chain(after).collect())
+                p
+            })
+            .collect();
+        Ok(Agreed { before, sections, after })
+    }
+}
+
+/// An op's sections with their layouts agreed ([`Prelude::agree_layouts`]): the bridges that run before them, for the
+/// matrices they read, the op's own sections (their tensors renamed to the twins), and the bridges after them, for the
+/// matrices they write.
+#[derive(Clone, Debug)]
+pub struct Agreed {
+    pub before: Vec<SpatialProgram>,
+    pub sections: Vec<SpatialProgram>,
+    pub after: Vec<SpatialProgram>,
+}
+
+impl Agreed {
+    /// The sections in the order they run: the bridges before, the op's own, the bridges after.
+    pub fn into_vec(self) -> Vec<SpatialProgram> {
+        self.before.into_iter().chain(self.sections).chain(self.after).collect()
     }
 }
 
@@ -165,17 +185,15 @@ pub fn dense_tables(g: &TensorGraph, linked: &[usize], target: &SpatialTarget, a
     let mut dense = BTreeSet::new();
     for (op, spec) in ops() {
         let whole = || op.ins.iter().chain(std::iter::once(&op.out)).collect::<Vec<_>>();
+        let flash_tables = |rows: usize| -> Vec<&String> {
+            let (first, n) = if rows > 1 { (0, 3) } else { (1, 2) };
+            op.ins.iter().skip(first).take(n).chain((rows > 1).then_some(&op.out)).collect()
+        };
         let touched: Vec<&String> = match spec {
             // A block of query rows in the flash form — causal or full — reads a TILE of query rows per item and writes
             // its result a tile row at a time: its queries and its result are matrices too.
-            TensorOpSpec::Attention(a) if attention_reads_dense(a.h, a.kv, a.hd, a.vd, target) && a.rows > 1 => {
-                op.ins.iter().take(3).chain(std::iter::once(&op.out)).collect()
-            }
-            TensorOpSpec::Attention(a) if attention_reads_dense(a.h, a.kv, a.hd, a.vd, target) => op.ins.iter().skip(1).take(2).collect(),
-            TensorOpSpec::FullAttention(a) if full_attention_reads_dense(a.hd, target) && a.t > 1 => {
-                op.ins.iter().take(3).chain(std::iter::once(&op.out)).collect()
-            }
-            TensorOpSpec::FullAttention(a) if full_attention_reads_dense(a.hd, target) => op.ins.iter().skip(1).take(2).collect(),
+            TensorOpSpec::Attention(a) if attention_reads_dense(a, target) => flash_tables(a.rows),
+            TensorOpSpec::FullAttention(a) if full_attention_reads_dense(a, target) => flash_tables(a.t),
             TensorOpSpec::Matmul(m) => [(&op.ins[0], m.m > 1), (&op.ins[1], m.k > 1), (&op.out, m.m > 1)]
                 .into_iter()
                 .filter(|(_, rows)| *rows)
@@ -357,20 +375,44 @@ fn link_unchecked(
             // two-dimensional produces `qr3` shaped (2, 4) while every other section still reads it flat as (1, 8), and
             // compose refuses the conflict. Layout is an AGREEMENT between sections, so the rule cannot depend on any one
             // section's width — it is what the tensors' other readers and writers need.
-            match form {
-                Form::Section { .. }
-                    if layout == natural && q::row_needs_blocking(f.cols, target) && f.reduce == RowReduceKind::RmsNorm && f.bias.is_none() =>
-                {
-                    q::blocked_rms_norm(f, &names, target)
+            // ★ AND A ROW ONE SITE CANNOT HOLD STREAMS TOO. Inside the page, a part of small tiles runs out of a site's
+            // memory first (the RTX 3060's 16 × 16 tiles at 28 tiles of a row), so a whole-row form that fits no site
+            // takes the streamed sections as a row past the page does.
+            let plain = f.weight.is_none() && f.residual.is_none() && f.bias.is_none();
+            let streamed: Option<fn(&FusedRowSpec, &StageNames, &SpatialTarget) -> Result<Vec<SpatialProgram>, SpatialReject>> = match f.reduce {
+                RowReduceKind::RmsNorm if f.bias.is_none() => Some(q::blocked_rms_norm),
+                RowReduceKind::LayerNorm if f.weight_rows == 1 => Some(q::blocked_layer_norm),
+                RowReduceKind::Softmax if plain && f.rows == 1 && !q::row_needs_blocking(f.cols, target) => Some(q::streamed_softmax),
+                _ => None,
+            };
+            let whole_or_streamed = |whole: Result<SpatialProgram, SpatialReject>| -> Result<Vec<SpatialProgram>, SpatialReject> {
+                match (whole?, streamed) {
+                    (w, Some(stream)) if matches!(form, Form::Section { .. }) && layout == natural && !q::fits_a_site(&w, target) => {
+                        stream(f, &names, target)
+                    }
+                    (w, _) => Ok(vec![w]),
                 }
-                Form::Section { .. } if f.rows > 1 && layout == (1, f.rows * f.cols) => one(q::from_row_norm_flat(f, &names, target)),
+            };
+            match form {
+                Form::Section { .. } if layout == natural && q::row_needs_blocking(f.cols, target) && streamed.is_some() => {
+                    streamed.expect("a streamed form")(f, &names, target)
+                }
+                // A norm in lanes takes the flat form over a dense table too: its rows are a token's lanes, which no tile
+                // row of the table holds, and the prelude bridges the table's layout to the flat row
+                // ([`Prelude::agree_layouts`]).
+                Form::Section { .. } if f.rows > 1 && (layout == (1, f.rows * f.cols) || f.weight_rows > 1) => {
+                    one(q::from_row_norm_flat(f, &names, target))
+                }
                 Form::Section { .. } if layout != natural => Err(SpatialReject::NotLowered(
                     "a row norm whose rows cut across the rows of the matrix it normalizes — neither the matrix's tiling nor the flat row's",
                 )),
-                _ => one(from_fused_row(f, &row_names, &fills, target)),
+                // A norm in lanes reads row `r`'s weight at row `r mod weight_rows`, which the flat form's bands and
+                // items carry and the tile-row form's one broadcast weight row does not.
+                Form::Alone if f.weight_rows > 1 => one(q::from_row_norm_flat(f, &names, target)),
+                _ => whole_or_streamed(from_fused_row(f, &row_names, &fills, target)),
             }
         }
-        TensorOpSpec::Rope(spec) => one(q::from_rope(spec, &names, target)),
+        TensorOpSpec::Rope(spec) => q::from_rope(spec, &names, target),
         TensorOpSpec::Silu(spec) => one(q::from_silu(spec, &names, shape(spec.n), target)),
         TensorOpSpec::IntRequant(spec) => one(q::from_int_requant(spec, &names, shape(spec.n), target)),
         TensorOpSpec::IntClamp(spec) => one(q::from_int_clamp(spec, &names, shape(spec.n), target)),
@@ -391,6 +433,11 @@ fn link_unchecked(
         }
         TensorOpSpec::HeadSlice(spec) => one(q::from_head_slice(spec, &names, target)),
         TensorOpSpec::Join(spec) => one(q::from_join(spec, &names, target)),
+        TensorOpSpec::LaneMean(spec) => one(q::from_lane_mean(spec, &names, target)),
+        TensorOpSpec::LaneSpread(spec) => one(q::from_lane_spread(spec, &names, target)),
+        TensorOpSpec::LaneSums(spec) => one(q::from_lane_sums(spec, &names, target)),
+        TensorOpSpec::SignedRoot(spec) => one(q::from_signed_root(spec, &names, shape(spec.n), target)),
+        TensorOpSpec::NgramIds(spec) => q::from_ngram_ids(spec, &names, target),
         TensorOpSpec::HeadMatmul(spec) => one(q::from_head_matmul(spec, &names, target)),
         TensorOpSpec::CausalConv(spec) => q::from_causal_conv(spec, &names, target),
         // The tables of a block step's operands and output laid out as matrices; a one-row step reads none of them as a
@@ -405,6 +452,29 @@ fn link_unchecked(
         TensorOpSpec::RowGather(spec) => one(q::from_row_gather(spec, &names, floats(), dense(&op.ins[0]), target)),
         TensorOpSpec::RowsGather(spec) => one(q::from_rows_gather(spec, &names, floats(), dense(&op.ins[0]), target)),
         TensorOpSpec::ArgMax(spec) => q::from_argmax(spec, &names, floats(), target),
-        TensorOpSpec::SetRow(spec) => one(q::from_set_row(spec, &names, floats(), dense(&op.ins[0]), target)),
+        TensorOpSpec::SetRow(spec) => {
+            let held = (floats() && is_cache(g, &op.ins[0])).then(|| q::cache_precision(target)).transpose()?;
+            one(q::from_set_row(spec, &names, floats(), dense(&op.ins[0]), held, target))
+        }
+        TensorOpSpec::Scatter(_) if dense(&op.ins[0]) => Err(SpatialReject::NotLowered(
+            "a scatter into a table another op reads as a matrix — the scatter rewrites it as one flat row",
+        )),
+        TensorOpSpec::Scatter(_) if g.tensors.get(&op.ins[2]).is_some_and(|t| t.elem == Elem::Float) => {
+            Err(SpatialReject::NotLowered("a scatter whose row indices are Reals"))
+        }
+        TensorOpSpec::Scatter(spec) => one(q::from_scatter(spec, &names, floats(), target)),
+        TensorOpSpec::Map(spec) => {
+            let reals: Vec<bool> = op.ins.iter().map(|t| g.tensors.get(t).is_none_or(|x| x.elem == Elem::Float)).collect();
+            one(q::from_map(spec, &names, &reals, target))
+        }
     }
+}
+
+/// Whether an attention of `g` reads `table` as its keys or its values: a cache, held at [`q::cache_precision`] by
+/// every attention that reads it and so by every row write into it.
+fn is_cache(g: &TensorGraph, table: &str) -> bool {
+    g.ops.iter().any(|op| {
+        matches!(op.prim(), Some(TensorOpSpec::Attention(_) | TensorOpSpec::FullAttention(_)))
+            && op.ins.get(1..3).is_some_and(|kv| kv.iter().any(|t| t == table))
+    })
 }

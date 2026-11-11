@@ -25,6 +25,20 @@ FAMILIES=(
     "glm45 zai-org/GLM-4.5 tokenizer.json tokenizer_config.json"
     "kimi_k2 moonshotai/Kimi-K2-Instruct tiktoken.model tokenizer_config.json tokenization_kimi.py"
     "kimi_k2_unsloth unsloth/Kimi-K2-Instruct tiktoken.model tokenizer_config.json tokenization_kimi.py special_tokens_map.json chat_template.jinja"
+    "ministral3 mistralai/Ministral-3-3B-Instruct-2512 tokenizer.json tokenizer_config.json tekken.json"
+    "phimoe microsoft/Phi-3.5-MoE-instruct tokenizer.json tokenizer_config.json tokenizer.model added_tokens.json special_tokens_map.json"
+    "deepseek32 deepseek-ai/DeepSeek-V3.2 tokenizer.json tokenizer_config.json"
+    "glm5 zai-org/GLM-5 tokenizer.json tokenizer_config.json"
+    "lfm2 LiquidAI/LFM2-1.2B tokenizer.json tokenizer_config.json"
+    "mamba2 EleutherAI/gpt-neox-20b tokenizer.json tokenizer_config.json"
+    "falcon-h1 tiiuae/Falcon-H1-0.5B-Instruct tokenizer.json tokenizer_config.json"
+    "nemotron_h nvidia/NVIDIA-Nemotron-Nano-9B-v2 tokenizer.json tokenizer_config.json special_tokens_map.json"
+    "jamba ai21labs/AI21-Jamba-Reasoning-3B tokenizer.json tokenizer_config.json special_tokens_map.json"
+    "gemma3n unsloth/gemma-3n-E2B-it tokenizer.model tokenizer.json tokenizer_config.json special_tokens_map.json"
+    "kimi-linear moonshotai/Kimi-Linear-48B-A3B-Instruct tiktoken.model tokenizer_config.json tokenization_kimi.py special_tokens_map.json"
+    "minimax-01 MiniMaxAI/MiniMax-Text-01 tokenizer.json tokenizer_config.json"
+    "gemma4 google/gemma-4-E2B-it tokenizer.json tokenizer_config.json chat_template.jinja"
+    "rwkv7 fla-hub/rwkv7-1.5B-world rwkv_vocab_v20230424.txt tokenizer_config.json added_tokens.json special_tokens_map.json hf_rwkv_tokenizer.py"
 )
 
 for entry in "${FAMILIES[@]}"; do

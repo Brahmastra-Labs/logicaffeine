@@ -7,6 +7,10 @@
 //! same checkpoint. A prompt's state comes from the authored prefill on the GPU target and is handed to the bundle by
 //! the decode's contract (`spatial::handoff`), so a row tests what it names and not the prefill's chip.
 //!
+//! E2.6's row runs a prompt through the bundle as `largo check-drop`'s host does (`spatial::drop::decode_bundle`), from
+//! an empty state: an empty prompt is refused by name, and a prompt of one beginning-of-sequence token decodes the
+//! reference's logits within the datapath — Qwen 3.5's hybrid past the bf16 bound there (NUM-1).
+//!
 //! A ticket that lands a row moves its test, unchanged, into `samba_exam_correctness_lock`.
 //!
 //! Run on purpose: `scripts/run-handed-reds-tests.sh`, or
@@ -26,10 +30,13 @@ mod samba_handoff;
 #[allow(dead_code)]
 mod samba_exam;
 
+use logicaffeine_compile::model::gguf::Gguf;
+use logicaffeine_compile::model::reference::Reference;
+use logicaffeine_compile::spatial::drop::decode_bundle;
 use logicaffeine_compile::spatial::handoff::{contract, Handoff, HandoffError};
 use logicaffeine_compile::spatial::target::SpatialTarget;
 use samba_exam::{decode_batch_on_bundle, fp32_twin, reference_after, within_the_datapath};
-use samba_handoff::{decode_on_bundle, prefill_on, Model, CTX, NEXT, PROMPT};
+use samba_handoff::{decode_on_bundle, emit_bundle, prefill_on, Model, CTX, NEXT, PROMPT};
 use std::collections::BTreeMap;
 use tiny_models::Tiny;
 
@@ -81,5 +88,31 @@ fn the_last_position_decodes_and_the_next_is_refused() {
             Err(HandoffError::Position { position: CTX, ctx: CTX }),
             "{t:?}: a decode past the cache's last row is refused by name"
         );
+    }
+}
+
+/// The checkpoint's beginning-of-sequence token: `tokenizer.ggml.bos_token_id`, or id 1 (Llama's) for a checkpoint that
+/// names no tokenizer, as the tiny ones written here do.
+fn bos(m: &Model) -> u32 {
+    let g = Gguf::open(&m.path).expect("the checkpoint");
+    g.meta("tokenizer.ggml.bos_token_id").and_then(|v| v.as_u64()).map_or(1, |b| b as u32)
+}
+
+#[test]
+fn empty_and_bos_only_prompts_decode_as_the_reference() {
+    for t in SHARED {
+        let m = Model::write(t.spec(CTX), &format!("{t:?}"));
+        let (dir, _) = emit_bundle(&m);
+        let bundle = dir.path().join("bundle");
+        let refusal = decode_bundle(&bundle, &m.path, &[], 1).expect_err("an empty prompt has no token to decode");
+        assert!(refusal.0.contains("empty prompt"), "{t:?}: the refusal names the empty prompt: {refusal}");
+        let bos = bos(&m);
+        let got = decode_bundle(&bundle, &m.path, &[bos], 0).unwrap_or_else(|e| panic!("{t:?}: a BOS-only prompt decodes: {e}"));
+        let want = Reference::new(m.spec.clone(), Gguf::open(&m.path).expect("the checkpoint"))
+            .expect("the reference reads it")
+            .step(&[bos])
+            .expect("the reference steps");
+        within_the_datapath(&m, &got.logits, &want, &format!("{t:?} after a BOS-only prompt"));
+        assert!(got.tokens.is_empty(), "{t:?}: no token past the prompt was asked for");
     }
 }

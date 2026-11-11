@@ -110,14 +110,25 @@ pub struct TpRefusal {
     pub why: String,
 }
 
-/// ★ A TENSOR-PARALLEL WIDTH IS A FACT ABOUT THE MODEL AS MUCH AS THE CHIPS. Megatron splits attention and the
-/// Gated DeltaNet BY HEAD and the FFN and the vocabulary by column, so `tp` must divide the query heads, both GDN
-/// head counts, the FFN width and the vocabulary; the KV heads either split across the chips or replicate over them
-/// evenly (`kv % tp == 0` or `tp % kv == 0`). Any other width is refused by the serving stack before a weight loads —
-/// vLLM: "Total number of attention heads (24) must be divisible by tensor parallel size (16)". The widths the
-/// author does not yet split a layer over — a latent attention, an expert mixture, an attention with biases or sinks —
-/// are refused by its own name for what is missing (`author::check_tp`).
+/// The widths an RDU deployment over `tp` chips takes: every width the author writes. The author shares each head count
+/// and the FFN's columns over the chips in balanced runs, so 24 query heads deploy over 16 chips, some holding one more
+/// than others; the layers it does not yet split — a latent attention, an expert mixture, an attention with biases or
+/// sinks — are refused by its own name for what is missing (`author::check_tp`). A plan for a serving stack keeps the
+/// stack's own rule ([`serving_admits_tp`]).
 pub fn admits_tp(spec: &crate::model::spec::ModelSpec, tp: usize) -> Result<(), TpRefusal> {
+    if tp == 0 {
+        return Err(TpRefusal { tp, why: "a tensor-parallel width of zero chips".into() });
+    }
+    crate::model::author::check_tp(spec, tp).map_err(|e| TpRefusal { tp, why: format!("{} over {tp} chips is not written yet: {}", spec.arch, e.0) })
+}
+
+/// ★ A SERVING STACK'S TENSOR-PARALLEL WIDTH DIVIDES THE MODEL. Megatron splits attention and the Gated DeltaNet BY HEAD
+/// and the FFN and the vocabulary by column, so `tp` must divide the query heads, both GDN head counts, the FFN width and
+/// the vocabulary; the KV heads either split across the chips or replicate over them evenly (`kv % tp == 0` or
+/// `tp % kv == 0`). Any other width is refused by the serving stack before a weight loads — vLLM: "Total number of
+/// attention heads (24) must be divisible by tensor parallel size (16)" — and the widths the author does not yet write
+/// are refused as [`admits_tp`] refuses them.
+pub fn serving_admits_tp(spec: &crate::model::spec::ModelSpec, tp: usize) -> Result<(), TpRefusal> {
     use crate::model::spec::{Ffn, Mixer};
     let refuse = |why: String| Err(TpRefusal { tp, why });
     if tp == 0 {
@@ -159,9 +170,9 @@ pub fn admits_tp(spec: &crate::model::spec::ModelSpec, tp: usize) -> Result<(), 
     crate::model::author::check_tp(spec, tp).or_else(|e| refuse(format!("{} over {tp} chips is not written yet: {}", spec.arch, e.0)))
 }
 
-/// [`admits_tp`] for the Qwen3.8 configuration the fit report sizes.
+/// [`serving_admits_tp`] for the Qwen3.8 configuration the fit report and the serving plans size.
 pub fn qwen38_admits_tp(cfg: &Qwen38Cfg, tp: usize) -> Result<(), TpRefusal> {
-    admits_tp(&cfg.spec(), tp)
+    serving_admits_tp(&cfg.spec(), tp)
 }
 
 /// The tensor-parallel width Qwen3.8 is served at on `facts`' chips: the widest the model admits

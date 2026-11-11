@@ -10,8 +10,8 @@ use std::path::Path;
 use logicaffeine_compile::model::gguf::{self, MetaValue, TensorOut};
 use logicaffeine_compile::model::quant::GgmlType;
 use logicaffeine_compile::model::spec::{
-    Act, Attention, Ffn, GateActivation, GatedDelta, Gating, Layer, Mixer, Mla, ModelSpec, Moe, Rope, RopeScaling,
-    Window,
+    Act, Attention, Ffn, GateActivation, GatedDelta, Gating, Layer, LogitScale, Mixer, Mla, ModelSpec, Moe, Norm, Part,
+    Recurrent, Rope, RopeScaling, Window, MLA_LATENT_NORM_EPS,
 };
 
 /// The architectures a tiny model comes in.
@@ -41,6 +41,20 @@ pub enum Tiny {
     /// DeepSeek-V2 as a newer conversion stores it: a low-rank query normed between its halves, and the latent's
     /// expansion split into its key half (`attn_k_b`) and its value half (`attn_v_b`).
     DeepSeek2Split,
+    /// Granite: Llama's shape with its multipliers — the embedding times 4, every score times 1/8, each sublayer's output
+    /// times 1/4 before the residual, the logits times 1/8 after the head.
+    Granite,
+    /// MiniCPM: Llama's shape, each sublayer's output times 1/2 before the residual, the output norm's result times 1/4
+    /// (llama.cpp's 256/d at this width) before the head.
+    MiniCpm,
+    /// Arcee: Llama's shape with an FFN of relu² of the up projection and no gate projection.
+    Arcee,
+    /// Gemma 2: Gemma 3's sandwich norms, GeLU and tied head under one rotation base, a window on the even layers, every
+    /// score soft-capped at 50 and the logits at 30.
+    Gemma2,
+    /// OLMo 2: no norm before either sublayer, each reading the residual stream itself, and a norm after each; the queries
+    /// and the keys each normed across every head at once; Qwen3's NEOX rotation and SiLU FFN; a KV head a query head.
+    Olmo2,
 }
 
 /// Every block format a checkpoint's matrices may come in besides Q8_0: the K-quants, the legacy formats, MXFP4 and the
@@ -70,6 +84,10 @@ pub const ALL: &[Tiny] = &[
     Tiny::GptOss,
     Tiny::DeepSeek2,
     Tiny::DeepSeek2Split,
+    Tiny::MiniCpm,
+    Tiny::Arcee,
+    Tiny::Granite,
+    Tiny::Gemma2,
 ];
 
 /// The window of a tiny Gemma's local layers: shorter than every run the locks make (prompt and continuation), so the
@@ -91,6 +109,11 @@ impl Tiny {
             Tiny::GptOss => "gpt-oss",
             Tiny::DeepSeek2 => "deepseek2",
             Tiny::DeepSeek2Split => "deepseek2-split",
+            Tiny::Granite => "granite",
+            Tiny::MiniCpm => "minicpm",
+            Tiny::Arcee => "arcee",
+            Tiny::Gemma2 => "gemma2",
+            Tiny::Olmo2 => "olmo2",
         }
     }
 
@@ -114,15 +137,23 @@ impl Tiny {
         spec.d = 2048;
         for layer in &mut spec.layers {
             match &mut layer.ffn {
-                Ffn::Dense { dff, .. } => *dff = 2048,
+                Ffn::Dense { dff, .. } | Ffn::ChannelMix { dff } => *dff = 2048,
                 Ffn::Moe(m) => {
                     m.expert_dff = 1024;
                     m.shared_dff = 1024 * m.shared_experts;
                 }
+                Ffn::DenseAndMoe { dff, moe, .. } => {
+                    *dff = 2048;
+                    moe.expert_dff = 1024;
+                    moe.shared_dff = 1024 * moe.shared_experts;
+                }
+                Ffn::None => {}
             }
             if let Mixer::Mla(m) = &mut layer.mixer {
                 (m.heads, m.qk_nope, m.qk_rope, m.v_dim, m.kv_lora_rank) = (16, 128, 64, 128, 512);
-                m.rope.dims = 64;
+                if let Some(r) = &mut m.rope {
+                    r.dims = 64;
+                }
                 let mscale = 1.0 + 0.0707 * 40f64.ln();
                 m.scale = mscale * mscale / ((m.qk_nope + m.qk_rope) as f64).sqrt();
             }
@@ -131,7 +162,7 @@ impl Tiny {
     }
 
     fn sized(self, ctx: usize, w: usize) -> ModelSpec {
-        let neox = !matches!(self, Tiny::Llama | Tiny::LlamaTied);
+        let neox = !matches!(self, Tiny::Llama | Tiny::LlamaTied | Tiny::Granite | Tiny::MiniCpm | Tiny::Arcee);
         let (d, hd) = (D * w, 16 * w);
         let (dff, expert_dff) = if w == 1 { (96, 32) } else { (256, 256) };
         let attention = Attention {
@@ -167,6 +198,7 @@ impl Tiny {
             shared_gate: false,
             biases: false,
             groups: None,
+            latent: None,
         });
         let gated = Attention {
             heads: 2,
@@ -199,7 +231,10 @@ impl Tiny {
             ..attention.clone()
         };
         let local = Attention { window: Some(Window::Sliding(WINDOW)), ..attention.clone() };
-        let gemma = self == Tiny::Gemma3;
+        let gemma = matches!(self, Tiny::Gemma3 | Tiny::Gemma2);
+        let olmo = self == Tiny::Olmo2;
+        let whole = Attention { kv_heads: 4, qk_norm: true, qk_norm_whole: true, ..attention.clone() };
+        let capped = Attention { softcap: Some(50.0), qk_norm: false, ..attention.clone() };
         let oss = Attention {
             rope: Some(Rope {
                 dims: hd,
@@ -227,6 +262,7 @@ impl Tiny {
             shared_gate: false,
             biases: true,
             groups: None,
+            latent: None,
         });
         // DeepSeek-V2's YaRN: the cosines and sines unscaled, the scores by the magnitude `1 + 0.1·m·ln(factor)` squared.
         let deepseek = matches!(self, Tiny::DeepSeek2 | Tiny::DeepSeek2Split);
@@ -239,15 +275,17 @@ impl Tiny {
             qk_nope: nope,
             qk_rope: rope,
             v_dim: 32 * w,
-            rope: Rope {
+            rope: Some(Rope {
                 dims: rope,
                 theta: 10000.0,
                 neox: false,
                 scaling: RopeScaling::Yarn { factor: 40.0, original_ctx: 16, beta_fast: 32.0, beta_slow: 1.0, magnitude: 1.0 },
                 sections: None,
-            },
+            }),
             scale: mscale * mscale / ((nope + rope) as f64).sqrt(),
             kv_b_split: self == Tiny::DeepSeek2Split,
+            indexer: None,
+            latent_norm_eps: MLA_LATENT_NORM_EPS,
         };
         let deepseek_moe = Ffn::Moe(Moe {
             experts: 4,
@@ -262,6 +300,7 @@ impl Tiny {
             shared_gate: false,
             biases: false,
             groups: None,
+            latent: None,
         });
         let layers: Vec<Layer> = (0..3)
             .map(|l| {
@@ -272,6 +311,9 @@ impl Tiny {
                     Tiny::Gemma3 if l < 2 => Mixer::Attention(local.clone()),
                     Tiny::Gemma3 => Mixer::Attention(global.clone()),
                     Tiny::GptOss => Mixer::Attention(Attention { window: (l % 2 == 0).then_some(Window::Sliding(WINDOW)), ..oss.clone() }),
+                    Tiny::Gemma2 => Mixer::Attention(Attention { window: (l % 2 == 0).then_some(Window::Sliding(WINDOW)), ..capped.clone() }),
+                    Tiny::Granite => Mixer::Attention(Attention { scale: 0.125, ..attention.clone() }),
+                    Tiny::Olmo2 => Mixer::Attention(whole.clone()),
                     _ => Mixer::Attention(attention.clone()),
                 };
                 let ffn = match self {
@@ -279,10 +321,11 @@ impl Tiny {
                     _ if deepseek => deepseek_moe.clone(),
                     Tiny::Qwen3Moe => moe.clone(),
                     Tiny::GptOss => oss_moe.clone(),
-                    Tiny::Gemma3 => Ffn::Dense { dff, act: Act::GeluTanh },
+                    Tiny::Gemma3 | Tiny::Gemma2 => Ffn::Dense { dff, act: Act::GeluTanh },
+                    Tiny::Arcee => Ffn::Dense { dff, act: Act::ReluSquared },
                     _ => dense.clone(),
                 };
-                Layer { mixer, ffn, post_mixer_norm: gemma, post_ffn_norm: gemma }
+                Layer { mixer, ffn, pre_norms: !olmo, post_mixer_norm: gemma || olmo, post_ffn_norm: gemma || olmo }
             })
             .collect();
         ModelSpec {
@@ -294,21 +337,44 @@ impl Tiny {
                 Tiny::Gemma3 => "gemma3",
                 Tiny::GptOss => "gpt-oss",
                 Tiny::DeepSeek2 | Tiny::DeepSeek2Split => "deepseek2",
+                Tiny::Granite => "granite",
+                Tiny::MiniCpm => "minicpm",
+                Tiny::Arcee => "arcee",
+                Tiny::Gemma2 => "gemma2",
+                Tiny::Olmo2 => "olmo2",
             }
             .to_string(),
             d,
             vocab: VOCAB,
             ctx_len: ctx,
             rms_eps: 1e-6,
-            embedding_scale: gemma.then(|| (d as f64).sqrt()),
-            tied_output: matches!(self, Tiny::LlamaTied | Tiny::Gemma3),
-            final_logit_softcap: None,
+            embedding_scale: match self {
+                _ if gemma => Some((d as f64).sqrt()),
+                Tiny::Granite => Some(4.0),
+                Tiny::MiniCpm => Some(8.0),
+                _ => None,
+            },
+            tied_output: matches!(self, Tiny::LlamaTied | Tiny::Gemma3 | Tiny::Gemma2),
+            final_logit_softcap: (self == Tiny::Gemma2).then_some(30.0),
             layers,
             mtp_blocks: 0,
             ffn_norm: if matches!(self, Tiny::Qwen35 | Tiny::GptOss) { "post_attention_norm" } else { "ffn_norm" },
             hyper: None,
             ple: None,
             indexer: None,
+            residual_scale: match self {
+                Tiny::Granite => Some(0.25),
+                Tiny::MiniCpm => Some(0.5),
+                _ => None,
+            },
+            logit_scale: match self {
+                Tiny::Granite => Some(LogitScale::AfterHead(0.125)),
+                Tiny::MiniCpm => Some(LogitScale::BeforeHead(0.25)),
+                _ => None,
+            },
+            norm: Norm::Rms,
+            head_bias: false,
+            parts: Vec::new(),
         }
     }
 }
@@ -354,8 +420,16 @@ pub fn tensors(spec: &ModelSpec) -> Vec<(String, Vec<u64>)> {
     let d = spec.d as u64;
     add("token_embd.weight".into(), &[d, spec.vocab as u64]);
     add("output_norm.weight".into(), &[d]);
+    // A biased LayerNorm's bias beside every block norm's weight (PhiMoE's).
+    let norm_bias = spec.norm == (Norm::Layer { bias: true });
+    if norm_bias {
+        add("output_norm.bias".into(), &[d]);
+    }
     if !spec.tied_output {
         add("output.weight".into(), &[d, spec.vocab as u64]);
+    }
+    if spec.head_bias {
+        add("output.bias".into(), &[spec.vocab as u64]);
     }
     // One table of per-frequency factors serves every rotation that reads one, as Llama 3's checkpoints store it.
     let factored = spec.layers.iter().find_map(|l| match &l.mixer {
@@ -365,9 +439,18 @@ pub fn tensors(spec: &ModelSpec) -> Vec<(String, Vec<u64>)> {
     if let Some(dims) = factored {
         add("rope_freqs.weight".into(), &[dims as u64 / 2]);
     }
+    // Gemma 4's layers past the shared point hold no keys or values, and its `attention_k_eq_v` layers no values.
+    let shared_from = spec.parts.iter().find_map(|p| if let Part::SharedKv { from } = p { Some(*from) } else { None });
+    let keyed: Vec<usize> = spec.parts.iter().find_map(|p| if let Part::KeyAsValue { layers } = p { Some(layers.clone()) } else { None }).unwrap_or_default();
     for (l, layer) in spec.layers.iter().enumerate() {
         let blk = |s: &str| format!("blk.{l}.{s}.weight");
-        add(blk("attn_norm"), &[d]);
+        let (has_kv, has_v) = (shared_from.is_none_or(|f| l < f), !keyed.contains(&l));
+        if layer.pre_norms {
+            add(blk("attn_norm"), &[d]);
+            if norm_bias {
+                add(format!("blk.{l}.attn_norm.bias"), &[d]);
+            }
+        }
         match &layer.mixer {
             Mixer::Attention(a) => {
                 let (aq, akv, hd) = ((a.heads * a.head_dim) as u64, (a.kv_heads * a.head_dim) as u64, a.head_dim as u64);
@@ -382,8 +465,12 @@ pub fn tensors(spec: &ModelSpec) -> Vec<(String, Vec<u64>)> {
                     }
                 } else {
                     add(blk("attn_q"), &[d, if a.output_gate { 2 * aq } else { aq }]);
-                    add(blk("attn_k"), &[d, akv]);
-                    add(blk("attn_v"), &[d, avd]);
+                    if has_kv {
+                        add(blk("attn_k"), &[d, akv]);
+                    }
+                    if has_kv && has_v {
+                        add(blk("attn_v"), &[d, avd]);
+                    }
                     add(blk("attn_output"), &[ao, d]);
                     if a.bias {
                         add(bias("attn_q"), &[aq]);
@@ -400,7 +487,9 @@ pub fn tensors(spec: &ModelSpec) -> Vec<(String, Vec<u64>)> {
                 if a.qk_norm {
                     let (qw, kw) = if a.qk_norm_whole { (aq, akv) } else { (hd, hd) };
                     add(blk("attn_q_norm"), &[qw]);
-                    add(blk("attn_k_norm"), &[kw]);
+                    if has_kv {
+                        add(blk("attn_k_norm"), &[kw]);
+                    }
                 }
             }
             Mixer::GatedDelta(g) => {
@@ -435,48 +524,42 @@ pub fn tensors(spec: &ModelSpec) -> Vec<(String, Vec<u64>)> {
                     add(blk("attn_kv_b"), &[lora, h * (nope + vd)]);
                 }
                 add(blk("attn_output"), &[h * vd, d]);
+                if let (Some(ix), Some(r)) = (m.indexer.as_ref().filter(|ix| ix.full), m.q_lora_rank) {
+                    let (ih, ihd) = (ix.heads as u64, ix.head_dim as u64);
+                    add(blk("indexer.attn_q_b"), &[r as u64, ih * ihd]);
+                    add(blk("indexer.attn_k"), &[d, ihd]);
+                    add(blk("indexer.k_norm"), &[ihd]);
+                    add(format!("blk.{l}.indexer.k_norm.bias"), &[ihd]);
+                    add(blk("indexer.proj"), &[d, ih]);
+                }
             }
+            Mixer::Recurrent(r) => {
+                for (name, dims) in r.tensors(spec.d) {
+                    add(format!("blk.{l}.{name}"), &dims);
+                }
+            }
+            Mixer::None => {}
         }
         if layer.post_mixer_norm {
             add(blk("post_attention_norm"), &[d]);
         }
-        add(blk(spec.ffn_norm), &[d]);
-        match &layer.ffn {
-            Ffn::Dense { dff, .. } => {
-                let f = *dff as u64;
-                add(blk("ffn_gate"), &[d, f]);
-                add(blk("ffn_up"), &[d, f]);
-                add(blk("ffn_down"), &[f, d]);
+        // A block with no mixer norms its FFN by its one norm; one with no FFN has no FFN norm.
+        if layer.pre_norms && layer.mixer != Mixer::None && layer.ffn != Ffn::None {
+            add(blk(spec.ffn_norm), &[d]);
+            if norm_bias {
+                add(format!("blk.{l}.{}.bias", spec.ffn_norm), &[d]);
             }
-            Ffn::Moe(m) => {
-                let (e, f) = (m.experts as u64, m.expert_dff as u64);
-                add(blk("ffn_gate_inp"), &[d, e]);
-                add(blk("ffn_gate_exps"), &[d, f, e]);
-                add(blk("ffn_up_exps"), &[d, f, e]);
-                add(blk("ffn_down_exps"), &[f, d, e]);
-                if m.gating == (Gating::Sigmoid { bias: true }) {
-                    add(format!("blk.{l}.exp_probs_b.bias"), &[e]);
-                }
-                if m.shared_gate {
-                    add(blk("ffn_gate_inp_shexp"), &[d]);
-                }
-                if m.shared_experts > 0 {
-                    let s = m.shared_dff as u64;
-                    add(blk("ffn_gate_shexp"), &[d, s]);
-                    add(blk("ffn_up_shexp"), &[d, s]);
-                    add(blk("ffn_down_shexp"), &[s, d]);
-                }
-                if m.biases {
-                    let bias = |s: &str| format!("blk.{l}.{s}.bias");
-                    add(bias("ffn_gate_inp"), &[e]);
-                    add(bias("ffn_gate_exps"), &[f, e]);
-                    add(bias("ffn_up_exps"), &[f, e]);
-                    add(bias("ffn_down_exps"), &[d, e]);
-                }
-            }
+        }
+        for (name, dims) in layer.ffn.tensors(spec.d) {
+            add(format!("blk.{l}.{name}"), &dims);
         }
         if layer.post_ffn_norm {
             add(blk("post_ffw_norm"), &[d]);
+        }
+    }
+    for part in &spec.parts {
+        for (name, dims) in part.tensors(spec) {
+            add(name, &dims);
         }
     }
     t
@@ -534,6 +617,36 @@ pub fn checkpoint_meta(spec: &ModelSpec) -> Vec<(String, MetaValue)> {
     if let Some(cap) = spec.final_logit_softcap {
         m.push((key("final_logit_softcapping"), real(cap)));
     }
+    if let Some(cap) = spec.layers.iter().find_map(|l| match &l.mixer {
+        Mixer::Attention(a) => a.softcap,
+        _ => None,
+    }) {
+        m.push((key("attn_logit_softcapping"), real(cap)));
+    }
+    // Granite's and MiniCPM's multipliers as their converters write them: the logit scale is the divisor.
+    if matches!(arch, "granite" | "minicpm") {
+        if let Some(e) = spec.embedding_scale {
+            m.push((key("embedding_scale"), real(e)));
+        }
+        if let Some(r) = spec.residual_scale {
+            m.push((key("residual_scale"), real(r)));
+        }
+        if let Some(LogitScale::AfterHead(f) | LogitScale::BeforeHead(f)) = spec.logit_scale {
+            m.push((key("logit_scale"), real(1.0 / f)));
+        }
+        if let (true, Some(Mixer::Attention(a))) = (arch == "granite", spec.layers.first().map(|l| &l.mixer)) {
+            m.push((key("attention.scale"), real(a.scale)));
+        }
+    }
+    // Mistral 3's attention temperature: its floor is the rotation's original context, which the rotation's keys write.
+    if arch == "mistral3" {
+        if let Some(t) = spec.layers.iter().find_map(|l| match &l.mixer {
+            Mixer::Attention(a) => a.temperature,
+            _ => None,
+        }) {
+            m.push((key("attention.temperature_scale"), real(t.scale)));
+        }
+    }
     let rope_keys = |m: &mut Vec<(String, MetaValue)>, rope: &Rope| {
         m.push((key("rope.dimension_count"), int(rope.dims)));
         m.push((key("rope.freq_base"), real(rope.theta)));
@@ -564,6 +677,7 @@ pub fn checkpoint_meta(spec: &ModelSpec) -> Vec<(String, MetaValue)> {
         .iter()
         .filter_map(|l| match &l.mixer {
             Mixer::Attention(a) => Some(a),
+            Mixer::Recurrent(Recurrent::Parallel(a, _)) => Some(&**a),
             _ => None,
         })
         .collect();
@@ -589,11 +703,35 @@ pub fn checkpoint_meta(spec: &ModelSpec) -> Vec<(String, MetaValue)> {
         if let Some(q) = mla.q_lora_rank {
             m.push((key("attention.q_lora_rank"), int(q)));
         }
-        rope_keys(&mut m, &mla.rope);
+        if let Some(rope) = &mla.rope {
+            rope_keys(&mut m, rope);
+        }
+        // DeepSeek's sparse attention: its indexer's shape, and GLM-5's layers' kinds where one is shared.
+        if let Some(ix) = &mla.indexer {
+            m.push((key("attention.indexer.head_count"), int(ix.heads)));
+            m.push((key("attention.indexer.key_length"), int(ix.head_dim)));
+            m.push((key("attention.indexer.top_k"), int(ix.top_k)));
+            let full: Vec<bool> = spec.layers.iter().map(|l| matches!(&l.mixer, Mixer::Mla(x) if x.indexer.as_ref().is_some_and(|i| i.full))).collect();
+            if full.contains(&false) {
+                m.push((key("attention.indexer.types"), array(BOOL, full.into_iter().map(MetaValue::Bool).collect())));
+            }
+        }
         // The reader scales latent scores by `mscale² / √key`, `mscale = magnitude · (1 + 0.1 · (L / 0.1) · ln factor)` for a
         // stored log multiplier `L` (and then reads the magnitude as `attn_factor` itself). A score scale other than
         // `magnitude² / √key` is written as the multiplier that gives it back to the bit.
-        if let RopeScaling::Yarn { factor, magnitude, .. } = mla.rope.scaling {
+        // DeepSeek-V3.2's and GLM-5's loaders take the stored tenth as `mscale_all_dim` for the rotation's magnitude too,
+        // which is one only at V3.2's multiplier of 1: such a model is written with it.
+        let sparse = matches!(arch, "deepseek32" | "glm-dsa");
+        let scaling = mla.rope.as_ref().map(|r| r.scaling.clone());
+        if let (true, Some(RopeScaling::Yarn { factor, magnitude, .. })) = (sparse, &scaling) {
+            let mscale = magnitude * (1.0 + 0.1 * 1.0 * factor.ln());
+            let scale = mscale * mscale / ((mla.qk_nope + mla.qk_rope) as f64).sqrt();
+            assert_eq!(mla.scale, scale, "a sparse latent attention's score scale other than its log multiplier of 1 gives");
+            m.retain(|(k, _)| k != &key("rope.scaling.attn_factor"));
+            m.push((key("rope.scaling.attn_factor"), real(*magnitude)));
+            m.push((key("rope.scaling.yarn_log_multiplier"), real(0.1)));
+        }
+        if let (false, Some(RopeScaling::Yarn { factor, magnitude, .. })) = (sparse, scaling) {
             let key_len = (mla.qk_nope + mla.qk_rope) as f64;
             let read = |stored: f64| {
                 let mscale = magnitude * (1.0 + 0.1 * (stored / 0.1) * factor.ln());
@@ -614,6 +752,82 @@ pub fn checkpoint_meta(spec: &ModelSpec) -> Vec<(String, MetaValue)> {
             }
         }
     }
+    // LFM2's blocks: KV heads a block, 0 for a convolution block, and the convolution's taps.
+    if let Some(c) = spec.layers.iter().find_map(|l| match &l.mixer {
+        Mixer::Recurrent(Recurrent::ShortConv(c)) => Some(c),
+        _ => None,
+    }) {
+        let kv = spec.layers.iter().map(|l| MetaValue::U32(match &l.mixer {
+            Mixer::Attention(a) => a.kv_heads as u32,
+            _ => 0,
+        }));
+        m.retain(|(k, _)| k != &key("attention.head_count_kv"));
+        m.push((key("attention.head_count_kv"), array(U32, kv.collect())));
+        m.push((key("shortconv.l_cache"), int(c.taps)));
+    }
+    // A model with no attention writes no heads, as the Mamba converters write them: zero.
+    if !spec.layers.iter().any(|l| matches!(l.mixer, Mixer::Attention(_) | Mixer::Mla(_) | Mixer::Recurrent(Recurrent::Parallel(..)))) {
+        m.push((key("attention.head_count"), int(0)));
+    }
+    // Nemotron-H's and Jamba's blocks: KV heads a block, 0 but for attention; Nemotron-H's FFN width a block, 0 but for an
+    // FFN block.
+    // Kimi-Linear's: one KV head an attention block, the delta attention's head width and taps, and the latent
+    // attention's shared key dimensions, which do not rotate.
+    if let Some(dk) = spec.layers.iter().find_map(|l| match &l.mixer {
+        Mixer::Recurrent(Recurrent::DeltaAttention(d)) => Some(d),
+        _ => None,
+    }) {
+        let kv = spec.layers.iter().map(|l| MetaValue::U32(u32::from(matches!(l.mixer, Mixer::Mla(_)))));
+        m.retain(|(k, _)| k != &key("attention.head_count_kv"));
+        m.push((key("attention.head_count_kv"), array(U32, kv.collect())));
+        m.push((key("kda.head_dim"), int(dk.head_dim)));
+        m.push((key("ssm.conv_kernel"), int(dk.conv_taps)));
+        if !spec.layers.iter().any(|l| matches!(l.mixer, Mixer::Mla(_))) {
+            m.push((key("attention.head_count"), int(dk.heads)));
+        }
+    }
+    if let Some(mla) = spec.layers.iter().find_map(|l| match &l.mixer {
+        Mixer::Mla(x) if x.rope.is_none() => Some(x),
+        _ => None,
+    }) {
+        m.push((key("rope.dimension_count"), int(mla.qk_rope)));
+    }
+    if matches!(arch, "nemotron_h" | "jamba") {
+        let kv = spec.layers.iter().map(|l| MetaValue::U32(match &l.mixer {
+            Mixer::Attention(a) => a.kv_heads as u32,
+            _ => 0,
+        }));
+        m.retain(|(k, _)| k != &key("attention.head_count_kv"));
+        m.push((key("attention.head_count_kv"), array(U32, kv.collect())));
+    }
+    if arch == "nemotron_h" {
+        let ff = spec.layers.iter().map(|l| MetaValue::U32(match &l.ffn {
+            Ffn::Dense { dff, .. } => *dff as u32,
+            _ => 0,
+        }));
+        m.push((key("feed_forward_length"), array(U32, ff.collect())));
+    }
+    // Mamba-1's selective scan as `JambaModel` writes it.
+    if let Some(scan) = spec.layers.iter().find_map(|l| match &l.mixer {
+        Mixer::Recurrent(Recurrent::Selective(s)) => Some(s),
+        _ => None,
+    }) {
+        m.push((key("ssm.conv_kernel"), int(scan.conv_taps)));
+        m.push((key("ssm.inner_size"), int(scan.inner)));
+        m.push((key("ssm.state_size"), int(scan.state)));
+        m.push((key("ssm.time_step_rank"), int(scan.dt_rank)));
+    }
+    // Mamba-2's scan as `Mamba2Model` writes it, alone or beside attention.
+    if let Some(scan) = spec.layers.iter().find_map(|l| match &l.mixer {
+        Mixer::Recurrent(Recurrent::Ssd(s) | Recurrent::Parallel(_, s)) => Some(s),
+        _ => None,
+    }) {
+        m.push((key("ssm.conv_kernel"), int(scan.conv_taps)));
+        m.push((key("ssm.inner_size"), int(scan.heads * scan.head_dim)));
+        m.push((key("ssm.state_size"), int(scan.state)));
+        m.push((key("ssm.time_step_rank"), int(scan.heads)));
+        m.push((key("ssm.group_count"), int(scan.groups)));
+    }
     if let Some(g) = spec.layers.iter().find_map(|l| match &l.mixer {
         Mixer::GatedDelta(g) => Some(g),
         _ => None,
@@ -626,6 +840,69 @@ pub fn checkpoint_meta(spec: &ModelSpec) -> Vec<(String, MetaValue)> {
         let recurrent = spec.layers.iter().map(|l| MetaValue::Bool(matches!(l.mixer, Mixer::GatedDelta(_)))).collect();
         m.push((key("attention.recurrent_layers"), array(BOOL, recurrent)));
     }
+    // MiniMax-01's: its lightning blocks by `attention.recurrent_layers`, their heads where no block attends, and the
+    // residual's scale.
+    if let Some(x) = spec.layers.iter().find_map(|l| match &l.mixer {
+        Mixer::Recurrent(Recurrent::Lightning(x)) => Some(x),
+        _ => None,
+    }) {
+        let recurrent = spec.layers.iter().map(|l| MetaValue::Bool(matches!(l.mixer, Mixer::Recurrent(Recurrent::Lightning(_))))).collect();
+        m.push((key("attention.recurrent_layers"), array(BOOL, recurrent)));
+        if attention.is_none() {
+            m.retain(|(k, _)| k != &key("attention.head_count"));
+            m.push((key("attention.head_count"), int(x.heads)));
+            m.push((key("attention.key_length"), int(x.head_dim)));
+            m.push((key("attention.value_length"), int(x.head_dim)));
+        }
+    }
+    if let Some(scale) = spec.parts.iter().find_map(|p| if let Part::NormedResidual { scale } = p { Some(*scale) } else { None }) {
+        m.push((key("residual_scale"), real(scale)));
+    }
+    // Gemma 4's: the windowed blocks' head width and rotated width, each block's KV heads and FFN width, the shared
+    // blocks, the per-layer input width, and its mixture's keys.
+    if arch == "gemma4" {
+        let local = attentions.iter().find(|a| a.window.is_some()).copied();
+        if let Some(a) = local {
+            m.push((key("attention.key_length_swa"), int(a.head_dim)));
+            m.push((key("attention.value_length_swa"), int(a.value_dim)));
+            if let Some(r) = &a.rope {
+                m.push((key("rope.dimension_count_swa"), int(r.dims)));
+            }
+        }
+        let kv = spec.layers.iter().map(|l| MetaValue::U32(match &l.mixer {
+            Mixer::Attention(a) => a.kv_heads as u32,
+            _ => 0,
+        }));
+        m.retain(|(k, _)| k != &key("attention.head_count_kv"));
+        m.push((key("attention.head_count_kv"), array(U32, kv.collect())));
+        let ff = spec.layers.iter().map(|l| MetaValue::U32(match &l.ffn {
+            Ffn::Dense { dff, .. } | Ffn::DenseAndMoe { dff, .. } => *dff as u32,
+            _ => 0,
+        }));
+        m.push((key("feed_forward_length"), array(U32, ff.collect())));
+        let shared = spec.parts.iter().find_map(|p| if let Part::SharedKv { from } = p { Some(spec.layers.len() - from) } else { None });
+        m.push((key("attention.shared_kv_layers"), int(shared.unwrap_or(0))));
+        let ple = spec.parts.iter().find_map(|p| if let Part::PerLayerInput { dim } = p { Some(*dim) } else { None });
+        m.push((key("embedding_length_per_layer_input"), int(ple.unwrap_or(0))));
+        if let Some(moe) = spec.layers.iter().find_map(|l| if let Ffn::DenseAndMoe { moe, .. } = &l.ffn { Some(moe) } else { None }) {
+            m.push((key("expert_count"), int(moe.experts)));
+            m.push((key("expert_used_count"), int(moe.top_k)));
+            m.push((key("expert_feed_forward_length"), int(moe.expert_dff)));
+        }
+    }
+    // RWKV-7's: its head width, its four low-rank pairs' ranks, and the LayerNorms' epsilon under its LayerNorm key.
+    if let Some(r) = spec.layers.iter().find_map(|l| match &l.mixer {
+        Mixer::Recurrent(Recurrent::Rwkv7(r)) => Some(r),
+        _ => None,
+    }) {
+        m.push((key("wkv.head_size"), int(r.head_size)));
+        m.push((key("attention.decay_lora_rank"), int(r.decay_lora)));
+        m.push((key("attention.iclr_lora_rank"), int(r.iclr_lora)));
+        m.push((key("attention.value_residual_mix_lora_rank"), int(r.value_res_lora)));
+        m.push((key("attention.gate_lora_rank"), int(r.gate_lora)));
+        m.retain(|(k, _)| k != &key("attention.layer_norm_rms_epsilon"));
+        m.push((key("attention.layer_norm_epsilon"), real(spec.rms_eps)));
+    }
     let windows: Vec<Option<usize>> = spec
         .layers
         .iter()
@@ -636,7 +913,7 @@ pub fn checkpoint_meta(spec: &ModelSpec) -> Vec<(String, MetaValue)> {
         .collect();
     if let Some(window) = windows.iter().flatten().next() {
         m.push((key("attention.sliding_window"), int(*window)));
-        if arch == "gemma3" {
+        if matches!(arch, "gemma3" | "gemma4") {
             m.push((key("attention.sliding_window_pattern"), array(BOOL, windows.iter().map(|w| MetaValue::Bool(w.is_some())).collect())));
             let local = spec.layers.iter().find_map(|l| match &l.mixer {
                 Mixer::Attention(a) if a.window.is_some() => a.rope.as_ref().map(|r| r.theta),
@@ -651,11 +928,15 @@ pub fn checkpoint_meta(spec: &ModelSpec) -> Vec<(String, MetaValue)> {
             m.push((key("attention.sliding_window_pattern"), int(pattern)));
         }
     }
-    if let Some(dff) = spec.layers.iter().find_map(|l| match &l.ffn {
-        Ffn::Dense { dff, .. } => Some(*dff),
+    match spec.layers.iter().find_map(|l| match &l.ffn {
+        Ffn::Dense { dff, .. } | Ffn::ChannelMix { dff } => Some(*dff),
         _ => None,
     }) {
-        m.push((key("feed_forward_length"), int(dff)));
+        Some(_) if matches!(arch, "nemotron_h" | "gemma4") => {}
+        Some(dff) => m.push((key("feed_forward_length"), int(dff))),
+        // A model with no FFN writes a width of zero, as `Mamba2Model` does.
+        None if spec.layers.iter().all(|l| l.ffn == Ffn::None) => m.push((key("feed_forward_length"), int(0))),
+        None => {}
     }
     if let Some(moe) = spec.layers.iter().find_map(|l| match &l.ffn {
         Ffn::Moe(x) => Some(x),
@@ -663,6 +944,11 @@ pub fn checkpoint_meta(spec: &ModelSpec) -> Vec<(String, MetaValue)> {
     }) {
         m.push((key("expert_count"), int(moe.experts)));
         m.push((key("expert_used_count"), int(moe.top_k)));
+        // Mistral 3's, PhiMoE's and MiniMax-01's experts are as wide as the FFN: their arms read no width of the experts'
+        // own.
+        if matches!(arch, "mistral3" | "phimoe" | "minimax-01") {
+            m.push((key("feed_forward_length"), int(moe.expert_dff)));
+        }
         m.push((key("expert_feed_forward_length"), int(moe.expert_dff)));
         m.push((key("expert_weights_scale"), real(moe.weights_scale)));
         m.push((key("expert_shared_count"), int(moe.shared_experts)));
@@ -688,6 +974,58 @@ pub fn write_checkpoint_as(spec: &ModelSpec, path: &Path, format_of: &dyn Fn(&st
     write_tensors(spec, path, &checkpoint_meta(spec), format_of);
 }
 
+/// The hybrid models' gated delta layers, each case's gates projected in a format of its own, written under `dir`: Qwen3.5
+/// with its gates in `f32` (the tiny checkpoint's) and in Q8_0 (the real Qwen3.5's), Qwen3.5 at 2048 wide with both,
+/// Qwen3.8's three value heads a key head with its gates in `f32` (the real Qwen3.8's), and heads of 512 — a convolution
+/// whose L2 norm takes more threads than a GEMV's eight warps. Every other matrix of whole 32-value rows in Q8_0. Each
+/// case names itself, its spec, its checkpoint and whether its gates are projected in `f32`.
+pub fn gated_delta_cases(dir: &Path, tag: &str, ctx: usize) -> Vec<(String, ModelSpec, std::path::PathBuf, bool)> {
+    let write = |spec: ModelSpec, name: &str, f32_gates: bool| {
+        let path = dir.join(format!("{name}-{tag}.gguf"));
+        let blocked: Vec<String> = tensors(&spec).into_iter().filter(|(n, dims)| dims.len() == 2 && dims[0] % 32 == 0 && !n.contains("norm")).map(|(n, _)| n).collect();
+        write_checkpoint_as(&spec, &path, &|t| {
+            let gate = t.contains("ssm_alpha") || t.contains("ssm_beta");
+            if blocked.iter().any(|b| b == t) && !(gate && f32_gates) {
+                GgmlType::Q8_0
+            } else {
+                GgmlType::F32
+            }
+        });
+        (name.to_string(), spec, path, f32_gates)
+    };
+    let reshaped = |mut spec: ModelSpec, heads: Option<(usize, usize)>, width: Option<usize>| {
+        for layer in &mut spec.layers {
+            if let Mixer::GatedDelta(g) = &mut layer.mixer {
+                if let Some((nk, nv)) = heads {
+                    (g.k_heads, g.v_heads) = (nk, nv);
+                }
+                if let Some(w) = width {
+                    g.head_dim = w;
+                }
+            }
+        }
+        spec
+    };
+    vec![
+        write(Tiny::Qwen35.spec(ctx), "qwen35-f32-gates", true),
+        write(Tiny::Qwen35.spec(ctx), "qwen35-q8-gates", false),
+        write(Tiny::Qwen35.medium(ctx), "qwen35-medium-q8-gates", false),
+        write(Tiny::Qwen35.medium(ctx), "qwen35-medium-f32-gates", true),
+        write(reshaped(Tiny::Qwen35.medium(ctx), Some((2, 6)), None), "qwen38-heads-f32-gates", true),
+        write(reshaped(Tiny::Qwen35.spec(ctx), None, Some(512)), "qwen35-heads512-q8-gates", false),
+    ]
+}
+
+/// Write the checkpoint of `spec` as llama.cpp's converter writes one in the 16-bit float format `ty` (F16 or BF16):
+/// every two-dimensional matrix of whole 32-value rows in `ty` — a gated delta rule's gate projections too — and the
+/// vectors, norms and convolution taps in `f32`, as the BF16 conversions of Qwen3.5-0.8B, Llama-3.2-1B and Gemma-3-1B
+/// keep them. Every value is the `f32` checkpoint's.
+pub fn write_checkpoint_in(spec: &ModelSpec, path: &Path, ty: GgmlType) {
+    let matrices: Vec<String> =
+        tensors(spec).into_iter().filter(|(n, dims)| dims.len() == 2 && dims[0] % 32 == 0 && !n.contains("norm")).map(|(n, _)| n).collect();
+    write_checkpoint_as(spec, path, &|n| if matrices.iter().any(|m| m == n) { ty } else { GgmlType::F32 });
+}
+
 /// The checkpoint of `spec` with its tensors and no metadata at all — what a converter that writes no keys leaves, a
 /// file the spec reader cannot describe.
 pub fn write_bare_checkpoint(spec: &ModelSpec, path: &Path) {
@@ -703,6 +1041,17 @@ fn write_tensors(spec: &ModelSpec, path: &Path, meta: &[(String, MetaValue)], fo
         let n = dims.iter().product::<u64>() as usize;
         Ok(match outs[k].ty {
             GgmlType::F32 => (0..n).flat_map(|i| value(name, i).to_le_bytes()).collect(),
+            // A matrix's weights are multiples of 2⁻⁷ within ±0.5, whole in a 16-bit float's mantissa: the file holds the
+            // values the `f32` checkpoint holds, and a weight that would round is refused.
+            GgmlType::F16 | GgmlType::Bf16 => (0..n)
+                .flat_map(|i| {
+                    use logicaffeine_compile::model::quant::{bf16_to_f32, f16_to_f32, f32_to_bf16, f32_to_f16};
+                    let v = value(name, i);
+                    let (bits, back) = if outs[k].ty == GgmlType::F16 { (f32_to_f16(v), f16_to_f32(f32_to_f16(v))) } else { (f32_to_bf16(v), bf16_to_f32(f32_to_bf16(v))) };
+                    assert_eq!(back.to_bits(), v.to_bits(), "{name}[{i}] = {v} is not whole in {}", outs[k].ty.name());
+                    bits.to_le_bytes()
+                })
+                .collect(),
             GgmlType::Q8_0 => {
                 let mut bytes = Vec::with_capacity(n / 32 * 34);
                 for b in 0..n / 32 {

@@ -94,11 +94,11 @@ fn corpus() -> Vec<(String, String)> {
 }
 
 /// One lifted op through the forward's lens: its projection — the stage variant, its operand NAMES (never symbol ids),
-/// its dims — or `None` for a kind the forward has no stage for (sigmoid, soft cap, decay, causal conv, gated delta,
-/// l2norm, swiglu, full attention, row gather, rows gather, argmax, set row, and the integer requant, clamp, ReLU and
-/// LUT attention). The forward's two conventions are stated here and nowhere else in the test: a unary map's `n` is its
-/// `<=` bound read as `<` (one past the count), and the gelu block — the same `x / (1 + e^…)` skeleton — is a `Silu`
-/// stage to it.
+/// its dims — or `None` for a kind the forward has no stage for (sigmoid, soft cap, a lane mean, spread or sums, a signed
+/// root, decay, causal conv, gated delta, l2norm, swiglu, full attention, row gather, rows gather, argmax, set row, a
+/// scatter, a map the program wrote, and the integer requant, clamp, ReLU and LUT attention). The forward's two
+/// conventions are stated here and nowhere else in the test: a unary map's `n` is its `<=` bound read as `<` (one past
+/// the count), and the gelu block — the same `x / (1 + e^…)` skeleton — is a `Silu` stage to it.
 fn lens(op: &TensorOpSpec, n: &dyn Fn(Symbol) -> String) -> Option<String> {
     let opt = |s: Option<Symbol>| s.map(n).unwrap_or_else(|| "-".to_string());
     Some(match op {
@@ -145,6 +145,11 @@ fn lens(op: &TensorOpSpec, n: &dyn Fn(Symbol) -> String) -> Option<String> {
         ),
         TensorOpSpec::Sigmoid(_)
         | TensorOpSpec::Softcap(_)
+        | TensorOpSpec::LaneMean(_)
+        | TensorOpSpec::LaneSpread(_)
+        | TensorOpSpec::LaneSums(_)
+        | TensorOpSpec::SignedRoot(_)
+        | TensorOpSpec::NgramIds(_)
         | TensorOpSpec::Scale(_)
         | TensorOpSpec::HeadSlice(_)
         | TensorOpSpec::Join(_)
@@ -159,6 +164,8 @@ fn lens(op: &TensorOpSpec, n: &dyn Fn(Symbol) -> String) -> Option<String> {
         | TensorOpSpec::RowsGather(_)
         | TensorOpSpec::ArgMax(_)
         | TensorOpSpec::SetRow(_)
+        | TensorOpSpec::Scatter(_)
+        | TensorOpSpec::Map(_)
         | TensorOpSpec::IntRequant(_)
         | TensorOpSpec::IntClamp(_)
         | TensorOpSpec::Relu(_)

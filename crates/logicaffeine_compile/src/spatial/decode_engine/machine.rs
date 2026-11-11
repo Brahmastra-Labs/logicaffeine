@@ -239,6 +239,8 @@ impl Layout {
                     });
                 }
                 Mixer::Mla(_) => return Err(EngineError::NotYet("multi-head latent attention")),
+                Mixer::Recurrent(r) => return Err(EngineError::NotYet(r.what())),
+                Mixer::None => return Err(EngineError::NotYet("a block with no mixer")),
             }
         }
         let regions = at;

@@ -442,3 +442,51 @@ fn no_bespoke_spatial_bodies_outside_the_printers() {
         );
     }
 }
+
+/// SCHED-1 — the op lowerings live a family a file under `spatial/passes/from_qwen_ops/`, so streams working on two
+/// families never edit one file: every op's lowering entry (`from_*`) is defined in its family's file and nowhere else,
+/// and `from_qwen_ops.rs` keeps the vocabulary every family builds with — and no op's lowering.
+#[test]
+fn every_op_family_lowers_from_its_own_file() {
+    let passes = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../logicaffeine_compile/src/spatial/passes");
+    let families: [(&str, &[&str]); 12] = [
+        ("attention", &["from_attention", "from_full_attention", "from_lut_attention"]),
+        ("experts", &["from_moe"]),
+        ("recurrent", &["from_decay", "from_gated_delta"]),
+        ("convolution", &["from_causal_conv"]),
+        ("rows", &["from_l2norm", "from_row_norm_flat"]),
+        ("rope", &["from_rope"]),
+        ("gathers", &["from_row_gather", "from_rows_gather", "from_argmax", "from_set_row"]),
+        ("pointwise", &["from_silu", "from_int_requant", "from_int_clamp", "from_relu", "from_sigmoid", "from_gelu", "from_scale", "from_softcap", "from_signed_root", "from_lane_sums", "from_lane_mean", "from_lane_spread"]),
+        ("shape", &["from_transpose", "from_head_slice", "from_join"]),
+        ("products", &["from_head_matmul"]),
+        ("ngram", &["from_ngram_ids"]),
+        ("relayout", &[]),
+    ];
+    // A top-level definition: the signature at the start of its line, at any of the module's visibilities.
+    let defines = |text: &str, name: &str| {
+        let sig = format!("fn {name}(");
+        text.lines().any(|l| ["", "pub ", "pub(crate) ", "pub(super) "].iter().any(|v| l.starts_with(&format!("{v}{sig}"))))
+    };
+    let texts: Vec<(&str, String)> = families
+        .iter()
+        .map(|(f, _)| (*f, std::fs::read_to_string(passes.join(format!("from_qwen_ops/{f}.rs"))).unwrap_or_else(|e| panic!("the {f} family's file: {e}"))))
+        .collect();
+    let core = std::fs::read_to_string(passes.join("from_qwen_ops.rs")).expect("the shared module");
+    for ((family, entries), (_, text)) in families.iter().zip(&texts) {
+        for name in *entries {
+            assert!(defines(text, name), "`{name}` is lowered in the {family} family's file");
+            let elsewhere: Vec<&str> = texts.iter().filter(|(f, t)| f != family && defines(t, name)).map(|(f, _)| *f).collect();
+            assert!(elsewhere.is_empty(), "`{name}` is defined in {family} alone, not also in {elsewhere:?}");
+        }
+    }
+    let lowerings: Vec<&str> = core.lines().filter(|l| l.starts_with("pub fn from_") || l.starts_with("fn from_") || l.starts_with("pub(crate) fn from_")).collect();
+    assert!(lowerings.is_empty(), "the shared module lowers no op: {lowerings:?}");
+    let named: std::collections::BTreeSet<&str> = families.iter().flat_map(|(_, e)| e.iter().copied()).collect();
+    for (family, text) in &texts {
+        for l in text.lines().filter(|l| l.starts_with("pub fn from_") || l.starts_with("pub(crate) fn from_")) {
+            let name = l.split("fn ").nth(1).and_then(|r| r.split('(').next()).unwrap_or_default();
+            assert!(named.contains(name), "the {family} family's `{name}` is named among its family's lowerings here");
+        }
+    }
+}

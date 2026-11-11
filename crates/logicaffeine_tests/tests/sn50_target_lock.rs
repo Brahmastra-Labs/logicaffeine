@@ -538,7 +538,7 @@ fn the_modeled_set_is_load_bearing() {
         "unit_model.pcu_stages",
         "unit_model.pmu",
     ];
-    let mut sn50_paths = vec!["ddr_bandwidth_gbps", "hbm_bandwidth_gbps", "index_datatype", "pcu_count", "pmu_count"];
+    let mut sn50_paths = vec!["ddr_bandwidth_gbps", "hbm_bandwidth_gbps", "index_datatype", "pcu_count", "pmu_count", "simd"];
     sn50_paths.extend(unit_model_paths);
     assert_eq!(
         sn50.modeled_fields(),

@@ -84,6 +84,11 @@ impl WeightSource for Opened {
 /// Run `p` as a host does, its tensors named through `bound` (a bundle program's names bind to a layer's); `given` holds
 /// every named input. Returns every tensor the run leaves, by bound name.
 pub fn run(m: &Model, p: &SpatialProgram, bound: &dyn Fn(&str) -> Option<String>, given: &BTreeMap<String, Vec<f64>>) -> BTreeMap<String, Vec<f64>> {
+    run_at(m, p, CTX, bound, given)
+}
+
+/// [`run`] for a program written over a cache of `ctx` positions: its host tables are `ctx` rows.
+pub fn run_at(m: &Model, p: &SpatialProgram, ctx: usize, bound: &dyn Fn(&str) -> Option<String>, given: &BTreeMap<String, Vec<f64>>) -> BTreeMap<String, Vec<f64>> {
     let mut inputs = Inputs::default();
     for t in &p.tensors {
         if t.role == TensorRole::Output {
@@ -94,7 +99,7 @@ pub fn run(m: &Model, p: &SpatialProgram, bound: &dyn Fn(&str) -> Option<String>
         let v = if let Some(v) = given.get(&name) {
             v.clone()
         } else if HostTable::named(&name).is_some() {
-            host_values(&m.spec, &name, CTX, &mut m.source()).unwrap_or_else(|e| panic!("`{name}`: {e}")).expect("a host table")
+            host_values(&m.spec, &name, ctx, &mut m.source()).unwrap_or_else(|e| panic!("`{name}`: {e}")).expect("a host table")
         } else if let Some((w, part)) = stored_part(&name) {
             let Ok(Source::Weight(b)) = bind(&m.spec, w) else { panic!("`{w}` is a weight") };
             let planes = q8_planes(&b, &mut m.source()).unwrap_or_else(|e| panic!("`{name}`: {e}"));

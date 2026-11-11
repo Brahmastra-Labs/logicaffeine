@@ -79,16 +79,22 @@ fn packable(sections: &mut [SpatialProgram], target: &SpatialTarget) -> bool {
         })
 }
 
+/// Sections packed into phases ([`pack_phases`]), in phase order: `barrier_after[k]` closes each phase's last section,
+/// and `order[k]` is the place section `k` had among the sections handed in.
+#[derive(Clone, Debug)]
+pub struct Packed {
+    pub sections: Vec<SpatialProgram>,
+    pub barrier_after: Vec<bool>,
+    pub order: Vec<usize>,
+}
+
 /// The sections packed into phases: each moved onto the next free sites of the earliest phase after every section it
 /// depends on that still has room, returned in phase order with `barrier_after[k]` closing each phase's last section
 /// — or the sections back, untouched, when they cannot be moved on `target` (see `packable`).
 ///
 /// A section depends on an earlier one exactly when some name witnesses it: it reads what the earlier one writes, or
 /// writes what the earlier one reads or writes.
-pub fn pack_phases(
-    mut sections: Vec<SpatialProgram>,
-    target: &SpatialTarget,
-) -> Result<(Vec<SpatialProgram>, Vec<bool>), Vec<SpatialProgram>> {
+pub fn pack_phases(mut sections: Vec<SpatialProgram>, target: &SpatialTarget) -> Result<Packed, Vec<SpatialProgram>> {
     if sections.len() < 2 || !packable(&mut sections, target) {
         return Err(sections);
     }
@@ -160,11 +166,12 @@ pub fn pack_phases(
         })
         .collect();
     let mut slots: Vec<Option<SpatialProgram>> = sections.into_iter().map(Some).collect();
-    Ok((
-        order
+    Ok(Packed {
+        sections: order
             .iter()
             .map(|&k| slots[k].take().expect("each section once"))
             .collect(),
         barrier_after,
-    ))
+        order,
+    })
 }

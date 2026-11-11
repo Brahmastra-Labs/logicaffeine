@@ -277,6 +277,39 @@ pub enum Keep {
 }
 
 impl Keep {
+pub fn keep_row_deciding(self, row: &[f64], scale: &mut dyn FnMut(f32) -> f64, other: &mut dyn FnMut(usize, f64) -> bool) -> Option<Vec<f64>> {
+        let mut int8 = |x: &[f64]| -> Vec<f64> {
+            let amax = x.iter().fold(0f64, |m, &v| m.max(v.abs()));
+            let s = scale(amax as f32 / 127.0);
+            if s == 0.0 {
+                return vec![0.0; x.len()];
+            }
+            x.iter()
+                .enumerate()
+                .map(|(element, &v)| {
+                    let r = v / s;
+                    let mut code = r.round_ties_even().clamp(-127.0, 127.0);
+                    if other(element, r) {
+                        code = (if r > code { code + 1.0 } else { code - 1.0 }).clamp(-127.0, 127.0);
+                    }
+                    code * s
+                })
+                .collect()
+        };
+        let stored: Vec<f64> = row.iter().map(|&v| f64::from(v as f32)).collect();
+        Some(match self {
+            Keep::Int8Rows => int8(&stored),
+            Keep::Int8RowsRotated => {
+                let n = row.len();
+                if !n.is_power_of_two() {
+                    return None;
+                }
+                hadamard(&int8(&hadamard(&stored))).into_iter().map(|v| v / n as f64).collect()
+            }
+            _ => row.iter().map(|&v| self.keep(v).expect("a float format keeps each value")).collect(),
+        })
+    }
+
     /// The bound a value kept this way keeps. A float: half an ulp of its significand of the value, and its smallest
     /// normal where a chip flushes what lies below it. A row of int8 codes: half a level of the row's scale, the scale
     /// rounded to binary16 (a relative 2⁻¹¹, which can push a code past ±127 to be clamped), and a scale that underflows
@@ -362,4 +395,21 @@ pub fn holds_accumulator(op: &Op, g: &super::graph::TensorGraph, bits: u32) -> R
         }
     }
     Ok(())
+}
+
+/// The unnormalized Walsh–Hadamard transform of `x` (its length a power of two): for each stride `h` from 1 doubling to
+/// half the length, every pair `(x[j], x[j+h])` of each `2h`-block becomes `(x[j] + x[j+h], x[j] − x[j+h])`.
+pub fn hadamard(x: &[f64]) -> Vec<f64> {
+    let mut y = x.to_vec();
+    let mut h = 1;
+    while h < y.len() {
+        for start in (0..y.len()).step_by(2 * h) {
+            for j in start..start + h {
+                let (a, b) = (y[j], y[j + h]);
+                (y[j], y[j + h]) = (a + b, a - b);
+            }
+        }
+        h *= 2;
+    }
+    y
 }

@@ -323,7 +323,7 @@ fn a_float_result_only_the_next_statement_reads_is_forwarded() {
     }
 }
 
-/// A join keeps what the round trip it removes kept. Across a page narrower than f32 — the SN50's bf16 pages — the gate
+/// A join keeps what the round trip it removes kept. Across a page narrower than f32 — bf16 pages — the gate
 /// and the product stay two computes inside the one joined section, the page between them rounding the gate as the
 /// store did, and the joined program computes what the program with every result stored computes, bit for bit; across
 /// an f32 page the product folds the gate in, within the chip's declared bound of its program apart. A chip that does
@@ -331,6 +331,7 @@ fn a_float_result_only_the_next_statement_reads_is_forwarded() {
 #[test]
 fn a_joined_section_rounds_what_its_store_rounded() {
     use logicaffeine_compile::codegen_sva::fabric_target::Precision;
+    use logicaffeine_compile::spatial::target::ComputeCap;
     use logicaffeine_compile::spatial::shim::SpatialShim;
     use logicaffeine_compile::tensor_graph::shim::Shim;
     let fill = |t: &str, stride: i64| -> String {
@@ -342,7 +343,18 @@ fn a_joined_section_rounds_what_its_store_rounded() {
     };
     let src = format!("## Main\n{}{}Let S be sigmoid of G.\nLet Y be T hadamard S.\n{}", fill("G", 37), fill("T", 53), (1..=16).map(|i| format!("Show item {i} of Y.\n")).collect::<String>());
     let (mut narrow, mut wide) = (0, 0);
-    for target in [SpatialTarget::wormhole(), SpatialTarget::sky_fabric(64, 64), SpatialTarget::sn50_rdu(), SpatialTarget::rtx3060()] {
+    // The SN50's SIMD stages take fp32 beside bf16; with their bf16 alone its pages are narrower than its sums.
+    let bf16_pages = {
+        let mut t = SpatialTarget::sn50_rdu();
+        for c in &mut t.compute {
+            if let ComputeCap::Elementwise { precisions } | ComputeCap::RowReduce { precisions } = c {
+                precisions.remove(&Precision::Fp32);
+            }
+        }
+        t.precisions.remove(&Precision::Fp32);
+        t
+    };
+    for target in [SpatialTarget::wormhole(), SpatialTarget::sky_fabric(64, 64), SpatialTarget::sn50_rdu(), SpatialTarget::rtx3060(), bf16_pages] {
         let stored = compile_program_to_spatial(&src, &target).unwrap_or_else(|e| panic!("{}: {e:?}", target.name));
         let joined = compile_program_to_spatial_returning(&src, &target, &std::collections::BTreeSet::new()).unwrap_or_else(|e| panic!("{}: {e:?}", target.name));
         let (Some(stored), Some(joined)) = (stored.whole(), joined.whole()) else { continue };

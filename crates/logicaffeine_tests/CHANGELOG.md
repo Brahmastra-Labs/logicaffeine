@@ -65,6 +65,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   block's later member taking a quotient's name — each rejected by its rule.
 - `dag_trusted_prefix::a_quotients_names_are_checked_even_inside_the_trusted_prefix`: an axiom, an inductive's
   constructor and a mutual block's later member taking a quotient's name are checked inside a trusted prefix.
+- `samba_exam_numerics_lock` (E2.8, E2.11), `spatial_scatter_lock`, `spatial_written_map_lock`,
+  `samba_exam_agility_lock`, `samba_exam_fusion_report_lock`, `samba_exam_unit_use_lock`, `samba_exam_recompile_lock`
+  and `samba_exam_certificate_lock`; the intake's reader, twin and conformance tests for every new family in
+  `model_hf_intake_lock`, `model_tiny_checkpoint_lock` and `model_conformance_lock`;
+  `spatial_mixed_precision_lock`'s held cache and island-reads-an-accumulator tests;
+  `spatial_one_ir_lock::every_op_family_lowers_from_its_own_file`.
+
 
 ### Changed
 - The Arena corpus at lean-kernel-arena `8139f284`: 247 cases, the 11 new ones (six `bugs/` rejects, `other/inductive-undeclared-universe` and four `corner-cases/`) vendored by `scripts/lean/arena-crown/vendor-corpus.py` from the official archive or from the corner cases rebuilt byte-identical at `d7f74a9e`; a regenerated export is now looked for in every round held, newest first, and `cedar`, re-exported at every round since, keeps its regenerated export with the new digests in its evidence. `arena_corpus_lock`, `arena_entry_lock`, the Arena README, the rehearsal and the scoreboard pin the round.

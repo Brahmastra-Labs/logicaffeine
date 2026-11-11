@@ -248,6 +248,44 @@ pub fn f32_to_bf16(x: f32) -> u16 {
     ((b + 0x7fff + ((b >> 16) & 1)) >> 16) as u16
 }
 
+/// The largest finite fp8 e4m3 value: `1.75 · 2⁸`.
+pub const E4M3_MAX: f32 = 448.0;
+
+/// `x` rounded to OCP fp8 e4m3 — four exponent bits biased by 7, three significand bits, no infinities — to nearest
+/// with ties to even, as CUDA's `__nv_cvt_float_to_fp8(x, __NV_SATFINITE, __NV_E4M3)` rounds it: subnormals kept (a step
+/// of 2⁻⁹), a value past ±448 (an infinity included) saturating to ±448, a NaN `0x7f`.
+pub fn f32_to_e4m3(x: f32) -> u8 {
+    if x.is_nan() {
+        return 0x7f;
+    }
+    let sign = if x.is_sign_negative() { 0x80 } else { 0 };
+    let a = x.abs();
+    if a >= E4M3_MAX {
+        return sign | 0x7e;
+    }
+    let exp = ((a.to_bits() >> 23) & 0xff) as i32 - 127;
+    // Below the smallest normal, 2⁻⁶, the steps are 2⁻⁹ and a count of them is the code: eight of them the smallest
+    // normal's.
+    if exp < -6 {
+        return sign | (a * 512.0).round_ties_even() as u8;
+    }
+    // A normal value's steps are 2^(exp − 3): eight to sixteen of them, sixteen the next binade's first.
+    let steps = (a / 2f32.powi(exp - 3)).round_ties_even() as u32;
+    let (exp, frac) = if steps == 16 { (exp + 1, 0) } else { (exp, steps - 8) };
+    sign | (((exp + 7) as u8) << 3) | frac as u8
+}
+
+/// OCP fp8 e4m3 → binary32, exactly.
+pub fn e4m3_to_f32(b: u8) -> f32 {
+    let sign = if b & 0x80 != 0 { -1.0 } else { 1.0 };
+    let (exp, frac) = (((b >> 3) & 0xf) as i32, (b & 7) as f32);
+    match exp {
+        0xf if frac == 7.0 => f32::NAN,
+        0 => sign * frac * 2f32.powi(-9),
+        _ => sign * (1.0 + frac / 8.0) * 2f32.powi(exp - 7),
+    }
+}
+
 /// An `e4m3fn` float's value as `torch` widens it: bias 7, no infinities, `S.1111.111` a NaN keeping its sign and
 /// mantissa bits.
 pub fn e4m3fn_to_f32(b: u8) -> f32 {

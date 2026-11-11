@@ -23,6 +23,7 @@
 //! such identities, the intervals that bound Barrett's difference to `[0, 2d)`, and the two cases of its correction. The bitwise lowerings and the shifts are wiring, proved by a certified equivalence
 //! check of their bit-blasted circuits ([`logicaffeine_proof::fraig`], its LRAT derivation replayed).
 
+use crate::codegen_sva::fabric_rtl::{AluOp, LoopCell, Src};
 use crate::codegen_sva::fabric_target::Precision;
 use crate::spatial::target::SpatialTarget;
 use logicaffeine_base::numeric::BigInt;
@@ -163,6 +164,39 @@ impl LaneProgram {
     /// The output lanes: the result's low and high.
     pub fn outputs(&self) -> usize {
         self.outputs.len()
+    }
+
+    /// The program as decision-fabric cells appended to `cells`, input lane `i` read from `inputs[i]` (a value of 32
+    /// bits): each lane operation the fabric ALU's own, kept to 32 bits where the ALU is wider and the operation can
+    /// carry past them (`Add`, `Sub`, `MulLo`, `Shl`), and the logical shift as `UShr` — on an ALU of 32 bits each mask is
+    /// the identity, so on an ALU of any width from 32 bits the cells are the lanes' arithmetic bit for bit. The result's
+    /// low and high lanes.
+    pub fn cells(&self, inputs: &[Src], cells: &mut Vec<LoopCell>) -> [Src; 2] {
+        let put = |cells: &mut Vec<LoopCell>, op: AluOp, a: Src, b: Src| {
+            cells.push(LoopCell::Arith { op, a, b });
+            Src::Val(cells.len() - 1)
+        };
+        let wrapped = |cells: &mut Vec<LoopCell>, op: AluOp, a: Src, b: Src| {
+            let v = put(cells, op, a, b);
+            put(cells, AluOp::And, v, Src::Const(0xFFFF_FFFF))
+        };
+        let mut regs: Vec<Src> = Vec::with_capacity(self.ops.len());
+        for lane in &self.ops {
+            let v = match *lane {
+                LaneOp::Input(i) => inputs[i],
+                LaneOp::Const(c) => Src::Const(i64::from(c)),
+                LaneOp::Add(a, b) => wrapped(cells, AluOp::Add, regs[a], regs[b]),
+                LaneOp::Sub(a, b) => wrapped(cells, AluOp::Sub, regs[a], regs[b]),
+                LaneOp::MulLo(a, b) => wrapped(cells, AluOp::Mul, regs[a], regs[b]),
+                LaneOp::And(a, b) => put(cells, AluOp::And, regs[a], regs[b]),
+                LaneOp::Or(a, b) => put(cells, AluOp::Or, regs[a], regs[b]),
+                LaneOp::Xor(a, b) => put(cells, AluOp::Xor, regs[a], regs[b]),
+                LaneOp::Shl(a, k) => wrapped(cells, AluOp::Shl, regs[a], Src::Const(i64::from(k))),
+                LaneOp::Shr(a, k) => put(cells, AluOp::UShr, regs[a], Src::Const(i64::from(k))),
+            };
+            regs.push(v);
+        }
+        self.outputs.map(|r| regs[r])
     }
 
     /// Every register's value on `lanes`, as a 32-bit lane computes it.

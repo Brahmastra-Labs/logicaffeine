@@ -40,16 +40,19 @@ pub fn within_the_datapath(m: &Model, logits: &[f64], want: &[f64], what: &str) 
     }
 }
 
-/// The SN50 with fp32 beside bf16 in every datapath that takes bf16: a chip whose numbers are not the question.
+/// The SN50 with fp32 in place of bf16 in every datapath, its products' among them: a chip whose numbers are not the
+/// question, every unit exact to fp32's rounding. A float product takes the narrowest float its unit offers, so fp32
+/// beside bf16 would still multiply in bf16.
 pub fn fp32_twin() -> SpatialTarget {
     let mut t = SpatialTarget::sn50_rdu();
     for c in &mut t.compute {
         if let ComputeCap::MatmulTile { precisions, .. } | ComputeCap::Elementwise { precisions } | ComputeCap::RowReduce { precisions } = c {
-            if precisions.contains(&Precision::Bf16) {
+            if precisions.remove(&Precision::Bf16) {
                 precisions.insert(Precision::Fp32);
             }
         }
     }
+    t.precisions.remove(&Precision::Bf16);
     t.precisions.insert(Precision::Fp32);
     t
 }

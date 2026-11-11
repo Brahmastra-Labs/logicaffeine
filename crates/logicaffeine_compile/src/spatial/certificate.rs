@@ -31,8 +31,9 @@ use crate::codegen_sva::fabric_grid::{
 };
 use crate::codegen_sva::fabric_rtl::{AluOp, FabricOp, LoopCell, Src};
 use crate::codegen_sva::fabric_target::Precision;
+use crate::codegen_sva::bitblast::BLAST_BUDGET_NODES;
 use crate::codegen_sva::pnr_certificate::{
-    certify_gates_within, certify_mapping, PlacementCertificate, GATE_BUDGET_NODES,
+    gates_obligation_within, mapping_obligation_within, refute, Obligation, PlacementCertificate, GATE_BUDGET_NODES,
 };
 use crate::codegen_sva::sva_to_verify::BoundedExpr;
 use crate::spatial::target::precision_is_int;
@@ -120,7 +121,7 @@ pub struct BufferBalance {
     pub high_water: usize,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum ComputeStageCert {
     Sat(PlacementCertificate),
     Uncertified { reason: String },
@@ -264,7 +265,9 @@ impl GraphProof {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+/// A choreography's certificate, whole: what [`ChoreographyCertificate::recheck`] reads, and all it reads — so it travels
+/// beside its program (`certificate.json`'s `whole`) and a reader rechecks it there, re-deriving nothing.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ChoreographyCertificate {
     pub schedule_digest: u64,
     pub proof: GraphProof,
@@ -1044,6 +1047,17 @@ pub fn cells_to_bounded(cells: &[LoopCell], result: Src, width: u32) -> Option<B
 
 /// The PE datapath of an integer tile matmul: `psum + a·w`, certified at the 8-bit operand bound.
 fn pe_certificate(bits: u32) -> ComputeStageCert {
+    match pe_obligation(bits).and_then(|o| refute(o).map_err(|_| PE_ESCAPED.to_string())) {
+        Ok(c) => ComputeStageCert::Sat(c),
+        Err(reason) => ComputeStageCert::Uncertified { reason },
+    }
+}
+
+const PE_ESCAPED: &str = "the PE obligation escaped the propositional fragment";
+
+/// What an integer tile matmul's PE certificate refutes: the placed PE grid against `psum + a·w`, at the 8-bit operand
+/// bound.
+fn pe_obligation(bits: u32) -> Result<Obligation, String> {
     let width = bits.min(8);
     let pe = vec![
         FabricOp {
@@ -1068,12 +1082,7 @@ fn pe_certificate(bits: u32) -> ComputeStageCert {
     let g = route_loop_body(&cells, 3, &[Src::Val(1)]);
     let placed = grid_output_to_bounded(&g, 0, width, &|k| format!("in{k}"));
     let spec = crate::codegen_sva::fabric_rtl::fabric_to_bounded(&pe, 1, width);
-    match certify_mapping(placed, spec) {
-        Some(c) => ComputeStageCert::Sat(c),
-        None => ComputeStageCert::Uncertified {
-            reason: "the PE obligation escaped the propositional fragment".into(),
-        },
-    }
+    mapping_obligation_within(placed, spec, BLAST_BUDGET_NODES).map_err(|_| PE_ESCAPED.to_string())
 }
 
 /// The per-PE proof of a scalar ALU/select stage: the ROUTED grid proven equal to the body's own
@@ -1085,19 +1094,24 @@ pub fn scalar_certificate(body: &ScalarBody) -> ComputeStageCert {
 /// [`scalar_certificate`] against an EXPLICIT gate ceiling — the seam a lock shrinks to prove the
 /// budget is live code and not a constant nobody reads.
 pub fn scalar_certificate_within(body: &ScalarBody, gate_budget: u64) -> ComputeStageCert {
+    match scalar_obligation_within(body, gate_budget).and_then(|o| refute(o).map_err(|r| r.reason())) {
+        Ok(c) => ComputeStageCert::Sat(c),
+        Err(reason) => ComputeStageCert::Uncertified { reason },
+    }
+}
+
+/// What a scalar body's certificate refutes: its ROUTED grid against the body's own datapath, every 8-bit input, under
+/// `gate_budget` — or why the body has none.
+pub fn scalar_obligation_within(body: &ScalarBody, gate_budget: u64) -> Result<Obligation, String> {
     let combinational = body
         .cells
         .iter()
         .all(|c| matches!(c, LoopCell::Arith { .. } | LoopCell::Select { .. }));
     if !combinational {
-        return ComputeStageCert::Uncertified {
-            reason: "a functional-unit or memory cell has no bit-blast lowering".into(),
-        };
+        return Err("a functional-unit or memory cell has no bit-blast lowering".into());
     }
     let Src::Val(_) = body.result else {
-        return ComputeStageCert::Uncertified {
-            reason: "the body's result is not a cell value".into(),
-        };
+        return Err("the body's result is not a cell value".into());
     };
     // Every tile on the array has the same two routed operand channels (its north and its west).
     // A computed PREDICATE is an ordinary dataflow edge and takes one of them like any other
@@ -1105,11 +1119,11 @@ pub fn scalar_certificate_within(body: &ScalarBody, gate_budget: u64) -> Compute
     // channel the interconnect does not have. That is the one shape still declined, and it is
     // declined by name, from the cells, before the placer is asked to route it.
     if let Some((cell, demand)) = unroutable_cell(&body.cells) {
-        return ComputeStageCert::Uncertified { reason: format!(
+        return Err(format!(
             "cell {cell} needs {demand} distinct computed values routed to one tile, and a tile has \
              {TILE_OPERAND_CHANNELS} operand channels (north and west) — a predicated select that \
              compares a computed value AND selects between two more has no placed form"
-        ) };
+        ));
     }
     let width = 8;
     // Both sides of the obligation are built STRAIGHT INTO THE SHARED GATE DAG. The tree form of
@@ -1122,9 +1136,7 @@ pub fn scalar_certificate_within(body: &ScalarBody, gate_budget: u64) -> Compute
     // cells, where the routed grid is a (2m+2)×m tile array. A body past the ceiling is therefore
     // refused without ever allocating the array that would place it.
     let Some(spec) = cells_to_gates(&body.cells, body.result, width) else {
-        return ComputeStageCert::Uncertified {
-            reason: "the body escaped the bounded fragment".into(),
-        };
+        return Err("the body escaped the bounded fragment".into());
     };
     let size = word_size(&spec);
     if size.dag_nodes > gate_budget {
@@ -1132,20 +1144,13 @@ pub fn scalar_certificate_within(body: &ScalarBody, gate_budget: u64) -> Compute
             dag_nodes: size.dag_nodes,
             budget: gate_budget,
         };
-        return ComputeStageCert::Uncertified {
-            reason: refusal.reason(),
-        };
+        return Err(refusal.reason());
     }
     let g = route_loop_body(&body.cells, body.n_in, &[body.result]);
     let Some(placed) = grid_output_to_gates(&g, 0, width, &|k| format!("in{k}")) else {
-        return ComputeStageCert::Uncertified {
-            reason: "the placed grid escaped the bounded fragment".into(),
-        };
+        return Err("the placed grid escaped the bounded fragment".into());
     };
-    match certify_gates_within(&placed, &spec, gate_budget) {
-        Ok(c) => ComputeStageCert::Sat(c),
-        Err(r) => ComputeStageCert::Uncertified { reason: r.reason() },
-    }
+    gates_obligation_within(&placed, &spec, gate_budget).map_err(|r| r.reason())
 }
 
 /// How large a datapath tree the scalar certificate will pay to build.
@@ -1200,40 +1205,48 @@ fn has_compute_certificate(s: &Stage) -> bool {
     )
 }
 
+/// What a compute stage's certificate is of, by the one thing it depends on — a tile matmul's operand precision, a
+/// scalar stage's body: stages alike share it.
+fn compute_key(s: &Stage) -> Option<String> {
+    match &s.kind {
+        StageKind::Compute(ComputeOp::MatmulTiles { operand, .. }) => Some(format!("mm:{operand:?}")),
+        StageKind::Scalar(body) => Some(format!("scalar:{}", serde_json::to_string(body).unwrap_or_default())),
+        _ => None,
+    }
+}
+
+/// The formula a compute stage's SAT certificate must refute, rebuilt from the stage itself: an integer tile matmul's PE
+/// obligation, a scalar body's routed-grid obligation; `Err` with why for a stage that has none — a float datapath, which
+/// is certified by evaluation, or a body outside the bounded fragment.
+pub fn compute_obligation(s: &Stage) -> Result<Obligation, String> {
+    match &s.kind {
+        StageKind::Compute(ComputeOp::MatmulTiles { operand, .. }) if precision_is_int(*operand) => {
+            pe_obligation(crate::spatial::target::precision_int_bits(*operand).unwrap_or(64))
+        }
+        StageKind::Compute(ComputeOp::MatmulTiles { operand, .. }) => {
+            Err(format!("a {operand:?} tile datapath is certified by evaluation, and has no SAT obligation"))
+        }
+        StageKind::Scalar(body) => scalar_obligation_within(body, GATE_BUDGET_NODES),
+        _ => Err("the stage has no compute certificate".into()),
+    }
+}
+
 fn compute_certificates(p: &SpatialProgram) -> Vec<(StageId, ComputeStageCert)> {
     let mut by_origin: BTreeMap<String, ComputeStageCert> = BTreeMap::new();
     let mut out = Vec::new();
     for s in p.stages.iter().filter(|s| has_compute_certificate(s)) {
-        let key_cert: Option<(String, Box<dyn Fn() -> ComputeStageCert>)> = match &s.kind {
-            StageKind::Compute(ComputeOp::MatmulTiles { operand, .. }) => {
-                let operand = *operand;
-                Some((
-                    format!("mm:{operand:?}"),
-                    Box::new(move || {
-                        if precision_is_int(operand) {
-                            pe_certificate(
-                                crate::spatial::target::precision_int_bits(operand).unwrap_or(64),
-                            )
-                        } else {
-                            ComputeStageCert::Uncertified { reason: format!("float tensor datapath ({operand:?} operands, fp32 accumulate) cannot be bit-blasted; equivalence is by evaluation") }
-                        }
-                    }),
-                ))
+        let make = || match &s.kind {
+            StageKind::Compute(ComputeOp::MatmulTiles { operand, .. }) if precision_is_int(*operand) => {
+                pe_certificate(crate::spatial::target::precision_int_bits(*operand).unwrap_or(64))
             }
-            StageKind::Scalar(body) => {
-                let body = body.clone();
-                Some((
-                    format!(
-                        "scalar:{}",
-                        serde_json::to_string(&body).unwrap_or_default()
-                    ),
-                    Box::new(move || scalar_certificate(&body)),
-                ))
-            }
-            _ => None,
+            StageKind::Compute(ComputeOp::MatmulTiles { operand, .. }) => ComputeStageCert::Uncertified {
+                reason: format!("float tensor datapath ({operand:?} operands, fp32 accumulate) cannot be bit-blasted; equivalence is by evaluation"),
+            },
+            StageKind::Scalar(body) => scalar_certificate(body),
+            _ => unreachable!("a stage with a compute certificate"),
         };
-        if let Some((key, make)) = key_cert {
-            let cert = by_origin.entry(key).or_insert_with(|| make()).clone();
+        if let Some(key) = compute_key(s) {
+            let cert = by_origin.entry(key).or_insert_with(make).clone();
             out.push((s.id, cert));
         }
     }
@@ -2074,58 +2087,132 @@ fn build_proof(p: &SpatialProgram) -> Result<GraphProof, CertifyFault> {
     })
 }
 
+/// Why a certificate does not recheck against a program: the first of its claims the program does not bear out.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RecheckFault {
+    /// The program is unscheduled (`program: None`), or its schedule's digest is not the one the certificate binds.
+    Digest { carried: u64, program: Option<u64> },
+    /// The program breaks an invariant of the IR or one of its ordering obligations.
+    Program(String),
+    /// The carried liveness proof does not hold of the program's schedule.
+    Liveness,
+    /// The buffer balances are not the program's, or one overflows or does not balance.
+    Balances,
+    /// The semaphore counts are not the program's.
+    Semaphores,
+    /// The numerics claim is not the program's.
+    Numerics,
+    /// The compute certificates do not name the program's compute stages, in order.
+    ComputeStages,
+    /// A stage's SAT certificate carries a formula that is not the stage's obligation as the program rebuilds it.
+    ForeignFormula { stage: usize, name: String, why: String },
+    /// A stage's SAT certificate does not refute the formula it carries.
+    Refutation { stage: usize, name: String },
+}
+
+impl std::fmt::Display for RecheckFault {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RecheckFault::Digest { carried, program: Some(p) } => {
+                write!(f, "the certificate binds schedule {carried:016x}, and the program's is {p:016x}")
+            }
+            RecheckFault::Digest { carried, program: None } => {
+                write!(f, "the certificate binds schedule {carried:016x}, and the program is unscheduled")
+            }
+            RecheckFault::Program(why) => write!(f, "the program does not hold: {why}"),
+            RecheckFault::Liveness => f.write_str("the liveness proof does not hold of the program's schedule"),
+            RecheckFault::Balances => f.write_str("the buffer balances are not the program's, or do not balance"),
+            RecheckFault::Semaphores => f.write_str("the semaphore counts are not the program's"),
+            RecheckFault::Numerics => f.write_str("the numerics claim is not the program's"),
+            RecheckFault::ComputeStages => f.write_str("the compute certificates do not name the program's compute stages in order"),
+            RecheckFault::ForeignFormula { stage, name, why } => write!(
+                f,
+                "stage {stage} `{name}`: its SAT certificate refutes a formula that is not the stage's obligation ({why})"
+            ),
+            RecheckFault::Refutation { stage, name } => {
+                write!(f, "stage {stage} `{name}`: its SAT certificate does not refute the formula it carries")
+            }
+        }
+    }
+}
+
 impl ChoreographyCertificate {
     /// Independent re-check: the digest binds the certificate to `p`; the graph is rebuilt from `p`'s schedule
     /// and compared; the witness is verified against the token-free arcs; balances and semaphore counts are
-    /// recomputed; every SAT certificate is re-run through the PR/RUP checker.
+    /// recomputed; every SAT certificate's formula is held to its stage's obligation rebuilt from `p`, and its
+    /// refutation re-run through the PR/RUP checker.
     pub fn recheck(&self, p: &SpatialProgram) -> bool {
-        if p.schedule.is_none() || self.schedule_digest != schedule_digest(p) {
-            return false;
+        self.checked(p).is_ok()
+    }
+
+    /// [`Self::recheck`], the first claim `p` does not bear out named.
+    pub fn checked(&self, p: &SpatialProgram) -> Result<(), RecheckFault> {
+        match p.schedule.as_ref().map(|_| schedule_digest(p)) {
+            Some(d) if d == self.schedule_digest => {}
+            program => return Err(RecheckFault::Digest { carried: self.schedule_digest, program }),
         }
-        if p.validate().is_err() || ordering_obligations(p).is_err() {
-            return false;
-        }
+        p.validate().map_err(|e| RecheckFault::Program(format!("{e:?}")))?;
+        ordering_obligations(p).map_err(|e| RecheckFault::Program(format!("{e:?}")))?;
         if !self.recheck_proof(p) {
-            return false;
+            return Err(RecheckFault::Liveness);
         }
         let hw: BTreeMap<BufferId, usize> = self
             .balances
             .iter()
             .map(|b| (b.buf, b.high_water))
             .collect();
-        if balances(p, &hw) != self.balances {
-            return false;
-        }
-        if self
-            .balances
-            .iter()
-            .any(|b| b.high_water > b.depth_pages || b.reserved != b.pushed || b.pushed != b.popped)
+        if balances(p, &hw) != self.balances
+            || self
+                .balances
+                .iter()
+                .any(|b| b.high_water > b.depth_pages || b.reserved != b.pushed || b.pushed != b.popped)
         {
-            return false;
+            return Err(RecheckFault::Balances);
         }
         if sem_counts(p) != self.sem_counts {
-            return false;
+            return Err(RecheckFault::Semaphores);
         }
         // ★ A CERTIFICATE STATES WHAT IT CERTIFIES. Its numerics claim is the program's, and its compute certificates
         // name exactly the program's compute stages, in order — a `Sat` one rechecked below, an `Uncertified` one a claim
         // of less than a derivation might make, never of more.
-        if self.numerics != p.claim
-            || self.compute.iter().map(|(s, _)| *s).ne(p
-                .stages
-                .iter()
-                .filter(|s| has_compute_certificate(s))
-                .map(|s| s.id))
-        {
-            return false;
+        if self.numerics != p.claim {
+            return Err(RecheckFault::Numerics);
         }
-        for (_, c) in &self.compute {
-            if let ComputeStageCert::Sat(pc) = c {
-                if !pc.recheck() {
-                    return false;
+        if self.compute.iter().map(|(s, _)| *s).ne(p
+            .stages
+            .iter()
+            .filter(|s| has_compute_certificate(s))
+            .map(|s| s.id))
+        {
+            return Err(RecheckFault::ComputeStages);
+        }
+        // ★ A REFUTATION PROVES ONLY THE FORMULA IT REFUTES. A SAT certificate carries its formula, and its replay says
+        // that formula is unsatisfiable, whatever formula it is; it proves the stage only when the formula is the stage's
+        // obligation. So every obligation is rebuilt here from the stage — once for stages alike — and a carried formula
+        // that is not it is refused before its refutation is read.
+        let mut rebuilt: BTreeMap<String, Result<Obligation, String>> = BTreeMap::new();
+        for (id, c) in &self.compute {
+            let ComputeStageCert::Sat(pc) = c else { continue };
+            let s = &p.stages[id.idx()];
+            let foreign = |why: String| RecheckFault::ForeignFormula { stage: id.idx(), name: s.name.clone(), why };
+            let key = compute_key(s).expect("a stage with a compute certificate has a key");
+            match rebuilt.entry(key).or_insert_with(|| compute_obligation(s)) {
+                Err(why) => return Err(foreign(format!("the stage has no SAT obligation: {why}"))),
+                Ok(obligation) if !pc.carries(obligation) => {
+                    return Err(foreign(format!(
+                        "the formula it carries, over {} variables, is not the obligation rebuilt from the stage, {} clauses over {} variables",
+                        pc.num_vars(),
+                        obligation.clauses(),
+                        obligation.num_vars()
+                    )))
                 }
+                Ok(_) => {}
+            }
+            if !pc.recheck() {
+                return Err(RecheckFault::Refutation { stage: id.idx(), name: s.name.clone() });
             }
         }
-        true
+        Ok(())
     }
 
     /// Re-derive the liveness proof from `p` and check the carried one against it.

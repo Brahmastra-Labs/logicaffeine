@@ -791,20 +791,24 @@ pub fn from_elementwise_with(
     }
     // ★ A ROW IS ONE ITEM WHILE A SITE HOLDS IT — the rule a row map follows (`from_qwen_ops::unary_map`), for two
     // operands: an item a tile reads, adds and writes the row an element at a time where the tile is an element. A row
-    // of one tile is one item already, over its tile.
+    // of one tile is one item already, over its tile. Past the page, or past a site's memory before the page, the row
+    // is the tile-per-item form below.
     if rows == 1 && cols.div_ceil(target.tile.cols) > 1 && !super::from_qwen_ops::row_needs_blocking(cols, target) {
-        return super::from_qwen_ops::row_binary_map(
+        let whole = super::from_qwen_ops::row_binary_map(
             format!("elementwise_{}_{}", spec.op.c_op(), spec.n),
             "elementwise",
-            body,
+            body.clone(),
             (&names.a, fills.0),
             (&names.b, fills.1),
             &names.c,
             cols,
             precision,
-            claim,
+            claim.clone(),
             target,
-        );
+        )?;
+        if super::from_qwen_ops::fits_a_site(&whole, target) {
+            return Ok(whole);
+        }
     }
     let mut t = Template::new(target)?;
     let a = t.tensor(&names.a, TensorRole::Input, rows, cols, precision, init_a);
@@ -1131,6 +1135,11 @@ pub fn from_fused_row(
         needed: "a float row-reduce datapath",
         target: target.name,
     })?;
+    if spec.weight_rows > 1 {
+        return Err(SpatialReject::NotLowered(
+            "a norm in lanes in its tile-row form — it broadcasts one weight row down every row (`weight_rows` 1)",
+        ));
+    }
     let (rows, cols) = (spec.rows, spec.cols);
     let kind = spec.reduce;
     let mut t = Template::new(target)?;

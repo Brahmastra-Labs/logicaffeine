@@ -1,6 +1,6 @@
 {
  "schema": 1,
- "approved": null,
+ "approved": {"by": "Tristen", "date": "2026-11-09", "line": "Approve the schema: the measures (38, E10.4's agility_s among them), each with its unit, better direction and cited definition, and every row one cell and side with its provenance, program identity, bundle digest, time model where modeled, quality gates, boot and load where measured, and its log; a won row never modeled (SCORE-1)"},
  "measures": [
   {
    "id": "tpot_ms",
@@ -378,6 +378,15 @@
    ],
    "regimes": [
     "PEAK"
+   ]
+  },
+  {
+   "id": "agility_s",
+   "unit": "s",
+   "better": "lower",
+   "definition": "Wall seconds from an op written in LOGOS, which no sugar or kernel names, to its fused, certified section: one compile.",
+   "regimes": [
+    "AGILITY"
    ]
   }
  ],

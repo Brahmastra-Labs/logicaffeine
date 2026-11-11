@@ -181,7 +181,9 @@ pub fn at_size(twin: &ModelSpec, size: &Size) -> ModelSpec {
             let old_key = (m.qk_nope + m.qk_rope) as f64;
             (m.heads, m.q_lora_rank, m.kv_lora_rank) = (size.heads, l.q_lora, l.kv_lora);
             (m.qk_nope, m.qk_rope, m.v_dim) = (l.qk_nope, l.qk_rope, l.v_dim);
-            m.rope.dims = l.qk_rope;
+            if let Some(r) = &mut m.rope {
+                r.dims = l.qk_rope;
+            }
             m.scale *= (old_key / (l.qk_nope + l.qk_rope) as f64).sqrt();
         }
         match (&mut layer.ffn, &size.experts) {
@@ -192,6 +194,8 @@ pub fn at_size(twin: &ModelSpec, size: &Size) -> ModelSpec {
                 m.groups = m.groups.and(e.groups);
             }
             (Ffn::Moe(_), None) => panic!("{}: a mixture with no experts' widths", size.name),
+            (Ffn::None, _) => {}
+            (ffn @ (Ffn::ChannelMix { .. } | Ffn::DenseAndMoe { .. }), _) => panic!("{}: no deployment sizes {ffn:?}", size.name),
         }
     }
     spec

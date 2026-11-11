@@ -13,6 +13,11 @@
 //! decode's logits are held to the f64 reference's continuation of the same prompt within the bf16 datapath's bound
 //! (`2%·√(d/64)` of the largest logit, as `rdu_bringup_lock`'s are).
 //!
+//! The longest prompt a decode can follow — `CTX − 1` tokens — prefills whole on the GPU target: its rotations and
+//! per-head norms of 28 heads of 16 are past an RTX 3060 block's memory and inside its accumulator's page, so they take
+//! a head, a tile or a block of the row an item (`spatial_site_memory_lock`), and every tensor the prefill hands on is
+//! the whole-row forms' value for value.
+//!
 //! The decodes themselves — a prompt prefilled on the GPU target decoded on the RDU and the reverse, a prompt kept on the
 //! RDU, a model split over the two — are `spatial_disaggregation_reds_lock`'s handed REDs until NUM-1: the SN50's bf16
 //! elementwise datapath drifts past the reference's bound, and with fp32 elementwise every one of them holds.
@@ -29,8 +34,10 @@ mod tiny_models;
 #[allow(dead_code)]
 mod samba_handoff;
 
+use logicaffeine_compile::model::program::Cut;
 use logicaffeine_compile::spatial::handoff::{contract, Handoff, HandoffError};
-use samba_handoff::{emit_bundle, Model, CTX};
+use logicaffeine_compile::spatial::target::SpatialTarget;
+use samba_handoff::{authored, emit_bundle, prefill_on, Model, CTX};
 use std::collections::BTreeMap;
 use tiny_models::Tiny;
 
@@ -90,4 +97,42 @@ fn a_hand_off_that_breaks_the_contract_is_refused_by_name() {
     assert_eq!(c.check(&Handoff { position: 2, state: extra }), Err(HandoffError::Unknown("Kc99".into())));
     // A decode after `position` tokens writes row `position + 1`: the cache must have it.
     assert_eq!(c.check(&Handoff { position: CTX, state: whole }), Err(HandoffError::Position { position: CTX, ctx: CTX }));
+}
+
+/// The GPU target with a site's memory past anything a tiny model's rows need, so every row op keeps its whole-row form:
+/// the forms a site's memory forces on the RTX 3060 are held to it.
+fn whole_rows() -> SpatialTarget {
+    let mut t = SpatialTarget::rtx3060();
+    t.site.local_mem_bytes = 64 << 20;
+    t.site.local_mem_opt_in_bytes = None;
+    t
+}
+
+#[test]
+fn the_longest_prompt_a_decode_follows_prefills_whole_on_the_gpu_target() {
+    // `CTX − 1` tokens: a block of 7 rows whose rotations and per-head norms are 28 heads of 16 — past an RTX 3060
+    // block's memory, inside its accumulator's page — so those sections take a head, a tile or a block of the row an
+    // item. They compute the whole-row forms' values: every carried tensor is the whole-row twin's, value for value.
+    let (rtx, twin) = (SpatialTarget::rtx3060(), whole_rows());
+    let cut = Cut::Prefill { rows: CTX - 1, ctx: CTX };
+    for t in SHARED {
+        let m = Model::write(t.spec(CTX), &format!("{t:?}"));
+        let prompt: Vec<u32> = (0..CTX as u32 - 1).map(|i| (i * 5 + 3) % m.spec.vocab as u32).collect();
+        let what = format!("{t:?}'s {}-token prompt on {}", prompt.len(), rtx.name);
+        let (forced, whole) = (authored(&m, cut, &rtx), authored(&m, cut, &twin));
+        assert!(
+            forced.stages.len() > whole.stages.len(),
+            "{what}: a site's memory moves some section off its whole-row form ({} stages, the twin's {})",
+            forced.stages.len(),
+            whole.stages.len()
+        );
+        let (handed, wanted) = (prefill_on(&m, &rtx, &prompt), prefill_on(&m, &twin, &prompt));
+        let c = contract(&m.spec, CTX).expect("the contract");
+        assert_eq!(handed.state.len(), c.carried.len(), "{what}: every carried tensor");
+        for carried in &c.carried {
+            let (got, want) = (&handed.state[&carried.name], &wanted.state[&carried.name]);
+            assert!(want.iter().any(|v| *v != 0.0), "{what}: `{}` holds the prompt", carried.name);
+            assert_eq!(got, want, "{what}: `{}` is the whole-row forms' value for value", carried.name);
+        }
+    }
 }

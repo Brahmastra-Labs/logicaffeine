@@ -33,6 +33,7 @@ fn spec() -> ModelSpec {
                 qk_norm_whole: false,
             }),
             ffn: Ffn::Dense { dff: 96, act: Act::Silu },
+            pre_norms: true,
             post_mixer_norm: false,
             post_ffn_norm: false,
         }],
@@ -41,6 +42,11 @@ fn spec() -> ModelSpec {
         hyper: None,
         ple: None,
         indexer: None,
+        residual_scale: None,
+        logit_scale: None,
+        norm: crate::model::spec::Norm::Rms,
+        head_bias: false,
+        parts: Vec::new(),
     }
 }
 

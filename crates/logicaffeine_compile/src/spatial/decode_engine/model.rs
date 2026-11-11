@@ -413,6 +413,8 @@ pub fn runs(spec: &ModelSpec, numerics: EngineNumerics) -> R<()> {
                 }
             }
             Mixer::Mla(_) => return Err(EngineError::NotYet("multi-head latent attention")),
+            Mixer::Recurrent(r) => return Err(EngineError::NotYet(r.what())),
+            Mixer::None => return Err(EngineError::NotYet("a block with no mixer")),
         }
         if !matches!(layer.ffn, Ffn::Dense { act: crate::model::spec::Act::Silu, .. }) {
             return Err(EngineError::NotYet("a mixture of experts or a non-SiLU FFN"));

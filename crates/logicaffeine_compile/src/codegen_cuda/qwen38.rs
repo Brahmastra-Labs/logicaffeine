@@ -148,9 +148,9 @@ impl Qwen38Cfg {
             let alike = match &layer.mixer {
                 Mixer::Attention(x) => (l + 1) % every == 0 && *x == a,
                 Mixer::GatedDelta(x) => (l + 1) % every != 0 && *x == g,
-                Mixer::Mla(_) => false,
+                Mixer::Mla(_) | Mixer::Recurrent(_) | Mixer::None => false,
             };
-            if !alike || layer.ffn != (Ffn::Dense { dff, act: Act::Silu }) || layer.post_mixer_norm || layer.post_ffn_norm {
+            if !alike || layer.ffn != (Ffn::Dense { dff, act: Act::Silu }) || !layer.pre_norms || layer.post_mixer_norm || layer.post_ffn_norm {
                 return Err(NotYet("a layer unlike the hybrid's pattern of alike attention and Gated-DeltaNet layers"));
             }
         }
@@ -256,6 +256,7 @@ impl Qwen38Cfg {
                         dff: self.dff,
                         act: Act::Silu,
                     },
+                    pre_norms: true,
                     post_mixer_norm: false,
                     post_ffn_norm: false,
                 })
@@ -265,6 +266,11 @@ impl Qwen38Cfg {
             hyper: None,
             ple: None,
             indexer: None,
+            residual_scale: None,
+            logit_scale: None,
+            norm: crate::model::spec::Norm::Rms,
+            head_bias: false,
+            parts: Vec::new(),
         }
     }
 }

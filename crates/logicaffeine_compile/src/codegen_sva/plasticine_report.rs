@@ -23,7 +23,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use serde_json::{json, Value};
 
 use super::choreography::{synthesize, Choreography};
-use super::fabric_grid::route_loop_body;
+use super::fabric_grid::{route_loop_body, Grid};
 use super::fabric_rtl::{
     eval_loop_fabric, loop_fabric_from_source, FabricOp, LoopCell, LoopFabric, Src,
 };
@@ -34,7 +34,7 @@ use super::plasticine_place::{
     max_par, max_routable_par_within, place_unrolled, words_per_pmu, LinkBudget, Placement,
 };
 use super::pmu::{address_datapath_stages, memory_ii, strided_banking_for, AffineAccess, PmuSpec};
-use super::pnr_certificate::{certify_external_placement, PlacementCertificate};
+use super::pnr_certificate::{certify_external_placement, external_obligation, PlacementCertificate, PlacementFault, ShippedProof};
 use super::spatial_emit::{
     emit_spatial_counted_loop, emit_spatial_counted_loop_test, emit_spatial_gda_test, emit_spatial_gemm_test,
     emit_spatial_kmeans_test, emit_spatial_outer_test, emit_spatial_zip_map_test, emit_spatial_zip_sum_test, GdaColumn,
@@ -168,6 +168,10 @@ pub struct CertificateRow {
     pub vars: usize,
     pub proves: String,
     pub rechecked: bool,
+    /// The refutation and the digest of the formula it refutes, which a reader rebuilds from the loop body
+    /// ([`recheck_body`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proof: Option<ShippedProof>,
 }
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -380,46 +384,73 @@ fn vm_value(source: &str, fn_name: &str, params: &[i64]) -> Result<i64, String> 
         })
 }
 
-/// Certify the routed body datapath of `lf` (output 0 ≡ the next value of state register 0) at
-/// [`CERTIFICATE_WIDTH`] bits — only an ALU-only body whose next-state-0 is a body value lies in the bounded
-/// fragment; anything else is reported as omitted, with the reason.
+/// What the routed body of `lf` is certified as: its grid, its datapath and the cell giving next-state 0 — only an
+/// ALU-only body whose next-state-0 is a body value lies in the bounded fragment; anything else is why not.
+fn body_mapping(lf: &LoopFabric) -> Result<(Grid, Vec<FabricOp>, usize), String> {
+    let mut ops = Vec::with_capacity(lf.body.len());
+    for cell in &lf.body {
+        match cell {
+            LoopCell::Arith { op, a, b } => ops.push(FabricOp { op: *op, a: *a, b: *b }),
+            LoopCell::Select { .. } => return Err("the body has a predicated select — outside the bounded ALU fragment the certificate covers".into()),
+            LoopCell::Func { unit, .. } => return Err(format!("the body has a `{unit:?}` functional unit — outside the bounded ALU fragment the certificate covers")),
+            _ => return Err("the body has memory tiles — outside the bounded ALU fragment the certificate covers".into()),
+        }
+    }
+    let Some(Src::Val(result)) = lf.next.first().copied() else {
+        return Err("next-state 0 is not a body value (the register holds or copies an input) — nothing to certify".into());
+    };
+    let n_body_in = lf.n_state + 1 + lf.invariants.len();
+    Ok((route_loop_body(&lf.body, n_body_in, &lf.next), ops, result))
+}
+
+/// Certify the routed body datapath of `lf`, stage `name` (output 0 ≡ the next value of state register 0) at
+/// [`CERTIFICATE_WIDTH`] bits, the row shipping its proof and rechecked as a reader rechecks it ([`recheck_body`]) —
+/// or omitted, with the reason.
 fn certify_body(
     lf: &LoopFabric,
+    name: &str,
 ) -> (
     Option<PlacementCertificate>,
     Option<CertificateRow>,
     Option<String>,
 ) {
-    let mut ops = Vec::with_capacity(lf.body.len());
-    for cell in &lf.body {
-        match cell {
-            LoopCell::Arith { op, a, b } => ops.push(FabricOp { op: *op, a: *a, b: *b }),
-            LoopCell::Select { .. } => return (None, None, Some("the body has a predicated select — outside the bounded ALU fragment the certificate covers".into())),
-            LoopCell::Func { unit, .. } => return (None, None, Some(format!("the body has a `{unit:?}` functional unit — outside the bounded ALU fragment the certificate covers"))),
-            _ => return (None, None, Some("the body has memory tiles — outside the bounded ALU fragment the certificate covers".into())),
-        }
-    }
-    let Some(Src::Val(result)) = lf.next.first().copied() else {
-        return (None, None, Some("next-state 0 is not a body value (the register holds or copies an input) — nothing to certify".into()));
+    let (grid, ops, result) = match body_mapping(lf) {
+        Ok(m) => m,
+        Err(why) => return (None, None, Some(why)),
     };
-    let n_body_in = lf.n_state + 1 + lf.invariants.len();
-    let grid = route_loop_body(&lf.body, n_body_in, &lf.next);
     match certify_external_placement(&grid, &ops, result, CERTIFICATE_WIDTH) {
         Some(cert) => {
-            let rechecked = cert.recheck();
-            let row = CertificateRow {
+            let mut row = CertificateRow {
                 steps: cert.len(),
                 vars: cert.num_vars(),
                 proves: format!(
                     "the routed body grid's output 0 ≡ the next-state-0 datapath ({} ALU cells) for every {CERTIFICATE_WIDTH}-bit input: the negation is SAT-refuted (PR/RUP), re-checkable without the placer",
                     ops.len()
                 ),
-                rechecked,
+                rechecked: false,
+                proof: Some(cert.proof()),
             };
-            (Some(cert), Some(row), None)
+            match recheck_body(lf, name, &row) {
+                Ok(()) => {
+                    row.rechecked = true;
+                    (Some(cert), Some(row), None)
+                }
+                Err(fault) => (None, None, Some(fault.to_string())),
+            }
         }
         None => (None, None, Some("the placement-equivalence obligation escaped the propositional fragment (fail-closed)".into())),
     }
+}
+
+/// The reader's side of the loop lane's certificate: the proof `row` ships held to the obligation rebuilt from the loop
+/// body of `lf`, stage `name` — its routed grid's output 0 against the next-state-0 datapath — never to the formula the
+/// certificate was made of, the refusal naming the stage.
+pub fn recheck_body(lf: &LoopFabric, name: &str, row: &CertificateRow) -> Result<(), PlacementFault> {
+    let subject = format!("stage `{name}`, its routed loop body");
+    let (grid, ops, result) = body_mapping(lf).map_err(|why| PlacementFault::NoObligation { subject: subject.clone(), why })?;
+    let obligation = external_obligation(&grid, &ops, result, CERTIFICATE_WIDTH)
+        .map_err(|r| PlacementFault::NoObligation { subject: subject.clone(), why: r.reason() })?;
+    row.proof.as_ref().ok_or_else(|| PlacementFault::NoProof { subject: subject.clone() })?.certifies(&obligation, &subject)
 }
 
 fn row_from_placement(
@@ -636,7 +667,7 @@ pub fn lower_counted_loop(
         None
     };
     let vm = vm_value(source, fn_name, params)?;
-    let (certificate, cert_row, omitted) = certify_body(&lf);
+    let (certificate, cert_row, omitted) = certify_body(&lf, fn_name);
     let spatial = emit_spatial_counted_loop(&lf, fn_name)?;
     let spatial_test =
         emit_spatial_counted_loop_test(&lf, &format!("Logos_{fn_name}"), params, vm)?;

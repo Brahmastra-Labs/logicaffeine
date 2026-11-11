@@ -2,9 +2,9 @@
 //! it (`src/llama-vocab.cpp` at the pinned commit): text to token ids, ids to text pieces, and the special tokens
 //! that end generation.
 //!
-//! Two vocabularies are tokenized: byte-pair (`gpt2` and its `gemma4`, `hybriddna` and `whitespace` forms — Qwen,
-//! Llama 3, gpt-oss, DeepSeek) and SentencePiece (`llama` — Gemma 3, Llama 2, Mistral). WordPiece, Unigram, RWKV and
-//! PLaMo vocabularies are refused by name. `model_tokenizer_lock` holds every result equal to llama.cpp's own, on its
+//! Three vocabularies are tokenized: byte-pair (`gpt2` and its `gemma4`, `hybriddna` and `whitespace` forms — Qwen,
+//! Llama 3, gpt-oss, DeepSeek), SentencePiece (`llama` — Gemma 3, Llama 2, Mistral) and RWKV's world vocabulary
+//! (`rwkv`, its tokens' bytes matched longest first). WordPiece, Unigram and PLaMo vocabularies are refused by name. `model_tokenizer_lock` holds every result equal to llama.cpp's own, on its
 //! bundled vocabulary corpora and on seeded random text.
 //!
 //! Text is bytes: a fragment that is not UTF-8 tokenizes as llama.cpp tokenizes it (an invalid byte reads as
@@ -53,6 +53,61 @@ pub enum VocabKind {
     Spm,
     /// Byte-pair merges over pre-tokenized words.
     Bpe(PreType),
+    /// RWKV's world vocabulary (`tokenizer.ggml.model = "rwkv"`): each token's escaped text unescaped to its bytes, the
+    /// text matched to the longest token at each position (`llm_tokenizer_rwkv`).
+    Rwkv,
+}
+
+/// The tokens of an RWKV vocabulary by their bytes (llama.cpp's `naive_trie`): a later token of the same bytes stands.
+#[derive(Clone, Debug, Default)]
+struct RwkvTrie {
+    children: BTreeMap<u8, RwkvTrie>,
+    value: Option<u32>,
+}
+
+impl RwkvTrie {
+    fn insert(&mut self, key: &[u8], value: u32) {
+        match key.split_first() {
+            None => self.value = Some(value),
+            Some((&c, rest)) => self.children.entry(c).or_default().insert(rest, value),
+        }
+    }
+}
+
+/// `llama_unescape_rwkv_token`: an RWKV token's text, escaped as Python escapes bytes, as its bytes — `\t`, `\n`, `\r`
+/// and `\xhh` decoded, any other escaped character standing for itself; a hex digit past `f` read as llama.cpp reads it.
+fn unescape_rwkv(escaped: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(escaped.len());
+    let (mut escaping, mut hex_left, mut hex) = (false, 0u8, 0u8);
+    for &c in escaped {
+        if hex_left != 0 {
+            let v = if c >= b'a' { c.wrapping_sub(b'a').wrapping_add(10) } else { c.wrapping_sub(b'0') };
+            hex = (hex << 4).wrapping_add(v);
+            hex_left -= 1;
+            if hex_left == 0 {
+                out.push(hex);
+                hex = 0;
+            }
+            continue;
+        }
+        if escaping {
+            match c {
+                b't' => out.push(b'\t'),
+                b'n' => out.push(b'\n'),
+                b'r' => out.push(b'\r'),
+                b'x' => hex_left = 2,
+                _ => out.push(c),
+            }
+            escaping = false;
+            continue;
+        }
+        if c == b'\\' {
+            escaping = true;
+            continue;
+        }
+        out.push(c);
+    }
+    out
 }
 
 /// How a byte-pair vocabulary's fragments are cut before the generic merge loop.
@@ -92,7 +147,7 @@ impl fmt::Display for VocabError {
             VocabError::TooFewTypes { types, tokens } => write!(f, "{types} token types for {tokens} tokens"),
             VocabError::DuplicateToken(t) => write!(f, "the token {:?} appears twice", String::from_utf8_lossy(t)),
             VocabError::Regex(e) => write!(f, "{e}"),
-            VocabError::NoNewline => write!(f, "the SentencePiece vocabulary has no newline token"),
+            VocabError::NoNewline => write!(f, "the vocabulary has no newline token"),
         }
     }
 }
@@ -178,6 +233,7 @@ pub struct Vocab {
     piece_cache: Vec<Vec<u8>>,
     splitter: Option<Splitter>,
     session: BpeSession,
+    rwkv: Option<RwkvTrie>,
 }
 
 /// The key a merge `(first, second)` is ranked under.
@@ -243,6 +299,7 @@ impl Vocab {
         let mut pre_name = meta_str(meta, "tokenizer.ggml.pre").map(str::to_string);
         let mut specials = Specials::default();
         let mut kind_spm = false;
+        let mut kind_rwkv = false;
         let mut bpe_ranks = HashMap::new();
         let mut session = BpeSession::Plain;
         let read_merges = |ranks: &mut HashMap<Vec<u8>, u32>| -> Result<(), VocabError> {
@@ -284,7 +341,9 @@ impl Vocab {
                 read_merges(&mut bpe_ranks)?;
                 pre_name = Some("gemma4".to_string());
             }
-            "bert" | "t5" | "rwkv" | "plamo2" | "plamo3" | "test" | "no_vocab" | "none" => {
+            // `LLAMA_VOCAB_TYPE_RWKV`: no special token of its own, no space prefix, nothing added.
+            "rwkv" => kind_rwkv = true,
+            "bert" | "t5" | "plamo2" | "plamo3" | "test" | "no_vocab" | "none" => {
                 return Err(VocabError::UnsupportedModel(model));
             }
             other => return Err(VocabError::UnknownModel(other.to_string())),
@@ -293,6 +352,8 @@ impl Vocab {
         let (kind, mut add_space_prefix, add_bos, add_eos, ignore_merges, clean_spaces, escape_whitespaces, lowercase_cleared) =
             if kind_spm {
                 (VocabKind::Spm, true, true, false, false, false, true, false)
+            } else if kind_rwkv {
+                (VocabKind::Rwkv, false, false, false, false, false, false, false)
             } else {
                 let (pt, set): (PreType, PreSettings) = match pre_name.as_deref() {
                     None => (PreType::Default, PreSettings::default()),
@@ -400,8 +461,15 @@ impl Vocab {
 
         let splitter = match kind {
             VocabKind::Bpe(pt) => Some(Splitter::new(pt.regexes(), pt.byte_encode()).map_err(VocabError::Regex)?),
-            VocabKind::Spm => None,
+            VocabKind::Spm | VocabKind::Rwkv => None,
         };
+        let rwkv = (kind == VocabKind::Rwkv).then(|| {
+            let mut trie = RwkvTrie::default();
+            for (id, t) in tokens.iter().enumerate() {
+                trie.insert(&unescape_rwkv(&t.text), id as u32);
+            }
+            trie
+        });
         let mut v = Vocab {
             kind,
             model,
@@ -423,11 +491,13 @@ impl Vocab {
             piece_cache: Vec::new(),
             splitter,
             session,
+            rwkv,
         };
 
         v.linefeed = match kind {
             VocabKind::Spm => Some(v.byte_to_token(b'\n').map_err(|_| VocabError::NoNewline)?),
             VocabKind::Bpe(_) => v.tokenize(b"\n", false, false).ok().and_then(|ids| ids.first().copied()),
+            VocabKind::Rwkv => Some(v.tokenize(b"\n", false, false).ok().and_then(|ids| ids.first().copied()).ok_or(VocabError::NoNewline)?),
         };
 
         let n_tokens = v.tokens.len();
@@ -719,6 +789,7 @@ impl Vocab {
                 unicode::byte_to_utf8(b, &mut s);
                 self.text_to_token(&s)
             }
+            VocabKind::Rwkv => None,
         };
         found.ok_or(TokenizeError::MissingByteToken(b))
     }
@@ -850,8 +921,49 @@ impl Vocab {
                     out.push(self.specials.eos.ok_or(TokenizeError::MissingSpecial("end-of-sequence"))?);
                 }
             }
+            VocabKind::Rwkv => {
+                for f in &frags {
+                    match *f {
+                        Fragment::Raw { offset, len } => self.rwkv_session(&text[offset..offset + len], &mut out)?,
+                        Fragment::Token(id) => out.push(id),
+                    }
+                }
+            }
         }
         Ok(out)
+    }
+
+    /// `llm_tokenizer_rwkv_session`: at each position the longest token whose bytes the text continues with, walked
+    /// as llama.cpp walks its trie (the unknown token where no token begins with the byte, and the walk past a
+    /// prefix that is no token resuming after the last token it passed).
+    fn rwkv_session(&self, text: &[u8], out: &mut Vec<u32>) -> Result<(), TokenizeError> {
+        let trie = self.rwkv.as_ref().expect("an RWKV vocabulary holds its trie");
+        let mut position = 0usize;
+        while position < text.len() {
+            let Some(mut node) = trie.children.get(&text[position]) else {
+                out.push(self.specials.unk.ok_or(TokenizeError::MissingSpecial("unknown"))?);
+                position += 1;
+                continue;
+            };
+            let (mut token_id, mut token_length) = (0u32, 0usize);
+            loop {
+                if let Some(v) = node.value {
+                    token_id = v;
+                    token_length = position + 1;
+                }
+                if position + 1 >= text.len() {
+                    break;
+                }
+                position += 1;
+                match node.children.get(&text[position]) {
+                    Some(next) => node = next,
+                    None => break,
+                }
+            }
+            out.push(token_id);
+            position = token_length;
+        }
+        Ok(())
     }
 
     /// The SentencePiece merge loop over one escaped fragment (`llm_tokenizer_spm_session`).
@@ -1146,11 +1258,13 @@ impl Vocab {
         if a & (attr::UNKNOWN | attr::CONTROL | attr::USER_DEFINED) != 0 {
             return t.text.clone();
         }
-        if a & attr::NORMAL != 0 {
+        // An RWKV token of any other kind renders as its unescaped bytes.
+        if a & attr::NORMAL != 0 || self.kind == VocabKind::Rwkv {
             return match self.kind {
                 VocabKind::Spm => replace_all(&t.text, ESCAPED_SPACE, b" "),
                 VocabKind::Bpe(_) if self.escape_whitespaces => replace_all(&t.text, ESCAPED_SPACE, b" "),
                 VocabKind::Bpe(_) => decode_text(&t.text),
+                VocabKind::Rwkv => unescape_rwkv(&t.text),
             };
         }
         if a & attr::BYTE != 0 {

@@ -11436,6 +11436,7 @@
       "index_datatype",
       "pcu_count",
       "pmu_count",
+      "simd",
       "unit_model.acc_tiles",
       "unit_model.counter_nest",
       "unit_model.datapath_bits",

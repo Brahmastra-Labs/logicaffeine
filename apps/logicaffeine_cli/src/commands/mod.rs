@@ -12,6 +12,7 @@ pub(crate) mod completions;
 pub(crate) mod deps;
 pub(crate) mod doc;
 pub(crate) mod doctor;
+pub(crate) mod drop;
 pub(crate) mod emit;
 pub(crate) mod expand;
 pub(crate) mod explain;

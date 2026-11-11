@@ -353,6 +353,33 @@ struct Usage {
     declared: Option<TensorRole>,
 }
 
+/// ★ A CONSTANT TWO SECTIONS DECLARE DIFFERENTLY IS TWO CONSTANTS. A pass names a table it generates after the stage that
+/// reads it (a column block's first columns and bounds, `write_row__columns`), so two sections of one program can name
+/// different tables alike — two cache writes of different widths, two rotations of different head counts. The
+/// composition unifies tensors by name, which would hand one section the other's table, or refuse the program for
+/// their shapes; a compile-time parameter declared again with other contents is renamed for its section instead
+/// (`…__s{k}`). One declared alike stays one tensor, and so does every tensor bound at run time — a weight included.
+fn distinct_constants(sections: &mut [SpatialProgram]) {
+    let mut first: BTreeMap<String, (ElemShape, TensorInit)> = BTreeMap::new();
+    for (k, sec) in sections.iter_mut().enumerate() {
+        for td in &mut sec.tensors {
+            // A weight is a parameter too, declared `ConstF(0)` until its file binds it: only a table of values is a
+            // section's own. Two widths of one table are one tensor, held at the wider (below).
+            let constant = td.role == TensorRole::Param
+                && matches!(td.init, TensorInit::Values(_) | TensorInit::FloatValues(_) | TensorInit::Pattern { .. });
+            match first.get(&td.name) {
+                None => {
+                    first.insert(td.name.clone(), (td.elems, td.init.clone()));
+                }
+                Some((elems, init)) if constant && (*elems != td.elems || *init != td.init) => {
+                    td.name = format!("{}__s{k}", td.name);
+                }
+                Some(_) => {}
+            }
+        }
+    }
+}
+
 /// Join verified sections into one program.
 ///
 /// `links` is the front end's dataflow (advisory — the roles are derived from what the SECTIONS do, so
@@ -384,6 +411,8 @@ pub fn compose_phased(
     target: &SpatialTarget,
 ) -> Result<SpatialProgram, ComposeReject> {
     let _ = links;
+    let mut sections = sections;
+    distinct_constants(&mut sections);
     let closes = |k: usize| {
         k + 1 < sections.len() && barrier_after.is_none_or(|b| b.get(k).copied().unwrap_or(true))
     };

@@ -1646,6 +1646,15 @@ impl<'a> Eval<'a> {
                                 SfpuKind::Silu => v / (1.0 + (-v).exp()),
                                 SfpuKind::Relu => v.max(0.0),
                                 SfpuKind::Ln => v.ln(),
+                                SfpuKind::Sign => {
+                                    if v > 0.0 {
+                                        1.0
+                                    } else if v < 0.0 {
+                                        -1.0
+                                    } else {
+                                        0.0
+                                    }
+                                }
                             }
                         }
                         // Branch-free: decided by POSITION, both branches meaningful at every point.

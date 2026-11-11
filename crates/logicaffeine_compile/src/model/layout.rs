@@ -16,6 +16,14 @@
 //! A GLM-4.5 checkpoint (llama.cpp's `glm4moe`) stores each block's FFN norm as `post_attention_norm`, the name other
 //! families give the norm on the attention's output; [`presented`] names it `ffn_norm`, and the spec refuses such a
 //! checkpoint read raw.
+//!
+//! An LFM2 checkpoint (llama.cpp's `lfm2`) stores its output norm as `token_embd_norm` (the converter maps LFM2's
+//! `embedding_norm` there, and llama.cpp reads it as the output norm); [`presented`] names it `output_norm`, and the spec
+//! refuses such a checkpoint read raw.
+//!
+//! A Falcon-H1 checkpoint (llama.cpp's `falcon-h1`) stores each block's FFN norm as `ffn_norm`, with no `.weight` (the
+//! converter maps `pre_ff_layernorm.weight` whole, and llama.cpp loads the name so); [`presented`] names it
+//! `ffn_norm.weight`, and the spec refuses such a checkpoint read raw.
 
 use std::collections::BTreeMap;
 
@@ -26,7 +34,8 @@ use super::spec::SpecSource;
 use super::Checkpoint;
 
 /// `c` presented in the layout the spec's arms read: a Qwen3-Next checkpoint in Qwen3.5's, a Phi-3 or GLM-4 one with its
-/// gate and up projections apart, a GLM-4.5 one with its FFN norms named `ffn_norm`, every other as it is.
+/// gate and up projections apart, a GLM-4.5 one with its FFN norms named `ffn_norm`, an LFM2 one with its output norm named
+/// `output_norm`, a Falcon-H1 one with its FFN norms named `ffn_norm.weight`, every other as it is.
 pub fn presented(c: Box<dyn Checkpoint>) -> std::io::Result<Box<dyn Checkpoint>> {
     if c.arch() == "qwen3next" && c.tensor_names().iter().any(|n| n.ends_with(".ssm_ba.weight")) {
         Ok(Box::new(Presented::tiled(c)?))
@@ -34,6 +43,10 @@ pub fn presented(c: Box<dyn Checkpoint>) -> std::io::Result<Box<dyn Checkpoint>>
         Ok(Box::new(Presented::split_gate_up(c)?))
     } else if c.arch() == "glm4moe" && c.tensor_names().iter().any(|n| n.ends_with(".post_attention_norm.weight")) {
         Ok(Box::new(Presented::renamed(c, ".post_attention_norm.weight", ".ffn_norm.weight")))
+    } else if c.arch() == "lfm2" && c.tensor_names().contains(&"token_embd_norm.weight") {
+        Ok(Box::new(Presented::renamed(c, "token_embd_norm.weight", "output_norm.weight")))
+    } else if c.arch() == "falcon-h1" && c.tensor_names().iter().any(|n| n.ends_with(".ffn_norm")) {
+        Ok(Box::new(Presented::renamed(c, ".ffn_norm", ".ffn_norm.weight")))
     } else {
         Ok(c)
     }

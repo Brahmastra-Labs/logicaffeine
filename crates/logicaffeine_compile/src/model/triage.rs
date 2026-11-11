@@ -18,8 +18,12 @@ use super::program::{written, Cut};
 use super::spec::{ModelSpec, SpecError, SpecSource};
 
 /// Every architecture an arm of [`ModelSpec::from_source`] reads, in the order a tie between two readings is broken.
-pub const ARCHITECTURES: &[&str] =
-    &["llama", "qwen2", "qwen3", "qwen3moe", "qwen2moe", "qwen35", "qwen35moe", "qwen3next", "gemma3", "gpt-oss", "deepseek2", "llama4"];
+pub const ARCHITECTURES: &[&str] = &[
+    "llama", "qwen2", "qwen3", "qwen3moe", "qwen2moe", "qwen35", "qwen35moe", "qwen3next", "gemma3", "gpt-oss", "deepseek2",
+    "llama4", "gemma", "gemma2", "glm4", "glm4moe", "minimax-m2", "phi3", "qwen4exp", "granite", "minicpm", "arcee", "olmo2",
+    "mistral3", "phimoe", "deepseek32", "glm-dsa", "lfm2", "mamba2", "falcon-h1", "nemotron_h", "jamba", "gemma3n", "kimi-linear",
+    "minimax-01", "rwkv7", "gemma4",
+];
 
 /// A checkpoint read under another architecture's name: its keys, still under its own, and its tensors.
 struct Named<'a, S: SpecSource + ?Sized> {

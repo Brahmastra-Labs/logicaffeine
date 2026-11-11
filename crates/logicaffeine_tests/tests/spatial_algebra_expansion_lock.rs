@@ -675,6 +675,45 @@ fn argmax_returns_the_first_maximal_index() {
     );
 }
 
+/// A page holds a tile's rows: a point's row lands at tile row `r mod rows`, so a `Generic` whose parallel row axis is
+/// longer than the tile writes two rows into one place. The validator refuses it, naming the rows and the tile's, on
+/// the program every backend lowers — not first where an evaluator meets it.
+#[test]
+fn a_generic_with_more_parallel_rows_than_a_tile_is_refused() {
+    let wh = SpatialTarget::wormhole();
+    let (t, w) = (wh.tile.rows, wh.tile.cols);
+    let copy = one_generic(
+        &wh,
+        "rows_of_a_tile",
+        &[In { name: "x", cols: w, dtype: Precision::Fp32, init: TensorInit::Zero }],
+        Out { cols: w, dtype: Precision::Fp32 },
+        vec![parallel(LV_GEN_ROW, t), parallel(LV_GEN_COL, w)],
+        vec![ident_map(w)],
+        ident_map(w),
+        TensorBody::Operand(0),
+    );
+    assert!(copy.validate().is_ok(), "a tile's rows: {:?}", copy.validate());
+    let mut longer = copy.clone();
+    for s in &mut longer.stages {
+        if let StageKind::Compute(ComputeOp::Generic { iters, .. }) = &mut s.kind {
+            iters[0].extent = t + 1;
+        }
+    }
+    match longer.validate() {
+        Err(IrViolation::GenericRowsPastTile { rows, tile_rows, .. }) => assert_eq!((rows, tile_rows), (t + 1, t)),
+        other => panic!("{} parallel rows on a {t}-row tile: {other:?}", t + 1),
+    }
+    // A folded row axis holds no rows of its own: as long as it likes.
+    let mut folded = copy.clone();
+    for s in &mut folded.stages {
+        if let StageKind::Compute(ComputeOp::Generic { iters, out, .. }) = &mut s.kind {
+            iters[0] = reduce(LV_GEN_ROW, 4 * t, ReducePool::Sum);
+            *out = per_col_map();
+        }
+    }
+    assert!(folded.validate().is_ok(), "{} folded rows: {:?}", 4 * t, folded.validate());
+}
+
 // ══════════════════════════════════════════════════════════════════════════════════════════════════
 // 4. Select
 // ══════════════════════════════════════════════════════════════════════════════════════════════════

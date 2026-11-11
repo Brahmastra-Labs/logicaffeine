@@ -75,6 +75,12 @@ pub enum View {
         dims: usize,
         bias: bool,
     },
+    /// A dilated convolution's kernel — `rows` channels of `inner` taps — as the kernel of the ordinary causal convolution
+    /// over every position its taps span: `(inner − 1)·by + 1` rows by the channels, tap `k` in row `k·by` and the rows
+    /// between zero.
+    Dilated {
+        by: usize,
+    },
 }
 
 /// One declared weight's source.
@@ -118,11 +124,45 @@ pub fn bind(spec: &ModelSpec, var: &str) -> Result<Source, Unbound> {
             "on" => t("output_norm.weight".into(), View::Same),
             "Wout" if spec.tied_output => t("token_embd.weight".into(), View::Transposed),
             "Wout" => t("output.weight".into(), View::Transposed),
+            // The last mix of a hyper-connected residual's lanes, in place of the output norm.
+            "HOn" if spec.hyper.is_some() => t("output_hc_norm.weight".into(), View::Same),
+            "HOd" if spec.hyper.is_some() => t("output_hc_down.weight".into(), View::Transposed),
+            "HOu" if spec.hyper.is_some() => t("output_hc_up.weight".into(), View::Transposed),
             _ => Err(unbound()),
         };
     };
     let layer = spec.layers.get(l).ok_or_else(unbound)?;
     let blk = |suffix: &str| format!("blk.{l}.{suffix}.weight");
+    // The per-layer n-gram embedding on its layer: the table, the key's and the value's projections, the key's, the
+    // query's and the convolution's norms, the dilated convolution, and the carried token history and ring.
+    if let Some(ple) = spec.ple.as_ref().filter(|p| p.layer == l) {
+        match base {
+            "Pe" => {
+                let count = super::author::ple_table_rows(ple);
+                return t("per_layer_token_embd.weight".into(), View::RowRange { first: 0, count, transpose: false });
+            }
+            "Wpk" => return t(blk("ple_key"), View::Transposed),
+            "Wpv" => return t(blk("ple_value"), View::Transposed),
+            "Pnk" => return t(blk("ple_norm_key"), View::Same),
+            "Pnq" => return t(blk("ple_norm_query"), View::Same),
+            "Pnc" => return t(blk("ple_norm_conv"), View::Same),
+            "Wpc" => return t(blk("ple_conv1d"), View::Dilated { by: ple.ngram }),
+            "Ph" | "Cp" => return Ok(Source::State),
+            _ => {}
+        }
+    }
+    // A hyper-connected residual's mixes before the mixer (`HA`) and the FFN (`HF`): the lanes' norm, the gate's down
+    // and up projections, and the injection's.
+    if spec.hyper.is_some() && (base.starts_with("HA") || base.starts_with("HF")) {
+        let which = if base.starts_with("HA") { "hc_attn" } else { "hc_ffn" };
+        return match &base[2..] {
+            "n" => t(blk(&format!("{which}_norm")), View::Same),
+            "d" => t(blk(&format!("{which}_down")), View::Transposed),
+            "u" => t(blk(&format!("{which}_up")), View::Transposed),
+            "j" => t(blk(&format!("{which}_inject")), View::Transposed),
+            _ => Err(unbound()),
+        };
+    }
     match base {
         "an" => return t(blk("attn_norm"), View::Same),
         "fn" => return t(blk(spec.ffn_norm), View::Same),
@@ -134,6 +174,7 @@ pub fn bind(spec: &ModelSpec, var: &str) -> Result<Source, Unbound> {
         Mixer::Attention(a) => attention(a, base, l, &blk),
         Mixer::GatedDelta(g) => gated_delta(g, base, l, &blk),
         Mixer::Mla(m) => mla(m, base, &blk),
+        Mixer::Recurrent(_) | Mixer::None => None,
     };
     if let Some(found) = mixer {
         return Ok(found);
@@ -223,9 +264,9 @@ fn attention(a: &Attention, base: &str, l: usize, blk: &dyn Fn(&str) -> String) 
 ///     `attn_kv_b`, or `attn_v_b`, each head's block transposed.
 fn mla(m: &Mla, base: &str, blk: &dyn Fn(&str) -> String) -> Option<Source> {
     let (nope, rope, lora, vd) = (m.qk_nope, m.qk_rope, m.kv_lora_rank, m.v_dim);
-    let rotated = |head_dim: usize, from: usize| match m.rope.neox {
-        true => View::Transposed,
-        false => View::NeoxPairs { head_dim, from, dims: rope, transpose: true },
+    let rotated = |head_dim: usize, from: usize| match &m.rope {
+        Some(r) if !r.neox => View::NeoxPairs { head_dim, from, dims: rope, transpose: true },
+        _ => View::Transposed,
     };
     match base {
         "Wq" if m.q_lora_rank.is_none() => weight(blk("attn_q"), rotated(nope + rope, nope)),
@@ -329,6 +370,7 @@ impl View {
             View::HeadBlocks { stride, width, .. } => (rows / stride.max(1) * inner, width),
             View::FusedPart { count, bias: true, .. } => (1, count),
             View::FusedPart { count, bias: false, .. } => (inner, count),
+            View::Dilated { by } => ((inner.max(1) - 1) * by + 1, rows),
         }
     }
 
@@ -336,7 +378,7 @@ impl View {
     /// rows: the layout a spatial program reads a Q8_0 weight in ([`q8_planes`]).
     pub fn keeps_blocks_down_rows(&self) -> bool {
         match *self {
-            View::Same => false,
+            View::Same | View::Dilated { .. } => false,
             View::Transposed | View::HeadBlocks { .. } => true,
             View::NeoxPairs { transpose, .. } | View::RowRange { transpose, .. } | View::HeadPart { transpose, .. } => transpose,
             View::FusedPart { bias, .. } => !bias,
@@ -407,6 +449,15 @@ impl View {
                     let picked: Vec<f64> = (0..count).flat_map(|r| flat[source(r) * inner..(source(r) + 1) * inner].to_vec()).collect();
                     transpose_rows(&picked, count, inner)
                 }
+            }
+            &View::Dilated { by } => {
+                let mut kernel = vec![0.0; ((inner.max(1) - 1) * by + 1) * rows];
+                for c in 0..rows {
+                    for k in 0..inner {
+                        kernel[k * by * rows + c] = flat[c * inner + k];
+                    }
+                }
+                kernel
             }
         }
     }
@@ -482,8 +533,8 @@ fn transpose_rows(m: &[f64], rows: usize, cols: usize) -> Vec<f64> {
 fn rope_of(mixer: &Mixer) -> Option<&Rope> {
     match mixer {
         Mixer::Attention(Attention { rope, .. }) => rope.as_ref(),
-        Mixer::Mla(m) => Some(&m.rope),
-        Mixer::GatedDelta(_) => None,
+        Mixer::Mla(m) => m.rope.as_ref(),
+        Mixer::GatedDelta(_) | Mixer::Recurrent(_) | Mixer::None => None,
     }
 }
 
@@ -548,9 +599,9 @@ impl RotaryTable {
 pub enum HostTable {
     /// A rotation's cosines or sines ([`RotaryTable`]).
     Rotary(RotaryTable),
-    /// Llama 4's attention temperature as a rotation of `half` pairs: cosines `Temperature::at(p)` at every pair, sines
-    /// zero — a decode step's caches (`cached`, row `p` for position `p`) or a forward's one row (position 0). Read by
-    /// the rope sugar, it scales each query row by its own position's factor.
+    /// The attention temperature (Llama 4's, Ministral 3's) as a rotation of `half` pairs: cosines `Temperature::at(p)`
+    /// at every pair, sines zero — a decode step's caches (`cached`, row `p` for position `p`) or a forward's one row
+    /// (position 0). Read by the rope sugar, it scales each query row by its own position's factor.
     Temperature { cached: bool, cos: bool, half: usize },
     /// A row of `n` ones: the weight of an RMSNorm that has none (Llama 4's QK norm), and the row a shared expert's
     /// gate is spread across (Qwen's mixtures).

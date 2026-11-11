@@ -21,7 +21,7 @@ cd "$REPO_ROOT"
 export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
 command -v cargo >/dev/null 2>&1 || source "$HOME/.cargo/env"
 
-BINARIES='deploy_reds_lock fabric_author_model_lock fabric_build_recipes_lock fabric_settle_probe_lock model_hf_config_reds_lock rdu_bringup_reds_lock samba_exam_bringup_reds_lock samba_exam_correctness_reds_lock samba_exam_moe_reds_lock spatial_disaggregation_reds_lock spatial_mixed_precision_reds_lock'
+BINARIES='deploy_reds_lock fabric_author_model_lock fabric_build_recipes_lock fabric_settle_probe_lock model_hf_config_reds_lock rdu_bringup_reds_lock samba_exam_bringup_reds_lock samba_exam_correctness_reds_lock samba_exam_decode_reds_lock samba_exam_kernel_reds_lock samba_exam_moe_reds_lock spatial_disaggregation_reds_lock spatial_mixed_precision_reds_lock'
 
 gated=$(grep -l '^#!\[cfg(feature = "handed-reds")\]' crates/logicaffeine_tests/tests/*.rs | xargs -n1 basename | sed 's/\.rs$//' | sort | tr '\n' ' ')
 listed=$(echo $BINARIES | tr ' ' '\n' | sort | tr '\n' ' ')

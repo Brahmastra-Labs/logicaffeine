@@ -21,13 +21,16 @@ use logicaffeine_compile::model::gguf::{Gguf, MetaValue};
 use logicaffeine_compile::model::hf::HfCheckpoint;
 use logicaffeine_compile::model::reference::{Reference, WeightSource};
 use logicaffeine_compile::model::{open_checkpoint, Checkpoint};
-use logicaffeine_compile::model::spec::{Act, Ffn, Gating, Mixer, ModelSpec, SpecSource, Window};
+use logicaffeine_compile::model::spec::{
+    Act, Dsa, Ffn, Gating, Layer, Mixer, ModelSpec, Moe, Norm, Part, Recurrent, RopeScaling, Rwkv7, Selective, SpecSource, Ssd, Window,
+};
 use std::path::{Path, PathBuf};
 
 use logicaffeine_compile::model::hf::{pre_tokenizer_named, tiktoken_split, HfPreTokenizer, HfTokenizer, Recompute, Tiktoken, PRE_TOKENIZER_PROBE};
 use logicaffeine_compile::model::quant::{bf16_to_f32, f16_to_f32, f32_to_bf16, f32_to_f16};
 use logicaffeine_compile::model::safetensors::{self, Dtype, Shard};
 use logicaffeine_compile::model::tokenizer::Vocab;
+use logicaffeine_compile::model::triage::ARCHITECTURES;
 use std::collections::{BTreeMap, BTreeSet};
 
 const FAMILIES: &[&str] = &[
@@ -721,6 +724,1532 @@ fn a_gemma2_rotation_base_reads_as_the_configuration_says() {
     for (l, layer) in spec.layers.iter().enumerate() {
         let Mixer::Attention(a) = &layer.mixer else { panic!("block {l} attends") };
         assert_eq!(a.rope.as_ref().map(|r| r.theta), Some(20000.0), "block {l}: the configuration's base");
+    }
+}
+
+#[test]
+fn a_ministral3_directory_reads_as_its_converted_gguf() {
+    // Ministral 3's text model (`Ministral3ForCausalLM`): Llama's interleaved query and key pairs, YaRN, and the
+    // attention temperature on every layer, written as `attention.temperature_scale` with `mscale_all_dim` as the
+    // YaRN log multiplier.
+    reads_as_its_converted_gguf("ministral3");
+    let Some((dir, _)) = twin("ministral3") else { return };
+    let spec = ModelSpec::from_source(&HfCheckpoint::open(&dir).unwrap()).unwrap();
+    assert_eq!(spec.arch, "mistral3");
+    for (l, layer) in spec.layers.iter().enumerate() {
+        let Mixer::Attention(a) = &layer.mixer else { panic!("block {l} attends") };
+        let t = a.temperature.unwrap_or_else(|| panic!("block {l}: every layer takes the temperature"));
+        assert_eq!((t.floor, t.scale, t.offset), (4.0, 0.5, 0.0), "block {l}: floors of the original context, positions from zero");
+        assert!(a.rope.as_ref().is_some_and(|r| !r.neox && r.dims == a.head_dim), "block {l}: interleaved pairs over the whole head");
+    }
+}
+
+#[test]
+fn mistral3s_multimodal_checkpoints_read_as_their_converted_ggufs() {
+    // Ministral 3 and Mistral Small 3.1 and 3.2 are published as `Mistral3ForConditionalGeneration`: the text model
+    // under the wrapper's prefix beside a Pixtral tower and its projector, which the converter skips. Ministral 3's text
+    // model takes YaRN and the temperature; Mistral Small's, Mistral's own, neither.
+    for (family, temperature) in [("ministral3-mm", true), ("mistral3-small", false)] {
+        reads_as_its_converted_gguf(family);
+        let Some((dir, _)) = twin(family) else { return };
+        let hf = HfCheckpoint::open(&dir).unwrap();
+        assert_eq!(SpecSource::arch(&hf), "mistral3", "{family}: read as its text model");
+        let skipped = hf.skipped();
+        assert!(
+            skipped.iter().any(|s| s.contains("vision_tower")) && skipped.iter().any(|s| s.contains("multi_modal_projector")),
+            "{family}: the tower and the projector are skipped: {skipped:?}"
+        );
+        let spec = ModelSpec::from_source(&hf).unwrap();
+        for (l, layer) in spec.layers.iter().enumerate() {
+            let Mixer::Attention(a) = &layer.mixer else { panic!("{family}: block {l} attends") };
+            assert_eq!(a.temperature.is_some(), temperature, "{family}: block {l}'s temperature");
+        }
+    }
+}
+
+#[test]
+fn a_ministral3_directory_computes_what_transformers_computes() {
+    // Nine positions over floors of four: the temperature scales positions 4 to 7 by `1 + 0.5·ln 2` and position 8 by
+    // `1 + 0.5·ln 3`, and YaRN's ramp over an original context of four turns every frequency the twin holds; a reference
+    // without the temperature, counting positions from one as Llama 4's does, or without YaRN lands far past a millionth.
+    let Some((spec, theirs, scale, logits)) = computes_what_transformers_computes("ministral3", &[1, 17, 400, 2024, 9, 77, 3, 512, 1000])
+    else {
+        return;
+    };
+    let changed = |f: &dyn Fn(&mut logicaffeine_compile::model::spec::Attention)| {
+        let mut s = spec.clone();
+        for layer in &mut s.layers {
+            if let Mixer::Attention(a) = &mut layer.mixer {
+                f(a);
+            }
+        }
+        s
+    };
+    let untempered = changed(&|a| a.temperature = None);
+    let from_one = changed(&|a| a.temperature = a.temperature.map(|t| logicaffeine_compile::model::spec::Temperature { offset: 1.0, ..t }));
+    let unscaled = changed(&|a| {
+        if let Some(r) = a.rope.as_mut() {
+            r.scaling = logicaffeine_compile::model::spec::RopeScaling::None;
+        }
+    });
+    for (what, other) in [("no temperature", untempered), ("positions counted from one", from_one), ("no YaRN", unscaled)] {
+        let off = logits(&other).iter().zip(&theirs).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+        assert!(off > scale * 1e-3, "{what}: the logits move only {off:e}, so the twin does not hold the reference to it");
+    }
+}
+
+#[test]
+fn a_ministral3_directorys_tokenizer_reads_as_its_converted_gguf() {
+    // Ministral 3 ships tokenizer.json beside tekken.json: the converter reads the byte-pair vocabulary of
+    // tokenizer.json (`_set_vocab_gpt2`, the pre-tokenizer `pixtral` by its probe digest), and tekken.json only where
+    // tokenizer.json is absent.
+    tokenizes_as_its_converted_gguf("ministral3");
+    let Some((dir, _)) = twin("ministral3") else { return };
+    assert!(dir.join("tekken.json").is_file() && dir.join("tokenizer.json").is_file(), "the twin ships both, as the releases do");
+    let meta = HfCheckpoint::read_tokenizer(&dir).unwrap();
+    assert_eq!(meta.get("tokenizer.ggml.pre").and_then(MetaValue::as_str), Some("pixtral"));
+}
+
+#[test]
+fn every_ministral3_setting_the_gguf_cannot_carry_is_refused_by_name() {
+    // llama.cpp computes YaRN's magnitude taking `mscale` as 1 and floors and ceils its correction range; the converter
+    // asserts YaRN and reads `mscale_all_dim` and `llama_4_scaling_beta` without a default; the mistral3 GGUF carries no
+    // window; and a Mistral 4 text model is llama.cpp's mistral4.
+    type Edit = Box<dyn Fn(&mut serde_json::Value)>;
+    let rope = |key: &'static str, value: serde_json::Value| -> Edit { Box::new(move |c| c["rope_parameters"][key] = value.clone()) };
+    let drop = |key: &'static str| -> Edit {
+        Box::new(move |c| {
+            c["rope_parameters"].as_object_mut().unwrap().remove(key);
+        })
+    };
+    let cases: Vec<(&str, Edit, &str)> = vec![
+        ("mscale", rope("mscale", serde_json::json!(2.0)), "mscale"),
+        ("attention-factor", rope("attention_factor", serde_json::json!(1.5)), "attention_factor"),
+        ("untruncated", rope("truncate", serde_json::json!(false)), "truncate"),
+        ("no-beta", drop("llama_4_scaling_beta"), "llama_4_scaling_beta"),
+        ("no-log-multiplier", drop("mscale_all_dim"), "mscale_all_dim"),
+        ("no-factor", drop("factor"), "factor"),
+        (
+            "default-rope",
+            Box::new(|c| c["rope_parameters"] = serde_json::json!({"rope_type": "default", "rope_theta": 1000000.0, "llama_4_scaling_beta": 0.5})),
+            "YaRN",
+        ),
+        ("windowed", Box::new(|c| c["sliding_window"] = serde_json::json!(4096)), "sliding_window"),
+    ];
+    for (tag, edit, named) in cases {
+        let Some(opened) = opened_with("ministral3", tag, edit) else { return };
+        let refused = opened.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(refused.contains(named), "{tag}: refused naming `{named}`; got {refused:?}");
+    }
+    // `mscale` matters only beside a log multiplier: with `mscale_all_dim` 0 transformers and llama.cpp both take
+    // `get_mscale(factor)`, whatever `mscale` says.
+    let Some(opened) = opened_with("ministral3", "no-multiplier", |c| {
+        c["rope_parameters"]["mscale_all_dim"] = serde_json::json!(0.0);
+        c["rope_parameters"]["mscale"] = serde_json::json!(2.0);
+    }) else {
+        return;
+    };
+    opened.unwrap_or_else(|e| panic!("an mscale no magnitude reads: {e}"));
+    let Some(opened) = opened_with("ministral3-mm", "mistral4", |c| c["text_config"]["model_type"] = serde_json::json!("mistral4")) else { return };
+    let refused = opened.err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(refused.contains("mistral4"), "a Mistral 4 text model is refused naming it; got {refused:?}");
+    // transformers' MistralConfig windows at 4096 where a configuration names no window; Ministral3Config does not.
+    let Some(opened) = opened_with("mistral3-small", "unset-window", |c| {
+        c["text_config"].as_object_mut().unwrap().remove("sliding_window");
+    }) else {
+        return;
+    };
+    let refused = opened.err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(refused.contains("sliding_window"), "Mistral Small with no window named reads as transformers' 4096; got {refused:?}");
+    let Some(opened) = opened_with("ministral3", "unset-window", |c| {
+        c.as_object_mut().unwrap().remove("sliding_window");
+    }) else {
+        return;
+    };
+    opened.unwrap_or_else(|e| panic!("Ministral 3 with no window named attends every position: {e}"));
+}
+
+#[test]
+fn a_phimoe_directory_reads_as_its_converted_gguf() {
+    // PhiMoE (`PhiMoEForCausalLM`), read as the model it is: LayerNorms with their biases, biased attention under a NEOX
+    // rotation and a window, sparsemixer's two experts at PhiMoE's jitter, a biased head. The converted GGUF holds every
+    // tensor and setting of it; llama.cpp's phimoe, phi3's graph, reads them as another model (RMSNorms, a renormalized
+    // softmax, no window), which `a_phimoe_directory_computes_what_transformers_computes` holds the spec apart from.
+    reads_as_its_converted_gguf("phimoe");
+    let Some((dir, _)) = twin("phimoe") else { return };
+    let spec = ModelSpec::from_source(&HfCheckpoint::open(&dir).unwrap()).unwrap();
+    assert_eq!((spec.arch.as_str(), spec.norm, spec.head_bias), ("phimoe", Norm::Layer { bias: true }, true));
+    for (l, layer) in spec.layers.iter().enumerate() {
+        let Mixer::Attention(a) = &layer.mixer else { panic!("block {l} attends") };
+        assert!(a.bias && a.output_bias && a.window == Some(Window::Sliding(4)), "block {l}: biased and windowed: {a:?}");
+        let Ffn::Moe(m) = &layer.ffn else { panic!("block {l} routes") };
+        assert_eq!((m.gating.clone(), m.top_k, m.norm_top_k), (Gating::SparseMixer { jitter: 0.01 }, 2, false), "block {l}");
+    }
+}
+
+#[test]
+fn a_phimoe_directory_computes_what_transformers_computes() {
+    // Nine positions under a window of four, every norm a LayerNorm with its bias, sparsemixer's weights and the head's
+    // bias: llama.cpp's reading of the same tensors (RMSNorms plus their biases, the two kept softmax weights
+    // renormalized, no window) lands far past a millionth, and so does each part of it alone.
+    let Some((spec, theirs, scale, logits)) = computes_what_transformers_computes("phimoe", &[1, 17, 400, 2024, 9, 77, 3, 512, 1000])
+    else {
+        return;
+    };
+    let mut rms = spec.clone();
+    rms.norm = Norm::Rms;
+    let renormalized = {
+        let mut s = spec.clone();
+        for layer in &mut s.layers {
+            if let Ffn::Moe(m) = &mut layer.ffn {
+                (m.gating, m.norm_top_k) = (Gating::Softmax, true);
+            }
+        }
+        s
+    };
+    let unwindowed = {
+        let mut s = spec.clone();
+        for layer in &mut s.layers {
+            if let Mixer::Attention(a) = &mut layer.mixer {
+                a.window = None;
+            }
+        }
+        s
+    };
+    let llama_cpp = {
+        let mut s = renormalized.clone();
+        s.norm = Norm::Rms;
+        for layer in &mut s.layers {
+            if let Mixer::Attention(a) = &mut layer.mixer {
+                a.window = None;
+            }
+        }
+        s
+    };
+    let headless = ModelSpec { head_bias: false, ..spec.clone() };
+    for (what, other) in [
+        ("RMSNorms", rms),
+        ("a renormalized softmax", renormalized),
+        ("no window", unwindowed),
+        ("no head bias", headless),
+        ("llama.cpp's phimoe", llama_cpp),
+    ] {
+        let off = logits(&other).iter().zip(&theirs).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+        assert!(off > scale * 1e-3, "{what}: the logits move only {off:e}, so the twin does not hold the reference to it");
+    }
+}
+
+#[test]
+fn a_phimoe_directorys_tokenizer_reads_as_its_converted_gguf() {
+    // Phi-3.5-MoE's SentencePiece vocabulary as the converter's Phi-3 class reads it: the pieces by their own kinds, then
+    // every added token the tokenizer files list, user-defined or control.
+    tokenizes_as_its_converted_gguf("phimoe");
+}
+
+#[test]
+fn every_phimoe_setting_the_gguf_cannot_carry_is_refused_by_name() {
+    // sparsemixer chooses two experts at the 0.01 jitter the arm fixes, which no GGUF key carries; llama.cpp reads heads
+    // of `hidden_size / num_attention_heads`; LongRoPE's factor tables are not read; and the converter's Phi-3 class
+    // requires the original context.
+    for (tag, key, value) in [
+        ("three-experts", "num_experts_per_tok", serde_json::json!(3)),
+        ("jitter", "router_jitter_noise", serde_json::json!(0.02)),
+        ("narrow-heads", "head_dim", serde_json::json!(8)),
+    ] {
+        let Some(opened) = opened_with("phimoe", tag, |c| c[key] = value.clone()) else { return };
+        let refused = opened.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(refused.contains(key), "`{key}` = {value} is refused naming the key; got {refused:?}");
+    }
+    let Some(opened) = opened_with("phimoe", "longrope", |c| {
+        c["rope_scaling"] = serde_json::json!({"type": "longrope", "long_factor": vec![1.0f64; 8], "short_factor": vec![1.0f64; 8], "long_mscale": 1.2, "short_mscale": 1.2, "original_max_position_embeddings": 4096});
+        c.as_object_mut().unwrap().remove("rope_parameters");
+    }) else {
+        return;
+    };
+    let refused = opened.err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(refused.contains("LongRoPE"), "LongRoPE is refused by name; got {refused:?}");
+    let Some(opened) = opened_with("phimoe", "no-original", |c| {
+        c.as_object_mut().unwrap().remove("original_max_position_embeddings");
+    }) else {
+        return;
+    };
+    let refused = opened.err().map(|e| e.to_string()).unwrap_or_default();
+    assert!(refused.contains("original_max_position_embeddings"), "the converter's required original context is named; got {refused:?}");
+    // The jitter and the experts a token at PhiMoE's own values read.
+    let Some(opened) = opened_with("phimoe", "stated", |c| {
+        c["router_jitter_noise"] = serde_json::json!(0.01);
+        c["num_experts_per_tok"] = serde_json::json!(2);
+    }) else {
+        return;
+    };
+    opened.unwrap_or_else(|e| panic!("PhiMoE's own jitter and experts read: {e}"));
+}
+
+/// The DSA indexer every latent-attention layer of `spec` carries, by layer.
+fn indexers(spec: &ModelSpec) -> Vec<Dsa> {
+    spec.layers
+        .iter()
+        .enumerate()
+        .map(|(l, layer)| match &layer.mixer {
+            Mixer::Mla(m) => m.indexer.clone().unwrap_or_else(|| panic!("block {l}: latent attention with no indexer")),
+            other => panic!("block {l} is {other:?}, not latent attention"),
+        })
+        .collect()
+}
+
+#[test]
+fn a_deepseek32_directory_reads_as_its_converted_gguf() {
+    // DeepSeek-V3.2 (`DeepseekV32ForCausalLM`): DeepSeek-V3's latent attention and mixture with its lightning indexer on
+    // every layer, the indexer's tensors presented as the converter names them (`indexer.attn_q_b`, `indexer.attn_k`,
+    // `indexer.k_norm` with its bias, `indexer.proj`).
+    reads_as_its_converted_gguf("deepseek32");
+    let Some((dir, _)) = twin("deepseek32") else { return };
+    let spec = ModelSpec::from_source(&HfCheckpoint::open(&dir).unwrap()).unwrap();
+    assert_eq!(spec.arch, "deepseek32");
+    for (l, ix) in indexers(&spec).into_iter().enumerate() {
+        assert_eq!(ix, Dsa { heads: 8, head_dim: 16, top_k: 4, neox: true, full: true }, "block {l}");
+    }
+}
+
+#[test]
+fn a_glm_dsa_directory_reads_as_its_converted_gguf() {
+    // GLM-5.2 (`GlmMoeDsaForCausalLM`): the indexer's rotation interleaved, and its second layer shared, taking the first's
+    // choice, with no indexer tensors of its own.
+    reads_as_its_converted_gguf("glm-dsa");
+    let Some((dir, _)) = twin("glm-dsa") else { return };
+    let hf = HfCheckpoint::open(&dir).unwrap();
+    let spec = ModelSpec::from_source(&hf).unwrap();
+    let full: Vec<bool> = indexers(&spec).iter().map(|ix| ix.full).collect();
+    assert_eq!(full, vec![true, false, true], "full, shared, full");
+    assert!(indexers(&spec).iter().all(|ix| !ix.neox), "the indexer's rotation interleaved");
+    assert!(!SpecSource::has(&hf, "blk.1.indexer.proj.weight"), "the shared layer holds no indexer");
+}
+
+/// `spec` with every latent attention's latent norms at the model's epsilon, as llama.cpp's latent-attention graphs norm
+/// them.
+fn latent_at_the_models_epsilon(spec: &ModelSpec) -> ModelSpec {
+    let mut s = spec.clone();
+    for layer in &mut s.layers {
+        if let Mixer::Mla(m) = &mut layer.mixer {
+            m.latent_norm_eps = spec.rms_eps;
+        }
+    }
+    s
+}
+
+#[test]
+fn a_deepseek32_directory_computes_what_transformers_computes() {
+    // Nine positions, each query past the fourth attending the 4 its indexer chooses: attending every position lands far
+    // past a millionth.
+    let Some((spec, theirs, scale, logits)) = computes_what_transformers_computes("deepseek32", &[1, 17, 400, 2024, 9, 77, 3, 512, 1000])
+    else {
+        return;
+    };
+    let mut dense = spec.clone();
+    for layer in &mut dense.layers {
+        if let Mixer::Mla(m) = &mut layer.mixer {
+            m.indexer = None;
+        }
+    }
+    let off = logits(&dense).iter().zip(&theirs).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+    assert!(off > scale * 1e-3, "every position attended: the logits move only {off:e}, so the twin does not hold the indexer");
+}
+
+#[test]
+fn a_glm_dsa_directory_computes_what_transformers_computes() {
+    // GLM-5.2's shared layer attends the positions the full layer before it chose: attending every position there lands
+    // far past a millionth. At GLM-5's epsilon of 10⁻⁵ the latent norms take 10⁻⁶, as GLM-5's code builds them: normed at
+    // the model's epsilon, as llama.cpp's `glm-dsa` norms them, the logits land past the millionth.
+    let Some((spec, theirs, scale, logits)) = computes_what_transformers_computes("glm-dsa", &[1, 17, 400, 2024, 9, 77, 3, 512, 1000])
+    else {
+        return;
+    };
+    assert_eq!(spec.rms_eps, 1e-5, "the twin at GLM-5's epsilon");
+    let mut dense_shared = spec.clone();
+    if let Mixer::Mla(m) = &mut dense_shared.layers[1].mixer {
+        m.indexer = None;
+    }
+    let off = logits(&dense_shared).iter().zip(&theirs).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+    assert!(off > scale * 1e-3, "the shared layer's choice moves the logits only {off:e}");
+    let off = logits(&latent_at_the_models_epsilon(&spec)).iter().zip(&theirs).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+    assert!(off > scale * 1e-6, "the latent normed at the model's epsilon lands only {off:e} from transformers, within the millionth");
+}
+
+#[test]
+fn the_dsa_directories_tokenizers_read_as_their_converted_ggufs() {
+    // DeepSeek-V3.2's byte-pair vocabulary, its pre-tokenizer named by a probe that begins with its beginning token (the
+    // tokenizer the converter asserts adds one), and GLM-5's, its special tokens named by text as `_set_vocab_glm` names
+    // them.
+    tokenizes_as_its_converted_gguf("deepseek32");
+    tokenizes_as_its_converted_gguf("glm-dsa");
+}
+
+#[test]
+fn every_dsa_setting_the_gguf_cannot_carry_is_refused_by_name() {
+    // GLM-5's per-layer indexer kinds and FFN kinds must be what the GGUF can say, its rotations interleaved and its every
+    // block past the dense lead a mixture; the converter's DeepSeek-V3.2 class asserts a tokenizer that adds its
+    // beginning token, which the released tokenizer_config.json does not.
+    for (tag, key, value) in [
+        ("short-types", "indexer_types", serde_json::json!(["full", "shared"])),
+        ("bad-type", "indexer_types", serde_json::json!(["full", "sparse", "full"])),
+        ("mlp-types", "mlp_layer_types", serde_json::json!(["dense", "dense", "sparse"])),
+        ("neox-indexer", "indexer_rope_interleave", serde_json::json!(false)),
+        ("neox", "rope_interleave", serde_json::json!(false)),
+        ("moe-freq", "moe_layer_freq", serde_json::json!(2)),
+    ] {
+        let Some(opened) = opened_with("glm-dsa", tag, |c| c[key] = value.clone()) else { return };
+        let refused = opened.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(refused.contains(key), "`{key}` = {value} is refused naming the key; got {refused:?}");
+    }
+    let Some((dir, _)) = twin("deepseek32") else { return };
+    let copy = scratch_copy("deepseek32-no-bos", &dir);
+    let path = copy.join("tokenizer_config.json");
+    let mut tc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    tc["add_bos_token"] = serde_json::json!(false);
+    std::fs::write(&path, tc.to_string()).unwrap();
+    let refused = HfCheckpoint::read_tokenizer(&copy).err().map(|e| e.to_string()).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&copy);
+    assert!(refused.contains("add_bos_token"), "the released tokenizer_config.json is refused naming the key; got {refused:?}");
+}
+
+#[test]
+fn glm5s_indexer_kinds_read_as_transformers_derives_them() {
+    // With no `indexer_types`, transformers derives each layer's kind from `index_topk_pattern`, else from
+    // `index_topk_freq` and `index_skip_topk_offset`: full where `max(l − offset + 1, 0)` is a multiple of the frequency.
+    let kinds = |edit: &dyn Fn(&mut serde_json::Value)| -> Option<Vec<bool>> {
+        let opened = opened_with("glm-dsa", "derived", |c| {
+            c.as_object_mut().unwrap().remove("indexer_types");
+            edit(c);
+        })?;
+        Some(indexers(&ModelSpec::from_source(&opened.unwrap()).unwrap()).iter().map(|ix| ix.full).collect())
+    };
+    let Some(every) = kinds(&|_| {}) else { return };
+    assert_eq!(every, vec![true; 3], "transformers' defaults: every layer full");
+    let stepped = kinds(&|c| {
+        c["index_topk_freq"] = serde_json::json!(2);
+        c["index_skip_topk_offset"] = serde_json::json!(2);
+    });
+    assert_eq!(stepped, Some(vec![true, true, false]), "frequency 2 from offset 2");
+    assert_eq!(kinds(&|c| c["index_topk_pattern"] = serde_json::json!("FSF")), Some(vec![true, false, true]), "a pattern");
+}
+
+#[test]
+fn an_lfm2_directory_reads_as_its_converted_gguf() {
+    // LFM2 (`Lfm2ForCausalLM`): gated short convolutions of 3 taps on blocks 0, 1 and 3, attention with per-head QK
+    // norms under a NEOX rotation on blocks 2 and 4, a dense SwiGLU after every block, the head tied, and the final norm
+    // stored under the converter's name for `embedding_norm`, `token_embd_norm`. Read raw, the spec refuses it, naming
+    // the norm; opened (`model::layout` presents it as `output_norm`), the directory reads as the GGUF.
+    layout_reads_as_its_converted_gguf("lfm2");
+    let Some((dir, gguf)) = twin("lfm2") else { return };
+    let refused = ModelSpec::from_source(&Gguf::open(&gguf).unwrap()).expect_err("a raw lfm2 checkpoint is refused");
+    assert!(refused.to_string().contains("token_embd_norm"), "the refusal names the stored norm: {refused}");
+    let spec = ModelSpec::from_source(&*open_checkpoint(&dir).unwrap()).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(spec, ModelSpec::from_source(&*open_checkpoint(&gguf).unwrap()).unwrap(), "the directory and the GGUF");
+    assert!(spec.tied_output, "the head is the embedding");
+    for (l, layer) in spec.layers.iter().enumerate() {
+        match (&layer.mixer, l) {
+            (Mixer::Recurrent(Recurrent::ShortConv(c)), 0 | 1 | 3) => assert_eq!(c.taps, 3, "block {l}: `conv_L_cache` taps"),
+            (Mixer::Attention(a), 2 | 4) => {
+                assert!(a.qk_norm && a.window.is_none(), "block {l}: per-head QK norms, no window");
+                assert_eq!((a.heads, a.kv_heads), (4, 2), "block {l}: the heads");
+                assert_eq!(a.rope.as_ref().map(|r| (r.neox, r.theta)), Some((true, 1_000_000.0)), "block {l}: NEOX at its base");
+            }
+            (other, _) => panic!("block {l} reads as {other:?}"),
+        }
+        assert_eq!(layer.ffn, Ffn::Dense { dff: 128, act: Act::Silu }, "block {l}: two thirds of 192, a multiple of 32");
+    }
+}
+
+#[test]
+fn an_lfm2_directory_computes_what_transformers_computes() {
+    // Nine positions through three short convolutions of 3 taps and two attention blocks: each convolution carries the
+    // two gated inputs before it from position to position, and the attention's QK norms and NEOX pairing bind.
+    let Some((spec, theirs, scale, logits)) = computes_what_transformers_computes("lfm2", &[1, 17, 400, 2024, 9, 77, 3, 512, 1000])
+    else {
+        return;
+    };
+    let attention = |f: &dyn Fn(&mut logicaffeine_compile::model::spec::Attention)| {
+        let mut s = spec.clone();
+        for layer in &mut s.layers {
+            if let Mixer::Attention(a) = &mut layer.mixer {
+                f(a);
+            }
+        }
+        s
+    };
+    let unnormed = attention(&|a| a.qk_norm = false);
+    let interleaved = attention(&|a| a.rope.as_mut().unwrap().neox = false);
+    for (what, other) in [("no QK norms", unnormed), ("an interleaved rotation", interleaved)] {
+        let off = logits(&other).iter().zip(&theirs).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+        assert!(off > scale * 1e-3, "{what}: the logits move only {off:e}, so the twin does not hold the reference to it");
+    }
+}
+
+#[test]
+fn an_lfm2_directorys_tokenizer_reads_as_its_converted_gguf() {
+    // LFM2's byte-level BPE as the converter reads it (`pre` lfm2), its chat and tool tokens added.
+    tokenizes_as_its_converted_gguf("lfm2");
+}
+
+#[test]
+fn every_lfm2_setting_the_gguf_cannot_carry_is_refused_by_name() {
+    // llama.cpp's lfm2 reads no short-convolution bias; LFM2's configurations restate settings under their training
+    // code's names, each of which must say what transformers reads; and with no FFN multiplier transformers keeps two
+    // thirds of the width where the converter rounds it up to the multiple.
+    type Edit = Box<dyn Fn(&mut serde_json::Value)>;
+    let set = |key: &'static str, value: serde_json::Value| -> Edit { Box::new(move |c| c[key] = value.clone()) };
+    let cases: Vec<(&str, Edit, &str)> = vec![
+        ("conv-bias", set("conv_bias", serde_json::json!(true)), "conv_bias"),
+        ("block-dim", set("block_dim", serde_json::json!(96)), "block_dim"),
+        ("conv-dim", set("conv_dim", serde_json::json!(96)), "conv_dim"),
+        ("num-heads", set("num_heads", serde_json::json!(8)), "num_heads"),
+        ("theta", set("theta", serde_json::json!(10000.0)), "theta"),
+        ("block-eps", set("block_norm_eps", serde_json::json!(1e-6)), "block_norm_eps"),
+        ("no-positions", set("use_pos_enc", serde_json::json!(false)), "use_pos_enc"),
+        ("no-swiglu", set("block_use_swiglu", serde_json::json!(false)), "block_use_swiglu"),
+        (
+            "null-multiplier",
+            Box::new(|c| {
+                c["block_ffn_dim_multiplier"] = serde_json::Value::Null;
+                c["intermediate_size"] = serde_json::json!(200);
+            }),
+            "block_ffn_dim_multiplier",
+        ),
+        ("short-types", set("layer_types", serde_json::json!(["conv", "full_attention"])), "layer_types"),
+    ];
+    for (tag, edit, named) in cases {
+        let Some(opened) = opened_with("lfm2", tag, edit) else { return };
+        let refused = opened.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(refused.contains(named), "{tag}: refused naming `{named}`; got {refused:?}");
+    }
+    // A null multiplier where two thirds of the width is already a multiple (128 of 192) is the same FFN to both.
+    let Some(opened) = opened_with("lfm2", "null-multiplier-whole", |c| c["block_ffn_dim_multiplier"] = serde_json::Value::Null) else {
+        return;
+    };
+    opened.unwrap_or_else(|e| panic!("two thirds of 192 is a multiple of 32: {e}"));
+}
+
+#[test]
+fn a_mamba2_directory_reads_as_its_converted_gguf() {
+    // Mamba-2 (`Mamba2ForCausalLM`): two blocks of the scan alone — eight heads of 16 over an inner width of twice the
+    // model's, one group of B and C of 16 states, a 4-tap convolution with its bias, the gated norm — under the
+    // checkpoint's `backbone.` names, its `A` stored as `A_log` and written as `−exp(A_log)`, and GPT-NeoX's vocabulary
+    // padded to a multiple of 16.
+    reads_as_its_converted_gguf("mamba2");
+    let Some((dir, _)) = twin("mamba2") else { return };
+    let spec = ModelSpec::from_source(&HfCheckpoint::open(&dir).unwrap()).unwrap();
+    assert_eq!((spec.arch.as_str(), spec.vocab, spec.tied_output), ("mamba2", 50288, false));
+    for (l, layer) in spec.layers.iter().enumerate() {
+        let scan = Ssd { heads: 8, head_dim: 16, state: 16, groups: 1, conv_taps: 4, gated_norm: true };
+        assert_eq!(layer.mixer, Mixer::Recurrent(Recurrent::Ssd(scan)), "block {l}: the scan");
+        assert_eq!(layer.ffn, Ffn::None, "block {l}: no FFN");
+    }
+}
+
+#[test]
+fn a_mamba2_directory_computes_what_transformers_computes() {
+    // Nine positions through two scans, each carrying its convolution's last three inputs and every head's state from
+    // position to position. One group: with more, transformers' torch path norms the gated read as one group where its
+    // kernels and llama.cpp norm it group by group, and the spec follows llama.cpp.
+    let Some((spec, theirs, scale, logits)) = computes_what_transformers_computes("mamba2", &[1, 17, 400, 2024, 9, 77, 3, 512, 1000])
+    else {
+        return;
+    };
+    let mut normless = spec.clone();
+    for layer in &mut normless.layers {
+        if let Mixer::Recurrent(Recurrent::Ssd(s)) = &mut layer.mixer {
+            s.gated_norm = false;
+        }
+    }
+    let off = logits(&normless).iter().zip(&theirs).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+    assert!(off > scale * 1e-3, "no gated norm: the logits move only {off:e}, so the twin does not hold the reference to it");
+}
+
+#[test]
+fn a_mamba2_directorys_tokenizer_reads_as_its_converted_gguf() {
+    // GPT-NeoX's byte-level BPE (`pre` olmo, as the converter's probe names it), its vocabulary padded with the
+    // converter's `[PAD<n>]` tokens to a multiple of 16.
+    tokenizes_as_its_converted_gguf("mamba2");
+}
+
+#[test]
+fn every_mamba2_setting_the_gguf_cannot_carry_is_refused_by_name() {
+    // llama.cpp's mamba2 builds the block as transformers' defaults do: no projection biases, a biased convolution, an
+    // unclamped time step; and the converter asserts an inner width of `expand` times the model's and derives the heads
+    // from it. transformers gates and then RMS-normalizes whatever `rms_norm` and `norm_before_gate` say, as llama.cpp
+    // does, so those read (Mamba-Codestral states `norm_before_gate`).
+    type Edit = Box<dyn Fn(&mut serde_json::Value)>;
+    let set = |key: &'static str, value: serde_json::Value| -> Edit { Box::new(move |c| c[key] = value.clone()) };
+    let cases: Vec<(&str, Edit, &str)> = vec![
+        ("biased", set("use_bias", serde_json::json!(true)), "use_bias"),
+        ("unbiased-conv", set("use_conv_bias", serde_json::json!(false)), "use_conv_bias"),
+        ("clamped", set("time_step_limit", serde_json::json!([0.001, 0.1])), "time_step_limit"),
+        ("heads", set("num_heads", serde_json::json!(4)), "num_heads"),
+        ("inner", set("intermediate_size", serde_json::json!(96)), "inner width"),
+    ];
+    for (tag, edit, named) in cases {
+        let Some(opened) = opened_with("mamba2", tag, edit) else { return };
+        let refused = opened.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(refused.contains(named), "{tag}: refused naming `{named}`; got {refused:?}");
+    }
+    // An unbounded limit, as transformers writes its default, clamps nothing.
+    let Some(opened) = opened_with("mamba2", "unbounded", |c| c["time_step_limit"] = serde_json::json!([0.0, null])) else { return };
+    opened.unwrap_or_else(|e| panic!("an unbounded time step reads: {e}"));
+    let inert: Vec<(&str, Edit)> = vec![
+        ("no-rms-norm", set("rms_norm", serde_json::json!(false))),
+        ("norm-before-gate", set("norm_before_gate", serde_json::json!(true))),
+        ("codestral-init", Box::new(|c| {
+            c["time_step_init_scheme"] = serde_json::json!("random");
+            c["time_step_scale"] = serde_json::json!(1.0);
+        })),
+    ];
+    for (tag, edit) in inert {
+        let Some(opened) = opened_with("mamba2", tag, edit) else { return };
+        opened.unwrap_or_else(|e| panic!("{tag}: a key no reader of the block reads is refused: {e}"));
+    }
+}
+
+#[test]
+fn an_unbounded_time_step_reads_in_every_spelling_python_writes() {
+    // transformers 5 saves the default `time_step_limit` of `(0.0, inf)` as `[0.0, {"__float__": "Infinity"}]`, earlier
+    // releases as Python's `json` writes the float, a bare `Infinity` that JSON has no number for (Mamba-Codestral,
+    // Falcon-H1, Nemotron-H). Each spelling is the unclamped scan llama.cpp runs; a tagged NaN or a finite bound clamps.
+    for family in ["mamba2", "falcon-h1", "nemotron_h"] {
+        for (tag, limit, reads) in [
+            ("tagged", r#"[0.0, {"__float__": "Infinity"}]"#, true),
+            ("bare", "[0.0, Infinity]", true),
+            ("null", "[0.0, null]", true),
+            ("tagged-nan", r#"[0.0, {"__float__": "NaN"}]"#, false),
+            ("bare-nan", "[0.0, NaN]", false),
+            ("finite", "[0.0, 100.0]", false),
+            ("floored", "[0.5, Infinity]", false),
+        ] {
+            let Some((dir, _)) = twin(family) else { return };
+            let copy = scratch_copy(&format!("{family}-limit-{tag}"), &dir);
+            let path = copy.join("config.json");
+            let mut config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            config["time_step_limit"] = serde_json::json!("@limit@");
+            let text = serde_json::to_string_pretty(&config).unwrap().replace("\"@limit@\"", limit);
+            std::fs::write(&path, text).unwrap();
+            let opened = HfCheckpoint::open(&copy).map(|_| ());
+            let _ = std::fs::remove_dir_all(&copy);
+            match (opened, reads) {
+                (Ok(()), true) => {}
+                (Err(e), false) => assert!(e.to_string().contains("time_step_limit"), "{family} {limit}: refused naming `time_step_limit`; got {e}"),
+                (Ok(()), false) => panic!("{family} {limit}: a clamped time step reads"),
+                (Err(e), true) => panic!("{family} {limit}: an unbounded time step is refused: {e}"),
+            }
+        }
+    }
+}
+
+#[test]
+fn a_falcon_h1_directory_reads_as_its_converted_gguf() {
+    // Falcon-H1 (`FalconH1ForCausalLM`): in each of three blocks attention beside Mamba-2's scan on one normed input,
+    // then a dense SwiGLU, with every MuP multiplier folded into the weights to the bit as the converter folds it (the
+    // key's two one after the other, the scan's input projection by its multiplier and then each of its five parts by
+    // its own), and the FFN norm stored as `blk.<n>.ffn_norm`, as llama.cpp loads it. Read raw, the spec refuses that
+    // name; opened (`model::layout` presents it with its `.weight`), the directory reads as the GGUF.
+    layout_reads_as_its_converted_gguf("falcon-h1");
+    let Some((dir, gguf)) = twin("falcon-h1") else { return };
+    let refused = ModelSpec::from_source(&Gguf::open(&gguf).unwrap()).expect_err("a raw falcon-h1 checkpoint is refused");
+    assert!(refused.to_string().contains("ffn_norm"), "the refusal names the stored norm: {refused}");
+    let spec = ModelSpec::from_source(&*open_checkpoint(&dir).unwrap()).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(spec, ModelSpec::from_source(&*open_checkpoint(&gguf).unwrap()).unwrap(), "the directory and the GGUF");
+    assert!(!spec.tied_output, "an untied head");
+    for (l, layer) in spec.layers.iter().enumerate() {
+        let Mixer::Recurrent(Recurrent::Parallel(a, scan)) = &layer.mixer else { panic!("block {l} reads as {:?}", layer.mixer) };
+        assert_eq!((a.heads, a.kv_heads, a.head_dim), (4, 2, 16), "block {l}: the attention's heads");
+        assert_eq!(a.rope.as_ref().map(|r| r.neox), Some(true), "block {l}: a NEOX rotation");
+        assert_eq!(*scan, Ssd { heads: 8, head_dim: 16, state: 16, groups: 2, conv_taps: 4, gated_norm: true }, "block {l}: the scan");
+        assert_eq!(layer.ffn, Ffn::Dense { dff: 128, act: Act::Silu }, "block {l}: the FFN");
+    }
+}
+
+#[test]
+fn a_falcon_h1_directory_computes_what_transformers_computes() {
+    // Nine positions through three blocks of attention beside the scan: the scan's grouped gated norm groups as
+    // transformers' `FalconH1RMSNormGated` does, and each half of the block binds.
+    let Some((spec, theirs, scale, logits)) = computes_what_transformers_computes("falcon-h1", &[17, 1, 400, 2024, 9, 77, 3, 512, 1000])
+    else {
+        return;
+    };
+    let each = |f: &dyn Fn(&mut Mixer)| {
+        let mut s = spec.clone();
+        for layer in &mut s.layers {
+            f(&mut layer.mixer);
+        }
+        s
+    };
+    let attention_alone = each(&|m| {
+        if let Mixer::Recurrent(Recurrent::Parallel(a, _)) = m {
+            *m = Mixer::Attention((**a).clone());
+        }
+    });
+    let scan_alone = each(&|m| {
+        if let Mixer::Recurrent(Recurrent::Parallel(_, s)) = m {
+            *m = Mixer::Recurrent(Recurrent::Ssd(s.clone()));
+        }
+    });
+    let ungrouped = each(&|m| {
+        if let Mixer::Recurrent(Recurrent::Parallel(_, s)) = m {
+            s.groups = 1;
+        }
+    });
+    for (what, other) in [("attention alone", attention_alone), ("the scan alone", scan_alone), ("the scan in one group", ungrouped)] {
+        let off = logits(&other).iter().zip(&theirs).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+        assert!(off > scale * 1e-3, "{what}: the logits move only {off:e}, so the twin does not hold the reference to it");
+    }
+}
+
+#[test]
+fn a_falcon_h1_directorys_tokenizer_reads_as_its_converted_gguf() {
+    // Falcon-H1's byte-level BPE (`pre` falcon-h1), its vocabulary padded to the configuration's 32,784 entries.
+    tokenizes_as_its_converted_gguf("falcon-h1");
+}
+
+#[test]
+fn every_falcon_h1_setting_the_gguf_cannot_carry_is_refused_by_name() {
+    // llama.cpp's scan adds its convolution's bias unconditionally and gates the read before its norm; its falcon-h1
+    // reads no projection bias and adds no attention output bias; the converter divides by `mamba_d_head`, asserts SiLU,
+    // writes the rotation's base alone, and folds the embedding's multiplier into the one table a tied head reads.
+    type Edit = Box<dyn Fn(&mut serde_json::Value)>;
+    let set = |key: &'static str, value: serde_json::Value| -> Edit { Box::new(move |c| c[key] = value.clone()) };
+    let cases: Vec<(&str, Edit, &str)> = vec![
+        ("no-conv-bias", set("mamba_conv_bias", serde_json::json!(false)), "mamba_conv_bias"),
+        ("proj-bias", set("mamba_proj_bias", serde_json::json!(true)), "mamba_proj_bias"),
+        ("projectors-bias", set("projectors_bias", serde_json::json!(true)), "projectors_bias"),
+        ("attention-bias", set("attention_bias", serde_json::json!(true)), "attention_bias"),
+        ("mlp-bias", set("mlp_bias", serde_json::json!(true)), "mlp_bias"),
+        ("norm-before-gate", set("mamba_norm_before_gate", serde_json::json!(true)), "mamba_norm_before_gate"),
+        ("clamped", set("time_step_limit", serde_json::json!([0.001, 0.1])), "time_step_limit"),
+        ("gelu", set("hidden_act", serde_json::json!("gelu")), "hidden_act"),
+        ("auto-head", set("mamba_d_head", serde_json::json!("auto")), "mamba_d_head"),
+        ("heads", set("mamba_n_heads", serde_json::json!(4)), "mamba_n_heads"),
+        ("four-ssm-multipliers", set("ssm_multipliers", serde_json::json!([1.0, 1.0, 1.0, 1.0])), "ssm_multipliers"),
+        (
+            "yarn",
+            set("rope_parameters", serde_json::json!({"rope_type": "yarn", "rope_theta": 1e11, "factor": 2.0, "original_max_position_embeddings": 8192})),
+            "rope_parameters",
+        ),
+        (
+            "tied",
+            Box::new(|c| {
+                c["tie_word_embeddings"] = serde_json::json!(true);
+            }),
+            "lm_head_multiplier",
+        ),
+    ];
+    for (tag, edit, named) in cases {
+        let Some(opened) = opened_with("falcon-h1", tag, edit) else { return };
+        let refused = opened.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(refused.contains(named), "{tag}: refused naming `{named}`; got {refused:?}");
+    }
+    // A gated norm after the gate, as every published Falcon-H1 has it, reads.
+    let Some(opened) = opened_with("falcon-h1", "gate-then-norm", |c| c["mamba_norm_before_gate"] = serde_json::json!(false)) else { return };
+    opened.unwrap_or_else(|e| panic!("the gated norm after the gate reads: {e}"));
+}
+
+#[test]
+fn a_nemotron_h_directory_reads_as_its_converted_gguf() {
+    // Nemotron-H (`NemotronHForCausalLM`, `M-M*-`): blocks of one sublayer each under its one norm — Mamba-2's scan in
+    // eight heads of 16 and two groups, an FFN of relu² with no gate, attention with no rotation (its queries and keys
+    // permuted as the converter's Llama class permutes them, which leaves every score as it is) — with each block's KV
+    // heads and FFN width written per block, the epsilon as a LayerNorm's, and Nemotron-Nano-9B-v2's vocabulary.
+    reads_as_its_converted_gguf("nemotron_h");
+    let Some((dir, _)) = twin("nemotron_h") else { return };
+    let spec = ModelSpec::from_source(&HfCheckpoint::open(&dir).unwrap()).unwrap();
+    assert_eq!((spec.arch.as_str(), spec.rms_eps as f32), ("nemotron_h", 1e-5), "the architecture and its epsilon");
+    let scan = Ssd { heads: 8, head_dim: 16, state: 16, groups: 2, conv_taps: 4, gated_norm: true };
+    for (l, layer) in spec.layers.iter().enumerate() {
+        match (l, &layer.mixer, &layer.ffn) {
+            (0 | 2, Mixer::Recurrent(Recurrent::Ssd(s)), Ffn::None) => assert_eq!(*s, scan, "block {l}: the scan"),
+            (1 | 4, Mixer::None, Ffn::Dense { dff: 128, act: Act::ReluSquared }) => {}
+            (3, Mixer::Attention(a), Ffn::None) => {
+                assert_eq!((a.heads, a.kv_heads, a.head_dim, a.rope.is_none()), (4, 2, 16, true), "block {l}: unrotated attention")
+            }
+            (_, mixer, ffn) => panic!("block {l} reads as {mixer:?} and {ffn:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_nemotron_h_directory_computes_what_transformers_computes() {
+    // Nine positions through two scans, an attention block and two FFN blocks, each block's one sublayer normed by its
+    // one norm: an FFN normed by an FFN norm of its own, or attention rotated, lands far past a millionth.
+    let Some((spec, theirs, scale, logits)) = computes_what_transformers_computes("nemotron_h", &[1, 17, 400, 2024, 9, 77, 3, 512, 1000])
+    else {
+        return;
+    };
+    let mut ungrouped = spec.clone();
+    for layer in &mut ungrouped.layers {
+        if let Mixer::Recurrent(Recurrent::Ssd(s)) = &mut layer.mixer {
+            s.groups = 1;
+        }
+    }
+    let off = logits(&ungrouped).iter().zip(&theirs).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+    assert!(off > scale * 1e-3, "the scan in one group: the logits move only {off:e}, so the twin does not hold the reference to it");
+}
+
+#[test]
+fn a_nemotron_h_directorys_tokenizer_reads_as_its_converted_gguf() {
+    // Nemotron-Nano-9B-v2's byte-level BPE (`pre` tekken) as `NemotronHModel.set_vocab` reads it through the tokenizer.
+    tokenizes_as_its_converted_gguf("nemotron_h");
+}
+
+#[test]
+fn every_nemotron_h_setting_the_gguf_cannot_carry_is_refused_by_name() {
+    // llama.cpp's nemotron_h adds the scan's convolution bias unconditionally and reads no other bias of the scan or the
+    // FFN, computes SiLU in the scan and relu² in the FFN, windows no attention and clamps no time step; the converter
+    // writes a `layers_block_type` list's FFN blocks with no FFN width; Nemotron 3's mixture blocks are not read yet.
+    type Edit = Box<dyn Fn(&mut serde_json::Value)>;
+    let set = |key: &'static str, value: serde_json::Value| -> Edit { Box::new(move |c| c[key] = value.clone()) };
+    let cases: Vec<(&str, Edit, &str)> = vec![
+        ("no-conv-bias", set("use_conv_bias", serde_json::json!(false)), "use_conv_bias"),
+        ("scan-bias", set("use_bias", serde_json::json!(true)), "use_bias"),
+        ("proj-bias", set("mamba_proj_bias", serde_json::json!(true)), "mamba_proj_bias"),
+        ("mlp-bias", set("mlp_bias", serde_json::json!(true)), "mlp_bias"),
+        ("attention-bias", set("attention_bias", serde_json::json!(true)), "attention_bias"),
+        ("gelu-scan", set("mamba_hidden_act", serde_json::json!("gelu")), "mamba_hidden_act"),
+        ("silu-ffn", set("mlp_hidden_act", serde_json::json!("silu")), "mlp_hidden_act"),
+        ("windowed", set("sliding_window", serde_json::json!(4)), "sliding_window"),
+        ("clamped", set("time_step_limit", serde_json::json!([0.001, 0.1])), "time_step_limit"),
+        ("experts", set("hybrid_override_pattern", serde_json::json!("MEM*E")), "hybrid_override_pattern"),
+        ("short-pattern", set("hybrid_override_pattern", serde_json::json!("M-M*")), "4 blocks"),
+        ("three-groups", set("n_groups", serde_json::json!(3)), "groups"),
+        (
+            "listed-ffn",
+            Box::new(|c| {
+                c.as_object_mut().unwrap().remove("hybrid_override_pattern");
+                c["layers_block_type"] = serde_json::json!(["mamba", "mlp", "mamba", "attention", "mlp"]);
+            }),
+            "layers_block_type",
+        ),
+    ];
+    for (tag, edit, named) in cases {
+        let Some(opened) = opened_with("nemotron_h", tag, edit) else { return };
+        let refused = opened.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(refused.contains(named), "{tag}: refused naming `{named}`; got {refused:?}");
+    }
+}
+
+#[test]
+fn a_jamba_directory_reads_as_its_converted_gguf() {
+    // Jamba (`JambaForCausalLM`): Mamba-1's selective scan on blocks 0 and 2 with its time step, B and C each RMS-normed,
+    // attention with no rotation on blocks 1 and 3; four experts, two a token, the softmax weights kept as they stand,
+    // after each scan block (its experts stacked one tensor a projection), a dense SwiGLU after each attention block; the
+    // head tied; Jamba-Reasoning-3B's vocabulary read as `LlamaHfVocab` reads it.
+    reads_as_its_converted_gguf("jamba");
+    let Some((dir, _)) = twin("jamba") else { return };
+    let spec = ModelSpec::from_source(&HfCheckpoint::open(&dir).unwrap()).unwrap();
+    assert!(spec.tied_output, "the head is the embedding");
+    let scan = Selective { inner: 128, state: 16, dt_rank: 8, conv_taps: 4, inner_norms: true };
+    for (l, layer) in spec.layers.iter().enumerate() {
+        match (l % 2, &layer.mixer, &layer.ffn) {
+            (0, Mixer::Recurrent(Recurrent::Selective(s)), Ffn::Moe(m)) => {
+                assert_eq!(*s, scan, "block {l}: the scan");
+                assert_eq!((m.experts, m.top_k, m.gating.clone(), m.norm_top_k), (4, 2, Gating::Softmax, false), "block {l}: the mixture");
+            }
+            (1, Mixer::Attention(a), Ffn::Dense { dff: 128, act: Act::Silu }) => {
+                assert_eq!((a.heads, a.kv_heads, a.rope.is_none()), (4, 2, true), "block {l}: unrotated attention")
+            }
+            (_, mixer, ffn) => panic!("block {l} reads as {mixer:?} and {ffn:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_jamba_directory_computes_what_transformers_computes() {
+    // Nine positions through two selective scans and two attention blocks: each scan's dt, B and C norms bind, and the
+    // mixture's softmax weights are not renormalized.
+    let Some((spec, theirs, scale, logits)) = computes_what_transformers_computes("jamba", &[1, 17, 400, 2024, 9, 77, 3, 512, 1000])
+    else {
+        return;
+    };
+    let mut normless = spec.clone();
+    let mut renormalized = spec.clone();
+    for layer in &mut normless.layers {
+        if let Mixer::Recurrent(Recurrent::Selective(s)) = &mut layer.mixer {
+            s.inner_norms = false;
+        }
+    }
+    for layer in &mut renormalized.layers {
+        if let Ffn::Moe(m) = &mut layer.ffn {
+            m.norm_top_k = true;
+        }
+    }
+    for (what, other) in [("no dt, B and C norms", normless), ("renormalized experts", renormalized)] {
+        let off = logits(&other).iter().zip(&theirs).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+        assert!(off > scale * 1e-3, "{what}: the logits move only {off:e}, so the twin does not hold the reference to it");
+    }
+}
+
+#[test]
+fn a_jamba_directorys_tokenizer_reads_as_its_converted_gguf() {
+    // Jamba-Reasoning-3B ships a byte-fallback tokenizer.json and no SentencePiece model: `LlamaHfVocab`'s entries, every
+    // one scored −1000, its byte tokens typed as bytes, its named and additional special tokens as control tokens.
+    tokenizes_as_its_converted_gguf("jamba");
+}
+
+#[test]
+fn every_jamba_setting_the_gguf_cannot_carry_is_refused_by_name() {
+    // llama.cpp's jamba reads a convolution bias in every scan block and no projection bias, computes SiLU, windows no
+    // attention; the converter writes `mamba_dt_rank` as it stands and counts the layer periods from their offsets.
+    type Edit = Box<dyn Fn(&mut serde_json::Value)>;
+    let set = |key: &'static str, value: serde_json::Value| -> Edit { Box::new(move |c| c[key] = value.clone()) };
+    let cases: Vec<(&str, Edit, &str)> = vec![
+        ("no-conv-bias", set("mamba_conv_bias", serde_json::json!(false)), "mamba_conv_bias"),
+        ("proj-bias", set("mamba_proj_bias", serde_json::json!(true)), "mamba_proj_bias"),
+        ("gelu", set("hidden_act", serde_json::json!("gelu")), "hidden_act"),
+        ("windowed", set("sliding_window", serde_json::json!(4)), "sliding_window"),
+        ("auto-rank", set("mamba_dt_rank", serde_json::json!("auto")), "mamba_dt_rank"),
+        ("no-period", set("attn_layer_period", serde_json::json!(0)), "period"),
+        ("too-many-chosen", set("num_experts_per_tok", serde_json::json!(5)), "num_experts_per_tok"),
+    ];
+    for (tag, edit, named) in cases {
+        let Some(opened) = opened_with("jamba", tag, edit) else { return };
+        let refused = opened.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(refused.contains(named), "{tag}: refused naming `{named}`; got {refused:?}");
+    }
+}
+
+#[test]
+fn a_gemma3n_directory_reads_as_its_converted_gguf() {
+    // Gemma 3n (`Gemma3nForCausalLM`, and as published under `Gemma3nForConditionalGeneration`'s prefix): Gemma 3's
+    // blocks with the scores unscaled and the values normed with no weight, four AltUp streams (the converter stacking
+    // their three projections each way), LAuReL of 64, per-layer inputs of 256 (the converter padding their table, and
+    // the embedding, with zero rows to the whole vocabulary), the first ten blocks' gates sparsified at the 95th
+    // percentile (its quantile as torch computes it in f32, −∞ for none), the cache shared from block 20.
+    for family in ["gemma3n", "gemma3n-mm"] {
+        reads_as_its_converted_gguf(family);
+    }
+    let Some((dir, _)) = twin("gemma3n") else { return };
+    let spec = ModelSpec::from_source(&HfCheckpoint::open(&dir).unwrap()).unwrap();
+    assert_eq!((spec.vocab, spec.final_logit_softcap, spec.tied_output), (262400, Some(30.0), true), "the padded vocabulary, the cap, the tied head");
+    assert_eq!(
+        spec.parts,
+        [
+            Part::PerLayerInput { dim: 256 },
+            Part::AltUp { streams: 4, active: 0 },
+            Part::Laurel { rank: 64 },
+            Part::ValueNorm,
+            Part::GateSparsity { layers: 3, std_mul: f32::from_bits(0x3fd2_8a90) as f64 },
+        ],
+        "Gemma 3n's parts, none shared under twenty blocks"
+    );
+    for (l, layer) in spec.layers.iter().enumerate() {
+        let Mixer::Attention(a) = &layer.mixer else { panic!("block {l} attends") };
+        assert_eq!((a.scale, a.qk_norm, a.window.is_some()), (1.0, true, l < 2), "block {l}: unscaled, QK-normed, windowed but the last");
+        assert!(layer.post_mixer_norm && layer.post_ffn_norm, "block {l}: Gemma's sandwich norms");
+    }
+}
+
+#[test]
+fn a_gemma3n_directory_computes_what_transformers_computes() {
+    // Nine positions through three blocks of four streams under windows of 4: each part binds — the value norm, LAuReL,
+    // the gate's sparsity, the per-layer inputs — and the sparsity's deviation is the population's, as transformers
+    // takes it (llama.cpp's `gaussian_topk` divides by `n − 1`).
+    let Some((spec, theirs, scale, logits)) = computes_what_transformers_computes("gemma3n", &[2, 17, 400, 2024, 9, 77, 3, 512, 1000])
+    else {
+        return;
+    };
+    let without = |part: fn(&Part) -> bool| ModelSpec { parts: spec.parts.iter().filter(|p| !part(p)).cloned().collect(), ..spec.clone() };
+    let denser = ModelSpec {
+        parts: spec.parts.iter().map(|p| match p { Part::GateSparsity { layers, .. } => Part::GateSparsity { layers: *layers, std_mul: 1.0 }, p => p.clone() }).collect(),
+        ..spec.clone()
+    };
+    for (what, other) in [
+        ("no value norm", without(|p| *p == Part::ValueNorm)),
+        ("no sparsity", without(|p| matches!(p, Part::GateSparsity { .. }))),
+        ("a sparsity of one deviation", denser),
+    ] {
+        let off = logits(&other).iter().zip(&theirs).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+        assert!(off > scale * 1e-3, "{what}: the logits move only {off:e}, so the twin does not hold the reference to it");
+    }
+}
+
+#[test]
+fn a_gemma3n_directorys_tokenizer_reads_as_its_converted_gguf() {
+    // Gemma 3n's SentencePiece vocabulary, padded to its 262,400 entries, with no space prefix.
+    tokenizes_as_its_converted_gguf("gemma3n");
+}
+
+#[test]
+fn every_gemma3n_setting_the_gguf_cannot_carry_is_refused_by_name() {
+    // llama.cpp's gemma3n fixes four AltUp streams with the first active, LAuReL of 64, per-layer inputs of 256, the cache
+    // shared from block 20, the first ten blocks' gates sparsified at 0.95, the corrected stream scaled; it reads no
+    // attention bias and computes the tanh GELU.
+    type Edit = Box<dyn Fn(&mut serde_json::Value)>;
+    let set = |key: &'static str, value: serde_json::Value| -> Edit { Box::new(move |c| c[key] = value.clone()) };
+    let cases: Vec<(&str, Edit, &str)> = vec![
+        ("streams", set("altup_num_inputs", serde_json::json!(2)), "altup_num_inputs"),
+        ("active", set("altup_active_idx", serde_json::json!(1)), "altup_active_idx"),
+        ("laurel", set("laurel_rank", serde_json::json!(32)), "laurel_rank"),
+        ("per-layer", set("hidden_size_per_layer_input", serde_json::json!(128)), "hidden_size_per_layer_input"),
+        ("shared", set("num_kv_shared_layers", serde_json::json!(1)), "num_kv_shared_layers"),
+        ("sparsity", set("activation_sparsity_pattern", serde_json::json!([0.95, 0.95, 0.0])), "activation_sparsity_pattern"),
+        ("unscaled", set("altup_correct_scale", serde_json::json!(false)), "altup_correct_scale"),
+        ("bias", set("attention_bias", serde_json::json!(true)), "attention_bias"),
+        ("gelu", set("hidden_activation", serde_json::json!("gelu")), "hidden_activation"),
+    ];
+    for (tag, edit, named) in cases {
+        let Some(opened) = opened_with("gemma3n", tag, edit) else { return };
+        let refused = opened.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(refused.contains(named), "{tag}: refused naming `{named}`; got {refused:?}");
+    }
+}
+
+#[test]
+fn a_kimi_linear_directory_reads_as_its_converted_gguf() {
+    // Kimi-Linear (`KimiLinearForCausalLM`, its configuration as Moonshot publishes it): Kimi delta attention on blocks 0
+    // to 2 (each convolution `[taps, 1, channels, 1]`, the decay `−exp(A_log)` a value a head), latent attention with no
+    // rotation on block 3 (a full-rank query, the latent's expansion split into its key and value halves); a dense SwiGLU,
+    // then four experts, two a token, under sigmoid scores with a selection bias, renormalized and scaled by 2.446, beside
+    // a shared expert; Kimi's tiktoken vocabulary.
+    reads_as_its_converted_gguf("kimi-linear");
+    let Some((dir, _)) = twin("kimi-linear") else { return };
+    let spec = ModelSpec::from_source(&HfCheckpoint::open(&dir).unwrap()).unwrap();
+    for (l, layer) in spec.layers.iter().enumerate() {
+        match (l, &layer.mixer) {
+            (0..=2, Mixer::Recurrent(Recurrent::DeltaAttention(d))) => {
+                assert_eq!((d.heads, d.head_dim, d.conv_taps), (4, 16, 4), "block {l}: the delta attention")
+            }
+            (3, Mixer::Mla(m)) => {
+                assert_eq!((m.q_lora_rank, m.kv_lora_rank, m.qk_nope, m.qk_rope, m.v_dim, m.rope.is_none()), (None, 32, 16, 8, 16, true), "block {l}")
+            }
+            (_, mixer) => panic!("block {l} reads as {mixer:?}"),
+        }
+        match (l, &layer.ffn) {
+            (0, Ffn::Dense { dff: 128, act: Act::Silu }) => {}
+            (1.., Ffn::Moe(m)) => {
+                assert_eq!((m.experts, m.top_k, m.gating.clone(), m.norm_top_k), (4, 2, Gating::Sigmoid { bias: true }, true), "block {l}");
+                assert_eq!((m.weights_scale as f32, m.shared_experts, m.shared_dff), (2.446, 1, 32), "block {l}: the scale and the shared expert");
+            }
+            (_, ffn) => panic!("block {l}'s FFN reads as {ffn:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_kimi_linear_directory_computes_what_transformers_computes() {
+    // Nine positions through three delta attention blocks, each carrying its three convolutions and every head's memory,
+    // and an unrotated latent attention block; the mixture's renormalization and its scores bind. At the releases'
+    // epsilon of 10⁻⁵ the latent norm (`kv_a_layernorm`) takes 10⁻⁶, as Kimi's code builds it: normed at the model's
+    // epsilon, as llama.cpp's `kimi-linear` norms it, the logits land past the millionth.
+    let Some((spec, theirs, scale, logits)) = computes_what_transformers_computes("kimi-linear", &[1, 17, 400, 2024, 9, 77, 3, 512, 1000])
+    else {
+        return;
+    };
+    assert_eq!(spec.rms_eps, 1e-5, "the twin at Kimi-Linear's epsilon");
+    let off = logits(&latent_at_the_models_epsilon(&spec)).iter().zip(&theirs).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+    assert!(off > scale * 1e-6, "the latent normed at the model's epsilon lands only {off:e} from transformers, within the millionth");
+    let routed = |f: &dyn Fn(&mut Moe)| {
+        let mut s = spec.clone();
+        for layer in &mut s.layers {
+            if let Ffn::Moe(m) = &mut layer.ffn {
+                f(m);
+            }
+        }
+        s
+    };
+    for (what, other) in [("kept weights not renormalized", routed(&|m| m.norm_top_k = false)), ("softmax scores", routed(&|m| m.gating = Gating::Softmax))] {
+        let off = logits(&other).iter().zip(&theirs).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+        assert!(off > scale * 1e-3, "{what}: the logits move only {off:e}, so the twin does not hold the reference to it");
+    }
+}
+
+#[test]
+fn a_kimi_linear_directorys_tokenizer_reads_as_its_converted_gguf() {
+    // Kimi's tiktoken vocabulary, as the converter reads Kimi K2's (`pre` kimi-k2).
+    tokenizes_as_its_converted_gguf("kimi-linear");
+}
+
+#[test]
+fn every_kimi_linear_setting_the_gguf_cannot_carry_is_refused_by_name() {
+    // llama.cpp's kimi-linear renormalizes the kept weights, rotates no latent key, reads no attention bias, routes every
+    // block past the dense ones among every expert and reads no draft block; the converter reads the blocks' kinds from
+    // `linear_attn_config`, which transformers 5 saves apart.
+    type Edit = Box<dyn Fn(&mut serde_json::Value)>;
+    let set = |key: &'static str, value: serde_json::Value| -> Edit { Box::new(move |c| c[key] = value.clone()) };
+    let cases: Vec<(&str, Edit, &str)> = vec![
+        ("unnormalized", set("moe_renormalize", serde_json::json!(false)), "moe_renormalize"),
+        ("rotated", set("mla_use_nope", serde_json::json!(false)), "mla_use_nope"),
+        ("biased", set("attention_bias", serde_json::json!(true)), "attention_bias"),
+        ("every-other", set("moe_layer_freq", serde_json::json!(2)), "moe_layer_freq"),
+        ("grouped", set("num_expert_group", serde_json::json!(2)), "num_expert_group"),
+        ("draft", set("num_nextn_predict_layers", serde_json::json!(1)), "num_nextn_predict_layers"),
+        ("relu-router", set("moe_router_activation_func", serde_json::json!("relu")), "moe_router_activation_func"),
+        ("gelu", set("hidden_act", serde_json::json!("gelu")), "hidden_act"),
+        (
+            "unlisted",
+            Box::new(|c| {
+                c.as_object_mut().unwrap().remove("linear_attn_config");
+            }),
+            "linear_attn_config",
+        ),
+        (
+            "both",
+            Box::new(|c| c["linear_attn_config"]["kda_layers"] = serde_json::json!([1, 2, 3, 4])),
+            "linear_attn_config",
+        ),
+    ];
+    for (tag, edit, named) in cases {
+        let Some(opened) = opened_with("kimi-linear", tag, edit) else { return };
+        let refused = opened.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(refused.contains(named), "{tag}: refused naming `{named}`; got {refused:?}");
+    }
+}
+
+#[test]
+fn a_minimax_01_directory_reads_as_its_converted_gguf() {
+    // MiniMax-01 as transformers publishes it (`MiniMaxForCausalLM`, MiniMax-Text-01-hf's configuration) and as MiniMax
+    // publishes it (`MiniMaxText01ForCausalLM`, the class the converter registers): lightning attention on blocks 0 to 6
+    // (four heads of 16 through one fused projection, with a gate and a norm of their own), attention under a NEOX
+    // rotation of `rotary_dim` on block 7, every eighth as llama.cpp fixes it; four experts, two a token, the softmax's
+    // kept weights renormalized; each sublayer's residual its normed input times 3.5566. The two read alike.
+    for family in ["minimax-01", "minimax-text-01"] {
+        reads_as_its_converted_gguf(family);
+    }
+    let (Some((hf, _)), Some((own, _))) = (twin("minimax-01"), twin("minimax-text-01")) else { return };
+    let spec = ModelSpec::from_source(&HfCheckpoint::open(&hf).unwrap()).unwrap();
+    assert_eq!(ModelSpec::from_source(&HfCheckpoint::open(&own).unwrap()).unwrap(), spec, "MiniMax's configuration reads as transformers'");
+    let [Part::NormedResidual { scale }] = &spec.parts[..] else { panic!("MiniMax-01's parts: {:?}", spec.parts) };
+    assert_eq!(*scale as f32, 3.5565588200778455f32, "the residual's scale, as the converter writes it");
+    for (l, layer) in spec.layers.iter().enumerate() {
+        match (l, &layer.mixer) {
+            (0..=6, Mixer::Recurrent(Recurrent::Lightning(x))) => assert_eq!((x.heads, x.head_dim), (4, 16), "block {l}: the lightning attention"),
+            (7, Mixer::Attention(a)) => {
+                let rope = a.rope.as_ref().map(|r| (r.dims, r.neox));
+                assert_eq!((a.heads, a.kv_heads, a.head_dim, rope, a.qk_norm, a.fused_qkv), (4, 2, 16, Some((16, true)), false, false), "block {l}")
+            }
+            (_, mixer) => panic!("block {l} reads as {mixer:?}"),
+        }
+        let Ffn::Moe(m) = &layer.ffn else { panic!("block {l} routes") };
+        assert_eq!((m.experts, m.top_k, m.expert_dff, m.gating.clone(), m.norm_top_k, m.weights_scale), (4, 2, 32, Gating::Softmax, true, 1.0), "block {l}");
+    }
+    // The rotated width is `rotary_dim`, which the converter writes and MiniMax's code and llama.cpp rotate (transformers'
+    // `MiniMaxForCausalLM` rotates the whole head whatever it says); MiniMax-M1's class reads as MiniMax-Text-01's.
+    for (family, tag, edit) in [
+        ("minimax-01", "half-rotated", Box::new(|c: &mut serde_json::Value| c["rotary_dim"] = serde_json::json!(8)) as Box<dyn Fn(&mut serde_json::Value)>),
+        ("minimax-text-01", "m1", Box::new(|c: &mut serde_json::Value| c["architectures"] = serde_json::json!(["MiniMaxM1ForCausalLM"]))),
+    ] {
+        let Some(opened) = opened_with(family, tag, edit) else { return };
+        let read = ModelSpec::from_source(&opened.unwrap_or_else(|e| panic!("{tag}: {e}"))).unwrap();
+        let Mixer::Attention(a) = &read.layers[7].mixer else { panic!("{tag}: block 7 attends") };
+        assert_eq!(a.rope.as_ref().map(|r| r.dims), Some(if tag == "m1" { 16 } else { 8 }), "{tag}: the rotated width");
+    }
+}
+
+#[test]
+fn a_minimax_01_directory_computes_what_transformers_computes() {
+    // Nine positions through seven lightning blocks, each head's memory decaying at its ALiBi slope scaled by its block's
+    // depth, and an attention block; the residual from the normed input, its scale and the mixture's renormalization
+    // bind. The lightning read is normed at 10⁻⁶, as MiniMax's code and transformers norm it (llama.cpp norms it at the
+    // model's 10⁻⁵); transformers takes the depth scale over `L − 1 + 10⁻⁵` blocks, MiniMax's code and the spec over
+    // `L − 1`.
+    let Some((spec, theirs, scale, logits)) = computes_what_transformers_computes("minimax-01", &[1, 17, 400, 2024, 9, 77, 3, 512, 1000])
+    else {
+        return;
+    };
+    let routed = |f: &dyn Fn(&mut Moe)| {
+        let mut s = spec.clone();
+        for layer in &mut s.layers {
+            if let Ffn::Moe(m) = &mut layer.ffn {
+                f(m);
+            }
+        }
+        s
+    };
+    for (what, other) in [
+        ("the input's own residual", ModelSpec { parts: Vec::new(), ..spec.clone() }),
+        ("a residual scale of 1", ModelSpec { parts: vec![Part::NormedResidual { scale: 1.0 }], ..spec.clone() }),
+        ("kept weights not renormalized", routed(&|m| m.norm_top_k = false)),
+    ] {
+        let off = logits(&other).iter().zip(&theirs).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+        assert!(off > scale * 1e-3, "{what}: the logits move only {off:e}, so the twin does not hold the reference to it");
+    }
+}
+
+#[test]
+fn a_minimax_01_directorys_tokenizer_reads_as_its_converted_gguf() {
+    // MiniMax-Text-01's byte-pair vocabulary, its pre-tokenizer named by its probe digest as the converter's
+    // transformers 4 encodes the probe (MiniMax-M2's), padded to 200,064 entries; the pinned llama.cpp's MiniMax-M1 chat
+    // template in place of the tokenizer's own; the zero rows of the embedding past the tokenizer's 200,000 suppressed,
+    // the zero row below them not.
+    for family in ["minimax-01", "minimax-text-01"] {
+        tokenizes_as_its_converted_gguf(family);
+    }
+    let Some((dir, _)) = twin("minimax-01") else { return };
+    let hf = HfCheckpoint::open(&dir).unwrap();
+    let meta = hf.tokenizer_meta().unwrap();
+    let suppressed: Vec<u64> = meta["tokenizer.ggml.suppress_tokens"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+    assert_eq!(suppressed, [200005].into_iter().chain(200026..200064).collect::<Vec<u64>>(), "the suppressed tokens");
+    assert_eq!(meta["tokenizer.ggml.pre"].as_bytes(), Some(&b"minimax-m2"[..]), "MiniMax-Text-01's pre-tokenizer, MiniMax-M2's");
+}
+
+#[test]
+fn every_minimax_01_setting_the_gguf_cannot_carry_is_refused_by_name() {
+    // The converter writes no attention kinds (llama.cpp attends fully on every eighth block alone), one residual scale
+    // (its three sublayers' alphas equal, every beta 1), no shared expert, no window and an unscaled rotation's base, and
+    // reads `rotary_dim` and the embedding's shard by the index. MiniMax's own code adds the input itself as the residual
+    // unless `postnorm` is true, and takes a non-power-of-two head count's slopes from the next power's; each class reads
+    // its own configuration's names alone. transformers' class computes the normed-input residual whatever `postnorm`
+    // says, so its `postnorm` reads.
+    type Edit = Box<dyn Fn(&mut serde_json::Value)>;
+    let set = |key: &'static str, value: serde_json::Value| -> Edit { Box::new(move |c| c[key] = value.clone()) };
+    let remove = |key: &'static str| -> Edit {
+        Box::new(move |c| {
+            c.as_object_mut().unwrap().remove(key);
+        })
+    };
+    let mut kinds = vec!["linear_attention"; 8];
+    kinds[3] = "full_attention";
+    let mut own_kinds = vec![0; 8];
+    own_kinds[0] = 1;
+    let all_linear = vec!["linear_attention"; 8];
+    let cases: Vec<(&str, &str, Edit, &str)> = vec![
+        ("minimax-01", "kinds", set("layer_types", serde_json::json!(kinds)), "layer_types"),
+        ("minimax-01", "untyped", remove("layer_types"), "layer_types"),
+        ("minimax-01", "alphas", set("mlp_alpha_factor", serde_json::json!(2.0)), "mlp_alpha_factor"),
+        ("minimax-01", "beta", set("full_attn_beta_factor", serde_json::json!(0.5)), "full_attn_beta_factor"),
+        ("minimax-01", "no-alpha", remove("linear_attn_alpha_factor"), "linear_attn_alpha_factor"),
+        ("minimax-01", "shared", set("shared_intermediate_size", serde_json::json!(32)), "shared_intermediate_size"),
+        ("minimax-01", "windowed", set("sliding_window", serde_json::json!(4)), "sliding_window"),
+        (
+            "minimax-01",
+            "scaled",
+            set("rope_parameters", serde_json::json!({"rope_type": "linear", "rope_theta": 10000000.0, "factor": 2.0})),
+            "rope_parameters",
+        ),
+        ("minimax-01", "unrotated", remove("rotary_dim"), "rotary_dim"),
+        ("minimax-01", "foreign", set("attn_type_list", serde_json::json!([0, 0, 0, 0, 0, 0, 0, 1])), "attn_type_list"),
+        ("minimax-01", "gelu", set("hidden_act", serde_json::json!("gelu")), "hidden_act"),
+        ("minimax-text-01", "prenorm", set("postnorm", serde_json::json!(false)), "postnorm"),
+        ("minimax-text-01", "no-postnorm", remove("postnorm"), "postnorm"),
+        ("minimax-text-01", "six-heads", set("num_attention_heads", serde_json::json!(6)), "num_attention_heads"),
+        ("minimax-text-01", "kinds", set("attn_type_list", serde_json::json!(own_kinds)), "attn_type_list"),
+        ("minimax-text-01", "foreign", set("layer_types", serde_json::json!(all_linear)), "layer_types"),
+        ("minimax-text-01", "no-alpha", remove("layernorm_mlp_alpha"), "layernorm_mlp_alpha"),
+    ];
+    for (family, tag, edit, named) in cases {
+        let Some(opened) = opened_with(family, tag, edit) else { return };
+        let refused = opened.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(refused.contains(named), "{family} {tag}: refused naming `{named}`; got {refused:?}");
+    }
+    let Some(opened) = opened_with("minimax-01", "prenorm", |c| c["postnorm"] = serde_json::json!(false)) else { return };
+    assert!(opened.is_ok(), "transformers' class reads its `postnorm` as it computes it: {:?}", opened.err());
+    let Some((dir, _)) = twin("minimax-text-01") else { return };
+    let copy = scratch_copy("minimax-text-01-unindexed", &dir);
+    std::fs::remove_file(copy.join("model.safetensors.index.json")).unwrap();
+    let refused = HfCheckpoint::open(&copy).err().map(|e| e.to_string()).unwrap_or_default();
+    let _ = std::fs::remove_dir_all(&copy);
+    assert!(refused.contains("model.safetensors.index.json"), "a checkpoint with no index: {refused:?}");
+}
+
+#[test]
+fn an_rwkv7_directory_reads_as_its_converted_gguf() {
+    // RWKV-7 as fla-hub publishes it (`RWKV7ForCausalLM`: flash-linear-attention's names, each low-rank pair
+    // `<x>_lora.lora.{0,2}` stored output-major, the second's bias the pair's offset) and as the Hugging Face port of
+    // BlinkDL's checkpoints holds it (`Rwkv7ForCausalLM`: each pair `<x>1`, `<x>2` stored input-major, which the
+    // converter transposes, its unset ranks the converter's defaults): three blocks of two heads of 64, every tensor
+    // squeezed, `r_k` flattened, the six lerps stacked `[d, 1, 1, 6]`, block 0's unread value-mix pair the converter's
+    // copy of its learning rate's; LayerNorms with their biases; the RWKV world vocabulary.
+    for family in ["rwkv7", "rwkv7-hf"] {
+        reads_as_its_converted_gguf(family);
+    }
+    for (family, ranks, dff) in [("rwkv7", (16, 16, 8, 32), 256), ("rwkv7-hf", (32, 32, 32, 16), 512)] {
+        let Some((dir, _)) = twin(family) else { return };
+        let spec = ModelSpec::from_source(&HfCheckpoint::open(&dir).unwrap()).unwrap();
+        assert_eq!((spec.norm, spec.ffn_norm, &spec.parts[..], spec.rms_eps), (Norm::Layer { bias: true }, "attn_norm_2", &[Part::EmbeddingNorm][..], 1e-5), "{family}");
+        for (l, layer) in spec.layers.iter().enumerate() {
+            let Mixer::Recurrent(Recurrent::Rwkv7(r)) = &layer.mixer else { panic!("{family} block {l}: {:?}", layer.mixer) };
+            assert_eq!(
+                (r.head_size, r.decay_lora, r.iclr_lora, r.value_res_lora, r.gate_lora, r.first),
+                (64, ranks.0, ranks.1, ranks.2, ranks.3, l == 0),
+                "{family} block {l}: the time mix"
+            );
+            assert_eq!(layer.ffn, Ffn::ChannelMix { dff }, "{family} block {l}: the channel mix");
+        }
+    }
+}
+
+#[test]
+fn an_rwkv7_directorys_tokenizer_reads_as_its_converted_gguf() {
+    // The RWKV world vocabulary: `<s>`, then every line of `rwkv_vocab_v20230424.txt` as Python's `repr` escapes its bytes,
+    // padded to 65,536; `\n\n` (261) the end of a turn and 0 the beginning and end; tokenized longest match first.
+    for family in ["rwkv7", "rwkv7-hf"] {
+        tokenizes_as_its_converted_gguf(family);
+    }
+}
+
+#[test]
+fn an_rwkv7_directory_computes_what_llama_cpp_computes() {
+    // No transformers class computes RWKV-7 (fla-hub's code runs flash-linear-attention's kernels), so the arm is held to
+    // llama.cpp itself: the pinned llama.cpp's CPU run of the converted twin (`scripts/accel/model-golden.sh`, its weights
+    // in f32) and the f64 reference over the directory agree on every one of the twenty top logits after each prompt, to
+    // within a ten-thousandth of the largest; the value mix toward the first block's value and the token shift bind. The
+    // twin's heads are 64 wide, as every release's are: llama.cpp's vectorized CPU kernel (`rwkv_wkv7`) steps 32 or 64
+    // floats a head and reads past a narrower one.
+    if !(common::require_tool("hf-twins") && common::require_tool("llama-cpp-build") && common::require_tool("g++")) {
+        return;
+    }
+    let (dir, gguf) = common::hf_twins::twin("rwkv7");
+    let scratch = tempfile::tempdir().unwrap();
+    let prompts = scratch.path().join("prompts.txt");
+    std::fs::write(&prompts, "The quick brown fox jumps over the lazy dog.\n__prompt__\nUser: what is a recurrent network?\n\nAssistant:").unwrap();
+    let out = scratch.path().join("golden.json");
+    let run = std::process::Command::new(repo_root().join("scripts/accel/model-golden.sh"))
+        .args([gguf.to_str().unwrap(), out.to_str().unwrap(), "1", "4", "0", "f32", prompts.to_str().unwrap(), "0", "cpu", "20"])
+        .output()
+        .expect("model-golden.sh");
+    assert!(run.status.success(), "model-golden.sh: {}", String::from_utf8_lossy(&run.stderr));
+    let golden: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&out).unwrap()).unwrap();
+    let hf = HfCheckpoint::open(&dir).unwrap();
+    let vocab = Vocab::from_meta(hf.tokenizer_meta().unwrap()).unwrap();
+    let spec = ModelSpec::from_source(&hf).unwrap();
+    let logits = |spec: &ModelSpec, tokens: &[u32]| Reference::new(spec.clone(), Opened(open_checkpoint(&dir).unwrap())).unwrap().step(tokens).unwrap();
+    let unmixed = ModelSpec {
+        layers: spec
+            .layers
+            .iter()
+            .map(|l| match &l.mixer {
+                Mixer::Recurrent(Recurrent::Rwkv7(r)) => Layer { mixer: Mixer::Recurrent(Recurrent::Rwkv7(Rwkv7 { first: true, ..r.clone() })), ..l.clone() },
+                _ => l.clone(),
+            })
+            .collect(),
+        ..spec.clone()
+    };
+    for (p, case) in golden["prompts"].as_array().unwrap().iter().enumerate() {
+        let tokens: Vec<u32> = case["tokens"].as_array().unwrap().iter().map(|t| t.as_u64().unwrap() as u32).collect();
+        assert_eq!(vocab.tokenize(case["text"].as_str().unwrap().as_bytes(), true, false).unwrap(), tokens, "prompt {p}: the tokens llama.cpp reads");
+        let ours = logits(&spec, &tokens);
+        let top: Vec<(usize, f64)> = case["top"].as_array().unwrap().iter().map(|e| (e[0].as_u64().unwrap() as usize, e[1].as_f64().unwrap())).collect();
+        assert_eq!(top.len(), 20, "prompt {p}: llama.cpp's top logits");
+        let scale = ours.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+        let worst = top.iter().map(|&(id, v)| (ours[id] - v).abs()).fold(0.0, f64::max);
+        assert!(worst <= scale * 1e-4, "prompt {p}: a top logit is {worst:e} from llama.cpp's, past a ten-thousandth of {scale}");
+        let other = logits(&unmixed, &tokens);
+        let off = top.iter().map(|&(id, v)| (other[id] - v).abs()).fold(0.0, f64::max);
+        assert!(off > scale * 1e-3, "prompt {p}: with no value mix the logits move only {off:e}, so the twin does not hold the reference to it");
+        if p == 1 {
+            let mut stepwise = Reference::new(spec.clone(), Opened(open_checkpoint(&dir).unwrap())).unwrap();
+            let mut last = Vec::new();
+            for &t in &tokens {
+                last = stepwise.step(&[t]).unwrap();
+            }
+            let drift = ours.iter().zip(&last).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+            assert!(drift <= scale * 1e-9, "prompt {p}: one token a step carries the token shifts and states to the same logits ({drift:e})");
+        }
+    }
+}
+
+#[test]
+fn every_rwkv7_setting_the_gguf_cannot_carry_is_refused_by_name() {
+    // llama.cpp's rwkv7 computes relu² in its channel mix, reads no attention block, norms the embedding first, reads
+    // every LayerNorm's bias, six lerps and a gate in every block and a head of its own, and mixes in the model's width
+    // over heads that divide it; fla's `num_heads` beside a `head_dim` is not read (fla takes the head width). The converter reads the port's head width, epsilon and ranks only where it states all of
+    // them (else fla's names), and reads the channel mix's width (null for four times the model's).
+    type Edit = Box<dyn Fn(&mut serde_json::Value)>;
+    let set = |key: &'static str, value: serde_json::Value| -> Edit { Box::new(move |c| c[key] = value.clone()) };
+    let remove = |key: &'static str| -> Edit {
+        Box::new(move |c| {
+            c.as_object_mut().unwrap().remove(key);
+        })
+    };
+    let cases: Vec<(&str, &str, Edit, &str)> = vec![
+        ("rwkv7", "gelu", set("hidden_act", serde_json::json!("gelu")), "hidden_act"),
+        ("rwkv7", "hybrid", set("attn", serde_json::json!({"layers": [1], "num_heads": 4})), "attn"),
+        ("rwkv7", "post-norm", set("norm_first", serde_json::json!(false)), "norm_first"),
+        ("rwkv7", "unbiased", set("norm_bias", serde_json::json!(false)), "norm_bias"),
+        ("rwkv7", "ungated", set("wkv_has_gate", serde_json::json!(false)), "wkv_has_gate"),
+        ("rwkv7", "tied", set("tie_word_embeddings", serde_json::json!(true)), "tie_word_embeddings"),
+        ("rwkv7", "narrow-values", set("value_dim", serde_json::json!(64)), "value_dim"),
+        ("rwkv7", "odd-heads", set("head_dim", serde_json::json!(48)), "head_dim"),
+        ("rwkv7", "no-eps", remove("norm_eps"), "norm_eps"),
+        ("rwkv7", "no-rank", remove("v_low_rank_dim"), "v_low_rank_dim"),
+        ("rwkv7", "no-ffn-width", remove("intermediate_size"), "intermediate_size"),
+        ("rwkv7-hf", "narrow-attention", set("attention_hidden_size", serde_json::json!(64)), "attention_hidden_size"),
+        ("rwkv7-hf", "three-ranks", remove("lora_rank_gate"), "decay_low_rank_dim"),
+        ("rwkv7-hf", "no-port-eps", remove("layer_norm_epsilon"), "head_dim"),
+    ];
+    for (family, tag, edit, named) in cases {
+        let Some(opened) = opened_with(family, tag, edit) else { return };
+        let refused = opened.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(refused.contains(named), "{family} {tag}: refused naming `{named}`; got {refused:?}");
+    }
+    let Some(opened) = opened_with("rwkv7", "stated-heads", |c| c["num_heads"] = serde_json::json!(32)) else { return };
+    assert!(opened.is_ok(), "fla's `num_heads` beside its `head_dim` reads: {:?}", opened.err());
+}
+
+#[test]
+fn a_gemma4_directory_reads_as_its_converted_gguf() {
+    // Gemma 4 as published (`Gemma4ForConditionalGeneration`) and as its text model (`Gemma4ForCausalLM`), shaped as
+    // 26B-A4B — a window on all but blocks 2 and 5, heads of 16 over two KV heads windowed and of 32 over one globally,
+    // the global blocks' values their keys and their rotation proportional (`rope_freqs`: a quarter of each head
+    // turning), every block's GELU FFN beside four experts behind Gemma 4's scaled router, each block's output scaled —
+    // and as E2B: per-layer inputs of 16, blocks 4 and 5 attending the caches of blocks 2 and 3 with FFNs twice as wide.
+    for family in ["gemma4", "gemma4-text", "gemma4-e"] {
+        reads_as_its_converted_gguf(family);
+    }
+    let (Some((moe, _)), Some((e, _))) = (twin("gemma4"), twin("gemma4-e")) else { return };
+    let spec = ModelSpec::from_source(&HfCheckpoint::open(&moe).unwrap()).unwrap();
+    assert_eq!(spec.parts, [Part::ValueNorm, Part::KeyAsValue { layers: vec![2, 5] }, Part::LayerScale], "26B-A4B's parts");
+    assert_eq!((spec.final_logit_softcap, spec.tied_output, spec.embedding_scale), (Some(30.0), true, Some(8.0)), "the cap, the tie, the embedding's scale");
+    for (l, layer) in spec.layers.iter().enumerate() {
+        let Mixer::Attention(a) = &layer.mixer else { panic!("block {l} attends") };
+        let windowed = l % 3 != 2;
+        let rope = a.rope.as_ref().map(|r| (r.dims, r.theta, r.scaling.clone()));
+        let want = if windowed { (2, 16, Some((16, 10000.0, RopeScaling::None))) } else { (1, 32, Some((32, 1_000_000.0, RopeScaling::Factors))) };
+        assert_eq!((a.kv_heads, a.head_dim, rope), want, "block {l}: its heads and rotation");
+        assert_eq!((a.window.is_some(), a.qk_norm, a.scale), (windowed, true, 1.0), "block {l}: windowed where marked, QK-normed, unscaled");
+        let Ffn::DenseAndMoe { dff: 96, act: Act::GeluTanh, moe } = &layer.ffn else { panic!("block {l}'s FFN: {:?}", layer.ffn) };
+        assert_eq!((moe.experts, moe.top_k, moe.expert_dff, moe.gating.clone(), moe.norm_top_k), (4, 2, 32, Gating::Softmax, true), "block {l}");
+    }
+    let spec = ModelSpec::from_source(&HfCheckpoint::open(&e).unwrap()).unwrap();
+    assert_eq!(spec.parts, [Part::PerLayerInput { dim: 16 }, Part::SharedKv { from: 4 }, Part::ValueNorm, Part::LayerScale], "E2B's parts");
+    let widths: Vec<Ffn> = spec.layers.iter().map(|l| l.ffn.clone()).collect();
+    let dense = |dff| Ffn::Dense { dff, act: Act::GeluTanh };
+    assert_eq!(widths, [dense(96), dense(96), dense(96), dense(96), dense(192), dense(192)], "the shared blocks' FFNs twice as wide");
+}
+
+#[test]
+fn a_gemma4_directory_computes_what_transformers_computes() {
+    // Nine positions through six blocks under windows of 4: the value norm, the keys read as values, the mixture beside
+    // the dense FFN, the layer scales, the per-layer inputs and the shared caches all bind. Gemma 4's norms take their
+    // input `.float()`, which the oracle keeps at float64: rounded to float32 they alone move the logits a millionth.
+    let prompt = [2, 17, 400, 2024, 9, 77, 3, 512, 1000];
+    for family in ["gemma4", "gemma4-e"] {
+        let Some((spec, theirs, scale, logits)) = computes_what_transformers_computes(family, &prompt) else { return };
+        let without = |part: fn(&Part) -> bool| ModelSpec { parts: spec.parts.iter().filter(|p| !part(p)).cloned().collect(), ..spec.clone() };
+        let mut others = vec![("no layer scale", without(|p| *p == Part::LayerScale)), ("no value norm", without(|p| *p == Part::ValueNorm))];
+        if family == "gemma4" {
+            let dense = ModelSpec {
+                layers: spec.layers.iter().map(|l| Layer { ffn: Ffn::Dense { dff: 96, act: Act::GeluTanh }, ..l.clone() }).collect(),
+                ..spec.clone()
+            };
+            others.push(("the dense FFN alone", dense));
+        } else {
+            others.push(("no per-layer inputs", without(|p| matches!(p, Part::PerLayerInput { .. }))));
+        }
+        for (what, other) in others {
+            let off = logits(&other).iter().zip(&theirs).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+            assert!(off > scale * 1e-3, "{family} {what}: the logits move only {off:e}, so the twin does not hold the reference to it");
+        }
+    }
+}
+
+#[test]
+fn a_gemma4_directorys_tokenizer_reads_as_its_converted_gguf() {
+    // Gemma 4's vocabulary as `LlamaHfVocab` reads it under the `gemma4` model, the chat parser's markers kept visible,
+    // every merge, the beginning token added.
+    tokenizes_as_its_converted_gguf("gemma4");
+}
+
+#[test]
+fn every_gemma4_setting_the_gguf_cannot_carry_is_refused_by_name() {
+    // llama.cpp's gemma4 computes the tanh GELU, reads no attention bias, attends causally, rotates a global block
+    // proportionally and a windowed one whole and unscaled, ends the stack in a global block, carries one head width and
+    // KV count for the global blocks, shares the caches of a windowed and a global block just before the shared ones,
+    // and reads a per-layer row for every token; the converter reads the experts' width. transformers reads a global
+    // block's widths from its saved `per_layer_config` override, the windowed blocks' where it is silent, and builds the
+    // overrides from `num_global_key_value_heads` only beside `attention_k_eq_v`; the converter reads that key first.
+    type Edit = Box<dyn Fn(&mut serde_json::Value)>;
+    let set = |key: &'static str, value: serde_json::Value| -> Edit { Box::new(move |c| c[key] = value.clone()) };
+    let mut ending_windowed = vec!["sliding_attention"; 6];
+    ending_windowed[2] = "full_attention";
+    let cases: Vec<(&str, &str, Edit, &str)> = vec![
+        ("gemma4-text", "gelu", set("hidden_activation", serde_json::json!("gelu")), "hidden_activation"),
+        ("gemma4-text", "biased", set("attention_bias", serde_json::json!(true)), "attention_bias"),
+        ("gemma4-text", "bidirectional", set("use_bidirectional_attention", serde_json::json!("all")), "use_bidirectional_attention"),
+        (
+            "gemma4-text",
+            "default-global",
+            Box::new(|c| c["rope_parameters"]["full_attention"] = serde_json::json!({"rope_type": "default", "rope_theta": 1000000.0})),
+            "rope_parameters",
+        ),
+        ("gemma4-text", "partial-local", Box::new(|c| c["rope_parameters"]["sliding_attention"]["partial_rotary_factor"] = serde_json::json!(0.5)), "rope_parameters"),
+        ("gemma4-text", "ends-windowed", set("layer_types", serde_json::json!(ending_windowed)), "layer_types"),
+        ("gemma4-text", "local-override", Box::new(|c| c["per_layer_config"]["0"] = serde_json::json!({"head_dim": 32})), "per_layer_config"),
+        ("gemma4-text", "unlike-globals", Box::new(|c| c["per_layer_config"]["5"] = serde_json::json!({"head_dim": 64, "num_key_value_heads": 1})), "per_layer_config"),
+        (
+            "gemma4-text",
+            "ungated-global-kv",
+            Box::new(|c| {
+                c.as_object_mut().unwrap().remove("per_layer_config");
+                c["global_head_dim"] = serde_json::json!(32);
+                c["attention_k_eq_v"] = serde_json::json!(false);
+                c["num_global_key_value_heads"] = serde_json::json!(1);
+            }),
+            "num_global_key_value_heads",
+        ),
+        ("gemma4-text", "saved-global-kv", set("num_global_key_value_heads", serde_json::json!(2)), "per_layer_config"),
+        ("gemma4-text", "silent-override", Box::new(|c| c["per_layer_config"]["5"] = serde_json::json!({"head_dim": 32})), "per_layer_config"),
+        ("gemma4-text", "unkeyed-without-values", set("attention_k_eq_v", serde_json::json!(false)), "attention_k_eq_v"),
+        ("gemma4-e-text", "keyed-with-values", set("attention_k_eq_v", serde_json::json!(true)), "attention_k_eq_v"),
+        (
+            "gemma4-text",
+            "no-expert-width",
+            Box::new(|c| {
+                c.as_object_mut().unwrap().remove("moe_intermediate_size");
+            }),
+            "moe_intermediate_size",
+        ),
+        ("gemma4-e-text", "shared-from-3", set("num_kv_shared_layers", serde_json::json!(3)), "num_kv_shared_layers"),
+        ("gemma4-e-text", "short-per-layer", set("vocab_size_per_layer_input", serde_json::json!(1000)), "vocab_size_per_layer_input"),
+    ];
+    for (family, tag, edit, named) in cases {
+        let Some(opened) = opened_with(family, tag, edit) else { return };
+        let refused = opened.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(refused.contains(named), "{family} {tag}: refused naming `{named}`; got {refused:?}");
+    }
+    // The twin's global widths spelled as a published configuration states them read.
+    let published = opened_with("gemma4-text", "published", |c| {
+        c.as_object_mut().unwrap().remove("per_layer_config");
+        c["global_head_dim"] = serde_json::json!(32);
+        c["num_global_key_value_heads"] = serde_json::json!(1);
+    });
+    let Some(published) = published else { return };
+    published.unwrap_or_else(|e| panic!("published: {e}"));
+    // Saved overrides that agree with an ungated `num_global_key_value_heads` unlike `num_key_value_heads`: transformers
+    // reads the overrides and the converter the key, one count; the configuration reads.
+    let Some((dir, _)) = twin("gemma4-e-text") else { return };
+    let copy = scratch_copy("gemma4-e-text-saved-ungated", &dir);
+    let path = copy.join("config.json");
+    let mut config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    config["num_global_key_value_heads"] = serde_json::json!(2);
+    for l in ["3", "5"] {
+        config["per_layer_config"][l] = serde_json::json!({"head_dim": 32, "num_key_value_heads": 2});
+    }
+    std::fs::write(&path, serde_json::to_string_pretty(&config).unwrap()).unwrap();
+    let read = HfCheckpoint::read_configuration(&copy);
+    let _ = std::fs::remove_dir_all(&copy);
+    let (_, meta) = read.unwrap_or_else(|e| panic!("saved-ungated: {e}"));
+    let kv = meta.get("gemma4.attention.head_count_kv").and_then(|v| v.as_array().map(|a| a.iter().filter_map(MetaValue::as_u64).collect::<Vec<_>>()));
+    assert_eq!(kv, Some(vec![1, 1, 1, 2, 1, 2]), "saved-ungated: the KV heads, block by block");
+}
+
+#[test]
+fn every_family_the_author_does_not_write_yet_is_refused_by_name() {
+    // An arm reads what the author cannot write yet, and the author refuses it naming the first such piece (INTAKE-9):
+    // a recurrent mixer by `Recurrent::what`, a part by `Part::what`, a LayerNorm stack by its kind.
+    let cases = [
+        ("lfm2", "a gated short convolution (LFM2's)"),
+        ("mamba2", "Mamba-2's state-space scan (SSD)"),
+        ("falcon-h1", "attention beside a state-space scan in one block (Falcon-H1's)"),
+        ("nemotron_h", "Mamba-2's state-space scan (SSD)"),
+        ("jamba", "Mamba-1's selective scan"),
+        ("gemma3n", "per-layer inputs (Gemma 3n's and Gemma 4's)"),
+        ("kimi-linear", "Kimi delta attention (KDA)"),
+        ("minimax-01", "a residual from the normed input (MiniMax-01's)"),
+        ("rwkv7", "block norms that are LayerNorms (PhiMoE's and RWKV-7's)"),
+        ("gemma4", "a weightless norm on the values"),
+        ("gemma4-e", "per-layer inputs (Gemma 3n's and Gemma 4's)"),
+    ];
+    for (family, named) in cases {
+        let Some((dir, _)) = twin(family) else { return };
+        let spec = ModelSpec::from_source(&*open_checkpoint(&dir).unwrap()).unwrap_or_else(|e| panic!("{family}: {e}"));
+        let refused = logicaffeine_compile::model::author::check(&spec).expect_err(family).to_string();
+        assert!(refused.contains(named), "{family}: the author refuses naming `{named}`; got {refused:?}");
     }
 }
 
@@ -1709,6 +3238,61 @@ const PUBLISHED_CONFIGURATIONS: &[(&str, &str)] = &[
     ("Qwen/Qwen3.8-27B", "qwen35"),
     ("Qwen/Qwen3.8-2.4T-A95B", "qwen35moe"),
     ("Qwen/Qwen3.8-Flash-Next", "qwen4exp"),
+    ("allenai/OLMo-2-0425-1B", "olmo2"),
+    ("allenai/OLMo-2-1124-7B", "olmo2"),
+    ("allenai/OLMo-2-1124-13B", "olmo2"),
+    ("allenai/OLMo-2-0325-32B", "olmo2"),
+    ("allenai/Olmo-3-7B-Instruct", "olmo2"),
+    ("mistralai/Mistral-7B-Instruct-v0.3", "llama"),
+    ("mistralai/Ministral-3-3B-Instruct-2512", "mistral3"),
+    ("mistralai/Ministral-3-8B-Instruct-2512", "mistral3"),
+    ("mistralai/Ministral-3-14B-Instruct-2512", "mistral3"),
+    ("mistralai/Mistral-Small-3.1-24B-Instruct-2503", "mistral3"),
+    ("mistralai/Mistral-Small-3.2-24B-Instruct-2506", "mistral3"),
+    ("deepseek-ai/DeepSeek-V3.2-Exp", "deepseek32"),
+    ("deepseek-ai/DeepSeek-V3.2", "deepseek32"),
+    ("deepseek-ai/DeepSeek-V3.2-Speciale", "deepseek32"),
+    ("zai-org/GLM-5", "glm-dsa"),
+    ("zai-org/GLM-5.1", "glm-dsa"),
+    ("zai-org/GLM-5.2", "glm-dsa"),
+    ("LiquidAI/LFM2-350M", "lfm2"),
+    ("LiquidAI/LFM2-700M", "lfm2"),
+    ("LiquidAI/LFM2-1.2B", "lfm2"),
+    ("LiquidAI/LFM2-2.6B", "lfm2"),
+    ("LiquidAI/LFM2.5-1.2B-Instruct", "lfm2"),
+    ("mistralai/Mamba-Codestral-7B-v0.1", "mamba2"),
+    ("tiiuae/Falcon-H1-0.5B-Instruct", "falcon-h1"),
+    ("tiiuae/Falcon-H1-1.5B-Instruct", "falcon-h1"),
+    ("tiiuae/Falcon-H1-1.5B-Deep-Instruct", "falcon-h1"),
+    ("tiiuae/Falcon-H1-3B-Instruct", "falcon-h1"),
+    ("tiiuae/Falcon-H1-7B-Instruct", "falcon-h1"),
+    ("tiiuae/Falcon-H1-34B-Instruct", "falcon-h1"),
+    ("nvidia/Nemotron-H-8B-Base-8K", "nemotron_h"),
+    ("nvidia/Nemotron-H-47B-Base-8K", "nemotron_h"),
+    ("nvidia/Nemotron-H-56B-Base-8K", "nemotron_h"),
+    ("nvidia/NVIDIA-Nemotron-Nano-9B-v2", "nemotron_h"),
+    ("nvidia/NVIDIA-Nemotron-Nano-12B-v2", "nemotron_h"),
+    ("ai21labs/AI21-Jamba-Reasoning-3B", "jamba"),
+    ("ai21labs/Jamba-v0.1", "jamba"),
+    ("unsloth/gemma-3n-E2B-it", "gemma3n"),
+    ("unsloth/gemma-3n-E4B-it", "gemma3n"),
+    ("moonshotai/Kimi-Linear-48B-A3B-Instruct", "kimi-linear"),
+    ("moonshotai/Kimi-Linear-48B-A3B-Base", "kimi-linear"),
+    ("MiniMaxAI/MiniMax-Text-01", "minimax-01"),
+    ("MiniMaxAI/MiniMax-Text-01-hf", "minimax-01"),
+    ("MiniMaxAI/MiniMax-M1-40k", "minimax-01"),
+    ("MiniMaxAI/MiniMax-M1-80k", "minimax-01"),
+    ("fla-hub/rwkv7-0.1B-g1", "rwkv7"),
+    ("fla-hub/rwkv7-191M-world", "rwkv7"),
+    ("fla-hub/rwkv7-1.5B-world", "rwkv7"),
+    ("fla-hub/rwkv7-2.9B-world", "rwkv7"),
+    ("SmerkyG/RWKV7-Goose-0.1B-World2.8-HF", "rwkv7"),
+    ("mollysama/rwkv-7-world-0b4-hf", "rwkv7"),
+    ("mollysama/rwkv-7-world-1b5-hf", "rwkv7"),
+    ("google/gemma-4-E2B-it", "gemma4"),
+    ("google/gemma-4-E4B-it", "gemma4"),
+    ("google/gemma-4-26B-A4B-it", "gemma4"),
+    ("google/gemma-4-31B-it", "gemma4"),
 ];
 
 /// The published configurations a ticket still owes, each a handed RED of `model_hf_config_reds_lock`.
@@ -1741,7 +3325,7 @@ fn every_published_configuration_reads() {
         let dir = root.join(repo);
         let (got, meta) = HfCheckpoint::read_configuration(&dir).unwrap_or_else(|e| panic!("{repo}: {e}"));
         assert_eq!(got, *arch, "{repo}: the architecture");
-        let mut config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("config.json")).unwrap()).unwrap();
+        let mut config = python_config(&dir.join("config.json"));
         if let Some(text) = config.get("text_config").cloned() {
             config = text;
         }
@@ -1749,6 +3333,24 @@ fn every_published_configuration_reads() {
         assert_eq!(key("embedding_length"), config["hidden_size"].as_u64(), "{repo}: the width");
         assert!(key("block_count") >= config["num_hidden_layers"].as_u64(), "{repo}: the stack");
     }
+}
+
+/// A configuration as Python's `json` writes it, its bare `NaN`, `Infinity` and `-Infinity` (Falcon-H1's and Nemotron-H's
+/// unbounded time step) read as nulls, since the widths and depths compared against it are whole numbers.
+fn python_config(path: &Path) -> serde_json::Value {
+    let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let (mut out, mut rest, mut in_string, mut escaped) = (String::with_capacity(text.len()), text.as_str(), false, false);
+    while let Some(c) = rest.chars().next() {
+        if let Some(word) = ["-Infinity", "Infinity", "NaN"].into_iter().find(|w| !in_string && rest.starts_with(w)) {
+            out.push_str("null");
+            rest = &rest[word.len()..];
+            continue;
+        }
+        (in_string, escaped) = if in_string { (escaped || c != '"', !escaped && c == '\\') } else { (c == '"', false) };
+        out.push(c);
+        rest = &rest[c.len_utf8()..];
+    }
+    serde_json::from_str(&out).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
 /// NFC as the `tokenizers` library's normalizer computes it, over every codepoint in runs of its neighbours, the runs
@@ -2036,4 +3638,95 @@ fn a_checkpoint_of_hundreds_of_gigabytes_is_never_read_whole() {
     assert_eq!(rope, vec![hd / 2], "the rotary factors the converter computes");
     let read = bytes_read() - before;
     assert!(read < 16 << 20, "opening and reading five rows of an 812 GB checkpoint read {read} bytes");
+}
+
+/// Every architecture section 6 of `benchmarks/PREPARE_FOR_SAMBA.md` lists (its tiers A to C, the vision towers, the
+/// encoders and the pooling heads aside): the `model_type` its configurations name, the class its checkpoints name, the
+/// GGUF architecture the pinned converter writes for it, and the twin (`scripts/accel/hf-tiny-twin.py`) that holds the
+/// arm to that converter.
+const SECTION_6: &[(&str, &str, &str, &str)] = &[
+    ("llama", "LlamaForCausalLM", "llama", "llama"),
+    ("mistral", "MistralForCausalLM", "llama", "mistral"),
+    ("mixtral", "MixtralForCausalLM", "llama", "mixtral"),
+    ("ministral3", "Ministral3ForCausalLM", "mistral3", "ministral3"),
+    ("mistral3", "Mistral3ForConditionalGeneration", "mistral3", "ministral3-mm"),
+    ("qwen2", "Qwen2ForCausalLM", "qwen2", "qwen2"),
+    ("qwen2_moe", "Qwen2MoeForCausalLM", "qwen2moe", "qwen2moe"),
+    ("qwen3_next", "Qwen3NextForCausalLM", "qwen3next", "qwen3next"),
+    ("qwen3_5", "Qwen3_5ForConditionalGeneration", "qwen35", "qwen35"),
+    ("qwen3_5_moe", "Qwen3_5MoeForConditionalGeneration", "qwen35moe", "qwen35moe"),
+    ("qwen4_exp", "Qwen4ExpForConditionalGeneration", "qwen4exp", "qwen4exp"),
+    ("llama4", "Llama4ForConditionalGeneration", "llama4", "llama4-mm"),
+    ("gpt_oss", "GptOssForCausalLM", "gpt-oss", "gpt-oss"),
+    ("phi3", "Phi3ForCausalLM", "phi3", "phi3"),
+    ("phimoe", "PhiMoEForCausalLM", "phimoe", "phimoe"),
+    ("gemma", "GemmaForCausalLM", "gemma", "gemma"),
+    ("gemma2", "Gemma2ForCausalLM", "gemma2", "gemma2"),
+    ("gemma3_text", "Gemma3ForCausalLM", "gemma3", "gemma3"),
+    ("gemma3n", "Gemma3nForConditionalGeneration", "gemma3n", "gemma3n-mm"),
+    ("gemma4", "Gemma4ForConditionalGeneration", "gemma4", "gemma4"),
+    ("glm4", "Glm4ForCausalLM", "glm4", "glm4"),
+    ("glm4_moe", "Glm4MoeForCausalLM", "glm4moe", "glm4moe"),
+    ("glm_moe_dsa", "GlmMoeDsaForCausalLM", "glm-dsa", "glm-dsa"),
+    ("deepseek_v3", "DeepseekV3ForCausalLM", "deepseek2", "deepseek2"),
+    ("deepseek_v3", "DeepseekV3ForCausalLM", "deepseek2", "kimi_k2"),
+    ("deepseek_v32", "DeepseekV32ForCausalLM", "deepseek32", "deepseek32"),
+    ("kimi_linear", "KimiLinearForCausalLM", "kimi-linear", "kimi-linear"),
+    ("minimax_m2", "MiniMaxM2ForCausalLM", "minimax-m2", "minimax_m2"),
+    ("minimax", "MiniMaxForCausalLM", "minimax-01", "minimax-01"),
+    ("minimax_text_01", "MiniMaxText01ForCausalLM", "minimax-01", "minimax-text-01"),
+    ("jamba", "JambaForCausalLM", "jamba", "jamba"),
+    ("falcon_h1", "FalconH1ForCausalLM", "falcon-h1", "falcon-h1"),
+    ("nemotron_h", "NemotronHForCausalLM", "nemotron_h", "nemotron_h"),
+    ("mamba2", "Mamba2ForCausalLM", "mamba2", "mamba2"),
+    ("rwkv7", "RWKV7ForCausalLM", "rwkv7", "rwkv7"),
+    ("rwkv7", "Rwkv7ForCausalLM", "rwkv7", "rwkv7-hf"),
+    ("lfm2", "Lfm2ForCausalLM", "lfm2", "lfm2"),
+];
+
+/// The tokenizer the twin script's family `family` is built with: the entry's own `tokenizer=`, or that of the family
+/// it is made from (`dict(FAMILIES["<base>"], …)`).
+fn twin_tokenizer(script: &str, family: &str) -> Option<String> {
+    let starts = [format!("\n    \"{family}\": dict("), format!("\nFAMILIES[\"{family}\"] = dict(")];
+    let at = starts.iter().find_map(|s| script.find(s.as_str()).map(|i| i + s.len()))?;
+    let rest = &script[at..];
+    let end = ["\n    ),", "\n)\n"].iter().filter_map(|e| rest.find(e)).min().unwrap_or(rest.len());
+    let entry = &rest[..end];
+    if let Some(own) = entry.split("tokenizer=\"").nth(1).and_then(|t| t.split('"').next()) {
+        return Some(own.to_string());
+    }
+    let base = entry.trim_start().strip_prefix("FAMILIES[\"")?.split('"').next()?;
+    twin_tokenizer(script, base)
+}
+
+#[test]
+fn every_section_6_architecture_has_an_arm() {
+    // Each architecture reaches an arm of `ModelSpec::from_source` (`model::triage::ARCHITECTURES` lists them, and
+    // `model_triage_lock` holds that list to the arms), its twin is a family of the twin script and its tokenizer one
+    // the fetch script fetches; and the twin's directory reads as its class's GGUF architecture, its configuration and
+    // its converted GGUF alike.
+    let unread: Vec<String> = SECTION_6
+        .iter()
+        .filter(|(_, _, arch, _)| !ARCHITECTURES.contains(arch))
+        .map(|(model_type, class, arch, _)| format!("{model_type} ({class}, `{arch}`)"))
+        .collect();
+    assert!(unread.is_empty(), "section 6's architectures no arm reads: {unread:?}");
+    let twins = std::fs::read_to_string(repo_root().join("scripts/accel/hf-tiny-twin.py")).unwrap();
+    let fetched = std::fs::read_to_string(repo_root().join("scripts/accel/fetch-hf-tokenizers.sh")).unwrap();
+    for (model_type, _, _, family) in SECTION_6 {
+        let tokenizer = twin_tokenizer(&twins, family).unwrap_or_else(|| panic!("{model_type}: no twin `{family}` naming its tokenizer"));
+        assert!(fetched.contains(&format!("\n    \"{tokenizer} ")), "{model_type}: the tokenizer `{tokenizer}` is not one the fetch script fetches");
+    }
+    if !common::require_tool("hf-twins") {
+        return;
+    }
+    for (model_type, class, arch, family) in SECTION_6 {
+        let (dir, gguf) = twin(family).expect("the twins");
+        let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(dir.join("config.json")).unwrap()).unwrap();
+        assert_eq!(config["architectures"][0].as_str(), Some(*class), "{model_type}: the twin's class");
+        let (read, _) = HfCheckpoint::read_configuration(&dir).unwrap_or_else(|e| panic!("{model_type}: {e}"));
+        assert_eq!(read, *arch, "{model_type}: the architecture its configuration reads as");
+        let spec = ModelSpec::from_gguf(&Gguf::open(&gguf).unwrap()).unwrap_or_else(|e| panic!("{model_type}: its converted GGUF: {e}"));
+        assert_eq!(spec.arch, *arch, "{model_type}: the converted GGUF's architecture");
+    }
 }

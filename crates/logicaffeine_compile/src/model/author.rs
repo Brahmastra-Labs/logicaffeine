@@ -13,7 +13,10 @@
 use std::collections::HashMap;
 
 use super::bind::{rotation_of, rotations, HostTable, RotaryTable};
-use super::spec::{Act, Attention, Ffn, GateActivation, GatedDelta, Gating, Mixer, Mla, ModelSpec};
+use super::spec::{
+    Act, Attention, Ffn, GateActivation, GatedDelta, Gating, HyperConnections, Indexer, LogitScale, Mixer, Mla, ModelSpec, Norm,
+    Ple,
+};
 
 /// A program and its weight manifest: `(source, f32 weights → (file, count), q8 weights → file stem)`.
 pub type Authored = (
@@ -35,25 +38,68 @@ impl std::fmt::Display for NotYet {
 /// Can every layer of `spec` be written in the language as it stands? The sugar's rotation is NEOX-paired (an
 /// interleaved checkpoint is bound through a per-head permutation of its Q and K rows, a fused projection through each
 /// part's rows); an attention reads values of any width at the scale it gives, its scores and the logits soft-capped
-/// where the model caps them, and a latent attention its latent at the scale it gives.
+/// where the model caps them, and a latent attention its latent at the scale it gives. A sparse selection of the
+/// attended positions (QSA) is refused here, where no cache length is known; [`check_at`] takes it within its dense
+/// limit.
 pub fn check(spec: &ModelSpec) -> Result<(), NotYet> {
+    check_with(spec, None)
+}
+
+/// The positions a QSA layer attends every one of: while a query's complete blocks fit the budget it keeps them all, so
+/// a cache of up to `(budget / block + 1)·block − 1` positions is attended densely — 2,051 for Qwen3.8-Flash-Next's
+/// 2,048 positions in blocks of 4.
+pub fn qsa_dense_limit(ix: &Indexer) -> usize {
+    (ix.budget / ix.block.max(1) + 1) * ix.block.max(1) - 1
+}
+
+/// [`check`] for programs over a cache of `ctx` positions: a QSA layer attends every cached position up to its dense
+/// limit ([`qsa_dense_limit`]), so within it the layer is written as the attention it is there, exactly; past it its
+/// selection is refused by name.
+pub fn check_at(spec: &ModelSpec, ctx: usize) -> Result<(), NotYet> {
+    check_with(spec, Some(ctx))
+}
+
+fn check_with(spec: &ModelSpec, ctx: Option<usize>) -> Result<(), NotYet> {
     if !(spec.rms_eps.is_finite() && spec.rms_eps > 0.0) {
         return Err(NotYet("an RMSNorm epsilon that is not a positive number"));
     }
     if spec.final_logit_softcap.is_some_and(|cap| !(cap.is_finite() && cap > 0.0)) {
         return Err(NotYet("a final logit softcap that is not a positive number"));
     }
+    if spec.norm != Norm::Rms {
+        return Err(NotYet("block norms that are LayerNorms (PhiMoE's and RWKV-7's)"));
+    }
+    if spec.head_bias {
+        return Err(NotYet("a bias on the LM head"));
+    }
+    if let Some(part) = spec.parts.first() {
+        return Err(NotYet(part.what()));
+    }
     // Qwen3.8-Flash-Next's parts: a program written without them would compute another model.
-    if spec.hyper.is_some() {
-        return Err(NotYet("hyper-connections in place of the norms"));
+    if spec.ple.as_ref().is_some_and(|p| spec.hyper.is_none() || p.layer >= spec.layers.len()) {
+        return Err(NotYet("a per-layer n-gram embedding off a hyper-connected residual's layers"));
     }
-    if spec.ple.is_some() {
-        return Err(NotYet("a per-layer n-gram embedding"));
+    if let Some(ix) = spec.indexer.as_ref().filter(|ix| !ix.layers.is_empty()) {
+        match ctx {
+            Some(ctx) if ctx <= qsa_dense_limit(ix) => {}
+            Some(_) => return Err(NotYet("a sparse selection of the attended positions (QSA) past its dense limit")),
+            None => return Err(NotYet("a sparse selection of the attended positions (QSA) over a cache of no known length")),
+        }
     }
-    if spec.indexer.as_ref().is_some_and(|ix| !ix.layers.is_empty()) {
-        return Err(NotYet("a sparse selection of the attended positions (QSA)"));
+    // A hyper-connected residual's sublayers read the mix of its lanes, never the residual itself.
+    if spec.hyper.is_some() && spec.layers.iter().any(|l| !l.pre_norms) {
+        return Err(NotYet("a hyper-connected residual whose sublayers read it unnormed"));
     }
     for layer in &spec.layers {
+        if matches!(&layer.mixer, Mixer::Mla(m) if m.indexer.is_some()) {
+            return Err(NotYet("DeepSeek's sparse attention (a lightning indexer's choice of the attended positions)"));
+        }
+        match &layer.mixer {
+            Mixer::Recurrent(r) => return Err(NotYet(r.what())),
+            Mixer::None => return Err(NotYet("a block with no mixer (Nemotron-H's MLP blocks)")),
+            Mixer::Mla(m) if m.rope.is_none() => return Err(NotYet("latent attention that takes no positions (Kimi-Linear's)")),
+            _ => {}
+        }
         if let Mixer::Attention(a) = &layer.mixer {
             if a.output_gate && (a.fused_qkv || a.value_dim != a.head_dim) {
                 return Err(NotYet("an output gate on a fused projection or over values unlike the keys in width"));
@@ -66,11 +112,17 @@ pub fn check(spec: &ModelSpec) -> Result<(), NotYet> {
             }
         }
         match &layer.ffn {
-            Ffn::Dense { act, .. } if !matches!(act, Act::Silu | Act::GeluTanh) => {
-                return Err(NotYet("a gated activation other than SiLU or GeLU"))
+            Ffn::None => return Err(NotYet("a block with no FFN (Mamba-2's and Nemotron-H's mixer blocks)")),
+            Ffn::ChannelMix { .. } => return Err(NotYet("RWKV's channel mix")),
+            Ffn::DenseAndMoe { .. } => return Err(NotYet("a dense FFN beside an expert mixture (Gemma 4's)")),
+            Ffn::Dense { act, .. } if !matches!(act, Act::Silu | Act::GeluTanh | Act::ReluSquared) => {
+                return Err(NotYet("a dense FFN other than a SiLU- or GeLU-gated one or relu²"))
             }
             Ffn::Moe(m) if !matches!(m.act, Act::Silu | Act::SwigluOai { .. }) => {
                 return Err(NotYet("an expert mixture other than top-k experts gated by a SwiGLU"))
+            }
+            Ffn::Moe(m) if matches!(m.gating, Gating::SparseMixer { .. }) => {
+                return Err(NotYet("an expert mixture routed by PhiMoE's sparsemixer"))
             }
             Ffn::Moe(m) if !(m.weights_scale.is_finite() && m.weights_scale >= 0.0) => {
                 return Err(NotYet("a routed scale that is not a positive number"))
@@ -97,15 +149,17 @@ pub fn check(spec: &ModelSpec) -> Result<(), NotYet> {
 }
 
 /// The program `src` with every norm statement given the model's epsilon `eps` — the RMSNorms, the gated delta rule's
-/// output norm and the L2 norms of its queries and keys, all of which the model computes with its one epsilon. The
-/// sugar's own epsilon is 1e-6, so a model with that one is written without the clause.
+/// output norm and the L2 norms of its queries and keys, all of which the model computes with its one epsilon but a
+/// norm written with its own (a latent attention's latent norms). The sugar's own epsilon is 1e-6, so a model with that
+/// one is written without the clause.
 fn with_epsilon(src: &str, eps: f64) -> String {
     if eps == 1e-6 {
         return src.to_string();
     }
     src.lines()
         .map(|line| {
-            let norm = [" be rmsnorm of ", " be l2norm of ", " be gated delta of "].iter().any(|n| line.contains(n));
+            let norm = [" be rmsnorm of ", " be l2norm of ", " be gated delta of "].iter().any(|n| line.contains(n))
+                && !line.contains(" with epsilon ");
             match line.strip_suffix('.') {
                 Some(stmt) if norm && line.starts_with("Let ") => format!("{stmt} with epsilon {eps:?}.\n"),
                 _ => format!("{line}\n"),
@@ -152,6 +206,17 @@ impl RowState {
     }
 }
 
+/// How a step's tokens reach the per-layer embedding: the decode step's `tok`, a prefill chunk's `toks`, a batch's
+/// `tok_s{b}` a sequence — or none declared yet, in a program cut out of a step, which declares the runtime input the
+/// step binds (each `1` in the text, as every placeholder input is).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StepTokens {
+    Undeclared,
+    Scalar,
+    Tensor,
+    PerSequence,
+}
+
 /// A program being written, and the weights it declares.
 struct Program<'a> {
     spec: &'a ModelSpec,
@@ -159,6 +224,7 @@ struct Program<'a> {
     s: String,
     f32w: HashMap<String, (String, usize)>,
     q8w: HashMap<String, String>,
+    tokens: StepTokens,
 }
 
 /// The widths a layer's statements use: the queries' and keys' `aq` and `akv`, the values' `avd` and the attended
@@ -195,6 +261,7 @@ impl<'a> Program<'a> {
             s: String::from("## Main\n"),
             f32w: HashMap::new(),
             q8w: HashMap::new(),
+            tokens: StepTokens::Undeclared,
         }
     }
 
@@ -211,6 +278,132 @@ impl<'a> Program<'a> {
     fn decl_q8(&mut self, var: &str, r: usize, c: usize) {
         self.s.push_str(&format!("Let {var} be a {r} by {c} tensor of Real.\n"));
         self.q8w.insert(var.to_string(), format!("{}/{var}", self.dir));
+    }
+
+    /// Carried state of integers (the n-gram hash's token history), declared and named as every carried tensor is.
+    fn decl_int_state(&mut self, var: &str, r: usize, c: usize) {
+        self.s.push_str(&format!("Let {var} be a {r} by {c} tensor of Int.\n"));
+        self.f32w.insert(var.to_string(), (format!("{}/{var}.f", self.dir), r * c));
+    }
+
+    /// Integers the spec fixes, written into the program: a `1 by n` tensor of Int holding `values`.
+    fn int_constants(&mut self, var: &str, values: &[u64]) {
+        self.s.push_str(&format!("Let {var} be a 1 by {} tensor of Int.\n", values.len()));
+        for (k, v) in values.iter().enumerate() {
+            self.s.push_str(&format!("Set item {} of {var} to {v}.\n", k + 1));
+        }
+    }
+
+    /// The token rows a step of one sequence's `rows` rows hashes: the decode step's `tok`, the chunk's `toks`, or — cut
+    /// out of a step — the runtime input declared here.
+    fn step_tokens(&mut self, rows: usize) -> String {
+        match self.tokens {
+            StepTokens::Scalar => "tok".to_string(),
+            StepTokens::Tensor => "toks".to_string(),
+            StepTokens::Undeclared if rows == 1 => {
+                self.s.push_str("Let tok be 1.\n");
+                self.tokens = StepTokens::Scalar;
+                "tok".to_string()
+            }
+            _ => {
+                self.s.push_str(&format!("Let toks be a 1 by {rows} tensor of Int.\n"));
+                self.tokens = StepTokens::Tensor;
+                "toks".to_string()
+            }
+        }
+    }
+
+    /// Sequence `b`'s token row in a batch: `tok_s{b}`, declared here when the program is cut out of the batch.
+    fn sequence_token(&mut self, b: usize) -> String {
+        if self.tokens != StepTokens::PerSequence {
+            self.s.push_str(&format!("Let tok_s{b} be 1.\n"));
+        }
+        format!("tok_s{b}")
+    }
+
+    /// Layer `l`'s per-layer n-gram embedding (transformers `Qwen4ExpTextPLELayer`) added to its lanes `cur` before its
+    /// mixer reads them — `rows` rows, `p` a stacked step's prefix, each row its own sequence when `state` says so. Each
+    /// token's n-grams name rows of the table (the hash's history is carried state), read side by side and projected to
+    /// a key for each lane and one value; each lane's gate is `σ(sign(g)·√|g|)` of `g`, its normed key's agreement with
+    /// its normed lane over `√d`; the value spread over the lanes by the gates, normed, and the dilated causal
+    /// convolution of that (its ring carried) through the SiLU added to it. The lanes the layer then reads, or `None`
+    /// off the embedding's layer.
+    fn ple(&mut self, l: usize, cur: &str, p: &str, rows: usize, state: RowState) -> Option<String> {
+        let (ple, hc) = match (self.spec.ple.clone(), self.spec.hyper) {
+            (Some(ple), Some(hc)) if ple.layer == l => (ple, hc),
+            _ => return None,
+        };
+        let (d, lanes, n, hd) = (self.spec.d, hc.lanes, ple.ngram, ple.head_dim);
+        let (width, heads) = (lanes * d, ple.head_vocab.len());
+        let taps = (ple.conv_taps - 1) * n + 1;
+        self.int_constants(&format!("Pm{l}"), &ple.multipliers);
+        self.int_constants(&format!("Pv{l}"), &ple.head_vocab);
+        self.int_constants(&format!("Po{l}"), &ple.head_offsets);
+        self.decl_q8(&format!("Pe{l}"), ple_table_rows(&ple), hd);
+        self.decl_q8(&format!("Wpk{l}"), heads * hd, width);
+        self.decl_q8(&format!("Wpv{l}"), heads * hd, d);
+        self.decl_f32(&format!("Pnk{l}"), 1, width);
+        self.decl_f32(&format!("Pnq{l}"), 1, width);
+        self.decl_f32(&format!("Pnc{l}"), 1, width);
+        self.decl_f32(&format!("Wpc{l}"), taps, width);
+        let eos = ple.eos as usize + 1;
+        let hash = |t: &str, h: &str| format!("the ngram ids of {t} after {h} by Pm{l} modulo Pv{l} from Po{l} ending at {eos}");
+        match state {
+            RowState::Shared => {
+                self.decl_int_state(&format!("Ph{l}"), 1, n - 1);
+                let t = self.step_tokens(rows);
+                self.s.push_str(&format!("Let {p}pi{l} be {}.\n", hash(&t, &format!("Ph{l}"))));
+            }
+            RowState::PerSequence => {
+                self.s.push_str(&format!("Let {p}pi{l} be a {rows} by {heads} tensor of Int.\n"));
+                for b in 0..rows {
+                    let history = format!("Ph{l}_s{b}");
+                    self.decl_int_state(&history, 1, n - 1);
+                    let t = self.sequence_token(b);
+                    self.s.push_str(&format!("Let pi{l}_s{b} be {}.\nSet row {} of {p}pi{l} to pi{l}_s{b}.\n", hash(&t, &history), b + 1));
+                }
+            }
+        }
+        let scale = 1.0 / (d as f64).sqrt();
+        self.s.push_str(&format!(
+            "Let {p}pe{l} be rows {p}pi{l} of Pe{l} side by side.\n\
+             Let {p}pk{l} be {p}pe{l} matmul Wpk{l}.\n\
+             Let {p}pv{l} be {p}pe{l} matmul Wpv{l}.\n\
+             Let {p}pkn{l} be rmsnorm of {p}pk{l} with weight Pnk{l} in {lanes} lanes.\n\
+             Let {p}pqn{l} be rmsnorm of {cur} with weight Pnq{l} in {lanes} lanes.\n\
+             Let {p}pkq{l} be {p}pkn{l} hadamard {p}pqn{l}.\n\
+             Let {p}pg{l} be the lane sums of {p}pkq{l} over {lanes} lanes.\n\
+             Let {p}pgs{l} be {p}pg{l} scaled by {scale:?}.\n\
+             Let {p}pgr{l} be the signed root of {p}pgs{l}.\n\
+             Let {p}pgt{l} be sigmoid of {p}pgr{l}.\n\
+             Let {p}pgv{l} be {p}pv{l} spread over {lanes} lanes by {p}pgt{l}.\n\
+             Let {p}pcn{l} be rmsnorm of {p}pgv{l} with weight Pnc{l} in {lanes} lanes.\n"
+        ));
+        match state {
+            RowState::Shared => {
+                self.decl_f32(&format!("Cp{l}"), taps, width);
+                self.s.push_str(&format!("Let {p}pcc{l} be causal conv of {p}pcn{l} with weight Wpc{l} state Cp{l} over {taps} taps.\n"));
+            }
+            RowState::PerSequence => {
+                self.s.push_str(&format!("Let {p}pcc{l} be a {rows} by {width} tensor of Real.\n"));
+                for b in 0..rows {
+                    let ring = format!("Cp{l}_s{b}");
+                    self.decl_f32(&ring, taps, width);
+                    self.s.push_str(&format!(
+                        "Let pcn{l}_s{b} be row {r} of {p}pcn{l}.\n\
+                         Let pcc{l}_s{b} be causal conv of pcn{l}_s{b} with weight Wpc{l} state {ring} over {taps} taps.\n\
+                         Set row {r} of {p}pcc{l} to pcc{l}_s{b}.\n",
+                        r = b + 1
+                    ));
+                }
+            }
+        }
+        self.s.push_str(&format!(
+            "Let {p}pcs{l} be silu of {p}pcc{l}.\n\
+             Let {p}pa{l} be {p}pgv{l} plus {p}pcs{l}.\n\
+             Let {p}xp{l} be {cur} plus {p}pa{l}.\n"
+        ));
+        Some(format!("{p}xp{l}"))
     }
 
     /// The rotary tables of every rotation the layers `only` names (all of them when `None`) turn by: a decode step's
@@ -238,8 +431,9 @@ impl<'a> Program<'a> {
     }
 
     /// Llama 4's query and key after the rotation: each normed per head (`norm_heads` query and key heads) by an RMSNorm
-    /// whose weight is a row of ones, when the layer norms them; on a rotation-free layer the query (`rope_heads` heads)
-    /// scaled by its position's attention temperature — a rotation whose cosine is the factor and whose sine is zero,
+    /// whose weight is a row of ones, when the layer norms them; where the layer takes the attention temperature (Llama
+    /// 4's rotation-free layers, Ministral 3's every layer) the query (`rope_heads` heads) scaled by its position's
+    /// factor — a rotation whose cosine is the factor and whose sine is zero,
     /// read from position `from` of a decode step's tables of `ctx` positions, or a forward's one row when `from` is
     /// `None`. `name` names each intermediate from its base.
     fn llama4_qk(
@@ -303,19 +497,28 @@ impl<'a> Program<'a> {
     }
 
     /// The block output `x` as the residual adds it: `x` itself, or — after a mixer (`after_mixer`) or an FFN whose
-    /// layer norms its output too (Gemma's sandwich) — `x` normed by the layer's post-norm weight.
+    /// layer norms its output too (Gemma's sandwich) — `x` normed by the layer's post-norm weight; then scaled by the
+    /// model's residual scale where it has one (Granite, MiniCPM).
     fn post_norm(&mut self, l: usize, x: &str, after_mixer: bool) -> String {
         let layer = &self.spec.layers[l];
         let (on, weight) = if after_mixer { (layer.post_mixer_norm, "pan") } else { (layer.post_ffn_norm, "pfn") };
-        if !on {
-            return x.to_string();
+        let y = if on {
+            let w = format!("{weight}{l}");
+            if !self.f32w.contains_key(&w) {
+                self.decl_f32(&w, 1, self.spec.d);
+            }
+            self.s.push_str(&format!("Let {x}n be rmsnorm of {x} with weight {w}.\n"));
+            format!("{x}n")
+        } else {
+            x.to_string()
+        };
+        match self.spec.residual_scale {
+            Some(r) => {
+                self.s.push_str(&format!("Let {y}_rs be {y} scaled by {r:?}.\n"));
+                format!("{y}_rs")
+            }
+            None => y,
         }
-        let w = format!("{weight}{l}");
-        if !self.f32w.contains_key(&w) {
-            self.decl_f32(&w, 1, self.spec.d);
-        }
-        self.s.push_str(&format!("Let {x}n be rmsnorm of {x} with weight {w}.\n"));
-        format!("{x}n")
     }
 
     /// `Let out be x matmul w`, plus the row `bias` (declared once, `width` wide) when the layer has one — the matmul then
@@ -347,20 +550,136 @@ impl<'a> Program<'a> {
     /// The embedding rows `rows` as the first layer reads them, bound to `out`: scaled by the model's embedding scale
     /// when it has one.
     fn embedded(&mut self, rows: &str, out: &str) {
+        let lanes = self.spec.hyper.map(|hc| hc.lanes);
+        let row = if lanes.is_some() { format!("{out}t") } else { out.to_string() };
         match self.spec.embedding_scale {
-            Some(scale) => self.s.push_str(&format!("Let {out}e be {rows}.\nLet {out} be {out}e scaled by {scale:?}.\n")),
-            None => self.s.push_str(&format!("Let {out} be {rows}.\n")),
+            Some(scale) => self.s.push_str(&format!("Let {row}e be {rows}.\nLet {row} be {row}e scaled by {scale:?}.\n")),
+            None => self.s.push_str(&format!("Let {row} be {rows}.\n")),
+        }
+        // A hyper-connected residual begins as a copy of the embedding in every lane.
+        if let Some(lanes) = lanes {
+            self.s.push_str(&format!("Let {out} be {row} spread over {lanes} lanes.\n"));
+        }
+    }
+
+    /// Before layer `l`'s mixer: its pre-norm weight — or, with hyper-connections, the mix of the lanes `cur` into the
+    /// mixer's input `{p}xn{l}` and each lane's share of its output, `{p}xn{l}_w` ([`Self::hyper_mix`]).
+    fn mixer_in(&mut self, l: usize, cur: &str, p: &str) {
+        match self.spec.hyper {
+            Some(hc) => self.hyper_mix(hc, cur, "HA", Some(l), &format!("{p}xn{l}"), true),
+            None if self.spec.layers[l].pre_norms => self.decl_f32(&format!("an{l}"), 1, self.spec.d),
+            None => {}
+        }
+    }
+
+    /// The input layer `l`'s mixer reads (`p` the stack prefix): `{p}xn{l}`, the hidden state normed by the layer's
+    /// pre-norm or mixed from the lanes — or the hidden state `cur` itself where the layer norms nothing before its
+    /// sublayers (OLMo 2's).
+    fn mixer_input(&self, l: usize, cur: &str, p: &str) -> String {
+        if self.spec.layers[l].pre_norms || self.spec.hyper.is_some() {
+            format!("{p}xn{l}")
+        } else {
+            cur.to_string()
+        }
+    }
+
+    /// The input layer `l`'s FFN reads: `{p}x2n{l}`, the residual after the mixer normed or mixed from the lanes — or that
+    /// residual `{p}xr{l}` itself where the layer norms nothing before its sublayers.
+    fn ffn_input(&self, l: usize, p: &str) -> String {
+        if self.spec.layers[l].pre_norms || self.spec.hyper.is_some() {
+            format!("{p}x2n{l}")
+        } else {
+            format!("{p}xr{l}")
+        }
+    }
+
+    /// The input `{p}xn{l}` a block's mixer reads: the hidden state `cur` normed by the layer's pre-norm — written by
+    /// [`Self::mixer_in`] instead under hyper-connections, whose mix is the mixer's input, and not at all where the layer
+    /// norms nothing before its sublayers ([`Self::mixer_input`]).
+    fn pre_norm(&mut self, l: usize, cur: &str, p: &str) {
+        if self.spec.hyper.is_none() && self.spec.layers[l].pre_norms {
+            self.s.push_str(&format!("Let {p}xn{l} be rmsnorm of {cur} with weight an{l}.\n"));
+        }
+    }
+
+    /// The residual after layer `l`'s mixer and the FFN's input: `{p}xr{l} = cur + ao`, normed into `{p}x2n{l}` — or,
+    /// with hyper-connections, the mixer's output `ao` spread over the lanes `cur` by its shares and added to them, and
+    /// the new lanes' mix into `{p}x2n{l}` with the FFN's shares `{p}x2n{l}_w`.
+    fn ffn_in(&mut self, l: usize, cur: &str, ao: &str, p: &str) {
+        match self.spec.hyper {
+            Some(hc) => {
+                self.s.push_str(&format!(
+                    "Let {p}ai{l} be {ao} spread over {} lanes by {p}xn{l}_w.\nLet {p}xr{l} be {cur} plus {p}ai{l}.\n",
+                    hc.lanes
+                ));
+                self.hyper_mix(hc, &format!("{p}xr{l}"), "HF", Some(l), &format!("{p}x2n{l}"), true);
+            }
+            None if self.spec.layers[l].pre_norms => self.s.push_str(&format!(
+                "Let {p}xr{l} be {cur} plus {ao}.\n\
+                 Let {p}x2n{l} be rmsnorm of {p}xr{l} with weight fn{l}.\n"
+            )),
+            None => self.s.push_str(&format!("Let {p}xr{l} be {cur} plus {ao}.\n")),
+        }
+    }
+
+    /// Layer `l`'s output `{p}xo{l}`: the residual `{p}xr{l}` plus the FFN's output `dn` — spread over the lanes by the
+    /// FFN's shares under hyper-connections.
+    fn ffn_out(&mut self, l: usize, dn: &str, p: &str) {
+        match self.spec.hyper {
+            Some(hc) => self.s.push_str(&format!(
+                "Let {p}fi{l} be {dn} spread over {} lanes by {p}x2n{l}_w.\nLet {p}xo{l} be {p}xr{l} plus {p}fi{l}.\n",
+                hc.lanes
+            )),
+            None => self.s.push_str(&format!("Let {p}xo{l} be {p}xr{l} plus {dn}.\n")),
+        }
+    }
+
+    /// A hyper-connection's mix of the lanes `h` (`rows × lanes·d`) into the one row a sublayer reads, bound to `into`
+    /// (`rows × d`): the lanes normed each by its own row of the norm weight, gated by `σ(U·silu(D·x̂ / lanes))` and
+    /// averaged; with `inject`, each lane's share of the sublayer's output, `2σ(J·x̂ / lanes)`, bound to `{into}_w`
+    /// (`rows × lanes`). The weights are `{stem}n`, `{stem}d`, `{stem}u` and `{stem}j`, layer `l`'s when given: the
+    /// mixer's mix (`HA`), the FFN's (`HF`) or the head's (`HO`, no injection).
+    fn hyper_mix(&mut self, hc: HyperConnections, h: &str, stem: &str, l: Option<usize>, into: &str, inject: bool) {
+        let (lanes, rank, width) = (hc.lanes, hc.rank, hc.lanes * self.spec.d);
+        let at = l.map_or(String::new(), |l| l.to_string());
+        let (wn, wd, wu, wj) = (format!("{stem}n{at}"), format!("{stem}d{at}"), format!("{stem}u{at}"), format!("{stem}j{at}"));
+        self.decl_f32(&wn, 1, width);
+        self.decl_q8(&wd, width, rank);
+        self.decl_q8(&wu, rank, width);
+        let share = 1.0 / lanes as f64;
+        self.s.push_str(&format!(
+            "Let {into}_n be rmsnorm of {h} with weight {wn} in {lanes} lanes.\n\
+             Let {into}_d be {into}_n matmul {wd}.\n\
+             Let {into}_e be {into}_d scaled by {share:?}.\n\
+             Let {into}_a be silu of {into}_e.\n\
+             Let {into}_u be {into}_a matmul {wu}.\n\
+             Let {into}_g be sigmoid of {into}_u.\n\
+             Let {into}_x be {into}_g hadamard {into}_n.\n\
+             Let {into} be the mean of {into}_x over {lanes} lanes.\n"
+        ));
+        if inject {
+            self.decl_q8(&wj, width, lanes);
+            self.s.push_str(&format!(
+                "Let {into}_j be {into}_n matmul {wj}.\n\
+                 Let {into}_k be {into}_j scaled by {share:?}.\n\
+                 Let {into}_q be sigmoid of {into}_k.\n\
+                 Let {into}_w be {into}_q scaled by 2.0.\n"
+            ));
         }
     }
 
     /// Layer `l`, reading the hidden state `cur` and producing `xo{l}`.
     fn layer(&mut self, l: usize, cur: &str, form: AttnForm) {
         let spec = self.spec;
-        self.decl_f32(&format!("an{l}"), 1, spec.d);
+        let joined = self.ple(l, cur, "", 1, RowState::Shared);
+        let cur = joined.as_deref().unwrap_or(cur);
+        self.mixer_in(l, cur, "");
         match &spec.layers[l].mixer {
             Mixer::Attention(a) => self.attention(l, a, cur, form),
             Mixer::GatedDelta(g) => self.gated_delta(l, g, cur),
             Mixer::Mla(m) => self.mla(l, m, cur, form),
+            Mixer::Recurrent(r) => unreachable!("author::check refuses {}", r.what()),
+            Mixer::None => unreachable!("author::check refuses a block with no mixer"),
         }
         self.ffn(l, cur, None);
     }
@@ -390,26 +709,28 @@ impl<'a> Program<'a> {
         }
     }
 
-    /// The position-free half of a latent attention, from its normed input `{p}xn{l}` (a stack when `p` is `b`): the
+    /// The position-free half of a latent attention, from its input `x` (a stack when `p` is `b`): the
     /// query (through its low-rank halves when it has them) cut into each head's unrotated part — absorbed into the
     /// latent's space by `Wkb` as `{p}ql{l}` — and its rotated part `{p}qe{l}`; the latent `{p}kvn{l}`, RMS-normed; the
     /// shared key's rotated part `{p}kpe{l}`.
-    fn mla_projections(&mut self, l: usize, m: &Mla, p: &str) {
+    fn mla_projections(&mut self, l: usize, m: &Mla, p: &str, x: &str) {
         let (h, nope, rope, lora) = (m.heads, m.qk_nope, m.qk_rope, m.kv_lora_rank);
         let (qk, kw) = (nope + rope, lora + rope);
+        // The latent norms' own epsilon, stated where it is not the model's (which `with_epsilon` gives the rest).
+        let eps = if m.latent_norm_eps == self.spec.rms_eps { String::new() } else { format!(" with epsilon {:?}", m.latent_norm_eps) };
         match m.q_lora_rank {
-            None => self.s.push_str(&format!("Let {p}qr{l} be {p}xn{l} matmul Wq{l}.\n")),
+            None => self.s.push_str(&format!("Let {p}qr{l} be {x} matmul Wq{l}.\n")),
             Some(_) => self.s.push_str(&format!(
-                "Let {p}qx{l} be {p}xn{l} matmul Wqa{l}.\n\
-                 Let {p}qxn{l} be rmsnorm of {p}qx{l} with weight Qan{l}.\n\
+                "Let {p}qx{l} be {x} matmul Wqa{l}.\n\
+                 Let {p}qxn{l} be rmsnorm of {p}qx{l} with weight Qan{l}{eps}.\n\
                  Let {p}qr{l} be {p}qxn{l} matmul Wqb{l}.\n"
             )),
         }
         self.s.push_str(&format!(
-            "Let {p}kva{l} be {p}xn{l} matmul Wkva{l}.\n\
+            "Let {p}kva{l} be {x} matmul Wkva{l}.\n\
              Let {p}kvl{l} be the first {lora} of every {kw} of {p}kva{l}.\n\
              Let {p}kpe{l} be the last {rope} of every {kw} of {p}kva{l}.\n\
-             Let {p}kvn{l} be rmsnorm of {p}kvl{l} with weight Kan{l}.\n\
+             Let {p}kvn{l} be rmsnorm of {p}kvl{l} with weight Kan{l}{eps}.\n\
              Let {p}qn{l} be the first {nope} of every {qk} of {p}qr{l}.\n\
              Let {p}qe{l} be the last {rope} of every {qk} of {p}qr{l}.\n\
              Let {p}ql{l} be {p}qn{l} matmul Wkb{l} across {h} heads.\n"
@@ -442,9 +763,10 @@ impl<'a> Program<'a> {
             AttnForm::Current => None,
         };
         self.mla_weights(l, m, ctx);
-        self.s.push_str(&format!("Let xn{l} be rmsnorm of {cur} with weight an{l}.\n"));
+        self.pre_norm(l, cur, "");
         let angles = self.angles(l, form, "pos");
-        self.mla_projections(l, m, "");
+        let xn = self.mixer_input(l, cur, "");
+        self.mla_projections(l, m, "", &xn);
         self.mla_turned(m, "", &l.to_string(), &angles);
         match form {
             AttnForm::Current => self.s.push_str(&format!(
@@ -467,8 +789,9 @@ impl<'a> Program<'a> {
     fn stacked_mla(&mut self, l: usize, m: &Mla, cur: &str, ctx: usize, bsz: usize, rows: RowState) {
         let (d, h, lora, kw, scale) = (self.spec.d, m.heads, m.kv_lora_rank, m.kv_lora_rank + m.qk_rope, m.scale);
         self.mla_weights(l, m, Some((ctx, bsz, rows)));
-        self.s.push_str(&format!("Let bxn{l} be rmsnorm of {cur} with weight an{l}.\n"));
-        self.mla_projections(l, m, "b");
+        self.pre_norm(l, cur, "b");
+        let xn = self.mixer_input(l, cur, "b");
+        self.mla_projections(l, m, "b", &xn);
         match rows {
             RowState::Shared => {
                 let angles = self.angles(l, AttnForm::Cached { ctx }, "pos_s0");
@@ -524,13 +847,14 @@ impl<'a> Program<'a> {
             ));
         }
         let bias = |b: &str| a.bias.then(|| format!("{b}{l}"));
-        self.s.push_str(&format!("Let xn{l} be rmsnorm of {cur} with weight an{l}.\n"));
-        self.project(&format!("qr{l}"), &format!("xn{l}"), &format!("Wq{l}"), bias("Bq"), aq);
+        self.pre_norm(l, cur, "");
+        let xn = self.mixer_input(l, cur, "");
+        self.project(&format!("qr{l}"), &xn, &format!("Wq{l}"), bias("Bq"), aq);
         if a.output_gate {
-            self.s.push_str(&format!("Let gr{l} be xn{l} matmul Wqg{l}.\n"));
+            self.s.push_str(&format!("Let gr{l} be {xn} matmul Wqg{l}.\n"));
         }
-        self.project(&format!("kr{l}"), &format!("xn{l}"), &format!("Wk{l}"), bias("Bk"), akv);
-        self.project(&format!("vr{l}"), &format!("xn{l}"), &format!("Wv{l}"), bias("Bv"), avd);
+        self.project(&format!("kr{l}"), &xn, &format!("Wk{l}"), bias("Bk"), akv);
+        self.project(&format!("vr{l}"), &xn, &format!("Wv{l}"), bias("Bv"), avd);
         let (mut q, mut k) = (format!("qr{l}"), format!("kr{l}"));
         if a.qk_norm {
             self.s.push_str(&format!(
@@ -594,12 +918,13 @@ impl<'a> Program<'a> {
         self.decl_f32(&format!("St{l}"), vw, ghd);
         self.decl_f32(&format!("Gn{l}"), 1, ghd);
         self.decl_q8(&format!("Wo{l}"), vw, d);
+        self.pre_norm(l, cur, "");
+        let xn = self.mixer_input(l, cur, "");
         self.s.push_str(&format!(
-            "Let xn{l} be rmsnorm of {cur} with weight an{l}.\n\
-             Let qr{l} be xn{l} matmul Wq{l}.\n\
-             Let kr{l} be xn{l} matmul Wk{l}.\n\
-             Let vr{l} be xn{l} matmul Wv{l}.\n\
-             Let zz{l} be xn{l} matmul Wz{l}.\n\
+            "Let qr{l} be {xn} matmul Wq{l}.\n\
+             Let kr{l} be {xn} matmul Wk{l}.\n\
+             Let vr{l} be {xn} matmul Wv{l}.\n\
+             Let zz{l} be {xn} matmul Wz{l}.\n\
              Let qc{l} be causal conv of qr{l} with weight Wcq{l} state Csq{l} over {taps} taps.\n\
              Let kc{l} be causal conv of kr{l} with weight Wck{l} state Csk{l} over {taps} taps.\n\
              Let vc{l} be causal conv of vr{l} with weight Wcv{l} state Csv{l} over {taps} taps.\n\
@@ -608,9 +933,9 @@ impl<'a> Program<'a> {
              Let vs{l} be silu of vc{l}.\n\
              Let qn{l} be l2norm of qs{l} across {nk} heads.\n\
              Let kn{l} be l2norm of ks{l} across {nk} heads.\n\
-             Let br{l} be xn{l} matmul Wb{l}.\n\
+             Let br{l} be {xn} matmul Wb{l}.\n\
              Let bt{l} be sigmoid of br{l}.\n\
-             Let ar{l} be xn{l} matmul Wa{l}.\n\
+             Let ar{l} be {xn} matmul Wa{l}.\n\
              Let dy{l} be decay of ar{l} with bias Dt{l} rate Al{l}.\n\
              Let od{l} be gated delta of qn{l} over kn{l} and vs{l} with {gate} zz{l} beta bt{l} decay dy{l} state St{l} norm Gn{l} with {nv} heads {nk} groups.\n\
              Let ao{l} be od{l} matmul Wo{l}.\n",
@@ -622,23 +947,37 @@ impl<'a> Program<'a> {
     fn ffn(&mut self, l: usize, cur: &str, rows: Option<usize>) {
         let d = self.spec.d;
         let p = if rows.is_some() { "b" } else { "" };
-        self.decl_f32(&format!("fn{l}"), 1, d);
+        if self.spec.hyper.is_none() && self.spec.layers[l].pre_norms {
+            self.decl_f32(&format!("fn{l}"), 1, d);
+        }
+        let x2n = self.ffn_input(l, p);
         match self.spec.layers[l].ffn.clone() {
-            Ffn::Dense { dff, .. } => {
-                self.decl_q8(&format!("Wg{l}"), d, dff);
+            Ffn::Dense { dff, act } => {
+                let gated = act != Act::ReluSquared;
+                if gated {
+                    self.decl_q8(&format!("Wg{l}"), d, dff);
+                }
                 self.decl_q8(&format!("Wu{l}"), d, dff);
                 self.decl_q8(&format!("Wd{l}"), dff, d);
                 let ao = self.post_norm(l, &format!("{p}ao{l}"), true);
-                self.s.push_str(&format!(
-                    "Let {p}xr{l} be {cur} plus {ao}.\n\
-                     Let {p}x2n{l} be rmsnorm of {p}xr{l} with weight fn{l}.\n\
-                     Let {p}gt{l} be {p}x2n{l} matmul Wg{l}.\n\
-                     Let {p}up{l} be {p}x2n{l} matmul Wu{l}.\n"
-                ));
-                self.glu(l, &format!("{p}gt{l}"), &format!("{p}up{l}"), &format!("{p}hh{l}"));
+                self.ffn_in(l, cur, &ao, p);
+                if gated {
+                    self.s.push_str(&format!(
+                        "Let {p}gt{l} be {x2n} matmul Wg{l}.\n\
+                         Let {p}up{l} be {x2n} matmul Wu{l}.\n"
+                    ));
+                    self.glu(l, &format!("{p}gt{l}"), &format!("{p}up{l}"), &format!("{p}hh{l}"));
+                } else {
+                    // relu² as its parts: the relu, then its product with itself.
+                    self.s.push_str(&format!(
+                        "Let {p}up{l} be {x2n} matmul Wu{l}.\n\
+                         Let {p}ru{l} be relu of {p}up{l}.\n\
+                         Let {p}hh{l} be {p}ru{l} hadamard {p}ru{l}.\n"
+                    ));
+                }
                 self.s.push_str(&format!("Let {p}dn{l} be {p}hh{l} matmul Wd{l}.\n"));
                 let dn = self.post_norm(l, &format!("{p}dn{l}"), false);
-                self.s.push_str(&format!("Let {p}xo{l} be {p}xr{l} plus {dn}.\n"));
+                self.ffn_out(l, &dn, p);
             }
             Ffn::Moe(m) => {
                 let (e, k, dff) = (m.experts, m.top_k, m.expert_dff);
@@ -647,10 +986,7 @@ impl<'a> Program<'a> {
                 self.decl_q8(&format!("Wu{l}"), e * dff, d);
                 self.decl_q8(&format!("Wd{l}"), e * d, dff);
                 let ao = self.post_norm(l, &format!("{p}ao{l}"), true);
-                self.s.push_str(&format!(
-                    "Let {p}xr{l} be {cur} plus {ao}.\n\
-                     Let {p}x2n{l} be rmsnorm of {p}xr{l} with weight fn{l}.\n"
-                ));
+                self.ffn_in(l, cur, &ao, p);
                 if m.biases {
                     self.decl_f32(&format!("Br{l}"), 1, e);
                     self.decl_f32(&format!("Bg{l}"), e, dff);
@@ -693,13 +1029,13 @@ impl<'a> Program<'a> {
                     )
                 };
                 match rows {
-                    None => self.s.push_str(&route(&format!("x2n{l}"), &format!("mo{l}"))),
+                    None => self.s.push_str(&route(&x2n, &format!("mo{l}"))),
                     // The router chooses experts per token: each row of the stack is routed on its own.
                     Some(bsz) => {
                         self.s.push_str(&format!("Let bmo{l} be a {bsz} by {d} tensor of Real.\n"));
                         for b in 0..bsz {
                             let r = b + 1;
-                            self.s.push_str(&format!("Let x2n{l}_s{b} be row {r} of bx2n{l}.\n"));
+                            self.s.push_str(&format!("Let x2n{l}_s{b} be row {r} of {x2n}.\n"));
                             self.s.push_str(&route(&format!("x2n{l}_s{b}"), &format!("mo{l}_s{b}")));
                             self.s.push_str(&format!("Set row {r} of bmo{l} to mo{l}_s{b}.\n"));
                         }
@@ -714,8 +1050,8 @@ impl<'a> Program<'a> {
                         self.decl_q8(&format!("Wsu{l}"), d, sdff);
                         self.decl_q8(&format!("Wsd{l}"), sdff, d);
                         self.s.push_str(&format!(
-                            "Let {p}sg{l} be {p}x2n{l} matmul Wsg{l}.\n\
-                             Let {p}su{l} be {p}x2n{l} matmul Wsu{l}.\n\
+                            "Let {p}sg{l} be {x2n} matmul Wsg{l}.\n\
+                             Let {p}su{l} be {x2n} matmul Wsu{l}.\n\
                              Let {p}sh{l} be swiglu of {p}sg{l} and {p}su{l}.\n\
                              Let {p}sd{l} be {p}sh{l} matmul Wsd{l}.\n"
                         ));
@@ -725,7 +1061,7 @@ impl<'a> Program<'a> {
                             self.decl_f32(&format!("Wsgi{l}"), d, 1);
                             let ones = self.host_table(HostTable::Ones(d), 1, d);
                             self.s.push_str(&format!(
-                                "Let {p}sgi{l} be {p}x2n{l} matmul Wsgi{l}.\n\
+                                "Let {p}sgi{l} be {x2n} matmul Wsgi{l}.\n\
                                  Let {p}sgw{l} be sigmoid of {p}sgi{l}.\n\
                                  Let {p}sgr{l} be {p}sgw{l} matmul {ones}.\n\
                                  Let {p}sdg{l} be {p}sd{l} hadamard {p}sgr{l}.\n"
@@ -739,18 +1075,42 @@ impl<'a> Program<'a> {
                     }
                 };
                 let mo = self.post_norm(l, &routed, false);
-                self.s.push_str(&format!("Let {p}xo{l} be {p}xr{l} plus {mo}.\n"));
+                self.ffn_out(l, &mo, p);
             }
+            ffn @ (Ffn::None | Ffn::ChannelMix { .. } | Ffn::DenseAndMoe { .. }) => unreachable!("author::check refuses {ffn:?}"),
         }
     }
 
     /// The final norm and the LM head.
     fn head(&mut self, cur: &str) {
         let (d, vocab) = (self.spec.d, self.spec.vocab);
-        self.decl_f32("on", 1, d);
-        self.decl_q8("Wout", d, vocab);
-        self.s.push_str(&format!("Let xf be rmsnorm of {cur} with weight on.\n"));
-        self.s.push_str(&capped_logits("xf matmul Wout", "logits", self.spec.final_logit_softcap));
+        match self.spec.hyper {
+            Some(hc) => {
+                self.decl_q8("Wout", d, vocab);
+                self.hyper_mix(hc, cur, "HO", None, "xf", false);
+            }
+            None => {
+                self.decl_f32("on", 1, d);
+                self.decl_q8("Wout", d, vocab);
+                self.s.push_str(&format!("Let xf be rmsnorm of {cur} with weight on.\n"));
+            }
+        }
+        self.logits("xf", "logits", true);
+    }
+
+    /// `logits` from the final hidden state `xf` by the head `Wout`: the model's logit scale on the side of the head its
+    /// graph applies it, then — where `capped` — its soft cap.
+    fn logits(&mut self, xf: &str, logits: &str, capped: bool) {
+        let (product, after) = match self.spec.logit_scale {
+            Some(LogitScale::BeforeHead(f)) => {
+                self.s.push_str(&format!("Let {xf}s be {xf} scaled by {f:?}.\n"));
+                (format!("{xf}s matmul Wout"), None)
+            }
+            Some(LogitScale::AfterHead(f)) => (format!("{xf} matmul Wout"), Some(f)),
+            None => (format!("{xf} matmul Wout"), None),
+        };
+        let cap = self.spec.final_logit_softcap.filter(|_| capped);
+        self.s.push_str(&capped_logits(&product, logits, after, cap));
     }
 
     /// The decode step's first hidden state: row `tok` of the embedding table.
@@ -785,15 +1145,23 @@ impl<'a> Program<'a> {
     /// The batch's head: the final norm and the LM head on the stack, then each sequence's logits and arg-max.
     fn batched_head(&mut self, cur: &str, bsz: usize) {
         let (d, vocab) = (self.spec.d, self.spec.vocab);
-        self.decl_f32("on", 1, d);
-        self.decl_q8("Wout", d, vocab);
-        self.s.push_str(&format!("Let bxf be rmsnorm of {cur} with weight on.\n"));
-        self.s.push_str(&capped_logits("bxf matmul Wout", "blogits", self.spec.final_logit_softcap));
+        match self.spec.hyper {
+            Some(hc) => {
+                self.decl_q8("Wout", d, vocab);
+                self.hyper_mix(hc, cur, "HO", None, "bxf", false);
+            }
+            None => {
+                self.decl_f32("on", 1, d);
+                self.decl_q8("Wout", d, vocab);
+                self.s.push_str(&format!("Let bxf be rmsnorm of {cur} with weight on.\n"));
+            }
+        }
+        // Every sequence's logits are its own row of the head's, soft-capped as the decode step caps its logits.
+        self.logits("bxf", "blogits", false);
         for b in 0..bsz {
-            self.s.push_str(&format!(
-                "Let logits_s{b} be row {} of blogits.\nLet next_s{b} be argmax of logits_s{b}.\n",
-                b + 1
-            ));
+            let row = format!("row {} of blogits", b + 1);
+            self.s.push_str(&capped_logits(&row, &format!("logits_s{b}"), None, self.spec.final_logit_softcap));
+            self.s.push_str(&format!("Let next_s{b} be argmax of logits_s{b}.\n"));
         }
     }
 
@@ -808,11 +1176,15 @@ impl<'a> Program<'a> {
     /// layer with its weight reads on the stack and its per-sequence state per row.
     fn stacked_layer(&mut self, l: usize, cur: &str, ctx: usize, bsz: usize, rows: RowState) {
         let spec = self.spec;
-        self.decl_f32(&format!("an{l}"), 1, spec.d);
+        let joined = self.ple(l, cur, "b", bsz, rows);
+        let cur = joined.as_deref().unwrap_or(cur);
+        self.mixer_in(l, cur, "b");
         match &spec.layers[l].mixer {
             Mixer::Attention(a) => self.stacked_attention(l, a, cur, ctx, bsz, rows),
             Mixer::GatedDelta(g) => self.stacked_gated_delta(l, g, cur, bsz, rows),
             Mixer::Mla(m) => self.stacked_mla(l, m, cur, ctx, bsz, rows),
+            Mixer::Recurrent(r) => unreachable!("author::check refuses {}", r.what()),
+            Mixer::None => unreachable!("author::check refuses a block with no mixer"),
         }
         self.ffn(l, cur, Some(bsz));
     }
@@ -840,13 +1212,14 @@ impl<'a> Program<'a> {
             ));
         }
         let bias = |b: &str| a.bias.then(|| format!("{b}{l}"));
-        self.s.push_str(&format!("Let bxn{l} be rmsnorm of {cur} with weight an{l}.\n"));
-        self.project(&format!("bqr{l}"), &format!("bxn{l}"), &format!("Wq{l}"), bias("Bq"), aq);
+        self.pre_norm(l, cur, "b");
+        let xn = self.mixer_input(l, cur, "b");
+        self.project(&format!("bqr{l}"), &xn, &format!("Wq{l}"), bias("Bq"), aq);
         if a.output_gate {
-            self.s.push_str(&format!("Let bgr{l} be bxn{l} matmul Wqg{l}.\n"));
+            self.s.push_str(&format!("Let bgr{l} be {xn} matmul Wqg{l}.\n"));
         }
-        self.project(&format!("bkr{l}"), &format!("bxn{l}"), &format!("Wk{l}"), bias("Bk"), akv);
-        self.project(&format!("bvr{l}"), &format!("bxn{l}"), &format!("Wv{l}"), bias("Bv"), avd);
+        self.project(&format!("bkr{l}"), &xn, &format!("Wk{l}"), bias("Bk"), akv);
+        self.project(&format!("bvr{l}"), &xn, &format!("Wv{l}"), bias("Bv"), avd);
         match rows {
             // ★ ONE SEQUENCE'S ROWS ARE ONE BLOCK, END TO END. The QK-norm runs over every row's heads at once, the rope
             // turns row `i` by row `i` of the chunk's tables, the block's keys and values go into the cache in one write
@@ -951,14 +1324,15 @@ impl<'a> Program<'a> {
         self.decl_f32(&format!("Al{l}"), 1, nv);
         self.decl_f32(&format!("Gn{l}"), 1, ghd);
         self.decl_q8(&format!("Wo{l}"), vw, d);
+        self.pre_norm(l, cur, "b");
+        let xn = self.mixer_input(l, cur, "b");
         self.s.push_str(&format!(
-            "Let bxn{l} be rmsnorm of {cur} with weight an{l}.\n\
-             Let bqr{l} be bxn{l} matmul Wq{l}.\n\
-             Let bkr{l} be bxn{l} matmul Wk{l}.\n\
-             Let bvr{l} be bxn{l} matmul Wv{l}.\n\
-             Let bzz{l} be bxn{l} matmul Wz{l}.\n\
-             Let bbr{l} be bxn{l} matmul Wb{l}.\n\
-             Let bar{l} be bxn{l} matmul Wa{l}.\n"
+            "Let bqr{l} be {xn} matmul Wq{l}.\n\
+             Let bkr{l} be {xn} matmul Wk{l}.\n\
+             Let bvr{l} be {xn} matmul Wv{l}.\n\
+             Let bzz{l} be {xn} matmul Wz{l}.\n\
+             Let bbr{l} be {xn} matmul Wb{l}.\n\
+             Let bar{l} be {xn} matmul Wa{l}.\n"
         ));
         match rows {
             // ★ ONE SEQUENCE'S ROWS TAKE THE RECURRENCE AS A BLOCK. The rings take the block's rows in order, the gates and
@@ -1038,12 +1412,17 @@ fn score_clauses(a: &Attention) -> String {
     clauses
 }
 
-/// `Let logits be <product>.`, or for logits the model soft-caps the product first and `Let logits be <raw> capped at
-/// C.` after it, the raw product bound as `<logits>_raw`.
-fn capped_logits(product: &str, logits: &str, cap: Option<f64>) -> String {
-    match cap {
-        Some(cap) => format!("Let {logits}_raw be {product}.\nLet {logits} be {logits}_raw capped at {cap:?}.\n"),
-        None => format!("Let {logits} be {product}.\n"),
+/// `Let logits be <product>.`; for logits the model scales after its head, the product bound as `<logits>_raw` and
+/// scaled by `scale`; for logits it soft-caps, that result capped at C — each step its own binder.
+fn capped_logits(product: &str, logits: &str, scale: Option<f64>, cap: Option<f64>) -> String {
+    match (scale, cap) {
+        (None, None) => format!("Let {logits} be {product}.\n"),
+        (None, Some(cap)) => format!("Let {logits}_raw be {product}.\nLet {logits} be {logits}_raw capped at {cap:?}.\n"),
+        (Some(f), None) => format!("Let {logits}_raw be {product}.\nLet {logits} be {logits}_raw scaled by {f:?}.\n"),
+        (Some(f), Some(cap)) => format!(
+            "Let {logits}_raw be {product}.\nLet {logits}_scaled be {logits}_raw scaled by {f:?}.\n\
+             Let {logits} be {logits}_scaled capped at {cap:?}.\n"
+        ),
     }
 }
 
@@ -1075,12 +1454,28 @@ pub fn stacked_layer_input(l: usize) -> String {
     }
 }
 
+/// The rows of a per-layer embedding's table its hash can name: through the last head's block. A checkpoint pads the
+/// table past them; no n-gram reads the padding.
+pub fn ple_table_rows(ple: &Ple) -> usize {
+    ple.head_offsets.iter().zip(&ple.head_vocab).map(|(o, v)| (o + v) as usize).max().unwrap_or(0)
+}
+
+/// The width of the hidden state a layer reads and writes: the model's `d`, or `lanes·d` for a hyper-connected
+/// residual.
+pub fn hidden_width(spec: &ModelSpec) -> usize {
+    spec.d * spec.hyper.map_or(1, |hc| hc.lanes)
+}
+
 /// The single-token forward with no history: the token's hidden state `x` in, the logits out.
 pub fn forward(spec: &ModelSpec, dir: &str) -> Authored {
     let mut p = Program::new(spec, dir);
     p.s.push_str(&format!("Let x be a 1 by {} tensor of Real.\n", spec.d));
     p.rotary_tables(None, false, 1);
     let mut cur = "x".to_string();
+    if let Some(hc) = spec.hyper {
+        p.s.push_str(&format!("Let xh be x spread over {} lanes.\n", hc.lanes));
+        cur = "xh".to_string();
+    }
     for l in 0..spec.layers.len() {
         p.layer(l, &cur, AttnForm::Current);
         cur = format!("xo{l}");
@@ -1095,6 +1490,7 @@ pub fn forward(spec: &ModelSpec, dir: &str) -> Authored {
 pub fn decode_step(spec: &ModelSpec, dir: &str, ctx: usize, tok: usize, pos: usize) -> Authored {
     let mut p = Program::new(spec, dir);
     p.s.push_str(&format!("Let tok be {tok}.\nLet pos be {pos}.\n"));
+    p.tokens = StepTokens::Scalar;
     p.embed();
     p.rope_cache(ctx);
     let mut cur = "x".to_string();
@@ -1121,6 +1517,7 @@ pub fn prefill(spec: &ModelSpec, dir: &str, ctx: usize, toks: &[usize], pos0: us
     let mut p = Program::new(spec, dir);
     p.s.push_str(&format!("Let pos_s0 be {pos0}.\n"));
     p.batched_embed(toks);
+    p.tokens = StepTokens::Tensor;
     p.rope_cache(ctx);
     let mut cur = stacked_layer_input(0);
     for l in 0..spec.layers.len() {
@@ -1141,6 +1538,13 @@ pub fn decode_batch(spec: &ModelSpec, dir: &str, ctx: usize, seqs: &[(usize, usi
     for (b, (_, pos)) in seqs.iter().enumerate() {
         p.s.push_str(&format!("Let pos_s{b} be {pos}.\n"));
     }
+    // The per-layer embedding hashes each sequence's token after that sequence's own history.
+    if spec.ple.is_some() {
+        for (b, (tok, _)) in seqs.iter().enumerate() {
+            p.s.push_str(&format!("Let tok_s{b} be {tok}.\n"));
+        }
+        p.tokens = StepTokens::PerSequence;
+    }
     p.batched_embed(&seqs.iter().map(|(tok, _)| *tok).collect::<Vec<_>>());
     p.rope_cache(ctx);
     let mut cur = stacked_layer_input(0);
@@ -1157,7 +1561,7 @@ pub fn decode_batch(spec: &ModelSpec, dir: &str, ctx: usize, seqs: &[(usize, usi
 pub fn layer(spec: &ModelSpec, l: usize, dir: &str) -> Authored {
     let mut p = Program::new(spec, dir);
     let input = layer_input(l);
-    p.s.push_str(&format!("Let {input} be a 1 by {} tensor of Real.\n", spec.d));
+    p.s.push_str(&format!("Let {input} be a 1 by {} tensor of Real.\n", hidden_width(spec)));
     p.rotary_tables(Some(l), false, 1);
     p.layer(l, &input, AttnForm::Current);
     p.finish()
@@ -1168,7 +1572,7 @@ pub fn decode_layer(spec: &ModelSpec, l: usize, dir: &str, ctx: usize, pos: usiz
     let mut p = Program::new(spec, dir);
     let input = layer_input(l);
     p.s.push_str(&format!("Let pos be {pos}.\n"));
-    p.s.push_str(&format!("Let {input} be a 1 by {} tensor of Real.\n", spec.d));
+    p.s.push_str(&format!("Let {input} be a 1 by {} tensor of Real.\n", hidden_width(spec)));
     p.rotary_tables(Some(l), true, ctx);
     p.layer(l, &input, AttnForm::Cached { ctx });
     p.finish()
@@ -1178,7 +1582,7 @@ pub fn decode_layer(spec: &ModelSpec, l: usize, dir: &str, ctx: usize, pos: usiz
 pub fn head(spec: &ModelSpec, dir: &str) -> Authored {
     let mut p = Program::new(spec, dir);
     let input = layer_input(spec.layers.len());
-    p.s.push_str(&format!("Let {input} be a 1 by {} tensor of Real.\n", spec.d));
+    p.s.push_str(&format!("Let {input} be a 1 by {} tensor of Real.\n", hidden_width(spec)));
     p.head(&input);
     p.finish()
 }
@@ -1195,7 +1599,7 @@ pub fn decode_embed(spec: &ModelSpec, dir: &str, tok: usize) -> Authored {
 pub fn decode_head(spec: &ModelSpec, dir: &str) -> Authored {
     let mut p = Program::new(spec, dir);
     let input = layer_input(spec.layers.len());
-    p.s.push_str(&format!("Let {input} be a 1 by {} tensor of Real.\n", spec.d));
+    p.s.push_str(&format!("Let {input} be a 1 by {} tensor of Real.\n", hidden_width(spec)));
     p.head(&input);
     p.next_token();
     p.finish()
@@ -1219,7 +1623,7 @@ pub fn stacked_layer(spec: &ModelSpec, l: usize, dir: &str, ctx: usize, poss: &[
         p.s.push_str(&format!("Let pos_s{b} be {pos}.\n"));
     }
     let input = stacked_layer_input(l);
-    p.s.push_str(&format!("Let {input} be a {bsz} by {} tensor of Real.\n", spec.d));
+    p.s.push_str(&format!("Let {input} be a {bsz} by {} tensor of Real.\n", hidden_width(spec)));
     p.rotary_tables(Some(l), true, ctx);
     p.stacked_layer(l, &input, ctx, bsz, rows);
     p.finish()
@@ -1229,7 +1633,7 @@ pub fn stacked_layer(spec: &ModelSpec, l: usize, dir: &str, ctx: usize, poss: &[
 pub fn prefill_head(spec: &ModelSpec, dir: &str, chunk: usize) -> Authored {
     let mut p = Program::new(spec, dir);
     let input = stacked_layer_input(spec.layers.len());
-    p.s.push_str(&format!("Let {input} be a {chunk} by {} tensor of Real.\n", spec.d));
+    p.s.push_str(&format!("Let {input} be a {chunk} by {} tensor of Real.\n", hidden_width(spec)));
     p.last_row_head(&input, chunk);
     p.finish()
 }
@@ -1238,7 +1642,7 @@ pub fn prefill_head(spec: &ModelSpec, dir: &str, chunk: usize) -> Authored {
 pub fn decode_batch_head(spec: &ModelSpec, dir: &str, bsz: usize) -> Authored {
     let mut p = Program::new(spec, dir);
     let input = stacked_layer_input(spec.layers.len());
-    p.s.push_str(&format!("Let {input} be a {bsz} by {} tensor of Real.\n", spec.d));
+    p.s.push_str(&format!("Let {input} be a {bsz} by {} tensor of Real.\n", hidden_width(spec)));
     p.batched_head(&input, bsz);
     p.finish()
 }
@@ -1272,18 +1676,29 @@ pub fn check_tp(spec: &ModelSpec, tp: usize) -> Result<(), NotYet> {
     if tp == 0 {
         return Err(NotYet("a tensor-parallel width of zero chips"));
     }
+    // The split's replicated spine is one `d`-wide residual and its norms; a hyper-connected residual is `lanes·d` wide
+    // and mixed by projections the split does not shard.
+    if spec.hyper.is_some() {
+        return Err(NotYet("a tensor-parallel hyper-connected residual"));
+    }
     for layer in &spec.layers {
         match &layer.mixer {
             Mixer::Attention(a) if a.bias || a.output_bias || a.sinks => {
                 return Err(NotYet("a tensor-parallel attention with biases or sinks"))
             }
-            // A norm across every head would sum each chip's heads before it scales any of them.
-            Mixer::Attention(a) if a.qk_norm_whole => return Err(NotYet("a tensor-parallel QK norm across every head")),
+            // A norm across every head takes each chip's part of the row once; a KV head on more than one chip is in it
+            // once, and each of its chips would take its keys back from another's.
+            Mixer::Attention(a) if a.qk_norm && a.qk_norm_whole && tp > a.kv_heads => {
+                return Err(NotYet("a tensor-parallel QK norm across every head with a KV head on more than one chip"))
+            }
             Mixer::Mla(_) => return Err(NotYet("a tensor-parallel latent attention")),
             _ => {}
         }
         if let Ffn::Moe(_) = &layer.ffn {
             return Err(NotYet("a tensor-parallel expert mixture"));
+        }
+        if let Ffn::Dense { act: Act::ReluSquared, .. } = &layer.ffn {
+            return Err(NotYet("a tensor-parallel relu² FFN"));
         }
     }
     Ok(())
@@ -1513,59 +1928,127 @@ impl Program<'_> {
         self.decl_q8_slice(m, &format!("Wd{l}_c{c}"), c, &format!("Wd{l}"), (dff, d), SliceAxis::Rows, f);
     }
 
+    /// Chip `c`'s share of attention layer `l`'s weights and caches, its tensors placed on it, and its projections of
+    /// the layer's input `x`: its queries (and gate), keys and values.
+    #[allow(clippy::too_many_arguments)]
+    fn tp_attn_projections(&mut self, m: &mut TpManifest, a: &Attention, l: usize, c: usize, tp: usize, ctx: usize, x: &str) {
+        self.decl_attn_weight_slices(m, a, l, c, tp);
+        self.decl_attn_cache_slices(m, a, l, c, tp, ctx, "");
+        let mut bases = vec!["qr", "kr", "vr", "ct", "ao"];
+        if a.output_gate {
+            bases.extend(["gr", "gs", "cg"]);
+        }
+        if a.qk_norm {
+            bases.extend(["qm", "km"]);
+        }
+        if a.rope.is_some() {
+            bases.extend(["qp", "kp"]);
+        }
+        if a.qk_unit_norm {
+            bases.extend(["qu", "ku"]);
+        }
+        if a.temperature.is_some() {
+            bases.push("qt");
+        }
+        for base in bases {
+            m.place(&format!("{base}{l}_c{c}"), c, None);
+        }
+        self.s.push_str(&format!("Let qr{l}_c{c} be {x} matmul Wq{l}_c{c}.\n"));
+        if a.output_gate {
+            self.s.push_str(&format!("Let gr{l}_c{c} be {x} matmul Wqg{l}_c{c}.\n"));
+        }
+        self.s.push_str(&format!(
+            "Let kr{l}_c{c} be {x} matmul Wk{l}_c{c}.\nLet vr{l}_c{c} be {x} matmul Wv{l}_c{c}.\n"
+        ));
+    }
+
+    /// Attention layer `l`'s QK norm across every head over the chips holding its heads (`chips`, in order): the rows of
+    /// every chip's queries `{p}qr{l}_c{c}` joined in chip order — the heads' own order — normed by the whole weight, and
+    /// each chip's heads taken back as its normed queries `{p}qm{l}_c{c}`; the keys alike. One chip's rows are normed
+    /// whole.
+    ///
+    /// ★ A CHIP SENDS ONE VALUE A ROW. The norm of the joined row needs each chip's part only through its sum of squares,
+    /// so a chip that links the norm by its parts (`allreduce_sumsq_norm`) keeps its part and all-reduces that sum.
+    fn tp_whole_qk_norm(&mut self, a: &Attention, l: usize, tp: usize, chips: &[usize], p: &str) {
+        let hd = a.head_dim;
+        for (side, total) in [("q", a.heads * hd), ("k", a.kv_heads * hd)] {
+            let (raw, weight, normed) = if side == "q" { ("qr", "Qn", "qm") } else { ("kr", "Kn", "km") };
+            let part = |c: usize| {
+                let ((q0, hq), (k0, hkv)) = attn_heads_of_chip(a, tp, c);
+                if side == "q" {
+                    (q0 * hd, hq * hd)
+                } else {
+                    (k0 * hd, hkv * hd)
+                }
+            };
+            if let [c] = chips[..] {
+                self.s.push_str(&format!("Let {p}{normed}{l}_c{c} be rmsnorm of {p}{raw}{l}_c{c} with weight {weight}{l}.\n"));
+                continue;
+            }
+            let mut row = format!("{p}{raw}{l}_c{}", chips[0]);
+            for (i, &c) in chips.iter().enumerate().skip(1) {
+                let joined = if i + 1 == chips.len() { format!("{p}{side}j{l}") } else { format!("{p}{side}j{l}_f{i}") };
+                self.s.push_str(&format!("Let {joined} be {row} joined with {p}{raw}{l}_c{c}.\n"));
+                row = joined;
+            }
+            self.s.push_str(&format!("Let {p}{side}w{l} be rmsnorm of {row} with weight {weight}{l}.\n"));
+            for &c in chips {
+                let (at, width) = part(c);
+                let taken = match (at, at + width == total) {
+                    (0, _) => format!("the first {width}"),
+                    (_, true) => format!("the last {width}"),
+                    _ => format!("the {width} after the first {at}"),
+                };
+                self.s.push_str(&format!("Let {p}{normed}{l}_c{c} be {taken} of every {total} of {p}{side}w{l}.\n"));
+            }
+        }
+    }
+
     /// Layer `l` of a decode step over `tp` chips.
     fn tp_layer(&mut self, m: &mut TpManifest, l: usize, cur: &str, tp: usize, ctx: usize) {
         let spec = self.spec;
         let d = spec.d;
-        self.decl_f32(&format!("an{l}"), 1, d);
-        self.s.push_str(&format!("Let xn{l} be rmsnorm of {cur} with weight an{l}.\n"));
+        let pre = spec.layers[l].pre_norms;
+        if pre {
+            self.decl_f32(&format!("an{l}"), 1, d);
+            self.s.push_str(&format!("Let xn{l} be rmsnorm of {cur} with weight an{l}.\n"));
+        }
+        let xn = self.mixer_input(l, cur, "");
         let mut ao = Vec::new();
         match &spec.layers[l].mixer {
             Mixer::Attention(a) => {
+                let (_, (wq, wk)) = qk_norm_segments(a);
                 if a.qk_norm {
-                    self.decl_f32(&format!("Qn{l}"), 1, a.head_dim);
-                    self.decl_f32(&format!("Kn{l}"), 1, a.head_dim);
+                    self.decl_f32(&format!("Qn{l}"), 1, wq);
+                    self.decl_f32(&format!("Kn{l}"), 1, wk);
+                }
+                // A norm across every head norms every chip's queries (and keys) as one row: each chip's projections
+                // first, then the row joined from them, normed, and each chip's part taken back.
+                let whole = a.qk_norm && a.qk_norm_whole;
+                if whole {
+                    let chips: Vec<usize> = (0..tp).filter(|&c| attn_heads_of_chip(a, tp, c).0 .1 > 0).collect();
+                    for &c in &chips {
+                        self.tp_attn_projections(m, a, l, c, tp, ctx, &xn);
+                    }
+                    self.tp_whole_qk_norm(a, l, tp, &chips, "");
                 }
                 for c in 0..tp {
                     let ((_, hq), (_, hkv)) = attn_heads_of_chip(a, tp, c);
                     if hq == 0 {
-                        ao.push(self.zero_partial(m, &format!("ao{l}_c{c}"), &format!("xn{l}"), c));
+                        ao.push(self.zero_partial(m, &format!("ao{l}_c{c}"), &xn, c));
                         continue;
                     }
-                    self.decl_attn_weight_slices(m, a, l, c, tp);
-                    self.decl_attn_cache_slices(m, a, l, c, tp, ctx, "");
-                    let mut bases = vec!["qr", "kr", "vr", "ct", "ao"];
-                    if a.output_gate {
-                        bases.extend(["gr", "gs", "cg"]);
+                    if !whole {
+                        self.tp_attn_projections(m, a, l, c, tp, ctx, &xn);
                     }
-                    if a.qk_norm {
-                        bases.extend(["qm", "km"]);
-                    }
-                    if a.rope.is_some() {
-                        bases.extend(["qp", "kp"]);
-                    }
-                    if a.qk_unit_norm {
-                        bases.extend(["qu", "ku"]);
-                    }
-                    if a.temperature.is_some() {
-                        bases.push("qt");
-                    }
-                    for base in bases {
-                        m.place(&format!("{base}{l}_c{c}"), c, None);
-                    }
-                    self.s.push_str(&format!("Let qr{l}_c{c} be xn{l} matmul Wq{l}_c{c}.\n"));
-                    if a.output_gate {
-                        self.s.push_str(&format!("Let gr{l}_c{c} be xn{l} matmul Wqg{l}_c{c}.\n"));
-                    }
-                    self.s.push_str(&format!(
-                        "Let kr{l}_c{c} be xn{l} matmul Wk{l}_c{c}.\nLet vr{l}_c{c} be xn{l} matmul Wv{l}_c{c}.\n"
-                    ));
                     let (mut q, mut k) = (format!("qr{l}_c{c}"), format!("kr{l}_c{c}"));
                     if a.qk_norm {
-                        self.s.push_str(&format!(
-                            "Let qm{l}_c{c} be rmsnorm of qr{l}_c{c} with weight Qn{l} across {hq} heads.\n\
-                             Let km{l}_c{c} be rmsnorm of kr{l}_c{c} with weight Kn{l} across {hkv} heads.\n"
-                        ));
+                        if !whole {
+                            self.s.push_str(&format!(
+                                "Let qm{l}_c{c} be rmsnorm of qr{l}_c{c} with weight Qn{l} across {hq} heads.\n\
+                                 Let km{l}_c{c} be rmsnorm of kr{l}_c{c} with weight Kn{l} across {hkv} heads.\n"
+                            ));
+                        }
                         (q, k) = (format!("qm{l}_c{c}"), format!("km{l}_c{c}"));
                     }
                     if a.rope.is_some() {
@@ -1603,7 +2086,7 @@ impl Program<'_> {
                     let (k, heads) = gdn_heads_of_chip(g, tp, c);
                     let (nk_c, nv_c) = (k[0].1 / ghd, heads_in(&heads));
                     if nv_c == 0 {
-                        ao.push(self.zero_partial(m, &format!("ao{l}_c{c}"), &format!("xn{l}"), c));
+                        ao.push(self.zero_partial(m, &format!("ao{l}_c{c}"), &xn, c));
                         continue;
                     }
                     self.decl_gdn_weight_slices(m, g, l, c, tp);
@@ -1615,10 +2098,10 @@ impl Program<'_> {
                         m.place(&format!("{base}{l}_c{c}"), c, None);
                     }
                     self.s.push_str(&format!(
-                        "Let qr{l}_c{c} be xn{l} matmul Wq{l}_c{c}.\n\
-                         Let kr{l}_c{c} be xn{l} matmul Wk{l}_c{c}.\n\
-                         Let vr{l}_c{c} be xn{l} matmul Wv{l}_c{c}.\n\
-                         Let zz{l}_c{c} be xn{l} matmul Wz{l}_c{c}.\n\
+                        "Let qr{l}_c{c} be {xn} matmul Wq{l}_c{c}.\n\
+                         Let kr{l}_c{c} be {xn} matmul Wk{l}_c{c}.\n\
+                         Let vr{l}_c{c} be {xn} matmul Wv{l}_c{c}.\n\
+                         Let zz{l}_c{c} be {xn} matmul Wz{l}_c{c}.\n\
                          Let qc{l}_c{c} be causal conv of qr{l}_c{c} with weight Wcq{l}_c{c} state Csq{l}_c{c} over {taps} taps.\n\
                          Let kc{l}_c{c} be causal conv of kr{l}_c{c} with weight Wck{l}_c{c} state Csk{l}_c{c} over {taps} taps.\n\
                          Let vc{l}_c{c} be causal conv of vr{l}_c{c} with weight Wcv{l}_c{c} state Csv{l}_c{c} over {taps} taps.\n\
@@ -1627,9 +2110,9 @@ impl Program<'_> {
                          Let vs{l}_c{c} be silu of vc{l}_c{c}.\n\
                          Let qn{l}_c{c} be l2norm of qs{l}_c{c} across {nk_c} heads.\n\
                          Let kn{l}_c{c} be l2norm of ks{l}_c{c} across {nk_c} heads.\n\
-                         Let br{l}_c{c} be xn{l} matmul Wb{l}_c{c}.\n\
+                         Let br{l}_c{c} be {xn} matmul Wb{l}_c{c}.\n\
                          Let bt{l}_c{c} be sigmoid of br{l}_c{c}.\n\
-                         Let ar{l}_c{c} be xn{l} matmul Wa{l}_c{c}.\n\
+                         Let ar{l}_c{c} be {xn} matmul Wa{l}_c{c}.\n\
                          Let dy{l}_c{c} be decay of ar{l}_c{c} with bias Dt{l}_c{c} rate Al{l}_c{c}.\n\
                          Let od{l}_c{c} be gated delta of qn{l}_c{c} over kn{l}_c{c} and vs{l}_c{c} with {gate} zz{l}_c{c} beta bt{l}_c{c} decay dy{l}_c{c} state St{l}_c{c} norm Gn{l} with {nv_c} heads {nk_c} groups.\n\
                          Let ao{l}_c{c} be od{l}_c{c} matmul Wo{l}_c{c}.\n"
@@ -1638,26 +2121,33 @@ impl Program<'_> {
                 }
             }
             Mixer::Mla(_) => unreachable!("author::check_tp refuses latent attention"),
+            Mixer::Recurrent(r) => unreachable!("author::check refuses {}", r.what()),
+            Mixer::None => unreachable!("author::check refuses a block with no mixer"),
         }
         self.fold(m, &format!("ao{l}"), ao);
-        self.decl_f32(&format!("fn{l}"), 1, d);
+        if pre {
+            self.decl_f32(&format!("fn{l}"), 1, d);
+        }
         let ao = self.post_norm(l, &format!("ao{l}"), true);
-        self.s.push_str(&format!(
-            "Let xr{l} be {cur} plus {ao}.\nLet x2n{l} be rmsnorm of xr{l} with weight fn{l}.\n"
-        ));
+        if pre {
+            self.s.push_str(&format!("Let xr{l} be {cur} plus {ao}.\nLet x2n{l} be rmsnorm of xr{l} with weight fn{l}.\n"));
+        } else {
+            self.s.push_str(&format!("Let xr{l} be {cur} plus {ao}.\n"));
+        }
+        let x2n = self.ffn_input(l, "");
         let Ffn::Dense { dff, .. } = spec.layers[l].ffn else {
             unreachable!("check_tp refuses a tensor-parallel expert mixture")
         };
         let mut dn = Vec::new();
         for c in 0..tp {
             if run_of(dff, tp, c).1 == 0 {
-                dn.push(self.zero_partial(m, &format!("dn{l}_c{c}"), &format!("x2n{l}"), c));
+                dn.push(self.zero_partial(m, &format!("dn{l}_c{c}"), &x2n, c));
                 continue;
             }
             self.decl_ffn_slices(m, l, dff, c, tp);
             self.s.push_str(&format!(
-                "Let gt{l}_c{c} be x2n{l} matmul Wg{l}_c{c}.\n\
-                 Let up{l}_c{c} be x2n{l} matmul Wu{l}_c{c}.\n"
+                "Let gt{l}_c{c} be {x2n} matmul Wg{l}_c{c}.\n\
+                 Let up{l}_c{c} be {x2n} matmul Wu{l}_c{c}.\n"
             ));
             let bound = self.glu(l, &format!("gt{l}_c{c}"), &format!("up{l}_c{c}"), &format!("hh{l}_c{c}"));
             self.s.push_str(&format!("Let dn{l}_c{c} be hh{l}_c{c} matmul Wd{l}_c{c}.\n"));
@@ -1676,49 +2166,76 @@ impl Program<'_> {
     /// the chip's row-parallel output projection a `bsz × d` partial; the partials summed by one all-reduce of the
     /// stack. Per-sequence chip tensors are `…{l}_s{b}_c{c}`; chip stacks are `b…{l}_c{c}`.
     #[allow(clippy::too_many_arguments)]
+    /// Chip `c`'s share of attention layer `l`'s weights and every sequence's caches, its tensors placed on it, and its
+    /// projections of the batch's input rows `x`: its queries (and gate), keys and values, and the rows its attentions fill.
+    #[allow(clippy::too_many_arguments)]
+    fn stacked_tp_attn_projections(&mut self, m: &mut TpManifest, a: &Attention, l: usize, c: usize, tp: usize, ctx: usize, bsz: usize, x: &str) {
+        let ((_, hq), _) = attn_heads_of_chip(a, tp, c);
+        self.decl_attn_weight_slices(m, a, l, c, tp);
+        for b in 0..bsz {
+            self.decl_attn_cache_slices(m, a, l, c, tp, ctx, &format!("_s{b}"));
+        }
+        let mut bases = vec!["bqr", "bkr", "bvr", "bct", "bao"];
+        if a.output_gate {
+            bases.extend(["bgr", "bgs", "bcg"]);
+        }
+        if a.qk_norm && a.qk_norm_whole {
+            bases.extend(["bqm", "bkm"]);
+        }
+        for base in bases {
+            m.place(&format!("{base}{l}_c{c}"), c, None);
+        }
+        self.s.push_str(&format!("Let bqr{l}_c{c} be {x} matmul Wq{l}_c{c}.\n"));
+        if a.output_gate {
+            self.s.push_str(&format!("Let bgr{l}_c{c} be {x} matmul Wqg{l}_c{c}.\n"));
+        }
+        self.s.push_str(&format!(
+            "Let bkr{l}_c{c} be {x} matmul Wk{l}_c{c}.\n\
+             Let bvr{l}_c{c} be {x} matmul Wv{l}_c{c}.\n\
+             Let bct{l}_c{c} be a {bsz} by {} tensor of Real.\n",
+            hq * a.value_dim
+        ));
+    }
+
     fn stacked_tp_layer(&mut self, m: &mut TpManifest, l: usize, cur: &str, tp: usize, ctx: usize, bsz: usize) {
         let spec = self.spec;
         let d = spec.d;
-        self.decl_f32(&format!("an{l}"), 1, d);
-        self.s.push_str(&format!("Let bxn{l} be rmsnorm of {cur} with weight an{l}.\n"));
+        let pre = spec.layers[l].pre_norms;
+        if pre {
+            self.decl_f32(&format!("an{l}"), 1, d);
+            self.s.push_str(&format!("Let bxn{l} be rmsnorm of {cur} with weight an{l}.\n"));
+        }
+        let xn = self.mixer_input(l, cur, "b");
         let mut ao = Vec::new();
         match &spec.layers[l].mixer {
             Mixer::Attention(a) => {
-                let hd = a.head_dim;
+                let (_, (wq, wk)) = qk_norm_segments(a);
                 if a.qk_norm {
-                    self.decl_f32(&format!("Qn{l}"), 1, hd);
-                    self.decl_f32(&format!("Kn{l}"), 1, hd);
+                    self.decl_f32(&format!("Qn{l}"), 1, wq);
+                    self.decl_f32(&format!("Kn{l}"), 1, wk);
+                }
+                // A norm across every head norms the batch's rows of every chip's queries (and keys) at once, as
+                // `tp_layer` norms the step's one row; each sequence then takes its row of its chip's part.
+                let whole = a.qk_norm && a.qk_norm_whole;
+                if whole {
+                    let chips: Vec<usize> = (0..tp).filter(|&c| attn_heads_of_chip(a, tp, c).0 .1 > 0).collect();
+                    for &c in &chips {
+                        self.stacked_tp_attn_projections(m, a, l, c, tp, ctx, bsz, &xn);
+                    }
+                    self.tp_whole_qk_norm(a, l, tp, &chips, "b");
                 }
                 for c in 0..tp {
                     let ((_, hq), (_, hkv)) = attn_heads_of_chip(a, tp, c);
                     if hq == 0 {
-                        ao.push(self.zero_partial(m, &format!("bao{l}_c{c}"), &format!("bxn{l}"), c));
+                        ao.push(self.zero_partial(m, &format!("bao{l}_c{c}"), &xn, c));
                         continue;
                     }
-                    self.decl_attn_weight_slices(m, a, l, c, tp);
-                    for b in 0..bsz {
-                        self.decl_attn_cache_slices(m, a, l, c, tp, ctx, &format!("_s{b}"));
+                    if !whole {
+                        self.stacked_tp_attn_projections(m, a, l, c, tp, ctx, bsz, &xn);
                     }
-                    let mut bases = vec!["bqr", "bkr", "bvr", "bct", "bao"];
-                    if a.output_gate {
-                        bases.extend(["bgr", "bgs", "bcg"]);
-                    }
-                    for base in bases {
-                        m.place(&format!("{base}{l}_c{c}"), c, None);
-                    }
-                    self.s.push_str(&format!("Let bqr{l}_c{c} be bxn{l} matmul Wq{l}_c{c}.\n"));
-                    if a.output_gate {
-                        self.s.push_str(&format!("Let bgr{l}_c{c} be bxn{l} matmul Wqg{l}_c{c}.\n"));
-                    }
-                    self.s.push_str(&format!(
-                        "Let bkr{l}_c{c} be bxn{l} matmul Wk{l}_c{c}.\n\
-                         Let bvr{l}_c{c} be bxn{l} matmul Wv{l}_c{c}.\n\
-                         Let bct{l}_c{c} be a {bsz} by {} tensor of Real.\n",
-                        hq * a.value_dim
-                    ));
                     for b in 0..bsz {
                         let r = b + 1;
-                        let mut bases = vec!["qr", "kr", "vr", "ct"];
+                        let mut bases = if whole { vec!["vr", "ct"] } else { vec!["qr", "kr", "vr", "ct"] };
                         if a.qk_norm {
                             bases.extend(["qm", "km"]);
                         }
@@ -1734,18 +2251,27 @@ impl Program<'_> {
                         for base in bases {
                             m.place(&format!("{base}{l}_s{b}_c{c}"), c, None);
                         }
-                        self.s.push_str(&format!(
-                            "Let qr{l}_s{b}_c{c} be row {r} of bqr{l}_c{c}.\n\
-                             Let kr{l}_s{b}_c{c} be row {r} of bkr{l}_c{c}.\n\
-                             Let vr{l}_s{b}_c{c} be row {r} of bvr{l}_c{c}.\n"
-                        ));
                         let (mut q, mut k) = (format!("qr{l}_s{b}_c{c}"), format!("kr{l}_s{b}_c{c}"));
-                        if a.qk_norm {
+                        if whole {
                             self.s.push_str(&format!(
-                                "Let qm{l}_s{b}_c{c} be rmsnorm of qr{l}_s{b}_c{c} with weight Qn{l} across {hq} heads.\n\
-                                 Let km{l}_s{b}_c{c} be rmsnorm of kr{l}_s{b}_c{c} with weight Kn{l} across {hkv} heads.\n"
+                                "Let qm{l}_s{b}_c{c} be row {r} of bqm{l}_c{c}.\n\
+                                 Let km{l}_s{b}_c{c} be row {r} of bkm{l}_c{c}.\n\
+                                 Let vr{l}_s{b}_c{c} be row {r} of bvr{l}_c{c}.\n"
                             ));
                             (q, k) = (format!("qm{l}_s{b}_c{c}"), format!("km{l}_s{b}_c{c}"));
+                        } else {
+                            self.s.push_str(&format!(
+                                "Let qr{l}_s{b}_c{c} be row {r} of bqr{l}_c{c}.\n\
+                                 Let kr{l}_s{b}_c{c} be row {r} of bkr{l}_c{c}.\n\
+                                 Let vr{l}_s{b}_c{c} be row {r} of bvr{l}_c{c}.\n"
+                            ));
+                            if a.qk_norm {
+                                self.s.push_str(&format!(
+                                    "Let qm{l}_s{b}_c{c} be rmsnorm of qr{l}_s{b}_c{c} with weight Qn{l} across {hq} heads.\n\
+                                     Let km{l}_s{b}_c{c} be rmsnorm of kr{l}_s{b}_c{c} with weight Kn{l} across {hkv} heads.\n"
+                                ));
+                                (q, k) = (format!("qm{l}_s{b}_c{c}"), format!("km{l}_s{b}_c{c}"));
+                            }
                         }
                         if a.rope.is_some() {
                             let angles = self.angles(l, AttnForm::Cached { ctx }, &format!("pos_s{b}"));
@@ -1784,7 +2310,7 @@ impl Program<'_> {
                     let (k, heads) = gdn_heads_of_chip(g, tp, c);
                     let (nk_c, nv_c) = (k[0].1 / ghd, heads_in(&heads));
                     if nv_c == 0 {
-                        ao.push(self.zero_partial(m, &format!("bao{l}_c{c}"), &format!("bxn{l}"), c));
+                        ao.push(self.zero_partial(m, &format!("bao{l}_c{c}"), &xn, c));
                         continue;
                     }
                     self.decl_gdn_weight_slices(m, g, l, c, tp);
@@ -1795,12 +2321,12 @@ impl Program<'_> {
                         m.place(&format!("{base}{l}_c{c}"), c, None);
                     }
                     self.s.push_str(&format!(
-                        "Let bqr{l}_c{c} be bxn{l} matmul Wq{l}_c{c}.\n\
-                         Let bkr{l}_c{c} be bxn{l} matmul Wk{l}_c{c}.\n\
-                         Let bvr{l}_c{c} be bxn{l} matmul Wv{l}_c{c}.\n\
-                         Let bzz{l}_c{c} be bxn{l} matmul Wz{l}_c{c}.\n\
-                         Let bbr{l}_c{c} be bxn{l} matmul Wb{l}_c{c}.\n\
-                         Let bar{l}_c{c} be bxn{l} matmul Wa{l}_c{c}.\n\
+                        "Let bqr{l}_c{c} be {xn} matmul Wq{l}_c{c}.\n\
+                         Let bkr{l}_c{c} be {xn} matmul Wk{l}_c{c}.\n\
+                         Let bvr{l}_c{c} be {xn} matmul Wv{l}_c{c}.\n\
+                         Let bzz{l}_c{c} be {xn} matmul Wz{l}_c{c}.\n\
+                         Let bbr{l}_c{c} be {xn} matmul Wb{l}_c{c}.\n\
+                         Let bar{l}_c{c} be {xn} matmul Wa{l}_c{c}.\n\
                          Let bod{l}_c{c} be a {bsz} by {} tensor of Real.\n",
                         nv_c * ghd
                     ));
@@ -1838,26 +2364,33 @@ impl Program<'_> {
                 }
             }
             Mixer::Mla(_) => unreachable!("author::check_tp refuses latent attention"),
+            Mixer::Recurrent(r) => unreachable!("author::check refuses {}", r.what()),
+            Mixer::None => unreachable!("author::check refuses a block with no mixer"),
         }
         self.fold(m, &format!("bao{l}"), ao);
-        self.decl_f32(&format!("fn{l}"), 1, d);
+        if pre {
+            self.decl_f32(&format!("fn{l}"), 1, d);
+        }
         let ao = self.post_norm(l, &format!("bao{l}"), true);
-        self.s.push_str(&format!(
-            "Let bxr{l} be {cur} plus {ao}.\nLet bx2n{l} be rmsnorm of bxr{l} with weight fn{l}.\n"
-        ));
+        if pre {
+            self.s.push_str(&format!("Let bxr{l} be {cur} plus {ao}.\nLet bx2n{l} be rmsnorm of bxr{l} with weight fn{l}.\n"));
+        } else {
+            self.s.push_str(&format!("Let bxr{l} be {cur} plus {ao}.\n"));
+        }
+        let x2n = self.ffn_input(l, "b");
         let Ffn::Dense { dff, .. } = spec.layers[l].ffn else {
             unreachable!("check_tp refuses a tensor-parallel expert mixture")
         };
         let mut dn = Vec::new();
         for c in 0..tp {
             if run_of(dff, tp, c).1 == 0 {
-                dn.push(self.zero_partial(m, &format!("bdn{l}_c{c}"), &format!("bx2n{l}"), c));
+                dn.push(self.zero_partial(m, &format!("bdn{l}_c{c}"), &x2n, c));
                 continue;
             }
             self.decl_ffn_slices(m, l, dff, c, tp);
             self.s.push_str(&format!(
-                "Let bgt{l}_c{c} be bx2n{l} matmul Wg{l}_c{c}.\n\
-                 Let bup{l}_c{c} be bx2n{l} matmul Wu{l}_c{c}.\n"
+                "Let bgt{l}_c{c} be {x2n} matmul Wg{l}_c{c}.\n\
+                 Let bup{l}_c{c} be {x2n} matmul Wu{l}_c{c}.\n"
             ));
             let bound = self.glu(l, &format!("bgt{l}_c{c}"), &format!("bup{l}_c{c}"), &format!("bhh{l}_c{c}"));
             self.s.push_str(&format!("Let bdn{l}_c{c} be bhh{l}_c{c} matmul Wd{l}_c{c}.\n"));
@@ -1924,7 +2457,7 @@ pub fn tp_decode_layer(spec: &ModelSpec, l: usize, dir: &str, ctx: usize, pos: u
     let mut m = TpManifest::new(tp);
     let input = layer_input(l);
     p.s.push_str(&format!("Let pos be {pos}.\n"));
-    p.s.push_str(&format!("Let {input} be a 1 by {} tensor of Real.\n", spec.d));
+    p.s.push_str(&format!("Let {input} be a 1 by {} tensor of Real.\n", hidden_width(spec)));
     p.rotary_tables(Some(l), true, ctx);
     p.tp_layer(&mut m, l, &input, tp, ctx);
     Ok(p.finish_tp(m))
@@ -1940,7 +2473,7 @@ pub fn tp_stacked_layer(spec: &ModelSpec, l: usize, dir: &str, ctx: usize, poss:
         p.s.push_str(&format!("Let pos_s{b} be {pos}.\n"));
     }
     let input = stacked_layer_input(l);
-    p.s.push_str(&format!("Let {input} be a {bsz} by {} tensor of Real.\n", spec.d));
+    p.s.push_str(&format!("Let {input} be a {bsz} by {} tensor of Real.\n", hidden_width(spec)));
     p.rotary_tables(Some(l), true, ctx);
     p.stacked_tp_layer(&mut m, l, &input, tp, ctx, bsz);
     Ok(p.finish_tp(m))

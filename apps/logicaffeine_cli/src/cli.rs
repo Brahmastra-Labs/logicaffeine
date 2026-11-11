@@ -840,6 +840,13 @@ pub enum Commands {
         /// so decoding continues from it; `tok_s{b}` and `pos_s{b}` are runtime inputs.
         #[arg(long, value_name = "PREFILL")]
         prefill: Option<usize>,
+
+        /// `emit rdu`: compile through the section cache in DIR — every section an earlier compile there already
+        /// passed is taken from it, so a new batch size, context or chip compiles again only the sections it changes,
+        /// and the bundle is byte for byte the one a compile without the cache writes. Says on stderr how many
+        /// sections were compiled and how many reused.
+        #[arg(long, value_name = "DIR")]
+        cache: Option<PathBuf>,
     },
 
     /// Bring a model up on every chip from its one program.
@@ -885,6 +892,46 @@ pub enum Commands {
         /// continuation.
         #[arg(long, value_name = "N|all", requires = "golden")]
         prompts: Option<String>,
+    },
+
+    /// Write a self-checking SN50 drop of a checkpoint: the decode bundle, the checkpoint whose weights it binds, the
+    /// goldens of a prompt our spatial evaluator decodes, and `drop.json`, the sha256 of every file.
+    ///
+    /// `largo check-drop` verifies the drop on a machine with only `largo`: its digests, every program's certificate,
+    /// and its goldens decoded again bit for bit.
+    #[command(
+        after_help = "Examples:\n  largo drop qwen3.5-0.8b.gguf --ctx 64 --prompt 5,17,2 --tokens 8 -o qwen35-drop/\n  largo drop qwen3.5-0.8b.gguf --ctx 64 --fetch-weights -o qwen35-drop/"
+    )]
+    Drop {
+        /// The model's checkpoint: a GGUF file or a Hugging Face directory.
+        checkpoint: PathBuf,
+        /// The positions the decode bundle's caches hold.
+        #[arg(long, value_name = "N", default_value_t = 64)]
+        ctx: usize,
+        /// The golden's prompt: token ids from 0, comma-separated.
+        #[arg(long, value_name = "IDS", value_delimiter = ',', default_value = "5,17,2,30")]
+        prompt: Vec<u32>,
+        /// The tokens the golden decodes after its prompt.
+        #[arg(long, value_name = "N", default_value_t = 8)]
+        tokens: usize,
+        /// Record the checkpoint's sha256 in place of carrying it: `check-drop` then reads it from `--weights`.
+        #[arg(long)]
+        fetch_weights: bool,
+        /// The directory the drop is written to.
+        #[arg(long, short)]
+        output: PathBuf,
+    },
+
+    /// Verify a drop `largo drop` wrote: every file's sha256, every program's certificate against the schedule digest its
+    /// manifest records, and every golden decoded again on the spatial evaluator, bit for bit. Exits non-zero naming the
+    /// file, the program or the golden that fails.
+    #[command(after_help = "Examples:\n  largo check-drop qwen35-drop/\n  largo check-drop qwen35-drop/ --weights qwen3.5-0.8b.gguf")]
+    CheckDrop {
+        /// The drop's directory.
+        dir: PathBuf,
+        /// The checkpoint of a drop that fetches its weights.
+        #[arg(long, value_name = "CHECKPOINT")]
+        weights: Option<PathBuf>,
     },
 
     /// Show what an LGX page became: the ordinary LOGOS its constructs lower to.
@@ -1202,11 +1249,15 @@ pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Add { spec, path, git } => commands::deps::cmd_add(spec, path, git),
         Commands::Remove { name } => commands::deps::cmd_remove(name),
         Commands::Fmt { paths, check, json } => commands::fmt::cmd_fmt(paths, check, json),
-        Commands::Emit { target, file, output, chip, format, bridge, model, ctx, batch, tp, prefill } => commands::emit::cmd_emit(target, file, output, chip, format, bridge, model, ctx, batch, tp, prefill),
+        Commands::Emit { target, file, output, chip, format, bridge, model, ctx, batch, tp, prefill, cache } => commands::emit::cmd_emit(target, file, output, chip, format, bridge, model, ctx, batch, tp, prefill, cache),
         Commands::Bringup { checkpoint, targets, ctx, output, run, tokens, prompt, golden, prompts } => {
             let run = run.then_some(commands::bringup::RunArgs { tokens, prompt, golden, prompts });
             commands::bringup::cmd_bringup(checkpoint, targets, ctx, output, run)
         }
+        Commands::Drop { checkpoint, ctx, prompt, tokens, fetch_weights, output } => {
+            commands::drop::cmd_drop(checkpoint, ctx, prompt, tokens, fetch_weights, output)
+        }
+        Commands::CheckDrop { dir, weights } => commands::drop::cmd_check_drop(dir, weights),
         Commands::Expand { file } => commands::expand::cmd_expand(file),
         Commands::Clean { all } => commands::clean::cmd_clean(all),
         Commands::Completions { shell } => commands::completions::cmd_completions(shell),

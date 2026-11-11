@@ -113,7 +113,7 @@ fn temperature_tuning_equals_the_vm() {
 #[test]
 fn the_temperature_is_one_below_its_floor() {
     // llama.cpp's constants: every position before the 8192nd scales by exactly one, the 8192nd (index 8191) by more.
-    let t = Temperature { floor: 8192.0, scale: 0.1 };
+    let t = Temperature { floor: 8192.0, scale: 0.1, offset: 1.0 };
     assert_eq!(t.at(0), 1.0, "position 0");
     assert_eq!(t.at(8190), 1.0, "the last position below the floor");
     assert!(t.at(8191) > 1.0, "the floor's own position: {}", t.at(8191));

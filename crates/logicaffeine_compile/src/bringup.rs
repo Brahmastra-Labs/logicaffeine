@@ -785,9 +785,7 @@ impl Backend for Sn50 {
         let mut written_files: Vec<(PathBuf, String)> = Vec::new();
         let bundle = compile_model_to_rdu_streamed(&model, RduChip::Sn50, "weights", Some(StepShape { ctx, batch: 1, tp: 1, prefill: None }), |f| {
             let dir = out.join(&f.dir);
-            written_files.push((dir.join("neutral.json"), f.neutral_json));
-            written_files.push((dir.join("placement.txt"), f.placement_txt));
-            written_files.push((dir.join("certificate.json"), f.certificate_json));
+            written_files.extend(f.files().map(|(name, text)| (dir.join(name), text.to_string())));
             Ok(())
         })
         .map_err(Refused)?;
@@ -882,7 +880,7 @@ pub fn bring_up(checkpoint: &Path, ctx: usize, out: &Path, targets: &[String]) -
 
 /// [`bring_up`] for `spec`, whose weights the checkpoint at `checkpoint` holds.
 pub fn bring_up_spec(spec: ModelSpec, checkpoint: &Path, ctx: usize, out: &Path, targets: &[String]) -> Result<Bringup, Refused> {
-    crate::model::author::check(&spec).map_err(|e| Refused(format!("the language cannot write this model yet: {e}")))?;
+    crate::model::author::check_at(&spec, ctx).map_err(|e| Refused(format!("the language cannot write this model yet: {e}")))?;
     let unknown: Vec<&String> = targets.iter().filter(|t| !backends().iter().any(|b| b.name() == t.as_str())).collect();
     if !unknown.is_empty() {
         let known: Vec<&str> = backends().iter().map(|b| b.name()).collect();

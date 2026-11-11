@@ -90,6 +90,7 @@ fn refuse_rdu_dials(
     chip: &Option<String>,
     format: &Option<RduFormat>,
     bridge: &Option<String>,
+    cache: &Option<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let name = clap::ValueEnum::to_possible_value(&target)
         .map(|v| v.get_name().to_string())
@@ -98,6 +99,7 @@ fn refuse_rdu_dials(
         ("--chip", chip.is_some()),
         ("--format", format.is_some()),
         ("--bridge", bridge.is_some()),
+        ("--cache", cache.is_some()),
     ] {
         if given {
             return Err(ui::CliError::with_hint(
@@ -124,6 +126,7 @@ pub(crate) fn cmd_emit(
     batch: Option<String>,
     tp: Option<String>,
     prefill: Option<usize>,
+    cache: Option<PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if ctx.is_some() && model.is_none() {
         return Err(ui::CliError::with_hint(
@@ -158,7 +161,7 @@ pub(crate) fn cmd_emit(
         .into());
     }
     if target != EmitTarget::Rdu {
-        refuse_rdu_dials(target, &chip, &format, &bridge)?;
+        refuse_rdu_dials(target, &chip, &format, &bridge, &cache)?;
         if model.is_some() {
             return Err(ui::CliError::with_hint(
                 "`--model` applies to `emit rdu`".to_string(),
@@ -169,7 +172,7 @@ pub(crate) fn cmd_emit(
         }
     }
     if let (EmitTarget::Rdu, Some(m)) = (target, model.as_deref()) {
-        return emit_rdu_model(m, ctx, batch, tp, prefill, file, output, chip);
+        return emit_rdu_model(m, ctx, batch, tp, prefill, file, output, chip, cache.as_deref());
     }
     match target {
         EmitTarget::Rdu => {
@@ -220,7 +223,7 @@ pub(crate) fn cmd_emit(
                     ));
                 }
             }
-            let art = logicaffeine_compile::compile::compile_to_rdu(&source, chip)
+            let art = through_cache(cache.as_deref(), || logicaffeine_compile::compile::compile_to_rdu(&source, chip))?
                 .map_err(rdu_refusal)?;
             emit_rdu_artifact(
                 &source,
@@ -429,6 +432,17 @@ pub(crate) fn cmd_emit(
     }
 }
 
+/// `compile` through the section cache `--cache DIR` names ([`logicaffeine_compile::spatial::compile_cache`]), saying
+/// what it compiled and reused.
+fn through_cache<R>(dir: Option<&Path>, compile: impl FnOnce() -> R) -> Result<R, Box<dyn std::error::Error>> {
+    let (made, said) = logicaffeine_compile::spatial::compile_cache::compile_through(dir, compile)
+        .map_err(|e| ui::CliError::new(format!("the section cache: {e}")))?;
+    if let Some(line) = said {
+        ui::note(line);
+    }
+    Ok(made)
+}
+
 /// The RDU backend's typed refusal, as the one line it was written as.
 fn rdu_refusal(e: logicaffeine_compile::error::ParseError) -> String {
     match e.kind {
@@ -473,6 +487,7 @@ fn emit_rdu_model(
     file: Option<PathBuf>,
     output: Option<PathBuf>,
     chip: Option<String>,
+    cache: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use logicaffeine_compile::codegen_cuda::qwen38::Qwen38Cfg;
     use logicaffeine_compile::compile::RduModel;
@@ -655,7 +670,7 @@ fn emit_rdu_model(
         chip.target_name()
     ));
     fs::create_dir_all(&dir)?;
-    let bundle = logicaffeine_compile::compile::compile_model_to_rdu_streamed(
+    let bundle = through_cache(cache, || logicaffeine_compile::compile::compile_model_to_rdu_streamed(
         &rdu_model,
         chip,
         "weights",
@@ -663,16 +678,17 @@ fn emit_rdu_model(
         |f| {
             let sub = dir.join(&f.dir);
             fs::create_dir_all(&sub)?;
-            fs::write(sub.join("neutral.json"), &f.neutral_json)?;
-            fs::write(sub.join("placement.txt"), &f.placement_txt)?;
-            fs::write(sub.join("certificate.json"), &f.certificate_json)?;
+            for (name, text) in f.files() {
+                fs::write(sub.join(name), text)?;
+            }
             ui::note(format!(
-                "wrote {}/ (neutral.json, placement.txt, certificate.json)",
-                f.dir
+                "wrote {}/ ({})",
+                f.dir,
+                f.files().map(|(name, _)| name).join(", ")
             ));
             Ok(())
         },
-    )?;
+    ))??;
     for (path, bytes) in &bundle.constants {
         let file = dir.join(path);
         if let Some(parent) = file.parent() {
@@ -811,6 +827,10 @@ fn emit_rdu_artifact(
                 "certificate.json",
                 "report.json",
             ];
+            if let Some(whole) = &art.whole_certificate_json {
+                fs::write(dir.join(logicaffeine_compile::spatial::lower::rdu::WHOLE_CERTIFICATE_FILE), whole)?;
+                wrote.push(logicaffeine_compile::spatial::lower::rdu::WHOLE_CERTIFICATE_FILE);
+            }
             wrote.extend(write_vendor(dir, &extra)?);
             if let Some((name, config)) = &bridged {
                 let config_file = if config.format.ends_with("+json") {

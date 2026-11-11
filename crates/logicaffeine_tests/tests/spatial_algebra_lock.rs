@@ -993,6 +993,14 @@ const PRIMITIVE_TAXONOMY: &[(&str, &str, &str)] = &[
         "the natural log — the inverse of Exp, which no composition of Exp/Recip/Rsqrt reaches. \
          The GDN decay `(1+e^u)^R` is `exp(R·ln(1+e^u))`: a real power needs a real log.",
     ),
+    (
+        "SfpuKind",
+        "Sign",
+        "1 above zero, −1 below, 0 at zero — a comparison of a VALUE (Select compares a position): \
+         `sign_tile` on Tensix's SFPU, a compare and a mux on a PCU. `x/|x|` divides by zero at zero \
+         and a clamp of `x·K` is a sign only above `1/K`; the signed root `sign(g)·√max(|g|, ε)` of \
+         Qwen3.8's n-gram gate needs it exact below its floor.",
+    ),
     // ── TensorBody: the scalar grammar at one point of the iteration space ──
     (
         "TensorBody",
@@ -1150,7 +1158,7 @@ const PRIMITIVE_STRUCTS: &[(&str, &[&str])] = &[
 const FROZEN_PRIMITIVE_SIZES: &[(&str, usize)] = &[
     ("IterKind", 2),
     ("ReducePool", 3),
-    ("SfpuKind", 6),
+    ("SfpuKind", 7),
     ("TensorBody", 11),
     ("Pred", 2),
     ("PredRhs", 2),

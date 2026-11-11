@@ -94,7 +94,7 @@ use logicaffeine_compile::spatial::eval::{eval_choreography, Value};
 use logicaffeine_compile::spatial::ir::{Phase, SpatialProgram, TensorRole};
 use logicaffeine_compile::spatial::passes::SpatialReject;
 use logicaffeine_compile::spatial::pipeline::compile_to_spatial;
-use logicaffeine_compile::spatial::target::{precision_is_int, SpatialTarget};
+use logicaffeine_compile::spatial::target::{precision_is_int, ComputeCap, SpatialTarget};
 use spatial_support::{inputs_from_fills, output_id, prng};
 
 // ══════════════════════════════════════════════════════════════════════════════════════════════════
@@ -573,6 +573,19 @@ fn assert_refusal_is_named(label: &str, t: &SpatialTarget, e: &SpatialReject) {
     }
 }
 
+/// Every preset, and the SN50 with its SIMD stages at bf16 alone: no preset's float datapath is bf16 now that the RDUs
+/// hold fp32 islands, and `rel_tol`'s bf16 arm is demonstrated on the datapath it states.
+fn targets() -> Vec<SpatialTarget> {
+    let mut bf16 = SpatialTarget::sn50_rdu();
+    for c in &mut bf16.compute {
+        if let ComputeCap::Elementwise { precisions } | ComputeCap::RowReduce { precisions } = c {
+            precisions.remove(&Precision::Fp32);
+        }
+    }
+    bf16.precisions.remove(&Precision::Fp32);
+    SpatialTarget::presets().into_iter().chain([bf16]).collect()
+}
+
 /// Run every case on every preset. Refusals must be typed, named and true of the descriptor; EVERY CASE
 /// must have been computed by at least one target, so no shape can pass by being refused everywhere.
 fn assert_workload(workload: &str, cases: &[Case]) {
@@ -583,7 +596,7 @@ fn assert_workload(workload: &str, cases: &[Case]) {
     let mut refusals: Vec<String> = Vec::new();
     for case in cases {
         let mut computed = 0usize;
-        for target in SpatialTarget::presets() {
+        for target in targets() {
             let label = format!("{} on {}", case.label, target.name);
             match evaluate_on(case, &target) {
                 Verdict::Computed { .. } => computed += 1,
@@ -952,7 +965,7 @@ fn a_perturbed_reference_is_caught_by_a_wide_margin() {
             want: probe.truth.clone(),
         };
         let mut demonstrated_here = 0usize;
-        for target in SpatialTarget::presets() {
+        for target in targets() {
             let label = format!("{} on {}", probe.label, target.name);
             match evaluate_on(&case, &target) {
                 // Half one — the machine agrees with the mathematics — was asserted inside
