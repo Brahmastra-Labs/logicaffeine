@@ -19,6 +19,24 @@ pub const DECLINED: i32 = 2;
 /// protocol's exit code. The process ends on the checking thread once the verdict is written, so the kernel's memory
 /// goes back to the system whole instead of being freed piece by piece.
 pub fn run(path: Option<PathBuf>, engine: Engine) -> ! {
+    // A large export under THREADS > 1 is checked across cores (forked workers over the shared
+    // environment); everything else — THREADS unset or 1, a small export, a non-Linux target —
+    // falls through to the serial check below, byte-for-byte today's single-core path.
+    #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+    {
+        let threads = super::parallel::threads();
+        if threads > 1 {
+            let bytes = path
+                .as_deref()
+                .filter(|p| p.as_os_str() != "-")
+                .and_then(|p| std::fs::metadata(p).ok())
+                .map(|m| m.len())
+                .unwrap_or(0);
+            if bytes >= super::parallel::min_bytes() {
+                super::parallel::run(path, engine, threads);
+            }
+        }
+    }
     let worker = std::thread::Builder::new().name("logos-kernel".into()).stack_size(STACK_BYTES).spawn(move || {
         let mut bytes = None;
         let input: Box<dyn Read> = match &path {

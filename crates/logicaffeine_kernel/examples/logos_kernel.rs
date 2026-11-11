@@ -21,6 +21,12 @@ use logicaffeine_kernel::dag::tc::Engine;
 use logicaffeine_kernel::dag::{check_export_in, Verdict};
 use std::io::{BufReader, Read};
 
+// The Arena build (`--features arena-alloc`) allocates through mimalloc: four forked workers
+// allocate concurrently, where it beats the system allocator on both wall time and fragmentation.
+#[cfg(feature = "arena-alloc")]
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod decl_costs {
     use logicaffeine_kernel::dag::export::DeclMeter;
@@ -204,9 +210,18 @@ fn main() {
         }
         None => 0,
     };
+    let deferred = match args.iter().position(|a| a == "--deferred") {
+        Some(i) => {
+            args.remove(i);
+            true
+        }
+        None => false,
+    };
     let path = args.into_iter().next();
-    if !parse_only && !report && decl_costs.is_none() && trust_before == 0 && !nbe {
-        // The Arena's run line: the check `largo lean check` runs, through the one function both run.
+    if !parse_only && !report && decl_costs.is_none() && trust_before == 0 && !nbe && !deferred {
+        // The Arena's run line and the check `largo lean check` runs, through the one function both
+        // go through: it checks a large export under THREADS > 1 across cores and everything else
+        // serially.
         logicaffeine_kernel::dag::arena::run(path.map(std::path::PathBuf::from), engine);
     }
     let worker = std::thread::Builder::new()
@@ -227,6 +242,25 @@ fn main() {
                 },
                 _ => Box::new(std::io::stdin()),
             };
+            if deferred {
+                let mut k = logicaffeine_kernel::dag::Kernel::new();
+                k.engine = engine;
+                let (verdict, stats) = logicaffeine_kernel::dag::export::check_export_deferred_in(
+                    &mut k,
+                    BufReader::with_capacity(1 << 20, input),
+                    bytes,
+                    logicaffeine_kernel::dag::export::Observe::default(),
+                );
+                match &verdict {
+                    logicaffeine_kernel::dag::Verdict::Accept => eprintln!(
+                        "accepted (deferred leaves): {} declarations, {} records",
+                        stats.declarations, stats.records
+                    ),
+                    logicaffeine_kernel::dag::Verdict::Reject(e)
+                    | logicaffeine_kernel::dag::Verdict::Decline(e) => eprintln!("{e}"),
+                }
+                return verdict.exit_code();
+            }
             if parse_only {
                 let mut k = logicaffeine_kernel::dag::Kernel::new();
                 let mut r = logicaffeine_kernel::dag::export::Reader::new(&mut k);

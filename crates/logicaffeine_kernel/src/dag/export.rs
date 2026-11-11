@@ -110,6 +110,18 @@ pub struct Reader<'k> {
     /// Read the common record layouts byte for byte (the default). Off, every record goes
     /// through the general parser — which must build exactly the same store.
     pub fast_paths: bool,
+    /// Admit leaf declarations (theorems, opaques, axioms) unchecked while the environment is built,
+    /// collecting them in `deferred` to be re-checked over the finished environment. The arena entry
+    /// sets this to spread the leaf checks across cores; off, every declaration is checked in order.
+    pub defer_leaves: bool,
+    /// Also defer non-primitive definitions (not only the leaves). A definition's body is δ-unfolded
+    /// by later checks, but `admit` records the same env entry (body, height, type) a checked
+    /// definition would, so a later unfold sees identical state and an invalid definition is still
+    /// caught by its own re-check — only its self-check moves to a worker. Off by default; it widens
+    /// the parallel share at the cost of re-checking definitions over private per-worker caches.
+    pub defer_defns: bool,
+    /// The leaves admitted unchecked under `defer_leaves`, in file order, for re-checking.
+    pub deferred: Vec<Decl>,
 }
 
 enum NamePart<'a> {
@@ -385,6 +397,9 @@ impl<'k> Reader<'k> {
             meter: None,
             trust_before: 0,
             fast_paths: true,
+            defer_leaves: false,
+            defer_defns: false,
+            deferred: Vec::new(),
         }
     }
 
@@ -1043,6 +1058,21 @@ impl<'k> Reader<'k> {
             self.k.admit_trusted(d);
             return Ok(());
         }
+        // A leaf (theorem, opaque, axiom) is never unfolded by a later check — a theorem's proof is
+        // irrelevant, an opaque is opaque, an axiom has no body — so admitting it unchecked and
+        // re-checking it over the finished environment is a sequential replay. Only its type, which
+        // the re-check verifies, is ever referenced meanwhile.
+        // A definition's body IS unfolded later, but `admit` records the same env entry a checked
+        // definition would, so a worker's re-check (which an invalid definition never survives) is
+        // still a sequential replay. Only non-primitive definitions, never a quotient or an env-
+        // mutating kind: `may_trust` is exactly that predicate.
+        let deferrable = matches!(d, Decl::Thm { .. } | Decl::Opaque { .. } | Decl::Axiom { .. })
+            || (self.defer_defns && matches!(d, Decl::Defn { .. }) && self.k.may_trust(&d));
+        if self.defer_leaves && deferrable {
+            self.k.admit_trusted(d.clone());
+            self.deferred.push(d);
+            return Ok(());
+        }
         if self.meter.is_none() {
             return self.k.add_decl(d);
         }
@@ -1323,6 +1353,74 @@ pub fn check_export_in(
     prims.sort();
     stats.validated_primitives = prims;
     stats.memory = k.memory_report();
+    (v, stats)
+}
+
+/// Check an export the arena's way: build the whole environment, admitting leaf declarations
+/// (theorems, opaques, axioms) unchecked, then re-check those leaves over the finished environment.
+/// The verdict is identical to [`check_export`] — a sequential replay — but the re-checks are
+/// independent, which is what the arena entry spreads across cores (THREADS > 1). Here they run on
+/// one worker, in order.
+pub fn check_export_deferred(input: impl BufRead) -> (Verdict, Stats) {
+    let mut k = Kernel::new();
+    check_export_deferred_in(&mut k, input, None, Observe::default())
+}
+
+/// Build the whole environment from `input`, admitting leaf declarations (theorems, opaques, axioms)
+/// unchecked and returning them to be re-checked, with the build outcome and stats. The environment
+/// is left in `k`. The arena entry re-checks the returned leaves across forked children; the serial
+/// path ([`check_export_deferred_in`]) re-checks them here. A non-leaf failure stops the build and is
+/// the returned `Err`.
+pub fn check_export_build_only(
+    k: &mut Kernel,
+    input: impl BufRead,
+    bytes: Option<u64>,
+    observe: Observe,
+) -> (KResult<()>, Vec<Decl>, Stats) {
+    let mut r = Reader::new(k);
+    r.meter = observe.meter;
+    r.trust_before = observe.trust_before;
+    r.defer_leaves = true;
+    r.defer_defns = std::env::var_os("LOGOS_DEFER_DEFNS").is_some();
+    if let Some(b) = bytes {
+        r.size_hint(b);
+    }
+    let built = r.run(input);
+    let deferred = std::mem::take(&mut r.deferred);
+    let mut stats = r.stats;
+    let mut prims: Vec<String> = k.validated_primitives.iter().map(|n| k.s.names.display(*n)).collect();
+    prims.sort();
+    stats.validated_primitives = prims;
+    stats.memory = k.memory_report();
+    (built, deferred, stats)
+}
+
+/// [`check_export_deferred`] against a caller's kernel and size hint.
+pub fn check_export_deferred_in(
+    k: &mut Kernel,
+    input: impl BufRead,
+    bytes: Option<u64>,
+    observe: Observe,
+) -> (Verdict, Stats) {
+    let (built, deferred, stats) = check_export_build_only(k, input, bytes, observe);
+    let outcome = match built {
+        Ok(()) => {
+            let mut res = Ok(());
+            for d in &deferred {
+                if let Err(e) = k.recheck_decl(d) {
+                    res = Err(e);
+                    break;
+                }
+            }
+            res
+        }
+        Err(e) => Err(e),
+    };
+    let v = match outcome {
+        Ok(()) => Verdict::Accept,
+        Err(e) if e.kind == FailKind::Reject => Verdict::Reject(e),
+        Err(e) => Verdict::Decline(e),
+    };
     (v, stats)
 }
 

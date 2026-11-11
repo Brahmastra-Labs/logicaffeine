@@ -17,6 +17,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   returns that verdict for a caller that goes on, and `interface::lean::pipeline`'s independent recheck asks it of the
   whole export, failing the stage (`RecheckRefused`) when the core refuses what the `Term` kernel accepted. The README's
   Acknowledgements credit the work the core builds on.
+- `dag::arena::run` checks a large export (at least 32 MiB) across cores when `THREADS` is more than one: the
+  environment is built once, then its leaf declarations (theorems, opaques, axioms — never unfolded by a later check)
+  are re-checked over the shared copy-on-write environment by forked workers that claim chunks from a shared cursor, so
+  `largo lean check` and the `logos-kernel` binary use every core on a large file while a small file, or `THREADS`
+  unset, keeps the single-core path byte for byte. Peak memory stays near the serial run's, the workers sharing the
+  environment's pages once. `dag::parallel` is the driver (Linux, x86-64); `dag::export::check_export_build_only` builds
+  the environment admitting the leaves unchecked; `Kernel::recheck_decl` re-checks one over the finished environment,
+  where any order is a sequential replay of the serial check; and `Kernel::set_session_budget` lets a worker run a
+  smaller value-engine session so several at once stay within the memory cap. `LOGOS_SESSION_VALUES`,
+  `LOGOS_PARALLEL_MIN_BYTES`, `LOGOS_PARALLEL_CHUNK`, and `LOGOS_DEFER_DEFNS` (also defer non-primitive definitions)
+  tune it.
 
 ### Changed
 

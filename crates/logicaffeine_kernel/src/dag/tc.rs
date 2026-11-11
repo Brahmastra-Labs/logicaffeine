@@ -109,6 +109,9 @@ pub struct Kernel {
     pub(crate) lparams: Rc<[NameId]>,
     pub(crate) safety: Safety,
     pub(crate) eager: bool,
+    /// Re-checking a declaration already admitted to the environment (the arena's forked leaf
+    /// check): its own name is legitimately present, so the freshness check allows it.
+    pub(crate) recheck: bool,
     depth: u32,
     infer_only_cache: FxMap<ExprId, ExprId>,
     infer_check_cache: FxMap<ExprId, ExprId>,
@@ -160,6 +163,10 @@ pub struct Kernel {
     /// δ-unfoldings weak-head reduction has taken so far: what reduction has cost by unfolding,
     /// independent of the machine.
     unfold_steps: u64,
+    /// The value-engine session's size budget, applied to the session each run. The single-core
+    /// path keeps the wide default (fewer instructions); a forked worker lowers it so four
+    /// concurrent sessions stay within the memory cap.
+    pub(crate) session_budget: usize,
     /// The value engine's session, created on first use (it moves out of the kernel for the
     /// length of every check, so it is boxed and taken rather than rebuilt).
     pub(crate) sem: Option<Box<super::sem::State>>,
@@ -212,6 +219,7 @@ impl Kernel {
             lparams: Rc::from(Vec::new()),
             safety: Safety::Safe,
             eager: false,
+            recheck: false,
             depth: 0,
             infer_only_cache: FxMap::default(),
             infer_check_cache: FxMap::default(),
@@ -236,9 +244,19 @@ impl Kernel {
             probe_steps: 2048,
             conv_steps: 0,
             unfold_steps: 0,
+            session_budget: super::sem::session_values(),
             sem: None,
             theory: Theory::Lean,
             logos: None,
+        }
+    }
+
+    /// Sets the value-engine session's size budget (in values). A forked worker calls this before
+    /// re-checking its share so that several concurrent sessions stay within the memory cap.
+    pub fn set_session_budget(&mut self, values: usize) {
+        self.session_budget = values;
+        if let Some(st) = self.sem.as_mut() {
+            st.set_budget(values);
         }
     }
 

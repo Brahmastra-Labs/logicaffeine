@@ -25,6 +25,9 @@ smallvec = "1"
 serde = { version = "1", features = ["derive"], optional = true }
 # Certificates are JSON documents; the Lean export reader parses NDJSON. Off by default like serde.
 serde_json = { version = "1", optional = true }
+# A faster multi-threaded allocator for the Arena build only (`arena-alloc`), where four forked
+# workers allocate at once; off by default so the trusted core keeps the system allocator.
+mimalloc = { version = "0.1", default-features = false, optional = true }
 
 [features]
 # Proof certificates: (de)serialization and reading a certificate document of any kind.
@@ -41,6 +44,9 @@ shadow = []
 # The dag core reads its stores by the ids they hand out without bounds checks (`dag::slot`): the Lean
 # Kernel Arena entries build with it, ranked on instructions executed. Every other build keeps the checks.
 unchecked-access = []
+# The Arena build's allocator: mimalloc as the `logos_kernel` example's global allocator, for the
+# forked workers' concurrent allocation. Off by default so the trusted core keeps the system allocator.
+arena-alloc = ["dep:mimalloc"]
 
 # serde_json enters the library only through the opt-in `serde`/`lean` features; with default
 # features the trusted kernel has no serialization dependency at all.

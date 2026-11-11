@@ -49,13 +49,30 @@ use value::{Arena, CtxId, EnvId, V};
 /// stack is sized for it).
 const MAX_DEPTH: u32 = 200_000;
 
-/// A session ends, and every value is dropped, once the arena holds this many values.
+/// A session ends, and every value is dropped, once the arena holds this many values. A larger
+/// budget shares more across declarations (fewer instructions) at more peak memory; a smaller one
+/// trades the other way. LOGOS_SESSION_VALUES overrides the default to tune that curve.
 const SESSION_VALUES: usize = 1 << 23;
+
+pub(crate) fn session_values() -> usize {
+    use std::sync::OnceLock;
+    static V: OnceLock<usize> = OnceLock::new();
+    *V.get_or_init(|| {
+        std::env::var("LOGOS_SESSION_VALUES")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .filter(|&n| n > 0)
+            .unwrap_or(SESSION_VALUES)
+    })
+}
 
 /// One session's values and caches.
 #[derive(Clone)]
 pub struct State {
     pub arena: Arena,
+    /// A session ends once the arena holds this many values. Synced from the kernel each run, so a
+    /// forked worker can run a smaller session than the single-core path's cache-wide default.
+    budget: usize,
     epoch: u64,
     const_type: Table<(u32, u32)>,
     const_body: Table<(u32, u32)>,
@@ -126,6 +143,7 @@ impl Default for State {
     fn default() -> Self {
         State {
             arena: Arena::new(),
+            budget: session_values(),
             epoch: 0,
             const_type: Table::new(),
             const_body: Table::new(),
@@ -152,13 +170,19 @@ impl Default for State {
 }
 
 impl State {
+    /// Sets the value budget a session is allowed to reach before it ends.
+    pub(crate) fn set_budget(&mut self, values: usize) {
+        self.budget = values;
+    }
+
     fn begin_decl(&mut self, epoch: u64) {
-        if self.epoch != epoch || self.scratch_seen || self.arena.len() > SESSION_VALUES {
+        let budget = self.budget;
+        if self.epoch != epoch || self.scratch_seen || self.arena.len() > budget {
             let c = &mut self.counters;
             c.sessions += 1;
             c.resets_epoch += (self.epoch != epoch) as u64;
             c.resets_scratch += self.scratch_seen as u64;
-            c.resets_budget += (self.arena.len() > SESSION_VALUES) as u64;
+            c.resets_budget += (self.arena.len() > budget) as u64;
             self.end_session(epoch);
         }
         self.check_cache.clear();
@@ -404,6 +428,7 @@ impl Kernel {
     /// Runs the value engine on this kernel with its session state.
     pub fn with_sem<T>(&mut self, f: impl FnOnce(&mut Sem) -> KResult<T>) -> KResult<T> {
         let mut st = self.sem.take().unwrap_or_default();
+        st.budget = self.session_budget;
         st.begin_decl(self.sem_epoch());
         let ps = self.lparams.clone();
         st.scope = self.const_levels_of(&ps).0;

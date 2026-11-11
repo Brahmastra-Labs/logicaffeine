@@ -12,6 +12,7 @@ fn the_memory_report_counts_every_store_of_a_session() {
     }
     let State {
         arena,
+        budget: _,
         epoch: _,
         const_type,
         const_body,

@@ -36,6 +36,10 @@ pub mod nat;
 /// The closure-based conversion engine, compiled only with the `nbe` feature while it is built.
 #[cfg(feature = "nbe")]
 pub mod nbe;
+/// Checking a large export across cores by forking workers over the shared environment; the
+/// single-core path stays serial. Linux, x86-64 only.
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) mod parallel;
 pub mod pretty;
 pub mod primitive;
 pub mod primitive_wf;

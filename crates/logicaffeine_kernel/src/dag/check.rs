@@ -104,7 +104,7 @@ impl Kernel {
     }
 
     fn check_fresh(&self, n: NameId) -> KResult<()> {
-        if self.env.contains(n) {
+        if self.env.contains(n) && !self.recheck {
             return Err(KernelFailure::reject(format!(
                 "'{}' has already been declared",
                 self.s.names.display(n)
@@ -236,6 +236,18 @@ impl Kernel {
         let name = decl.name();
         self.check_decl(decl)
             .map_err(|e| e.in_declaration(self.s.names.display(name)))
+    }
+
+    /// Re-checks a declaration already admitted to the environment: everything [`Kernel::add_decl`]
+    /// checks, admitting nothing. A leaf (theorem, opaque, axiom) admitted unchecked while the
+    /// environment was built is verified here, over the frozen environment — the arena's forked,
+    /// out-of-order leaf check.
+    pub fn recheck_decl(&mut self, decl: &Decl) -> KResult<()> {
+        let name = decl.name();
+        self.recheck = true;
+        let result = self.check_decl(decl);
+        self.recheck = false;
+        result.map_err(|e| e.in_declaration(self.s.names.display(name)))
     }
 
     pub fn add_decl(&mut self, decl: Decl) -> KResult<()> {
