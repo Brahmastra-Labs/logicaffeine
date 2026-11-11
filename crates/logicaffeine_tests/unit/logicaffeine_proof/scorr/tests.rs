@@ -305,3 +305,126 @@ fn a_search_past_its_sweeping_budget_merges_nothing() {
     }
     assert!(left >= 100 && found >= 50, "{left} left alone, {found} found");
 }
+
+/// Sixteen latches free to start anywhere, each holding its value, and `p`, the conjunction of sixteen parity equations
+/// over them, `x_i ⊕ x_(i+1) ⊕ x_(i+3) = b_i` around the ring, whose right sides a planted state sets. The circulant
+/// `1 + z + z³` is prime to `z¹⁶ - 1` over GF(2), so the system has full rank and `p` holds in that one state. Returns
+/// the circuit with no bad state yet, the latches, `p` and the planted state.
+fn a_parity_lock() -> (Aig, Vec<AigLit>, AigLit, Vec<bool>) {
+    const N: usize = 16;
+    let planted: Vec<bool> = (0..N).map(|i| 0x9E37u32 >> i & 1 == 1).collect();
+    let mut g = Aig::new();
+    let mut xs = Vec::with_capacity(N);
+    for _ in 0..N {
+        let k = g.add_latch(None, Init::Free);
+        let l = g.latch_lit(k);
+        g.set_next(k, l);
+        xs.push(l);
+    }
+    let mut p = AigLit::TRUE;
+    for i in 0..N {
+        let (a, b, c) = (i, (i + 1) % N, (i + 3) % N);
+        let ab = g.xor(xs[a], xs[b]);
+        let e = g.xor(ab, xs[c]);
+        let holds = if planted[a] ^ planted[b] ^ planted[c] { e } else { !e };
+        p = g.and(p, holds);
+    }
+    (g, xs, p, planted)
+}
+
+/// The rank over GF(2) of the parity lock's equations, each a row of the latches it reads.
+fn parity_lock_rank() -> usize {
+    let mut rows: Vec<u32> = (0..16).map(|i| 1 << i | 1 << (i + 1) % 16 | 1 << (i + 3) % 16).collect();
+    let mut rank = 0;
+    for bit in 0..16 {
+        let Some(pivot) = (rank..rows.len()).find(|&r| rows[r] >> bit & 1 == 1) else { continue };
+        rows.swap(rank, pivot);
+        for r in 0..rows.len() {
+            if r != rank && rows[r] >> bit & 1 == 1 {
+                rows[r] ^= rows[rank];
+            }
+        }
+        rank += 1;
+    }
+    rank
+}
+
+/// Every start state of `aig`'s first sixteen latches with the rest at `rest`: the parity lock's states, each held.
+fn lock_states(rest: &[bool]) -> impl Iterator<Item = Vec<bool>> + '_ {
+    (0..1u32 << 16).map(move |bits| (0..16).map(|i| bits >> i & 1 == 1).chain(rest.iter().copied()).collect())
+}
+
+#[test]
+fn pairs_a_starved_sweeper_leaves_open_are_taken_apart_however_rarely_they_differ() {
+    // The parity lock's gates differ from the constant and from each other only in few of its 2^16 states, `p` in one:
+    // the random runs leave them in the constant's class, and a sweeper held to one conflict a query cannot tell `p`
+    // from false. Every pair left open is taken apart, so every merge holds in every state, each a state of a run.
+    let (mut aig, _, p, planted) = a_parity_lock();
+    aig.add_bad(p, None);
+    assert_eq!(parity_lock_rank(), 16, "the equations single out one state");
+    assert!(Aig::value(&aig.eval(&[], &planted), p), "p holds in the planted state");
+    let classes = simulated(&aig, &state_signals(&aig), &Options::default());
+    assert_eq!(classes.rep[p.node() as usize], 0, "the random runs leave p in the constant's class");
+    let starved = Options { fraig: fraig::Options { budget: 1, final_budget: 1, rounds: 1, ..fraig::Options::default() }, ..Options::default() };
+    let (open, _, _) = fraig::decide(&aig, &[(p, AigLit::FALSE)], &starved.fraig);
+    assert!(matches!(open[0], Answer::Unknown(_)), "a sweeper held to one conflict leaves p ≡ false open");
+    let (told, _, _) = fraig::decide(&aig, &[(p, AigLit::FALSE)], &Options::default().fraig);
+    assert!(matches!(told[0], Answer::Differ { .. }), "the sweeper at its default budget tells them apart");
+    for (name, opts) in [("default", Options::default()), ("starved", starved)] {
+        let corr = find(&aig, &opts).unwrap_or_else(|| panic!("{name}: the search settles"));
+        for s in lock_states(&[]) {
+            let v = aig.eval(&[], &s);
+            for (m, r) in corr.members() {
+                assert_eq!(v[m as usize], Aig::value(&v, r), "{name}: node {m} and {r:?} in state {s:?}");
+            }
+        }
+        let reduced = reduce(&aig, &corr);
+        assert!(bads(&reduced).iter().any(|&b| Aig::value(&reduced.eval(&[], &planted), b)), "{name}: still bad where p holds");
+    }
+}
+
+#[test]
+fn signals_alike_from_the_second_clock_that_differ_in_one_start_state_are_told_apart_by_the_base_question() {
+    // `a` starts false and `c` anywhere, both loading the input `x`; `f` is false at the first clock only; and
+    // `v = c ∧ (p ∨ f)` over the parity lock's `p`. From the second clock on `v` is `c`, which is `a`: the step proves
+    // them equal. At the first clock `v` is `c ∧ p`, true in one start state of 2^17, which no random run meets, so only
+    // the base question finds it and takes `v` apart from `a`. The bad state `a ⊕ v` holds there: merged, the reduced
+    // circuit would be safe.
+    let (mut aig, _, p, planted) = a_parity_lock();
+    let x = aig.add_input(None);
+    let (ka, kc, kf) = (aig.add_latch(None, Init::Zero), aig.add_latch(None, Init::Free), aig.add_latch(None, Init::Zero));
+    let (a, c, f) = (aig.latch_lit(ka), aig.latch_lit(kc), aig.latch_lit(kf));
+    aig.set_next(ka, x);
+    aig.set_next(kc, x);
+    aig.set_next(kf, AigLit::TRUE);
+    let open = aig.or(p, f);
+    let v = aig.and(c, open);
+    let bad = aig.xor(a, v);
+    aig.add_bad(bad, None);
+    let start: Vec<bool> = planted.iter().copied().chain([false, true, false]).collect();
+    assert!(Aig::value(&aig.eval(&[false], &start), bad), "the planted start with c true is bad at once");
+    let classes = simulated(&aig, &state_signals(&aig), &Options::default());
+    assert_eq!(classes.rep[v.node() as usize], a.node(), "the random runs leave v in a's class");
+    let corr = find(&aig, &Options::default()).expect("the search settles");
+    assert!(corr.members().all(|(m, _)| m != v.node()), "v is merged with nothing");
+    for s in reachable(&aig) {
+        for inputs in [[false], [true]] {
+            let values = aig.eval(&inputs, &s);
+            for (m, r) in corr.members() {
+                assert_eq!(values[m as usize], Aig::value(&values, r), "node {m} and {r:?} in state {s:?}");
+            }
+        }
+    }
+    let reduced = reduce(&aig, &corr);
+    assert!(bads(&reduced).iter().any(|&b| Aig::value(&reduced.eval(&[false], &start), b)), "the reduced circuit is bad at the planted start");
+}
+
+#[test]
+fn a_search_whose_questions_outgrow_its_node_budget_merges_nothing() {
+    // The parity lock's base question carries the gates of its sixteen equations: ten nodes over every round cannot
+    // hold it, so the search gives up and merges nothing; at the default budget it settles.
+    let (mut aig, _, p, _) = a_parity_lock();
+    aig.add_bad(p, None);
+    assert!(find(&aig, &Options { nodes: 10, ..Options::default() }).is_none(), "ten nodes cannot hold the base question");
+    assert!(find(&aig, &Options::default()).is_some(), "the default budget settles");
+}

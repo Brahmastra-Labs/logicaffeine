@@ -1148,3 +1148,80 @@ fn interleaved_bounded_model_checking_finds_a_run_exactly_when_one_is_within_the
     }
     assert!(runs >= 300, "{runs} runs");
 }
+
+/// A three-bit counter `k` from 0, a latch `a` set for good once the input `x` is, the constraint that `x` is true
+/// only when `k` is 4, and the bad state `a` with `k` at least 2: the one run sets `x` at clock 4 and is bad at clock 5.
+fn a_counter_whose_input_waits_for_four() -> Aig {
+    let mut g = Aig::new();
+    let x = g.add_input(None);
+    let k: Vec<usize> = (0..3).map(|_| g.add_latch(None, Init::Zero)).collect();
+    let a = g.add_latch(None, Init::Zero);
+    let (k0, k1, k2, la) = (g.latch_lit(k[0]), g.latch_lit(k[1]), g.latch_lit(k[2]), g.latch_lit(a));
+    let carry = g.and(k1, k0);
+    let n1 = g.xor(k1, k0);
+    let n2 = g.xor(k2, carry);
+    g.set_next(k[0], !k0);
+    g.set_next(k[1], n1);
+    g.set_next(k[2], n2);
+    let set = g.or(la, x);
+    g.set_next(a, set);
+    let low = g.and(!k1, !k0);
+    let four = g.and(k2, low);
+    let allowed = g.or(!x, four);
+    g.add_constraint(allowed, None);
+    let past_one = g.or(k1, k2);
+    let bad = g.and(la, past_one);
+    g.add_bad(bad, None);
+    g
+}
+
+#[test]
+fn a_refuted_window_holds_its_clocks_constraints_for_every_window_after_it() {
+    // Asked two or three clocks a window, the first window holds no run; the next one is bad at its first clock only
+    // under an `x` set at clock 0 or 1, which the first window's constraints rule out. Kept as the window is refuted,
+    // they leave the run of six clocks, bad first at clock 5.
+    let g = a_counter_whose_input_waits_for_four();
+    assert_eq!(shortest_run(&g), Some(6), "the one run sets x at clock 4");
+    for w in [2, 3] {
+        let run = bmc_windowed(&g, 16, w).unwrap_or_else(|| panic!("window {w}: the run of six clocks"));
+        assert!(replays(&g, &run), "window {w}: the run replays");
+        assert_eq!(run.inputs.len(), 6, "window {w}: the run of six clocks");
+        assert_eq!(first_bad_clock(&g, &run), Some(5), "window {w}: bad first at clock 5");
+    }
+}
+
+/// A five-bit counter from 0, bad when it reaches 16: its one run is bad first at its seventeenth clock.
+fn a_counter_bad_at_sixteen() -> Aig {
+    let mut g = Aig::new();
+    let k: Vec<usize> = (0..5).map(|_| g.add_latch(None, Init::Zero)).collect();
+    let bits: Vec<AigLit> = k.iter().map(|&j| g.latch_lit(j)).collect();
+    let mut carry = AigLit::TRUE;
+    for (&j, &b) in k.iter().zip(&bits) {
+        let next = g.xor(b, carry);
+        g.set_next(j, next);
+        carry = g.and(carry, b);
+    }
+    let mut sixteen = bits[4];
+    for &b in &bits[..4] {
+        sixteen = g.and(sixteen, !b);
+    }
+    g.add_bad(sixteen, None);
+    g
+}
+
+#[test]
+fn a_window_never_asks_past_the_bound() {
+    // The run is seventeen clocks long. Within sixteen, no window of any width finds it, the last window cut at the
+    // bound; within seventeen, every width finds that run; and so do the clock-by-clock and the interleaved searches.
+    let g = a_counter_bad_at_sixteen();
+    assert_eq!(shortest_run(&g), Some(17), "bad first at the seventeenth clock");
+    for w in [2, 3, 5, 7, 16, 64] {
+        assert_eq!(bmc_windowed(&g, 16, w), None, "window {w}: no run within sixteen clocks");
+        let run = bmc_windowed(&g, 17, w).unwrap_or_else(|| panic!("window {w}: the run of seventeen clocks"));
+        assert!(replays(&g, &run) && run.inputs.len() == 17, "window {w}: the run of seventeen clocks");
+    }
+    assert_eq!(bmc(&g, 16), None);
+    assert_eq!(bmc(&g, 17).map(|run| run.inputs.len()), Some(17));
+    assert_eq!(bmc_interleaved(&g, 16), None);
+    assert_eq!(bmc_interleaved(&g, 17).map(|run| run.inputs.len()), Some(17));
+}
