@@ -113,7 +113,7 @@ fn random_circuit(seed: u64, latches: usize, inputs: usize, gates: usize) -> Aig
 
 /// Circuits of two to seven latches over one to three inputs.
 fn circuits() -> impl Iterator<Item = (u64, Aig)> {
-    (0..400u64).map(|seed| (seed, random_circuit(seed, 2 + (seed % 6) as usize, 1 + (seed % 3) as usize, 4 + (seed % 12) as usize)))
+    (0..800u64).map(|seed| (seed, random_circuit(seed, 2 + (seed % 6) as usize, 1 + (seed % 3) as usize, 4 + (seed % 12) as usize)))
 }
 
 #[test]
@@ -138,7 +138,7 @@ fn every_merged_signal_equals_its_representative_in_every_reachable_state() {
 #[test]
 fn the_reduced_circuit_reaches_a_bad_state_exactly_when_the_circuit_does() {
     // The reduced circuit against the oracle, and fewer latches left in the cone of its bad states and constraints.
-    let (mut unsafe_, mut smaller) = (0, 0);
+    let (mut unsafe_, mut safe, mut smaller) = (0, 0, 0);
     for (seed, aig) in circuits() {
         let corr = find(&aig, &Options::default()).expect("a small circuit settles");
         let reduced = reduce(&aig, &corr);
@@ -147,9 +147,10 @@ fn the_reduced_circuit_reaches_a_bad_state_exactly_when_the_circuit_does() {
         let bad = reachable_bad(&aig);
         assert_eq!(reachable_bad(&reduced), bad, "seed {seed}: the same verdict");
         unsafe_ += usize::from(bad);
+        safe += usize::from(!bad);
         smaller += usize::from(pdr::cone(&reduced).1.len() < pdr::cone(&aig).1.len());
     }
-    assert!(unsafe_ >= 100 && unsafe_ <= 300 && smaller >= 100, "{unsafe_} unsafe, {smaller} with fewer latches");
+    assert!(unsafe_ >= 100 && safe >= 100 && smaller >= 100, "{unsafe_} unsafe, {safe} safe, {smaller} with fewer latches");
 }
 
 #[test]
@@ -287,9 +288,9 @@ fn a_pair_the_sweeper_leaves_open_is_never_merged() {
 
 #[test]
 fn a_search_past_its_sweeping_budget_merges_nothing() {
-    // The random circuits with the sweeper handed forty nodes over every round: a circuit whose questions need more is
-    // left alone, and one whose correspondence is found merges what holds.
-    let tight = Options { nodes: 40, ..Options::default() };
+    // The random circuits with the sweeper handed fifteen nodes over every round: a circuit whose questions need more
+    // is left alone, and one whose correspondence is found merges what holds.
+    let tight = Options { nodes: 15, ..Options::default() };
     let (mut left, mut found) = (0, 0);
     for (seed, aig) in circuits() {
         match find(&aig, &tight) {
