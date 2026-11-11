@@ -1216,6 +1216,21 @@ fn the_textbook_first_projection_means_the_same_on_either_host() {
     );
 }
 
+/// A program that reads the clock: the specializer never reads it, so the textbook first projection keeps each
+/// `today` and `now` a read its residual makes when it runs, with no interpreter dispatch left.
+#[test]
+fn the_textbook_first_projection_reads_the_clock_when_it_runs() {
+    let program = "## Main\nLet d be today.\nLet e be d + 3 days.\nShow e is greater than d.\nLet t be now.\nShow now is at least t.\n";
+    let residual = logicaffeine_compile::compile::textbook_projection1(program)
+        .unwrap_or_else(|e| panic!("the textbook first projection carries the clock: {e}"));
+    assert_eq!(count_dispatch(&residual), 0, "the residual keeps interpreter dispatch:\n{residual}");
+    assert!(
+        residual.contains("today") && residual.contains("now"),
+        "the residual reads the clock itself:\n{residual}"
+    );
+    assert_eq!(run_treewalk(&residual).output, "true\ntrue", "the residual prints what the program prints:\n{residual}");
+}
+
 /// Programs of every corpus above that the first projection through the offline specializer runs as the language runs
 /// them, dispatch-free. May only rise.
 const MIX_P1_PROGRAMS: usize = 100;

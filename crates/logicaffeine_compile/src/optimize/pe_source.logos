@@ -1738,6 +1738,7 @@
         Set idx to idx + 1.
     Return result.
 
+# The memo keys: every value and statement keyed by its whole structure.
 ## To keyJoin (acc: Text) and (part: Text) -> Text:
     Let n be length of part.
     Return "{acc}_{n}_{part}".
@@ -2362,6 +2363,7 @@
             Let mutable po6k be "PRecursive".
             Set po6k to keyJoin(po6k, po6x0).
             Return po6k.
+# The memo keys end.
 
 ## To makeKey (fnName: Text) and (args: Seq of CExpr) -> Text:
     Let key be fnName.
@@ -3952,7 +3954,7 @@
             Let ibFnMark2 be "{ibFnMark}".
             peOsPush(ibStack, ibFnMark2).
             Let mutable ibState be a new PEStateR with env ibEnv and funcs (peFuncs(state)) and depth (ibDepth - 1) and staticEnv ibSe and specResults (peSpecResults(state)) and onStack ibStack.
-            Let ibPe be specializeStmts(ibRenamed, ibState).
+            Let mutable ibPe be specializeStmts(ibRenamed, ibState).
             peAbsorb(state, ibState).
             Let ibN be length of ibPe.
             If wantValue:
@@ -3999,6 +4001,7 @@
                     If not hoistActive((peSpecResults(state))):
                         Return ibNo.
             Otherwise:
+                Set ibPe to peWithoutEndingReturn(ibPe).
                 If containsReturn(ibPe):
                     Return ibNo.
             Let ibSeAfter be peStaticEnv(ibState).
@@ -4028,6 +4031,20 @@
             Return ibOut.
         Otherwise:
             Return ibNo.
+
+## To peWithoutEndingReturn (weStmts: Seq of CStmt) -> Seq of CStmt:
+    Let weN be length of weStmts.
+    If weN equals 0:
+        Return weStmts.
+    Inspect item weN of weStmts:
+        When CReturn (weValue):
+            Inspect weValue:
+                When CNothing:
+                    Return truncateStmts(weStmts, weN - 1).
+                Otherwise:
+                    Return weStmts.
+        Otherwise:
+            Return weStmts.
 
 ## To breaksBelow (bbS: CStmt) -> Bool:
     Inspect bbS:
@@ -5463,7 +5480,7 @@
                                 Push a new CLiteralPart with value isShown to peIsParts.
                             Otherwise:
                                 Set isAllStatic to false.
-                                If peHoleTextPrintable(decompileExpr(peEpExpr)):
+                                If peHoleExprPrintable(peEpExpr, true):
                                     Push a new CExprPart with expr peEpExpr to peIsParts.
                                 Otherwise:
                                     peShownParts(peEpExpr, peIsParts).
@@ -5934,7 +5951,7 @@
         Otherwise:
             Return false.
 
-## To peExprWritesAny (ewE: CExpr) and (ewDead: Seq of Text) -> Bool:
+## To peWritesAnyOf (ewE: CExpr) and (ewDead: Seq of Text) -> Bool:
     Let ewMap be a new Map of Text to Text.
     Let mutable ewRefs be a new Seq of Text.
     Let mutable ewWrites be a new Seq of Text.
@@ -5950,25 +5967,25 @@
             Let mutable swOpen be true.
             Inspect swS:
                 When CIf (swIc, swIt, swIe):
-                    If not peExprWritesAny(swIc, swDead):
+                    If not peWritesAnyOf(swIc, swDead):
                         peStrandedWrites(swIt, swDead, swOut).
                         peStrandedWrites(swIe, swDead, swOut).
                         Set swOpen to false.
                 When CWhile (swWc, swWb):
-                    If not peExprWritesAny(swWc, swDead):
+                    If not peWritesAnyOf(swWc, swDead):
                         peStrandedWrites(swWb, swDead, swOut).
                         Set swOpen to false.
                 When CRepeat (swRv, swRc, swRb):
-                    If not peExprWritesAny(swRc, swDead):
+                    If not peWritesAnyOf(swRc, swDead):
                         peStrandedWrites(swRb, swDead, swOut).
                         Set swOpen to false.
                 When CRepeatRange (swGv, swGs, swGe, swGb):
-                    If not peExprWritesAny(swGs, swDead):
-                        If not peExprWritesAny(swGe, swDead):
+                    If not peWritesAnyOf(swGs, swDead):
+                        If not peWritesAnyOf(swGe, swDead):
                             peStrandedWrites(swGb, swDead, swOut).
                             Set swOpen to false.
                 When CInspect (swNt, swNa):
-                    If not peExprWritesAny(swNt, swDead):
+                    If not peWritesAnyOf(swNt, swDead):
                         Repeat for swArm in swNa:
                             Inspect swArm:
                                 When CWhen (swWn, swWbs, swWbody):
@@ -6041,7 +6058,7 @@
         Return 1000000.
     Return crN.
 
-## To peStmtWrites (swS: CStmt) -> Seq of Text:
+## To peWritesOfStmt (swS: CStmt) -> Seq of Text:
     Let swOne be a new Seq of CStmt.
     Push swS to swOne.
     Let swMap be a new Map of Text to Text.
@@ -6241,7 +6258,7 @@
                     Let fwTail be peTailOf(fwCur, fwI + 1).
                     If peCountRefs(fwName, fwTail) equals 1:
                         Let fwPure be isPureForDce(fwExpr).
-                        Let fwReads be peExprRefs(fwExpr).
+                        Let fwReads be peRefsOf(fwExpr).
                         Let fwN be length of fwCur.
                         Let mutable fwJ be fwI + 1.
                         Let mutable fwFound be 0.
@@ -6250,7 +6267,7 @@
                             Let fwT be item fwJ of fwCur.
                             Let fwOne be a new Seq of CStmt.
                             Push fwT to fwOne.
-                            Let fwW be peStmtWrites(fwT).
+                            Let fwW be peWritesOfStmt(fwT).
                             If fwW contains fwName or fwW contains "*":
                                 Set fwBlocked to true.
                             Otherwise:
@@ -6268,7 +6285,7 @@
                             If peHasHead(fwUse):
                                 Let fwHead be peHeadOf(fwUse).
                                 Let mutable fwInHead be 0.
-                                Repeat for fwR in peExprRefs(fwHead):
+                                Repeat for fwR in peRefsOf(fwHead):
                                     If fwR equals fwName:
                                         Set fwInHead to fwInHead + 1.
                                 Let mutable fwOk be fwInHead equals 1.
@@ -6285,7 +6302,7 @@
                                                     Set fwOk to false.
                                     Otherwise:
                                         Let fwSkipR be true.
-                                If fwOk and (peExprRefs(fwSubst) contains fwName):
+                                If fwOk and (peRefsOf(fwSubst) contains fwName):
                                     Set fwOk to false.
                                 If fwOk and not peHolesPrintable(fwSubst):
                                     Set fwOk to false.
@@ -6323,6 +6340,101 @@
         Return true.
     Return not (".<>^$0123456789" contains htAfter).
 
+## To peHoleLeafPrintable (hlText: Text) and (hlColons: Bool) -> Bool:
+    If hlColons:
+        Return peHoleTextPrintable(hlText).
+    Return not (hlText contains chr(34) or hlText contains "{{" or hlText contains "}}").
+
+## To peHoleExprsPrintable (hsItems: Seq of CExpr) and (hsColons: Bool) -> Bool:
+    Repeat for hsItem in hsItems:
+        If not peHoleExprPrintable(hsItem, hsColons):
+            Return false.
+    Return true.
+
+## To peHoleExprPrintable (hxE: CExpr) and (hxColons: Bool) -> Bool:
+    Inspect hxE:
+        When CInt (hxInt):
+            Return true.
+        When CFloat (hxReal):
+            Return true.
+        When CBool (hxBool):
+            Return true.
+        When CVar (hxName):
+            Return true.
+        When CBinOp (hxOp, hxLeft, hxRight):
+            Return peHoleExprPrintable(hxLeft, hxColons) and peHoleExprPrintable(hxRight, hxColons).
+        When CNot (hxNegated):
+            Return peHoleExprPrintable(hxNegated, hxColons).
+        When CCall (hxCalled, hxCallArgs):
+            Return peHoleExprsPrintable(hxCallArgs, hxColons).
+        When CIndex (hxIndexed, hxAt):
+            Return peHoleExprPrintable(hxIndexed, hxColons) and peHoleExprPrintable(hxAt, hxColons).
+        When CLen (hxMeasured):
+            Return peHoleExprPrintable(hxMeasured, hxColons).
+        When CMapGet (hxMap, hxKey):
+            Return peHoleExprPrintable(hxMap, hxColons) and peHoleExprPrintable(hxKey, hxColons).
+        When CNewSeq (hxSeqType):
+            Return true.
+        When CNewVariant (hxTag, hxVariantNames, hxVariantVals):
+            Return peHoleExprsPrintable(hxVariantVals, hxColons).
+        When CList (hxListItems):
+            Return peHoleExprsPrintable(hxListItems, hxColons).
+        When CRange (hxFrom, hxTo):
+            Return peHoleExprPrintable(hxFrom, hxColons) and peHoleExprPrintable(hxTo, hxColons).
+        When CSlice (hxSliced, hxSliceFrom, hxSliceTo):
+            If not peHoleExprPrintable(hxSliced, hxColons):
+                Return false.
+            Return peHoleExprPrintable(hxSliceFrom, hxColons) and peHoleExprPrintable(hxSliceTo, hxColons).
+        When CCopy (hxCopied):
+            Return peHoleExprPrintable(hxCopied, hxColons).
+        When CNewSet (hxSetType):
+            Return true.
+        When CContains (hxHolder, hxHeld):
+            Return peHoleExprPrintable(hxHolder, hxColons) and peHoleExprPrintable(hxHeld, hxColons).
+        When CUnion (hxUnionLeft, hxUnionRight):
+            Return peHoleExprPrintable(hxUnionLeft, hxColons) and peHoleExprPrintable(hxUnionRight, hxColons).
+        When CIntersection (hxMeetLeft, hxMeetRight):
+            Return peHoleExprPrintable(hxMeetLeft, hxColons) and peHoleExprPrintable(hxMeetRight, hxColons).
+        When COptionSome (hxSome):
+            Return peHoleExprPrintable(hxSome, hxColons).
+        When COptionNone:
+            Return true.
+        When CNothing:
+            Return true.
+        When CTuple (hxTupleItems):
+            Return peHoleExprsPrintable(hxTupleItems, hxColons).
+        When CNew (hxNewType, hxNewNames, hxNewFields):
+            If length of hxNewFields equals 0:
+                Return true.
+            If hxNewType equals "Set" or hxNewType equals "Map" or peStartsWith(hxNewType, "Set of ") or peStartsWith(hxNewType, "Map of "):
+                Return false.
+            Repeat for hxNewField in hxNewFields:
+                Inspect hxNewField:
+                    When CDeclaredDefault (hxDefaulted):
+                        Let hxUnshown be true.
+                    Otherwise:
+                        If not peHoleExprPrintable(hxNewField, hxColons):
+                            Return false.
+            Return true.
+        When CFieldAccess (hxRecord, hxFieldName):
+            Return peHoleExprPrintable(hxRecord, hxColons).
+        When CCallExpr (hxCallee, hxCalleeArgs):
+            Return peHoleExprPrintable(hxCallee, hxColons) and peHoleExprsPrintable(hxCalleeArgs, hxColons).
+        When CTimeNow:
+            Return true.
+        When CDateToday:
+            Return true.
+        When CEscExpr (hxEscCode):
+            Return peHoleLeafPrintable(hxEscCode, hxColons).
+        When CSpelled (hxSpelledCode, hxSpelledAwaits):
+            Return peHoleLeafPrintable(hxSpelledCode, hxColons).
+        When CManifestOf (hxManifestZone):
+            Return peHoleExprPrintable(hxManifestZone, hxColons).
+        When CChunkAt (hxChunkAt, hxChunkZone):
+            Return peHoleExprPrintable(hxChunkAt, hxColons) and peHoleExprPrintable(hxChunkZone, hxColons).
+        Otherwise:
+            Return false.
+
 ## To peHolesPrintableAll (haExprs: Seq of CExpr) -> Bool:
     Repeat for haE in haExprs:
         If not peHolesPrintable(haE):
@@ -6339,13 +6451,12 @@
                             When CInterpolatedString (hpNested):
                                 Let hpFlattened be true.
                             Otherwise:
-                                If not peHoleTextPrintable(decompileExpr(hpX)):
+                                If not peHoleExprPrintable(hpX, true):
                                     Return false.
                         If not peHolesPrintable(hpX):
                             Return false.
                     When CFormattedPart (hpFx, hpFspec, hpFform, hpFsize):
-                        Let hpFtext be decompileExpr(hpFx).
-                        If hpFtext contains chr(34) or hpFtext contains "{{" or hpFtext contains "}}":
+                        If not peHoleExprPrintable(hpFx, false):
                             Return false.
                         If not peHolesPrintable(hpFx):
                             Return false.
@@ -6550,7 +6661,7 @@
                                         Inspect clOnly:
                                             When CPush (clPe, clPt):
                                                 If clPt equals clB:
-                                                    If peCopiedItem(clPe, clX) and not (peExprRefs(clColl) contains clB):
+                                                    If peCopiedItem(clPe, clX) and not (peRefsOf(clColl) contains clB):
                                                         Let clBk be "{clB}".
                                                         Push (a new CLet with name clBk and expr (a new CCopy with target clColl)) to clOut.
                                                         Set clDone to true.
@@ -6649,13 +6760,13 @@
         Otherwise:
             Return false.
 
-## To peStmtReads (srS: CStmt) and (srName: Text) -> Bool:
+## To peReadsName (srS: CStmt) and (srName: Text) -> Bool:
     Let srOne be a new Seq of CStmt.
     Push srS to srOne.
     Return peCountRefs(srName, srOne) is greater than 0.
 
 ## To peWritesName (wnS: CStmt) and (wnName: Text) -> Bool:
-    Let wnW be peStmtWrites(wnS).
+    Let wnW be peWritesOfStmt(wnS).
     Return (wnW contains wnName) or (wnW contains "*").
 
 ## To peNoReadAfterWrite (raStmts: Seq of CStmt) and (raCopy: Text) and (raOrig: Text) and (raWrote: Bool) and (raOk: mutable Seq of Bool) -> Bool:
@@ -6665,21 +6776,21 @@
             Push false to raOk.
         Inspect raS:
             When CIf (raC, raT, raE):
-                If raW and (peExprRefs(raC) contains raOrig):
+                If raW and (peRefsOf(raC) contains raOrig):
                     Push false to raOk.
                 Let raTw be peNoReadAfterWrite(raT, raCopy, raOrig, raW, raOk).
                 Let raEw be peNoReadAfterWrite(raE, raCopy, raOrig, raW, raOk).
                 Set raW to raTw or raEw.
             When CLet (raLn, raLe):
-                If raW and (peExprRefs(raLe) contains raOrig):
+                If raW and (peRefsOf(raLe) contains raOrig):
                     Push false to raOk.
             When CSet (raSn, raSe):
-                If raW and (peExprRefs(raSe) contains raOrig):
+                If raW and (peRefsOf(raSe) contains raOrig):
                     Push false to raOk.
                 If raSn equals raCopy:
                     Set raW to true.
             Otherwise:
-                If peStmtReads(raS, raOrig) and (raW or peWritesName(raS, raCopy)):
+                If peReadsName(raS, raOrig) and (raW or peWritesName(raS, raCopy)):
                     Push false to raOk.
                 If peWritesName(raS, raCopy):
                     Set raW to true.
@@ -6765,7 +6876,7 @@
             Return true.
     Return false.
 
-## To peStmtFirstFallible (sfS: CStmt) and (sfFound: mutable Seq of CExpr) -> Bool:
+## To peFirstFallibleIn (sfS: CStmt) and (sfFound: mutable Seq of CExpr) -> Bool:
     Inspect sfS:
         When CSetIdx (sfT, sfAt, sfV):
             If peFirstFallible(sfAt, sfFound):
@@ -6912,7 +7023,7 @@
             Return "?".
 
 ## To peKindLeaf (klS: CStmt) and (klKeep: Text) and (klOpaque: mutable Seq of Text) -> Bool:
-    Let klW be peStmtWrites(klS).
+    Let klW be peWritesOfStmt(klS).
     If klW contains "*":
         Return false.
     Repeat for klN in klW:
@@ -7159,7 +7270,7 @@
             Inspect item 1 of gsT:
                 When CFail (gsReason):
                     Let mutable gsFound be a new Seq of CExpr.
-                    If not peStmtFirstFallible(gsNext, gsFound):
+                    If not peFirstFallibleIn(gsNext, gsFound):
                         Return false.
                     Return peGuardOfStep(gsC, gsReason, item 1 of gsFound, gsKinds).
                 Otherwise:
@@ -7210,7 +7321,7 @@
                     Push apP to apRest.
                 Set apI to apI + 1.
             Let apTail be a new CInterpolatedString with parts apRest.
-            Return not (peExprRefs(apTail) contains apName).
+            Return not (peRefsOf(apTail) contains apName).
         Otherwise:
             Return false.
 
@@ -7283,7 +7394,7 @@
     Return rtCond.
 
 ## To peSameBlock (sbA: Seq of CStmt) and (sbB: Seq of CStmt) -> Bool:
-    Return decompileBlock(sbA, 0) equals decompileBlock(sbB, 0).
+    Return sbA equals sbB.
 
 ## To peFusedTest (ftLeft: CExpr) and (ftOp: Text) and (ftInner: Seq of CStmt) and (ftShown: Seq of CStmt) and (ftOut: mutable Seq of CStmt) -> Bool:
     Let ftN be length of ftInner.
@@ -7309,7 +7420,7 @@
                 Push (a new CReturn with expr ftRest) to ftOne.
                 If not (peCountRefs(ftQ, ftOne) equals 1) or not peLeadsWith(ftRest, ftQ):
                     Return false.
-                If peExprRefs(ftLeft) contains ftQ:
+                If peRefsOf(ftLeft) contains ftQ:
                     Return false.
                 Set ftRight to substExpr(ftRest, ftQ, ftE).
             Let ftJoined be a new CBinOp with op ftOp and left ftLeft and right ftRight.
@@ -7463,7 +7574,7 @@
                 Otherwise:
                     Let dkPlain be true.
             Push dkEmit to dkOut.
-            peCopyFactsForget(dkFacts, peStmtWrites(dkS)).
+            peCopyFactsForget(dkFacts, peWritesOfStmt(dkS)).
             Inspect dkS:
                 When CLet (dkLn, dkLe):
                     If peKnownValue(dkLe) and not peSameExpr(dkLe, a new CVar with name dkLn):
@@ -7529,7 +7640,7 @@
                         If not (faX equals faL):
                             Let faRest be peTailOf(faStmts, faI + 1).
                             Let faNames be [faX].
-                            If peAlwaysReturns(faRest) and not peStmtsMention(faRest, faNames):
+                            If peAlwaysReturns(faRest) and not peMentionsAny(faRest, faNames):
                                 Let mutable faMap be a new Map of Text to Text.
                                 Let faXk be "{faX}".
                                 Set item faL of faMap to faXk.
@@ -7875,7 +7986,7 @@
                         Let miNext be item (miI + 1) of miStmts.
                         Inspect miNext:
                             When CSet (miT, miE):
-                                If miT equals miX and not (peExprRefs(miE) contains miX):
+                                If miT equals miX and not (peRefsOf(miE) contains miX):
                                     Let miXk be "{miX}".
                                     Push (a new CLet with name miXk and expr miE) to miOut.
                                     Set miDone to true.
@@ -7927,7 +8038,7 @@
                             If not (lcX equals lcL):
                                 Inspect lcS:
                                     When CIf (lcC, lcT, lcE):
-                                        If not (peExprRefs(lcC) contains lcL):
+                                        If not (peRefsOf(lcC) contains lcL):
                                             Set lcNext to a new CIf with cond lcC and thenBlock peSelfWriteFirst(lcT, lcL, lcX) and elseBlock peSelfWriteFirst(lcE, lcL, lcX).
                                     When CSet (lcSt, lcSe):
                                         Set lcNext to peSelfWrite(lcS, lcL, lcX).
@@ -8051,7 +8162,7 @@
                                                                             Let elSkipCc be true.
                                                                 Otherwise:
                                                                     Let elSkipP be true.
-                                                        If decompileBlock(elT, 0) equals decompileBlock(elShownE, 0):
+                                                        If peSameBlock(elT, elShownE):
                                                             Repeat for elKeep in elE2:
                                                                 Push elKeep to elOut.
                                                             Set elFolded to true.
@@ -8278,7 +8389,7 @@
                         Push owBound to owOut.
                     peOtherWrites(peArmBody(owArm), owOut).
             Otherwise:
-                Repeat for owW in peStmtWrites(owS):
+                Repeat for owW in peWritesOfStmt(owS):
                     Push owW to owOut.
 
 ## To peImpureStores (isStmts: Seq of CStmt) and (isKinds: Map of Text to Text) and (isOut: mutable Seq of Text):
@@ -8389,7 +8500,7 @@
             If duDead contains duI:
                 Push "{duI} stays declared" to duDead.
         Let duNext be peDropStores(duCur, duDead, duKinds).
-        If decompileBlock(duNext, 0) equals decompileBlock(duCur, 0):
+        If peSameBlock(duNext, duCur):
             Return duCur.
         Set duCur to duNext.
     Return duCur.
@@ -8399,11 +8510,262 @@
     Let mutable ffRound be 1.
     While ffRound is less than 4:
         Let ffNext be peFinishIn(ffCur, ffOuter, ffMutating, ffKinds).
-        If decompileBlock(ffNext, 0) equals decompileBlock(ffCur, 0):
+        If peSameBlock(ffNext, ffCur):
             Return ffNext.
         Set ffCur to ffNext.
         Set ffRound to ffRound + 1.
     Return ffCur.
+
+## To collectExprCallNames (e: CExpr) -> Seq of Text:
+    Let result be a new Seq of Text.
+    Inspect e:
+        When CCall (fname, args):
+            Push fname to result.
+            Repeat for a in args:
+                Let sub be collectExprCallNames(a).
+                Repeat for sn in sub:
+                    Push sn to result.
+        When CBinOp (op, left, right):
+            Let ls be collectExprCallNames(left).
+            Repeat for ln in ls:
+                Push ln to result.
+            Let rs be collectExprCallNames(right).
+            Repeat for rn in rs:
+                Push rn to result.
+        When CNot (inner):
+            Let ns be collectExprCallNames(inner).
+            Repeat for nn in ns:
+                Push nn to result.
+        When CList (items):
+            Repeat for it in items:
+                Let itns be collectExprCallNames(it).
+                Repeat for itn in itns:
+                    Push itn to result.
+        When CIndex (coll, idx):
+            Let cs be collectExprCallNames(coll).
+            Repeat for cn in cs:
+                Push cn to result.
+            Let xs be collectExprCallNames(idx).
+            Repeat for xn in xs:
+                Push xn to result.
+        When CLen (target):
+            Let ts be collectExprCallNames(target).
+            Repeat for tn in ts:
+                Push tn to result.
+        When CFieldAccess (target, field):
+            Let ts be collectExprCallNames(target).
+            Repeat for tn in ts:
+                Push tn to result.
+        When CNewVariant (tag, nms, vals):
+            Repeat for v in vals:
+                Let vs be collectExprCallNames(v).
+                Repeat for vn in vs:
+                    Push vn to result.
+        When COptionSome (inner):
+            Let ns be collectExprCallNames(inner).
+            Repeat for nn in ns:
+                Push nn to result.
+        When CTuple (items):
+            Repeat for it in items:
+                Let ts be collectExprCallNames(it).
+                Repeat for tn in ts:
+                    Push tn to result.
+        When CMapGet (target, key):
+            Let ts be collectExprCallNames(target).
+            Repeat for tn in ts:
+                Push tn to result.
+            Let ks be collectExprCallNames(key).
+            Repeat for kn in ks:
+                Push kn to result.
+        When CRange (start, end):
+            Let ss be collectExprCallNames(start).
+            Repeat for sn in ss:
+                Push sn to result.
+            Let es be collectExprCallNames(end).
+            Repeat for en in es:
+                Push en to result.
+        When CCopy (target):
+            Let ts be collectExprCallNames(target).
+            Repeat for tn in ts:
+                Push tn to result.
+        When CContains (coll, elem):
+            Let cs be collectExprCallNames(coll).
+            Repeat for cn in cs:
+                Push cn to result.
+            Let es be collectExprCallNames(elem).
+            Repeat for en in es:
+                Push en to result.
+        When CNew (typeName, fieldNames, fields):
+            Repeat for fv in fields:
+                Let fs be collectExprCallNames(fv).
+                Repeat for fn1 in fs:
+                    Push fn1 to result.
+        When CCallExpr (target, args):
+            Let ts be collectExprCallNames(target).
+            Repeat for tn in ts:
+                Push tn to result.
+            Repeat for a in args:
+                Let argNames be collectExprCallNames(a).
+                Repeat for an in argNames:
+                    Push an to result.
+        When CInterpolatedString (parts):
+            Repeat for p in parts:
+                Inspect p:
+                    When CExprPart (expr):
+                        Let ps be collectExprCallNames(expr).
+                        Repeat for pn in ps:
+                            Push pn to result.
+                    When CFormattedPart (fpCallExpr, fpCallSpec, fpCallForm, fpCallSize):
+                        Let fps be collectExprCallNames(fpCallExpr).
+                        Repeat for fpn in fps:
+                            Push fpn to result.
+                    Otherwise:
+                        Let skip be true.
+        When CSlice (coll, startIdx, endIdx):
+            Let cs be collectExprCallNames(coll).
+            Repeat for cn in cs:
+                Push cn to result.
+            Let ss be collectExprCallNames(startIdx).
+            Repeat for sn in ss:
+                Push sn to result.
+            Let es be collectExprCallNames(endIdx).
+            Repeat for en in es:
+                Push en to result.
+        When CUnion (left, right):
+            Let ls be collectExprCallNames(left).
+            Repeat for ln in ls:
+                Push ln to result.
+            Let rs be collectExprCallNames(right).
+            Repeat for rn in rs:
+                Push rn to result.
+        When CIntersection (left, right):
+            Let ls be collectExprCallNames(left).
+            Repeat for ln in ls:
+                Push ln to result.
+            Let rs be collectExprCallNames(right).
+            Repeat for rn in rs:
+                Push rn to result.
+        Otherwise:
+            Let skip be true.
+    Return result.
+
+## To collectCallNames (stmts: Seq of CStmt) -> Seq of Text:
+    Let result be a new Seq of Text.
+    Repeat for s in stmts:
+        Inspect s:
+            When CLet (name, expr):
+                Let ns be collectExprCallNames(expr).
+                Repeat for n in ns:
+                    Push n to result.
+            When CSet (name, expr):
+                Let ns be collectExprCallNames(expr).
+                Repeat for n in ns:
+                    Push n to result.
+            When CShow (expr):
+                Let ns be collectExprCallNames(expr).
+                Repeat for n in ns:
+                    Push n to result.
+            When CReturn (expr):
+                Let ns be collectExprCallNames(expr).
+                Repeat for n in ns:
+                    Push n to result.
+            When CFail (reason):
+                Let failNames be collectExprCallNames(reason).
+                Repeat for failName in failNames:
+                    Push failName to result.
+            When CHardAssert (hcond, hmsg):
+                Let hcs be collectExprCallNames(hcond).
+                Repeat for hc in hcs:
+                    Push hc to result.
+                Let hms be collectExprCallNames(hmsg).
+                Repeat for hm in hms:
+                    Push hm to result.
+            When CRuntimeAssert (rcond, rmsg):
+                Let rcs be collectExprCallNames(rcond).
+                Repeat for rc in rcs:
+                    Push rc to result.
+                Let rms be collectExprCallNames(rmsg).
+                Repeat for rm in rms:
+                    Push rm to result.
+            When CIf (cond, thenB, elseB):
+                Let cs be collectExprCallNames(cond).
+                Repeat for cn in cs:
+                    Push cn to result.
+                Let ts be collectCallNames(thenB).
+                Repeat for tn in ts:
+                    Push tn to result.
+                Let es be collectCallNames(elseB).
+                Repeat for en in es:
+                    Push en to result.
+            When CRepeat (var, coll, body):
+                Let cs be collectExprCallNames(coll).
+                Repeat for cn in cs:
+                    Push cn to result.
+                Let bs be collectCallNames(body).
+                Repeat for bn in bs:
+                    Push bn to result.
+            When CWhile (cond, body):
+                Let cs be collectExprCallNames(cond).
+                Repeat for cn in cs:
+                    Push cn to result.
+                Let bs be collectCallNames(body).
+                Repeat for bn in bs:
+                    Push bn to result.
+            When CRepeatRange (rangeVar, rangeStart, rangeEnd, rangeBody):
+                Repeat for rsn in collectExprCallNames(rangeStart):
+                    Push rsn to result.
+                Repeat for ren in collectExprCallNames(rangeEnd):
+                    Push ren to result.
+                Repeat for rbn in collectCallNames(rangeBody):
+                    Push rbn to result.
+            When CPush (expr, target):
+                Let ns be collectExprCallNames(expr).
+                Repeat for n in ns:
+                    Push n to result.
+            When CSetIdx (tgt, idx, val):
+                Let idns be collectExprCallNames(idx).
+                Repeat for idn in idns:
+                    Push idn to result.
+                Let vs be collectExprCallNames(val).
+                Repeat for vn in vs:
+                    Push vn to result.
+            When CSetField (tgt, field, val):
+                Let vs be collectExprCallNames(val).
+                Repeat for vn in vs:
+                    Push vn to result.
+            When CAtPath (atRoot, atPath, atBody):
+                Repeat for atName in collectCallNames(atBody):
+                    Push atName to result.
+            When CInspect (target, arms):
+                Let ts be collectExprCallNames(target).
+                Repeat for tn in ts:
+                    Push tn to result.
+                Repeat for arm in arms:
+                    Inspect arm:
+                        When CWhen (varName, bindings, armBody):
+                            Let abs be collectCallNames(armBody).
+                            Repeat for abn in abs:
+                                Push abn to result.
+                        When COtherwise (armBody):
+                            Let obs be collectCallNames(armBody).
+                            Repeat for obn in obs:
+                                Push obn to result.
+            When CCallS (cname, args):
+                Push cname to result.
+                Repeat for a in args:
+                    Let as1 be collectExprCallNames(a).
+                    Repeat for an in as1:
+                        Push an to result.
+            When CMapSet (tgt, key, val):
+                Let ks be collectExprCallNames(key).
+                Repeat for kn in ks:
+                    Push kn to result.
+                Let vs be collectExprCallNames(val).
+                Repeat for vn in vs:
+                    Push vn to result.
+            Otherwise:
+                Let skip be true.
+    Return result.
 
 ## To peCallsAnyOf (caStmts: Seq of CStmt) and (caNames: Seq of Text) -> Bool:
     If length of caNames equals 0:
@@ -8530,9 +8892,8 @@
     Let fbNoFacts be a new Map of Text to CExpr.
     Return peHoldHeaders(dceBlock(peShowDirect(peFreshCopiesIn(peRematerializeArgs(peDropKnownCopies(peDropSelfMoves(peDropSubsumedStores(peDropSubsumedGuards(fbForwarded, fbKinds))), fbNoFacts))))), fbKinds).
 
-## To peEmitProgram (epMain: Seq of CStmt) and (epState: PEState) -> Text:
-    Let nl be chr(10).
-    Let mutable output be "".
+## To peFinishProgram (epMain: Seq of CStmt) and (epState: PEState) -> CProgram:
+    Let mutable epFinished be a new Seq of CFunc.
     Let specFuncs be peFuncs(epState).
     Let mutable allNames be collectCallNames(epMain).
     Let mutable emitted be a new Map of Text to Bool.
@@ -8602,16 +8963,16 @@
                     Let epBody be peTupleEta(peRewriteStmts(body1, "inline", "", epNoRepl, epIds, epOk), epArities).
                     Let epKinds be peKinds(epBody, ps1, pt1, epMutating).
                     Let finished be a new CFuncDef with name fn1 and params ps1 and paramTypes pt1 and returnType rt1 and body peDropUnread(peFinishFixed(epBody, epSeqParams, epMutating, epKinds), ps1, epKinds).
-                    Let funcSrc be decompileFunc(finished).
-                    If the length of funcSrc is greater than 0:
-                        Set output to "{output}{funcSrc}{nl}".
+                    Push finished to epFinished.
                 Otherwise:
                     Let skipG be true.
-    Let mainSrc be decompileBlock(peFinishBlock(epMainInl, epMutating), 0).
-    Let mutable epSections be "".
-    If output contains "PeSumS" or mainSrc contains "PeSumS":
-        Set epSections to "{peSumSections(epState)}{nl}".
-    Return "{epSections}{output}## Main{nl}{mainSrc}".
+    Return a new CProg with funcs epFinished and main peFinishBlock(epMainInl, epMutating).
+
+## To peWithSections (wsText: Text) and (wsState: PEState) -> Text:
+    If wsText contains "PeSumS":
+        Let wsNl be chr(10).
+        Return "{peSumSections(wsState)}{wsNl}{wsText}".
+    Return wsText.
 
 ## To peSinkLets (skStmts: Seq of CStmt) -> Seq of CStmt:
     Let mutable skCur be skStmts.
@@ -8628,7 +8989,7 @@
                     If peStartsWith(skName, "pkv__") and isPureForDce(skExpr):
                         Let skTail be peTailOf(skCur, skI + 1).
                         If peCountRefs(skName, skTail) equals 1:
-                            Let skReads be peExprRefs(skExpr).
+                            Let skReads be peRefsOf(skExpr).
                             Let mutable skJ be skI + 1.
                             Let mutable skBlocked be false.
                             Let mutable skFound be 0.
@@ -8653,7 +9014,7 @@
                                     If peCountRefs(skName, skOne) is greater than 0:
                                         Set skBlocked to true.
                                     Otherwise:
-                                        Let skW be peStmtWrites(skT).
+                                        Let skW be peWritesOfStmt(skT).
                                         Repeat for skWn in skW:
                                             If skWn equals "*" or skWn equals skName or skReads contains skWn:
                                                 Set skBlocked to true.
@@ -8684,7 +9045,7 @@
     Let mutable lrN be 0.
     Repeat for (lrK, lrV) in (peStaticEnv(lrState)):
         If not peStartsWith(lrK, "__pe_"):
-            Let lrRefs be peExprRefs(lrV).
+            Let lrRefs be peRefsOf(lrV).
             Repeat for lrR in lrRefs:
                 If lrR equals lrName:
                     Set lrN to lrN + 1.
@@ -8707,7 +9068,7 @@
         If not omIsMove:
             Inspect omS:
                 When CIf (omC, omT2, omE2):
-                    Let omCs be peExprRefs(omC).
+                    Let omCs be peRefsOf(omC).
                     If omCs contains omTarget:
                         Return false.
                     If not peOnlyMovesOf(omT2, omTarget, omFrom):
@@ -8719,7 +9080,7 @@
                     Push omS to omOne.
                     If peCountRefs(omTarget, omOne) is greater than 0:
                         Return false.
-                    Let omW be peStmtWrites(omS).
+                    Let omW be peWritesOfStmt(omS).
                     If omW contains omTarget or omW contains "*":
                         Return false.
     Return true.
@@ -9762,7 +10123,7 @@
             Let mlSkip be true.
     Return peSameExpr(mlP, mlV).
 
-## To peExprRefs (erE: CExpr) -> Seq of Text:
+## To peRefsOf (erE: CExpr) -> Seq of Text:
     Let erMap be a new Map of Text to Text.
     Let mutable erRefs be a new Seq of Text.
     Let mutable erWrites be a new Seq of Text.
@@ -9799,7 +10160,7 @@
                     If not (lmQ equals lmP):
                         Let lmQk be "{lmQ}".
                         Let lmQe be item lmQk of lmExprs.
-                        Let lmQr be peExprRefs(lmQe).
+                        Let lmQr be peRefsOf(lmQe).
                         If lmQr contains lmP:
                             Set lmReadLater to true.
                 If not lmReadLater:
@@ -10162,10 +10523,10 @@
                 Let btK3 be "{btM}".
                 Push (a new CSet with name btK3 and expr btV) to btOut.
 
-## To peBlockWrites (bwStmts: Seq of CStmt) -> Seq of Text:
+## To peWritesOfBlock (bwStmts: Seq of CStmt) -> Seq of Text:
     Let mutable bwOut be a new Seq of Text.
     Repeat for bwS in bwStmts:
-        Repeat for bwW in peStmtWrites(bwS):
+        Repeat for bwW in peWritesOfStmt(bwS):
             If not bwOut contains bwW:
                 Let bwK be "{bwW}".
                 Push bwK to bwOut.
@@ -10264,6 +10625,8 @@
         Let isG be peGenShape(isG1, isFv, isLeaves, isSt).
         Let isK6 be "{isC2}".
         Set item isK6 of isShapes to isG.
+    peAbsorb(isT, isSt).
+    peAbsorb(isF, isSt).
     Let mutable isInits be a new Map of Text to CExpr.
     Repeat for isC3 in isCands:
         Let isK7 be "{isC3}".
@@ -10331,11 +10694,11 @@
             Let isLk2 be "{isL}".
             Let isLk3 be "{isL}".
             Push (a new CLet with name isLk2 and expr (item isLk3 of isInits)) to isOut.
-    Let isThenVals be peChangedLeaves(isShapes, isCands, isT, isLeaves, isInits, peBlockWrites(isThenRes)).
+    Let isThenVals be peChangedLeaves(isShapes, isCands, isT, isLeaves, isInits, peWritesOfBlock(isThenRes)).
     Let isThenMoves be peLeafMoves(isLeaves, isThenVals, isSt).
     Repeat for isTm in isThenMoves:
         Push isTm to isThenRes.
-    Let isElseVals be peChangedLeaves(isShapes, isCands, isF, isLeaves, isInits, peBlockWrites(isElseRes)).
+    Let isElseVals be peChangedLeaves(isShapes, isCands, isF, isLeaves, isInits, peWritesOfBlock(isElseRes)).
     Let isElseMoves be peLeafMoves(isLeaves, isElseVals, isSt).
     Repeat for isEm in isElseMoves:
         Push isEm to isElseRes.
@@ -10427,6 +10790,12 @@
             Set ixI to ixI + 1.
         Let ixK4 be "{ixC2}".
         Set item ixK4 of ixShapes to ixG.
+    Let mutable ixJoined be a new Seq of PEState.
+    Repeat for ixS0 in ixStates:
+        Let mutable ixSeen be ixS0.
+        peAbsorb(ixSeen, ixSt).
+        Push ixSeen to ixJoined.
+    Set ixStates to ixJoined.
     Let mutable ixInits be a new Map of Text to CExpr.
     Repeat for ixC3 in ixCands:
         Let ixK5 be "{ixC3}".
@@ -10453,7 +10822,7 @@
         Let mutable ixBody be item ixI3 of ixResults.
         Let ixS3 be item ixI3 of ixStates.
         If not (item ixI3 of ixExits):
-            Let ixVals be peChangedLeaves(ixShapes, ixCands, ixS3, ixLeaves, ixInits, peBlockWrites(ixBody)).
+            Let ixVals be peChangedLeaves(ixShapes, ixCands, ixS3, ixLeaves, ixInits, peWritesOfBlock(ixBody)).
             Repeat for ixMv in peLeafMoves(ixLeaves, ixVals, ixSt):
                 Push ixMv to ixBody.
             Set ixLast to ixS3.
@@ -10523,7 +10892,7 @@
                 Let acSkip be true.
     Return false.
 
-## To peStmtsMention (smStmts: Seq of CStmt) and (smNames: Seq of Text) -> Bool:
+## To peMentionsAny (smStmts: Seq of CStmt) and (smNames: Seq of Text) -> Bool:
     If length of smNames equals 0:
         Return false.
     Let smMap be a new Map of Text to Text.
@@ -10598,7 +10967,7 @@
                 Let nrIrest be peTailOf(nrStmts, nrI + 1).
                 If nrCover and nrOpen equals 1 and length of nrIrest is greater than 0:
                     Let nrOpenArm be item nrOpenAt of nrNormArms.
-                    If not peStmtsMention(nrIrest, peArmBindings(nrOpenArm)):
+                    If not peMentionsAny(nrIrest, peArmBindings(nrOpenArm)):
                         Let mutable nrJoined be a new Seq of CMatchArm.
                         Let mutable nrJi be 1.
                         Repeat for nrJa in nrNormArms:
@@ -11294,7 +11663,7 @@
 ## To peLeafNames (lnExprs: Seq of CExpr) -> Seq of Text:
     Let mutable lnOut be a new Seq of Text.
     Repeat for lnE in lnExprs:
-        Let lnRefs be peExprRefs(lnE).
+        Let lnRefs be peRefsOf(lnE).
         Repeat for lnR in lnRefs:
             If peStartsWith(lnR, "pkv__"):
                 If not lnOut contains lnR:
@@ -11536,7 +11905,7 @@
 
 ## To peReadsBottom (rbS: CStmt) -> Bool:
     Repeat for rbE in peOwnExprs(rbS):
-        If peExprRefs(rbE) contains "__pe_bottom":
+        If peRefsOf(rbE) contains "__pe_bottom":
             Return true.
     Return false.
 
@@ -11597,7 +11966,7 @@
 ## To peFixedByCall (fcE: CExpr) and (fcParams: Seq of Text) -> Bool:
     If not isPureForDce(fcE):
         Return false.
-    Repeat for fcR in peExprRefs(fcE):
+    Repeat for fcR in peRefsOf(fcE):
         If not (fcParams contains fcR):
             Return false.
     Return true.
@@ -12686,6 +13055,15 @@
                     Let rmmSL be exprRefsAnyMutated(peVal, blockMutated).
                     If not rmmSL:
                         Set cpOkS to true.
+                Let setSelfK be "{setName}".
+                If cpOkS and (peRefsOf(peVal)) contains setSelfK:
+                    Set cpOkS to false.
+                If cpOkS:
+                    Let setPriorK be "{setName}".
+                    If (peStaticEnv(state)) contains setPriorK:
+                        Let setPrior be item setPriorK of (peStaticEnv(state)).
+                        If not isStaticValue(setPrior) and not isPeValueForCopyProp(setPrior):
+                            Set cpOkS to false.
                 Let setNameChk be "{setName}".
                 Let mutable priorWasStatic be false.
                 Let mutable priorStaticVal be (a new CInt with value 0).

@@ -122,3 +122,25 @@ Show total.
         "30",
     );
 }
+
+/// A map a call returns, read by a key the program reads again: the read borrows the key, so it is still the program's.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_codegen_a_map_a_call_returns_is_read_by_a_key_read_again() {
+    assert_exact_output(
+        r#"## To table (n: Int) -> Map of Text to Int:
+    Let mutable m be a new Map of Text to Int.
+    Set item "a" of m to n.
+    Return m.
+
+## Main
+Let mutable total be 0.
+Let k be "a".
+If item k of (table(1)) is greater than 0:
+    Set total to total + item k of (table(2)).
+Show total.
+Show k.
+"#,
+        "2\na",
+    );
+}

@@ -255,3 +255,108 @@ Show kind(a new Leaf).
         "node\nleaf",
     );
 }
+
+// === A CONSTRUCTION TAKES ITS DECLARED SHAPE WHEREVER IT IS WRITTEN ===
+
+/// A variant that holds its own enum is boxed whole; built as an argument of a call statement, it is boxed there too.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_codegen_a_recursive_variant_built_in_a_call_statements_arguments() {
+    assert_exact_output(
+        r#"## A Tree is one of:
+    A Leaf with value Int.
+    A Node with kids Seq of Tree.
+
+## To keep (t: Tree) and (out: mutable Seq of Tree):
+    Push t to out.
+
+## To size (t: Tree) -> Int:
+    Inspect t:
+        When Leaf (v):
+            Return 1.
+        When Node (ks):
+            Let mutable n be 1.
+            Repeat for k in ks:
+                Set n to n + size(k).
+            Return n.
+
+## Main
+Let mutable out be a new Seq of Tree.
+Let mutable kids be a new Seq of Tree.
+Push a new Leaf with value 3 to kids.
+Push a new Leaf with value 4 to kids.
+keep(a new Node with kids kids, out).
+keep(a new Leaf with value 5, out).
+Repeat for t in out:
+    Show size(t).
+"#,
+        "3\n1",
+    );
+}
+
+/// A list parameter the function only reads, stored in a variant that holds its own enum, is a list the variant owns.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_codegen_a_recursive_variant_holds_a_list_parameter_its_function_only_reads() {
+    assert_exact_output(
+        r#"## A Tree is one of:
+    A Leaf with value Int.
+    A Node with kids Seq of Tree.
+
+## To wrap (ks: Seq of Tree) -> Tree:
+    Return a new Node with kids ks.
+
+## To size (t: Tree) -> Int:
+    Inspect t:
+        When Leaf (v):
+            Return 1.
+        When Node (ks):
+            Let mutable n be 1.
+            Repeat for k in ks:
+                Set n to n + size(k).
+            Return n.
+
+## Main
+Let mutable kids be a new Seq of Tree.
+Push a new Leaf with value 3 to kids.
+Push a new Leaf with value 4 to kids.
+Let t be wrap(kids).
+Show size(t).
+Show length of kids.
+"#,
+        "3\n2",
+    );
+}
+
+/// A list parameter the function only reads, stored in a variant, is a copy: the caller's later push does not reach it.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_codegen_a_variant_holds_a_copy_of_a_list_parameter_its_function_only_reads() {
+    assert_exact_output(
+        r#"## A Bag is one of:
+    A Full with items Seq of Int.
+    A Empty.
+
+## To fill (xs: Seq of Int) -> Bag:
+    Return a new Full with items xs.
+
+## To count (b: Bag) -> Int:
+    Inspect b:
+        When Full (its):
+            Return length of its.
+        When Empty:
+            Return 0.
+
+## Main
+Let mutable xs be a new Seq of Int.
+Push 1 to xs.
+Push 2 to xs.
+Push 3 to xs.
+Let b be fill(xs).
+Push 4 to xs.
+Show count(b).
+Show length of xs.
+"#,
+        "3\n4",
+    );
+}

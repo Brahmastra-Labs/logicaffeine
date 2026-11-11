@@ -28,7 +28,7 @@ fn answers(program: &str, calls: &[(&str, &str)]) {
         run.push_str(&format!("Show {call}.\n"));
     }
     let shown = crate::compile::interpret_bootstrap(&run).unwrap_or_else(|e| panic!("the lift types run: {e:?}"));
-    let lines: Vec<&str> = shown.lines().collect();
+    let lines: Vec<&str> = shown.split('\n').collect();
     assert_eq!(lines.len(), calls.len(), "one line per call, shown:\n{shown}");
     for ((call, expected), line) in calls.iter().zip(lines) {
         assert_eq!(line, *expected, "{call}");

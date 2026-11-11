@@ -142,7 +142,7 @@ pub(crate) fn waits_block() -> bool {
     BLOCKING_WAITS.with(|c| c.get())
 }
 
-/// Run `f` with blocking waits ([`waits_block`]), restoring the previous mode afterwards (panic-safe).
+/// Run `f` with blocking waits (`waits_block`), restoring the previous mode afterwards (panic-safe).
 pub fn with_blocking_waits<R>(f: impl FnOnce() -> R) -> R {
     struct Restore(bool);
     impl Drop for Restore {

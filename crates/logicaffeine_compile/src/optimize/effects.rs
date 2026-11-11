@@ -364,6 +364,16 @@ fn analyze_program(stmts: &[Stmt<'_>], interner: &Interner) -> AnalysisResult {
                 for (param_sym, _) in params {
                     effects.reads.remove(param_sym);
                 }
+                // A name the body binds is the function's own: no caller reads or writes it.
+                let mut locals = HashSet::new();
+                crate::analysis::tower::bound_names(body, &mut locals);
+                for (param_sym, _) in params {
+                    locals.remove(param_sym);
+                }
+                for local in &locals {
+                    effects.reads.remove(local);
+                    effects.writes.remove(local);
+                }
                 functions.insert(*name, effects);
             }
         }

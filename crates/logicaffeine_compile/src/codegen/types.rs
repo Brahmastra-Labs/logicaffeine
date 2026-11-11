@@ -212,6 +212,8 @@ struct ProgramTypes {
     showable_idents: HashSet<String>,
     /// Every record, by its Rust identifier: each field's name and Rust type.
     records: HashMap<String, Vec<(Symbol, String)>>,
+    /// Every variant of every enum, by the enum's and the variant's names: what a construction of it is built from.
+    variants: HashMap<(String, String), VariantDef>,
 }
 
 thread_local! {
@@ -280,6 +282,22 @@ pub(crate) fn set_program_types(
         })
         .collect();
     PROGRAM.with(|p| p.borrow_mut().records = records);
+    let variants = registry
+        .iter_types()
+        .flat_map(|(sym, def)| match def {
+            TypeDef::Enum { variants, .. } => variants
+                .iter()
+                .map(|v| ((interner.resolve(*sym).to_string(), interner.resolve(v.name).to_string()), v.clone()))
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        })
+        .collect();
+    PROGRAM.with(|p| p.borrow_mut().variants = variants);
+}
+
+/// The variant `variant` of the program's enum `enum_raw` (its interned name), as the program declares it.
+pub(crate) fn program_variant(enum_raw: &str, variant: &str) -> Option<VariantDef> {
+    PROGRAM.with(|p| p.borrow().variants.get(&(enum_raw.to_string(), variant.to_string())).cloned())
 }
 
 /// `Maybe` is the built-in `Option` only when the program does not declare a `Maybe` of its own.

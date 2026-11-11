@@ -79,6 +79,7 @@ pub mod core_builtins;
 pub mod core_defaults;
 pub mod core_formats;
 pub mod core_operators;
+pub mod memo_keys;
 pub mod mix_bta;
 pub mod mix_lift_types;
 pub mod effects;

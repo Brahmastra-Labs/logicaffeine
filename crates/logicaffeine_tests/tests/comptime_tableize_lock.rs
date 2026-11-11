@@ -114,3 +114,28 @@ Show sq(n).
         "an unbounded-argument call must not be tableized. Emitted:\n{rust}"
     );
 }
+
+/// A remainder takes its dividend's sign, so a call on `x % 6` with a negative `x` reads the function at a negative
+/// point: the table covers every remainder the dividend can leave, and every tier prints the function's own values.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_negative_dividend_reads_the_table_at_its_own_remainder() {
+    assert_all_tiers(
+        r#"## To tri (k: Int) -> Int:
+    If k is at most 0:
+        Return k.
+    Return k + tri(k - 1).
+
+## Main
+Let mutable x be 5.
+Let mutable c be 0.
+Let mutable i be 0.
+While i is less than 4:
+    Set x to x - 4.
+    Set c to tri(x % 6).
+    Show c.
+    Set i to i + 1.
+"#,
+        "1\n-3\n-1\n-5",
+    );
+}

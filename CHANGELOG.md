@@ -331,6 +331,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `today` or `now` is its own opaque leaf. The C and RISC-V `now` read nanoseconds (they read whole seconds).
 - **The C tier holds temporal values in its lists, sets and maps as themselves.** `[today]` showed `[20000]` and a
   duration taken out of a list added as an Int; `months_between` and `years_between` did not link.
+- **The Rust tier compiles every variant construction and every key read it emits.** A variant of a recursive enum
+  built as a call statement's argument, a variant storing a list parameter its function only reads, and a map a call
+  returns read by a Text key read again each failed to compile. RISC-V holds a `Duration` as its own kind.
+- **Comptime table-ization reads a remainder at its own sign.** A pure function called on `x % K` was replaced by a
+  table of its values at `0` … `K-1`, but a remainder takes its dividend's sign: a negative `x` stopped the program
+  with `Index 0 out of bounds` or read a wrong value from the table's far end, on every tier.
+- **The online specializer runs without the decompiler, and every dialect keys a value by its whole structure.** The
+  specializer compares blocks by equality and decides what an interpolation hole holds by the expression's shape; the
+  residual is printed by the decompiler. pe_mini and pe_bti key closures by their bodies, as the online specializer
+  does, and the specializer means the same on the reference and the value host (`logicaffeine_compile`).
 - **The Futamura projections run and specialize the language as it runs.** The self-interpreter compares values
   structurally and keys a map by its keys' values (an Int-keyed map iterated its keys as text), the textbook first
   projection specializes a value it knows only in part instead of leaving the self-interpreter in its residual, and

@@ -926,14 +926,18 @@ fn ctfe_block<'a>(
 const MAX_TABLE_ENTRIES: i64 = 4096;
 
 /// A syntactic `[lo, hi]` range for a bounded integer expression: literals,
-/// `e mod K` (→ `[0, K-1]` for K > 0), and constant add/sub shifts. `None` when
-/// not provably bounded.
+/// `e mod K` for K > 0 (a remainder takes its dividend's sign: `[0, K-1]` when `e`'s
+/// own range is not negative, `[1-K, K-1]` otherwise), and constant add/sub shifts.
+/// `None` when not provably bounded.
 fn derive_range(e: &Expr) -> Option<(i64, i64)> {
     match e {
         Expr::Literal(Literal::Number(n)) => Some((*n, *n)),
         Expr::BinaryOp { op, left, right } => match op {
             BinaryOpKind::Modulo => match right {
-                Expr::Literal(Literal::Number(k)) if *k > 0 => Some((0, k - 1)),
+                Expr::Literal(Literal::Number(k)) if *k > 0 => match derive_range(left) {
+                    Some((lo, _)) if lo >= 0 => Some((0, k - 1)),
+                    _ => Some((1 - k, k - 1)),
+                },
                 _ => None,
             },
             BinaryOpKind::Add => {

@@ -3877,7 +3877,9 @@
     Let cbOut be coreExecBlock(cbBody, cbEnv, cbFuncs).
     Let mutable cbKeys be copy of cbParams.
     Push "replicas()" to cbKeys.
-    Return a new CoreReturn with result coreOutResult(cbOut) and env coreScopeKeys(coreOutEnv(cbOut), cbKeys).
+    Let cbResult be coreOutResult(cbOut).
+    Let cbScoped be coreScopeKeys(coreOutEnv(cbOut), cbKeys).
+    Return a new CoreReturn with result cbResult and env cbScoped.
 
 ## To coreExecBlock (stmts: Seq of CStmt) and (env0: Map of Text to CVal) and (funcs: Map of Text to CFunc) -> CoreOut:
     Let mutable env be env0.

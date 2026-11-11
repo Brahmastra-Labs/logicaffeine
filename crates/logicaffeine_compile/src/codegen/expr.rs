@@ -1104,6 +1104,12 @@ fn lent_field_type(expr: &Expr, variable_types: &HashMap<Symbol, String>) -> Opt
     }
 }
 
+/// Whether `sym` holds a borrowed slice (`&[T]`), a list parameter the function only reads: a record or a variant
+/// owns its fields, so one storing it copies its items into a list of its own.
+pub(crate) fn holds_a_borrowed_slice(sym: Symbol, variable_types: &HashMap<Symbol, String>) -> bool {
+    variable_types.get(&sym).is_some_and(|t| t.starts_with("&["))
+}
+
 /// Whether `sym` is a `mutable` list or map parameter of the function being emitted, lent as the caller's own
 /// buffer ([`lent_by_shared_reference`]): every write the body makes lands in the caller's list, so a value the body
 /// copies out of it must own its items, never share that buffer.
@@ -6132,12 +6138,18 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
             let coll_str = recurse!(collection);
             // Direct indexing for known collection types (avoids trait dispatch)
             // Strip |__hl: hoisting suffix so type parsing (strip_suffix, etc.) works correctly.
+            // A collection no binding names — a call's result — is a map when the program declares it one, and is
+            // read by key as a named map is.
+            let returned_map = match collection {
+                Expr::Identifier(_) => None,
+                _ => value_rust_type(collection, variable_types, ecx.registry, interner).filter(|t| is_logos_map_type(t)),
+            };
             let known_type = if let Expr::Identifier(sym) = collection {
                 variable_types
                     .get(sym)
                     .map(|s| s.split("|__hl:").next().unwrap_or(s.as_str()))
             } else {
-                None
+                returned_map.as_deref()
             };
             // A map entry, `(key, value)`, read at a constant index: the key or the value itself, of its own type.
             if let (Some(t), Expr::Literal(Literal::Number(n))) = (known_type, index) {
@@ -6252,9 +6264,17 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     let index_str = irecurse!(index);
                     format!("LogosIndex::logos_get(&{}, {})", coll_str, index_str)
                 }
+                // A collection no type reaches takes its key by value: a key that is not `Copy` goes in as a copy, so
+                // the program still holds the one it reads again.
                 _ => {
                     let index_str = irecurse!(index);
-                    format!("LogosIndex::logos_get(&{}, {})", coll_str, index_str)
+                    let key = match index {
+                        Expr::Identifier(sym) if variable_types.get(sym).is_some_and(|t| !is_copy_type(t)) => {
+                            format!("{index_str}.clone()")
+                        }
+                        _ => index_str,
+                    };
+                    format!("LogosIndex::logos_get(&{}, {})", coll_str, key)
                 }
             }
         }
@@ -6628,10 +6648,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                             }
                             _ => None,
                         };
-                        let borrowed_slice = slice_sym
-                            .and_then(|sym| variable_types.get(&sym))
-                            .map(|t| t.starts_with("&["))
-                            .unwrap_or(false);
+                        let borrowed_slice = slice_sym.is_some_and(|sym| holds_a_borrowed_slice(sym, variable_types));
                         // A struct OWNS its fields; a non-Copy VALUE identifier (struct/enum/String)
                         // moved in may still be read after the construction (json's `JEntry { key:
                         // kname }`, where kname is later used in the dup-key message). The Identifier
@@ -6759,8 +6776,14 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     CONSTRUCTION_USES.with(|u| *u.borrow_mut() = Some(counts));
                 }
 
-                // Struct variant: Shape::Circle { radius: 10 }
-                let variant_def = ecx.registry.variant_in(*enum_name, *variant);
+                // Struct variant: Shape::Circle { radius: 10 }. The variant is the one the program declares: the
+                // registry this context carries answers, or the program's own declarations where it carries none (a
+                // call statement's arguments), so a construction takes its declared shape wherever it is written.
+                let declared_variant = match ecx.registry.variant_in(*enum_name, *variant) {
+                    Some(_) => None,
+                    None => super::types::program_variant(enum_name_raw, variant_str),
+                };
+                let variant_def = ecx.registry.variant_in(*enum_name, *variant).or(declared_variant.as_ref());
                 let fields_str: Vec<(String, String)> = fields
                     .iter()
                     .map(|(field_name, value)| {
@@ -6787,11 +6810,14 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                                 }
                             });
                             // A `mutable` parameter is the caller's value, lent: the variant stores a copy of it — a
-                            // deep one of a list or map lent by sharing, whose buffer the caller keeps writing.
+                            // deep one of a list or map lent by sharing, whose buffer the caller keeps writing. A list
+                            // the function only reads is a borrowed slice, copied into a list the variant owns.
                             let read = if lent_by_sharing(*sym, variable_types) {
                                 format!("{}.deep_clone()", base_name)
                             } else if lent_in_place(*sym, variable_types) {
                                 format!("(*{}).clone()", base_name)
+                            } else if holds_a_borrowed_slice(*sym, variable_types) {
+                                format!("LogosSeq::from_vec({}.to_vec())", base_name)
                             } else if movable {
                                 base_name
                             } else {

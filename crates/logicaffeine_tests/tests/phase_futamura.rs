@@ -9136,6 +9136,43 @@ fn pe_mini_key_no_unk_collisions() {
     assert!(out.contains("DONE"));
 }
 
+/// Two closures that differ only in what they compute, keyed by `dialect`'s `keyFn`: the dialect's memo key spells each
+/// by its body, so a call given each is specialized for each, as the online specializer keys them.
+fn assert_dialect_keys_closures_apart(types: &str, dialect: &str, key_fn: &str) {
+    let source = format!(
+        r#"
+{}
+{}
+## Main
+    Let ps be a new Seq of Text.
+    Push "x" to ps.
+    Let cs be a new Seq of Text.
+    Let b1 be a new Seq of CStmt.
+    Push a new CReturn with expr (a new CBinOp with op "+" and left (a new CVar with name "x") and right (a new CInt with value 1)) to b1.
+    Let b2 be a new Seq of CStmt.
+    Push a new CReturn with expr (a new CBinOp with op "*" and left (a new CVar with name "x") and right (a new CInt with value 2)) to b2.
+    Let k1 be {key_fn}(a new CClosure with params ps and body b1 and captured cs).
+    Let k2 be {key_fn}(a new CClosure with params ps and body b2 and captured cs).
+    If k1 equals k2:
+        Show "ONE KEY".
+    Otherwise:
+        Show "TWO KEYS".
+"#,
+        types, dialect
+    );
+    common::assert_bootstrap_exact_output(&source, "TWO KEYS");
+}
+
+#[test]
+fn pe_mini_keys_two_closures_by_their_bodies() {
+    assert_dialect_keys_closures_apart(CORE_TYPES, logicaffeine_compile::compile::pe_mini_source_text(), "exprToKeyPartM");
+}
+
+#[test]
+fn pe_bti_keys_two_closures_by_their_bodies() {
+    assert_dialect_keys_closures_apart(&core_types_bti(), logicaffeine_compile::compile::pe_bti_source_text(), "exprToKeyPartB");
+}
+
 // --- I.3b: pe_mini while/repeat correctness ---
 
 #[test]
@@ -11085,7 +11122,7 @@ fn decompile_all_cexpr_variants_no_placeholder() {
     Push (a new CClosure with params clParams and body clBody and captured clCap) to exprs.
     Push (a new CTimeNow) to exprs.
     Push (a new CDateToday) to exprs.
-    Push (a new CDuration with amount (a new CInt with value 5) and unit "seconds") to exprs.
+    Push (a new CDuration with value 5 seconds) to exprs.
     Push (a new CEscExpr with code "raw_code()") to exprs.
 
     Let mutable foundPlaceholder be false.
@@ -11155,7 +11192,7 @@ fn decompile_all_cstmt_variants_no_placeholder() {
     Push (a new CSetField with target "p" and field "x" and val (a new CInt with value 1)) to stmts.
     Push (a new CRuntimeAssert with cond (a new CBool with value true) and msg (a new CText with value "ok")) to stmts.
     Push (a new CEscStmt with code "raw_stmt();") to stmts.
-    Push (a new CSleep with duration (a new CDuration with amount (a new CInt with value 1) and unit "seconds")) to stmts.
+    Push (a new CSleep with duration (a new CDuration with value 1 second)) to stmts.
     Push (a new CIncrease with target "x" and amount (a new CInt with value 1)) to stmts.
     Push (a new CDecrease with target "x" and amount (a new CInt with value 1)) to stmts.
     Push (a new CAppendToSeq with target "xs" and value (a new CInt with value 1)) to stmts.

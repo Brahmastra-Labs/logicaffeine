@@ -1143,6 +1143,12 @@
                 Let skip be true.
     Return false.
 
+# The memo keys: every value and statement keyed by its whole structure.
+## To keyJoinB (acc: Text) and (part: Text) -> Text:
+    Let n be length of part.
+    Return "{acc}_{n}_{part}".
+
+
 ## To exprToKeyPartB (e: CExpr) -> Text:
     Inspect e:
         When CInt (v):
@@ -1159,142 +1165,616 @@
             Let mutable parts be "l".
             Repeat for elem in items:
                 Let ep be exprToKeyPartB(elem).
-                Set parts to "{parts}_{ep}".
+                Set parts to keyJoinB(parts, ep).
             Return parts.
         When CNewVariant (tag, names, vals):
-            Let mutable parts be "v{tag}".
+            Let mutable parts be keyJoinB(keyJoinB("v", tag), textsToKeyPartB(names)).
             Repeat for fv in vals:
                 Let vp be exprToKeyPartB(fv).
-                Set parts to "{parts}_{vp}".
+                Set parts to keyJoinB(parts, vp).
             Return parts.
         When CTuple (items):
             Let mutable parts be "tp".
             Repeat for elem in items:
                 Let ep be exprToKeyPartB(elem).
-                Set parts to "{parts}_{ep}".
+                Set parts to keyJoinB(parts, ep).
             Return parts.
         When COptionSome (inner):
             Let ip be exprToKeyPartB(inner).
-            Return "s{ip}".
+            Return keyJoinB("s", ip).
         When COptionNone:
             Return "none".
         When CNothing:
             Return "nothing".
-        When CNewSeq (peBSeqElem4):
-            Return "seq".
-        When CNewSet (peBSetElem4):
-            Return "set".
         When CDeclaredDefault (kpDefaultType):
-            Let kpDefaultLength be length of kpDefaultType.
-            Return "default_{kpDefaultLength}_{kpDefaultType}".
+            Return keyJoinB("default", kpDefaultType).
         When CSpelled (kpSpelledCode, kpSpelledAwaits):
-            Let kpSpelledLength be length of kpSpelledCode.
-            Return "spelled_{kpSpelledLength}_{kpSpelledCode}".
+            Return keyJoinB(keyJoinB("spelled", kpSpelledCode), kpSpelledAwaits).
+        When CNewSeq (peSeqElem7):
+            Return keyJoinB("seq", peSeqElem7).
+        When CNewSet (peSetElem6):
+            Return keyJoinB("set", peSetElem6).
         When CVar (varName):
             Return "var{varName}".
         When CBinOp (op, left, right):
             Let lp be exprToKeyPartB(left).
             Let rp be exprToKeyPartB(right).
-            Return "op{op}_{lp}_{rp}".
+            Let opTag be "op{op}".
+            Let s1 be keyJoinB(opTag, lp).
+            Return keyJoinB(s1, rp).
         When CNot (inner):
             Let ip be exprToKeyPartB(inner).
-            Return "not_{ip}".
+            Return keyJoinB("nt", ip).
         When CCall (fnName, args):
             Let mutable parts be "call{fnName}".
             Repeat for a in args:
                 Let ap be exprToKeyPartB(a).
-                Set parts to "{parts}_{ap}".
+                Set parts to keyJoinB(parts, ap).
             Return parts.
         When CIndex (coll, idx):
             Let cp be exprToKeyPartB(coll).
             Let ip be exprToKeyPartB(idx).
-            Return "idx_{cp}_{ip}".
+            Let s1 be keyJoinB("idx", cp).
+            Return keyJoinB(s1, ip).
         When CLen (target):
             Let tp be exprToKeyPartB(target).
-            Return "len_{tp}".
+            Return keyJoinB("len", tp).
         When CMapGet (mapExpr, key):
             Let mp be exprToKeyPartB(mapExpr).
             Let kp be exprToKeyPartB(key).
-            Return "mg_{mp}_{kp}".
+            Let s1 be keyJoinB("mg", mp).
+            Return keyJoinB(s1, kp).
         When CFieldAccess (target, field):
             Let tp be exprToKeyPartB(target).
-            Return "fa{field}_{tp}".
+            Let s1 be keyJoinB("fa", field).
+            Return keyJoinB(s1, tp).
         When CNew (typeName, fieldNames, fieldExprs):
-            Let mutable parts be "new{typeName}".
+            Let mutable parts be keyJoinB(keyJoinB("nw", typeName), textsToKeyPartB(fieldNames)).
             Repeat for fv in fieldExprs:
                 Let vp be exprToKeyPartB(fv).
-                Set parts to "{parts}_{vp}".
+                Set parts to keyJoinB(parts, vp).
             Return parts.
         When CRange (start, end):
             Let sp be exprToKeyPartB(start).
             Let ep be exprToKeyPartB(end).
-            Return "r_{sp}_{ep}".
+            Let s1 be keyJoinB("r", sp).
+            Return keyJoinB(s1, ep).
         When CSlice (coll, startIdx, endIdx):
             Let cp be exprToKeyPartB(coll).
             Let sp be exprToKeyPartB(startIdx).
             Let ep be exprToKeyPartB(endIdx).
-            Return "sl_{cp}_{sp}_{ep}".
+            Let s1 be keyJoinB("sl", cp).
+            Let s2 be keyJoinB(s1, sp).
+            Return keyJoinB(s2, ep).
         When CCopy (target):
             Let tp be exprToKeyPartB(target).
-            Return "cp_{tp}".
+            Return keyJoinB("cp", tp).
         When CContains (coll, elem):
             Let cp be exprToKeyPartB(coll).
             Let ep be exprToKeyPartB(elem).
-            Return "ct_{cp}_{ep}".
+            Let s1 be keyJoinB("ct", cp).
+            Return keyJoinB(s1, ep).
         When CUnion (left, right):
             Let lp be exprToKeyPartB(left).
             Let rp be exprToKeyPartB(right).
-            Return "un_{lp}_{rp}".
+            Let s1 be keyJoinB("un", lp).
+            Return keyJoinB(s1, rp).
         When CIntersection (left, right):
             Let lp be exprToKeyPartB(left).
             Let rp be exprToKeyPartB(right).
-            Return "ix_{lp}_{rp}".
+            Let s1 be keyJoinB("ix", lp).
+            Return keyJoinB(s1, rp).
         When CClosure (params, body, captured):
-            Return "cl".
+            Return keyJoinB(keyJoinB(keyJoinB("cl", textsToKeyPartB(params)), stmtsToKeyPartB(body)), textsToKeyPartB(captured)).
         When CCallExpr (target, args):
             Let tp be exprToKeyPartB(target).
-            Return "ce_{tp}".
+            Return keyJoinB(keyJoinB("ce", tp), exprsToKeyPartB(args)).
         When CInterpolatedString (parts):
             Let mutable ps be "is".
             Repeat for p in parts:
                 Inspect p:
                     When CLiteralPart (litVal):
-                        Set ps to "{ps}_lt{litVal}".
+                        Let litTag be "lt{litVal}".
+                        Set ps to keyJoinB(ps, litTag).
                     When CExprPart (epExpr):
                         Let pp be exprToKeyPartB(epExpr).
-                        Set ps to "{ps}_{pp}".
+                        Set ps to keyJoinB(ps, pp).
                     When CFormattedPart (fpkExpr, fpkSpec, fpkForm, fpkSize):
+                        Let fpkTag be "fs{fpkSpec}".
+                        Set ps to keyJoinB(ps, fpkTag).
                         Let fpkPart be exprToKeyPartB(fpkExpr).
-                        Set ps to "{ps}_fs{fpkSpec}_{fpkPart}".
+                        Set ps to keyJoinB(ps, fpkPart).
             Return ps.
         When CDuration (kpDuration):
-            Let kpDurationStamp be format_timestamp(1970-01-01 at 12:00am + kpDuration).
-            Return "duration_{kpDurationStamp}".
+            Return keyJoinB("duration", format_timestamp(1970-01-01 at 12:00am + kpDuration)).
         When CDate (kpDate):
-            Return "date_{kpDate}".
+            Return keyJoinB("date", "{kpDate}").
         When CMoment (kpMoment):
-            Let kpMomentStamp be format_timestamp(kpMoment).
-            Return "moment_{kpMomentStamp}".
+            Return keyJoinB("moment", format_timestamp(kpMoment)).
         When CSpan (kpSpan):
-            Return "span_{kpSpan}".
+            Return keyJoinB("span", "{kpSpan}").
         When CTime (kpTime):
-            Return "time_{kpTime}".
+            Return keyJoinB("time", "{kpTime}").
         When CChar (kpChar):
-            Return "char_{kpChar}".
+            Return keyJoinB("char", "{kpChar}").
         When CTimeNow:
             Return "tnow".
         When CDateToday:
             Return "today".
         When CEscExpr (code):
-            Return "esc".
+            Return keyJoinB("esc", code).
+        When CManifestOf (ek0x0):
+            Let mutable ek0k be "CManifestOf".
+            Set ek0k to keyJoinB(ek0k, exprToKeyPartB(ek0x0)).
+            Return ek0k.
+        When CChunkAt (ek1x0, ek1x1):
+            Let mutable ek1k be "CChunkAt".
+            Set ek1k to keyJoinB(ek1k, exprToKeyPartB(ek1x0)).
+            Set ek1k to keyJoinB(ek1k, exprToKeyPartB(ek1x1)).
+            Return ek1k.
         Otherwise:
             Return "unk".
+
+## To stmtToKeyPartB (sk: CStmt) -> Text:
+    Inspect sk:
+        When CLet (sk0x0, sk0x1):
+            Let mutable sk0k be "CLet".
+            Set sk0k to keyJoinB(sk0k, sk0x0).
+            Set sk0k to keyJoinB(sk0k, exprToKeyPartB(sk0x1)).
+            Return sk0k.
+        When CSet (sk1x0, sk1x1):
+            Let mutable sk1k be "CSet".
+            Set sk1k to keyJoinB(sk1k, sk1x0).
+            Set sk1k to keyJoinB(sk1k, exprToKeyPartB(sk1x1)).
+            Return sk1k.
+        When CIf (sk2x0, sk2x1, sk2x2):
+            Let mutable sk2k be "CIf".
+            Set sk2k to keyJoinB(sk2k, exprToKeyPartB(sk2x0)).
+            Set sk2k to keyJoinB(sk2k, stmtsToKeyPartB(sk2x1)).
+            Set sk2k to keyJoinB(sk2k, stmtsToKeyPartB(sk2x2)).
+            Return sk2k.
+        When CWhile (sk3x0, sk3x1):
+            Let mutable sk3k be "CWhile".
+            Set sk3k to keyJoinB(sk3k, exprToKeyPartB(sk3x0)).
+            Set sk3k to keyJoinB(sk3k, stmtsToKeyPartB(sk3x1)).
+            Return sk3k.
+        When CReturn (sk4x0):
+            Let mutable sk4k be "CReturn".
+            Set sk4k to keyJoinB(sk4k, exprToKeyPartB(sk4x0)).
+            Return sk4k.
+        When CShow (sk5x0):
+            Let mutable sk5k be "CShow".
+            Set sk5k to keyJoinB(sk5k, exprToKeyPartB(sk5x0)).
+            Return sk5k.
+        When CCallS (sk6x0, sk6x1):
+            Let mutable sk6k be "CCallS".
+            Set sk6k to keyJoinB(sk6k, sk6x0).
+            Set sk6k to keyJoinB(sk6k, exprsToKeyPartB(sk6x1)).
+            Return sk6k.
+        When CPush (sk7x0, sk7x1):
+            Let mutable sk7k be "CPush".
+            Set sk7k to keyJoinB(sk7k, exprToKeyPartB(sk7x0)).
+            Set sk7k to keyJoinB(sk7k, sk7x1).
+            Return sk7k.
+        When CSetIdx (sk8x0, sk8x1, sk8x2):
+            Let mutable sk8k be "CSetIdx".
+            Set sk8k to keyJoinB(sk8k, sk8x0).
+            Set sk8k to keyJoinB(sk8k, exprToKeyPartB(sk8x1)).
+            Set sk8k to keyJoinB(sk8k, exprToKeyPartB(sk8x2)).
+            Return sk8k.
+        When CMapSet (sk9x0, sk9x1, sk9x2):
+            Let mutable sk9k be "CMapSet".
+            Set sk9k to keyJoinB(sk9k, sk9x0).
+            Set sk9k to keyJoinB(sk9k, exprToKeyPartB(sk9x1)).
+            Set sk9k to keyJoinB(sk9k, exprToKeyPartB(sk9x2)).
+            Return sk9k.
+        When CPop (sk10x0):
+            Let mutable sk10k be "CPop".
+            Set sk10k to keyJoinB(sk10k, sk10x0).
+            Return sk10k.
+        When CPopInto (sk11x0, sk11x1):
+            Let mutable sk11k be "CPopInto".
+            Set sk11k to keyJoinB(sk11k, sk11x0).
+            Set sk11k to keyJoinB(sk11k, sk11x1).
+            Return sk11k.
+        When CRepeat (sk12x0, sk12x1, sk12x2):
+            Let mutable sk12k be "CRepeat".
+            Set sk12k to keyJoinB(sk12k, sk12x0).
+            Set sk12k to keyJoinB(sk12k, exprToKeyPartB(sk12x1)).
+            Set sk12k to keyJoinB(sk12k, stmtsToKeyPartB(sk12x2)).
+            Return sk12k.
+        When CRepeatRange (sk13x0, sk13x1, sk13x2, sk13x3):
+            Let mutable sk13k be "CRepeatRange".
+            Set sk13k to keyJoinB(sk13k, sk13x0).
+            Set sk13k to keyJoinB(sk13k, exprToKeyPartB(sk13x1)).
+            Set sk13k to keyJoinB(sk13k, exprToKeyPartB(sk13x2)).
+            Set sk13k to keyJoinB(sk13k, stmtsToKeyPartB(sk13x3)).
+            Return sk13k.
+        When CBreak:
+            Let mutable sk14k be "CBreak".
+            Return sk14k.
+        When CAdd (sk15x0, sk15x1):
+            Let mutable sk15k be "CAdd".
+            Set sk15k to keyJoinB(sk15k, exprToKeyPartB(sk15x0)).
+            Set sk15k to keyJoinB(sk15k, sk15x1).
+            Return sk15k.
+        When CRemove (sk16x0, sk16x1):
+            Let mutable sk16k be "CRemove".
+            Set sk16k to keyJoinB(sk16k, exprToKeyPartB(sk16x0)).
+            Set sk16k to keyJoinB(sk16k, sk16x1).
+            Return sk16k.
+        When CForceDynamic (sk17x0):
+            Let mutable sk17k be "CForceDynamic".
+            Set sk17k to keyJoinB(sk17k, sk17x0).
+            Return sk17k.
+        When CSetField (sk18x0, sk18x1, sk18x2):
+            Let mutable sk18k be "CSetField".
+            Set sk18k to keyJoinB(sk18k, sk18x0).
+            Set sk18k to keyJoinB(sk18k, sk18x1).
+            Set sk18k to keyJoinB(sk18k, exprToKeyPartB(sk18x2)).
+            Return sk18k.
+        When CAtPath (sk19x0, sk19x1, sk19x2):
+            Let mutable sk19k be "CAtPath".
+            Set sk19k to keyJoinB(sk19k, sk19x0).
+            Set sk19k to keyJoinB(sk19k, textsToKeyPartB(sk19x1)).
+            Set sk19k to keyJoinB(sk19k, stmtsToKeyPartB(sk19x2)).
+            Return sk19k.
+        When CStructDef (sk20x0, sk20x1):
+            Let mutable sk20k be "CStructDef".
+            Set sk20k to keyJoinB(sk20k, sk20x0).
+            Set sk20k to keyJoinB(sk20k, textsToKeyPartB(sk20x1)).
+            Return sk20k.
+        When CInspect (sk21x0, sk21x1):
+            Let mutable sk21k be "CInspect".
+            Set sk21k to keyJoinB(sk21k, exprToKeyPartB(sk21x0)).
+            Set sk21k to keyJoinB(sk21k, armsToKeyPartB(sk21x1)).
+            Return sk21k.
+        When CEnumDef (sk22x0, sk22x1):
+            Let mutable sk22k be "CEnumDef".
+            Set sk22k to keyJoinB(sk22k, sk22x0).
+            Set sk22k to keyJoinB(sk22k, textsToKeyPartB(sk22x1)).
+            Return sk22k.
+        When CRuntimeAssert (sk23x0, sk23x1):
+            Let mutable sk23k be "CRuntimeAssert".
+            Set sk23k to keyJoinB(sk23k, exprToKeyPartB(sk23x0)).
+            Set sk23k to keyJoinB(sk23k, exprToKeyPartB(sk23x1)).
+            Return sk23k.
+        When CHardAssert (sk24x0, sk24x1):
+            Let mutable sk24k be "CHardAssert".
+            Set sk24k to keyJoinB(sk24k, exprToKeyPartB(sk24x0)).
+            Set sk24k to keyJoinB(sk24k, exprToKeyPartB(sk24x1)).
+            Return sk24k.
+        When CFail (sk25x0):
+            Let mutable sk25k be "CFail".
+            Set sk25k to keyJoinB(sk25k, exprToKeyPartB(sk25x0)).
+            Return sk25k.
+        When CGive (sk26x0, sk26x1):
+            Let mutable sk26k be "CGive".
+            Set sk26k to keyJoinB(sk26k, exprToKeyPartB(sk26x0)).
+            Set sk26k to keyJoinB(sk26k, sk26x1).
+            Return sk26k.
+        When CEscStmt (sk27x0):
+            Let mutable sk27k be "CEscStmt".
+            Set sk27k to keyJoinB(sk27k, sk27x0).
+            Return sk27k.
+        When CSleep (sk28x0):
+            Let mutable sk28k be "CSleep".
+            Set sk28k to keyJoinB(sk28k, exprToKeyPartB(sk28x0)).
+            Return sk28k.
+        When CReadConsole (sk29x0):
+            Let mutable sk29k be "CReadConsole".
+            Set sk29k to keyJoinB(sk29k, sk29x0).
+            Return sk29k.
+        When CReadFile (sk30x0, sk30x1):
+            Let mutable sk30k be "CReadFile".
+            Set sk30k to keyJoinB(sk30k, exprToKeyPartB(sk30x0)).
+            Set sk30k to keyJoinB(sk30k, sk30x1).
+            Return sk30k.
+        When CWriteFile (sk31x0, sk31x1):
+            Let mutable sk31k be "CWriteFile".
+            Set sk31k to keyJoinB(sk31k, exprToKeyPartB(sk31x0)).
+            Set sk31k to keyJoinB(sk31k, exprToKeyPartB(sk31x1)).
+            Return sk31k.
+        When CCheck (sk32x0, sk32x1):
+            Let mutable sk32k be "CCheck".
+            Set sk32k to keyJoinB(sk32k, exprToKeyPartB(sk32x0)).
+            Set sk32k to keyJoinB(sk32k, exprToKeyPartB(sk32x1)).
+            Return sk32k.
+        When CCheckPolicy (sk33x0, sk33x1, sk33x2, sk33x3, sk33x4, sk33x5):
+            Let mutable sk33k be "CCheckPolicy".
+            Set sk33k to keyJoinB(sk33k, sk33x0).
+            Set sk33k to keyJoinB(sk33k, sk33x1).
+            Set sk33k to keyJoinB(sk33k, "{sk33x2}").
+            Set sk33k to keyJoinB(sk33k, sk33x3).
+            Set sk33k to keyJoinB(sk33k, alternativesToKeyPartB(sk33x4)).
+            Set sk33k to keyJoinB(sk33k, sk33x5).
+            Return sk33k.
+        When CAssert (sk34x0):
+            Let mutable sk34k be "CAssert".
+            Set sk34k to keyJoinB(sk34k, exprToKeyPartB(sk34x0)).
+            Return sk34k.
+        When CTrust (sk35x0, sk35x1):
+            Let mutable sk35k be "CTrust".
+            Set sk35k to keyJoinB(sk35k, exprToKeyPartB(sk35x0)).
+            Set sk35k to keyJoinB(sk35k, sk35x1).
+            Return sk35k.
+        When CRequire (sk36x0):
+            Let mutable sk36k be "CRequire".
+            Set sk36k to keyJoinB(sk36k, sk36x0).
+            Return sk36k.
+        When CMerge (sk37x0, sk37x1):
+            Let mutable sk37k be "CMerge".
+            Set sk37k to keyJoinB(sk37k, sk37x0).
+            Set sk37k to keyJoinB(sk37k, exprToKeyPartB(sk37x1)).
+            Return sk37k.
+        When CJoin (sk38x0, sk38x1):
+            Let mutable sk38k be "CJoin".
+            Set sk38k to keyJoinB(sk38k, sk38x0).
+            Set sk38k to keyJoinB(sk38k, exprToKeyPartB(sk38x1)).
+            Return sk38k.
+        When CIncrease (sk39x0, sk39x1):
+            Let mutable sk39k be "CIncrease".
+            Set sk39k to keyJoinB(sk39k, sk39x0).
+            Set sk39k to keyJoinB(sk39k, exprToKeyPartB(sk39x1)).
+            Return sk39k.
+        When CDecrease (sk40x0, sk40x1):
+            Let mutable sk40k be "CDecrease".
+            Set sk40k to keyJoinB(sk40k, sk40x0).
+            Set sk40k to keyJoinB(sk40k, exprToKeyPartB(sk40x1)).
+            Return sk40k.
+        When CAppendToSeq (sk41x0, sk41x1):
+            Let mutable sk41k be "CAppendToSeq".
+            Set sk41k to keyJoinB(sk41k, sk41x0).
+            Set sk41k to keyJoinB(sk41k, exprToKeyPartB(sk41x1)).
+            Return sk41k.
+        When CResolve (sk42x0):
+            Let mutable sk42k be "CResolve".
+            Set sk42k to keyJoinB(sk42k, sk42x0).
+            Return sk42k.
+        When CResolveTo (sk43x0, sk43x1):
+            Let mutable sk43k be "CResolveTo".
+            Set sk43k to keyJoinB(sk43k, sk43x0).
+            Set sk43k to keyJoinB(sk43k, exprToKeyPartB(sk43x1)).
+            Return sk43k.
+        When CSync (sk44x0, sk44x1):
+            Let mutable sk44k be "CSync".
+            Set sk44k to keyJoinB(sk44k, sk44x0).
+            Set sk44k to keyJoinB(sk44k, exprToKeyPartB(sk44x1)).
+            Return sk44k.
+        When CMount (sk45x0, sk45x1):
+            Let mutable sk45k be "CMount".
+            Set sk45k to keyJoinB(sk45k, sk45x0).
+            Set sk45k to keyJoinB(sk45k, exprToKeyPartB(sk45x1)).
+            Return sk45k.
+        When CConcurrent (sk46x0):
+            Let mutable sk46k be "CConcurrent".
+            Set sk46k to keyJoinB(sk46k, blocksToKeyPartB(sk46x0)).
+            Return sk46k.
+        When CParallel (sk47x0):
+            Let mutable sk47k be "CParallel".
+            Set sk47k to keyJoinB(sk47k, blocksToKeyPartB(sk47x0)).
+            Return sk47k.
+        When CLaunchTask (sk48x0, sk48x1):
+            Let mutable sk48k be "CLaunchTask".
+            Set sk48k to keyJoinB(sk48k, stmtsToKeyPartB(sk48x0)).
+            Set sk48k to keyJoinB(sk48k, sk48x1).
+            Return sk48k.
+        When CStopTask (sk49x0):
+            Let mutable sk49k be "CStopTask".
+            Set sk49k to keyJoinB(sk49k, exprToKeyPartB(sk49x0)).
+            Return sk49k.
+        When CSelect (sk50x0):
+            Let mutable sk50k be "CSelect".
+            Set sk50k to keyJoinB(sk50k, branchesToKeyPartB(sk50x0)).
+            Return sk50k.
+        When CCreatePipe (sk51x0, sk51x1):
+            Let mutable sk51k be "CCreatePipe".
+            Set sk51k to keyJoinB(sk51k, sk51x0).
+            Set sk51k to keyJoinB(sk51k, exprToKeyPartB(sk51x1)).
+            Return sk51k.
+        When CSendPipe (sk52x0, sk52x1):
+            Let mutable sk52k be "CSendPipe".
+            Set sk52k to keyJoinB(sk52k, sk52x0).
+            Set sk52k to keyJoinB(sk52k, exprToKeyPartB(sk52x1)).
+            Return sk52k.
+        When CReceivePipe (sk53x0, sk53x1):
+            Let mutable sk53k be "CReceivePipe".
+            Set sk53k to keyJoinB(sk53k, sk53x0).
+            Set sk53k to keyJoinB(sk53k, sk53x1).
+            Return sk53k.
+        When CTrySendPipe (sk54x0, sk54x1):
+            Let mutable sk54k be "CTrySendPipe".
+            Set sk54k to keyJoinB(sk54k, sk54x0).
+            Set sk54k to keyJoinB(sk54k, exprToKeyPartB(sk54x1)).
+            Return sk54k.
+        When CTryReceivePipe (sk55x0, sk55x1):
+            Let mutable sk55k be "CTryReceivePipe".
+            Set sk55k to keyJoinB(sk55k, sk55x0).
+            Set sk55k to keyJoinB(sk55k, sk55x1).
+            Return sk55k.
+        When CSpawn (sk56x0, sk56x1):
+            Let mutable sk56k be "CSpawn".
+            Set sk56k to keyJoinB(sk56k, sk56x0).
+            Set sk56k to keyJoinB(sk56k, sk56x1).
+            Return sk56k.
+        When CSendMessage (sk57x0, sk57x1):
+            Let mutable sk57k be "CSendMessage".
+            Set sk57k to keyJoinB(sk57k, exprToKeyPartB(sk57x0)).
+            Set sk57k to keyJoinB(sk57k, exprToKeyPartB(sk57x1)).
+            Return sk57k.
+        When CStreamMessage (sk58x0, sk58x1):
+            Let mutable sk58k be "CStreamMessage".
+            Set sk58k to keyJoinB(sk58k, exprToKeyPartB(sk58x0)).
+            Set sk58k to keyJoinB(sk58k, exprToKeyPartB(sk58x1)).
+            Return sk58k.
+        When CAwaitMessage (sk59x0):
+            Let mutable sk59k be "CAwaitMessage".
+            Set sk59k to keyJoinB(sk59k, sk59x0).
+            Return sk59k.
+        When CListen (sk60x0, sk60x1):
+            Let mutable sk60k be "CListen".
+            Set sk60k to keyJoinB(sk60k, exprToKeyPartB(sk60x0)).
+            Set sk60k to keyJoinB(sk60k, sk60x1).
+            Return sk60k.
+        When CConnectTo (sk61x0, sk61x1):
+            Let mutable sk61k be "CConnectTo".
+            Set sk61k to keyJoinB(sk61k, exprToKeyPartB(sk61x0)).
+            Set sk61k to keyJoinB(sk61k, sk61x1).
+            Return sk61k.
+        When CZone (sk62x0, sk62x1, sk62x2):
+            Let mutable sk62k be "CZone".
+            Set sk62k to keyJoinB(sk62k, sk62x0).
+            Set sk62k to keyJoinB(sk62k, sk62x1).
+            Set sk62k to keyJoinB(sk62k, stmtsToKeyPartB(sk62x2)).
+            Return sk62k.
+
+## To exprsToKeyPartB (xeItems: Seq of CExpr) -> Text:
+    Let mutable xeKey be "n{length of xeItems}".
+    Repeat for xeItem in xeItems:
+        Set xeKey to keyJoinB(xeKey, exprToKeyPartB(xeItem)).
+    Return xeKey.
+
+## To stmtsToKeyPartB (xsItems: Seq of CStmt) -> Text:
+    Let mutable xsKey be "n{length of xsItems}".
+    Repeat for xsItem in xsItems:
+        Set xsKey to keyJoinB(xsKey, stmtToKeyPartB(xsItem)).
+    Return xsKey.
+
+## To blocksToKeyPartB (xbItems: Seq of Seq of CStmt) -> Text:
+    Let mutable xbKey be "n{length of xbItems}".
+    Repeat for xbItem in xbItems:
+        Set xbKey to keyJoinB(xbKey, stmtsToKeyPartB(xbItem)).
+    Return xbKey.
+
+## To armsToKeyPartB (xaItems: Seq of CMatchArm) -> Text:
+    Let mutable xaKey be "n{length of xaItems}".
+    Repeat for xaItem in xaItems:
+        Set xaKey to keyJoinB(xaKey, armToKeyPartB(xaItem)).
+    Return xaKey.
+
+## To branchesToKeyPartB (xrItems: Seq of CSelectBranch) -> Text:
+    Let mutable xrKey be "n{length of xrItems}".
+    Repeat for xrItem in xrItems:
+        Set xrKey to keyJoinB(xrKey, branchToKeyPartB(xrItem)).
+    Return xrKey.
+
+## To alternativesToKeyPartB (xpItems: Seq of CPolicyAlt) -> Text:
+    Let mutable xpKey be "n{length of xpItems}".
+    Repeat for xpItem in xpItems:
+        Set xpKey to keyJoinB(xpKey, alternativeToKeyPartB(xpItem)).
+    Return xpKey.
+
+## To stringPartsToKeyPartB (xqItems: Seq of CStringPart) -> Text:
+    Let mutable xqKey be "n{length of xqItems}".
+    Repeat for xqItem in xqItems:
+        Set xqKey to keyJoinB(xqKey, stringPartToKeyPartB(xqItem)).
+    Return xqKey.
+
+## To textsToKeyPartB (xtItems: Seq of Text) -> Text:
+    Let mutable xtKey be "n{length of xtItems}".
+    Repeat for xtItem in xtItems:
+        Set xtKey to keyJoinB(xtKey, xtItem).
+    Return xtKey.
+
+## To armToKeyPartB (maV: CMatchArm) -> Text:
+    Inspect maV:
+        When CWhen (ma0x0, ma0x1, ma0x2):
+            Let mutable ma0k be "CWhen".
+            Set ma0k to keyJoinB(ma0k, ma0x0).
+            Set ma0k to keyJoinB(ma0k, textsToKeyPartB(ma0x1)).
+            Set ma0k to keyJoinB(ma0k, stmtsToKeyPartB(ma0x2)).
+            Return ma0k.
+        When COtherwise (ma1x0):
+            Let mutable ma1k be "COtherwise".
+            Set ma1k to keyJoinB(ma1k, stmtsToKeyPartB(ma1x0)).
+            Return ma1k.
+
+## To branchToKeyPartB (sbV: CSelectBranch) -> Text:
+    Inspect sbV:
+        When CSelectRecv (sb0x0, sb0x1, sb0x2):
+            Let mutable sb0k be "CSelectRecv".
+            Set sb0k to keyJoinB(sb0k, sb0x0).
+            Set sb0k to keyJoinB(sb0k, sb0x1).
+            Set sb0k to keyJoinB(sb0k, stmtsToKeyPartB(sb0x2)).
+            Return sb0k.
+        When CSelectTimeout (sb1x0, sb1x1):
+            Let mutable sb1k be "CSelectTimeout".
+            Set sb1k to keyJoinB(sb1k, exprToKeyPartB(sb1x0)).
+            Set sb1k to keyJoinB(sb1k, stmtsToKeyPartB(sb1x1)).
+            Return sb1k.
+
+## To alternativeToKeyPartB (paV: CPolicyAlt) -> Text:
+    Inspect paV:
+        When CPolicyCase (pa0x0, pa0x1):
+            Let mutable pa0k be "CPolicyCase".
+            Set pa0k to keyJoinB(pa0k, pa0x0).
+            Set pa0k to keyJoinB(pa0k, policyToKeyPartB(pa0x1)).
+            Return pa0k.
+
+## To stringPartToKeyPartB (spV: CStringPart) -> Text:
+    Inspect spV:
+        When CLiteralPart (sp0x0):
+            Let mutable sp0k be "CLiteralPart".
+            Set sp0k to keyJoinB(sp0k, sp0x0).
+            Return sp0k.
+        When CExprPart (sp1x0):
+            Let mutable sp1k be "CExprPart".
+            Set sp1k to keyJoinB(sp1k, exprToKeyPartB(sp1x0)).
+            Return sp1k.
+        When CFormattedPart (sp2x0, sp2x1, sp2x2, sp2x3):
+            Let mutable sp2k be "CFormattedPart".
+            Set sp2k to keyJoinB(sp2k, exprToKeyPartB(sp2x0)).
+            Set sp2k to keyJoinB(sp2k, sp2x1).
+            Set sp2k to keyJoinB(sp2k, sp2x2).
+            Set sp2k to keyJoinB(sp2k, "{sp2x3}").
+            Return sp2k.
+
+## To policyToKeyPartB (poV: CPolicy) -> Text:
+    Inspect poV:
+        When PFieldEquals (po0x0, po0x1, po0x2, po0x3, po0x4, po0x5, po0x6):
+            Let mutable po0k be "PFieldEquals".
+            Set po0k to keyJoinB(po0k, po0x0).
+            Set po0k to keyJoinB(po0k, po0x1).
+            Set po0k to keyJoinB(po0k, "{po0x2}").
+            Set po0k to keyJoinB(po0k, "{po0x3}").
+            Set po0k to keyJoinB(po0k, "{po0x4}").
+            Set po0k to keyJoinB(po0k, "{po0x5}").
+            Set po0k to keyJoinB(po0k, "{po0x6}").
+            Return po0k.
+        When PFieldBool (po1x0, po1x1):
+            Let mutable po1k be "PFieldBool".
+            Set po1k to keyJoinB(po1k, po1x0).
+            Set po1k to keyJoinB(po1k, "{po1x1}").
+            Return po1k.
+        When PFieldsEqual (po2x0, po2x1):
+            Let mutable po2k be "PFieldsEqual".
+            Set po2k to keyJoinB(po2k, po2x0).
+            Set po2k to keyJoinB(po2k, po2x1).
+            Return po2k.
+        When PAnd (po3x0, po3x1):
+            Let mutable po3k be "PAnd".
+            Set po3k to keyJoinB(po3k, policyToKeyPartB(po3x0)).
+            Set po3k to keyJoinB(po3k, policyToKeyPartB(po3x1)).
+            Return po3k.
+        When POr (po4x0, po4x1):
+            Let mutable po4k be "POr".
+            Set po4k to keyJoinB(po4k, policyToKeyPartB(po4x0)).
+            Set po4k to keyJoinB(po4k, policyToKeyPartB(po4x1)).
+            Return po4k.
+        When PFalse:
+            Let mutable po5k be "PFalse".
+            Return po5k.
+        When PRecursive (po6x0):
+            Let mutable po6k be "PRecursive".
+            Set po6k to keyJoinB(po6k, po6x0).
+            Return po6k.
+# The memo keys end.
 
 ## To makeKeyB (fnName: Text) and (args: Seq of CExpr) -> Text:
     Let key be fnName.
     Repeat for a in args:
         Let part be exprToKeyPartB(a).
-        Set key to "{key}_{part}".
+        Set key to keyJoinB(key, part).
     Return key.
 
 ## To exprEmbedsB (prevExpr: CExpr) and (nextExpr: CExpr) -> Bool:
@@ -1398,9 +1878,9 @@
     Repeat for a in args:
         If checkStatic(a):
             Let part be exprToKeyPartB(a).
-            Set key to "{key}_{part}".
+            Set key to keyJoinB(key, "s{part}").
         Otherwise:
-            Set key to "{key}_d".
+            Set key to keyJoinB(key, "d").
     Return key.
 
 ## To peExprB (e: CExpr) and (state: PEState) -> CExpr:

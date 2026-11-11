@@ -34,6 +34,8 @@ enum Kind {
     Date,
     /// A `Moment` (nanoseconds since epoch, in an i64 slot) — `now`. `Show` renders `YYYY-MM-DD HH:MM`.
     Moment,
+    /// A `Duration` (nanoseconds, in an i64 slot) — `2 milliseconds`, the difference of two instants. Not shown.
+    Duration,
     /// A `Span` (`2 weeks`, `3 months`): its calendar months in the high and its days in the low 32 bits of an i64
     /// slot.
     Span,
@@ -218,6 +220,7 @@ fn kind_tag(kind: Kind) -> Result<u8, RiscVLowerError> {
         Kind::Peer => Ok(PEER_TAG),
         Kind::Tower => Ok(TOWER_TAG),
         Kind::Span
+        | Kind::Duration
         | Kind::SeqInt
         | Kind::SeqFloat
         | Kind::SeqText
@@ -4707,7 +4710,7 @@ impl<'a> Emitter<'a> {
             | Kind::Word32
             | Kind::CrdtCounter
             | Kind::Tower => true,
-            Kind::Span => false,
+            Kind::Span | Kind::Duration => false,
             Kind::SeqInt
             | Kind::SeqFloat
             | Kind::SeqText
@@ -4841,6 +4844,13 @@ impl<'a> Emitter<'a> {
     ) -> Emit {
         // A Rational operand routes to exact rational arithmetic (`ratop` selects the C helper's op).
         let (lk, rk) = (self.kind_of(kinds, lhs), self.kind_of(kinds, rhs));
+        if temporal_kind(iop, lk, rk).is_some() {
+            self.load_slot(lhs, "t0");
+            self.load_slot(rhs, "t1");
+            self.line(&format!("{iop} t2, t0, t1"));
+            self.store_slot(dst, "t2");
+            return Ok(());
+        }
         // `text + x` is string concatenation, exactly like the VM's `arith::add` (it stringifies the
         // non-text operand via `to_display_string`). Only `add` concatenates — `sub`/`mul`/… on a Text
         // operand error in the VM and fall through to the numeric path's refusal below.
@@ -4982,6 +4992,9 @@ impl<'a> Emitter<'a> {
             Kind::Rational => (9, Vec::new()),
             Kind::Tower => (22, Vec::new()),
             Kind::Span => (24, Vec::new()),
+            Kind::Duration => {
+                return Err(RiscVLowerError::Unsupported("a Duration inside a value the runtime shapes"));
+            }
             Kind::SeqInt | Kind::SeqFloat | Kind::SeqText | Kind::SeqBool | Kind::SeqWord32 => {
                 (1, vec![self.shape(elem_of(k))?])
             }
@@ -6194,11 +6207,12 @@ impl<'a> Emitter<'a> {
         Ok(())
     }
 
-    /// `dst = (lhs <cmp> rhs) ? 1 : 0` for Int, for two moments (nanoseconds) and for two dates (days), each an i64
-    /// slot; Eq/NotEq also accept Bool operands.
+    /// `dst = (lhs <cmp> rhs) ? 1 : 0` for Int, for two moments or two durations (nanoseconds) and for two dates (days),
+    /// each an i64 slot; Eq/NotEq also accept Bool operands.
     fn int_cmp(&mut self, cmp: &str, dst: u16, lhs: u16, rhs: u16, kinds: &[Kind]) -> Emit {
         let ok = (matches!(cmp, "eq" | "ne") && self.all_kind(kinds, &[lhs, rhs], &[Kind::Int, Kind::Bool]))
             || self.all_kind(kinds, &[lhs, rhs], &[Kind::Moment])
+            || self.all_kind(kinds, &[lhs, rhs], &[Kind::Duration])
             || self.all_kind(kinds, &[lhs, rhs], &[Kind::Date]);
         if !ok {
             self.require(kinds, &[lhs, rhs], Kind::Int, "comparison on non-Int")?;
@@ -6725,7 +6739,8 @@ impl<'a> Emitter<'a> {
                 let write: Option<(u16, Kind)> = match self.prog.code[pc] {
                     Op::LoadConst { dst, idx } => {
                         let k = match self.prog.constants[idx as usize] {
-                            Constant::Int(_) | Constant::Duration(_) => Kind::Int,
+                            Constant::Int(_) => Kind::Int,
+                            Constant::Duration(_) => Kind::Duration,
                             Constant::Bool(_) => Kind::Bool,
                             Constant::Float(_) => Kind::Float,
                             Constant::Text(_) => Kind::Text,
@@ -6737,9 +6752,15 @@ impl<'a> Emitter<'a> {
                         Some((dst, k))
                     }
                     Op::Move { dst, src } => Some((dst, kind_at(&cur, src))),
-                    Op::Add { dst, lhs, rhs }
-                    | Op::Sub { dst, lhs, rhs }
-                    | Op::Mul { dst, lhs, rhs }
+                    Op::Add { dst, lhs, rhs } => {
+                        let (l, r) = (kind_at(&cur, lhs), kind_at(&cur, rhs));
+                        Some((dst, temporal_kind("add", l, r).unwrap_or_else(|| join(l, r))))
+                    }
+                    Op::Sub { dst, lhs, rhs } => {
+                        let (l, r) = (kind_at(&cur, lhs), kind_at(&cur, rhs));
+                        Some((dst, temporal_kind("sub", l, r).unwrap_or_else(|| join(l, r))))
+                    }
+                    Op::Mul { dst, lhs, rhs }
                     | Op::Div { dst, lhs, rhs }
                     | Op::Mod { dst, lhs, rhs }
                     | Op::FloorDiv { dst, lhs, rhs }
@@ -6759,7 +6780,8 @@ impl<'a> Emitter<'a> {
                         },
                     )),
                     Op::AddAssign { dst, src } => {
-                        Some((dst, join(kind_at(&cur, dst), kind_at(&cur, src))))
+                        let (l, r) = (kind_at(&cur, dst), kind_at(&cur, src));
+                        Some((dst, temporal_kind("add", l, r).unwrap_or_else(|| join(l, r))))
                     }
                     // `exact_divide` → an exact Rational, unless a Float operand makes it float division.
                     Op::ExactDiv { dst, lhs, rhs } => {
@@ -7596,6 +7618,20 @@ fn boundary_to_kind(ty: &Option<BoundaryType>) -> Kind {
 
 /// Merge two register kinds for an arithmetic result: Int⊔Float = Float (numeric promotion, matching
 /// the VM's mixed arithmetic); an unknown operand carries the other; any other disagreement ⇒ Unknown.
+/// The kind `op` (`add`, `sub`) makes of two temporal operands, each riding i64 nanoseconds: an instant moved by a
+/// duration, the duration between two instants, two durations summed or differenced. `None` for any other pairing.
+fn temporal_kind(op: &str, a: Kind, b: Kind) -> Option<Kind> {
+    match (op, a, b) {
+        ("add", Kind::Moment, Kind::Duration)
+        | ("add", Kind::Duration, Kind::Moment)
+        | ("sub", Kind::Moment, Kind::Duration) => Some(Kind::Moment),
+        ("sub", Kind::Moment, Kind::Moment)
+        | ("add", Kind::Duration, Kind::Duration)
+        | ("sub", Kind::Duration, Kind::Duration) => Some(Kind::Duration),
+        _ => None,
+    }
+}
+
 fn join(a: Kind, b: Kind) -> Kind {
     match (a, b) {
         (Kind::Unknown, x) | (x, Kind::Unknown) => x,

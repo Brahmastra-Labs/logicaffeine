@@ -338,7 +338,7 @@ impl TowerTypes {
 }
 
 /// The names `stmts` bind, nested blocks included: each `Let`, loop variable and `Pop … into`.
-fn bound_names(stmts: &[Stmt], into: &mut HashSet<Symbol>) {
+pub(crate) fn bound_names(stmts: &[Stmt], into: &mut HashSet<Symbol>) {
     for s in stmts {
         match s {
             Stmt::Let { var, .. } => {

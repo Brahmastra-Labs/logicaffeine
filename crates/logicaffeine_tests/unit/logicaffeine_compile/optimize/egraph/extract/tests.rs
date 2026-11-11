@@ -70,7 +70,8 @@ impl Draws {
 }
 
 /// A graph of `size` nodes drawn from `draws`: literals, variable versions and opaques, operators over earlier
-/// classes, and unions among them, cycles included (`x ≡ x + 0`).
+/// classes, and unions among classes that may hold one value, cycles included (`x ≡ x + 0`). Two classes whose ranges
+/// are disjoint hold two values, and a union of them is an unsound rule's work, which the egraph refuses.
 fn drawn_graph(draws: &mut Draws, size: usize) -> CompilerEGraph {
     let mut eg = CompilerEGraph::new();
     let mut ids: Vec<NodeId> = Vec::new();
@@ -87,7 +88,13 @@ fn drawn_graph(draws: &mut Draws, size: usize) -> CompilerEGraph {
             (_, 7) => CompilerENode::Div(pick(draws, &ids), pick(draws, &ids)),
             _ => {
                 let (a, b) = (pick(draws, &ids), pick(draws, &ids));
-                eg.union(a, b);
+                let disjoint = match (eg.int_range(a), eg.int_range(b)) {
+                    (Some((a_lo, a_hi)), Some((b_lo, b_hi))) => a_hi < b_lo || b_hi < a_lo,
+                    _ => false,
+                };
+                if !disjoint {
+                    eg.union(a, b);
+                }
                 continue;
             }
         };

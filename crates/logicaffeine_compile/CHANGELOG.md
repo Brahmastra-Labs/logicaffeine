@@ -29,12 +29,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   by the language's operator and builtin tables (`semantics::operator_overloads`, `semantics::builtin_overloads`).
   The bootstrap programs compile with reference collections and blocking waits (`codegen::with_blocking_waits`: a
   `Sleep` compiles to `std::thread::sleep` and makes no function async), part of every native engine's cache key.
-- `pe_source.logos`: `peEmitProgram(residual, state)`, the residual's emission — every reached function once (an
-  identity helper inlined into its callers), each body and the main block through `peFinishBlock`, a pass over final
+- `pe_source.logos`: `peFinishProgram(residual, state)`, the residual finished as a `CProg` — every reached function
+  once (an identity helper inlined into its callers), each body and the main block through `peFinishBlock`, a pass over final
   code only: copy loops to `copy of`, a dead initializer merged into its first write, a copy coalesced into the variable
   it was taken from when no path reads that variable after the copy is written, a single-use binding substituted into
   the next statement's first evaluation (anywhere in it when it can neither fail nor act; never into a loop, nor into an
-  interpolation hole whose text the parser would read as a format specifier or an end of the string), a dead
+  interpolation hole an expression of its shape cannot stand in, `peHoleExprPrintable`), a dead
   store whose failure the next statement subsumes, `While true` whose body opens with its exit test as a `While` on
   that test, a never-written binding of `args()` read where it is used, `Show "{e}"` as `Show e`, a text built in steps
   as one text, a short-circuit the self-interpreter split into a branch and a second test as one test, and a guard whose failure the next step reports identically under the same condition: an operator's
@@ -46,7 +46,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   of known structure shown in a text item by item where a hole could not hold it, drops `copy of args()` wherever it
   stands, cuts every statement after an exit, and ends each level holding the header of a branch or loop whose blocks
   it emptied (`Let pkv__held be …`) when that header can fail. The pass runs to its fixpoint. `PE_DRIVER_CORE` (the
-  textbook projection, the resident-server and the cdylib engines) calls it.
+  textbook projection, the resident-server and the cdylib engines) calls it, and prints what it returns through the
+  decompiler's `decompileProgram`, after the sum types the specializer made when the residual names one
+  (`peWithSections`).
+- `optimize::memo_keys`: the specializers' memo keys, every value and statement keyed by its whole structure and
+  each part length-prefixed (`keyJoin`), between `KEYS_BEGIN` and `KEYS_END` in `pe_source.logos`; `dialect_keys`
+  gives the same functions under pe_mini's and pe_bti's suffixes, which those dialects hold and a lock holds equal,
+  and `dialect_key_signatures` the signatures the second and third projections restore on a specialization of one.
 - `core_operators::guards_source`: `peGuardCondition`, the finishing pass's reading of the operator table's guards,
   generated into `pe_source.logos` between `GUARDS_BEGIN` and `GUARDS_END` and locked to the table.
 - `model::spec::Mixer::Recurrent` (`ShortConv`, `Ssd`, `Selective`, `Parallel`, `DeltaAttention`, `Lightning`,
@@ -149,6 +155,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- The Rust tier builds a variant of an enum that holds itself boxed wherever the construction stands: an argument of
+  a call statement (`keep(a new Node with kids ks, out).`) was built in place and failed to compile (`has no field
+  named`). A construction takes the variant the program declares (`codegen::types::program_variant`) when the context
+  it is emitted in carries no registry.
+- The Rust tier copies a list parameter its function only reads into a list a variant owns when the variant stores
+  it (`Return a new Full with items xs.` failed with `expected LogosSeq, found &[T]`), as a record already did: one
+  predicate, `codegen::expr::holds_a_borrowed_slice`, answers both.
+- The Rust tier reads `item k of (f(x))` by a borrowed key when `f` declares a map, as a named map is read, and a read
+  whose collection no type reaches takes a copy of a key that is not `Copy`: a Text key read again was moved (`use of
+  moved value`).
+- RISC-V holds a `Duration` as its own kind (nanoseconds in an i64 slot), so an instant moves by a duration, two
+  instants differ by one and durations add, subtract and compare, never mistaken for an Int.
+- The online specializer (`pe_source.logos`) stands on its own: it compared two blocks and decided what an
+  interpolation hole could hold by printing them through the decompiler, and printed the residual itself, so every
+  program that runs the specializer without the decompiler failed (`Unknown function: decompileExpr`). Two blocks are
+  the same when they are equal; a hole holds an expression of a shape the decompiler prints inside `{…}`
+  (`peHoleExprPrintable`); `collectCallNames` and `collectExprCallNames`, the calls a block makes, move from the
+  decompiler to the specializer; the finishing pass returns the residual as data and the decompiler prints a program
+  (`decompileProgram`).
+- pe_mini and pe_bti keyed every closure alike (`cl`) and joined a key's parts unprefixed, so two calls given
+  different closures shared one specialization; both hold the online specializer's keys (`optimize::memo_keys`) and
+  join by them.
+- The online specializer meant two things on two hosts: an `If` or `Inspect` whose branches leave a value of one shape
+  registers the shapes in the enclosing state, then matched each branch in that branch's state, a copy taken before
+  the shapes existed, which saw them only where the copy shared the enclosing registry (reference semantics). Each
+  branch state takes the enclosing registry before it is matched (`futamura_textbook_lock`,
+  `the_specializer_means_the_same_on_either_host`).
+- The online specializer forwarded a residual `Set x to E` as `x`'s known value when `E` names `x` (`Set v0 to (7 - (9
+  + v0))` then `Show (7 - (9 + v0))` printed 272 where the program prints -64), or when `x`'s known value was already a
+  residual expression (an unrolled `Set v2 to (v2 + 1)` compounded 64 deep, past the parser's limit); neither is
+  forwarded (`pe_jones_fuzz`).
+- The specializer's helpers are named apart from its dispatch (`peRefsOf`, `peWritesOfStmt`, …), so the second and
+  third projections' compilers hold no name of `peExpr`, `peStmt` or `peBlock`.
+- The self-interpreter's `coreCallBody` evaluates its calls before the `CoreReturn` it builds from their answers, so no
+  call stands after an `and` (`mix_bta`'s short-circuit lock).
+- A natively compiled bootstrap engine compiles inside the reference scope where its bootstrap program is named: the
+  helper that took any source into the scope is gone (`bootstrap_scope_lock`).
+- The effect analysis counts no name a function binds (a `Let`, a loop variable, `Pop … into`) among the reads and
+  writes its callers see, as it already counted none of its parameters' reads: a function that computes into a local
+  and returns is pure.
+- Five public docs linked private items (`rustdoc::private_intra_doc_links`, the docs site's gate).
+- Comptime table-ization read `f(x % K)` at `(x % K) + 1` over a table of `f(0)` … `f(K-1)`, but a remainder takes
+  its dividend's sign: a negative `x` read index 0 (`Index 0 out of bounds`) or the table's far end (a wrong value, on
+  every tier). `derive_range` bounds `e mod K` by `[0, K-1]` only when `e` cannot be negative, `[1-K, K-1]` otherwise.
+- The online specializer inlines a procedure whose specialized body ends in a bare `Return.`, which a call statement
+  drops: the self-interpreter's contract check returned early when it held, so `Require … otherwise …` in a function
+  stayed a call into the self-interpreter (951 units of dispatch).
+- The textbook first projection carries a program's reads of the clock as it carries its arguments: `today` and `now`
+  stay reads the residual makes when it runs (the specializer never reads the clock), where it refused the program.
 - The optimizer's linear prover (`optimize::affine::{consistent, prove}`) eliminates under a budget of 4,096
   constraints a step (`lia::fourier_motzkin_unsat_within`): a system past it counts as satisfiable and its goal as
   not proven, so loop-interleaved recursion the inliner unfolds compiles (`largo run` never finished on it).
@@ -240,7 +295,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   structure (`stmtToKeyPart` covers every statement, `exprToKeyPart` every expression) (`futamura_textbook_lock`,
   `two_functions_run_one_block_under_their_own_parameters`, `two_closures_passed_to_one_function_keep_their_bodies`).
 - `mix.logos`: a static block whose run failed went on with an empty store.
-- The decompiler's `collectCallNames` reads a range loop's bounds and body, so a function called only inside one is
+- `collectCallNames` reads a range loop's bounds and body, so a function called only inside one is
   emitted (the direct first projection printed `Unknown function`).
 - The textbook first projection of a recursive procedure writing through a `mutable` parameter, called on a value the
   specializer knows only in part (`parseInt("3")`), left a residual reading a leaf it never declared (`Undefined

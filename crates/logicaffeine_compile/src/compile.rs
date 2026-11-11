@@ -165,7 +165,7 @@ pub fn interpret_program(source: &str) -> Result<String, ParseError> {
 /// ([`with_reference_semantics`]): those programs thread their state through `mutable` parameters and
 /// are written for the in-place writes of reference semantics. A user program never runs here.
 ///
-/// It runs on the tree-walker, on a thread of its own ([`on_bootstrap_stack`]). A bootstrap program runs once per
+/// It runs on the tree-walker, on a thread of its own (`on_bootstrap_stack`). A bootstrap program runs once per
 /// projection, and compiling the specializer's few thousand lines to bytecode costs several times the run itself.
 pub fn interpret_bootstrap(source: &str) -> Result<String, ParseError> {
     let source = source.to_string();
@@ -11917,7 +11917,7 @@ fn mix_cdylib_shim() -> String {
 /// under the reference collection semantics, followed by its FFI entry.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn native_mix_cdylib_lib_rs() -> Result<String, String> {
-    let generated = compile_bootstrap_engine(&mix_cdylib_source())
+    let generated = with_reference_semantics(|| crate::codegen::with_blocking_waits(|| compile_program_full_with_wire(&mix_cdylib_source())))
         .map_err(|e| format!("native mix cdylib compile: {}", describe_parse_error(&e)))?
         .rust_code;
     Ok(format!("{generated}\n{}", mix_cdylib_shim()))
@@ -11959,7 +11959,7 @@ fn self_interpreter_open_source() -> String {
     )
 }
 
-/// `sint²`: the self-interpreter's run ([`self_interpreter_open_source`]) as a two-level program, the program it
+/// `sint²`: the self-interpreter's run (`self_interpreter_open_source`) as a two-level program, the program it
 /// runs static.
 pub fn self_interpreter_two_level() -> Result<crate::optimize::mix_bta::TwoLevelProgram, String> {
     let tree = program_to_core_tree(&self_interpreter_open_source())
@@ -11987,8 +11987,9 @@ pub fn specializer_two_level() -> Result<crate::optimize::mix_bta::TwoLevelProgr
 }
 
 /// A first projection of a program (`tree`, its `CProg`) that reads an input only when it runs is refused: the
-/// projection would read it while specializing. Its first projection keeps that input dynamic.
-fn refuse_run_time_input(tree: &CoreNode, arguments_dynamic: bool) -> Result<(), String> {
+/// projection would read it while specializing. Its first projection keeps that input dynamic. `run_carried`: the
+/// projection reads the program's arguments and the clock where the program reads them, when it runs.
+fn refuse_run_time_input(tree: &CoreNode, run_carried: bool) -> Result<(), String> {
     let functions: std::collections::HashSet<String> = match tree {
         CoreNode::Ind(c, parts) if c == "CProg" => match parts.first() {
             Some(CoreNode::List(fs)) => fs
@@ -12005,7 +12006,7 @@ fn refuse_run_time_input(tree: &CoreNode, arguments_dynamic: bool) -> Result<(),
         },
         _ => Default::default(),
     };
-    match run_time_input(tree, &functions, arguments_dynamic) {
+    match run_time_input(tree, &functions, run_carried) {
         Some(input) => Err(format!(
             "the program reads {input} when it runs: its first projection keeps that input dynamic, which the \
              self-interpreter's specialization does not carry yet"
@@ -12014,24 +12015,24 @@ fn refuse_run_time_input(tree: &CoreNode, arguments_dynamic: bool) -> Result<(),
     }
 }
 
-/// The first input a program reads only when it runs, in words, if it reads one: its arguments (unless
-/// `arguments_dynamic`: the specialization reads them as a run-time `args()`), the clock, the console or a file, or any
+/// The first input a program reads only when it runs, in words, if it reads one: its arguments and the clock (unless
+/// `run_carried`: the specialization reads them as a run-time `args()`, `today` and `now`), the console or a file, or any
 /// builtin whose answer is not a function of its arguments (a random draw, the environment, the page, storage). The
 /// self-interpreter makes such a read where the program makes it, so specializing it to the program alone would make
 /// the read while specializing. A call by the name of one of the program's `functions` is the program's own. The offline
 /// binding-time analysis reads the same reads as dynamic in a program with a dynamic input.
-pub(crate) fn run_time_input(node: &CoreNode, functions: &std::collections::HashSet<String>, arguments_dynamic: bool) -> Option<String> {
+pub(crate) fn run_time_input(node: &CoreNode, functions: &std::collections::HashSet<String>, run_carried: bool) -> Option<String> {
     use crate::semantics::builtins::{builtin_from_name, system_native, BuiltinEffect};
     match node {
         CoreNode::Ind(c, args) => {
             let read = match c.as_str() {
-                "CTimeNow" | "CDateToday" => Some("the clock".to_string()),
+                "CTimeNow" | "CDateToday" => (!run_carried).then(|| "the clock".to_string()),
                 "CReadConsole" => Some("the console".to_string()),
                 "CReadFile" => Some("a file".to_string()),
                 "CCall" | "CCallS" => match args.first() {
                     Some(CoreNode::Text(name)) if functions.contains(name) => None,
                     Some(CoreNode::Text(name)) if name == "args" => {
-                        (!arguments_dynamic).then(|| "its arguments (`args()`)".to_string())
+                        (!run_carried).then(|| "its arguments (`args()`)".to_string())
                     }
                     Some(CoreNode::Text(name)) => {
                         let arity = match args.get(1) {
@@ -12047,9 +12048,9 @@ pub(crate) fn run_time_input(node: &CoreNode, functions: &std::collections::Hash
                 },
                 _ => None,
             };
-            read.or_else(|| args.iter().find_map(|a| run_time_input(a, functions, arguments_dynamic)))
+            read.or_else(|| args.iter().find_map(|a| run_time_input(a, functions, run_carried)))
         }
-        CoreNode::List(items) => items.iter().find_map(|a| run_time_input(a, functions, arguments_dynamic)),
+        CoreNode::List(items) => items.iter().find_map(|a| run_time_input(a, functions, run_carried)),
         _ => None,
     }
 }
@@ -12214,7 +12215,7 @@ impl NativeResidual {
         let shim = native_engine_shim("logos_residual_answer", "ResidualInput", "residualAnswer");
         let key = aot_cache_key(&format!("{source}\n{shim}\n{BOOTSTRAP_SEMANTICS}"));
         let so = build_logos_cdylib("logos_native_residual_cdylib", "logos_native_residual_lib", &format!("residual_{key}"), EngineBuild::Residual, || {
-            let generated = compile_bootstrap_engine(&source)
+            let generated = with_reference_semantics(|| crate::codegen::with_blocking_waits(|| compile_program_full_with_wire(&source)))
                 .map_err(|e| format!("native residual compile: {}", describe_parse_error(&e)))?
                 .rust_code;
             Ok(format!("{generated}\n{shim}"))
@@ -12257,12 +12258,13 @@ pub fn run_native_mix_cogen(cogen: &str) -> Result<String, String> {
 
 /// The driver shared by the textbook first projection, the resident-server PE (`pe_native_source`, terminal statement
 /// writes the residual to stdout) and the in-process cdylib PE (`pe_cdylib_source`, terminal statement `Return`s it):
-/// specialize `encodedMain` against `encodedFuncMap`, then `peEmitProgram` emits the residual — every function it
-/// reaches once, each body and the main block through the specializer's finishing pass. Written at 0-base indent; the
-/// caller re-indents it under its enclosing arm.
+/// specialize `encodedMain` against `encodedFuncMap`; `peFinishProgram` finishes the residual — every function it
+/// reaches once, each body and the main block through the specializer's finishing pass — and the decompiler prints
+/// it, after the sum types the specializer made when the residual names them. Written at 0-base indent; the caller
+/// re-indents it under its enclosing arm.
 const PE_DRIVER_CORE: &str = r#"Let state be makePeState(a new Map of Text to CVal, encodedFuncMap, 200).
 Let residual be peBlock(encodedMain, state).
-Let output be peEmitProgram(residual, state)."#;
+Let output be peWithSections(decompileProgram(peFinishProgram(residual, state)), state)."#;
 
 /// The PE driver body with `last` appended as its terminal statement — the only line that differs
 /// between the stdout-writing server, the value-returning cdylib entry and the textbook projection.
@@ -12274,7 +12276,7 @@ fn pe_driver_body(last: &str) -> String {
 /// `CProgram` from stdin (over the fast wire codec) instead of a baked-in constructor. Compiled once (content-addressed
 /// on this text) with `WireEncode`/`WireDecode` emitted, it specializes any program handed to it as
 /// `program_to_core_wire_bytes` — the Futamura "compiler as an artifact", at native speed. Its driver body is
-/// [`PE_DRIVER_CORE`]; only `encodedMain`/`encodedFuncMap` come from `readWireProgram()` rather than the encoded program
+/// `PE_DRIVER_CORE`; only `encodedMain`/`encodedFuncMap` come from `readWireProgram()` rather than the encoded program
 /// text.
 pub fn pe_native_source() -> String {
     let core = CORE_TYPES_FOR_PE;
@@ -14366,18 +14368,12 @@ thread_local! {
 }
 
 /// The semantics every bootstrap program — the partial evaluator, its dialects, the self-interpreter, the decompiler,
-/// the wire encoder — compiles under ([`compile_bootstrap_engine`]): reference collections, so the state it threads
+/// the wire encoder — compiles under, each where its program is named: reference collections, so the state it threads
 /// through `mutable` parameters is mutated in place ([`crate::semantics::collections::with_reference_semantics`]), and
 /// blocking waits ([`crate::codegen::with_blocking_waits`]). Part of every cache key of a natively compiled bootstrap
 /// program, since the Rust it compiles to depends on it.
 #[cfg(not(target_arch = "wasm32"))]
 const BOOTSTRAP_SEMANTICS: &str = "collections: reference; waits: block";
-
-/// A bootstrap program's Rust, with the wire codec, under [`BOOTSTRAP_SEMANTICS`].
-#[cfg(not(target_arch = "wasm32"))]
-fn compile_bootstrap_engine(source: &str) -> Result<CompileOutput, ParseError> {
-    with_reference_semantics(|| crate::codegen::with_blocking_waits(|| compile_program_full_with_wire(source)))
-}
 
 /// Build (once, content-addressed) the compile-once native PE binary and return its path. Keyed
 /// on the generated Rust of [`pe_native_source`] + toolchain, so the one-time rustc compile of the
@@ -14405,7 +14401,7 @@ pub fn build_native_pe_binary() -> Result<std::path::PathBuf, String> {
         NATIVE_PE_BIN.with(|c| *c.borrow_mut() = Some(bin.clone()));
         return Ok(bin);
     }
-    let rust = compile_bootstrap_engine(&src)
+    let rust = with_reference_semantics(|| crate::codegen::with_blocking_waits(|| compile_program_full_with_wire(&src)))
         .map_err(|e| format!("native PE compile: {}", describe_parse_error(&e)))?
         .rust_code;
     std::fs::create_dir_all(proj.join("src")).map_err(|e| e.to_string())?;
@@ -14546,7 +14542,7 @@ fn pe_cdylib_shim() -> String {
 /// collection semantics, followed by its FFI entry.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn native_pe_cdylib_lib_rs() -> Result<String, String> {
-    let generated = compile_bootstrap_engine(&pe_cdylib_source())
+    let generated = with_reference_semantics(|| crate::codegen::with_blocking_waits(|| compile_program_full_with_wire(&pe_cdylib_source())))
         .map_err(|e| format!("native PE cdylib compile: {}", describe_parse_error(&e)))?
         .rust_code;
     Ok(format!("{generated}\n{}", pe_cdylib_shim()))
@@ -14554,7 +14550,7 @@ pub fn native_pe_cdylib_lib_rs() -> Result<String, String> {
 
 /// Build (and cache) the PE compiled as an IN-PROCESS cdylib exporting `logos_pe_specialize`.
 /// Mirrors [`build_native_pe_binary`] but emits a `cdylib` whose `lib.rs` is the generated PE engine
-/// ([`pe_cdylib_source`]) plus its `extern "C"` entry ([`native_engine_shim`]) that decodes the
+/// ([`pe_cdylib_source`]) plus its `extern "C"` entry (`native_engine_shim`) that decodes the
 /// wire `CProgram` and calls `peSpecializeOnce` directly — so the caller loads it once and
 /// specializes with a plain function call, no process, no pipe. Content-addressed on the (stable)
 /// cdylib PE source + shim + toolchain, so warm calls skip rustc.
@@ -15319,7 +15315,8 @@ pub fn projection2_source_real(
     // functions that carry type info. PE-generated specializations may still use "Any"
     // for types that couldn't be propagated through specialization. Apply type fixup
     // as a safety net for any remaining "Any" types in specialized function signatures.
-    let result = fix_decompiled_types(&result, &[
+    let key_signatures = crate::optimize::memo_keys::dialect_key_signatures("M");
+    let mut signatures: Vec<(&str, &str)> = vec![
         ("peExprM_", "(e: CExpr) -> CExpr:"),
         ("peBlockM_", "(stmts: Seq of CStmt) -> Seq of CStmt:"),
         ("checkLiteralM_", "(e: CExpr) -> Bool:"),
@@ -15332,7 +15329,6 @@ pub fn projection2_source_real(
         ("extractReturnM_", "(stmts: Seq of CStmt) -> CExpr:"),
         ("validateExtractReturnM_", "(result: CExpr) and (bodyStmts: Seq of CStmt) -> CExpr:"),
         ("makeKeyM_", "(fnName: Text) and (args: Seq of CExpr) -> Text:"),
-        ("exprToKeyPartM_", "(e: CExpr) -> Text:"),
         ("collectSetVarsM_", "(stmts: Seq of CStmt) -> Seq of Text:"),
         ("peEnvM_", "(st: PEMiniState) -> Map of Text to CVal:"),
         ("peFuncsM_", "(st: PEMiniState) -> Map of Text to CFunc:"),
@@ -15341,7 +15337,9 @@ pub fn projection2_source_real(
         ("peMemoCacheM_", "(st: PEMiniState) -> Map of Text to CExpr:"),
         ("peStateWithEnvDepthM_", "(st: PEMiniState) and (newEnv: Map of Text to CVal) and (d: Int) -> PEMiniState:"),
         ("peStateWithEnvDepthStaticM_", "(st: PEMiniState) and (newEnv: Map of Text to CVal) and (d: Int) and (newSe: Map of Text to CExpr) -> PEMiniState:"),
-    ]);
+    ];
+    signatures.extend(key_signatures.iter().map(|(name, signature)| (name.as_str(), signature.as_str())));
+    let result = fix_decompiled_types(&result, &signatures);
 
     // Discover the PE-generated block entry point — this IS the compiler.
     let (block_entry, expr_entry) = discover_entry_points(&result, "peBlockM_", "peExprM_");
@@ -15572,33 +15570,31 @@ pub fn projection3_source_real(_core_types: &str) -> Result<GenuineProjectionRes
     let result = with_reference_semantics(|| run_logos_source(&combined))?;
 
     // Fix decompiled types for pe_bti specialized functions (B suffix)
-    // Fix decompiled types for pe_bti specialized functions (B suffix)
-    let result = fix_decompiled_types(
-        &result,
-        &[
-            ("peExprB_", "(e: CExpr) -> CExpr:"),
-            ("peBlockB_", "(stmts: Seq of CStmt) -> Seq of CStmt:"),
-            ("isStatic_", "(e: CExpr) -> Bool:"),
-            ("isLiteral_", "(e: CExpr) -> Bool:"),
-            ("allStatic_", "(args: Seq of CExpr) -> Bool:"),
-            ("exprToVal_", "(e: CExpr) -> CVal:"),
-            ("valToExpr_", "(v: CVal) -> CExpr:"),
-            (
-                "evalBinOp_",
-                "(binOp: Text) and (lv: CVal) and (rv: CVal) -> CVal:",
-            ),
-            ("isCopyPropSafe_", "(e: CExpr) -> Bool:"),
-            ("isVNothing_", "(v: CVal) -> Bool:"),
-            ("hasReturn_", "(stmts: Seq of CStmt) -> Bool:"),
-            ("extractReturnB_", "(stmts: Seq of CStmt) -> CExpr:"),
-            (
-                "makeKey_",
-                "(fnName: Text) and (args: Seq of CExpr) -> Text:",
-            ),
-            ("exprToKeyPartB_", "(e: CExpr) -> Text:"),
-            ("collectSetVars_", "(stmts: Seq of CStmt) -> Seq of Text:"),
-        ],
-    );
+    let key_signatures = crate::optimize::memo_keys::dialect_key_signatures("B");
+    let mut signatures: Vec<(&str, &str)> = vec![
+        ("peExprB_", "(e: CExpr) -> CExpr:"),
+        ("peBlockB_", "(stmts: Seq of CStmt) -> Seq of CStmt:"),
+        ("isStatic_", "(e: CExpr) -> Bool:"),
+        ("isLiteral_", "(e: CExpr) -> Bool:"),
+        ("allStatic_", "(args: Seq of CExpr) -> Bool:"),
+        ("exprToVal_", "(e: CExpr) -> CVal:"),
+        ("valToExpr_", "(v: CVal) -> CExpr:"),
+        (
+            "evalBinOp_",
+            "(binOp: Text) and (lv: CVal) and (rv: CVal) -> CVal:",
+        ),
+        ("isCopyPropSafe_", "(e: CExpr) -> Bool:"),
+        ("isVNothing_", "(v: CVal) -> Bool:"),
+        ("hasReturn_", "(stmts: Seq of CStmt) -> Bool:"),
+        ("extractReturnB_", "(stmts: Seq of CStmt) -> CExpr:"),
+        (
+            "makeKey_",
+            "(fnName: Text) and (args: Seq of CExpr) -> Text:",
+        ),
+        ("collectSetVars_", "(stmts: Seq of CStmt) -> Seq of Text:"),
+    ];
+    signatures.extend(key_signatures.iter().map(|(name, signature)| (name.as_str(), signature.as_str())));
+    let result = fix_decompiled_types(&result, &signatures);
 
     // Discover the PE-generated block entry point — this IS the cogen.
     let (block_entry, expr_entry) = discover_entry_points(&result, "peBlockB_", "peExprB_");
