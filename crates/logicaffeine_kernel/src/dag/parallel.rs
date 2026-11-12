@@ -144,6 +144,11 @@ pub fn run(path: Option<PathBuf>, engine: Engine, threads: usize) -> ! {
         let t = threads.clamp(1, n.max(1));
         let child_budget = child_session_values();
         let chunk = parallel_chunk();
+        // Drop the environment-building session before forking. It holds the values and caches of the
+        // in-place checks at the wide single-core budget; left in place, every worker inherits it
+        // copy-on-write and privatizes its pages as it re-checks, multiplying it across the workers.
+        // A worker builds its own session from empty — only the frozen environment is shared.
+        k.drop_session();
         // A cursor in shared memory hands the workers chunks of leaves to re-check; every leaf reads
         // only the frozen environment its predecessors built, so any claim order is a sequential
         // replay of the serial check.

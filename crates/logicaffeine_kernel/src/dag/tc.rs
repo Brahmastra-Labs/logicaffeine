@@ -260,6 +260,13 @@ impl Kernel {
         }
     }
 
+    /// Drops the value-engine session, freeing its values and caches. The environment is untouched;
+    /// the next check builds a session from empty. A forked parallel run calls this before forking so
+    /// the workers do not each inherit and privatize the environment-building session.
+    pub fn drop_session(&mut self) {
+        self.sem = None;
+    }
+
     /// Starts checking one declaration: fresh local context, caches, and scratch region.
     pub fn begin_decl(&mut self, lparams: Rc<[NameId]>, safety: Safety) {
         self.lctx.clear();
