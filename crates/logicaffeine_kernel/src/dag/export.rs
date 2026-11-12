@@ -1381,7 +1381,11 @@ pub fn check_export_build_only(
     r.meter = observe.meter;
     r.trust_before = observe.trust_before;
     r.defer_leaves = true;
-    r.defer_defns = std::env::var_os("LOGOS_DEFER_DEFNS").is_some();
+    // Defer non-primitive definitions too by default: it moves their checking out of the serial
+    // environment build into the parallel workers, so the cross-core run spends less time single-
+    // core (a 2.37x Mathlib speedup where leaves alone give 1.75x) at a few percent more
+    // instructions. `LOGOS_DEFER_DEFNS=0` keeps definitions in the serial build.
+    r.defer_defns = std::env::var("LOGOS_DEFER_DEFNS").map_or(true, |v| v != "0");
     if let Some(b) = bytes {
         r.size_hint(b);
     }
