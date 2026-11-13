@@ -26,6 +26,7 @@ fn the_memory_report_counts_every_store_of_a_session() {
         scoped_checked,
         scope: _,
         proven,
+        neq,
         failure,
         depth: _,
         level: _,
@@ -52,6 +53,7 @@ fn the_memory_report_counts_every_store_of_a_session() {
         + safe_checked.bytes()
         + scoped_checked.bytes()
         + proven.bytes()
+        + neq.bytes()
         + failure.bytes()
         + atoms.capacity() * size_of::<(u32, u32, u32)>();
     assert!(loose > 200 * 4 * 30, "the sets' own words are counted");
