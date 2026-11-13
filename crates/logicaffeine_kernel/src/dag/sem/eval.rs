@@ -422,9 +422,10 @@ impl Sem<'_> {
         let mut fv = self.eval(env, f)?;
         let mut i = 0;
         while i < args.len() {
+            let fval = self.st.arena.get(fv);
             if let Val::Lam {
                 env: cenv, body, ..
-            } = self.st.arena.get(fv)
+            } = fval
             {
                 let a = self.eval(env, args[i])?;
                 let mut benv = self.st.arena.extend(cenv, a);
@@ -442,7 +443,7 @@ impl Sem<'_> {
                 fv = self.eval(benv, b)?;
             } else {
                 let a = self.eval(env, args[i])?;
-                if !matches!(self.st.arena.get(fv), Val::Neu { .. }) {
+                if !matches!(fval, Val::Neu { .. }) {
                     return Err(not_a_function());
                 }
                 let n = args.len() - i;

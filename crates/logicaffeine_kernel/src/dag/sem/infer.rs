@@ -92,7 +92,6 @@ impl Sem<'_> {
     #[inline(never)]
     fn infer_miss(&mut self, env: EnvId, ctx: CtxId, e: ExprId, check: bool) -> KResult<V> {
         let node = self.k.s.node(e);
-        let lparams = self.k.s.has_lparam(e);
         self.enter()?;
         let r = self.infer_uncached(env, ctx, e, node, check);
         self.leave();
@@ -101,7 +100,7 @@ impl Sem<'_> {
         if check {
             if self.k.safety != Safety::Safe {
                 self.st.check_cache.insert(key, t.0);
-            } else if !lparams {
+            } else if !self.k.s.has_lparam(e) {
                 self.st.safe_checked.insert(key, t.0);
             } else {
                 self.st
@@ -109,7 +108,10 @@ impl Sem<'_> {
                     .insert((self.st.scope, env.0, e.0), t.0);
             }
         }
-        if !self.st.infer_cache.contains(&key) {
+        // A `check == false` miss was reached through a missing `infer_cache` probe (remembered_type)
+        // and the recursion inserts only strict sub-terms, so this key is still absent: insert it
+        // directly. A `check == true` miss never probed `infer_cache`, so there the guard stays.
+        if !check || !self.st.infer_cache.contains(&key) {
             self.st.infer_cache.insert(key, t.0);
         }
         Ok(t)
@@ -311,8 +313,17 @@ impl Sem<'_> {
         let mut fty = self.infer(env, ctx, f, check)?;
         for &a in args.iter() {
             let w = self.whnf(fty)?;
-            let (dom, body) = match self.st.arena.get(w) {
-                Val::Pi { dom, body, .. } | Val::PiLam { dom, body, .. } => (dom, body),
+            // The closure's own environment (and, for a Π whose codomain is a yet-uninferred
+            // lambda type, its context) is bound here, so the body is instantiated inline below
+            // without reading `w` a second time inside `instantiate`.
+            let (dom, body, cenv, cctx) = match self.st.arena.get(w) {
+                Val::Pi { dom, env, body } => (dom, body, env, None),
+                Val::PiLam {
+                    dom,
+                    env,
+                    ctx,
+                    body,
+                } => (dom, body, env, Some(ctx)),
                 _ => return Err(self.function_expected(w)),
             };
             if check {
@@ -326,7 +337,14 @@ impl Sem<'_> {
             } else {
                 self.eval(env, a)?
             };
-            fty = self.instantiate(w, av)?;
+            let env2 = self.st.arena.extend(cenv, av);
+            fty = match cctx {
+                None => self.eval(env2, body)?,
+                Some(ctx) => {
+                    let ctx2 = self.st.arena.ctx_extend(ctx, dom);
+                    self.infer(env2, ctx2, body, false)?
+                }
+            };
         }
         Ok(fty)
     }

@@ -51,6 +51,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   it built `Box`ed trees; `Levels::substitution` and `Levels::subst_list` build their lists in a `SmallVec`;
   `dag::sem`'s constant inference reads the universe list in place; `dag::sem::value::Arena::args` returns a
   `SmallVec<[V; 16]>`.
+- The value engine remembers the pairs the complete conversion decision found *not* definitionally equal (`dag::sem`'s
+  `neq` cache, beside `proven`): the decision is total — running out of steps is an error, never a `false` — so a pair a
+  later check meets again is one lookup where the whole decision ran before. Two applications of one interned head compare
+  their arguments without rebuilding and comparing that head, a neutral's spine is read argument by argument through the
+  store rather than copied to a list, `Sem::eval`'s application loop reads the function value once a step, a Π's codomain
+  is instantiated from the closure already in hand, and a proven or unequal verdict is written straight to its cache when
+  the pair is known absent from it. Every verdict is unchanged.
 
 ### Fixed
 

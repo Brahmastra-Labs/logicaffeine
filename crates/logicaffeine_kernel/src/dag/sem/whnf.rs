@@ -177,8 +177,13 @@ impl Sem<'_> {
     /// Full weak-head normal form.
     #[inline]
     pub fn whnf(&mut self, v: V) -> KResult<V> {
-        if !matches!(self.st.arena.get(v), Val::Neu { .. }) {
-            return Ok(v);
+        match self.st.arena.get(v) {
+            // A local variable and an opaque head (axiom, opaque definition, inductive type) never
+            // head-reduce, applied or not, so they are already in weak-head-normal form — returning
+            // them here skips the memo probe and the reduction loop a variable pays on every binder.
+            Val::Neu { kind: Kind::Local | Kind::Opaque, .. } => return Ok(v),
+            Val::Neu { .. } => {}
+            _ => return Ok(v),
         }
         match self.st.arena.whnf_memo(v) {
             Some(r) => Ok(r),
@@ -406,9 +411,11 @@ impl Sem<'_> {
         let CKind::Rec(info) = &c.kind else {
             return Ok(None);
         };
-        let args = self.st.arena.args(spine);
         let major_idx = info.major_idx();
-        let Some(&major0) = args.get(major_idx) else {
+        // Only the major premise is needed before the reduction below decides whether this
+        // recursor fires; the full argument list is read once, on the firing path, after the
+        // major has reduced to a constructor — so a stuck recursor copies no spine.
+        let Some(major0) = self.st.arena.arg(spine, major_idx) else {
             return Ok(None);
         };
         let mut major = major0;
@@ -456,6 +463,7 @@ impl Sem<'_> {
                 r
             }
         };
+        let args = self.st.arena.args(spine);
         let mut r = self.apply_all(rhs, &args[..info.first_index_idx()])?;
         r = self.apply_all(r, &margs[margs.len() - nfields..])?;
         r = self.apply_all(r, &args[major_idx + 1..])?;

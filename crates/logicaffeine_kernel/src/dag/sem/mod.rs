@@ -101,6 +101,11 @@ pub struct State {
     scope: u32,
     /// Pairs of values proven definitionally equal.
     proven: Table<(u32, u32)>,
+    /// Pairs of values found *not* definitionally equal by the complete decision — every rule,
+    /// η and proof irrelevance included — so re-deciding a pair conversion already settled as
+    /// unequal is one lookup. A `false` verdict is total (running out of steps is an error, never
+    /// a `false`), and conversion is a function of the interned pair, so the fact keeps.
+    neq: Table<(u32, u32)>,
     /// Pairs of applications of one definition whose arguments were found to differ.
     failure: Table<(u32, u32)>,
     depth: u32,
@@ -157,6 +162,7 @@ impl Default for State {
             scoped_checked: Table::new(),
             scope: 0,
             proven: Table::new(),
+            neq: Table::new(),
             failure: Table::new(),
             depth: 0,
             level: 0,
@@ -225,6 +231,7 @@ impl State {
         self.safe_checked.clear();
         self.scoped_checked.clear();
         self.proven.clear();
+        self.neq.clear();
         self.failure.clear();
         self.scratch_seen = false;
     }
@@ -243,7 +250,7 @@ impl State {
         ));
         r.push((
             "value engine: conversion caches",
-            self.proven.bytes() + self.failure.bytes(),
+            self.proven.bytes() + self.neq.bytes() + self.failure.bytes(),
         ));
         r.push((
             "value engine: constant caches",

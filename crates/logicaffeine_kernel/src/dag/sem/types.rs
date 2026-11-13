@@ -47,7 +47,9 @@ impl Sem<'_> {
                         self.proj_type(s, idx, x, xt, false)?
                     }
                 };
-                for a in self.st.arena.args(spine) {
+                let n = self.st.arena.spine_len(spine);
+                for i in 0..n {
+                    let a = self.st.arena.spine_arg(spine, i);
                     let w = self.whnf(ty)?;
                     ty = self.instantiate(w, a)?;
                 }
@@ -248,15 +250,24 @@ impl Sem<'_> {
         if iname != sname {
             return Err(fail(self));
         }
-        let Some(ind) = self.k.env.inductive(iname).cloned() else {
-            return Err(fail(self));
+        let (ctor0, nctors, num_params, num_indices) = {
+            let Some(ind) = self.k.env.inductive(iname) else {
+                return Err(fail(self));
+            };
+            (
+                ind.ctors.first().copied(),
+                ind.ctors.len(),
+                ind.num_params,
+                ind.num_indices,
+            )
         };
         let targs = self.st.arena.args(tsp);
-        if ind.ctors.len() != 1 || targs.len() != (ind.num_params + ind.num_indices) as usize {
+        if nctors != 1 || targs.len() != (num_params + num_indices) as usize {
             return Err(fail(self));
         }
-        let mut r = self.const_type(ind.ctors[0], ils)?;
-        for arg in targs.iter().take(ind.num_params as usize) {
+        let ctor0 = ctor0.expect("a single-constructor inductive has its constructor");
+        let mut r = self.const_type(ctor0, ils)?;
+        for arg in targs.iter().take(num_params as usize) {
             let w = self.whnf(r)?;
             if !matches!(self.st.arena.get(w), Val::Pi { .. } | Val::PiLam { .. }) {
                 return Err(fail(self));

@@ -55,13 +55,17 @@ impl Sem<'_> {
     /// `t ≡ s`.
     #[inline]
     pub fn is_def_eq(&mut self, t: V, s: V) -> KResult<bool> {
-        if t == s {
+        if self.known_equal(t, s) {
             return Ok(true);
+        }
+        if self.st.neq.contains(&key(t, s)) {
+            return Ok(false);
         }
         self.decide_def_eq(t, s)
     }
 
-    /// `t ≡ s` for two distinct values, decided and, when proven, remembered.
+    /// `t ≡ s` for two distinct values, decided and remembered: as proven when equal, as unequal
+    /// otherwise (so the complete decision runs once per pair).
     #[inline(never)]
     fn decide_def_eq(&mut self, t: V, s: V) -> KResult<bool> {
         self.enter()?;
@@ -70,6 +74,8 @@ impl Sem<'_> {
         let r = r?;
         if r {
             self.note_proven(t, s);
+        } else {
+            self.note_neq(t, s);
         }
         Ok(r)
     }
@@ -168,7 +174,10 @@ impl Sem<'_> {
             _ => false,
         };
         if r {
-            self.note_proven(a, b);
+            // `known_equal(a, b)` was false at the top of this call, and the recursion only ever
+            // proves strict sub-values (whose pair keys differ from this one), so key(a, b) is
+            // still absent from `proven`: insert it directly, without note_proven's presence probe.
+            self.st.proven.insert(key(a, b), 1);
         }
         r
     }
@@ -179,6 +188,22 @@ impl Sem<'_> {
         if !self.st.proven.contains(&k) {
             self.st.proven.insert(k, 1);
         }
+    }
+
+    /// Remember that `a` and `b` are not definitionally equal. A lambda on either side is left
+    /// out: η-expansion compares a lambda against the other side applied to a fresh variable, so a
+    /// lambda's inequality is not the pair's alone, and the common unequal pairs are headed
+    /// neutrals anyway.
+    #[inline]
+    fn note_neq(&mut self, a: V, b: V) {
+        if matches!(self.st.arena.get(a), Val::Lam { .. })
+            || matches!(self.st.arena.get(b), Val::Lam { .. })
+        {
+            return;
+        }
+        // Reached only from decide_def_eq, where is_def_eq already found key(a, b) absent from
+        // `neq` and the recursion inserts only sub-pairs — so insert directly, no presence probe.
+        self.st.neq.insert(key(a, b), 1);
     }
 
     fn heads_equiv(&mut self, h1: super::value::HeadId, h2: super::value::HeadId) -> bool {
@@ -465,17 +490,25 @@ impl Sem<'_> {
         {
             return Ok(false);
         }
-        let ht = self.bare_head(k1, h1);
-        let hs = self.bare_head(k2, h2);
-        if !self.is_def_eq(ht, hs)? {
-            return Ok(false);
+        // Identical heads (one interned id) are definitionally equal without building their bare
+        // values and comparing them — the common case when congruence reaches two applications of
+        // one function whose arguments differ.
+        if h1 != h2 {
+            let ht = self.bare_head(k1, h1);
+            let hs = self.bare_head(k2, h2);
+            if !self.is_def_eq(ht, hs)? {
+                return Ok(false);
+            }
         }
         let proofs = self.shared_proof_args(h1, h2)?;
-        let (a1, a2) = (self.st.arena.args(s1), self.st.arena.args(s2));
-        for (i, (a, b)) in a1.iter().zip(a2.iter()).enumerate() {
+        let n = self.st.arena.spine_len(s1);
+        for i in 0..n {
             let proof = i < crate::dag::relevance::MAX_TRACKED && (proofs >> i) & 1 == 1;
-            if !proof && !self.is_def_eq(*a, *b)? {
-                return Ok(false);
+            if !proof {
+                let (a, b) = (self.st.arena.spine_arg(s1, i), self.st.arena.spine_arg(s2, i));
+                if !self.is_def_eq(a, b)? {
+                    return Ok(false);
+                }
             }
         }
         Ok(true)
@@ -488,21 +521,25 @@ impl Sem<'_> {
         h1: super::value::HeadId,
         h2: super::value::HeadId,
     ) -> KResult<u64> {
-        let (
-            Head::Const {
-                name: c1,
-                levels: l1,
-            },
-            Head::Const {
-                name: c2,
-                levels: l2,
-            },
-        ) = (self.st.arena.head(h1), self.st.arena.head(h2))
+        let Head::Const {
+            name: c1,
+            levels: l1,
+        } = self.st.arena.head(h1)
         else {
             return Ok(0);
         };
-        if c1 != c2 || !self.k.s.levels.equiv_lists(l1, l2) {
-            return Ok(0);
+        // One interned head is the same constant at the same levels as itself — no second read.
+        if h1 != h2 {
+            let Head::Const {
+                name: c2,
+                levels: l2,
+            } = self.st.arena.head(h2)
+            else {
+                return Ok(0);
+            };
+            if c1 != c2 || !self.k.s.levels.equiv_lists(l1, l2) {
+                return Ok(0);
+            }
         }
         Ok(self.signature(c1, l1)?.map_or(0, |s| s.proof_args()))
     }
