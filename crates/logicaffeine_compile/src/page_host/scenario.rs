@@ -1223,6 +1223,7 @@ pub fn compare_tests(
                 network: capabilities.network,
                 environment: capabilities.environment,
                 clock: capabilities.clock,
+                processes: capabilities.processes,
             };
             let test = interner.resolve(*name).to_string();
             let scenario = Scenario::new(

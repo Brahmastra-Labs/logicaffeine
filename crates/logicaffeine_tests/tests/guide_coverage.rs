@@ -344,6 +344,17 @@ fn guide_home(b: BuiltinId) -> Home {
             "file.lg's native seam (`## To native read`/`write`) shared by the tree-walker \
              and the VM; the file stdlib module's literate notes are the teaching surface",
         ),
+        B::ProcessRun => Home::Internal(
+            "process.lg's native seam (`## To native runProcessParts`) shared by every tier; \
+             `runProcess` and the process stdlib module's literate notes are the teaching surface",
+        ),
+        B::FileAppend | B::FileExists | B::FileListDir | B::FileMakeDirs | B::FileRename => {
+            Home::Internal(
+                "file.lg's native seams (`## To native appendFile`/`fileExists`/`listDir`/\
+                 `makeDirs`/`renameFile`) shared by every tier; the file stdlib module's literate \
+                 notes are the teaching surface",
+            )
+        }
         B::RandomInt | B::RandomFloat => Home::Internal(
             "random.lg's native seam (`## To native randomInt`/`randomFloat`) shared by the \
              tree-walker and the VM; the random stdlib module's literate notes are the \

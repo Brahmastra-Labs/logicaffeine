@@ -57,3 +57,21 @@ fn no_browser_builtin_is_pure() {
         }
     }
 }
+
+#[test]
+fn the_process_and_file_system_natives_touch_the_world() {
+    for b in [
+        BuiltinId::ProcessRun,
+        BuiltinId::FileAppend,
+        BuiltinId::FileExists,
+        BuiltinId::FileListDir,
+        BuiltinId::FileMakeDirs,
+        BuiltinId::FileRename,
+    ] {
+        assert_eq!(
+            b.effect(),
+            BuiltinEffect::Effectful,
+            "{b:?} touches the world: it may never be reordered, merged or removed"
+        );
+    }
+}

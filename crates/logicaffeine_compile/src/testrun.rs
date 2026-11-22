@@ -790,8 +790,10 @@ pub fn run_tests_with_launcher(
                 network: capabilities.network,
                 environment: capabilities.environment,
                 clock: capabilities.clock,
+                processes: capabilities.processes,
             };
-            let is_live = caps.filesystem || caps.network || caps.environment || caps.clock;
+            let is_live =
+                caps.filesystem || caps.network || caps.environment || caps.clock || caps.processes;
             let name_s = interner.resolve(*name).to_string();
             if let Some(f) = &config.filter {
                 if !name_s.contains(f.as_str()) {

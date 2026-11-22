@@ -1,0 +1,395 @@
+# HTTP client
+
+HTTP/1.1 requests from a LOGOS program — the client half that `http.lg`'s server half pairs with —
+written in LOGOS over the socket natives, the way `postgres.lg` speaks its protocol. An `https://`
+URL is reached through `tcpConnectTls`, which verifies the server's certificate against the bundled
+roots (and `LOGOS_TLS_EXTRA_ROOT`); an `http://` URL through `tcpConnect`.
+
+Every request is bounded. `timeoutMs` is the deadline for the whole exchange — connecting, sending
+and reading the reply — and a reply larger than `httpMaxReplyBytes()` is refused rather than held.
+A request asks the server to close the connection when it has answered (`Connection: close`) and
+asks for the body as it is (`Accept-Encoding: identity`), so a reply is read once and nothing is
+left open behind it.
+
+A reply's body is delimited the three ways HTTP/1.1 allows: by `Content-Length`, by chunked
+transfer coding (decoded here, trailers ignored), or by the server closing the connection. A body
+that ends short of its own framing is an `Err`, never a silently truncated `Ok`.
+
+What a program gets back is the status, the reason phrase, the headers — names lower-cased, a
+repeated header's values joined with `, ` — and the body. A non-2xx status is still an `Ok`: the
+server answered, and what the answer means is the caller's to decide. `Err` means no answer arrived.
+
+## Note
+Where a URL points: whether it is secured, the host, the port, and the request target (the path
+with its query, always starting with `/`).
+
+## A HttpUrl has:
+    a secure, which is Bool.
+    a host, which is Text.
+    a port, which is Int.
+    a target, which is Text.
+
+## Note
+A server's answer.
+
+## A HttpReply has:
+    a status, which is Int.
+    a reason, which is Text.
+    a headers, which is Map of Text to Text.
+    a body, which is Text.
+
+## Note
+The largest reply a request reads: 256 MiB. A server that sends more is refused, so a reply can
+never exhaust the program's memory by being large.
+
+## To httpMaxReplyBytes () -> Int:
+    Return 268435456.
+
+## Note
+Splits an `http://` or `https://` URL into where it points.
+
+Credentials inside the URL (`user:pass@host`) are refused, because a URL is logged and displayed far
+more often than it is kept secret — credentials travel in a header. A fragment (`#…`) never reaches
+the wire.
+
+## To httpParseUrl (url: Text) -> Result of HttpUrl and Text:
+    Let mutable secure be false.
+    Let mutable rest be "".
+    Let mutable known be false.
+    If startsWith(url, "https://"):
+        Set secure to true.
+        Set rest to removePrefix(url, "https://").
+        Set known to true.
+    If startsWith(url, "http://"):
+        Set rest to removePrefix(url, "http://").
+        Set known to true.
+    If known is equal to false:
+        Return a new Err with error "httpRequest: the url must start with http:// or https://, got {url}".
+    Set rest to cutBefore(rest, "#").
+    Let rb be text_bytes(rest).
+    Let n be length of rb.
+    Let mutable authority be a new Seq of Int.
+    Let mutable targetB be a new Seq of Int.
+    Let mutable inTarget be false.
+    Let mutable i be 1.
+    While i is at most n:
+        Let b be item i of rb.
+        If inTarget is equal to false and (b is equal to 47 or b is equal to 63):
+            Set inTarget to true.
+            If b is equal to 63:
+                Push 47 to targetB.
+        If inTarget:
+            Push b to targetB.
+        Otherwise:
+            Push b to authority.
+        Set i to i + 1.
+    If length of targetB is equal to 0:
+        Push 47 to targetB.
+    Let hostPort be text_from_bytes(authority).
+    If indexOf(hostPort, "@") is greater than 0:
+        Return a new Err with error "httpRequest: credentials in the url are refused; send them in a header".
+    If startsWith(hostPort, "["):
+        Return a new Err with error "httpRequest: a bracketed IPv6 host is not supported, got {hostPort}".
+    Let mutable hostVal be hostPort.
+    Let mutable portVal be 80.
+    If secure:
+        Set portVal to 443.
+    If indexOf(hostPort, ":") is greater than 0:
+        Set hostVal to cutBefore(hostPort, ":").
+        Let portText be cutAfter(hostPort, ":").
+        If allDigits(portText) is equal to false:
+            Return a new Err with error "httpRequest: the port must be a number, got {portText}".
+        Set portVal to parseInt(portText).
+        If portVal is less than 1 or portVal is greater than 65535:
+            Return a new Err with error "httpRequest: the port must be between 1 and 65535, got {portVal}".
+    If hostVal is equal to "":
+        Return a new Err with error "httpRequest: the url has no host, got {url}".
+    Return a new Ok with value (a new HttpUrl with secure secure and host hostVal and port portVal and target (text_from_bytes(targetB))).
+
+## Note
+The bytes of one request: its line, `Host`, the framing headers, the caller's headers and the body.
+
+`Host` carries the port when it is not the scheme's default. A caller's header that names the
+framing — `Host`, `Content-Length`, `Transfer-Encoding`, `Connection` — is refused: the client owns
+those, and a second, disagreeing copy is how a request is smuggled.
+
+## To httpRequestBytes (method: Text) and (u: HttpUrl) and (headers: Map of Text to Text) and (body: Text) -> Result of Seq of Int and Text:
+    If isHeaderName(method) is equal to false:
+        Return a new Err with error "httpRequest: the method is not a valid token, got {method}".
+    Let mutable hostHeader be u's host.
+    Let defaultPort be 80.
+    If u's secure:
+        If u's port is not 443:
+            Set hostHeader to "{u's host}:{u's port}".
+    Otherwise:
+        If u's port is not defaultPort:
+            Set hostHeader to "{u's host}:{u's port}".
+    Let bodyBytes be text_bytes(body).
+    Let mutable head be "{method} {u's target} HTTP/1.1\r\nHost: {hostHeader}\r\nUser-Agent: logos-httpclient/1\r\nAccept-Encoding: identity\r\nConnection: close\r\n".
+    If length of bodyBytes is greater than 0 or method is equal to "POST" or method is equal to "PUT" or method is equal to "PATCH":
+        Set head to head + "Content-Length: {length of bodyBytes}\r\n".
+    Repeat for (name, value) in headers:
+        If isHeaderName(name) is equal to false:
+            Return a new Err with error "httpRequest: header name is not a valid token, got {name}".
+        If isHeaderValue(value) is equal to false:
+            Return a new Err with error "httpRequest: header {name} holds a forbidden control byte".
+        Let low be lower(name).
+        If low is equal to "host" or low is equal to "content-length" or low is equal to "transfer-encoding" or low is equal to "connection":
+            Return a new Err with error "httpRequest: the client owns the {name} header".
+        Set head to head + "{name}: {value}\r\n".
+    Set head to head + "\r\n".
+    Let mutable out be text_bytes(head).
+    Repeat for b in bodyBytes:
+        Push b to out.
+    Return a new Ok with value out.
+
+## Note
+Where the header block ends in `buf`: the 1-based index of the first byte after the blank line,
+or 0 while the blank line has not arrived.
+
+## To httpHeadEnd (buf: Seq of Int) -> Int:
+    Let at be bytesIndexSub(buf, [13, 10, 13, 10]).
+    If at is equal to 0:
+        Return 0.
+    Return at + 4.
+
+## Note
+The status line and headers of a reply, from the bytes before the blank line: the status, the
+reason phrase and the header map (lower-cased names, repeated values joined with `, `).
+
+## To httpParseHead (buf: Seq of Int) and (bodyAt: Int) -> Result of HttpReply and Text:
+    Let mutable headB be a new Seq of Int.
+    Let mutable i be 1.
+    While i is less than bodyAt - 4:
+        Push item i of buf to headB.
+        Set i to i + 1.
+    Let headText be text_from_bytes(headB).
+    Let headLines be split(headText, "\r\n").
+    If length of headLines is equal to 0:
+        Return a new Err with error "httpRequest: the reply has no status line".
+    Let statusLine be item 1 of headLines.
+    If startsWith(statusLine, "HTTP/1.") is equal to false:
+        Return a new Err with error "httpRequest: the reply is not HTTP/1.x: {statusLine}".
+    Let afterVersion be cutAfter(statusLine, " ").
+    Let codeText be cutBefore(afterVersion, " ").
+    If allDigits(codeText) is equal to false or length of text_bytes(codeText) is not 3:
+        Return a new Err with error "httpRequest: the status code is malformed: {statusLine}".
+    Let mutable reasonText be "".
+    If indexOf(afterVersion, " ") is greater than 0:
+        Set reasonText to cutAfter(afterVersion, " ").
+    Let mutable hs be a new Map of Text to Text.
+    Let mutable k be 2.
+    While k is at most length of headLines:
+        Let line be item k of headLines.
+        If indexOf(line, ":") is equal to 0:
+            Return a new Err with error "httpRequest: a reply header has no colon: {line}".
+        Let name be lower(trim(cutBefore(line, ":"))).
+        Let value be trim(cutAfter(line, ":")).
+        If hs contains name:
+            Set item name of hs to (item name of hs) + ", " + value.
+        Otherwise:
+            Set item name of hs to value.
+        Set k to k + 1.
+    Return a new Ok with value (a new HttpReply with status (parseInt(codeText)) and reason reasonText and headers hs and body "").
+
+## Note
+Decodes a chunked body that starts at 1-based `at` in `buf`.
+
+`Ok` carries the body once the final zero-size chunk has arrived; `Err` with the text `incomplete`
+means more bytes are needed; any other `Err` is a malformed body.
+
+## To httpDechunk (buf: Seq of Int) and (at: Int) -> Result of Seq of Int and Text:
+    Let n be length of buf.
+    Let mutable out be a new Seq of Int.
+    Let mutable i be at.
+    While true:
+        Let mutable size be 0.
+        Let mutable digits be 0.
+        Let mutable sizing be true.
+        While sizing:
+            If i is greater than n:
+                Return a new Err with error "incomplete".
+            Let b be item i of buf.
+            Let isHex be (b is at least 48 and b is at most 57) or (b is at least 97 and b is at most 102) or (b is at least 65 and b is at most 70).
+            If isHex:
+                Set size to size * 16 + byteHexVal(b).
+                Set digits to digits + 1.
+                If size is greater than httpMaxReplyBytes():
+                    Return a new Err with error "httpRequest: a chunk is larger than the reply limit".
+                Set i to i + 1.
+            Otherwise:
+                Set sizing to false.
+        If digits is equal to 0:
+            Return a new Err with error "httpRequest: a chunk size is malformed".
+        Let mutable seekingEnd be true.
+        While seekingEnd:
+            If i + 1 is greater than n:
+                Return a new Err with error "incomplete".
+            If item i of buf is equal to 13 and item (i + 1) of buf is equal to 10:
+                Set i to i + 2.
+                Set seekingEnd to false.
+            Otherwise:
+                Set i to i + 1.
+        If size is equal to 0:
+            Return a new Ok with value out.
+        If i + size + 1 is greater than n:
+            Return a new Err with error "incomplete".
+        Let mutable j be 0.
+        While j is less than size:
+            Push item (i + j) of buf to out.
+            Set j to j + 1.
+        Set i to i + size.
+        If item i of buf is not 13 or item (i + 1) of buf is not 10:
+            Return a new Err with error "httpRequest: a chunk does not end with CRLF".
+        Set i to i + 2.
+    Return a new Err with error "incomplete".
+
+## Note
+Sends one request and reads its reply, under one deadline for the whole exchange.
+
+## To httpRequest (method: Text) and (url: Text) and (headers: Map of Text to Text) and (body: Text) and (timeoutMs: Int) -> Result of HttpReply and Text:
+    If timeoutMs is less than 1:
+        Return a new Err with error "httpRequest: timeoutMs must be positive, got {timeoutMs}".
+    Let started be now().
+    Inspect httpParseUrl(url):
+        When Err (why):
+            Return a new Err with error why.
+        When Ok (u):
+            Inspect httpRequestBytes(method, u, headers, body):
+                When Err (why):
+                    Return a new Err with error why.
+                When Ok (wire):
+                    Inspect httpOpen(u):
+                        When Err (why):
+                            Return a new Err with error "httpRequest: cannot connect to {u's host}:{u's port}: {why}".
+                        When Ok (c):
+                            Let answer be httpExchange(c, wire, method, started, timeoutMs).
+                            Let closed be tcpClose(c).
+                            Return answer.
+
+## Note
+Opens the connection a URL names: TLS for `https://`, plain TCP for `http://` — exactly one of
+them, so a secured URL is never first tried in the clear.
+
+## To httpOpen (u: HttpUrl) -> Result of Int and Text:
+    If u's secure:
+        Return tcpConnectTls(u's host, u's port).
+    Return tcpConnect(u's host, u's port).
+
+## Note
+The exchange on an open connection: send the request, then read until the reply's framing says it
+is complete (or the server closes), checking the deadline before every read.
+
+## To httpExchange (c: Int) and (wire: Seq of Int) and (method: Text) and (started: Int) and (timeoutMs: Int) -> Result of HttpReply and Text:
+    Let armed be tcpSetTimeout(c, timeoutMs).
+    Inspect tcpSend(c, wire):
+        When Err (why):
+            Return a new Err with error "httpRequest: cannot send the request: {why}".
+        When Ok (sent):
+            Let ignored be sent.
+    Let mutable buf be a new Seq of Int.
+    Let mutable bodyAt be 0.
+    Let mutable reading be true.
+    Let mutable closedByServer be false.
+    Let mutable parsed be a new HttpReply with status 0 and reason "" and headers (a new Map of Text to Text) and body "".
+    While reading:
+        If now() - started is greater than timeoutMs:
+            Return a new Err with error "httpRequest: no complete reply within {timeoutMs} ms".
+        Inspect tcpRecv(c, 65536):
+            When Err (why):
+                Return a new Err with error "httpRequest: reading the reply failed: {why}".
+            When Ok (piece):
+                If length of piece is equal to 0:
+                    Set closedByServer to true.
+                    Set reading to false.
+                Repeat for b in piece:
+                    Push b to buf.
+        If length of buf is greater than httpMaxReplyBytes():
+            Return a new Err with error "httpRequest: the reply is larger than {httpMaxReplyBytes()} bytes".
+        If bodyAt is equal to 0:
+            Set bodyAt to httpHeadEnd(buf).
+            If bodyAt is greater than 0:
+                Inspect httpParseHead(buf, bodyAt):
+                    When Err (why):
+                        Return a new Err with error why.
+                    When Ok (h):
+                        Set parsed to h.
+        If bodyAt is greater than 0:
+            Inspect httpBodyIfComplete(buf, bodyAt, parsed, method, closedByServer):
+                When Ok (done):
+                    Return a new Ok with value done.
+                When Err (why):
+                    If why is not "incomplete":
+                        Return a new Err with error why.
+        If closedByServer and bodyAt is equal to 0:
+            Return a new Err with error "httpRequest: the server closed the connection before the reply's headers ended".
+    Return a new Err with error "httpRequest: the server closed the connection before the reply was complete".
+
+## Note
+The reply with its body, once `buf` holds all of it: `Err` with the text `incomplete` while more
+is owed. A reply to `HEAD`, a 1xx, a 204 and a 304 carry no body whatever their headers say.
+
+## To httpBodyIfComplete (buf: Seq of Int) and (bodyAt: Int) and (h: HttpReply) and (method: Text) and (closed: Bool) -> Result of HttpReply and Text:
+    Let st be h's status.
+    If method is equal to "HEAD" or st is less than 200 or st is equal to 204 or st is equal to 304:
+        Return a new Ok with value h.
+    Let hs be h's headers.
+    Let n be length of buf.
+    If hs contains "transfer-encoding":
+        Let coding be item "transfer-encoding" of hs.
+        If lower(coding) is not "chunked":
+            Return a new Err with error "httpRequest: transfer coding {coding} is not supported".
+        Inspect httpDechunk(buf, bodyAt):
+            When Ok (bodyB):
+                Return a new Ok with value (a new HttpReply with status st and reason (h's reason) and headers hs and body (text_from_bytes(bodyB))).
+            When Err (why):
+                If why is equal to "incomplete" and closed:
+                    Return a new Err with error "httpRequest: the connection closed inside a chunked body".
+                Return a new Err with error why.
+    If hs contains "content-length":
+        Let lenText be trim(item "content-length" of hs).
+        If allDigits(lenText) is equal to false:
+            Return a new Err with error "httpRequest: Content-Length is malformed: {lenText}".
+        Let want be parseInt(lenText).
+        If want is greater than httpMaxReplyBytes():
+            Return a new Err with error "httpRequest: the reply is larger than {httpMaxReplyBytes()} bytes".
+        Let have be n - bodyAt + 1.
+        If have is less than want:
+            If closed:
+                Return a new Err with error "httpRequest: the connection closed after {have} of {want} body bytes".
+            Return a new Err with error "incomplete".
+        Let mutable bodyB be a new Seq of Int.
+        Let mutable i be bodyAt.
+        While i is less than bodyAt + want:
+            Push item i of buf to bodyB.
+            Set i to i + 1.
+        Return a new Ok with value (a new HttpReply with status st and reason (h's reason) and headers hs and body (text_from_bytes(bodyB))).
+    If closed:
+        Let mutable rest be a new Seq of Int.
+        Let mutable i be bodyAt.
+        While i is at most n:
+            Push item i of buf to rest.
+            Set i to i + 1.
+        Return a new Ok with value (a new HttpReply with status st and reason (h's reason) and headers hs and body (text_from_bytes(rest))).
+    Return a new Err with error "incomplete".
+
+## Note
+A `GET` with no body.
+
+## To httpGet (url: Text) and (headers: Map of Text to Text) and (timeoutMs: Int) -> Result of HttpReply and Text:
+    Return httpRequest("GET", url, headers, "", timeoutMs).
+
+## Note
+A `POST` of a JSON document, with `Content-Type: application/json` added unless the caller named
+a content type.
+
+## To httpPostJson (url: Text) and (headers: Map of Text to Text) and (body: Text) and (timeoutMs: Int) -> Result of HttpReply and Text:
+    Let mutable hs be a new Map of Text to Text.
+    Let mutable typed be false.
+    Repeat for (k, v) in headers:
+        Set item k of hs to v.
+        If lower(k) is equal to "content-type":
+            Set typed to true.
+    If typed is equal to false:
+        Set item "Content-Type" of hs to "application/json".
+    Return httpRequest("POST", url, hs, body, timeoutMs).

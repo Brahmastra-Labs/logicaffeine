@@ -15194,11 +15194,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             Some("network") => capabilities.network = true,
                             Some("environment") => capabilities.environment = true,
                             Some("clock") => capabilities.clock = true,
+                            Some("processes") => capabilities.processes = true,
                             other => {
                                 return Err(ParseError {
                                     kind: ParseErrorKind::Custom(format!(
                                         "unknown capability {:?} — a test may use the real \
-                                         filesystem, network, environment, or clock",
+                                         filesystem, network, environment, clock, or processes",
                                         other.unwrap_or_default()
                                     )),
                                     span: self.current_span(),

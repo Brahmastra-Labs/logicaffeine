@@ -1,0 +1,73 @@
+# Process
+
+Running another program and reading what it answered — the substrate a LOGOS program drives a
+compiler, a proof checker, an exporter or any other command-line tool with.
+
+A run is always BOUNDED. It names how long it may take and how much output it may keep, and both
+bounds are checked before anything starts: a tool that hangs is stopped at its deadline, and a tool
+that floods its output keeps running to completion while only the first `maxOutput` bytes of each
+stream are kept. Nothing a run starts outlives it — the program runs as the leader of a process group
+of its own, and when the run ends, by finishing or by its deadline, every process left in that group
+is stopped too.
+
+There is no shell. `program` is the executable (a path, or a name searched on `PATH`) and `args` are
+handed to it exactly as written: a space, a `$`, a `*` or a quote inside an argument is that
+character, never syntax. A program that wants a pipeline runs a shell itself, by name, and says so.
+
+The child's standard input is empty. Its environment is the running program's own, with each entry
+of `env` laid over it.
+
+Inside a `## Test` the world is sealed, and a sealed world starts no processes: a call answers `Err`
+unless the test grants `This test may use the real processes.` and runs under `largo test --live`.
+
+## Note
+What one finished run answers.
+
+`exitCode` is the code the program exited with. A program stopped by a signal has no code of its
+own, so it answers 128 plus the signal's number, the convention every POSIX shell reports (a run
+stopped at its deadline is killed by signal 9 and answers 137). `timedOut` says whether the deadline
+stopped it. `stdout` and `stderr` are what it wrote, decoded as UTF-8 with any invalid byte replaced
+by U+FFFD; `truncated` says whether either stream was longer than `maxOutput` bytes and was cut there.
+
+## A ProcessResult has:
+    an exitCode, which is Int.
+    a stdout, which is Text.
+    a stderr, which is Text.
+    a timedOut, which is Bool.
+    a truncated, which is Bool.
+
+## Note
+The engine's half of `runProcess`: the same run, answering its five parts as Text. Call `runProcess`.
+
+The parts are, in order, the exit code, standard output, standard error, then `true` or `false` for
+timed-out and truncated — so that no engine has to build a record of its own. `env` is a list of
+`NAME=value` entries; `runProcess` takes the environment as a map and answers the record.
+
+## To native runProcessParts (program: Text) and (args: Seq of Text) and (cwd: Text) and (env: Seq of Text) and (timeoutMs: Int) and (maxOutput: Int) -> Result of Seq of Text and Text
+
+## Note
+Runs `program` with `args`, bounded by `timeoutMs` and `maxOutput`, and answers what it did.
+
+`cwd` is the directory it runs in (the empty Text keeps the running program's own), `env` is laid
+over the inherited environment, the run lasts at most `timeoutMs` milliseconds, and at most
+`maxOutput` bytes of each output stream are kept.
+
+`Err` means the run never happened: the program could not be started, the directory does not exist,
+an environment name is empty or holds `=`, a bound is out of range, or the world is sealed. A
+program that started and then failed — a non-zero exit, a deadline — is an `Ok` whose record says so,
+because that failure is the program's answer, not the caller's mistake.
+
+## To runProcess (program: Text) and (args: Seq of Text) and (cwd: Text) and (env: Map of Text to Text) and (timeoutMs: Int) and (maxOutput: Int) -> Result of ProcessResult and Text:
+    Let mutable pairs be a new Seq of Text.
+    Repeat for (name, value) in env:
+        Push "{name}={value}" to pairs.
+    Inspect runProcessParts(program, args, cwd, pairs, timeoutMs, maxOutput):
+        When Ok (parts):
+            Let code be parseInt(item 1 of parts).
+            Let out be item 2 of parts.
+            Let err be item 3 of parts.
+            Let late be item 4 of parts is equal to "true".
+            Let cut be item 5 of parts is equal to "true".
+            Return a new Ok with value (a new ProcessResult with exitCode code and stdout out and stderr err and timedOut late and truncated cut).
+        When Err (why):
+            Return a new Err with error why.

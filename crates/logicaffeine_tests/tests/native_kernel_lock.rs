@@ -37,6 +37,12 @@ const SYSTEM_NATIVES: &[&str] = &[
     "tcpShutdownWrite",
     "tcpSetTimeout",
     "tcpClose",
+    "runProcessParts",
+    "appendFile",
+    "fileExists",
+    "listDir",
+    "makeDirs",
+    "renameFile",
 ];
 
 /// `(name, parameter count)` of every `## To native` declaration in the standard library.

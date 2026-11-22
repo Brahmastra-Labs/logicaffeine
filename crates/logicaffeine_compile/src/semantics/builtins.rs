@@ -16,6 +16,48 @@ use logicaffeine_base::{Decimal, LanesVal, Word16, Word32, Word64, Word8, WordVa
 /// A stdlib `Result` (core.lg: `Ok (value)` / `Err (error)`) as the executing
 /// tiers represent it — the shape `Inspect`'s `When Ok (…)`/`When Err (…)` arms
 /// match. The return seam for natives declared `-> Result …`.
+/// A native's `Text` argument, or the stop every tier reports for a wrong-typed one.
+fn text_arg(v: RuntimeValue, native: &str, param: &str) -> Result<String, String> {
+    match v {
+        RuntimeValue::Text(t) => Ok(t.to_string()),
+        other => Err(format!("{native} needs Text for `{param}`, got {}", other.type_name())),
+    }
+}
+
+/// A native's `Int` argument, likewise.
+fn int_arg(v: RuntimeValue, native: &str, param: &str) -> Result<i64, String> {
+    match v {
+        RuntimeValue::Int(n) => Ok(n),
+        other => Err(format!("{native} needs an Int for `{param}`, got {}", other.type_name())),
+    }
+}
+
+/// A native's `Seq of Text` argument, every item a Text.
+fn texts_arg(v: RuntimeValue, native: &str, param: &str) -> Result<Vec<String>, String> {
+    match v {
+        RuntimeValue::List(l) => l
+            .borrow()
+            .to_values()
+            .into_iter()
+            .map(|item| match item {
+                RuntimeValue::Text(t) => Ok(t.to_string()),
+                other => Err(format!(
+                    "{native} needs a Seq of Text for `{param}`, got an item of {}",
+                    other.type_name()
+                )),
+            })
+            .collect(),
+        other => Err(format!("{native} needs a Seq of Text for `{param}`, got {}", other.type_name())),
+    }
+}
+
+/// A `Seq of Text` value holding `items`, in order.
+fn texts_value(items: Vec<String>) -> RuntimeValue {
+    RuntimeValue::List(Rc::new(RefCell::new(ListRepr::from_values(
+        items.into_iter().map(|t| RuntimeValue::Text(Rc::new(t))).collect(),
+    ))))
+}
+
 pub(crate) fn result_ok(v: RuntimeValue) -> RuntimeValue {
     RuntimeValue::Inductive(std::rc::Rc::new(InductiveValue {
         inductive_type: "Result".to_string(),
@@ -44,6 +86,12 @@ pub const SYSTEM_NATIVES: &[(&str, usize, BuiltinId)] = &[
     ("randomFloat", 0, BuiltinId::RandomFloat),
     ("get", 1, BuiltinId::EnvGet),
     ("now", 0, BuiltinId::TimeNow),
+    ("runProcessParts", 6, BuiltinId::ProcessRun),
+    ("appendFile", 2, BuiltinId::FileAppend),
+    ("fileExists", 1, BuiltinId::FileExists),
+    ("listDir", 1, BuiltinId::FileListDir),
+    ("makeDirs", 1, BuiltinId::FileMakeDirs),
+    ("renameFile", 2, BuiltinId::FileRename),
 ];
 
 /// The builtin a `## To native` declaration of `name` at arity `argc` runs ([`SYSTEM_NATIVES`]).
@@ -1175,6 +1223,26 @@ pub enum BuiltinId {
     /// order ([`logicaffeine_system::file::read_reals`]). ERRORS on a file it cannot read or one that is not a whole
     /// number of values. The numbers a program reads at run time rather than carries as code: a model's weights.
     ReadReals,
+    /// process.lg's `## To native runProcessParts (program, args, cwd, env, timeoutMs, maxOutput) -> Result of
+    /// Seq of Text and Text` — one bounded run of another program through [`logicaffeine_system::process::run`]
+    /// (no shell, deadline, output cap, the whole process group stopped, sealed-world aware), answering exit code,
+    /// stdout, stderr, timed-out and truncated as Text. Same routing rule as [`BuiltinId::FileRead`].
+    ProcessRun,
+    /// file.lg's `## To native appendFile (path, content) -> Result of Unit and Text` — `content` added to the end
+    /// of the file, which is created when absent. Same routing rule as [`BuiltinId::FileRead`].
+    FileAppend,
+    /// file.lg's `## To native fileExists (path) -> Bool` — whether anything (a file or a directory) is at
+    /// `path`. Same routing rule as [`BuiltinId::FileRead`].
+    FileExists,
+    /// file.lg's `## To native listDir (path) -> Result of Seq of Text and Text` — the names in a directory,
+    /// sorted, without `.`/`..`. Same routing rule as [`BuiltinId::FileRead`].
+    FileListDir,
+    /// file.lg's `## To native makeDirs (path) -> Result of Unit and Text` — the directory and every missing
+    /// parent; one that already exists is not an error. Same routing rule as [`BuiltinId::FileRead`].
+    FileMakeDirs,
+    /// file.lg's `## To native renameFile (from, to) -> Result of Unit and Text` — an atomic rename within one
+    /// file system, replacing `to`. Same routing rule as [`BuiltinId::FileRead`].
+    FileRename,
 }
 
 impl BuiltinId {
@@ -1628,6 +1696,12 @@ impl BuiltinId {
         BuiltinId::SealValueBox,
         BuiltinId::OpenValueBox,
         BuiltinId::ReadReals,
+        BuiltinId::ProcessRun,
+        BuiltinId::FileAppend,
+        BuiltinId::FileExists,
+        BuiltinId::FileListDir,
+        BuiltinId::FileMakeDirs,
+        BuiltinId::FileRename,
     ];
 }
 
@@ -2085,6 +2159,9 @@ pub fn check_arity(id: BuiltinId, n: usize) -> Result<(), String> {
         BuiltinId::ReadBytes | BuiltinId::TryReadBytes | BuiltinId::ReadReals => 1,
         BuiltinId::FileRead => 1,
         BuiltinId::FileWrite => 2,
+        BuiltinId::ProcessRun => 6,
+        BuiltinId::FileAppend | BuiltinId::FileRename => 2,
+        BuiltinId::FileExists | BuiltinId::FileListDir | BuiltinId::FileMakeDirs => 1,
         BuiltinId::VfsWriteFile => 2,
         BuiltinId::RandomInt => 2,
         BuiltinId::RandomFloat => 0,
@@ -2352,6 +2429,12 @@ pub fn check_arity(id: BuiltinId, n: usize) -> Result<(), String> {
             BuiltinId::TryReadBytes => "tryReadBytes",
             BuiltinId::FileRead => "read",
             BuiltinId::FileWrite => "write",
+            BuiltinId::ProcessRun => "runProcessParts",
+            BuiltinId::FileAppend => "appendFile",
+            BuiltinId::FileExists => "fileExists",
+            BuiltinId::FileListDir => "listDir",
+            BuiltinId::FileMakeDirs => "makeDirs",
+            BuiltinId::FileRename => "renameFile",
             BuiltinId::VfsReadFile => "__logos_read_from_file",
             BuiltinId::VfsWriteFile => "__logos_write_to_file",
             BuiltinId::VfsMount => "__logos_mount_at",
@@ -5142,6 +5225,63 @@ pub fn call_builtin(id: BuiltinId, args: Vec<RuntimeValue>) -> Result<RuntimeVal
                 Err(e) => result_err(e),
             })
         }
+        // process.lg's raw native: one bounded run, its five parts as Text. A run that never
+        // happened (sealed world, bad bound, no such program) is an `Err` value; the program's own
+        // failure is an `Ok` whose parts say so — the system crate decides both, for every tier.
+        BuiltinId::ProcessRun => {
+            let max_output = int_arg(args.remove(5), "runProcessParts", "maxOutput")?;
+            let timeout_ms = int_arg(args.remove(4), "runProcessParts", "timeoutMs")?;
+            let env = texts_arg(args.remove(3), "runProcessParts", "env")?;
+            let cwd = text_arg(args.remove(2), "runProcessParts", "cwd")?;
+            let argv = texts_arg(args.remove(1), "runProcessParts", "args")?;
+            let program = text_arg(args.remove(0), "runProcessParts", "program")?;
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                Ok(match logicaffeine_system::process::run(&program, &argv, &cwd, &env, timeout_ms, max_output) {
+                    Ok(finished) => result_ok(texts_value(finished.parts())),
+                    Err(e) => result_err(e),
+                })
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                let _ = (program, argv, cwd, env, timeout_ms, max_output);
+                Ok(result_err("runProcess: a browser starts no processes".to_string()))
+            }
+        }
+        BuiltinId::FileAppend => {
+            let content = text_arg(args.remove(1), "appendFile", "content")?;
+            let path = text_arg(args.remove(0), "appendFile", "path")?;
+            Ok(match logicaffeine_system::file::append(path, content) {
+                Ok(()) => result_ok(RuntimeValue::Nothing),
+                Err(e) => result_err(e),
+            })
+        }
+        BuiltinId::FileExists => {
+            let path = text_arg(args.remove(0), "fileExists", "path")?;
+            Ok(RuntimeValue::Bool(logicaffeine_system::file::exists(path)))
+        }
+        BuiltinId::FileListDir => {
+            let path = text_arg(args.remove(0), "listDir", "path")?;
+            Ok(match logicaffeine_system::file::list_dir_names(path) {
+                Ok(names) => result_ok(texts_value(names)),
+                Err(e) => result_err(e),
+            })
+        }
+        BuiltinId::FileMakeDirs => {
+            let path = text_arg(args.remove(0), "makeDirs", "path")?;
+            Ok(match logicaffeine_system::file::make_dirs(path) {
+                Ok(()) => result_ok(RuntimeValue::Nothing),
+                Err(e) => result_err(e),
+            })
+        }
+        BuiltinId::FileRename => {
+            let to = text_arg(args.remove(1), "renameFile", "to")?;
+            let from = text_arg(args.remove(0), "renameFile", "from")?;
+            Ok(match logicaffeine_system::file::rename(from, to) {
+                Ok(()) => result_ok(RuntimeValue::Nothing),
+                Err(e) => result_err(e),
+            })
+        }
         // `Stmt::ReadFrom`'s VM compiler arm — the SAME sandboxed VFS the tree-walker's
         // `ReadFrom` reads through (`ui_bridge::run_treewalker`'s `Interpreter::with_vfs`), so a
         // program that never mounted a real filesystem sees the identical "Not found" on both
@@ -5318,7 +5458,8 @@ impl BuiltinId {
                 BuiltinEffect::Nondeterministic
             }
             B::SetRate | B::SetRates | B::ReadWireProgram | B::WriteWireResidual | B::FileRead
-            | B::FileWrite | B::EnvGet | B::EnvHas | B::EnvValue | B::VfsReadFile | B::VfsWriteFile | B::VfsMount | B::ReadBytes | B::TryReadBytes | B::ReadReals | B::StorageSet | B::StorageGet
+            | B::FileWrite | B::ProcessRun | B::FileAppend | B::FileExists | B::FileListDir
+            | B::FileMakeDirs | B::FileRename | B::EnvGet | B::EnvHas | B::EnvValue | B::VfsReadFile | B::VfsWriteFile | B::VfsMount | B::ReadBytes | B::TryReadBytes | B::ReadReals | B::StorageSet | B::StorageGet
             | B::StorageGetOr | B::StorageRemove | B::DomBody | B::DomCreateElement
             | B::DomCreateTextNode | B::DomSetText | B::DomSetHtml | B::DomClearChildren
             | B::DomOnMessage | B::DomMoveChildren | B::DomBeginPaint | B::DomSetAttribute

@@ -489,6 +489,8 @@ pub struct TestCapabilities {
     pub network: bool,
     pub environment: bool,
     pub clock: bool,
+    /// `This test may use the real processes.` — `runProcess` starts real programs.
+    pub processes: bool,
 }
 
 /// A table-driven test's case fixture: `For each of these cases:` followed by

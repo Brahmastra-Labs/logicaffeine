@@ -3683,6 +3683,12 @@ fn map_native_function(name: &str) -> Option<(&'static str, &'static str)> {
     match name {
         "read" => Some(("file", "read")),
         "write" => Some(("file", "write")),
+        "appendFile" => Some(("file", "append")),
+        "fileExists" => Some(("file", "exists")),
+        "listDir" => Some(("file", "list_dir")),
+        "makeDirs" => Some(("file", "make_dirs")),
+        "renameFile" => Some(("file", "rename")),
+        "runProcessParts" => Some(("process", "run_parts")),
         "tcpConnect" => Some(("tcp", "connect")),
         "tcpConnectTls" => Some(("tcp", "connect_tls")),
         "tcpUpgradeTls" => Some(("tcp", "upgrade_tls")),

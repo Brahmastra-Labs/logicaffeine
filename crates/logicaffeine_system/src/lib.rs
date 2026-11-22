@@ -68,6 +68,9 @@ pub mod stack;
 pub mod random;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod tcp;
+// `process.lg`'s bounded `runProcess`: native-only — a browser starts no processes.
+#[cfg(not(target_arch = "wasm32"))]
+pub mod process;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod text;
 pub mod time;
