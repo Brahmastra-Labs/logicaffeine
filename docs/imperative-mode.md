@@ -289,6 +289,14 @@ use-after-move detection are handled by the ownership analysis
 `readReals("…")` is the `Seq of Real` a file of little-endian binary64 values holds, eight bytes a value: numbers a
 program reads at run time rather than carries as code, such as a model's weights (`Set W to readReals("w/W.f64").`
 fills a declared tensor). A file it cannot read, or one that is not a whole number of values, stops the program.
+`appendFile`, `fileExists`, `listDir`, `makeDirs` and `renameFile` (file.lg) add to a file, ask what is at a path, list a
+directory, make one with its parents, and replace a file atomically; each failure is an `Err`, never a stop.
+`runProcess(program, args, cwd, env, timeoutMs, maxOutput)` (process.lg) runs another program with no shell in
+between — each argument reaches it exactly as written — under a mandatory deadline and output cap, and answers a
+`ProcessResult` (`exitCode`, `stdout`, `stderr`, `timedOut`, `truncated`). The program leads a process group of its own,
+so nothing it starts outlives the run; standard input is empty. A program that could not start is an `Err`; one that
+started and failed is an `Ok` that says so. A sealed `## Test` starts no processes unless it says
+`This test may use the real processes.` and runs under `largo test --live`.
 `Assert that <logic>` with a logic proposition is the **Assert Bridge** into
 [Proof & verification](proof-and-verification.md).
 
@@ -1184,7 +1192,7 @@ A standard library ships with the compiler
 | Numbers | `math`, `statistics`, `random`, `rng`, `operator` |
 | Collections | `collections`, `iter`, `sort`, `heap`, `builder` |
 | Linear algebra | `blas`, `lapack`, `clapack` |
-| The machine | `io`, `file`, `env`, `time`, `calendar`, `error`, `compress`, `media`, `vision` |
+| The machine | `io`, `file`, `env`, `process`, `time`, `calendar`, `error`, `compress`, `media`, `vision` |
 | The web | `http`, `static`, `session`, `web`, `forms`, `ui`, `postgres`, `vdom` |
 | The network | `tcp`, `net` |
 | Distribution | `crdt`, `concurrency` |

@@ -2839,6 +2839,8 @@
             Return "a Modular".
         If (name equals "convert"):
             Return "a Quantity".
+        If (name equals "listDir"):
+            Return "a file".
         If (name equals "word_or"):
             Return "a fixed-width word".
         If (name equals "getText") or (name equals "onRoute") or (name equals "publish") or (name equals "setHtml") or (name equals "setText"):
@@ -2856,6 +2858,8 @@
             Return "a Quantity".
         If (name equals "uuid_dns") or (name equals "uuid_max") or (name equals "uuid_nil") or (name equals "uuid_oid") or (name equals "uuid_url"):
             Return "a Uuid".
+        If (name equals "makeDirs"):
+            Return "a file".
         If (name equals "word_and") or (name equals "word_not"):
             Return "a fixed-width word".
         If (name equals "eventKey") or (name equals "getValue") or (name equals "navigate") or (name equals "noteTurn") or (name equals "setTitle") or (name equals "setValue"):
@@ -2890,6 +2894,8 @@
             Return "SIMD lanes".
         If (name equals "uuid_bytes"):
             Return "a Uuid".
+        If (name equals "appendFile") or (name equals "fileExists") or (name equals "renameFile"):
+            Return "a file".
         If (name equals "count_ones") or (name equals "intOfWord8"):
             Return "a fixed-width word".
         If (name equals "eventValue") or (name equals "fetchAbort") or (name equals "reloadPage") or (name equals "routeQuery") or (name equals "setChecked") or (name equals "storageGet") or (name equals "storageSet"):
@@ -2957,6 +2963,8 @@
             Return "a Uuid".
         If (name equals "addIceCandidate") or (name equals "applyPatchWords") or (name equals "fetchSetTimeout"):
             Return "a page".
+        If (name equals "runProcessParts"):
+            Return "a process".
         If (name equals "readWireProgram"):
             Return "a value's wire bytes".
         If (name equals "infinitelyClose") or (name equals "isInfinitesimal"):

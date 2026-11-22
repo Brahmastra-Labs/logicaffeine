@@ -11,3 +11,36 @@ Reads a whole file into Text.
 Writes Text to a file, replacing its contents.
 
 ## To native write (path: Text) and (content: Text) -> Result of Unit and Text
+
+## Note
+Adds Text to the end of a file, creating the file when it is absent.
+
+The directory it is in must already exist — `makeDirs` makes it. A log or a ledger written one entry
+at a time appends, so an entry already written is never rewritten.
+
+## To native appendFile (path: Text) and (content: Text) -> Result of Unit and Text
+
+## Note
+Whether anything — a file or a directory — is at a path.
+
+## To native fileExists (path: Text) -> Bool
+
+## Note
+The names of the entries in a directory, sorted, without `.` and `..` — names, not paths: join one
+to the directory to reach it.
+
+## To native listDir (path: Text) -> Result of Seq of Text and Text
+
+## Note
+Makes a directory and every missing directory above it. One that already exists is not an error,
+so a program can call this before every write into it; a file in the way is.
+
+## To native makeDirs (path: Text) -> Result of Unit and Text
+
+## Note
+Renames a file, replacing whatever was at the new name.
+
+On one file system the rename is atomic: write the new content to a temporary name beside the file,
+then rename it over the file, and a reader sees either the old content or the new, never half of one.
+
+## To native renameFile (from: Text) and (to: Text) -> Result of Unit and Text

@@ -1,0 +1,205 @@
+# S3
+
+Object storage over the S3 protocol — Amazon S3, Cloudflare R2, MinIO and the rest — signed with
+AWS Signature Version 4 and sent with `httpclient.lg`, all in LOGOS.
+
+A store is named by an `S3Store`: the endpoint (`https://<account>.r2.cloudflarestorage.com` for
+R2), the region (`auto` for R2), the bucket and the key pair. Objects are addressed path-style,
+`<endpoint>/<bucket>/<key>`. A request is signed over the host, the date and the payload hash;
+uploads are sent with `UNSIGNED-PAYLOAD`, which every S3 service accepts over TLS, so a large body is
+never hashed by the LOGOS SHA-256 only to tell the server what it already checks itself.
+
+The signing steps are separate functions, each pinned to the worked example in Amazon's Signature
+Version 4 documentation, so a mistake shows up as a wrong canonical request, a wrong string to sign
+or a wrong signature — never as an opaque `403`.
+
+## Note
+Where objects live and the key pair that may reach them.
+
+## A S3Store has:
+    an endpoint, which is Text.
+    a region, which is Text.
+    a bucket, which is Text.
+    an accessKey, which is Text.
+    a secretKey, which is Text.
+
+## Note
+Lower-case hex of the SHA-256 of `t`'s UTF-8 bytes.
+
+## To s3HashHex (t: Text) -> Text:
+    Return bytesToHex(sha256(text_bytes(t))).
+
+## Note
+Each segment of an object key percent-encoded as RFC 3986 asks, the `/` between them kept.
+
+## To s3EncodePath (path: Text) -> Text:
+    Let parts be split(path, "/").
+    Let mutable out be "".
+    Let mutable first be true.
+    Repeat for p in parts:
+        If first:
+            Set out to urlEncode(p).
+            Set first to false.
+        Otherwise:
+            Set out to out + "/" + urlEncode(p).
+    Return out.
+
+## Note
+`names` in byte order, by insertion — the order every canonical list of headers is written in.
+
+## To s3SortTexts (names: Seq of Text) -> Seq of Text:
+    Let mutable out be a new Seq of Text.
+    Repeat for name in names:
+        Let mutable placed be a new Seq of Text.
+        Let mutable inserted be false.
+        Repeat for have in out:
+            If inserted is equal to false and bytesCompare(text_bytes(name), text_bytes(have)) is less than 0:
+                Push name to placed.
+                Set inserted to true.
+            Push have to placed.
+        If inserted is equal to false:
+            Push name to placed.
+        Set out to placed.
+    Return out.
+
+## Note
+The canonical request of Signature Version 4: method, path, query, headers, signed names, payload.
+
+`headers` are the headers to sign, names in any case; they are lower-cased, their values trimmed,
+and written in byte order of their names. `query` is the canonical query string already (empty for
+a plain object request).
+
+## To s3CanonicalRequest (method: Text) and (path: Text) and (query: Text) and (headers: Map of Text to Text) and (payloadHash: Text) -> Text:
+    Let mutable lowered be a new Map of Text to Text.
+    Let mutable names be a new Seq of Text.
+    Repeat for (k, v) in headers:
+        Let low be lower(k).
+        Set item low of lowered to trim(v).
+        Push low to names.
+    Let ordered be s3SortTexts(names).
+    Let mutable canonical be "".
+    Let mutable signed be "".
+    Repeat for name in ordered:
+        Set canonical to canonical + name + ":" + (item name of lowered) + "\n".
+        If signed is equal to "":
+            Set signed to name.
+        Otherwise:
+            Set signed to signed + ";" + name.
+    Return method + "\n" + s3EncodePath(path) + "\n" + query + "\n" + canonical + "\n" + signed + "\n" + payloadHash.
+
+## Note
+The signed header names of a header map, lower-cased, in byte order, joined with `;`.
+
+## To s3SignedHeaders (headers: Map of Text to Text) -> Text:
+    Let mutable names be a new Seq of Text.
+    Repeat for (k, v) in headers:
+        Push lower(k) to names.
+    Let mutable signed be "".
+    Repeat for name in s3SortTexts(names):
+        If signed is equal to "":
+            Set signed to name.
+        Otherwise:
+            Set signed to signed + ";" + name.
+    Return signed.
+
+## Note
+The string to sign: the algorithm, the request time, the credential scope, the canonical request's hash.
+
+## To s3StringToSign (amzDate: Text) and (region: Text) and (canonicalRequest: Text) -> Text:
+    Let day be textUpTo(amzDate, 8).
+    Return "AWS4-HMAC-SHA256\n" + amzDate + "\n" + day + "/" + region + "/s3/aws4_request\n" + s3HashHex(canonicalRequest).
+
+## Note
+The signing key: the secret, chained through HMAC-SHA-256 with the day, the region, `s3`, `aws4_request`.
+
+## To s3SigningKey (secretKey: Text) and (day: Text) and (region: Text) -> Seq of Int:
+    Let kDate be hmacSha256(text_bytes("AWS4" + secretKey), text_bytes(day)).
+    Let kRegion be hmacSha256(kDate, text_bytes(region)).
+    Let kService be hmacSha256(kRegion, text_bytes("s3")).
+    Return hmacSha256(kService, text_bytes("aws4_request")).
+
+## Note
+The `Authorization` header for one request, from its canonical parts and the store's keys.
+
+## To s3Authorization (store: S3Store) and (method: Text) and (path: Text) and (query: Text) and (headers: Map of Text to Text) and (payloadHash: Text) and (amzDate: Text) -> Text:
+    Let canonical be s3CanonicalRequest(method, path, query, headers, payloadHash).
+    Let toSign be s3StringToSign(amzDate, store's region, canonical).
+    Let day be textUpTo(amzDate, 8).
+    Let key be s3SigningKey(store's secretKey, day, store's region).
+    Let signature be bytesToHex(hmacSha256(key, text_bytes(toSign))).
+    Return "AWS4-HMAC-SHA256 Credential=" + store's accessKey + "/" + day + "/" + store's region + "/s3/aws4_request, SignedHeaders=" + s3SignedHeaders(headers) + ", Signature=" + signature.
+
+## Note
+`n` as at least `width` decimal digits, zero-padded on the left.
+
+## To s3Pad (n: Int) and (width: Int) -> Text:
+    Let mutable t be "{n}".
+    While length of text_bytes(t) is less than width:
+        Set t to "0" + t.
+    Return t.
+
+## Note
+A Unix time in milliseconds as the `YYYYMMDDTHHMMSSZ` stamp Signature Version 4 dates a request with.
+
+The civil date comes from the count of days since 1970 by Hinnant's days-to-civil algorithm, exact
+for every day after the epoch.
+
+## To s3AmzDate (millis: Int) -> Text:
+    Let secs be millis // 1000.
+    Let days be secs // 86400.
+    Let rem be secs - days * 86400.
+    Let hh be rem // 3600.
+    Let mm be (rem - hh * 3600) // 60.
+    Let ss be rem - hh * 3600 - mm * 60.
+    Let z be days + 719468.
+    Let era be z // 146097.
+    Let doe be z - era * 146097.
+    Let yoe be (doe - doe // 1460 + doe // 36524 - doe // 146096) // 365.
+    Let mutable y be yoe + era * 400.
+    Let doy be doe - (365 * yoe + yoe // 4 - yoe // 100).
+    Let mp be (5 * doy + 2) // 153.
+    Let d be doy - (153 * mp + 2) // 5 + 1.
+    Let mutable m be mp + 3.
+    If mp is at least 10:
+        Set m to mp - 9.
+    If m is at most 2:
+        Set y to y + 1.
+    Return s3Pad(y, 4) + s3Pad(m, 2) + s3Pad(d, 2) + "T" + s3Pad(hh, 2) + s3Pad(mm, 2) + s3Pad(ss, 2) + "Z".
+
+## Note
+The host of an endpoint URL: what lies between `://` and the next `/`.
+
+## To s3Host (endpoint: Text) -> Text:
+    Return cutBefore(cutAfter(endpoint, "://"), "/").
+
+## Note
+One signed request for the object `key`, sent now, under `timeoutMs`.
+
+## To s3Request (store: S3Store) and (method: Text) and (key: Text) and (body: Text) and (contentType: Text) and (timeoutMs: Int) -> Result of HttpReply and Text:
+    Let amzDate be s3AmzDate(now()).
+    Let path be "/" + store's bucket + "/" + key.
+    Let payloadHash be "UNSIGNED-PAYLOAD".
+    Let mutable signedHs be a new Map of Text to Text.
+    Set item "host" of signedHs to s3Host(store's endpoint).
+    Set item "x-amz-content-sha256" of signedHs to payloadHash.
+    Set item "x-amz-date" of signedHs to amzDate.
+    Let auth be s3Authorization(store, method, path, "", signedHs, payloadHash, amzDate).
+    Let mutable hs be a new Map of Text to Text.
+    Set item "x-amz-content-sha256" of hs to payloadHash.
+    Set item "x-amz-date" of hs to amzDate.
+    Set item "Authorization" of hs to auth.
+    If contentType is not "":
+        Set item "Content-Type" of hs to contentType.
+    Return httpRequest(method, store's endpoint + s3EncodePath(path), hs, body, timeoutMs).
+
+## Note
+Stores `body` as the object `key`. `Ok` carries the store's reply; a status other than 200 is the store refusing.
+
+## To s3Put (store: S3Store) and (key: Text) and (body: Text) and (contentType: Text) and (timeoutMs: Int) -> Result of HttpReply and Text:
+    Return s3Request(store, "PUT", key, body, contentType, timeoutMs).
+
+## Note
+Reads the object `key`. A missing object is an `Ok` whose status is 404.
+
+## To s3Get (store: S3Store) and (key: Text) and (timeoutMs: Int) -> Result of HttpReply and Text:
+    Return s3Request(store, "GET", key, "", "", timeoutMs).

@@ -82,7 +82,12 @@ const SHOULD_TIER: &[BuiltinId] = &[BuiltinId::Word8Make, BuiltinId::IntOfWord8]
 /// The frozen `BuiltinId` catalog size. A new builtin bumps `BuiltinId::ALL` and trips this, forcing an
 /// explicit Tiered / ShouldTier / HostNA decision (so nothing joins the catalog unclassified).
 ///
-/// Last bump: 269→270 for `readReals` (→ HostNA): a file's binary64 values read into a boxed `Seq of Real`,
+/// Last bump: 270→276 for `runProcessParts`, `appendFile`, `fileExists`, `listDir`, `makeDirs`, `renameFile`
+/// (→ HostNA): process.lg's bounded run of another program and file.lg's append/exists/list/mkdir/rename —
+/// host processes and host file-system effects with no scalar compute in them, like `FileRead`/`FileWrite`
+/// beside them.
+///
+/// Before that: 269→270 for `readReals` (→ HostNA): a file's binary64 values read into a boxed `Seq of Real`,
 /// a host file read with no scalar compute in it, like `readBytes` beside it.
 ///
 /// Before that: 265→269 for `sealBox`, `openBox`, `sealValueBox`, `openValueBox` (→ HostNA): XChaCha20-
@@ -277,7 +282,7 @@ const SHOULD_TIER: &[BuiltinId] = &[BuiltinId::Word8Make, BuiltinId::IntOfWord8]
 /// `<head>`'s markup through the browser host — an effect on the page, not scalar compute the
 /// forge could lower — so HostNA, the same classification `DomSetTitle` (its nearest sibling) and
 /// every other `Dom*` builtin carries.
-const BUILTIN_TOTAL_FROZEN: usize = 270;
+const BUILTIN_TOTAL_FROZEN: usize = 276;
 
 /// A hot loop that accumulates a scalar Int expression `expr` (over `k = 1..600`) into `acc` — the shared
 /// shape for the Word-lane ground truths, which each fold a Word computation back to an Int via `intOfWordN`.

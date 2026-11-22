@@ -12,7 +12,7 @@
 /// ([`defined_names`]), so adding a module here makes its whole vocabulary live with nothing else to update.
 /// `std.lg` is absent: its `Unit`, `Pair` and `Triple` stay an explicit import (`logos:std`).
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const PRELUDE_FILES: [&str; 46] = [
+pub(crate) const PRELUDE_FILES: [&str; 49] = [
     // Core algebraic types (Result/Option) come first: later modules'
     // signatures (file.lg's `-> Result of Text and Text`) refer to them.
     "core",
@@ -23,12 +23,19 @@ pub(crate) const PRELUDE_FILES: [&str; 46] = [
     "env",
     "file",
     "tcp",
+    // After `core` and `env`: `runProcess` answers a `Result` and reads a `Map`.
+    "process",
     "web",
     "session",
     "postgres",
     "random",
     "time",
     "http",
+    // After `http` and `tcp`: the client validates headers with the server's guards and speaks
+    // over the socket natives.
+    "httpclient",
+    // After `httpclient` and `crypto`: SigV4 signs with HMAC-SHA-256 and sends through the client.
+    "s3",
     "static",
     "crypto",
     "uuid",

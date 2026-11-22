@@ -152,6 +152,7 @@ fn argument_of(ty: &str) -> &'static str {
         "Int" | "Nat" => "0",
         "Text" => "\"\"",
         "Seq of Int" => "ints",
+        "Seq of Text" => "texts",
         "Seq of Word16" => "words",
         other => panic!("a native takes a {other}; give the census an argument of that type"),
     }
@@ -174,7 +175,7 @@ fn refusal_in(program: &logicaffeine_compile::vm::CompiledProgram) -> Option<Str
 /// socket or a clock would do happens).
 fn unreached_call(name: &str, args: &[&str]) -> String {
     format!(
-        "## Main\nLet ints be [0].\nLet words be a new Seq of Word16.\n\
+        "## Main\nLet ints be [0].\nLet texts be [\"\"].\nLet words be a new Seq of Word16.\n\
          If length of args() is less than 0:\n    Show {name}({}).\n",
         args.join(", ")
     )

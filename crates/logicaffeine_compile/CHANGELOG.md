@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `process.lg`, a new auto-imported standard-library module: `runProcess(program, args, cwd, env, timeoutMs, maxOutput)
+  -> Result of ProcessResult and Text` over the native `runProcessParts`, through `BuiltinId::ProcessRun` on the
+  tree-walker and the VM and `logicaffeine_system::process::run_parts` on the Rust backend — no shell, a mandatory
+  deadline and output cap, the run's whole process group stopped, empty standard input, sealed in `## Test` unless the
+  test grants `This test may use the real processes.` (`process_natives`).
+- file.lg's `appendFile`, `fileExists`, `listDir`, `makeDirs` and `renameFile` (`BuiltinId::FileAppend`, `FileExists`,
+  `FileListDir`, `FileMakeDirs`, `FileRename`), on every tier and on the sealed in-memory filesystem
+  (`file_ops_natives`).
+- The `processes` test capability: `testrun` counts a test that grants it among the `--live` tests.
+- `httpclient.lg`, a new auto-imported module: `httpRequest(method, url, headers, body, timeoutMs) -> Result of
+  HttpReply and Text`, `httpGet`, `httpPostJson`, `httpParseUrl` — HTTP/1.1 written in LOGOS over `tcpConnect` /
+  `tcpConnectTls` (certificate-verified), one deadline for the whole exchange, Content-Length / chunked /
+  close-delimited bodies, a short body an `Err`, framing headers owned by the client, a 256 MiB reply cap
+  (`httpclient_lock`).
+- `s3.lg`, a new auto-imported module: AWS Signature Version 4 (`s3CanonicalRequest`, `s3StringToSign`,
+  `s3SigningKey`, `s3Authorization`, `s3AmzDate`) and path-style `s3Put` / `s3Get` for S3, R2 and MinIO over
+  `httpclient.lg`, pinned to Amazon's documented GET Object example (`s3_sigv4_lock`).
 - `WireCompression::Cm` (header codec id 3): the context-mixing byte codec at its fast level, pure Rust on every
   target, bodies and the bytes its model codes kept within `MAX_CM_DECODE_BYTES` (1 MiB) so a small frame cannot
   demand more than a few seconds of decode. `FEAT_CM` advertises it and

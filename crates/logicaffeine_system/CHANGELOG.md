@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `process::run` / `run_parts`: one bounded run of another program — no shell, `timeout_ms` and `max_output`
+  range-checked before anything starts, both streams drained under the cap, the program a process-group leader whose
+  whole group is killed before the leader is reaped (`waitid(WNOWAIT)`), standard input empty, exit code or 128 plus
+  the signal. `testworld::Capabilities::processes`, `testworld::intercept_process` and `PROCESS_SEALED`.
+- `file::append`, `exists`, `list_dir` (and `list_dir_names`), `make_dirs`, `rename`, each sealed-world aware
+  (`testworld::intercept_append`, `intercept_exists`, `intercept_list_dir`, `intercept_make_dirs`,
+  `intercept_rename`; `TestWorld::dirs`).
 - `temporal::today()` and `temporal::now()`: the day and the instant the clock reads, the ones `LOGOS_FIXED_DAYS` and
   `LOGOS_FIXED_NANOS` pin when the environment pins them. `Showable` for `LogosDuration` and the crate-root
   re-export of it.
