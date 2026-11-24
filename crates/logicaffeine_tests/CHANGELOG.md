@@ -7,75 +7,133 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-- `dag_sem_spines`: the value engine's neutrals and environments against a model — an application built one argument at a time, all at once, or a prefix and then the rest is one value; its arguments read back in order; it is open exactly when its head or an argument is; finding one stores nothing and a new one stores its arguments once; an environment extended by a value, by another, and by the first again is the first environment; a session reset remembers no extension; a pruning keeps exactly the entries its mask marks, is one frame per content (finding it stores nothing, a new one stores its live entries once), and an environment remembers its two latest prunings.
-- `dag_sem_bounds` also holds the caches to the dag: a term holding a subterm twice at every level, 18 deep, is evaluated and checked with the caches no larger than for one 2 deep — a shared subterm's value and type are found the second time (`evaluating_a_shared_subterm_costs_its_dag_not_its_tree`, `checking_a_shared_subterm_costs_its_dag_not_its_tree`).
-- `dag_relevance::every_absent_mask_is_the_one_a_walk_of_the_definition_finds`: every definition of `init-prelude` has the absent-parameter mask a walk of its value and type finds, a reference that reads none of the loose-variable masks the store keeps.
-- `dag::expr` unit `reserving_room_keeps_every_node_and_then_grows_no_more`: reserving room in the persistent table goes straight to the capacity that holds the reserved nodes, finds every node interned before, and does not grow while they arrive.
-- `release_assets_lock` runs `release.yml`'s release-notes step as the runner runs it, against every released section of the changelog and a synthetic one: each is a body GitHub accepts (125,000 characters), a section that fits ships whole, and a longer one keeps every heading, each heading's first entries verbatim and a pointer to the full notes for the rest (0.11.0 keeps Highlights, Breaking changes, Removed and Security whole). `a_dispatch_releases_an_existing_tag_with_the_dispatched_workflow`: a dispatch names the tag, every checkout checks it out, nothing reads the ref's own name, and the release names the tag and publishes it.
-- `release_assets_lock::a_release_holds_the_tags_binaries_to_the_dispatching_workflows_size_budgets`: each size-budget step runs `./release-policy/scripts/check-binary-sizes.sh` after a checkout of `${{ github.sha }}` into `release-policy` carrying `.config/size-budgets.toml` and the script, the LSP and largo checks once each; `the_size_check_reads_its_own_trees_budgets_and_the_callers_binaries`: the script, copied into a scratch tree, passes a binary at its budget and refuses one a byte over, its relative `--bin-dir` read from the caller's directory. The dispatch test exempts the release-policy checkout from checking out the tag.
-- `release_assets_lock::every_script_a_workflow_runs_by_its_path_is_executable`: every `./path` a workflow's `run:` names is a file of the tree with its exec bit (a script run from the release-policy checkout read at the tree's root), so a script committed without it fails here, not at its step on a runner.
-- `compiler_stack_safety_lock`: `the_optimizer_lattice_compiles_loop_interleaved_recursion_in_bounded_time` and `the_rust_backend_compiles_loop_interleaved_recursion_in_bounded_time` (a self-call inside a constant loop, the inliner's n-queens shape, compiles within 300 s on an ordinary thread); the kernel's `lia` units `a_budget_no_step_reaches_gives_the_exact_verdict`, `the_budget_bounds_the_constraints_an_elimination_step_leaves`, `a_system_that_outgrows_its_budget_is_given_up_on_promptly`.
-- `ondemand_exclusion_lock::every_card_cosimulation_runs_on_demand_and_no_fast_card_test_does`: the silicon selector names exactly the `d5005_engine_card_lock` tests that start Verilator, derived from the file.
-- `docs_site_lock::a_link_written_as_code_in_the_docs_is_not_a_link_the_site_must_ship`: an item summary that shows a link as inline code (`` `[Alias](URI)` ``) builds; `site.py`'s map-link check reads no link inside a code span.
-- `size_budget_lock::the_web_bundle_builds_for_size_and_its_budget_fits_the_host`: `[profile.wasm-release]` builds at opt-level `s`, and the `[web]` wasm budget stays under Cloudflare Pages' 25 MiB per-file limit.
-- `ci_local_runner_lock`: `scripts/run-ci-locally.py plan` accepts the shipped `test.yml` on every trigger and never runs the job that publishes; it refuses by name an unmapped action, an unknown runner label, a key, trigger, context or expression function it cannot reproduce, and a matrix given by an expression; static `if:` conditions follow GitHub's expression rules; `include` and `exclude` expand as GitHub documents; a dispatch reads its declared inputs and refuses an undeclared one, and a tag ref is a tag; `hashFiles` digests the matched workspace files in path order; a cache step is a cold start; a shell the image lacks is refused only where a step would run it; a macOS, Windows or arm64 leg, and what needs only it, is named as not run; the shipped `release.yml` plans as the dispatch of a tag (the two linux-x64 `largo` legs run here, the publishing job and the installs of the published release never); each runner image installs nothing its workflow installs for itself and no tool the hosted image lacks.
-- `workflow_linker_lock`: every job that installs Rust on a Linux runner installs the packages its workflow's link
-  line names before its first build, read from the workflow's own `env:`. The workflow readers live in
-  `common/workflows.rs`, and `release_assets_lock` reads them from there.
-- `release_assets_lock::every_release_job_on_windows_checks_out_the_trees_own_line_endings`: a release job that can run
-  on Windows turns off the checkout's CRLF conversion before it checks out. The workflow readers' `script` (a step's
-  shell, comments left out) lives in `common/workflows.rs` beside the others.
-- `release_assets_lock::the_vsix_gate_launches_vs_code_by_the_name_its_app_gives`: the VSIX gate installs a
-  `@vscode/test-electron` of at least 3.1.0 between its dependencies and itself.
-- `real_constants_every_tier_lock`: a bare `pi`, `π` and `e` are the nearest doubles outside an exact context, in
-  arithmetic, a function, a closure, a condition, a list and a text, beside the exact reading, and a `Let`, parameter,
-  closure parameter, loop variable or arm binding so named keeps its value, on every backend that runs a program.
-- `real_text_every_tier_lock`: six `Real`s, written as literals and computed at run time, each shown alone, in a bare
-  hole, padded right, left, centred and by a bare width, as a record's field, a list's items and the value of a map
-  keyed by text and by an integer: the tree-walker's shortest decimal on every backend.
-- `installer_docs_lock`'s `each_installer_ends_on_the_first_run_the_quick_start_proves`: the `get started:` line
-  `install.sh` and `install.ps1` print is the README quick start's commands, the first run `getting_started_lock`
-  replays with nothing but `largo` on the PATH.
-- `dag::sem::value`'s `content_controls` (a slot is half a hash and an id; every entry is found after every growth;
-  entries whose hashes share their top half are told apart by content; content is compared only where the kept half
-  agrees; an emptied table) and `memory_controls` (the arena's memory report counts every store, its fields
-  destructured whole, and names each part once); `dag::sem`'s `memory_controls` (a session's report counts every
-  store); `dag::export`'s `size_controls` (each of the Arena's large exports reserves the persistent table its
-  expressions need, and the estimate covers it within a tenth).
-- `dag_levels::leq_holds_exactly_when_it_holds_under_every_assignment`: the `≤` decision procedure against every
-  assignment over {0, …, 4}, on every pair of depth-one levels over two parameters and 30,000 pairs of depth-two ones.
-- `dag_level_allocation`: a counting global allocator, by thread: deciding 4,000 orders of levels, finding a known
-  substitution and substituting into 3,000 lists allocate only as a memo grows.
-- `interface::lean::native_decide`'s `export_controls` (an export without a native decision is read as exported,
-  uncopied; only each leaf's line is replaced, by its re-derivation; the kernel core accepts the re-derived export and
-  refuses the export as exported) and `pipeline::native_controls::the_kernel_core_rechecks_the_native_result_as_the_logos_kernel_read_it`.
-- `dag_quotient_integrity`: a quotient's constants are its own, in every engine of the `dag` core. The two exports of
-  Lean Kernel Arena issue #39 (`fixtures/quotient_forgery/`, byte for byte as reported) are rejected by their rules, and
-  by the `Term` kernel's importer. Over the Arena's own `130_quotLiftReduction`, each member restated as an ordinary
-  axiom in its place, declared before the quotient, or declared again after it is rejected by its rule, as are records
-  in an order their canonical types do not allow; the lift before the constructor is admitted. The official package is
-  admitted and computes. With one admitted quotient constant restated as an axiom behind the kernel's back, the
-  quotient left installed, the lift no longer computes. Under `nbe` the closure-conversion configurations run too
-  (`run-opt-in-feature-tests.sh`).
-- `dag_crafted` decides every crafted case in the substitution engine, the value engine and both at once, holds
-  `fixtures/crafted/` to exactly what `craft-cases.py --out DIR` writes, and `craft-cases.py` builds Lean's `Eq` and
-  quotient: a control package whose theorem checks only where the lift computes, an export using `Quot.mk` with no
-  quotient declared (admitted, as Lean admits it), and ten forgeries — each member as an axiom, `Quot` as a
-  definition, `Quot.mk` declared first, `Quot.ind` before `Quot.mk`, a constructor, an inductive type and a mutual
-  block's later member taking a quotient's name — each rejected by its rule.
-- `dag_trusted_prefix::a_quotients_names_are_checked_even_inside_the_trusted_prefix`: an axiom, an inductive's
-  constructor and a mutual block's later member taking a quotient's name are checked inside a trusted prefix.
-- `samba_exam_numerics_lock` (E2.8, E2.11), `spatial_scatter_lock`, `spatial_written_map_lock`,
-  `samba_exam_agility_lock`, `samba_exam_fusion_report_lock`, `samba_exam_unit_use_lock`, `samba_exam_recompile_lock`
-  and `samba_exam_certificate_lock`; the intake's reader, twin and conformance tests for every new family in
-  `model_hf_intake_lock`, `model_tiny_checkpoint_lock` and `model_conformance_lock`;
-  `spatial_mixed_precision_lock`'s held cache and island-reads-an-accumulator tests;
-  `spatial_one_ir_lock::every_op_family_lowers_from_its_own_file`;
-  `tensor_gdn_row_blocks_lock::a_chunk_that_repeats_one_token_computes_the_vms_values_on_sn50`;
-  `spatial_rewrite_lock::{across_an_fp32_page_fusion_changes_no_value,
-  a_per_head_norm_is_the_same_bits_in_its_flat_and_blocked_forms}`;
-  `spatial_attention_window_lock::{a_fold_of_several_query_tiles_starts_each_heads_softmax_from_its_own_sink,
-  a_long_prefill_with_sinks_spreads_one_sink_tile_a_head}`.
+- `phase_deforestation`: fusion legality. A producer and a consumer loop fuse only when their actions commute; rows for
+  a consumer pushing to another list the producer fills, a producer reading or measuring the intermediate, two loops
+  that both print, a consumer reading a count the producer keeps or changing a value the producer reads, a consumer
+  breaking early, a consumer measuring the intermediate, a producer failing after the consumer would have printed, and
+  a consumer growing the producer's source, each on every VM tier and compiled Rust; and a producer with no effects
+  that still fuses into a consumer that prints.
+- Lean translator track: `lean_profile_registry` (the profile registry, its build recipes, admission, retagged
+  headers), `lean_profile_project` (project mode under every profile), `lean_nondep_contract` (the elaborator-have
+  contract on real 4.28+ exports, the recorded OP175/OP197–OP200 refusals), `lean_statement_package` (derivation,
+  templates, unfinished dependencies, packages, replay and tamper controls, project mode), `lean_check_policy` (the
+  assumption policy, the JSON document, statement binding); per-profile fixture projects and exports
+  (`fixtures/lean/projects/profile-*`, `fixtures/lean/profiles/`, `scripts/lean/export-profile-fixtures.py`).
+- PARITY-HOST-LAYERS-ON-CPU: `one_program_lock::a_decode_step_cut_at_any_layer_is_its_spans_op_for_op` (one cut or
+  several, the tiny Qwen3.8 and the 27B header); `cpu_shim_lock::a_decode_step_cut_between_two_cpu_programs_computes_the_whole_steps_bits`
+  (every tiny architecture cut at every layer past the first, both spans linked for the CPU tier, every byte the whole
+  step writes); `cuda_lane_lock::a_model_cut_between_the_cpu_and_the_card_decodes_what_the_lane_decodes` (the front on
+  the host's cores, the rest on the card, the tokens the whole lane generates and its logits within twice the point's
+  bound; under one word to the first position whose top two logits lie within that bound of each other, by Tristen's
+  ruling).
+- `lane_compile_lock::a_hyper_connected_mix_runs_its_gate_shares_and_mean_in_its_products`: every hyper-connected and
+  Flash-Next model, every form and numerics — each mix's gate and shares in their products, its gated mean in one
+  quantizing pass, each sublayer's output spread, added and normed in the launch of the norm in lanes that reads the
+  sum first (a chunk's last post, whose last row alone the head reads, added in its own); held back, apart.
+  `cuda_lane_lock::every_fusion_of_a_hyper_connected_step_computes_what_its_launches_compute_apart`: those models with
+  every rule held and every activation quantized apart generate the fused programs' tokens and logits bit for bit.
+  The four classes' witnesses that their dataflow forbids them, each beside its twin (`fusion_corpus::HOLD_BACKS`).
+- `lane_compile_lock::a_decode_steps_norm_in_lanes_takes_the_norms_own_block_a_lane`: Qwen3.8's hybrid at 2048 wide in
+  four lanes — one token's lanes each the norm's own block, a chunk's in blocks of at most 256 playing its threads.
+- The decode censuses of `lane_compile_lock` (the dense, expert, sandwiched, biased and hybrid steps) take the query, key
+  and value in one launch and their heads' turns in one more (`gemv_parts`, `rope_parts`), the head epilogue now the
+  `head_epilogue` knob's; its own locks — `a_decode_layers_query_key_and_value_are_one_launch_with_their_head_epilogue`,
+  `the_rotation_kernels_keep_no_stack_frame` and `cuda_lane_lock::the_head_epilogue_computes_what_the_rope_launches_compute`
+  — turn the knob on. `cuda_knobs_lock` and `cuda_knob_consumers_lock` hold the knob: documented, honored, off by default.
+- `one_ir_identity_lock`'s pins hold the Flash-Next primitives' probes (`lane_mean`, `lane_spread`, `lane_sums`,
+  `signed_root`, `ngram_ids`), added alone, and the 13 spatial programs that moved on main's own sources at main's
+  re-recorded digests, each the one this tree generates.
+- `one_ir_lock::the_shared_table_fires_what_the_lane_fires` runs dense attention and Qwen3.8's hybrid with their
+  residuals in four lanes, so every rule the lane links fires in its models: the mixes' and posts' fusions among them.
+- `lane_compile_lock::a_tensor_parallel_whole_qk_norm_sends_one_sum_of_squares_a_chip` takes a chip's raw projection
+  from its product alone or as a part of the chip's GEMV in parts, as the lane merges each chip's q, k and v.
+- `lane_compile_lock::every_block_format_is_read_in_place_through_its_decoder` builds its twelve wide-chunk programs
+  nine at a time (`nvcc_all`, its width declared): one after another they ran past the 30-minute cut on a loaded box.
+- `lane_compile_lock::each_launch_compiles_the_epilogues_activation_in_only_where_it_takes_one`: every
+  hyper-connected program's activated launches set their kernel's `EA` and the rest leave it, every tiny architecture's
+  own program sets none. `lane_compile_lock::every_kernel_launched_past_48_kb_of_shared_memory_has_its_own_attribute_raised`:
+  every instantiation a program launches past 48 KB of dynamic shared memory has the limit raised on that instantiation
+  (`kernel_launches` reads a program's launches, their template arguments and shared memory).
+- `lane_compile_lock::a_batchs_block_format_kernel_compiles_the_activation_in_only_where_a_part_takes_one`: a
+  hyper-connected step batched in Q4_K, its mixes of rank 64, compiles the activation into exactly the block-format
+  launches whose parts take one.
+- `lane_compile_lock::a_q8_projections_norm_fold_takes_the_rows_a_warp_that_fit_one_wave` and
+  `cuda_lane_lock::a_q8_projections_norm_fold_sums_alike_at_every_rows_a_warp`: a Q8_0 projection's norm fold at the
+  rows a warp that fit one wave of the chip, Qwen3 and Gemma 3 at 1024 and 2048 wide on 28 and 108 multiprocessors, and
+  the same tokens and logits bit for bit at two rows a warp and one.
+- `lane_compile_lock::a_gated_delta_layers_q8_inputs_take_two_rows_a_warp`: Qwen3.5's and Qwen3.8's hybrid's
+  gated-delta inputs at two rows a warp under one word, at one under two words and the precise numerics.
+- `lane_compile_lock::a_gated_delta_step_takes_two_of_its_memorys_rows_a_warp` and
+  `cuda_lane_lock::a_gated_delta_step_computes_alike_at_every_rows_a_warp`: Qwen3.5's and Qwen3.8's delta steps at two of
+  their memory's rows a warp, and every output, word, scale and memory value the same bytes at one, two and four, `f32`
+  and bf16 memories, two steps in a row. `lane_compile_lock::a_bf16_recurrent_state_is_carried_in_bf16` reads each
+  delta launch's memory type by its template position (`kernel_launches`), as the step's template takes a trailing
+  rows-a-warp argument (Tristen's ruling, 11-13), and `a_stepped_delta_rule_norms_each_head_in_its_last_block` takes
+  a step with its norm's operands as six template arguments or more (the same ruling's sibling).
+- `lane_compile_lock::a_q8_gemv_in_parts_of_one_row_takes_the_rows_a_warp_its_parts_divide` and
+  `cuda_lane_lock::a_q8_gemv_in_parts_sums_each_output_alike_at_every_rows_a_warp`: a Q8_0 GEMV in parts of one row at
+  four, two or one rows a warp as its parts divide, a chunk's and two words' at one, and every output the same bits at
+  one, two and four rows a warp over rows of 1024, 1152 and 2048 values, under one word and two.
+- `lane_compile_lock::a_q8_gated_pair_of_one_row_takes_four_rows_a_warp` and
+  `cuda_lane_lock::a_q8_gated_pair_sums_each_output_alike_at_every_rows_a_warp`: a Q8_0 gated pair of one row at four
+  rows a warp under one word, a chunk's and two words' at one, and every word and scale the same bytes at one, two and
+  four rows a warp over rows of 1024, 1152 and 2048 values, through the SwiGLU and the GELU.
+- PARITY-GDN-HALF-STATE (K-12): `numerics_contract_lock::a_half_precision_state_declares_and_meets_its_bound` — the
+  lane's contract names its memory's keep and range at each `recurrent_state`; bfloat16 keeps each of its 65536 values,
+  every midpoint between two of them and either side of it, and every 256th `f32` bit pattern as `quant::f32_to_bf16`
+  rounds it, and the reference's `StateStorage::Bf16` as the contract does; and the device suites that hold it are named
+  and run on the card, followed through the helpers they call (`reached_from`).
+  `cuda_lane_lock::the_lanes_bf16_memory_rounds_as_the_model_rounds` holds `lk_to<__nv_bfloat16>` and `lk_from` to the
+  model's conversions bit for bit; `cuda_lane_lock::a_bf16_memory_keeps_its_error_bounded_over_a_long_run` holds a
+  gated-delta model's 4096 rows to the bf16-state reference within the bound a short run holds;
+  `cuda_lane_lock::qwen3_5_0_8b_meets_its_bar_with_a_half_precision_state` and its `_on_long_prompts` hold Qwen3.5-0.8B
+  with bf16 memories to llama.cpp's closeness at every activation point (`meets_every_activation_precisions_bar_over`
+  takes the memory's precision); `cuda_lane_lock::every_gated_delta_architecture_keeps_a_bf16_memory_near_its_reference`
+  holds Qwen3.5's hybrid, Qwen3.8's (hyper-connected, sigmoid gates) and Flash-Next's (the n-gram embedding) with bf16
+  memories to the bf16-state reference.
+- `cuda_lane_lock::every_block_formats_projection_sums_each_output_alike_at_every_rows_a_warp`: a projection of one
+  row in each of the twelve block formats with a plain output (`lk_gemv_blk`) writes every output the same bits at one,
+  two and four rows a warp, over rows of 1024, 1152 and 2048 values under one word and two.
+- `lane_compile_lock::a_block_format_gated_pair_of_one_row_takes_four_rows_a_warp` and
+  `cuda_lane_lock::every_block_formats_gated_pair_sums_each_output_alike_at_every_rows_a_warp`: a gated pair of one row in
+  each of the twelve block formats at four rows a warp under one word, at the plan's under two words and in a chunk; and
+  every word and scale the same bytes at one, two and four rows a warp over rows of 1024, 1152 and 2048 values, each row
+  as the lane lays it out (`BLOCK_LOADER`, a device program's loader of a matrix in any format).
+- `lane_compile_lock::a_wide_chunks_experts_run_on_the_tensor_cores` holds every router to the values: an `f32`
+  router routes a wide chunk by one `lk_gemm_f32` of logits and a pick a row, a router of checkpoint rows a block a row.
+  Its ten programs build nine at a time (`nvcc_all`, its width declared in `.config/nextest.toml`): one after another
+  they ran past the 20-minute cut on a busy box.
+- `common::checkpoint` lives in `common/checkpoints.rs`, and a `models/<dir>/` of several GGUFs panics, naming them,
+  where it named none and its tests were skipped. `fusion_map_lock`'s real-checkpoint map resolves through it, naming
+  Qwen3.8-27B's Q4_K_M.
+- `lane_compile_lock`'s check that an expert mixture reads its norm quantized holds the router's ruled read of the
+  values: the experts read the norm quantized from its epilogue, its `f32` read by nothing but the mixture.
+  `shim_lock::the_lane_shim_is_its_link` judges the lane's shim with every knob that takes a class on.
+- `lane_compile_lock`'s hyper-connection compile tests build their programs nine at a time (`nvcc_all`, `NVCC_WIDTH`),
+  the width `.config/nextest.toml` declares for them: an expert mixture's program alone is minutes of nvcc, eighteen in
+  a row past the gate's cut. Flash-Next's fused programs are built once, by `qwen38_flash_next_layers_compile_on_the_lane`.
+- Qwen3.8-Flash-Next's layers: `lane_compile_lock::a_hyper_connected_residual_mixes_its_lanes_on_the_lane` and
+  `qwen38_flash_next_layers_compile_on_the_lane`, `cuda_lane_lock::every_hyper_connected_model_generates_what_the_reference_computes`
+  and `qwen38_flash_next_layers_generate_what_the_reference_computes` (prompts crossing an end of document), and
+  `bringup_lock::the_cpu_tier_runs_qwen38_flash_next_layers`; `cpu_shim_lock::a_decode_step_cut_between_two_cpu_programs_computes_the_whole_steps_bits`
+  and `cuda_lane_lock::a_model_cut_between_the_cpu_and_the_card_decodes_what_the_lane_decodes` cut every
+  hyper-connected model and Flash-Next's (past its embedding; at it, refused by name);
+  `tiny_models::hyper_connected_models`, `flash_next_models` (Flash-Next's block with 512 experts keeping 10 beside a
+  gated shared expert among them) and `with_ngram_embedding`, and the tiny checkpoints write the hyper-connection and
+  n-gram embedding tensors (the products whose rows are the lanes' width in Q8_0, every other `f32`).
+- `model_reference_lock::an_expert_mixtures_router_reads_its_activations_values`: a tiny Qwen3-MoE and GPT-OSS with only
+  their routers in Q8_0 continue under the one- and two-word precisions bit for bit as the exact reference does.
+- PARITY-DUAL-NORM: `lane_compile_lock::a_latent_layers_two_norms_are_one_launch` (DeepSeek-V2's low-rank query norm and
+  latent norm one launch a layer in every form under every numerics, the query 64 and 96 wide against a 64-wide
+  latent; held back, apart; one norm a layer, nothing to pair). By Tristen's ruling (11-11) the latent test counts
+  DeepSeek2Split's norms as three dual launches, reading the latent's norm inside one, and shim_lock's decomposed-class
+  example is `norm_weight_offset`.
+- PARITY-CPU-SHIM: `bringup_lock::the_cpu_backend_brings_up_every_model_or_refuses_by_name` (every tiny architecture
+  brought up on `cpu`, its forms cuts of the one program named in its source, every sequence run on the host's threads,
+  and at the precise numerics the f64 reference's tokens; a checkpoint in Q5_0 refused, the format named); `cpu_shim_lock::a_host_without_the_programs_instruction_set_is_refused_at_load_by_name`
+  (a step run under `qemu-x86_64` as its most capable CPU less AVX2, FMA, F16C or AVX-VNNI exits 5 naming it);
+  `unit/logicaffeine_compile/codegen_cpu/model` (a Linux CPU list's count, `host_threads`). The CPU programs the locks
+  build take `FLAGS_X86_AVX2_VNNI`.
 - `lane_compile_lock::a_steps_delta_rule_takes_its_heads_norms_only_where_its_inputs_launch_holds_no_whole_head`: on
   every gated delta case in Q8_0 and in BF16 and F16, under every numerics, the decode step with `delta_qk_norm` is the
   one with it held but for each inputs' launch whose blocks hold less than a head — its convolutions writing the heads
@@ -97,6 +155,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   fusion off — the library computes what its reference computes (each product's outputs the bits they are alone in any
   grouping), every tiny architecture's cut links within 1e-5 of the evaluator under the precise point and each op within
   3e-2 of the evaluator's under one word, and a long cache attends a split at a time as the evaluator computes.
+- `interface::lean::native_decide`'s `export_controls` (an export without a native decision is read as exported,
+  uncopied; only each leaf's line is replaced, by its re-derivation; the kernel core accepts the re-derived export and
+  refuses the export as exported) and `pipeline::native_controls::the_kernel_core_rechecks_the_native_result_as_the_logos_kernel_read_it`.
+- `dag_levels::leq_holds_exactly_when_it_holds_under_every_assignment`: the `≤` decision procedure against every
+  assignment over {0, …, 4}, on every pair of depth-one levels over two parameters and 30,000 pairs of depth-two ones.
+- `dag_level_allocation`: a counting global allocator, by thread: deciding 4,000 orders of levels, finding a known
+  substitution and substituting into 3,000 lists allocate only as a memo grows.
+- `dag::sem::value`'s `content_controls` (a slot is half a hash and an id; every entry is found after every growth;
+  entries whose hashes share their top half are told apart by content; content is compared only where the kept half
+  agrees; an emptied table) and `memory_controls` (the arena's memory report counts every store, its fields
+  destructured whole, and names each part once); `dag::sem`'s `memory_controls` (a session's report counts every
+  store); `dag::export`'s `size_controls` (each of the Arena's large exports reserves the persistent table its
+  expressions need, and the estimate covers it within a tenth).
+- `installer_docs_lock`'s `each_installer_ends_on_the_first_run_the_quick_start_proves`: the `get started:` line
+  `install.sh` and `install.ps1` print is the README quick start's commands, the first run `getting_started_lock`
+  replays with nothing but `largo` on the PATH.
+- `timing_calibration_lock`'s `no_build_whose_memory_quartus_built_in_its_fabric_is_calibrated`, `timing_graph_lock`'s
+  `a_box_given_its_area_by_its_caller_adds_it_for_every_instance_as_a_declared_one_does`, `d5005_rtl_lock`'s
+  `the_timing_model_boxes_every_memory_the_generator_writes_its_parts_included` and the timing graph's unit
+  `a_box_that_takes_an_area_says_so_and_one_that_takes_none_writes_nothing_more`: a memory Quartus built in its fabric
+  is no calibrated build, a box takes the area its caller gives it, and every memory the RAM generator writes is boxed.
 - `weight_format_lock` (PARITY-WEIGHT-FORMATS): a BF16 or F16 checkpoint holds the `f32` checkpoint's values, streams
   two bytes a weight read in place, its products read their activation `f32`, and every program of Llama, Qwen3,
   Gemma-3 and Qwen3.5 in both formats builds with its widening in registers; an MXFP4 matrix regrouped at upload is the
@@ -175,45 +254,107 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `tiny_models::ALL` gains MiniCPM, Arcee, Granite and Gemma 2, the architectures that carry `norm_scale`, `relu_sqr`,
   `gemm_scale` and the soft caps; `model_tiny_checkpoint_lock` and `model_triage_lock` read them back and triage them.
 - `model_conformance_lock`: Granite's multipliers (embedding, residual, attention scale, logits after the head), MiniCPM's scaled head (the output norm scaled before the head) and Arcee's ungated relu² FFN each prefill and decode on the VM to the reference's logits; `each_multiplier_moves_the_logits` keeps the reference from ignoring a multiplier. `model_tiny_checkpoint_lock`: Granite, MiniCPM and Arcee checkpoints read back as their specs, MiniCPM's absent multipliers read llama.cpp's defaults and Granite's absent ones read none.
-- `timing_calibration_lock`'s `no_build_whose_memory_quartus_built_in_its_fabric_is_calibrated`, `timing_graph_lock`'s
-  `a_box_given_its_area_by_its_caller_adds_it_for_every_instance_as_a_declared_one_does`, `d5005_rtl_lock`'s
-  `the_timing_model_boxes_every_memory_the_generator_writes_its_parts_included` and the timing graph's unit
-  `a_box_that_takes_an_area_says_so_and_one_that_takes_none_writes_nothing_more`: a memory Quartus built in its fabric
-  is no calibrated build, a box takes the area its caller gives it, and every memory the RAM generator writes is boxed.
+- `ssg_merge::a_page_is_written_as_its_address_never_as_a_directory_index`,
+  `pages_server_lock::a_section_and_its_pages_are_served_without_a_slash` and
+  `pages_server_lock::every_node_suite_serves_a_page_at_its_address` (DAT-170). The `ssg_merge` tests read the merged
+  `/learn` page at `public/learn.html`.
+- `pages_server_lock` (DAT-171): `scripts/web/pages-server.py` serves a built site as Cloudflare Pages does, with
+  `_redirects` redirects before files, Pages' HTML route matching and its 308s, rewrites only where no file matches,
+  and the nearest `404.html` with a 404 status for every other path, and every local SSG check serves the build
+  through it.
+- `ssg_merge::the_not_found_page_becomes_the_root_404_document`, `redirects_lock::no_rule_catches_every_path`,
+  `redirects_lock::every_rewrite_serves_the_app_shell_below_a_route` and, with `web-tests`,
+  `redirects_lock::the_rewrites_are_the_client_side_routes` (DAT-171). The web unit tests
+  `sitemap::the_not_found_page_is_prerendered_but_never_sitemapped` and
+  `sitemap::every_parameterized_route_is_prerendered_or_client_side` hold the prerender list and the client-side
+  routes to the router. The test that held the `/*` rule last is gone with the rule.
+- `no_secret_in_the_tree_lock` (DAT-436): no file in the checkout holds a private key block, a GitHub, Slack, AWS or
+  model-provider token, or a credential under a secret's name (`client_secret`, `api_key`, `password`,
+  `CLOUDFLARE_API_TOKEN`, …), and none is named like a secret's file (`.env`, `.dev.vars`, `*.credentials*`, an SSH
+  private key, a PKCS #12 bundle, `.netrc`, `.pgpass`). Each detector catches a sample of its shape and passes a near
+  miss, `.gitignore` keeps those names out of every directory as `git check-ignore` reads it, and each public test
+  vector it allows (Wycheproof's PBKDF2 passwords) must still be needed. A refusal names the file, the line and the
+  detector, never the text.
+- `portable_suite_lock`: `an_architecture_only_simd_feature_is_enabled_only_for_its_architecture` and `the_test_crate_checks_its_crypto_bars_on_both_architectures` (libcrux's `simd256` and `simd128` each sit under their own architecture's target table); `a_test_names_the_native_tier_only_where_it_exists` (every test source names `logicaffeine_jit` or `logicaffeine_forge` only under a gate false on aarch64 macOS and Linux, x86_64 Windows and wasm32, read from the source with `syn`) and `the_native_tier_fence_reads_gates_as_rustc_does`.
+- `dag_sem_spines`: the value engine's neutrals and environments against a model — an application built one argument at a time, all at once, or a prefix and then the rest is one value; its arguments read back in order; it is open exactly when its head or an argument is; finding one stores nothing and a new one stores its arguments once; an environment extended by a value, by another, and by the first again is the first environment; a session reset remembers no extension; a pruning keeps exactly the entries its mask marks, is one frame per content (finding it stores nothing, a new one stores its live entries once), and an environment remembers its two latest prunings.
+- `dag_sem_bounds` also holds the caches to the dag: a term holding a subterm twice at every level, 18 deep, is evaluated and checked with the caches no larger than for one 2 deep — a shared subterm's value and type are found the second time (`evaluating_a_shared_subterm_costs_its_dag_not_its_tree`, `checking_a_shared_subterm_costs_its_dag_not_its_tree`).
+- `dag_relevance::every_absent_mask_is_the_one_a_walk_of_the_definition_finds`: every definition of `init-prelude` has the absent-parameter mask a walk of its value and type finds, a reference that reads none of the loose-variable masks the store keeps.
+- `dag::expr` unit `reserving_room_keeps_every_node_and_then_grows_no_more`: reserving room in the persistent table goes straight to the capacity that holds the reserved nodes, finds every node interned before, and does not grow while they arrive.
+- `release_assets_lock` runs `release.yml`'s release-notes step as the runner runs it, against every released section of the changelog and a synthetic one: each is a body GitHub accepts (125,000 characters), a section that fits ships whole, and a longer one keeps every heading, each heading's first entries verbatim and a pointer to the full notes for the rest (0.11.0 keeps Highlights, Breaking changes, Removed and Security whole). `a_dispatch_releases_an_existing_tag_with_the_dispatched_workflow`: a dispatch names the tag, every checkout checks it out, nothing reads the ref's own name, and the release names the tag and publishes it.
+- `release_assets_lock::a_release_holds_the_tags_binaries_to_the_dispatching_workflows_size_budgets`: each size-budget step runs `./release-policy/scripts/check-binary-sizes.sh` after a checkout of `${{ github.sha }}` into `release-policy` carrying `.config/size-budgets.toml` and the script, the LSP and largo checks once each; `the_size_check_reads_its_own_trees_budgets_and_the_callers_binaries`: the script, copied into a scratch tree, passes a binary at its budget and refuses one a byte over, its relative `--bin-dir` read from the caller's directory. The dispatch test exempts the release-policy checkout from checking out the tag.
+- `release_assets_lock::every_script_a_workflow_runs_by_its_path_is_executable`: every `./path` a workflow's `run:` names is a file of the tree with its exec bit (a script run from the release-policy checkout read at the tree's root), so a script committed without it fails here, not at its step on a runner.
+- `compiler_stack_safety_lock`: `the_optimizer_lattice_compiles_loop_interleaved_recursion_in_bounded_time` and `the_rust_backend_compiles_loop_interleaved_recursion_in_bounded_time` (a self-call inside a constant loop, the inliner's n-queens shape, compiles within 300 s on an ordinary thread); the kernel's `lia` units `a_budget_no_step_reaches_gives_the_exact_verdict`, `the_budget_bounds_the_constraints_an_elimination_step_leaves`, `a_system_that_outgrows_its_budget_is_given_up_on_promptly`.
+- `ondemand_exclusion_lock::every_card_cosimulation_runs_on_demand_and_no_fast_card_test_does`: the silicon selector names exactly the `d5005_engine_card_lock` tests that start Verilator, derived from the file.
+- `docs_site_lock::a_link_written_as_code_in_the_docs_is_not_a_link_the_site_must_ship`: an item summary that shows a link as inline code (`` `[Alias](URI)` ``) builds; `site.py`'s map-link check reads no link inside a code span.
+- `size_budget_lock::the_web_bundle_builds_for_size_and_its_budget_fits_the_host`: `[profile.wasm-release]` builds at opt-level `s`, and the `[web]` wasm budget stays under Cloudflare Pages' 25 MiB per-file limit.
+- `ci_local_runner_lock`: `scripts/run-ci-locally.py plan` accepts the shipped `test.yml` on every trigger and never runs the job that publishes; it refuses by name an unmapped action, an unknown runner label, a key, trigger, context or expression function it cannot reproduce, and a matrix given by an expression; static `if:` conditions follow GitHub's expression rules; `include` and `exclude` expand as GitHub documents; a dispatch reads its declared inputs and refuses an undeclared one, and a tag ref is a tag; `hashFiles` digests the matched workspace files in path order; a cache step is a cold start; a shell the image lacks is refused only where a step would run it; a macOS, Windows or arm64 leg, and what needs only it, is named as not run; the shipped `release.yml` plans as the dispatch of a tag (the two linux-x64 `largo` legs run here, the publishing job and the installs of the published release never); each runner image installs nothing its workflow installs for itself and no tool the hosted image lacks.
+- `workflow_linker_lock`: every job that installs Rust on a Linux runner installs the packages its workflow's link
+  line names before its first build, read from the workflow's own `env:`. The workflow readers live in
+  `common/workflows.rs`, and `release_assets_lock` reads them from there.
+- `release_assets_lock::every_release_job_on_windows_checks_out_the_trees_own_line_endings`: a release job that can run
+  on Windows turns off the checkout's CRLF conversion before it checks out. The workflow readers' `script` (a step's
+  shell, comments left out) lives in `common/workflows.rs` beside the others.
+- `real_constants_every_tier_lock`: a bare `pi`, `π` and `e` are the nearest doubles outside an exact context, in
+  arithmetic, a function, a closure, a condition, a list and a text, beside the exact reading, and a `Let`, parameter,
+  closure parameter, loop variable or arm binding so named keeps its value, on every backend that runs a program.
+- `real_text_every_tier_lock`: six `Real`s, written as literals and computed at run time, each shown alone, in a bare
+  hole, padded right, left, centred and by a bare width, as a record's field, a list's items and the value of a map
+  keyed by text and by an integer: the tree-walker's shortest decimal on every backend.
+- `release_assets_lock::the_vsix_gate_launches_vs_code_by_the_name_its_app_gives`: the VSIX gate installs a
+  `@vscode/test-electron` of at least 3.1.0 between its dependencies and itself.
+- `dag_quotient_integrity`: a quotient's constants are its own, in every engine of the `dag` core. The two exports of
+  Lean Kernel Arena issue #39 (`fixtures/quotient_forgery/`, byte for byte as reported) are rejected by their rules, and
+  by the `Term` kernel's importer. Over the Arena's own `130_quotLiftReduction`, each member restated as an ordinary
+  axiom in its place, declared before the quotient, or declared again after it is rejected by its rule, as are records
+  in an order their canonical types do not allow; the lift before the constructor is admitted. The official package is
+  admitted and computes. With one admitted quotient constant restated as an axiom behind the kernel's back, the
+  quotient left installed, the lift no longer computes. Under `nbe` the closure-conversion configurations run too
+  (`run-opt-in-feature-tests.sh`).
+- `dag_crafted` decides every crafted case in the substitution engine, the value engine and both at once, holds
+  `fixtures/crafted/` to exactly what `craft-cases.py --out DIR` writes, and `craft-cases.py` builds Lean's `Eq` and
+  quotient: a control package whose theorem checks only where the lift computes, an export using `Quot.mk` with no
+  quotient declared (admitted, as Lean admits it), and ten forgeries — each member as an axiom, `Quot` as a
+  definition, `Quot.mk` declared first, `Quot.ind` before `Quot.mk`, a constructor, an inductive type and a mutual
+  block's later member taking a quotient's name — each rejected by its rule.
+- `dag_trusted_prefix::a_quotients_names_are_checked_even_inside_the_trusted_prefix`: an axiom, an inductive's
+  constructor and a mutual block's later member taking a quotient's name are checked inside a trusted prefix.
+- `samba_exam_numerics_lock` (E2.8, E2.11), `spatial_scatter_lock`, `spatial_written_map_lock`,
+  `samba_exam_agility_lock`, `samba_exam_fusion_report_lock`, `samba_exam_unit_use_lock`, `samba_exam_recompile_lock`
+  and `samba_exam_certificate_lock`; the intake's reader, twin and conformance tests for every new family in
+  `model_hf_intake_lock`, `model_tiny_checkpoint_lock` and `model_conformance_lock`;
+  `spatial_mixed_precision_lock`'s held cache and island-reads-an-accumulator tests;
+  `spatial_one_ir_lock::every_op_family_lowers_from_its_own_file`;
+  `tensor_gdn_row_blocks_lock::a_chunk_that_repeats_one_token_computes_the_vms_values_on_sn50`;
+  `spatial_rewrite_lock::{across_an_fp32_page_fusion_changes_no_value,
+  a_per_head_norm_is_the_same_bits_in_its_flat_and_blocked_forms}`;
+  `spatial_attention_window_lock::{a_fold_of_several_query_tiles_starts_each_heads_softmax_from_its_own_sink,
+  a_long_prefill_with_sinks_spreads_one_sink_tile_a_head}`.
+- `model_hf_intake_lock`'s quantized-format tests (`an_mxfp4_*`, `a_pack_quantized_*`, `a_gptq_*`, `an_awq_*`,
+  `a_scaled_*`, `a_modelopt_fp8_*`, `an_nvfp4_*`), each over twins packed by the format's own producer
+  (`hf-tiny-twin.py` `gpt-oss-mxfp4`, `kimi_k2-int4`, `qwen3-int4`, `qwen3-gptq`, `llama-gptq`, `qwen3-awq`, `llama-awq`,
+  `qwen3-fp8-channel`, `qwen3-fp8-block`, `qwen3-int8-channel`, `llama-modelopt-fp8`, `qwen3moe-nvfp4`, `llama-nvfp4`)
+  with refusals of each scheme the converter does not read, and NVFP4's held to transformers' forward over its
+  dequantized weights (`hf-oracle.py logits-nvfp4`); `model_quant_lock::every_grid_is_ggmls` and the new GGUF formats in
+  its block-size, known-block and bit-for-bit locks; `samba_exam_bringup_lock::an_nvfp4_release_brings_up_from_its_directory`
+  (E1.18). `samba_bringup_clock_lock` (E1.11's bring-up clock, measured and recorded as the ledger's
+  `C-SN50-*-BRINGUP` rows).
+- `tensor_rows_gather_lock` gathers narrow rows of 2, 4, 8 and 16 from
+  tables wider than a page, blocks whose last
+  tile the indices fill only in part among them, and refuses straddling and one-element rows by name;
+  `spatial_forward_lock::a_tensor_every_link_of_a_joined_chain_reads_is_loaded_once` and
+  `…::a_chain_of_200_links_reading_one_tensor_is_one_section`.
+- `model_graph_import_lock` (INTAKE-8): archives written here and PyTorch's own exports read as their ops, written
+  as the author's sentences, brought up on the fp32 twin, the SN50 in place and the SN50 bundle, held to the graph's
+  `f64` forward and torch's own output, and every graph the importer does not take refused by name;
+  `erf_every_tier_lock`: the library's `erf` bit for bit Go's on a grid of every branch, the graph's evaluator bit for
+  bit the library's, the sentence lifted only where `erf` is the library's, and every backend printing the
+  tree-walker's bytes; the `erf` probe in every tensor-op registry, `tensor_graph_vjp_lock::erf_differentiates_pointwise`
+  and `spatial_algebra_lock`'s taxonomy row for `SfpuKind::Erf`.
 
 ### Changed
-- The Arena corpus at lean-kernel-arena `8139f284`: 247 cases, the 11 new ones (six `bugs/` rejects, `other/inductive-undeclared-universe` and four `corner-cases/`) vendored by `scripts/lean/arena-crown/vendor-corpus.py` from the official archive or from the corner cases rebuilt byte-identical at `d7f74a9e`; a regenerated export is now looked for in every round held, newest first, and `cedar`, re-exported at every round since, keeps its regenerated export with the new digests in its evidence. `arena_corpus_lock`, `arena_entry_lock`, the Arena README, the rehearsal and the scoreboard pin the round.
-- `arena_entry_lock` holds the Lean Kernel Arena entries to the kernel's `unchecked-access` feature: each entry builds its checker with it, the kernel declares it, and `the_measured_snapshot_is_built_as_the_entry_builds` compares `snapshot.sh`'s `cargo build` arguments with the entry's as well as their `RUSTFLAGS`, so a measurement cannot run a build the Arena would not. An entry trains its profile on accept tests it exports itself with the Arena's `lka.py build-test`, each through its own run line, either into the profile directory or into a profile written apart and merged with an explicit weight (`every_build_trains_its_profile_on_the_run_line_over_accept_cases`, which requires each export before its training and the merge to weigh exactly the profiles written apart); `the_entries_train_on_the_same_tests_with_the_same_weights`; and `the_measured_snapshot_trains_as_the_entry_trains` holds `snapshot.sh`'s training inputs and weights to the entry's.
-- The logic suites read a quantified plural as its singular's predicate (`logic_determiner_readings`,
-  `logic_infinitary_quantifiers`, `language_L_language_extra`), `spatial_program_path_ledger_lock` holds the probe
-  table's 36 paths, the editor's diagnostic rows leave the editor surface to `lower_view_functions`,
-  `propositional_logic` reads the Unicode connectives, and `benchmarks/results/speed_floors.json` is re-recorded by
-  `speed_floor_lock`'s recorder on main's ledgers: the 44 achievements without a floor, the six vanished
-  `clique_coloring/24` floors dropped, and the Lean Kernel Arena pin's counts.
-- `collected_heap_lock`'s rows collect at least twice on every collected tier: `record_with_a_list_field` and `text_by_appending` run 300,000 iterations, and `list_grown_by_pushes` hands its list to a variable that outlives the iteration, since a list of twenty pushes built and read inside one iteration never reaches the heap on the C tiers.
-- `wasm_host_abi_lock` freezes `read_reals` and checks it on every host (`compile_common/wasm_host.rs`);
-  `parity_opt_lattice_lock` scans whole identifiers; `eda_tools_seam_lock` admits `benchmark_remote_run_lock`'s
-  tools under a temporary root; the Studio locks read the debounced preview where `studio_workbench.rs` keeps it;
-  `H_honesty_extra` keeps only its scratch probes and leaves `per_process_dir_lock`'s hand-made list; `INDEX.md`
-  gains its `one_*` and `studio_*` rows.
-- The `cuda-gpu` test group, which gives a test the card alone, takes `model_golden_lock` and `numerics_contract_lock`,
-  which probe the GPU (`nextest_schedule_lock`); `spatial_int64_lock`'s KERNEL-6 override sits above the generated
-  widths block (`test_ledger_lock`).
-- The Studio and Learn end-to-end scripts name no file of the private workspace. Locked by `workspace_reads_lock`.
-- `benchmarks/results/speed_floors.json` drops the 28 Lean Kernel Arena floors named for a test's former best rival
-  (Tristen, 11-07): the Arena pin of 9447fcc83 changed the field's best checker on those tests, and each margin is
-  floored under the new rival's name (`arena/bugs/large-elim-param/over-kefir`, `arena/mathlib/over-nano-lean`, …).
-  `arena/navier-stokes-euler/over-sokonanoda` stays: on that test the pin's field has a faster checker than ours.
-- `benchmarks/results/speed_floors.json` drops `arena/navier-stokes-euler/over-sokonanoda` (Tristen, 11-07): at the
-  Arena pin of 9447fcc83 nano-lean checks that test in fewer instructions than ours, so there is no lead to hold;
-  `arena/navier-stokes-euler/instructions` still floors our own count.
-- `page_host::lowered`'s unit tests: a failure no handler absorbs, and one the page absorbs, are driven through a
-  replayed turn instead of a mount (a mount is no longer a guarded entry, Tristen 11-07), and
-  `a_mount_that_fails_is_the_statements_failure` pins the mount's own failure.
-- `arena_entry_lock`: each entry's description and the kernel README credit every checker the core builds on, with its
-  link, and the entry's run line, `largo lean check` and the `logos-kernel` binary check through `dag::arena::run`.
-- `arena_scoreboard_lock` holds every measured test to its peak-memory ceiling as well as its instruction ceiling
-  (`logos-arena-ceilings/3`).
+- `test_ledger_lock` holds the full profile's measured backstops (each names a test that exists and outlasts the
+  full profile's 30 minutes), the report's backstops (nine times a passing test's wall clock, in five-minute periods)
+  and its widths read from several ledgers.
 - With Tristen's approval (rulings 1–3 and 5–8 of the fusion round): `lane_compile_lock`'s staged-unit lock takes Q6_K's
   unit as its group of eight blocks, its arena lock places a zeroed state a form holds alone, its latent-attention byte
   lock quantizes the expert stacks, its wide-chunk locks count and find the block GEMM, dense and in parts, with either
@@ -229,6 +370,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `model_conformance_lock::a_qk_norm_across_every_head_equals_the_reference` holds the boundary the sum-of-squares
   all-reduce draws: a QK norm across every head splits over chips that each hold whole KV heads, and over more chips
   than KV heads it is refused by name.
+- `arena_scoreboard_lock` holds every measured test to its peak-memory ceiling as well as its instruction ceiling
+  (`logos-arena-ceilings/3`).
+- `arena_entry_lock`: each entry's description and the kernel README credit every checker the core builds on, with its
+  link, and the entry's run line, `largo lean check` and the `logos-kernel` binary check through `dag::arena::run`.
 - With Tristen's approval: six older-rule `lane_compile_lock` tests hold `gdn_input_epilogue` back where they hold the
   rules apart, the hybrid step's census counts `gemv_gdn`, and the lane census fixtures of Qwen3.5-0.8B (159 → 123
   launches), DeepSeek-V2-Lite and gpt-oss-20b (a16eceecb's norm-width rule) are re-recorded; `a_matrix_takes_the_bytes_its_upload_carves`
@@ -260,9 +405,60 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   kept and a header line naming what was added on which tree — new artifacts recorded beside moved ones that await
   their own approval.
 - `model_triage_lock`: a Llama- or Qwen3-shaped checkpoint is read exactly as Gemma, GLM-4, Llama, MiniCPM, Phi-3, Qwen2 and Qwen3, a Qwen3-MoE one also as MiniMax-M2, a Gemma 3 one also as Gemma 2 and GLM-4: the true readers once the triage reads under every architecture an arm reads.
+- The suite builds and runs on Apple Silicon. `common::run_all_tiers` and `tier_parity`'s `vm-forge` backend install the native tier only on x86_64 outside Windows and hand the VM none elsewhere; the 26 suites that test several tiers (`tco`, `value_semantics`, `magic_div`, the `runpath_*` and `phase_*` suites, `swap_every_tier_lock`, the AOT suites and others) gate only the items that name the JIT, so the rest of each runs on a Mac; the 61 suites that test the JIT alone open with `#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]`, and five JIT suites gated on x86_64 alone now also leave out Windows. On x86_64 Linux every test is unchanged.
+- The Arena corpus at lean-kernel-arena `8139f284`: 247 cases, the 11 new ones (six `bugs/` rejects, `other/inductive-undeclared-universe` and four `corner-cases/`) vendored by `scripts/lean/arena-crown/vendor-corpus.py` from the official archive or from the corner cases rebuilt byte-identical at `d7f74a9e`; a regenerated export is now looked for in every round held, newest first, and `cedar`, re-exported at every round since, keeps its regenerated export with the new digests in its evidence. `arena_corpus_lock`, `arena_entry_lock`, the Arena README, the rehearsal and the scoreboard pin the round.
+- `arena_entry_lock` holds the Lean Kernel Arena entries to the kernel's `unchecked-access` feature: each entry builds its checker with it, the kernel declares it, and `the_measured_snapshot_is_built_as_the_entry_builds` compares `snapshot.sh`'s `cargo build` arguments with the entry's as well as their `RUSTFLAGS`, so a measurement cannot run a build the Arena would not. An entry trains its profile on accept tests it exports itself with the Arena's `lka.py build-test`, each through its own run line, either into the profile directory or into a profile written apart and merged with an explicit weight (`every_build_trains_its_profile_on_the_run_line_over_accept_cases`, which requires each export before its training and the merge to weigh exactly the profiles written apart); `the_entries_train_on_the_same_tests_with_the_same_weights`; and `the_measured_snapshot_trains_as_the_entry_trains` holds `snapshot.sh`'s training inputs and weights to the entry's.
+- `wpe_caravel_lock` holds the engine to its signed configuration: `the_engine_runs_at_the_period_its_macro_and_wrapper_are_signed_off_at` reads both signoff ledgers (period, harness clock, signoff-clean); the reset-crossing simulation, the bench's clocks and the read-window STA follow `WPE_CLOCK` (the engine's clock clocks it, the other harness clock reaches it nowhere); the shipped numbers are 181 cycles a bit, two-word bursts at 80 ns and a 48 ns half SCLK, with a 20 ns engine refused for a window shorter than the round trip.
+- `collected_heap_lock`'s rows collect at least twice on every collected tier: `record_with_a_list_field` and `text_by_appending` run 300,000 iterations, and `list_grown_by_pushes` hands its list to a variable that outlives the iteration, since a list of twenty pushes built and read inside one iteration never reaches the heap on the C tiers.
+- `wasm_host_abi_lock` freezes `read_reals` and checks it on every host (`compile_common/wasm_host.rs`);
+  `parity_opt_lattice_lock` scans whole identifiers; `eda_tools_seam_lock` admits `benchmark_remote_run_lock`'s
+  tools under a temporary root; the Studio locks read the debounced preview where `studio_workbench.rs` keeps it;
+  `H_honesty_extra` keeps only its scratch probes and leaves `per_process_dir_lock`'s hand-made list; `INDEX.md`
+  gains its `one_*` and `studio_*` rows.
+- The `cuda-gpu` test group, which gives a test the card alone, takes `model_golden_lock` and `numerics_contract_lock`,
+  which probe the GPU (`nextest_schedule_lock`); `spatial_int64_lock`'s KERNEL-6 override sits above the generated
+  widths block (`test_ledger_lock`).
+- The Studio and Learn end-to-end scripts name no file of the private workspace. Locked by `workspace_reads_lock`.
+- The logic suites read a quantified plural as its singular's predicate (`logic_determiner_readings`,
+  `logic_infinitary_quantifiers`, `language_L_language_extra`), `spatial_program_path_ledger_lock` holds the probe
+  table's 36 paths, the editor's diagnostic rows leave the editor surface to `lower_view_functions`,
+  `propositional_logic` reads the Unicode connectives, and `benchmarks/results/speed_floors.json` is re-recorded by
+  `speed_floor_lock`'s recorder on main's ledgers: the 44 achievements without a floor, the six vanished
+  `clique_coloring/24` floors dropped, and the Lean Kernel Arena pin's counts.
+- `benchmarks/results/speed_floors.json` drops the 28 Lean Kernel Arena floors named for a test's former best rival
+  (Tristen, 11-07): the Arena pin of 9447fcc83 changed the field's best checker on those tests, and each margin is
+  floored under the new rival's name (`arena/bugs/large-elim-param/over-kefir`, `arena/mathlib/over-nano-lean`, …).
+  `arena/navier-stokes-euler/over-sokonanoda` stays: on that test the pin's field has a faster checker than ours.
+- `benchmarks/results/speed_floors.json` drops `arena/navier-stokes-euler/over-sokonanoda` (Tristen, 11-07): at the
+  Arena pin of 9447fcc83 nano-lean checks that test in fewer instructions than ours, so there is no lead to hold;
+  `arena/navier-stokes-euler/instructions` still floors our own count.
+- `page_host::lowered`'s unit tests: a failure no handler absorbs, and one the page absorbs, are driven through a
+  replayed turn instead of a mount (a mount is no longer a guarded entry, Tristen 11-07), and
+  `a_mount_that_fails_is_the_statements_failure` pins the mount's own failure.
 - `spatial_op_gap_ledger_lock`'s ledger is empty: every probed op reaches the SN50's neutral artifact within the
   one-ulp rule, its four compositions (a partial rotation, full attention, attention, the gated delta) by the fp32
   islands and the evaluator's fp32 operations; the count is frozen at zero.
+- The census locks of the attention, gated delta, lane, norm and n-gram specs name the op-family files of the
+  spatial lowering (`from_qwen_ops/{attention, recurrent, pointwise, rows, ngram}.rs`) as what computes each spec, and
+  `from_qwen_ops.rs`, which dispatches to them, as what routes it; `one_ir_lock` finds `merge_fans` in
+  `from_qwen_ops/attention.rs`. `spatial_nope_attention_lock` decodes a step whose every router decides
+  by a sixteenth of its largest logit on the fp32 twin, and asserts it, so its CHIP bound measures the chip, not a
+  near-tie. `spatial_mixed_precision_lock` holds the cache to the bytes of its tiles at bf16;
+  `model_hf_intake_lock::every_section_6_architecture_has_an_arm` opens each converted GGUF as every reader does.
+- `every_published_configuration_reads` reads gpt-oss's, Kimi K2 Thinking's, NVIDIA's NVFP4 releases' and twelve
+  quantized releases' configurations (`scripts/accel/fetch-hf-configs.sh` fetching each release's `hf_quant_config.json`
+  too); with their handed REDs moved into it, the suite that held them held none and left. `a_quantization_the_reader_does_not_read_is_refused_by_name`
+  holds MXFP4 outside gpt-oss to its refusal. The handed REDs that pass moved, unchanged, into their exams' green suites,
+  their `frozen_reds.tsv` rows keeping their digests under the new paths: E1.6, E1.7, E1.11 and E1.13 into
+  `samba_exam_bringup_lock`, E2.6 and E2.7 into `samba_exam_correctness_lock`, E6.4 into `samba_exam_moe_lock`, and E11.5
+  and E11.9 into `samba_exam_kernel_lock`.
+- E1.8, E6.1, E6.6 and E11.6 pass and move into their exams' green suites, the suite that held E6's open rows retired
+  with them: E6.1 and E6.6 hold each sequence to the GPU's own bf16 datapath (`common/samba_exam.rs`: `decode_batch_on`,
+  `within_the_gpu_path`), E1.8 brings up through `brings_up_close`, E11.6 lowers with its results declared, each frozen
+  row re-pinned as Tristen ruled. `samba_cells_lock`'s unapproved fixture clears the ledger's approval, and
+  `qwen4_exp_intake_lock` holds the parts the author writes whole and refuses by name only what it does not.
+- E1.12 (an exported graph brings up without a spec arm) passes and moves into `samba_exam_bringup_lock`, the
+  suite that held E1's open rows retired with it.
 
 ### Fixed
 - `bringup_lock` follows the chips it tests: the SN50 brings up an expert mixture (it deploys SambaNova's published families), the D5005 refuses it naming "experts"; the undescribed checkpoint is written with no metadata (`tiny_models::write_bare_checkpoint`), since every tiny checkpoint now carries its keys.
@@ -313,7 +509,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   wide-row option, routing and choice cases (`wide_data`); `deploy_kimi_glm_lock::every_kimi_k2_layer_kind_lowers_and_certifies`,
   landed from `deploy_reds_lock`.
 - `model_hf_intake_lock::every_published_configuration_reads` (`scripts/accel/fetch-hf-configs.sh`, tool `hf-configs`)
-  and its handed REDs (`model_hf_config_reds_lock`: MXFP4, int4 compressed tensors, the multimodal checkpoints);
+  and its handed REDs (MXFP4, int4 compressed tensors, the multimodal checkpoints);
   `…::a_tiktoken_vocabulary_encodes_as_tiktoken_encodes`, `…::every_class_of_kimi_k2s_pattern_matches_what_tiktoken_matches`,
   `…::kimi_k2s_probe_names_its_pre_tokenizer` and `…::kimi_k2s_vocabulary_is_its_published_ggufs`
   (`scripts/accel/fetch-gguf-heads.sh`, tool `gguf-heads`; `hf-oracle.py tiktoken`, `tiktoken-classes`);
@@ -548,7 +744,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   slowest run, a Plasticine cell is won only by a simulated row and an RDU cell only by a measured one, our rows carry
   their program identity, a cell's Copy bar is its latest published row; every section 2.1 measure is a column with its
   definition and source; every Copy bar's cell id reads under section 2.3.
-- `samba_exam_bringup_lock` and `samba_exam_bringup_reds_lock`: the Samba book's exam E1, cold bring-up of unseen
+- `samba_exam_bringup_lock` and its handed REDs: the Samba book's exam E1, cold bring-up of unseen
   configurations. Each row's checkpoint is written to disk, handed to `largo emit rdu --model <checkpoint>`, the bundle
   read back off disk, re-certified and run for one decode step with every tensor filled from the checkpoint as a host
   fills it, its token held to the f64 reference's (`common/samba_bringup.rs`; a row over several shapes names every
@@ -636,7 +832,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and triages under every one. `common/model_harness.rs` gains `qwen2_moe_spec` and checkpoints with attention biases and
   shared gates; `common/tiny_models.rs` writes the gate and `expert_shared_feed_forward_length`.
   `samba_exam_moe_lock`: the exam's E6.5 (a group limit leaving the best expert out) on the `largo emit rdu` bundle of
-  the tiny DeepSeek-V2 routed as DeepSeek-V3; `samba_exam_moe_reds_lock`: E6.1 (a batch of 64 on one expert), E6.4 (a
+  the tiny DeepSeek-V2 routed as DeepSeek-V3; its handed REDs: E6.1 (a batch of 64 on one expert), E6.4 (a
   tie at the k-th place) and E6.6 (a NaN router row) as frozen handed REDs on NUM-1, each routing as the reference does.
 - Qwen3.5-MoE: `model_hf_intake_lock` gains its directory, tokenizer and reference (twin `qwen35moe`, whose draft block
   stores its experts as one gate-and-up tensor), `model_tiny_checkpoint_lock` its round trip, `model_conformance_lock` and
@@ -645,7 +841,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Qwen3-Next: `model_hf_intake_lock` gains its directory (twin `qwen3next`, with a draft block), its refusal when read
   raw, and the f64 reference over Qwen3-Next, Qwen3.5, Qwen3.5-MoE, Qwen3-MoE and Qwen2-MoE directories held to
   transformers' own forward at f64 (`scripts/accel/hf-oracle.py logits`); the directory-against-GGUF reference check
-  opens both sides as `largo` opens them and covers Qwen3-Next. `samba_exam_bringup_reds_lock` (handed-reds, frozen on
+  opens both sides as `largo` opens them and covers Qwen3-Next. the exam's handed RED (frozen on
   INTAKE-2): its bring-up on the SN50 from its directory and its GGUF within the bf16 bound (`common/samba_bringup.rs`
   gains `checkpoint_brings_up_close`). `scripts/accel/hf-tiny-twin.py`: the Qwen3-Next twin holds six value heads over two
   key heads, a shape at which the grouped and tiled orders are not each other's inverse.
@@ -1376,7 +1572,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and the macro harden passes it), and the runner's sandbox forwards `GRT_OVERFLOW_ITERS` and `GRT_ADJUSTMENT` to the
   emitter (`flow_script_guard_lock`).
 - `mod_wrap_lock`: the VM compiler marks the carried residue `wrap` and the VM trace reports `modwrap`, and `## No modwrap` keeps the magic remainder; a value below its divisor emits no remainder; a sum of two residues answers exactly across `m - 1`, `m` and `2m - 2` on every tier and through the C walker; the C walker spells the conditional subtraction, traces it, and keeps `%` under `## No modwrap`, and its build of the residue loop answers exactly.
-- `lean_audit_axioms_lock::an_audited_constant_answers_for_everything_below_it`: a walk given the axioms of an audited constant takes them there and walks nothing below it, and finds what the full walk finds.
+- The Lean importer's axiom audit: a walk given the axioms of an audited constant takes them there and walks nothing below it, and finds what the full walk finds.
 - `postgres_protocol`'s two-connection server serves the cancel connection beside the session and closes it after reading the CancelRequest, as a postmaster does, where it served the cancel connection only after the session ended; every frame it asserts is unchanged.
 - `germ::tests` matches `GermError::NotComputed` and `StandardOnly` by their order as a `Rational`, and `tower::tests::a_root_of_a_hyperreal_beside_a_computable_real_is_a_germ` asserts the germ a root of `dt` beside `π` is, where it asserted the refusal Phase 7a gave it.
 - `fabric_postsynth_lock` fails, naming the places it looked, when yosys is on the `PATH` but its 7-series cell models are not, instead of passing as a skip.
@@ -1689,7 +1885,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Record-field ownership checks require no copies for growing unaliased local or global records, preserve genuine aliases, and retain earlier arguments across later argument calls. Scaling checks cover nine list, map and record mutation shapes (record_copy_work, vm_cow_scaling_timing_lock).
 - Emulator wrapper controls verify inherited hard and soft caps, stricter requested caps, disabled caps, and exact guest stderr and exit status, including a soft cap that the hard limit would permit raising (qemu_wrapper_limits_lock, qemu_wrapper_lock).
 - Linked-runtime artifact fixtures reject stale and host archives and require the successful build’s primary library output to remain in the linker dependency set.
-- `lean_bridge_lock` reads the generated refusal tests in any layout: each `Refusal { … }` literal splits at the commas outside its strings and brackets, so rustfmt's multi-line taint paths read as the generator's single lines do, and a test the scanner cannot read fails the check by name with its reason instead of dropping out of it (the_refusal_scanner_reads_every_layout, the_refusal_scanner_names_every_test_it_cannot_read).
+- The Lean bridge's refusal scanner reads the generated refusal tests in any layout: each `Refusal { … }` literal splits at the commas outside its strings and brackets, so rustfmt's multi-line taint paths read as the generator's single lines do, and a test the scanner cannot read fails the check by name with its reason instead of dropping out of it.
 - The memory-capped `qemu-riscv64` wrapper (`scripts/test/toolwrap`) keeps an inherited address-space limit that is already at or under its cap, and writes nothing. Under `run-all-tests-fast.sh` the parity harness runs every RISC-V guest under its own 512 MiB cap; the wrapper could not raise it, and its warning landed in each guest's stderr, so every RISC-V row of `machine_sympathy_corpus` diverged from the VM. `qemu_wrapper_lock` reads the limit from a static RV64 guest's `/proc/self/limits`: an inherited cap kept in silence, an unlimited run capped at 8192 MB, the override and `0` honoured.
 - `scripts/test/wasm-jit-filter.txt` lists every `wasm-jit`-gated suite again (`wasm_gated_suite_lock`): `in_out_lock`, `swap_every_tier_lock`, `exact_int_every_tier_lock` and `wasm_word_copy_lock` were dark to the gated runner. The `vm::machine::host_calls` fixtures walk a Text (a recorded port): a range of Ints is now a counted loop with no iterator, so `deep` failing inside its calls left no iterator open and the quiesce tests stopped exercising one. `wasm_aot_lock` classifies `NewEmptyListFixed`.
 - `wasm_word_copy_lock` checks scalar copies, record fields, indexed writes, append, value parameters, and maximum word payloads against the VM. Linked-runtime units cover both word widths through the inline clone fallback.

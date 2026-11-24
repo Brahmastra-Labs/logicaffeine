@@ -2,4 +2,5 @@
 /pricing/  /contact  301
 /profile  /learn  301
 /profile/  /learn  301
-/*  /index.html  200
+/workspace/*  /index.html  200
+/registry/package/*  /index.html  200

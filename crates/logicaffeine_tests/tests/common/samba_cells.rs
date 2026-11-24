@@ -553,3 +553,42 @@ pub fn violations(ledger: &Ledger, book: &Book) -> Vec<String> {
     }
     out
 }
+
+// ── Recording a row ─────────────────────────────────────────────────────────────────────────────────
+
+/// The ledger with `row` in place of any row of its cell and side: only the `rows` key is rewritten, every other key
+/// kept as it is written.
+pub fn with_row(ledger: &str, row: serde_json::Value) -> String {
+    use serde::Serialize;
+    let current: serde_json::Value = serde_json::from_str(ledger).expect("the ledger is JSON");
+    let mut rows: Vec<serde_json::Value> = current["rows"].as_array().expect("the ledger has rows").clone();
+    rows.retain(|r| !(r["cell"] == row["cell"] && r["side"] == row["side"]));
+    rows.push(row);
+    let mut out = Vec::new();
+    let mut ser = serde_json::Serializer::with_formatter(&mut out, serde_json::ser::PrettyFormatter::with_indent(b" "));
+    serde_json::json!({ "rows": rows }).serialize(&mut ser).expect("the rows serialize");
+    let tail = String::from_utf8(out).expect("JSON is UTF-8");
+    let at = ledger.rfind("\n \"rows\": ").expect("the ledger's rows are its last key");
+    format!("{}{}\n", &ledger[..at], &tail[1..])
+}
+
+/// `YYYY-MM-DD` of today, UTC.
+pub fn today() -> String {
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).expect("a clock after 1970");
+    let z = (now.as_secs() / 86_400) as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// The first line of a file of this host's kernel, which a recording names its machine by.
+pub fn kernel_fact(path: &str) -> String {
+    let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("a recording names this host by {path}: {e}"));
+    text.lines().next().unwrap_or("").trim().to_string()
+}

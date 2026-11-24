@@ -78,3 +78,14 @@ fn every_exponential_satisfies_the_semigroup_law_numerically() {
         }
     }
 }
+
+// `falling` is exact past `i64`: a 22-dimensional nilpotent block needs `falling(21, 21) = 21!`.
+#[test]
+fn the_falling_factorial_is_exact_past_i64() {
+    assert_eq!(falling(3, 4), r(0));
+    assert_eq!(falling(5, 0), r(1));
+    assert_eq!(falling(5, 2), r(20));
+    assert_eq!(falling(20, 20), r(2_432_902_008_176_640_000));
+    assert_eq!(falling(21, 21), falling(20, 20).mul(&r(21)));
+    assert_eq!(falling(30, 25), (6..=30).fold(r(1), |acc, v| acc.mul(&r(v))));
+}

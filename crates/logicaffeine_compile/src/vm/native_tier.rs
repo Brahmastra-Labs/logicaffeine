@@ -297,6 +297,12 @@ pub trait NativeTier: Send + Sync {
     /// the VM writes a shared list through in place. Every other shared list is copied on its first
     /// write, so a backend that stores into a list in place must prove the target is unshared or in
     /// this set, or leave the function on bytecode.
+    ///
+    /// `values[p]` is the `Int` or `Bool` every call of the function's warm-up passed for parameter `p`
+    /// (`None` when the calls differed, or the parameter is of another type). The code may be specialized
+    /// on a value, and must then be versioned at its own entry: native callers reach it through the
+    /// dispatch table, past every guard the VM applies, so a call passing another value must run code
+    /// that does not depend on it.
     #[allow(clippy::too_many_arguments)]
     fn compile_function(
         &self,
@@ -308,6 +314,7 @@ pub trait NativeTier: Send + Sync {
         register_count: u16,
         self_fi: u16,
         param_kinds: &[Option<ParamKind>],
+        values: &[Option<ScalarValue>],
         cow_exempt_regs: &[u16],
         ret_kind: Option<SlotKind>,
         ctx: &NativeCtx,
@@ -322,7 +329,14 @@ pub trait NativeTier: Send + Sync {
     /// dead at statement boundaries by the compiler's allocation
     /// discipline). `observed[r]` is the register's runtime kind at this hot
     /// crossing — the speculation seed, re-checked by the guard set on every
-    /// entry. Default: regions stay on bytecode.
+    /// entry. `values[r]` is the register's `Int` or `Bool` at the same crossing
+    /// (`None` when it holds neither, and for every register once the loop has
+    /// fallen back to its generic region): a region may specialize on a value
+    /// no op in it changes, and reports each one it did in
+    /// [`RegionFn::value_guards`]. `cold` is the code the loop's warm-up never ran
+    /// ([`cold_paths`]): a region may leave it to the VM, exiting at each of its
+    /// entries. Default: regions stay on bytecode.
+    #[allow(clippy::too_many_arguments)]
     fn compile_region(
         &self,
         code: &[Op],
@@ -332,6 +346,8 @@ pub trait NativeTier: Send + Sync {
         register_count: u16,
         named: &[bool],
         observed: &[ObservedKind],
+        values: &[Option<ScalarValue>],
+        cold: &ColdPaths,
         ctx: &NativeCtx,
         callees: &[CalleeSig],
     ) -> Option<Box<dyn RegionFn>> {
@@ -343,6 +359,8 @@ pub trait NativeTier: Send + Sync {
             register_count,
             named,
             observed,
+            values,
+            cold,
             ctx,
             callees,
         );
@@ -397,6 +415,57 @@ pub enum SlotKind {
     /// the entry guard verifies a `RuntimeValue::Word(W64)` and copies its bits in; write-back re-boxes to
     /// `RuntimeValue::Word(W64(...))`.
     Word64,
+}
+
+/// A scalar a register held at a region's hot crossing, or a parameter on every call of a function's warm-up: what
+/// native code may be specialized on, and what its guard requires.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScalarValue {
+    /// An exact `Int` that fits in 64 bits.
+    Int(i64),
+    /// A `Bool`.
+    Bool(bool),
+}
+
+impl ScalarValue {
+    /// The value as a native frame slot carries it: an `Int` as itself, a `Bool` as 0 or 1.
+    pub fn bits(self) -> i64 {
+        match self {
+            ScalarValue::Int(n) => n,
+            ScalarValue::Bool(b) => i64::from(b),
+        }
+    }
+}
+
+/// What a function's warm-up passed for one parameter. A function compiled once its warm-up is over may be
+/// specialized on each parameter that [`EntryValue::held`] one value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum EntryValue {
+    /// No call has been seen.
+    Unseen,
+    /// Every call seen passed this value.
+    Held(ScalarValue),
+    /// Two calls passed different values, or one passed neither an `Int` that fits in 64 bits nor a `Bool`.
+    Varied,
+}
+
+impl EntryValue {
+    /// Fold in one more call's argument (`None` when it is neither an `Int` that fits in 64 bits nor a `Bool`).
+    pub(crate) fn observe(&mut self, argument: Option<ScalarValue>) {
+        *self = match (*self, argument) {
+            (EntryValue::Unseen, Some(value)) => EntryValue::Held(value),
+            (EntryValue::Held(held), Some(value)) if held == value => EntryValue::Held(held),
+            _ => EntryValue::Varied,
+        };
+    }
+
+    /// The one value every call passed, if there was one.
+    pub(crate) fn held(self) -> Option<ScalarValue> {
+        match self {
+            EntryValue::Held(value) => Some(value),
+            EntryValue::Unseen | EntryValue::Varied => None,
+        }
+    }
 }
 
 /// What the VM OBSERVED in each register at the hot back-edge that triggered
@@ -578,6 +647,37 @@ pub trait RegionFn: Send + Sync {
     /// Slots whose incoming values are provably DEAD (written before read,
     /// e.g. the loop-condition scratch): no guard, no copy-in.
     fn free_set(&self) -> &[u16];
+    /// Slots the region was specialized on, with the kind and value each must hold
+    /// at entry: the VM checks them after the kind guards, and an entry that finds
+    /// another value runs the loop on bytecode. A slot here need not be in the
+    /// guard set: a flag whose branch was folded away is no longer read. A
+    /// specialized region that keeps missing is replaced by the generic one.
+    /// Default: none.
+    fn value_guards(&self) -> &[(u16, ScalarValue)] {
+        &[]
+    }
+    /// Told by the VM when an entry found a value other than one [`Self::value_guards`] names, so the entry ran
+    /// on bytecode. Default: nothing to record.
+    fn note_value_guard_miss(&self) {}
+    /// Told by the VM when it gives this value-specialized region up for the
+    /// loop's generic one. Default: nothing to record.
+    fn note_retired(&self) {}
+    /// Told by the VM when an entry that missed this region's values ran the
+    /// loop's generic region instead of bytecode. Default: nothing to record.
+    fn note_fallback_entry(&self) {}
+    /// Told by the VM when an entry's registers held kinds other than the ones
+    /// [`Self::guard_set`] names, so the entry ran on bytecode. Default: nothing
+    /// to record.
+    fn note_guard_miss(&self) {}
+    /// Told by the VM when it gives this region up for bytecode because it kept
+    /// missing. Default: nothing to record.
+    fn note_demoted(&self) {}
+    /// For a region compiled without its cold code: how many times it exited to a
+    /// cold entry and how many iterations it ran native, so the VM can demote one
+    /// whose cold paths run often after all. Default: `None`, a whole region.
+    fn cold_runs(&self) -> Option<(u64, u64)> {
+        None
+    }
     /// Slots the region writes, with their re-boxing kinds.
     fn write_set(&self) -> &[(u16, SlotKind)];
     /// Arrays the region reads/writes through pinned buffers (see
@@ -645,6 +745,139 @@ pub fn installed_native_tier() -> Option<&'static (dyn NativeTier + 'static)> {
     INSTALLED_TIER.get().copied()
 }
 
+/// Branch runs before one direction never taken counts as cold: below this, a direction that has not run yet is too
+/// little evidence that it will not.
+pub const COLD_EDGE_MIN_RUNS: u32 = 32;
+
+/// The code of a loop body its warm-up never ran, for a region that compiles only what runs (partial compilation,
+/// Whaley, OOPSLA 2001). An op is cold when every path from the loop head to it takes a branch direction that never
+/// ran while its branch ran at least [`COLD_EDGE_MIN_RUNS`] times the other way. A region that leaves the cold code
+/// to the VM exits at each cold entry, a cold op a warm branch leads to, and the VM resumes there.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ColdPaths {
+    /// Per op of the region's code: whether no warm path reaches it.
+    pub cold: Vec<bool>,
+    /// The cold ops a warm branch leads to, in code order.
+    pub entries: Vec<ColdEntry>,
+}
+
+/// Where a region leaves its cold code to the VM.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ColdEntry {
+    /// The op's index in the region's code.
+    pub at: usize,
+    /// The registers live there: every value the VM may read once it resumes at the op, so each must hold its
+    /// current value when the region exits.
+    pub live: Vec<u16>,
+}
+
+impl ColdPaths {
+    /// Whether the warm-up ran every op of the loop.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+}
+
+/// The cold code of the loop region `code` (the op at `head_pc` first, its back-edge last), from `branches`, each op's
+/// `[not taken, taken]` count while the loop warmed (zero for an op that is not a conditional branch). Liveness for the
+/// entries is over the whole region: an exit out of it reads every `named` register, and the back-edge reads what the
+/// head does.
+pub fn cold_paths(
+    code: &[Op],
+    head_pc: usize,
+    branches: &[[u32; 2]],
+    named: &[bool],
+    functions: &[super::instruction::CompiledFunction],
+) -> ColdPaths {
+    let n = code.len();
+    let local = |pc: usize| pc.checked_sub(head_pc).filter(|&i| i < n);
+    // Every edge out of op i: `Some(index)` within the region or `None` leaving it, with whether it ran while the
+    // loop warmed.
+    let edges = |i: usize| -> Vec<(Option<usize>, bool)> {
+        let [not_taken, taken] = branches.get(i).copied().unwrap_or([0, 0]);
+        let ran = |this: u32, other: u32| !(this == 0 && other >= COLD_EDGE_MIN_RUNS);
+        let next = (i + 1 < n).then_some(i + 1);
+        match code[i] {
+            Op::Jump { target } => vec![(local(target), true)],
+            Op::JumpIfFalse { target, .. } | Op::JumpIfTrue { target, .. } => {
+                vec![(local(target), ran(taken, not_taken)), (next, ran(not_taken, taken))]
+            }
+            Op::Return { .. } | Op::ReturnNothing | Op::Halt | Op::FailWith { .. } => Vec::new(),
+            ref op => super::disasm::op_targets(op)
+                .into_iter()
+                .map(|t| (local(t), true))
+                .chain(std::iter::once((next, true)))
+                .collect(),
+        }
+    };
+    let mut warm = vec![false; n];
+    let mut stack = vec![0usize];
+    while let Some(i) = stack.pop() {
+        if i < n && !warm[i] {
+            warm[i] = true;
+            stack.extend(edges(i).into_iter().filter(|e| e.1).filter_map(|e| e.0));
+        }
+    }
+    let cold: Vec<bool> = warm.iter().map(|w| !w).collect();
+    let mut at: Vec<usize> = (0..n)
+        .filter(|&i| warm[i])
+        .flat_map(|i| edges(i).into_iter().filter(|e| !e.1).filter_map(|e| e.0))
+        .filter(|&t| cold[t])
+        .collect();
+    at.sort_unstable();
+    at.dedup();
+    if at.is_empty() {
+        return ColdPaths { cold, entries: Vec::new() };
+    }
+    let regs = named.len();
+    let footprint: Vec<(Vec<u16>, Vec<u16>)> =
+        code.iter().map(|op| super::instruction::op_def_uses(op, functions)).collect();
+    let mut live_in = vec![vec![false; regs]; n];
+    loop {
+        let mut changed = false;
+        for i in (0..n).rev() {
+            let mut live = vec![false; regs];
+            for (target, _) in edges(i) {
+                match target {
+                    Some(t) => live.iter_mut().zip(&live_in[t]).for_each(|(l, &x)| *l |= x),
+                    None => live.iter_mut().zip(named).for_each(|(l, &x)| *l |= x),
+                }
+            }
+            let (defs, uses) = &footprint[i];
+            for &d in defs {
+                if let Some(l) = live.get_mut(d as usize) {
+                    *l = false;
+                }
+            }
+            for &u in uses {
+                if let Some(l) = live.get_mut(u as usize) {
+                    *l = true;
+                }
+            }
+            if live != live_in[i] {
+                live_in[i] = live;
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    let entries = at
+        .into_iter()
+        .map(|i| ColdEntry {
+            at: i,
+            live: (0..regs as u16).filter(|&r| live_in[i][r as usize]).collect(),
+        })
+        .collect();
+    ColdPaths { cold, entries }
+}
+
+/// A region compiled without its cold code is demoted once it has exited to cold code [`REGION_DEMOTE_AFTER`] times
+/// and on more than one iteration in this many: the warm-up's cold path has become a common one, and an exit per
+/// iteration costs more than the bytecode it skips.
+pub const COLD_EXIT_SHARE: u64 = 16;
+
 /// Calls before a function is considered hot.
 pub const NATIVE_TIER_THRESHOLD: u32 = 100;
 
@@ -657,15 +890,51 @@ pub(crate) enum RegionSlot {
     Ready {
         rf: Box<dyn RegionFn>,
         exit_pc: usize,
-        /// Guard failures + side exits since compile. A region that keeps
-        /// missing (bounds-probing loops, repr churn) re-runs work on every
-        /// entry — demote it to Failed so pure bytecode takes over.
+        /// Kind-guard failures (one for each entry) and side exits, over the rate
+        /// window. A region whose misses reach [`REGION_DEMOTE_AFTER`] and outnumber
+        /// its `completions` re-runs work on most entries: a value-specialized
+        /// region gives way to the generic one, a generic region demotes to Failed
+        /// so pure bytecode takes over.
         misses: u32,
+        /// Entries that ran native, over the same window as `misses`.
+        completions: u32,
+        /// Entries a value-specialized `rf` ran.
+        hits: u32,
+        /// Entries that found other values than a value-specialized `rf` was
+        /// specialized on, one for each entry.
+        value_misses: u32,
+        /// The loop's generic region, which runs an entry whose values a
+        /// value-specialized `rf` does not hold.
+        fallback: RegionFallback,
     },
 }
 
-/// Consecutive guard failures / side exits before a Ready region demotes.
-pub(crate) const REGION_DEMOTE_AFTER: u32 = 8;
+/// The generic region behind a value-specialized one.
+pub(crate) enum RegionFallback {
+    /// No entry has missed the specialized region's values yet.
+    Untried,
+    /// Compiled; `misses` counts its own kind-guard failures and side exits.
+    Ready { rf: Box<dyn RegionFn>, misses: u32 },
+    /// The loop cannot run native unspecialized (or its generic region kept
+    /// missing): an entry that misses the values runs on bytecode.
+    Failed,
+}
+
+/// Guard failures and side exits a Ready region must reach before it demotes; it demotes then only while they
+/// outnumber the entries it ran native, both counted over [`REGION_RATE_WINDOW`].
+pub const REGION_DEMOTE_AFTER: u32 = 8;
+
+/// Misses and completed entries together past which a Ready region halves both: demotion weighs the recent entries,
+/// not the region's whole life.
+pub(crate) const REGION_RATE_WINDOW: u32 = 64;
+
+/// Halve a region's misses and completions once together they fill [`REGION_RATE_WINDOW`].
+pub(crate) fn windowed(misses: &mut u32, completions: &mut u32) {
+    if *misses + *completions >= REGION_RATE_WINDOW {
+        *misses /= 2;
+        *completions /= 2;
+    }
+}
 
 /// Per-function tier state.
 pub(crate) enum NativeSlot {
@@ -679,3 +948,7 @@ pub(crate) enum NativeSlot {
     /// Compiled; the guard still applies per call.
     Ready(Box<dyn NativeFn>),
 }
+
+#[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/vm/native_tier/tests.rs"]
+mod tests;

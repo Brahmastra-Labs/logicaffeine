@@ -187,8 +187,13 @@ fn narrow_words_under_the_forge_are_the_vms() {
         (expected.as_str(), None),
         "VM/tree-walker"
     );
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = logicaffeine_jit::ForgeTier::new();
-    let forged = vm_outcome_with_args(HOT_NARROW, &[], Some(&tier as &dyn NativeTier));
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
+    let forged = vm_outcome_with_args(HOT_NARROW, &[], native);
     assert_eq!(
         (forged.output.trim(), forged.error.as_deref()),
         (expected.as_str(), None),

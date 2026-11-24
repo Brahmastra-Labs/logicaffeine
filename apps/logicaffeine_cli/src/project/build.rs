@@ -437,7 +437,8 @@ fn build_with_entry(
         for (name, bytes) in staged_asset_files(assets) {
             fs::write(src_dir.join(&name), bytes).map_err(|e| BuildError::Io(e.to_string()))?;
         }
-        let main_code = format!("mod logos_assets;\n{rust_code}");
+        // After the program: an inner attribute it opens with (`#![allow(…)]`) must come before every item.
+        let main_code = format!("{rust_code}\nmod logos_assets;\n");
         fs::write(src_dir.join("main.rs"), main_code).map_err(|e| BuildError::Io(e.to_string()))?;
     } else {
         fs::write(src_dir.join("main.rs"), &rust_code)

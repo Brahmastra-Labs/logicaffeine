@@ -126,7 +126,7 @@ pub(super) fn promotion_facts(stmts: &[Stmt], interner: &Interner) -> PromotionF
         // A function HANDED a bignum must take one: a `LogosInt` value reaching an `i64`
         // parameter is a generated program that will not compile.
         let handed =
-            bigint_arg_fns_with_facts(stmts, &bigint_fields, interner, &promo_fns, &exact_params);
+            bigint_arg_fns(stmts, &bigint_fields, interner, &promo_fns, &exact_params);
         // …and the other direction: a function that RETURNS a value read from a bignum field.
         let all_field_returners = bigint_field_returning_fns(stmts, &bigint_fields);
         exact_result_fns = all_field_returners
@@ -227,6 +227,7 @@ pub(super) fn bigint_returning_fns(
         .filter_map(|s| {
             let Stmt::FunctionDef {
                 name,
+                params,
                 body,
                 return_type,
                 ..
@@ -234,7 +235,10 @@ pub(super) fn bigint_returning_fns(
             else {
                 return None;
             };
-            is_int_ret(*return_type).then_some((*name, &body[..]))
+            ((is_int_ret(*return_type) || (return_type.is_none() && returns_ints(body)))
+                && !super::word_twin::is_twin(*name)
+                && !super::expr::call_answers_a_word(interner.resolve(*name), params.len()))
+            .then_some((*name, &body[..]))
         })
         .collect();
 
@@ -258,6 +262,16 @@ pub(super) fn bigint_returning_fns(
     found
 }
 
+/// Whether every value `body` returns is an `Int` the checker resolved: the result of a function whose type is omitted.
+fn returns_ints(body: &[Stmt]) -> bool {
+    let (mut any, mut all) = (false, true);
+    for_each_return(body, |e| {
+        any = true;
+        all &= super::instantiation::checked_int(e);
+    });
+    any && all
+}
+
 /// Each function of `fns` mapped to the parameters codegen exactifies when it is exactified: its
 /// machine-word (`i64`) ones.
 fn exactified_params(
@@ -271,7 +285,7 @@ fn exactified_params(
             let Stmt::FunctionDef { name, params, .. } = s else {
                 return None;
             };
-            fns.contains(name)
+            (fns.contains(name) && !super::word_twin::is_twin(*name))
                 .then(|| (*name, exact_param_seeds(params, interner)))
         })
         .collect()
@@ -291,9 +305,10 @@ pub(super) fn exact_param_seeds(
         .collect()
 }
 
-/// Whether a parameter of this type is one an exactified function takes as a `LogosInt`.
+/// Whether a parameter of this type is one an exactified function takes as a `LogosInt`: a `mutable` one is the
+/// caller's own binding, lent, and is held as the caller holds it.
 fn exactifies(ty: &TypeExpr, interner: &Interner) -> bool {
-    super::types::codegen_type_expr(ty, interner) == "i64"
+    !matches!(ty, TypeExpr::Mutable { .. }) && super::types::codegen_type_expr(ty, interner) == "i64"
 }
 
 /// A SCALAR higher-order function whose result can overflow through its closure — an `Int`/`Nat`
@@ -556,6 +571,18 @@ fn unwrap_ty<'a>(ty: &'a TypeExpr<'a>) -> &'a TypeExpr<'a> {
     }
 }
 
+/// The sums, differences, products and quotients of `body` the shared decision says may leave the word
+/// (`exact_scalars`), with `promotable` exact already, by node address: a value they make, stored in a field or handed
+/// to a function, is exact there.
+fn outgrowing(
+    body: &[Stmt],
+    promotable: &HashSet<Symbol>,
+    bigint_fns: &HashSet<Symbol>,
+    bigint_fields: &HashSet<(Symbol, Symbol)>,
+) -> HashSet<usize> {
+    super::exact_scalars::decide(body, promotable, bigint_fns, bigint_fields).map(|exact| exact.exprs).unwrap_or_default()
+}
+
 /// The set of integer variables in `stmts` (including nested blocks) that must
 /// be stored as `LogosInt`. `bigint_fns` is the set of functions that RETURN a
 /// `LogosInt` — a call to one is itself a bignum-producing expression — and `seeds`
@@ -566,6 +593,10 @@ pub(super) fn promotable_int_vars(
     bigint_fields: &HashSet<(Symbol, Symbol)>,
     seeds: &HashSet<Symbol>,
 ) -> HashSet<Symbol> {
+    // A word twin holds every `Int` as a machine word (`word_twin`).
+    if super::word_twin::is_twin_body(stmts) {
+        return HashSet::new();
+    }
     let mut assigns: Vec<(Symbol, &Expr)> = Vec::new();
     collect_assigns(stmts, &mut assigns);
 
@@ -593,6 +624,10 @@ pub(super) fn promotable_int_vars(
             break;
         }
     }
+    // Every local some arithmetic without a proven bound can carry past the word, by the shared decision.
+    if let Some(exact) = super::exact_scalars::decide(stmts, &promotable, bigint_fns, bigint_fields) {
+        promotable.extend(exact.locals);
+    }
     promotable
 }
 
@@ -606,6 +641,9 @@ pub(super) fn returns_bigint(
     seeds: &HashSet<Symbol>,
 ) -> bool {
     let promotable = promotable_int_vars(body, bigint_fns, bigint_fields, seeds);
+    if super::exact_scalars::decide(body, &promotable, bigint_fns, bigint_fields).is_some_and(|exact| exact.returns) {
+        return true;
+    }
     let mut found = false;
     for_each_return(body, |e| {
         if mentions_promotable(e, &promotable)
@@ -631,16 +669,21 @@ pub(super) fn bigint_struct_fields(
 ) -> HashSet<(Symbol, Symbol)> {
     let mut out = HashSet::new();
     let mut mark = |promotable: &HashSet<Symbol>, body: &[Stmt]| {
+        let outgrows = outgrowing(body, promotable, bigint_fns, known_fields);
         for_each_new(body, |ty, fields| {
             for (fname, val) in fields {
                 // A COMPILE-TIME bignum constant is the plainest source there is, and it was the
                 // one case `rhs_can_grow` handled for locals and this did not: `a new Cell with v
                 // (2 ** 70)` typed the field a machine word and trapped at run time on a value the
                 // reference tier holds exactly.
-                if mentions_promotable(val, promotable)
-                    || mentions_bigint_call(val, bigint_fns)
-                    || reads_bigint_field(val, known_fields)
-                    || const_overflows_i64(val)
+                // Only an `Int` field holds an exact integer: a `Real` one fed `i + 0.0` holds the real.
+                let int = super::instantiation::checked_int(val) || const_overflows_i64(val);
+                if int
+                    && (mentions_promotable(val, promotable)
+                        || mentions_bigint_call(val, bigint_fns)
+                        || reads_bigint_field(val, known_fields)
+                        || const_overflows_i64(val)
+                        || outgrows.contains(&(*val as *const Expr as usize)))
                 {
                     out.insert((ty, *fname));
                 }
@@ -650,6 +693,9 @@ pub(super) fn bigint_struct_fields(
     let none = HashSet::new();
     for s in stmts {
         if let Stmt::FunctionDef { name, body, .. } = s {
+            if super::word_twin::is_twin(*name) {
+                continue;
+            }
             let seeds = exact_params.get(name).unwrap_or(&none);
             let promotable = promotable_int_vars(body, bigint_fns, known_fields, seeds);
             mark(&promotable, body);
@@ -705,7 +751,7 @@ fn for_each_new<'w, 'a>(
 ///
 /// ★ AN `Inspect` ARM IS A RETURN SITE, like every other block: most of json.lg, and every derived
 /// decoder, answers out of a match.
-fn for_each_return<'w, 'a>(stmts: &'w [Stmt<'a>], mut f: impl FnMut(&'w Expr<'a>)) {
+pub(super) fn for_each_return<'w, 'a>(stmts: &'w [Stmt<'a>], mut f: impl FnMut(&'w Expr<'a>)) {
     walk_nodes(stmts, |node| {
         if let Visited::Stmt(Stmt::FunctionDef { .. }) | Visited::Expr(Expr::Closure { .. }) = node
         {
@@ -856,7 +902,7 @@ fn mentions(e: &Expr, sym: Symbol) -> bool {
     }
 }
 
-fn mentions_promotable(e: &Expr, promotable: &HashSet<Symbol>) -> bool {
+pub(super) fn mentions_promotable(e: &Expr, promotable: &HashSet<Symbol>) -> bool {
     match e {
         Expr::Identifier(s) => promotable.contains(s),
         Expr::BinaryOp { left, right, .. } => {
@@ -868,7 +914,7 @@ fn mentions_promotable(e: &Expr, promotable: &HashSet<Symbol>) -> bool {
 }
 
 /// True iff `e` is a constant integer expression whose exact value exceeds `i64`.
-fn const_overflows_i64(e: &Expr) -> bool {
+pub(super) fn const_overflows_i64(e: &Expr) -> bool {
     const_eval_bigint(e).map_or(false, |v| v.to_i64().is_none())
 }
 
@@ -911,21 +957,7 @@ fn const_eval_bigint(e: &Expr) -> Option<logicaffeine_base::BigInt> {
 /// only ever holds a machine word, which a call hands on narrowed. A FIXPOINT, so a chain of
 /// helpers promotes together instead of half-way — which would move the same error one call
 /// deeper rather than fixing it.
-pub(super) fn bigint_arg_fns(
-    stmts: &[Stmt],
-    bigint_fields: &HashSet<(Symbol, Symbol)>,
-    interner: &Interner,
-) -> HashSet<Symbol> {
-    bigint_arg_fns_with_facts(
-        stmts,
-        bigint_fields,
-        interner,
-        &HashSet::new(),
-        &HashMap::new(),
-    )
-}
-
-fn bigint_arg_fns_with_facts(
+fn bigint_arg_fns(
     stmts: &[Stmt],
     bigint_fields: &HashSet<(Symbol, Symbol)>,
     interner: &Interner,
@@ -938,9 +970,13 @@ fn bigint_arg_fns_with_facts(
     let mut exactified: HashMap<Symbol, Vec<Option<Symbol>>> = HashMap::new();
     for s in stmts {
         if let Stmt::FunctionDef {
-            name, params, body, ..
+            name, params, body, is_native, ..
         } = s
         {
+            // A twin holds its integers as words; a native takes its arguments as its host signature declares.
+            if super::word_twin::is_twin(*name) || *is_native {
+                continue;
+            }
             scopes.push((Some(*name), body));
             exactified.insert(
                 *name,
@@ -971,6 +1007,7 @@ fn bigint_arg_fns_with_facts(
             let held = promotable_int_vars(body, bigint_fns, bigint_fields, &seeds);
             grew |= held.len() != seeds.len();
             vars.insert(*scope, held.clone());
+            let outgrows = outgrowing(body, &held, bigint_fns, bigint_fields);
             let mut reached: Vec<(Symbol, usize)> = Vec::new();
             collect_bigint_arg_calls(body, &held, &mut reached);
             for_each_node_in_scope(body, |node| {
@@ -984,6 +1021,7 @@ fn bigint_arg_fns_with_facts(
                         || mentions_promotable(value, &held)
                         || mentions_bigint_call(value, bigint_fns)
                         || reads_bigint_field(value, bigint_fields)
+                        || outgrows.contains(&(*value as *const Expr as usize))
                     {
                         reached.push((*function, at));
                     }

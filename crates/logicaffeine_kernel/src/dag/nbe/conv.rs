@@ -672,7 +672,7 @@ impl Nbe<'_> {
         let Some((n, ls, spine)) = self.const_app(s) else {
             return Ok(None);
         };
-        if n != self.k.wk.string_of_list
+        if n != self.k.wk.string_literal
             || ls != LevelsId::EMPTY
             || self.st.arena.spine_len(spine) != 1
         {

@@ -45,6 +45,10 @@ pub struct HtmlAttr {
     pub name: String,
     /// `None` for a valueless attribute (`disabled`).
     pub value: Option<AttrValue>,
+    /// Whether the value was written in quotes. `n="{count}"` is TEXT that interpolates `count`,
+    /// while `n={count}` is the value of `count` itself: the two parse to the same parts, and only
+    /// this tells them apart.
+    pub quoted: bool,
     pub span: Span,
 }
 
@@ -983,6 +987,7 @@ fn start_tag(src: &str, at: usize) -> Result<(HtmlToken, usize), HtmlError> {
         while j < b.len() && b[j].is_ascii_whitespace() {
             j += 1;
         }
+        let mut quoted = false;
         let value = if j < b.len() && b[j] == b'=' {
             j += 1;
             while j < b.len() && b[j].is_ascii_whitespace() {
@@ -994,6 +999,7 @@ fn start_tag(src: &str, at: usize) -> Result<(HtmlToken, usize), HtmlError> {
                     span: Span::new(at, src.len()),
                 });
             }
+            quoted = matches!(b[j], b'"' | b'\'');
             let (value, next) = attr_value(src, j)?;
             i = next;
             Some(value)
@@ -1003,6 +1009,7 @@ fn start_tag(src: &str, at: usize) -> Result<(HtmlToken, usize), HtmlError> {
         attrs.push(HtmlAttr {
             name: attr_name,
             value,
+            quoted,
             span: Span::new(attr_start, i),
         });
     }

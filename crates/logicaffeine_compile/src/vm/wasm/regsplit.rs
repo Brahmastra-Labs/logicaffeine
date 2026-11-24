@@ -143,6 +143,53 @@ fn use_range_start(op: &Op, functions: &[CompiledFunction]) -> Option<Reg> {
     op_use_ranges(op, functions).first().map(|&(s, _)| s)
 }
 
+/// The contiguous DEF ranges `(start, count)` an op writes by position — a `DestructureTuple`'s
+/// targets. Mirrors [`visit_regs`] as [`op_use_ranges`] does for reads.
+fn op_def_ranges(op: &Op, functions: &[CompiledFunction]) -> Vec<(Reg, u16)> {
+    struct Collect {
+        ranges: Vec<(Reg, u16)>,
+    }
+    impl RegVisitor for Collect {
+        fn scalar(&mut self, _r: &mut Reg, _role: Role) {}
+        fn range(&mut self, start: &mut Reg, count: u16, role: Role) {
+            if role == Role::Def {
+                self.ranges.push((*start, count));
+            }
+        }
+    }
+    let mut tmp = op.clone();
+    let mut c = Collect { ranges: Vec::new() };
+    visit_regs(&mut tmp, functions, &mut c);
+    c.ranges
+}
+
+/// Repoint an op's (single) DEF range to start at `base`.
+fn set_def_range_start(op: &mut Op, functions: &[CompiledFunction], base: Reg) {
+    struct SetStart {
+        base: Reg,
+        done: bool,
+    }
+    impl RegVisitor for SetStart {
+        fn scalar(&mut self, _r: &mut Reg, _role: Role) {}
+        fn range(&mut self, start: &mut Reg, _count: u16, role: Role) {
+            if !self.done && role == Role::Def {
+                *start = self.base;
+                self.done = true;
+            }
+        }
+    }
+    let mut s = SetStart { base, done: false };
+    visit_regs(op, functions, &mut s);
+}
+
+/// Which side of an op a materialized register range is on: the block it READS (copied in before it)
+/// or the block it WRITES (copied out after it).
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum RangeSide {
+    Use,
+    Def,
+}
+
 /// Repoint an op's (single) USE range to start at `base` — moving its argument block to a relocated
 /// contiguous slot. Writes through the same [`visit_regs`] enumeration the lowering reads from.
 fn set_use_range_start(op: &mut Op, functions: &[CompiledFunction], base: Reg) {
@@ -176,25 +223,27 @@ fn remap_target(op: &mut Op, new_index: &[usize]) {
 }
 
 /// Copy each targeted USE range's members into a fresh dedicated contiguous block right before its
-/// op, and repoint the op there (the argument-materialization step of [`split_registers`]). Returns
+/// op, and repoint the op there (the argument-materialization step of [`split_registers`]); point each
+/// targeted DEF range at a fresh block and copy its members out to their own registers right after
+/// the op, where each is a plain definition the general split can move. Returns
 /// the rewritten op stream — copies inserted, every jump target remapped to the shifted positions —
 /// and the grown register-file size. Targets are deduplicated by pc; one fresh block per op.
 fn materialize_ranges(
     ops: &[Op],
     num_regs: u32,
-    targets: &[(usize, Reg, u16)],
+    targets: &[(usize, Reg, u16, RangeSide)],
     functions: &[CompiledFunction],
 ) -> (Vec<Op>, u32, Vec<usize>) {
     // A fresh contiguous block per target pc, assigned in pc order so the output is deterministic.
-    let mut sorted: Vec<(usize, Reg, u16)> = targets.to_vec();
+    let mut sorted: Vec<(usize, Reg, u16, RangeSide)> = targets.to_vec();
     sorted.sort_unstable();
-    let mut block_of: HashMap<usize, (Reg, u16)> = HashMap::new();
+    let mut block_of: HashMap<usize, (Reg, u16, RangeSide)> = HashMap::new();
     let mut next = num_regs;
-    for &(pc, _start, count) in &sorted {
+    for &(pc, _start, count, side) in &sorted {
         block_of.entry(pc).or_insert_with(|| {
             let base = next as Reg;
             next += u32::from(count);
-            (base, count)
+            (base, count, side)
         });
     }
 
@@ -205,7 +254,22 @@ fn materialize_ranges(
     let mut placed: Vec<usize> = vec![0; ops.len()];
     for (pc, op) in ops.iter().enumerate() {
         new_index[pc] = new_ops.len();
-        if let Some(&(base, count)) = block_of.get(&pc) {
+        if let Some(&(base, count, RangeSide::Def)) = block_of.get(&pc) {
+            let old_start = op_def_ranges(op, functions)
+                .first()
+                .map(|&(s, _)| s)
+                .expect("materialized op has a def range");
+            let mut relocated = op.clone();
+            set_def_range_start(&mut relocated, functions, base);
+            placed[pc] = new_ops.len();
+            new_ops.push(relocated);
+            for i in 0..count {
+                new_ops.push(Op::Move {
+                    dst: old_start.wrapping_add(i),
+                    src: base.wrapping_add(i),
+                });
+            }
+        } else if let Some(&(base, count, _)) = block_of.get(&pc) {
             let old_start =
                 use_range_start(op, functions).expect("materialized op has a use range");
             for i in 0..count {
@@ -332,6 +396,11 @@ pub(crate) fn split_registers(
         }
     }
 
+    // The ops a run can reach from the region's entry, as the lowering reaches them. Code after a stop
+    // (a `FailWith`, a `Halt`) runs on no path and is never emitted: a register it reads that nothing on
+    // any path wrote holds nothing it could observe, so that read marks nothing unsplittable.
+    let live = super::module::live_pcs(ops);
+
     // ---- 3. Webs: union each use's reaching defs; a DefUse also folds in its own def. ----
     let mut uf = UnionFind::new(num_sites);
     // Registers proven NOT safely splittable: a use with no reaching def (e.g. read of an
@@ -353,7 +422,7 @@ pub(crate) fn split_registers(
                     .filter(|&s| def_sites[s as usize].1 == r)
                     .collect();
                 if reaching.is_empty() {
-                    if !pinned.contains(&r) {
+                    if live[pc] && !pinned.contains(&r) {
                         unsplittable.insert(r);
                     }
                     continue;
@@ -433,17 +502,25 @@ pub(crate) fn split_registers(
             ws.iter().filter(|w| anchored_webs.contains(w)).count() >= 2
         })
     };
-    let mut to_materialize: Vec<(usize, Reg, u16)> = Vec::new();
+    // A DEF range is the mirror case: a register two `DestructureTuple`s both write, an Int once and a
+    // Text once, holds two anchored webs of different types. Destructuring into a fresh block and
+    // moving each member out makes the members plain definitions, free to split.
+    let mut to_materialize: Vec<(usize, Reg, u16, RangeSide)> = Vec::new();
     for (pc, op) in ops.iter().enumerate() {
         for (start, count) in op_use_ranges(op, functions) {
             if (0..count).any(|i| conflicting(start.wrapping_add(i))) {
-                to_materialize.push((pc, start, count));
+                to_materialize.push((pc, start, count, RangeSide::Use));
+            }
+        }
+        for (start, count) in op_def_ranges(op, functions) {
+            if (0..count).any(|i| conflicting(start.wrapping_add(i))) {
+                to_materialize.push((pc, start, count, RangeSide::Def));
             }
         }
     }
     // Skip (fall through to the in-place split) if the fresh blocks would not fit the `u16` register
     // index — a clean refusal beats a truncating miscompile, and re-running would loop forever.
-    let extra: u32 = to_materialize.iter().map(|&(_, _, c)| u32::from(c)).sum();
+    let extra: u32 = to_materialize.iter().map(|&(_, _, c, _)| u32::from(c)).sum();
     if !to_materialize.is_empty() && num_regs + extra <= u32::from(u16::MAX) + 1 {
         let (new_ops, new_regs, materialized) =
             materialize_ranges(ops, num_regs, &to_materialize, functions);

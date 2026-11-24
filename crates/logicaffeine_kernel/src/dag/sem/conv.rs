@@ -763,7 +763,7 @@ impl Sem<'_> {
         };
         match self.const_app(s) {
             Some((n, ls, _, sp))
-                if n == self.k.wk.string_of_list
+                if n == self.k.wk.string_literal
                     && ls == LevelsId::EMPTY
                     && self.st.arena.spine_len(sp) == 1 => {}
             _ => return Ok(LBool::Undef),

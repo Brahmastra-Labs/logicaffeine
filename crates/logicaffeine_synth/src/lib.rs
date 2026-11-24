@@ -2,7 +2,9 @@
 
 pub mod reversible;
 pub mod spec;
+pub mod stencil_proof;
 pub mod witness;
+pub mod x86;
 
 pub use reversible::{all_rev_specs, prove_bijective, prove_swap_involution, RevSpec};
 pub use spec::{all_specs, OpSpec, SpecKind};

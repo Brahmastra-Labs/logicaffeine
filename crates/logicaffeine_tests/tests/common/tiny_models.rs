@@ -7,11 +7,12 @@
 
 use std::path::Path;
 
+use logicaffeine_compile::model::author;
 use logicaffeine_compile::model::gguf::{self, MetaValue, TensorOut};
 use logicaffeine_compile::model::quant::GgmlType;
 use logicaffeine_compile::model::spec::{
-    Act, Attention, Ffn, GateActivation, GatedDelta, Gating, Layer, LogitScale, Mixer, Mla, ModelSpec, Moe, Norm, Part,
-    Recurrent, Rope, RopeScaling, Window, MLA_LATENT_NORM_EPS,
+    Act, Attention, Ffn, GateActivation, GatedDelta, Gating, HyperConnections, Layer, LogitScale, Mixer, Mla, ModelSpec, Moe,
+    Norm, Part, Recurrent, Rope, RopeScaling, Window, MLA_LATENT_NORM_EPS,
 };
 
 /// The architectures a tiny model comes in.
@@ -391,6 +392,10 @@ const SCALE_BITS: u16 = 0x2000;
 
 /// Is `name` a projection or a table the author declares in Q8_0? (Every bias and norm stays `f32`.)
 fn quantized(name: &str) -> bool {
+    // A hyper-connected residual's mixes and the n-gram embedding: the projections whose rows are the lanes' width.
+    if name.contains("hc_") || name.contains("ple_") || name.starts_with("per_layer_") {
+        return ["hc_attn_down.", "hc_ffn_down.", "output_hc_down.", "_inject."].iter().any(|p| name.contains(p));
+    }
     // A vector stays f32, as the converters keep every one-dimensional tensor.
     name.ends_with(".weight") && !name.contains("ffn_gate_inp_shexp") && [
         "token_embd", "output.weight", "attn_q.", "attn_k.", "attn_v.", "attn_output", "attn_qkv", "attn_gate",
@@ -399,6 +404,89 @@ fn quantized(name: &str) -> bool {
     ]
     .iter()
     .any(|p| name.contains(p))
+}
+
+/// `t`'s spec over caches of `ctx` positions with its residual in `lanes` hyper-connection lanes mixed through a rank of
+/// 4 (Qwen3.8-Flash-Next's residual), each Gated DeltaNet layer gated by sigmoids where `sigmoid` (Qwen3.8's).
+pub fn hyper_connected(t: Tiny, ctx: usize, lanes: usize, sigmoid: bool) -> ModelSpec {
+    let mut spec = ModelSpec { hyper: Some(HyperConnections { lanes, rank: 4 }), ..t.spec(ctx) };
+    for layer in &mut spec.layers {
+        if let Mixer::GatedDelta(g) = &mut layer.mixer {
+            if sigmoid {
+                g.gate = GateActivation::Sigmoid;
+            }
+        }
+    }
+    spec
+}
+
+/// The hyper-connected models every tier runs: dense attention, an expert mixture, Qwen3.8's hybrid (Gated DeltaNet
+/// gated by sigmoids), Gemma 3's sandwich of norms and a latent attention, each in four lanes, and dense attention in
+/// three.
+pub fn hyper_connected_models(ctx: usize) -> Vec<(&'static str, ModelSpec)> {
+    vec![
+        ("dense attention", hyper_connected(Tiny::Qwen3, ctx, 4, false)),
+        ("an expert mixture", hyper_connected(Tiny::Qwen3Moe, ctx, 4, false)),
+        ("Qwen3.8's hybrid", hyper_connected(Tiny::Qwen35, ctx, 4, true)),
+        ("Gemma 3's sandwich of norms", hyper_connected(Tiny::Gemma3, ctx, 4, false)),
+        ("a latent attention", hyper_connected(Tiny::DeepSeek2, ctx, 4, false)),
+        ("dense attention in three lanes", hyper_connected(Tiny::Qwen3, ctx, 3, false)),
+    ]
+}
+
+/// The end of document of the tiny vocabulary, a row the n-gram hash resets at.
+pub const EOS: u32 = 3;
+
+/// `spec` with its residual in four lanes and the n-gram embedding on `layer`: trigrams, two heads an order of four
+/// values each, a convolution of four taps dilated by three, hashed as Qwen3.8-Flash-Next hashes (`model::ngram_hash`).
+pub fn with_ngram_embedding(mut spec: ModelSpec, layer: usize) -> ModelSpec {
+    use logicaffeine_compile::model::ngram_hash::NgramHash;
+    use logicaffeine_compile::model::spec::Ple;
+    spec.hyper = Some(HyperConnections { lanes: 4, rank: 4 });
+    let hash = NgramHash::new(spec.vocab as u64, 3, 2, 7, 1, 0, 1234, EOS);
+    spec.ple = Some(Ple {
+        layer,
+        ngram: 3,
+        heads_per_ngram: 2,
+        head_dim: 4,
+        conv_taps: 4,
+        eos: EOS,
+        multipliers: hash.multipliers().to_vec(),
+        head_offsets: hash.head_offsets().to_vec(),
+        head_vocab: hash.head_primes().to_vec(),
+    });
+    spec
+}
+
+/// Qwen3.8-Flash-Next's layers at the tiny width over caches of `ctx` positions: Qwen3.8's hybrid (Gated DeltaNet gated
+/// by sigmoids) in four lanes with the n-gram embedding on its second layer; the same with an expert mixture in every
+/// block of Flash-Next's shape — 512 narrow experts keeping 10, renormalized, beside a shared expert its sigmoid gate
+/// weighs; and dense attention with the embedding on its first layer.
+pub fn flash_next_models(ctx: usize) -> Vec<(&'static str, ModelSpec)> {
+    let hybrid = with_ngram_embedding(hyper_connected(Tiny::Qwen35, ctx, 4, true), 1);
+    let mut mixed = hybrid.clone();
+    for layer in &mut mixed.layers {
+        layer.ffn = Ffn::Moe(Moe {
+            experts: 512,
+            top_k: 10,
+            expert_dff: 32,
+            act: Act::Silu,
+            gating: Gating::Softmax,
+            norm_top_k: true,
+            weights_scale: 1.0,
+            shared_experts: 1,
+            shared_dff: 32,
+            shared_gate: true,
+            biases: false,
+            groups: None,
+            latent: None,
+        });
+    }
+    vec![
+        ("Qwen3.8's hybrid", hybrid),
+        ("Qwen3.8-Flash-Next's block, an expert mixture in every layer", mixed),
+        ("dense attention, the embedding first", with_ngram_embedding(Tiny::Qwen3.spec(ctx), 0)),
+    ]
 }
 
 /// `spec` with every rotation scaled by the checkpoint's per-frequency factors (`rope_freqs.weight`), as Llama 3's is.
@@ -556,6 +644,37 @@ pub fn tensors(spec: &ModelSpec) -> Vec<(String, Vec<u64>)> {
         if layer.post_ffn_norm {
             add(blk("post_ffw_norm"), &[d]);
         }
+    }
+    // A hyper-connected residual's mixes: before each mixer and each FFN (with each lane's share of the output), and the
+    // last one before the head — the lanes' norm, one weight row a lane, and the gate's and the shares' projections.
+    if let Some(hc) = spec.hyper {
+        let (width, rank, lanes) = ((hc.lanes * spec.d) as u64, hc.rank as u64, hc.lanes as u64);
+        let mut mix = |stem: String, inject: bool| {
+            add(format!("{stem}_norm.weight"), &[width]);
+            add(format!("{stem}_down.weight"), &[width, rank]);
+            add(format!("{stem}_up.weight"), &[rank, width]);
+            if inject {
+                add(format!("{stem}_inject.weight"), &[width, lanes]);
+            }
+        };
+        for l in 0..spec.layers.len() {
+            mix(format!("blk.{l}.hc_attn"), true);
+            mix(format!("blk.{l}.hc_ffn"), true);
+        }
+        mix("output_hc".into(), false);
+    }
+    // The per-layer n-gram embedding: its table (the rows its hash names), its key's (one for each lane) and its value's
+    // projections of a token's rows side by side, its three norms in lanes, and its dilated convolution's taps.
+    if let (Some(ple), Some(hc)) = (&spec.ple, spec.hyper) {
+        let (width, rows) = ((hc.lanes * spec.d) as u64, (ple.head_vocab.len() * ple.head_dim) as u64);
+        let blk = |s: &str| format!("blk.{}.{s}.weight", ple.layer);
+        add("per_layer_token_embd.weight".into(), &[ple.head_dim as u64, author::ple_table_rows(ple) as u64]);
+        add(blk("ple_key"), &[rows, width]);
+        add(blk("ple_value"), &[rows, d]);
+        for norm in ["ple_norm_key", "ple_norm_query", "ple_norm_conv"] {
+            add(blk(norm), &[width]);
+        }
+        add(blk("ple_conv1d"), &[ple.conv_taps as u64, width]);
     }
     for part in &spec.parts {
         for (name, dims) in part.tensors(spec) {

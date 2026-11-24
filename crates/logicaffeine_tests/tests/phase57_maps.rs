@@ -8,7 +8,7 @@ use logicaffeine_compile::codegen::{
     codegen_expr, codegen_stmt, empty_var_caps, RefinementContext,
 };
 use logicaffeine_language::analysis::TypeRegistry;
-use logicaffeine_language::ast::{Expr, Literal, Stmt};
+use logicaffeine_language::ast::{BinaryOpKind, Expr, Literal, Stmt};
 use std::collections::HashSet;
 
 fn empty_lww_fields() -> HashSet<(String, String)> {
@@ -187,5 +187,76 @@ fn codegen_vec_set_integer_key() {
     assert_eq!(
         result,
         "LogosIndexMut::logos_set(&mut items, 2, val.clone());\n"
+    );
+}
+
+/// `stmt` as the emitter writes it knowing nothing of the names it reads.
+fn emitted_untyped(stmt: &Stmt, interner: &mut Interner) -> String {
+    let mut synced_vars = HashSet::new();
+    let mut ctx = RefinementContext::new();
+    let type_registry = TypeRegistry::with_primitives(interner);
+    let type_env = logicaffeine_compile::analysis::types::TypeEnv::new();
+    codegen_stmt(
+        stmt,
+        interner,
+        0,
+        &HashSet::new(),
+        &mut ctx,
+        &empty_lww_fields(),
+        &empty_mv_fields(),
+        &mut synced_vars,
+        &empty_var_caps(),
+        &HashSet::new(),
+        &HashSet::new(),
+        &HashSet::new(),
+        &type_registry,
+        &type_env,
+    )
+}
+
+// ============================================================
+// Test 5: an untyped store writes its index and value as arguments
+// ============================================================
+/// `Set item (i + 1) of items to a * 2.` into a collection the emitter knows nothing of: the index and the value are
+/// arguments of the trait call, written without parentheses of their own.
+#[test]
+fn codegen_untyped_set_writes_its_index_and_value_bare() {
+    let mut interner = Interner::new();
+    let arena: Arena<Expr> = Arena::new();
+    let (items, i, a) = (interner.intern("items"), interner.intern("i"), interner.intern("a"));
+    let index = arena.alloc(Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left: arena.alloc(Expr::Identifier(i)),
+        right: arena.alloc(Expr::Literal(Literal::Number(1))),
+    });
+    let value = arena.alloc(Expr::BinaryOp {
+        op: BinaryOpKind::Multiply,
+        left: arena.alloc(Expr::Identifier(a)),
+        right: arena.alloc(Expr::Literal(Literal::Number(2))),
+    });
+    let stmt = Stmt::SetIndex { collection: arena.alloc(Expr::Identifier(items)), index, value };
+    assert_eq!(emitted_untyped(&stmt, &mut interner), "LogosIndexMut::logos_set(&mut items, i + 1, a * 2);\n");
+}
+
+/// `Set item k of items to item 1 of other + 1.`: a value that reads a collection is taken into a temporary before the
+/// store, and the temporary's initializer is the value as it is.
+#[test]
+fn codegen_untyped_set_through_a_temporary_writes_the_value_bare() {
+    let mut interner = Interner::new();
+    let arena: Arena<Expr> = Arena::new();
+    let (items, k, other) = (interner.intern("items"), interner.intern("k"), interner.intern("other"));
+    let read = arena.alloc(Expr::Index {
+        collection: arena.alloc(Expr::Identifier(other)),
+        index: arena.alloc(Expr::Literal(Literal::Number(1))),
+    });
+    let value = arena.alloc(Expr::BinaryOp {
+        op: BinaryOpKind::Add,
+        left: read,
+        right: arena.alloc(Expr::Literal(Literal::Number(1))),
+    });
+    let stmt = Stmt::SetIndex { collection: arena.alloc(Expr::Identifier(items)), index: arena.alloc(Expr::Identifier(k)), value };
+    assert_eq!(
+        emitted_untyped(&stmt, &mut interner),
+        "let __set_tmp = LogosIndex::logos_get(&other, 1) + 1;\nLogosIndexMut::logos_set(&mut items, k, __set_tmp);\n"
     );
 }

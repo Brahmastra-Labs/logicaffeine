@@ -1383,3 +1383,38 @@ fn a_type_error_names_the_function_it_is_in() {
         assert_eq!(err.within, None);
     });
 }
+
+/// `## A Vec has: x: Int.` and `Let v be a new Vec with x <value>.`, checked: `Vec` is a list type but no construction,
+/// so the construction is the program's record, and its fields are checked against the record's.
+fn checked_vec_record(value: &Expr) -> Result<(TypeEnv, Symbol, Symbol), ()> {
+    use crate::analysis::{FieldDef, FieldType, TypeDef};
+    let mut interner = mk_interner();
+    let (vec_sym, x, int_sym, v) =
+        (interner.intern("Vec"), interner.intern("x"), interner.intern("Int"), interner.intern("v"));
+    let mut registry = TypeRegistry::new();
+    registry.register(
+        vec_sym,
+        TypeDef::Struct {
+            fields: vec![FieldDef { name: x, ty: FieldType::Primitive(int_sym), is_public: true }],
+            generics: vec![],
+            is_portable: false,
+            is_shared: false,
+        },
+    );
+    let new_vec = Expr::New { type_name: vec_sym, type_args: vec![], init_fields: vec![(x, value)] };
+    let stmts = [Stmt::Let { var: v, ty: None, value: &new_vec, mutable: false }];
+    check_program(&stmts, &interner, &registry).map(|env| (env, v, vec_sym)).map_err(|_| ())
+}
+
+#[test]
+fn a_record_named_like_a_list_type_is_the_record() {
+    let three = Expr::Literal(Literal::Number(3));
+    let (env, v, vec_sym) = checked_vec_record(&three).expect("a record of the program's");
+    assert_eq!(env.lookup(v), &LogosType::UserDefined(vec_sym), "`v` is the record, not a list");
+}
+
+#[test]
+fn a_record_named_like_a_list_type_has_its_fields_checked() {
+    let text = Expr::Literal(Literal::Text(Symbol::EMPTY));
+    assert!(checked_vec_record(&text).is_err(), "a Text stored in the record's Int field is refused");
+}

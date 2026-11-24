@@ -334,12 +334,14 @@ residual's lanes) refuses it by name.
 | Products | `A matmul B` · `X matmul W across H heads` | the second multiplies each head's slice of `X` by its own block of `W` |
 | Elementwise | `A plus B` · `A hadamard B` · `X scaled by C` · `X capped at C` | a one-row `B` combines with every row of `A`; a cap is `C·tanh(x/C)` |
 | Norms | `rmsnorm of X with weight W` · `layernorm of X with weight W and bias B` · `l2norm of X` | `with epsilon E` names the model's epsilon |
-| Activations | `silu of X` · `sigmoid of X` · `gelu of X` · `swiglu of G and U` | |
+| Activations | `silu of X` · `sigmoid of X` · `gelu of X` · `erf of X` · `swiglu of G and U` | |
 | Rotation | `rope of Q with cos C and sin S across H heads` | `from position P` reads a cache of angles |
-| Attention | `attention of Q over K and V with H heads KV groups up to P` · `causal attention of Q over K and V with H heads KV groups from P` | then `within a window of W`, `scaled by S`, `capped at C`, `with sinks S`; values may be narrower or wider than keys |
-| Heads | `the first K of every N of X` · `the last K of every N of X` · `A joined with B across H heads` | one part of every head; each head's parts side by side |
+| Attention | `attention of Q over K and V with H heads KV groups up to P` · `causal attention of Q over K and V with H heads KV groups from P` | then `within a window of W`, `scaled by S`, `capped at C`, `with sinks S`, `with linear biases M`, `with a bidirectional prefix of P`, `with rows starting at R`; values may be narrower or wider than keys |
+| Heads | `the first K of every N of X` · `the last K of every N of X` · `the K after the first F of every N of X` · `A joined with B across H heads` | one part of every head; each head's parts side by side |
+| Lanes | `rmsnorm of H with weight W in L lanes` · `the mean of X over L lanes` · `O spread over L lanes by S` · `the lane sums of X over L lanes` · `the signed root of X` | a hyper-connected residual's lanes: each normed by its own row of `W`, averaged into one row, a row laid in every lane by its share; each lane summed; each element's square root, signed, floored at `E` |
+| N-grams | `the ngram ids of T after R by M modulo V from O ending at E` | the hashed table's rows each token's n-grams name; `R` the token rows before, carried |
 | Mixture | `moe of X with router Wr gate Wg up Wu down Wd choosing K of E` | `plus B` after a weight; `without renormalizing`; `using a swiglu clamped at L with slope A` |
-| Rows | `row i of T` · `rows I of T` · `Set row i of T to V.` · `Set rows from P of T to X.` | a lookup and a cache write, checked at run time |
+| Rows | `row i of T` · `rows I of T` · `rows I of T side by side` · `Set row i of T to V.` · `Set rows from P of T to X.` | a lookup and a cache write, checked at run time; side by side, a row of `I`'s rows joined into one |
 | Recurrence | `causal conv of X with weight WC state CS over T taps` · `gated delta of Q over K and V with …` · `decay of Ar with bias Dt rate R` | carried state |
 | Other | `softmax of X` · `argmax of X` · `transpose of X` · `full attention of Q over K and V with H heads` | |
 | Integer | `X times M shifted right by S` · `X clamped between LO and HI` · `relu of X` · `lut attention of Q over K and V with H heads KV groups up to P with table E and scale M shifted right by S` | an int8 model's requant (an arithmetic shift), saturation, ReLU and table-softmax attention, every operand `Int` |
@@ -687,10 +689,10 @@ compiles to:
 ```rust
 #[inline]
 fn classify(n: i64) -> String {
-    if (n < 0) {
+    if n < 0 {
         return ::std::string::String::from("negative");
     }
-    return ::std::string::String::from("non-negative");
+    ::std::string::String::from("non-negative")
 }
 ```
 
@@ -881,6 +883,14 @@ use-after-move detection are handled by the ownership analysis
 `readReals("…")` is the `Seq of Real` a file of little-endian binary64 values holds, eight bytes a value: numbers a
 program reads at run time rather than carries as code, such as a model's weights (`Set W to readReals("w/W.f64").`
 fills a declared tensor). A file it cannot read, or one that is not a whole number of values, stops the program.
+`appendFile`, `fileExists`, `listDir`, `makeDirs` and `renameFile` (file.lg) add to a file, ask what is at a path, list a
+directory, make one with its parents, and replace a file atomically; each failure is an `Err`, never a stop.
+`runProcess(program, args, cwd, env, timeoutMs, maxOutput)` (process.lg) runs another program with no shell in
+between — each argument reaches it exactly as written — under a mandatory deadline and output cap, and answers a
+`ProcessResult` (`exitCode`, `stdout`, `stderr`, `timedOut`, `truncated`). The program leads a process group of its own,
+so nothing it starts outlives the run; standard input is empty. A program that could not start is an `Err`; one that
+started and failed is an `Ok` that says so. A sealed `## Test` starts no processes unless it says
+`This test may use the real processes.` and runs under `largo test --live`.
 `Assert that <logic>` with a logic proposition is the **Assert Bridge** into
 [Proof & verification](proof-and-verification.md).
 
@@ -1069,7 +1079,8 @@ Show item 4 of C.
 Shapes are checked when the program is parsed. `A matmul B`, `A plus B` and `A hadamard B` combine
 two tensors; the model operators each take a declared tensor: `softmax of X` (per row of a 2-D
 tensor), `rmsnorm of X with weight W`, `layernorm of X with weight W and bias B`, `l2norm of X`,
-`silu of X`, `sigmoid of X`, `gelu of X`, `swiglu of Gate and Up`, `rope of Q with cos RC and sin RS`,
+`silu of X`, `sigmoid of X`, `gelu of X` (the tanh approximation), `erf of X` (the error function, which exact GELU is
+written from: `0.5·x·(1 + erf(x/√2))`), `swiglu of Gate and Up`, `rope of Q with cos RC and sin RS`,
 `attention of Q over K and V with H heads KV groups`, `causal attention of …`,
 `full attention of Q over K and V with H heads`, `gated delta of …`, `moe of X with router Wr gate Wg
 up Wu down Wd choosing K of E`, `causal conv of X with weight WC state CS over T taps`,
@@ -1081,8 +1092,11 @@ with another epsilon names it after the operands: `rmsnorm of X with weight W wi
 An attention keeps a sliding window when the program gives one after its length: `attention of Q over K
 and V with 8 heads 2 groups up to pos within a window of 512` attends position `pos` and the 511 before
 it, `capped at C` before the sinks takes each score `s` as `C·tanh(s/C)` before the softmax (Gemma 2's soft cap), and
-`with sinks S` last gives each head a logit that joins its softmax and takes no value. `X capped at C` caps every element
-of a tensor the same way. `X scaled by
+`with sinks S` gives each head a logit that joins its softmax and takes no value. Three masks may follow, in this order:
+`with linear biases M` (ALiBi) takes `M[h]·|n − j|` off each score of head `h` for a key at `j` of a query at `n`;
+`with a bidirectional prefix of P`, on a causal block, lets the first `P` positions attend one another whole; and
+`with rows starting at R` has each row attend from its own first position `R[r]`, as a block of packed sequences does.
+`X capped at C` caps every element of a tensor the same way. `X scaled by
 C` multiplies every element of a tensor by the number `C`, and `A plus B` with `B` one row as wide as
 `A`'s rows adds that row to each of them (a bias over a block). A mixture takes a bias after any of its
 weights (`router Wr plus Br gate Wg plus Bg …`) and `using a swiglu clamped at 7.0 with slope 1.702`
@@ -1091,10 +1105,11 @@ each kept expert by its softmax over every expert, as DeepSeek-V2 does, instead 
 weights to sum to one.
 
 Heads are parts of a row, and four more forms take them apart and put them together.
-`the first K of every N of X` (or `the last K`) keeps one part of every group of `N` elements, `A joined
-with B` puts the rows of two tensors side by side (`across H heads`, each head's parts), and `X matmul W
-across H heads` multiplies each head's slice of `X` by its own block of `W`'s rows. An attention's values
-may be narrower or wider than its keys, and `scaled by S` after its window replaces the score scale `1/√HD`.
+`the first K of every N of X` (or `the last K`, or `the K after the first F`) keeps one part of every group of
+`N` elements, `A joined with B` puts the rows of two tensors side by side (`across H heads`, each head's
+parts), and `X matmul W across H heads` multiplies each head's slice of `X` by its own block of `W`'s rows.
+An attention's values may be narrower or wider than its keys, and `scaled by S` after its window replaces
+the score scale `1/√HD`.
 Together they write DeepSeek's latent attention with each head's query absorbed into the cached latent:
 
 ```logos
@@ -1132,6 +1147,120 @@ Show round(item 3 of O * 100).
 50
 -100
 100
+```
+
+A hyper-connected residual holds each token as `L` lanes side by side, and three forms take its lanes. `rmsnorm of H
+with weight W in L lanes` norms each lane on its own, by its own row of a weight as wide as every lane; `the mean of X
+over L lanes` averages each row's lanes into one; and `O spread over L lanes by S` lays each row of `O` in every lane,
+lane `l` of row `t` times `S`'s entry `(t, l)` (without `by S`, a copy in each lane). Qwen3.8-Flash-Next mixes its
+four lanes into each sublayer's input with the first two and adds the sublayer's output back with the third:
+
+```logos
+## Main
+Let H be a 1 by 4 tensor of Real.
+Set item 1 of H to 2.0.
+Set item 2 of H to 4.0.
+Set item 3 of H to 6.0.
+Set item 4 of H to 8.0.
+Let M be the mean of H over 2 lanes.
+Let S be a 1 by 2 tensor of Real.
+Set item 1 of S to 1.0.
+Set item 2 of S to 0.5.
+Let P be M spread over 2 lanes by S.
+Show item 1 of P.
+Show item 2 of P.
+Show item 3 of P.
+Show item 4 of P.
+```
+
+```output
+4
+6
+2
+3
+```
+
+Two forms gate each lane by how far it agrees with something: `the lane sums of X over L lanes` sums each lane of each
+row on its own (`X` of `L` lanes a row, the result one value a lane), and `the signed root of X` is `sign(x)·√max(|x|, E)`
+of every element (`with epsilon E`, 1e-6 unless given). Qwen3.8-Flash-Next's n-gram embedding gates each lane by the
+sigmoid of the signed root of its key's agreement with the lane:
+
+```logos
+## Main
+Let G be a 1 by 4 tensor of Real.
+Set item 1 of G to 2.0.
+Set item 2 of G to 7.0.
+Set item 3 of G to -1.0.
+Set item 4 of G to -8.0.
+Let S be the lane sums of G over 2 lanes.
+Let R be the signed root of S.
+Show item 1 of S.
+Show item 2 of S.
+Show item 1 of R.
+Show item 2 of R.
+```
+
+```output
+9
+-9
+3
+-3
+```
+
+`the ngram ids of T after R by M modulo V from O ending at E` names the rows of a hashed table each token's n-grams fall
+in: for each token row of `T` (a token's id plus one, as `row t of Emb` reads it) and each order from 2 to `|M|`, the
+token and the ones before it each times its place's multiplier `M`, exclusive-ored, modulo each of the order's heads'
+`V`, plus its `O` — a token beyond the end of a document (row `E`) reading as that end. `R` holds the rows of the tokens
+before the first, `0` where none was, and ends holding the last of them, as a decode step's carried state does. `rows I
+of T side by side` reads the rows a row of `I` names joined into one row:
+
+```logos
+## Main
+Let T be a 1 by 2 tensor of Int.
+Set item 1 of T to 6.
+Set item 2 of T to 3.
+Let R be a 1 by 2 tensor of Int.
+Let M be a 1 by 3 tensor of Int.
+Set item 1 of M to 3.
+Set item 2 of M to 5.
+Set item 3 of M to 7.
+Let V be a 1 by 2 tensor of Int.
+Set item 1 of V to 11.
+Set item 2 of V to 13.
+Let O be a 1 by 2 tensor of Int.
+Set item 2 of O to 11.
+Let I be the ngram ids of T after R by M modulo V from O ending at 1.
+Show item 1 of I.
+Show item 2 of I.
+Show item 3 of I.
+Show item 4 of I.
+Show item 2 of R.
+Let J be a 2 by 2 tensor of Int.
+Set item 1 of J to 3.
+Set item 2 of J to 1.
+Set item 3 of J to 2.
+Set item 4 of J to 3.
+Let P be a 3 by 1 tensor of Real.
+Set item 1 of P to 10.0.
+Set item 2 of P to 20.0.
+Set item 3 of P to 30.0.
+Let E be rows J of P side by side.
+Show item 1 of E.
+Show item 2 of E.
+Show item 3 of E.
+Show item 4 of E.
+```
+
+```output
+5
+14
+10
+17
+3
+30
+10
+20
+30
 ```
 
 An int8 model moves between its layers in integers, and four forms say its steps exactly, every operand a
@@ -1775,8 +1904,9 @@ A standard library ships with the compiler
 | Text and data | `strings`, `chars`, `unicode`, `bytes`, `bits`, `regex`, `encoding`, `convert`, `json` |
 | Numbers | `math`, `statistics`, `random`, `rng`, `operator` |
 | Collections | `collections`, `iter`, `sort`, `heap`, `builder` |
+| Logic | `datalog` |
 | Linear algebra | `blas`, `lapack`, `clapack` |
-| The machine | `io`, `file`, `env`, `time`, `calendar`, `error`, `compress`, `media`, `vision` |
+| The machine | `io`, `file`, `env`, `process`, `time`, `calendar`, `error`, `compress`, `media`, `vision` |
 | The web | `http`, `static`, `session`, `web`, `forms`, `ui`, `postgres`, `vdom` |
 | The network | `tcp`, `net` |
 | Distribution | `crdt`, `concurrency` |
@@ -1786,6 +1916,40 @@ The web modules are the subject of two guides: [Web](web.md) for the server and
 [Frontend](frontend.md) for pages in the browser. `lapack` also backs two statements:
 `Solve M times x equals v for x.` binds `x` to `solveLinear(M, v)`, and
 `Minimize the quadratic Q with linear b over x.` binds it to `minimizeQuadratic(Q, b)`.
+
+The `datalog` module evaluates Datalog in LOGOS itself: ground facts and Horn rules, with negation over lower
+strata, computed semi-naively to their least model. `datalogEvaluate(facts, rules)` answers a `DatalogModel` holding
+every fact once, the given ones first, or a `DatalogRefusal` saying why there is none (a predicate used with two
+arities, a variable no positive literal binds, a negation inside a cycle) in the words `largo datalog` uses. A path is
+an edge, or a path followed by an edge:
+
+```logos
+## Main
+Let mutable facts be a new Seq of DatalogFact.
+Push datalogFact("edge", ["a", "b"]) to facts.
+Push datalogFact("edge", ["b", "c"]) to facts.
+Let x be datalogVar("X").
+Let y be datalogVar("Y").
+Let z be datalogVar("Z").
+Let mutable rules be a new Seq of DatalogRule.
+Push datalogRule("base", datalogAtom("path", [x, y]), [datalogHolds(datalogAtom("edge", [x, y]))]) to rules.
+Push datalogRule("step", datalogAtom("path", [x, z]), [datalogHolds(datalogAtom("path", [x, y])), datalogHolds(datalogAtom("edge", [y, z]))]) to rules.
+Let outcome be datalogEvaluate(facts, rules).
+Inspect outcome:
+    When DatalogModel (model):
+        Repeat for f in model:
+            Show datalogShowFact(f).
+    When DatalogRefusal (reason):
+        Show reason.
+```
+
+```output
+edge(a, b)
+edge(b, c)
+path(a, b)
+path(b, c)
+path(a, c)
+```
 
 The `crypto` and `uuid` modules are themselves written in LOGOS.
 [`crypto.lg`](../crates/logicaffeine_compile/assets/std/crypto.lg) carries:
@@ -2049,6 +2213,12 @@ Expect that the text of "#chosen" is equal to "tea".
 `item 10 of drinks` fails, so the turn's `Set chosen to "picking"` is rolled back with it. There are
 no hooks and no dependency arrays: a component's identity is its position in the page, never the
 order its code happened to run in.
+
+What a failure while mounting stops depends on who mounts. In `## Main`, `Mount` is the program's
+own statement, as it is in the page's `main` in a browser: if `When the page loads:` or the first
+paint fails, the program stops there. In a `## Test`, `Mount` is the test reaching into a page that
+has loaded, as an event does: the failure is the page's, delivered to `When an action fails` and
+reported, nothing of the failed paint is drawn, and the test runs on to its next statement.
 
 `Toggle open.` flips a `Bool` field in one sentence.
 
@@ -3037,7 +3207,10 @@ Every page ships a built-in theme: design tokens on `:root` (`--paper`, `--ink`,
 `--font-sans`, `--font-mono`, `--measure`, `--space`), element styles (headings, buttons, inputs,
 tables, `.card`), and a dark mode. The scaffold's `static/theme.css` uses the same token names, so
 changing one there reskins everything; a component's `Style:` rules win over the theme's element
-rules. A site that brings its whole design opts out in `Largo.toml`: `[web]` then `theme = false`.
+rules. The theme comes first in every page's head, then the site's top-level `static/*.css`, then
+the stylesheets a page links in its own `Head:` in the order it writes them, so anything a site or a
+page writes beats the theme. A site that brings its whole design opts out in `Largo.toml`: `[web]`
+then `theme = false`.
 
 ## Directives
 
@@ -4353,14 +4526,16 @@ Scheduling decisions come from a `Chooser` driven by a seed (`SchedSeed`) or a r
 - **Work-stealing M:N** (native, `cfg(not(wasm32))`): genuine multicore.
 
 The runtime is used by the interpreter/VM tiers; an AOT-compiled binary is never linked against it.
-A default `largo build` lowers tasks, pipes and select to host primitives through
-[`logicaffeine_system`](../crates/logicaffeine_system/README.md) (`tokio::spawn`, tokio channels,
-`tokio::select!`, rayon or OS threads for `Simultaneously:`, libp2p for the mesh) and runs them
-free. A deterministic build, through the library entry points `compile_to_rust_deterministic` and
-`compile_program_full_deterministic`, instead runs every task, pipe, timer and select on
+A `largo build` runs every task, pipe, timer and select on
 [`logicaffeine_system::replay`](../crates/logicaffeine_system/src/replay.rs). That is the runtime's
 scheduler ported step for step onto Rust futures, drawing each choice from the same seeded chooser,
-so the binary run at `LOGOS_SEED=s` prints what the interpreter prints at seed `s`.
+so the binary run at `LOGOS_SEED=s` prints what the interpreter prints at seed `s`, and a program whose
+every task is blocked fails with the interpreter's `deadlock: every task is blocked waiting`.
+`largo build --threads` (the library entry point `compile_program_full_threaded`) instead lowers
+tasks, pipes and select to host primitives through
+[`logicaffeine_system`](../crates/logicaffeine_system/README.md) (`tokio::spawn`, tokio channels,
+`tokio::select!`) and runs them free. `Simultaneously:` runs on rayon or OS threads and the mesh on
+libp2p either way.
 
 The C family carries a port too. Host C, RISC-V, the bytecode walker and the CUDA tier carry the
 runtime's scheduler with them, ported to C (`codegen_c/sched_core.c`) one operation at a time, so a
@@ -4658,11 +4833,18 @@ These are the `Listen`, `ConnectTo`, `Sync` and `Mount` statements.
 ## Determinism in practice
 
 Because scheduling is seed/trace driven, a concurrent program runs identically at a given seed on the
-interpreter, the VM, the C-family tiers (host C, RISC-V, the bytecode walker, CUDA) and a
-deterministic AOT build. `c_family_scheduler_conformance_lock` and `e2e_deterministic_replay` assert
-that every tier prints what the tree-walker prints, and that the seed-sensitive programs show more
-than one outcome across seeds, so the seed reaches the binary. A default `largo build` runs free on
-tokio and is outside this guarantee. This is what makes "concurrent" and "reproducible" coexist.
+interpreter, the VM, the C-family tiers (host C, RISC-V, the bytecode walker, CUDA) and the AOT
+build. `c_family_scheduler_conformance_lock` and `e2e_deterministic_replay` assert that every tier
+prints what the tree-walker prints, and that the seed-sensitive programs show more than one outcome
+across seeds, so the seed reaches the binary. A `largo build --threads` runs free on tokio and is
+outside this guarantee. This is what makes "concurrent" and "reproducible" coexist.
+
+`largo run --interpret --seed S`, or `LOGOS_SEED=S`, runs the program at seed `S` on every engine:
+the default, `--engine tree`, `--engine vm` and `--engine jit`. A run that names no seed is scheduled
+at seed 0. The VM and the JIT run on the same scheduler, which serves tasks, pipes, selects and
+`Sleep` (on its logical clock) but not the host. A program that reads or writes files, networks or
+serves needs a reactor the scheduler does not drive, so those two engines refuse it and say why; the
+default engine and `--engine tree` run it.
 
 A failing `largo run --interpret` is recorded as a `.replay` bundle under `target/replays/` (the
 seed, the scheduling trace, the embedded source and the failure), and `largo replay <file>`
@@ -4693,7 +4875,8 @@ compiled by `doc_examples`, and every output shown is what the tree-walker print
   `phase53_persistence`.
 - Determinism: `replay_executor_port_lock` holds the deterministic build's executor to the
   runtime's scheduler, `e2e_deterministic_replay` holds those binaries to the tree-walker and the VM,
-  and `replay_lock` holds `.replay` capture and `largo replay`.
+  `interpret_seed_lock` holds every `largo run --interpret` engine to them at every seed, and
+  `replay_lock` holds `.replay` capture and `largo replay`.
 
 ---
 [Docs index](README.md) · [Root README](../README.md) · [Changelog](../CHANGELOG.md)
@@ -4931,8 +5114,8 @@ The guide moves outward from the smallest trusted base:
 3. **Z3 verification**: an optional SMT/model-checking layer for static verification and hardware
    assertions, whose verdicts include Z3 in what you trust.
 4. **Translation validation** and **stencil synthesis**: the same solver turned on the compiler
-   itself. One proves a program's symbolic encoding agrees with the interpreter; the other checks
-   the JIT's stencils ahead of time.
+   itself. One proves, for every input, that the bytecode the VM runs computes what its source
+   computes; the other proves the JIT's integer stencils meet their specifications for every input.
 
 [The trust story](#the-trust-story) closes the guide with what each kind of verdict rests on.
 
@@ -5202,7 +5385,9 @@ and `linarith` declines it.
 ### Formal developments
 
 A `## Theory` block states axioms and theorems in the formal notation; a theorem `cites` the
-earlier theorems it uses, and the development is proved in citation order:
+earlier theorems it uses, and the development is proved in citation order. A citation brings in
+what the cited theorem states: its goal, under its `given` premises when it has any, so a lemma
+proved under a `given` helps only a theorem that can establish that `given` too:
 
 ```logos
 ## Theory Tarski
@@ -5214,16 +5399,41 @@ Theorem reflexivity: prove for all a b, Cong(a, b, a, b).
 Theorem symmetry cites reflexivity: prove for all a b c d, if Cong(a, b, c, d) then Cong(c, d, a, b).
 ```
 
+A theorem can `refute` a formula instead: it claims the formula does not follow from the axioms, its
+`given` premises and the statements of the theorems it cites. When those are ground facts and
+function-free Horn rules (negated body atoms allowed where they stratify), their least model is a
+finite structure in which every one of them holds, and the refutation holds when the formula is false
+there. That model is the certificate: it is re-checked premise by premise, over its finite domain,
+by an evaluator that shares nothing with the Datalog engine that built it. A refutation is not a
+kernel proof and has no proof term.
+
+```logos
+## Theory PointsTo
+
+Axiom new_a: VP0(A, H1).
+Axiom new_c: VP0(C, H2).
+Axiom copy_b: Assign(B, A).
+Axiom alloc: for all v h, if VP0(v, h) then VP(v, h).
+Axiom assign: for all v1 v2 h, if Assign(v1, v2) and VP(v2, h) then VP(v1, h).
+
+Theorem b_points_to_h1: prove VP(B, H1).
+Theorem c_stays_apart: refute VP(C, H1).
+```
+
 ### `largo prove`
 
 [`largo prove`](cli.md#prove) proves every `## Theory` development and English `## Theorem` in the
-assembled module closure of a file or of the project entry; every ✓ is kernel-certified. `--trace` renders
-each derivation; `--json` adds an `inventory` (each theorem `proved`/`unproved`, each axiom an
+assembled module closure of a file or of the project entry; every ✓ on a theorem is kernel-certified, and
+a ✓ on a refutation names the size of the countermodel that re-checked. `--trace` renders
+each derivation; `--json` adds an `inventory` (each theorem `proved`/`unproved`, each refutation
+`refuted`/`unrefuted` with its countermodel's size and never a proof, each axiom an
 assumption, never a proved fact) and a `summary`, and a name that is both a theorem and an axiom is
-refused. `--certificate` emits each English theorem's `TheoremCertificate` with the verdict of
-re-checking it against a rebuilt prelude (`rechecks`, `two_kernel_agreement`); a `## Theory`
-theorem is reported with `certificate: null` and the reason, since that path exposes no kernel
-term. `--kernel FILE` checks a kernel-vernacular document instead.
+refused. `--certificate` emits each proved theorem's `TheoremCertificate`, from a `## Theory`
+development or an English `## Theorem`, with the verdict of re-checking it against a rebuilt
+prelude (`rechecks`, `two_kernel_agreement`). A development's theorem discloses the axioms and the
+cited lemmas it assumed as hypotheses. An unproved goal is reported with `certificate: null` and the
+reason; a refutation with `certificate: null` and its countermodel, every element and every fact.
+`--kernel FILE` checks a kernel-vernacular document instead.
 
 ## Z3 verification (optional, the full build)
 
@@ -5248,6 +5458,25 @@ This backs the **English → SVA/PSL** path (the SVA code generator,
 verification. Verification errors are written as Socratic explanations with counter-examples. Run it
 with `largo verify` / `largo build --verify` (see [the CLI guide](cli.md)).
 
+On a program, `largo verify` proves that every `Assert` follows from what runs before it, that every
+refinement holds of its value, and that every `decreasing` variant is bounded below and shrinks on
+every iteration the loop condition admits. `Require` and `Assume` are enforced when the program runs,
+so execution continues past one only when it held: the verifier assumes them. It reads the program as
+facts about versions of its variables: an assignment makes a new version, a branch's facts hold under
+its condition and the two sides join after it, a loop forgets every name its body may write (and,
+unless the body can break out, knows the loop's exit condition after it), and an assertion is checked
+under the conditions it runs under. A call stands for its result only when the function is pure; any
+other call is a value the verifier does not know. Anything it does not model is forgotten, never
+guessed, so an `Assert` it cannot read is reported unproved rather than passed.
+
+```logos
+## Main
+Let mutable i be 0.
+While i is less than 10:
+    Set i to i + 1.
+Assert that i is at least 10.
+```
+
 Z3 is not a strictly stronger prover: the proof engine certifies by structural induction a
 `∀n:Nat` goal the Z3 oracle declines.
 
@@ -5260,9 +5489,29 @@ encoding agrees with the tree-walking interpreter on the full observable behavio
 `Show` outputs and whether an error was raised); a nondeterminate program is checked per seed
 against the seeded tree-walker. The fragment is straight-line `Int`/`Bool` code plus a determinate
 concurrency subset, `Int` encoded as a wrapping 64-bit bitvector; anything outside it is reported
-`Unsupported`, never as agreement. Only the source side has a symbolic executor: the
-source-to-emitted-Rust equivalence is not yet closed in code. It depends on both `compile` and
-`verify` and, like them, is opt-in.
+`Unsupported`, never as agreement. It depends on both `compile` and `verify` and, like them, is
+opt-in.
+
+`logicaffeine_tv::bytecode` validates the register VM's bytecode against its source. `validate`
+runs each function's source (a control-flow graph with the tree-walker's meaning) and the bytecode
+the VM runs for it (each op as its handler computes it) symbolically over exact integers. It runs
+both from the entry and from each loop head. Houdini infers which registers equal which variables
+at each head, and Z3 shows the two end alike on every pair of paths that can run together, having
+shown the same values. A loop is therefore proved for every trip count, not unrolled. An op is
+modeled on every operand, so a strength reduction that rests on a wrong fact is a disagreement, not
+an assumption: the reciprocal a constant division becomes, the mask a remainder becomes, the shift a
+power-of-two division becomes. Each reciprocal is decided exact for every 64-bit dividend by its
+error bound. A failed obligation is reported `Refuted` only with an input on which the two, run
+concretely, differ; otherwise it is `Unproven`. Validating the VM against its source this way found
+a `Repeat` whose bound had grown past 64 bits running on the VM where the tree-walker raised; a
+range now takes any Int on every engine.
+
+`logicaffeine_tv::rust` holds the Rust the AOT backend emits to its source the same way, the
+program parsed with `syn` and its operations taken as a release build computes them: `i64`
+arithmetic wraps, and the runtime's checked helpers stop with "Integer overflow" when a value
+leaves 64 bits. A function is proved to show what its source shows and end as it ends, or to stop
+loudly where the source holds a wider value, so it never computes a wrong answer; a silent wrap is
+refuted with the input that shows it.
 
 The tensor compiler's fusion rules are proven the same way. `tensor_graph::smt` states what a graph
 of the one tensor IR computes as terms over arrays: an op that moves values is the index map it is,
@@ -5276,8 +5525,12 @@ identities a chip computes a fused op by, at bounded shapes.
 ## Synthesis (EXODIA)
 
 [`logicaffeine_synth`](../crates/logicaffeine_synth/README.md) is offline tooling that uses Z3 to
-verify the EXODIA JIT's stencil specifications against witness inputs (`all_specs`,
-`check_spec_with_witnesses`). It also proves that each reversible VM opcode inverts with its
+prove the EXODIA JIT's integer stencils meet their specifications (`all_specs`) for every input.
+`stencil_proof` decodes each stencil's own machine code (a closed x86-64 subset that refuses
+anything outside it) and executes every path symbolically. It proves that the side exit is taken
+exactly when the specification's precondition fails, that the result lands where the specification
+says, that no divide can fault, and that the registers the stencil ABI pins survive. The witness
+harness (`check_spec_with_witnesses`) runs chosen inputs through the real code beside it. It also proves that each reversible VM opcode inverts with its
 declared inverse and that `RevSwap` is an involution (`all_rev_specs`, `prove_bijective`,
 `prove_swap_involution`). It never runs inside the language at runtime; it validates the JIT
 back-end ahead of time.
@@ -5291,7 +5544,11 @@ corroborates where its fragment reaches. Z3 verification and translation validat
 whose trust boundary includes Z3. Claims from outside the prover follow the same replay pattern:
 `interval_replay` re-derives analog range certificates by outward-rounded interval arithmetic,
 `relax_replay` and `thermal_replay` re-multiply settled linear-solve and thermal-map claims in
-exact rationals, and `revgate` certifies a reversible gate as a bijection. Each is the rule this
+exact rationals, and `revgate` certifies a reversible gate as a bijection. The optimizer's e-graph
+rewrites are each certified the same way: a ring identity by a kernel proof term, a Boolean one by
+case analysis, and a division, shift, copy or slice rule by a proof over definitions that the tests
+hold to the runtime's own operations. The kernel accepts each proof with nothing assumed; constant
+folding is checked against the kernel's own evaluation. Each is the rule this
 guide opened with: search can be heuristic, but acceptance is checked.
 
 ## See also
@@ -5315,7 +5572,8 @@ Every `logos` block above is compiled by `doc_examples`.
   `phase84_extraction`. Arithmetic sentences and `Proof:` lines: `L_language_extra`.
 - The tactic language: `tactic_script`, `T_tactics_extra`, `omega_tactic`.
 - Z3 verification, built with `--features verification`: `phase_verification`,
-  `phase_verification_refinement`, `phase_verification_floordiv`, and the hardware suites
+  `phase_verification_refinement`, `phase_verification_floordiv`, `verification_soundness_lock` (what a
+  program's facts may and may not prove), and the hardware suites
   `phase_hw_z3_equiv`, `phase_hw_e2e_z3`, `phase_hw_advanced_z3`, `phase_hw_cegar_z3`,
   `phase_hw_synthesis_z3` and `phase_hw_native_vs_z3`. `phase104_induction_vs_z3` holds the
   contrast between structural induction and the Z3 oracle.
@@ -5407,12 +5665,15 @@ The full subcommand set (from the `Commands` enum in `cli.rs`):
 | `largo serve [--watch] [--port <n>] [--open] [--host <addr>] [--timeout <dur>] [--seed <n>] [-- args…]` | Serve the project over HTTP — a site, a full-stack site, or a backend, decided by the project itself |
 | `largo emit <target> [file] [-o path]` | Print/write a compiled translation without building a binary (every target: [emit](#emit)) |
 | `largo fmt [paths…] [--check] [--json]` | Format LOGOS sources (same rules as the language server) and sort each import block |
-| `largo opts <file> [--json]` | Report which optimizations fired for a file, and which enabled or preempted which |
+| `largo opts <file> [--json] [--jit [-- args]]` | Report which optimizations fired for a file, and which enabled or preempted which |
 | `largo replay <bundle> [--verify]` | Re-run a recorded `.replay` bundle and report reproduced, fixed, or diverged |
 | `largo bringup <checkpoint> [--target <chips>] [--ctx <n>] -o <dir>` | Bring a model up on every chip from its one program: the CUDA lane, the D5005 decode engine, the SN50 |
 | `largo drop <checkpoint> [--ctx <n>] [--prompt <ids>] [--tokens <n>] [--fetch-weights] -o <dir>` | Write a self-checking SN50 drop: the decode bundle, its weights, the goldens our evaluator decodes, and the sha256 of every file |
 | `largo check-drop <dir> [--weights <checkpoint>]` | Verify a drop: every digest, every program's certificate, every golden decoded again bit for bit |
 | `largo expand <file>` | Show what an LGX page became: the functions its components, actions and routes lower to |
+| `largo points-to <file> [--contexts] [--json]` | What each variable of a program may point to, by Whaley and Lam's rules over its statements |
+| `largo datalog <file> [--bdd] [--certify] [--contexts] [--json]` | Evaluate a theory's rules bottom-up as Datalog: every relation they derive, optionally over BDDs, kernel-certified or in every calling context |
+| `largo specialize p1 <file>\|p2\|p3 [-o path] [--check]` | The three Futamura projections through the offline specializer: a residual program, a compiler, a compiler generator |
 
 **Agents**
 
@@ -5429,7 +5690,7 @@ The full subcommand set (from the `Commands` enum in `cli.rs`):
 | `largo logic "<sentence>" [flags]` | English → First-Order Logic from the terminal |
 | `largo prove [file] [--trace\|--json\|--certificate]` | Prove `## Theory` / `## Theorem` blocks, kernel-certified; `--kernel <file>` checks a kernel-vernacular document |
 | `largo sat <file.cnf> [--proof <path>] [--stats]` | The certified SAT engine on DIMACS CNF (exit 10/20) |
-| `largo lean import --project <dir> --target <Name> --out <dir>` | Lean 4 → LOGOS: import a Lean declaration as a checked, independently re-verified LOGOS package |
+| `largo lean import --project <dir> --target <Name> --out <dir>` | Lean 4 → LOGOS: import a Lean declaration (or, with `--statement`, the proposition it states) as a checked, independently re-verified LOGOS package |
 | `largo lean replay <package>` | Re-verify a published Lean → LOGOS package in a fresh process |
 | `largo verify` | Run Z3 static verification only (the full build) |
 
@@ -5508,11 +5769,12 @@ A **site** — pages and assets with no `Serve` backend — has no program to co
 | Flag | Effect |
 |------|--------|
 | `-r`, `--release` | Optimized build |
+| `--threads` | Run the program's tasks, pipes, timers and selects on OS threads (tokio) instead of the deterministic replay executor every other tier schedules by: for work that truly runs in parallel, at the price of a schedule, and so an order of concurrent output, that may differ from run to run |
 | `--verify` | Run Z3 static verification after compilation (the full build) |
 | `--lib` | Generate a library (`lib.rs`, `crate-type = ["cdylib"]`) instead of a binary |
 | `--target <triple>` | Cross-compile; `wasm` is shorthand for `wasm32-unknown-unknown` |
 | `--native-functions` | Pre-build every `is exported for native` function — the entry's and every imported module's — into a cached cdylib under `.logos-native/`; a function outside the native scalar subset is skipped and keeps running on the VM and JIT. `largo run --interpret` loads the bundle |
-| `--emit c` | Build the same executable through C instead of Rust: the program lowered to C and compiled by `$CC` (default `cc`), published at the same `target/debug/<name>` or `target/release/<name>`, the generated source kept in `target/<mode>/build-c/main.c`. Debug is `-O0 -g`; `--release` is `-O3 -march=native -flto -ffp-contract=off`, the flags the benchmark suite builds its hand-written C with, and strips like the Rust release build unless `CARGO_PROFILE_RELEASE_STRIP=false`. A program the exact extension reaches also links that extension's value runtime, a static library built once from the same Rust the interpreter runs. `-v` prints the compiler command |
+| `--emit c` | Build the same executable through C instead of Rust: the program lowered to C and compiled by `$CC` (default `cc`), published at the same `target/debug/<name>` or `target/release/<name>`, the generated source kept in `target/<mode>/build-c/main.c`. Both profiles compile it as `-std=gnu17`, the C17-with-GNU-extensions dialect it is written in. Debug is `-O0 -g`; `--release` is `-O3 -march=native -flto -ffp-contract=off`, the flags the benchmark suite builds its hand-written C with, and strips like the Rust release build unless `CARGO_PROFILE_RELEASE_STRIP=false`. A program the exact extension reaches also links that extension's value runtime, a static library built once from the same Rust the interpreter runs. `-v` prints the compiler command |
 | `--emit c-bytecode` | As `--emit c`, lowering the VM's bytecode to C instead of the optimized syntax tree |
 | `--emit wasm` | Compile straight to a self-contained `target/<name>.wasm` (plus its `<name>.mjs` Node.js host shim) via the built-in backend: no rustc, cargo, or wasm-bindgen in the loop; milliseconds. A program the exact extension reaches is refused by name: its values need the runtime `wasm-linked` links |
 | `--emit wasm-linked` | As `--emit wasm`, but links the real Rust runtime via `rust-lld`, so overflowing integer arithmetic computes the exact big number instead of wrapping and a program the exact extension reaches runs on that extension's value runtime (needs the Rust toolchain + a wasm32 build of the runtime) |
@@ -5529,6 +5791,7 @@ A **site** — pages and assets with no `Serve` backend — has no program to co
 | Flag | Effect |
 |------|--------|
 | `-r`, `--release` | Optimized build before running |
+| `--threads` | Run the program's tasks, pipes, timers and selects on OS threads (tokio) instead of the deterministic replay executor every other tier schedules by: for work that truly runs in parallel, at the price of a schedule, and so an order of concurrent output, that may differ from run to run |
 | `-i`, `--interpret` | Skip Rust compilation and run in-process for sub-second feedback: the bytecode VM with its JIT tiers, or the tree-walking interpreter for a concurrent or asynchronous program and for any construct the VM compiler does not take. A program declaring `## Require <opt>` is refused on this path; the compiled path (`largo run`, `largo build`) is the one that checks it |
 | `--engine jit` \| `vm` \| `tree` | The in-process engine (`--interpret` only): `jit`, the default, is the bytecode VM with JIT tier-up where the platform has one; `vm` the bytecode VM alone; `tree` the tree-walking interpreter. Every engine runs the same optimized program |
 | `--emit c` \| `c-bytecode` | Build through C (as `largo build --emit c`), then run the binary |
@@ -5627,9 +5890,31 @@ both from the compiled path. `--json` emits `{"fired": […], "paths": {"compile
 "vm": […]}, "changes_algorithm": […], "blockers": [[winner, loser], …], "dependencies": [[dependent,
 dep], …]}`.
 
+`--jit` also runs the program through a private native tier, with the program's arguments after `--`,
+and reports the JIT's coverage (functions and loops compiled of those tried), its native lowerings,
+why it declined what it declined, and every loop it specialized on a value: the register and the value,
+the entries that ran the specialized loop, the entries that found another value (`value-guard misses`,
+each one entry, with how many of them the loop's generic region ran instead of bytecode) and whether the
+generic region replaced it. It lists every function it specialized on the arguments its warm-up passed: the
+function, its entry pc and each register with its value (the function checks them at its entry and runs its generic
+code for any other). It also lists every loop region it compiled: the entries that ran native and how
+each ended (completed, an exit resuming the VM where it stopped, or a side exit replaying from the loop head),
+the guard misses (entries whose registers held kinds the region was not compiled for, one for each entry,
+which then run on bytecode) and whether the region was demoted to bytecode, which happens once its misses
+reach eight and outnumber the entries it ran, counted over a window that halves both as it fills. The JIT
+report is printed whether or not a shared pass fired. Under `--json` these are `jit_native`, its
+`value_specializations` each `{head_pc, guards: [{slot, value}], entries, misses, generic_entries,
+replaced}`, its `function_specializations` each `{function, entry_pc, guards: [{slot, value}]}` and its `regions`
+each `{head_pc, entries, completions, exits, deopts, guard_misses, demoted, cold_entries, cold_exits}`. A loop whose
+body holds an op no region lowers on a path its warm-up never ran (a branch
+direction that never ran while the branch ran at least 32 times the other way) is compiled without that path: the line
+names its cold entries and how many times the loop left native code there, and a region whose cold exits come on
+more than one iteration in sixteen is demoted.
+
 ```bash
 largo opts src/main.lg
 largo opts src/main.lg --json
+largo opts src/main.lg --jit -- 7
 ```
 
 ### `verify`
@@ -5696,6 +5981,7 @@ target:
 | `--format <format>` | The artifact printed bare or added to the bundle: `placement` (the default), `spatial` (`spatial.scala`), `sambaflow` (`model.py`, `compile.py` and `manifest.json` — a PyTorch module and its SambaFlow compile scaffold), `vllm` (`vllm_plan.json`, the Qwen3.8 deployment plan for the chip's vLLM backend) or `report` (the modeled report). The `sambaflow` and `vllm` artifacts are written before the lowering, since neither derives from it |
 | `--bridge <name>` | Hand the certified artifact to an SDK bridge — `mock` or `sambaflow` — adding `vendor_config.json` (or `.bin`) and `bridge.json`, which records the certificate digest |
 | `--model <model>` | Lower a whole model instead of a file: `qwen38` (Qwen3.8-27B, every layer), `qwen38-tiny`, `qwen38-mini` (the tiny shape with heads that split over two or four chips), or a Qwen3.5/3.8 checkpoint's `.gguf`, whose program is read from the checkpoint. One certified program per layer kind (a directory each holding `neutral.json`, `placement.txt` and `certificate.json`) plus the head, the model constants, `program.lg` (the model's program the bundle deploys) and a `manifest.json` binding every layer and naming the cut of the program each part was lowered from (`LOGOS program: <cut>, sha256 <hex>`). Needs `-o DIR`, takes no file |
+| `--graph <pt2>` | Lower a network `torch.export` exported (`torch.export.save`'s `.pt2` archive) from its graph alone: its linear layers, GELU (exact or tanh), ReLU, SiLU, sigmoid, sums and products, every parameter read from the archive's weights; an ATen op it does not map is refused by name. The author writes the forward as a program (`program.lg`), lowered whole as one certified program (`forward/`), with a `manifest.json` binding the graph's input and every parameter to the archive. Needs `-o DIR`, takes no file |
 | `--ctx <n>` | With `--model`: the decode deployment with a KV cache of `n` positions — an embedding program, layer kinds whose attention appends to and reads the cache, and a head that emits the next token. Without it the bundle is the authored forward |
 | `--batch <n>` | With `--model --ctx`: `n` sequences per decode step, every weight read once for all of them; `auto` takes the most sequences whose per-step working set stays in a chip's SRAM. The default is one |
 | `--tp <n>` | With `--model --ctx`: tensor-parallel over `n` chips, each with its own heads, FFN columns and weight slice; `n` is any width the author writes the model at, heads in balanced runs where `n` divides none (Qwen3.8-27B's 24 heads over 16 chips); a width the author cannot write is refused with its reason. `auto` takes the widest width the heads admit within the chip's scale-up domain. The default is one chip |
@@ -5710,6 +5996,7 @@ largo emit wasm-dom pages/app.lg -o dist/app.wasm
 largo emit cuda -o cuda_out/
 largo emit rdu --chip sn40l kernel.lg -o rdu_out/
 largo emit rdu --model qwen38 --ctx 4096 --tp 8 -o qwen38_sn50_tp8/
+largo emit rdu --graph net.pt2 -o net_sn50/
 ```
 
 ### `bringup`
@@ -5728,6 +6015,7 @@ comma-separated; every one when absent) lowers a cut of that program:
 | `rust` | `decode.rs`, the decode step as one Rust program | its generation program built in release into one staged project and run |
 | `riscv-qemu` | `decode.s`, the decode step as RISC-V assembly | its generation program linked by `riscv64-linux-gnu-gcc` once and run under `qemu-riscv64` |
 | `wasm` | `decode.wasm` and `decode.mjs`, its host | its generation program's module under `node` |
+| `cpu` | `model.cpp`, the decode step and its prefill chunks linked from the one IR into one C++ program for the host's cores, and `model.side`, the values it reads | the program built by `g++` for x86-64 with AVX2, FMA, F16C and AVX-VNNI, on the host's threads (a hybrid CPU's performance cores) |
 | `cuda` | `lane.cu`, the decode step and its prefill chunks as one fused CUDA program, and `lane.side`, the constants it reads | the lane built by `nvcc` for this machine's GPU |
 | `d5005` | the decode engine's program: `commands.txt`, `words.hex` (the sequencer's words), `program.lg` and `program.txt` | the engine's machine model, which runs the card's jobs over the card's memory image |
 | `sn50` | the certified decode bundle: a program per layer kind, the embedding and the head, `manifest.json` and `program.lg` | nothing: the SN50 runs under SambaNova's gated SDK |
@@ -5738,19 +6026,20 @@ different chips can be checked to be the same program. A backend that does not r
 (the D5005 engine has no unit for experts). `--ctx` sets the positions the decode step's caches hold (4096 unless
 given).
 
-`--run` then runs the model on every chip that brought it up. A CPU tier builds one generation program, once, and runs
-it once: every weight declared and read once at run time from a file of its values (`readReals`), each sequence's
-state (the caches, memories and rings the step carries) declared afresh, and the decode step's own statements in a loop
-over the positions — the prompt fed a token a step, then each token the step generates. The program it ran is
-`<dir>/<chip>/run/generation.lg`. The CUDA lane is built once and runs each sequence; the D5005 runs its engine's
-machine model. Each chip's verdict gains a line, `ran:` with its tokens, its tokens a second (prompt to last token)
-and how many of them lead the reference's before the first that does not, or `did not run:` with the reason by name —
-a tool or a device this machine lacks, or the work a run waits for. The reference is the model's f64 reference
-generating from the prompt (`--prompt`, token ids from 0, `5,17,2,30` unless given; `--tokens`, 8 unless given), or a
-golden (`--golden`): its first prompt, and its continuation as the tokens to agree with. `--prompts N` (or `all`) runs
-the golden's first N prompts instead, each from an empty state and judged against its own continuation: the `ran:`
-line totals them, and a `sequence` line a prompt gives its tokens and agreement. `--tokens` then caps every
-sequence.
+`--run` then runs the model on every chip that brought it up. A tier of general programs (`vm`, `jit`, `c`, `rust`,
+`riscv-qemu`, `wasm`) builds one generation program, once, and runs it once: every weight declared and read once at
+run time from a file of its values (`readReals`), each sequence's state (the caches, memories and rings the step
+carries) declared afresh, and the decode step's own statements in a loop over the positions — the prompt fed a token a
+step, then each token the step generates. The program it ran is `<dir>/<chip>/run/generation.lg`. The CPU tier's
+program and the CUDA lane are built once and run each sequence, the CPU's refusing at load, by name, a host without
+its instruction set; the D5005 runs its engine's machine model. Each chip's verdict gains a line, `ran:` with its
+tokens, its tokens a second (prompt to last token) and how many of them lead the reference's before the first that
+does not, or `did not run:` with the reason by name — a tool or a device this machine lacks, or the work a run waits
+for. The reference is the model's f64 reference generating from the prompt (`--prompt`, token ids from 0, `5,17,2,30`
+unless given; `--tokens`, 8 unless given), or a golden (`--golden`): its first prompt, and its continuation as the
+tokens to agree with. `--prompts N` (or `all`) runs the golden's first N prompts instead, each from an empty state and
+judged against its own continuation: the `ran:` line totals them, and a `sequence` line a prompt gives its tokens and
+agreement. `--tokens` then caps every sequence.
 
 ```bash
 largo bringup models/qwen3.8-27b/Qwen3.8-27B-Q4_K_M.gguf -o qwen38/
@@ -5802,6 +6091,71 @@ browser tier refuses, is reported at its `file:line:col`.
 
 ```bash
 largo expand pages/app.lg
+```
+
+### `specialize`
+
+The three Futamura projections, built by the offline specializer `mix` (two-level programs, a polyvariant
+binding-time analysis whose variants are named by their binding-time pattern) over the self-interpreter `sint`.
+`p1 <file>` specializes the self-interpreter to that program and prints the residual program, reporting its
+interpretive dispatch on stderr: zero dispatch is Jones optimality. `p2` specializes the specializer to the
+self-interpreter and prints the compiler it makes; `p3` specializes the specializer to itself and prints the compiler
+generator, and `--check` runs that generator on the self-interpreter and says whether it regenerated the second
+projection's compiler byte for byte. `-o` writes the artifact to a file. Each artifact is the library's
+(`compile::mix_projection1`/`2`/`3`) byte for byte, and a program the specializer refuses is refused with its reason;
+today that is a program reading input at run time.
+
+```bash
+largo specialize p1 fact.lg
+largo specialize p2 -o compiler.lg
+largo specialize p3 -o cogen.lg --check
+```
+
+### `datalog`
+
+Reads the file's `## Theory` (and its `## Axiom` blocks) as a Datalog program, every ground atom a fact and every
+`for all …, if … then …` whose condition is a conjunction of atoms and negated atoms a Horn rule, and evaluates it to
+its least model: semi-naively, stratum by stratum, so a negated atom reads a relation already complete. It prints
+each relation the rules derive with its facts, then how many facts were derived and how many rule instances were
+joined. `--bdd` evaluates the program again with every relation a binary decision diagram (constants as binary codes,
+a join as a relational product) and gives each relation's diagram size; `--certify` proves every derived fact in the
+kernel from the theory's axioms and fails if one is not proved; `--json` prints `{relations, derived, given,
+rule_instances}`, with `bdd_nodes` and `certified` when asked for. A theory that is not Datalog (an existential, a
+disjunctive conclusion, a function symbol), a rule whose head names a variable its body does not bind, and a negation
+through recursion are refused, naming the axiom or the predicates.
+
+`--contexts` makes the evaluation context-sensitive the way bddbddb does. It numbers every call path of the theory's
+`Calls(caller, site, callee)` facts: a method no call enters has one context, every other one context per path that
+reaches it, each call into it taking the next range of its contexts, and the methods of a recursive cycle share theirs.
+The rules then read two relations computed from the numbering, `Context(method, c)` (c is one of the method's
+contexts) and `CallContext(c, site, d, callee)` (the call at `site`, in its caller's context c, enters the callee in
+context d), and the whole evaluation runs over diagrams, so 2^40 contexts cost nodes polynomial in the call graph. It
+prints the number of contexts, every relation without a context argument with its tuples, and every relation with one
+by its size; `--json` gives `{contexts, context_bits, methods, relations, tuples, bdd_nodes, total_nodes}`. A theory
+that states `Context` or `CallContext` itself, derives `Calls` from those contexts, or joins a context to a constant is
+refused (a `Calls` the rules discover without reading the contexts is evaluated first and numbered then);
+`--certify` does not combine with it, since the numbering is not among the axioms the kernel proves from.
+
+```bash
+largo datalog points_to.lg
+largo datalog points_to.lg --bdd --certify
+largo datalog points_to.lg --json
+largo datalog calls.lg --contexts
+```
+
+### `points-to`
+
+Reads a program's statements as the facts `largo datalog`'s points-to rules take (each allocation a site, each copy,
+field or element write and read, each call of a function the program defines with its arguments, parameters and
+result) and evaluates Whaley and Lam's rules over them. It prints each function's variables with the allocation sites
+each may hold, the heap's field edges (`Elem` for a collection's elements) and what each site allocates. `--contexts`
+analyzes every call path as its own context, so a function called from two places keeps the two calls' objects apart;
+`--json` gives `{contexts, variables, heap, sites}`. A closure's body is not read, and a builtin's result is taken as a
+fresh object.
+
+```bash
+largo points-to src/main.lg
+largo points-to src/main.lg --contexts --json
 ```
 
 ### `replay`
@@ -5879,17 +6233,22 @@ declarations, proved in citation order) and English `## Theorem` blocks (Given/P
 through the proof engine, and every ✓ is certified by the type-theory kernel — a mere derivation
 never counts. Without a file it proves the project entry; either way the source is assembled with
 the modules it imports, so a theorem in an imported module is proved too. A name that is both a
-theorem and an axiom is refused, so an assumption cannot pass as a proved fact.
+theorem and an axiom is refused, so an assumption cannot pass as a proved fact. A development's
+`refute` theorem is a ✓ when the least model of its premises, re-checked premise by premise,
+makes the refuted formula false; its line names the countermodel's size.
 
 - `--trace` renders the derivation tree under each proved theorem.
-- `--json` emits `file`, `axioms`, `theorems` (each `name`, `verified`, `error`) and `all_verified`,
-  plus the claim `inventory` — every theorem classified proved or unproved, every admitted axiom
-  reported as an assumption — and its `summary`.
-- `--certificate` emits the independently re-checkable certificate of every proved English
-  `## Theorem`: the kernel proof term, the goal and the disclosed premises, each re-checked here by
+- `--json` emits `file`, `axioms`, `theorems` (each `name`, `verified`, `refuted`, `error`, and a
+  refutation's `countermodel` size: `facts`, `domain`) and `all_verified`, plus the claim
+  `inventory` — every theorem classified proved or unproved, every refutation refuted or unrefuted
+  and never a proof, every admitted axiom reported as an assumption — and its `summary`.
+- `--certificate` emits the independently re-checkable certificate of every proved theorem, from a
+  `## Theory` development or an English `## Theorem`: the kernel proof term, the goal and the
+  disclosed premises (a development's axioms and cited lemmas among them), each re-checked here by
   type-checking the term (`rechecks`, `two_kernel_agreement`), with the kernel's `prelude_version`. A
-  third party re-checks it with the kernel alone, no prover. A `## Theory` theorem, whose proof path
-  exposes no kernel term, and an unproved goal report `certificate: null` with the reason.
+  third party re-checks it with the kernel alone, no prover. An unproved goal reports
+  `certificate: null` with the reason, and a refutation `certificate: null` with its countermodel's
+  domain and facts.
 - `--kernel <file>` checks a kernel-vernacular document instead (see [`check`](#check)).
 
 The three output flags are exclusive, and any failed theorem exits 1.
@@ -5924,32 +6283,65 @@ largo lean replay ./Demo.andSwap
 largo lean check Demo.ndjson                                                        # the kernel core, as the Arena runs it
 ```
 
-`--project` compiles the project in isolation with the pinned Lean 4.14.0 (`--lean <path>` names the
-executable, `lean` by default, whose elan shim selects the toolchain) and exports the target with the
-pinned `lean4export` (revision `20c4a64a`, export format 3.1.0), located by `--exporter <dir>`, else
-`$LOGOS_LEAN4EXPORT`, else `~/.logos/lean/lean4export`. The declaration's closure is then checked by
-the LOGOS kernel and rechecked by the independent second kernel, and the whole export is decided once more
-by the kernel core `largo lean check` runs, the check the Lean Kernel Arena runs: a refusal there is a
-disagreement between the kernels, and the import stops. It is held to the assumption policy
-by Lean's own `#print axioms` rule (`propext`, `Quot.sound` and `Classical.choice` are allowed;
-`sorryAx` is refused, including through lemmas), and emitted as one literate `<Target>.lg` document
-that is re-parsed and re-checked in a fresh context. The target's statement is compared with an
-independent reference translation of the Lean type. The package (`manifest.json`, `<Target>.lg`,
-`certificate.json`, `correspondence.json`, `source/export.ndjson`) is published atomically, and
-only after a separate process has replayed it; a failed run leaves nothing at `--out`.
+`--project` compiles the project in isolation under the Lean profile its `lean-toolchain` pins — Lean
+4.14.0, 4.28.0, 4.33.1, 4.34.0-rc1 or 4.34.1 (no `lean-toolchain`: 4.14.0) — and refuses any other pin
+as `unsupported_toolchain` before Lean runs. A profile binds the toolchain, which must report the
+profile's release and commit (`--lean <path>` names the executable, `lean` by default, whose elan shim
+selects the toolchain), and the one `lean4export` that exports it: revision `20c4a64a` run from its
+sources for 4.14.0, and for every later release the release's upstream revision with the
+structural-key patch, built as an executable pinned by SHA-256. The exporter is `--exporter <dir>`, else
+(4.14.0) `$LOGOS_LEAN4EXPORT` or `~/.logos/lean/lean4export`, else the registry entry
+`$LOGOS_LEAN_EXPORTERS/<version>` (default `~/.logos/lean/exporters/<version>`), which
+`scripts/lean/install-lean-exporters.py install` builds reproducibly, with a receipt. Every exporter
+source and the built executable are held to the profile's digests, and the export's header must name
+exactly the profile's release and commit: a header retagged to another release is refused, also when
+the export's own `String` contradicts it.
 
-stdout is one `logos-lean-result/1` document reporting seven stages: `lean_accepted`,
-`translated`, `primary_check`, `independent_recheck`, `assumption_policy`, `emission_reparsed` and
-`fresh_replay`. The outcome is `verified` only when all seven passed, so only `--project` can reach
-it: an export given directly was never seen being accepted by Lean. stderr carries the diagnostics
-as NDJSON, each with a typed code. Exit codes: `0` verified · `1` invalid source · `2` unsupported
-feature · `3` disallowed assumptions · `4` resource limit · `5` infrastructure failure (a defect of
-LOGOS's own artifact, never blamed on the input) · `64` usage. `--timeout-secs` (default 1800)
-bounds the whole run and `--max-export-bytes` (default 1 GiB) the export, both checked before the
-work they bound.
+A project with Lake dependencies (Mathlib) needs `--module <Module>`, the module declaring the target.
+Every `lake-manifest.json` dependency must be a git package checked out at exactly its pinned revision;
+only that module is compiled — by the profile's Lake in the project's own context, `lake --no-build -H`,
+so nothing is built or written in the project and every import resolves to its prebuilt, re-hashed
+build — into the isolated work directory; the run records every dependency's identity, and the package
+carries the module's source with the project's `lean-toolchain`, lakefile and `lake-manifest.json`.
 
-`replay` prints the package's receipt document and exits `0` when every stage replays, `1` at a
-failed stage, `2` when the receipt is otherwise incomplete, and `5` when the package cannot be read.
+The declaration's closure is then checked by the LOGOS kernel and rechecked by the independent second
+kernel, and the whole export is decided once more by the kernel core `largo lean check` runs, the check
+the Lean Kernel Arena runs: a refusal there is a disagreement between the kernels, and the import stops.
+A Lean `have` the elaborator wrote as a nondependent let (`letE` with `nondep: true`, every release after
+4.14.0) is checked as the ordinary let Lean's kernel reads, and disclosed as the `SOURCE_METADATA` loss
+`letE.nondep = true` at its expression. The result is held to the assumption policy by Lean's own
+`#print axioms` rule (`propext`, `Quot.sound` and `Classical.choice` are allowed; `sorryAx` is refused,
+including through lemmas), and emitted as one literate `<Target>.lg` document that is re-parsed and
+re-checked in a fresh context. The target's statement is compared with an independent reference
+translation of the Lean type. The package (`manifest.json`, `<Target>.lg`, `certificate.json`,
+`correspondence.json`, `source/export.ndjson`) is published atomically, and only after a separate
+process has replayed it; a failed run leaves nothing at `--out`.
+
+`--statement` imports the proposition the target states instead of its proof — a theorem's type, or the
+value of a safe definition whose type is `Prop` — as the definition `<Target>.logos_statement`. Only that
+expression's closure is selected, so the theorem's own proof (an open problem's `sorry`) is never part
+of it; an `answer(sorry)` hole becomes a parameter of the artifact, an open template, and no answer is
+chosen; a proof the statement's own definitions rest on is kept, so an unfinished one is refused by the
+assumption policy with its path. In project mode Lean builds the same artifact and reports its
+`#print axioms`. The result is a `logos-lean-result/2` document (`purpose: statement`,
+`proof_status: not_claimed`, the `statement` relation), and the package
+(`logos-lean-statement-package/1`) carries the original export as `source/original.ndjson` beside the
+derived one: its replay re-derives the artifact from the original and refuses a package whose artifact
+states any other proposition, however well typed.
+
+stdout is one `logos-lean-result/1` document (`/2` with `--statement`) reporting seven stages:
+`lean_accepted`, `translated`, `primary_check`, `independent_recheck`, `assumption_policy`,
+`emission_reparsed` and `fresh_replay`. The outcome is `verified` only when all seven passed, so only
+`--project` can reach it: an export given directly was never seen being accepted by Lean. stderr carries
+the diagnostics as NDJSON, each with a typed code. Exit codes: `0` verified · `1` invalid source · `2`
+unsupported feature · `3` disallowed assumptions · `4` resource limit · `5` infrastructure failure (a
+defect of LOGOS's own artifact, never blamed on the input) · `64` usage. `--timeout-secs` (default 1800)
+bounds the whole run and `--max-export-bytes` (default 1 GiB) the export, both checked before the work
+they bound.
+
+`replay` prints the package's receipt document (`logos-lean-replay/1`, or `/2` for a statement
+package) and exits `0` when every stage replays, `1` at a failed stage, `2` when the receipt is otherwise
+incomplete, and `5` when the package cannot be read.
 
 `--arena-protocol` is the Lean Kernel Arena benchmark protocol byte for byte: `ACCEPT` and exit
 0/1/2, nothing else. It takes an export and no `--project`, `--target` or `--out`; under it,
@@ -5963,10 +6355,20 @@ Arena runs as the `logos-kernel` entry (the `logos-kernel` binary of `logicaffei
 largo lean check Mathlib.ndjson          # the value engine
 largo lean check --dual Mathlib.ndjson   # both engines, which must agree on every declaration
 largo lean check - < Mathlib.ndjson      # the export on standard input
+largo lean check --assumptions lean --json Proof.ndjson             # Lean's assumption policy, as JSON
+largo lean check Proof.ndjson --target Demo.thm --bind Original.ndjson  # the same statement as the original
 ```
 
 It exits `0` when the export is accepted, `1` when it is rejected and `2` when it is declined, and writes
-the reason, or the declarations and records it accepted, on stderr.
+the reason, or the declarations and records it accepted, on stderr. `--assumptions lean` holds what the
+declarations depend on — with `#print axioms` semantics, through types and values, transitively; with
+`--target`, only that declaration's — to `propext`, `Quot.sound` and `Classical.choice` in their
+canonical statements: `sorryAx`, `Lean.ofReduceBool`, `Lean.trustCompiler`, `lcProof`, any other axiom,
+and a standard name declared with another statement are refused with the path to them, and the check
+exits `3`; an axiom nothing depends on is no violation. `--json` writes one `logos-lean-check/1`
+document on stdout. `--bind <original> --target <Name>` requires the target to state exactly the
+original export's proposition — the two statement fingerprints, which do not depend on how an export
+numbers its records, must agree — and exits `1` when they do not.
 
 ### `doc`
 
@@ -6139,7 +6541,8 @@ Read by `largo` itself:
 | `LOGOS_MAX_AST_DEPTH` | Raise/lower the AST nesting-depth limit (default 128, at least 16), read by the parser; `largo` also sizes its worker stack from it. The default is sized for the smallest standard stacks (worker threads, browser wasm); machines with deep stacks can raise it for heavily generated code, constrained embedders can lower it |
 | `CHROME_BIN` | The Chrome or Chromium binary `largo test --browser` drives; else the first of `google-chrome`, `google-chrome-stable`, `chromium`, `chromium-browser`, `chrome` on `PATH` |
 | `LOGOS_BROWSER_TRACE` | Set (and not `0`): print every DevTools frame `largo test --browser` exchanges with Chrome to stderr, with each reply's round-trip time |
-| `LOGOS_LEAN4EXPORT` | The pinned `lean4export` checkout `largo lean import --project` uses when `--exporter` is not given |
+| `LOGOS_LEAN4EXPORT` | The pinned Lean 4.14.0 `lean4export` checkout `largo lean import --project` uses when `--exporter` is not given |
+| `LOGOS_LEAN_EXPORTERS` | The exporter registry `largo lean import --project` finds each profile's pinned `lean4export` in (`<registry>/<version>/`); default `~/.logos/lean/exporters` |
 | `LOGOS_STATS` | Set: `largo sat` prints solver statistics, as `--stats` does |
 | `LOGOS_MCP_STEP_BUDGET` | Set by `largo mcp` on its sandbox worker from `logos_run`'s `step_budget`; not a user setting |
 

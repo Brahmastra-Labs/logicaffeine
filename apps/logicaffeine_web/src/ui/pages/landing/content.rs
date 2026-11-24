@@ -65,9 +65,7 @@ pub const CRATES_URL: &str = "https://logicaffeine.com/crates";
 
 /// The language on one page: the forms an agent writes, one construct a line, drawn from the
 /// quickguide's tables (`teach_parity` holds the guide to the lessons, `doc_examples` runs the docs).
-/// The guide carries it under step 4, and the heal worker's prompt carries the same lines
-/// (`services/heal/src/primer.js`, held equal by `landing_page`), so the model that mends a program
-/// knows the language it mends (the user, 2026-11-02).
+/// The guide carries it under step 4 (the user, 2026-11-02).
 pub const SYNTAX_MATRIX: &[&str] = &[
     "The language on one page. Every statement is one English sentence.",
     "Blocks: ## Main is the program. ## To add (a: Int, b: Int) -> Int: is a function.",
@@ -346,6 +344,7 @@ pub fn instructions() -> &'static [Line] {
             Blank,
             Step("4. Learn the language before you write it"),
             Say(proven(format!("Read {ASSISTANT_GUIDE_URL}, every LOGOS guide in one file."), &["llms_lock"])),
+            Say(proven("It also covers features newer than the release you installed.", &["landing_page"])),
             Say(proven("largo new also wrote AGENTS.md in the project, the language taught to an agent. Read it.", &["landing_page"])),
             Say(proven("Use a command only if largo --help lists it, and say so when one is missing.", &["landing_page"])),
             Say(agreed("Four rules to start with:")),

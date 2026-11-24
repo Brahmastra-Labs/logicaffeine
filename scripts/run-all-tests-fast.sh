@@ -144,12 +144,12 @@ fi
   echo " z3      : $(z3 --version 2>/dev/null)"
   if (( RUN_IGNORED )); then
     echo " command : cargo nextest run --workspace --features verification,logicaffeine-tests/web-tests --profile full --cargo-profile test-opt --run-ignored all"
-    echo "         + cargo nextest run -p logicaffeine-compile --features wasm-jit --cargo-profile test-opt --lib \$(scripts/test/wasm-jit-targets.sh) -E \"\$(cat scripts/test/wasm-jit-filter.txt)\""
+    echo "         + cargo nextest run -p logicaffeine-compile -p logicaffeine-tests --features wasm-jit --cargo-profile test-opt --lib \$(scripts/test/wasm-jit-targets.sh) -E \"\$(cat scripts/test/wasm-jit-filter.txt)\""
     echo "         + cargo test --workspace --features verification,logicaffeine-tests/web-tests --profile test-opt --doc --no-fail-fast -- --include-ignored"
     echo "         + scripts/lean/conformance-verify-verdicts.sh   (Lean-parity verdicts vs reality)"
   else
     echo " command : cargo nextest run --workspace --features verification,logicaffeine-tests/web-tests --profile full --cargo-profile test-opt   [--no-ignored]"
-    echo "         + cargo nextest run -p logicaffeine-compile --features wasm-jit --cargo-profile test-opt --lib \$(scripts/test/wasm-jit-targets.sh) -E \"\$(cat scripts/test/wasm-jit-filter.txt)\""
+    echo "         + cargo nextest run -p logicaffeine-compile -p logicaffeine-tests --features wasm-jit --cargo-profile test-opt --lib \$(scripts/test/wasm-jit-targets.sh) -E \"\$(cat scripts/test/wasm-jit-filter.txt)\""
     echo "         + cargo test --workspace --features verification,logicaffeine-tests/web-tests --profile test-opt --doc --no-fail-fast"
     echo "         + scripts/lean/conformance-verify-verdicts.sh   (Lean-parity verdicts vs reality)"
   fi

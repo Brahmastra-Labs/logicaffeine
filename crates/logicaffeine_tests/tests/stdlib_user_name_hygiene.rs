@@ -15,13 +15,17 @@
 //!   silently substituted into library code.
 //! * A local CLOSURE sharing a stdlib function's name is a callable the program wrote; calls to it
 //!   reach the closure, never the library function.
+//! * A program that declares one of a module's natives (`## To native args () -> Seq of Text`) keeps
+//!   the module's other names (`get`). A native is bound to its runtime implementation by name on
+//!   every tier, so the program's declaration and the module's name the same function: the module
+//!   is spliced without its own declaration of that native, and nothing is renamed.
 //!
 //! The pre-hygiene loader vetoed a module wholesale when the program bound ANY of its names, so the
 //! single most natural line in text processing — `Let words be split(s, " ").` — failed with
 //! `Unknown function: split`.
 
 mod common;
-use common::{assert_all_tiers, assert_compiled_equals_interpreted, compile_to_rust};
+use common::{assert_all_tiers, assert_compiled_equals_interpreted, assert_exact_output, compile_to_rust};
 use logicaffeine_compile::loader::apply_prelude;
 
 // ─── Plain locals never cost the program a module ────────────────────────────
@@ -598,5 +602,52 @@ fn every_stdlib_name_can_be_the_programs_own() {
     assert!(
         unforceable.len() < 20,
         "names with no sibling to force their module: {unforceable:?}"
+    );
+}
+
+// ─── A native the program declares never costs it the module ─────────────────
+
+/// Declares env.lg's `args` and calls env.lg's `get`.
+const DECLARES_ARGS_CALLS_GET: &str = "## To native args () -> Seq of Text\n\n\
+                                       ## Main\n\
+                                       Show length of args().\n\
+                                       Inspect get(\"LOGOS_HYGIENE_NEVER_SET\"):\n\
+                                       \x20   When Some (v):\n\
+                                       \x20       Show v.\n\
+                                       \x20   When None:\n\
+                                       \x20       Show \"unset\".\n";
+
+#[test]
+fn declaring_one_native_of_a_module_keeps_the_modules_other_names() {
+    assert_all_tiers(DECLARES_ARGS_CALLS_GET, "1\nunset");
+}
+
+#[test]
+fn declaring_one_native_of_a_module_keeps_the_module_on_the_rust_tier() {
+    assert_exact_output(DECLARES_ARGS_CALLS_GET, "1\nunset");
+}
+
+#[test]
+fn a_native_the_program_declares_is_declared_once_and_its_module_still_comes() {
+    let out = apply_prelude(DECLARES_ARGS_CALLS_GET).into_owned();
+    let headers = |prefix: &str| out.lines().filter(|l| l.trim_start().starts_with(prefix)).count();
+    assert_eq!(headers("## To native args "), 1, "the program's declaration, not the module's as well:\n{out}");
+    assert_eq!(headers("## To native get "), 1, "env.lg is spliced for `get`:\n{out}");
+    assert!(
+        !out.contains("__std_args") && !out.contains("__std_get"),
+        "a native is bound by name, so nothing is renamed:\n{out}"
+    );
+    assert_eq!(apply_prelude(&out).into_owned(), out, "splicing it again changes nothing");
+}
+
+#[test]
+fn a_program_declaring_every_native_of_a_module_imports_nothing() {
+    let src = "## To native args () -> Seq of Text\n\
+               ## To native get (key: Text) -> Option of Text\n\n\
+               ## Main\n\
+               Show length of args().\n";
+    assert!(
+        matches!(apply_prelude(src), std::borrow::Cow::Borrowed(_)),
+        "every name env.lg gives is the program's own"
     );
 }

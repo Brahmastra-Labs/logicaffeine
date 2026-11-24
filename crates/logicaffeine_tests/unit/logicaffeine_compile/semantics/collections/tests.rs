@@ -106,3 +106,22 @@ fn range_requires_int_bounds() {
         "Range requires Int bounds"
     );
 }
+
+#[test]
+fn a_range_bound_past_the_word_stops_a_compiled_module_as_any_too_wide_integer_does() {
+    use crate::semantics::failcode::{message, FailCode};
+    let (past_word, fraction) = integer_place_refusals(IntegerPlace::Range);
+    assert_eq!(past_word, message(FailCode::IntTooWide.code(), 0));
+    assert_eq!(fraction, "Range requires Int bounds");
+}
+
+#[test]
+fn every_integer_place_names_its_refusals_without_running_what_it_refuses() {
+    for place in IntegerPlace::ALL {
+        let started = std::time::Instant::now();
+        let (past_word, fraction) = integer_place_refusals(place);
+        assert!(!past_word.is_empty() && !fraction.is_empty(), "{place:?}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(1), "{place:?} took {:?}", started.elapsed());
+    }
+}
+

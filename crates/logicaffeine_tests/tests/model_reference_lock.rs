@@ -102,6 +102,40 @@ fn the_reference_continues_the_prompt_as_llama_cpp_does() {
     );
 }
 
+/// An expert mixture's router reads its activation's values under every precision, as the CUDA lane and the CPU tier
+/// route: a tiny Qwen3-MoE and a tiny GPT-OSS, every matrix `f32` but the router's (Q8_0), continue their prompt under
+/// the one- and two-word precisions with the exact reference's logits bit for bit. With the experts' matrices quantized
+/// too, both precisions part from the exact run, since a product by quantized weights reads its activation quantized.
+#[test]
+fn an_expert_mixtures_router_reads_its_activations_values() {
+    let dir = tempfile::tempdir().expect("a scratch directory");
+    let run = |spec: &ModelSpec, path: &std::path::Path, mode: Activations| -> Vec<Vec<f64>> {
+        let mut model = Reference::new(spec.clone(), Gguf::open(path).expect("open")).expect("the reference evaluates it").with_activations(mode);
+        let mut logits = vec![model.step(&[3, 17, 41, 8, 29]).expect("prefill")];
+        for _ in 0..4 {
+            let next = argmax(logits.last().unwrap());
+            logits.push(model.step(&[next]).expect("a step"));
+        }
+        logits
+    };
+    let router = |name: &str| name.contains("ffn_gate_inp.weight");
+    for tiny in [Tiny::Qwen3Moe, Tiny::GptOss] {
+        let spec = tiny.spec(32);
+        let only = dir.path().join(format!("{}-router.gguf", tiny.name()));
+        tiny_models::write_checkpoint_as(&spec, &only, &|name| if router(name) { GgmlType::Q8_0 } else { GgmlType::F32 });
+        let also = dir.path().join(format!("{}-experts.gguf", tiny.name()));
+        tiny_models::write_checkpoint_as(&spec, &also, &|name| if router(name) || name.contains("_exps.weight") { GgmlType::Q8_0 } else { GgmlType::F32 });
+        let apart = |a: &[Vec<f64>], b: &[Vec<f64>]| a.iter().flatten().zip(b.iter().flatten()).map(|(x, y)| (x - y).abs()).fold(0f64, f64::max);
+        let (exact, exact_also) = (run(&spec, &only, Activations::Exact), run(&spec, &also, Activations::Exact));
+        for mode in [Activations::Int8, Activations::Int8TwoPass] {
+            let d = apart(&run(&spec, &only, mode), &exact);
+            assert!(d == 0.0, "{} under {mode:?}: the router reads its activation's values, yet the run parts from the exact one by {d:e}", tiny.name());
+            let d = apart(&run(&spec, &also, mode), &exact_also);
+            assert!(d > 0.0, "{} under {mode:?}: the experts read their activation quantized, so the run parts from the exact one", tiny.name());
+        }
+    }
+}
+
 /// The latent's expansion halves read their activations unquantized under every precision: the key half, which takes a
 /// head's unrotated query into the latent's space, and the value half, which takes the head's attended latent out. So
 /// the absorbed attention computes what the expanded one computes, and a lane may run either. A tiny DeepSeek-V2 in

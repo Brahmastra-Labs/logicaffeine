@@ -97,3 +97,24 @@ fn a_call_through_a_closure_binding_keeps_the_binding_live() {
         );
     });
 }
+
+#[test]
+fn a_main_variable_a_function_declares_for_itself_dies_at_its_last_main_read() {
+    let source = "## To total (n: Int) -> Int:\n    Let mutable i be 0.\n    Set i to i + n.\n    Return i.\n## Main\nLet mutable i be 1.\nShow i.\nSet i to 5.\nShow total(2).\n";
+    liveness(source, |l, stmts, i| {
+        let at = first(stmts, &|s| matches!(s, Stmt::Set { value: Expr::Literal(Literal::Number(5)), .. }))
+            .expect("Main's `Set i to 5`");
+        let live = l.after(at).expect("recorded");
+        assert!(!live.contains(&sym(i, "i")), "`total` reads its own `i`, not Main's: {live:?}");
+    });
+}
+
+#[test]
+fn a_main_variable_a_function_reads_as_a_global_stays_live_for_the_call() {
+    let source = "## To peek -> Int:\n    Return g + 1.\n## Main\nLet mutable g be 1.\nSet g to 5.\nShow peek().\n";
+    liveness(source, |l, stmts, i| {
+        let at = first(stmts, &|s| matches!(s, Stmt::Set { value: Expr::Literal(Literal::Number(5)), .. }))
+            .expect("Main's `Set g to 5`");
+        assert!(l.after(at).expect("recorded").contains(&sym(i, "g")), "`peek()` reads `g`");
+    });
+}

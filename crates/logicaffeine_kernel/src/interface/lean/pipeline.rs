@@ -11,10 +11,11 @@
 //! Everything here is pure: no file, process or clock. Reading the export, running Lean, publishing
 //! the package and replaying it in a fresh process are the command's (`largo lean`).
 
-use super::intake::{self, STAGE_A};
+use super::intake;
 use super::receipt::{Receipt, StageStatus, STAGES};
 use super::{
-    emit, native_decide, package, reference, DiagnosticCode, ImportReport, Outcome, Verdict,
+    emit, native_decide, package, reference, statement, DiagnosticCode, ImportReport, Outcome,
+    Verdict,
 };
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -105,11 +106,15 @@ pub enum LeanEvidence {
     /// for the target.
     Accepted {
         axioms: Vec<String>,
-        /// The original Lean sources, by project-relative path (published under `source/`).
+        /// The original Lean sources and the project's configuration, by project-relative path
+        /// (published under `source/`).
         sources: BTreeMap<String, Vec<u8>>,
         /// The pinned toolchain and exporter identities.
         toolchain: String,
         exporter: String,
+        /// The identities of the prebuilt Lake dependencies the compilation reused (name, pinned
+        /// revision, requested revision, URL), each verified against its checkout.
+        dependencies: Vec<String>,
     },
 }
 
@@ -123,13 +128,22 @@ impl LeanEvidence {
                 sources,
                 toolchain,
                 exporter,
+                dependencies,
             } => package::BuildOptions {
                 lean_sources: sources.clone(),
                 lean_run: Some(package::LeanRun {
                     toolchain: toolchain.clone(),
                     exporter: exporter.clone(),
                     accepted: true,
-                    detail: format!("compiled in isolation; #print axioms: {axioms:?}"),
+                    detail: if dependencies.is_empty() {
+                        format!("compiled in isolation; #print axioms: {axioms:?}")
+                    } else {
+                        format!(
+                            "compiled in isolation against {} pinned Lake dependencies ({}); #print axioms: {axioms:?}",
+                            dependencies.len(),
+                            dependencies.join("; ")
+                        )
+                    },
                 }),
             },
         }
@@ -162,6 +176,11 @@ pub struct LeanResult {
     /// The importer's audit (`logos-lean-import-report/1`), when the import ran.
     pub audit: Option<Value>,
     pub package: Option<PackageRef>,
+    /// A statement import's relation to its artifact, once derived: the result is then a
+    /// `logos-lean-result/2` document whose proof status is `not_claimed`.
+    pub statement: Option<statement::StatementRelation>,
+    /// A statement import was requested, whether or not its artifact could be derived.
+    pub statement_requested: bool,
 }
 
 impl LeanResult {
@@ -176,6 +195,16 @@ impl LeanResult {
             diagnostics: Vec::new(),
             audit: None,
             package: None,
+            statement: None,
+            statement_requested: false,
+        }
+    }
+
+    /// A statement import's result for `target` in which nothing has run.
+    pub fn statement(target_lean: impl Into<String>) -> Self {
+        LeanResult {
+            statement_requested: true,
+            ..LeanResult::new(target_lean)
         }
     }
 
@@ -256,7 +285,7 @@ impl LeanResult {
             .iter()
             .map(|s| (s.to_string(), Value::from(self.status(s).as_str())))
             .collect();
-        json!({
+        let mut document = json!({
             "schema": RESULT_SCHEMA,
             "outcome": self.outcome().as_str(),
             "stages": stages,
@@ -268,7 +297,18 @@ impl LeanResult {
             "diagnostics": self.diagnostics.iter().map(Diagnostic::to_json).collect::<Vec<_>>(),
             "package": self.package.as_ref().map(|p| json!({"path": p.path, "manifest_sha256": p.manifest_sha256})),
             "audit": self.audit,
-        })
+        });
+        if self.statement_requested {
+            document["schema"] = statement::RESULT_SCHEMA.into();
+            document["purpose"] = "statement".into();
+            document["proof_status"] = "not_claimed".into();
+            document["statement"] = self
+                .statement
+                .as_ref()
+                .map(|r| serde_json::to_value(r).expect("a relation serializes"))
+                .unwrap_or(Value::Null);
+        }
+        document
     }
 }
 
@@ -304,7 +344,64 @@ pub fn check_export(
     limits: &Limits,
 ) -> Checked {
     let mut result = LeanResult::new(target);
-    let package = run_stages(&mut result, export, target, evidence, limits);
+    let package = run_stages(&mut result, export, target, evidence, limits, None);
+    Checked { result, package }
+}
+
+/// Run every in-process stage over the statement of `target` (a theorem's type, a `Prop`
+/// definition's value) in a Lean export: derive its artifact ([`statement::derive`]), then the same
+/// stages as [`check_export`] over the derived export, packaging the statement package. `evidence`'s
+/// `#print axioms`, when Lean was observed, is Lean's own report for the artifact as Lean builds it.
+pub fn check_statement(
+    original: &str,
+    target: &str,
+    evidence: &LeanEvidence,
+    limits: &Limits,
+) -> Checked {
+    let mut result = LeanResult::statement(target);
+    if let LeanEvidence::Accepted { .. } = evidence {
+        result.pass("lean_accepted", "Lean compiled the project in isolation");
+    }
+    if original.len() as u64 > limits.max_export_bytes {
+        result.fail(
+            "translated",
+            Diagnostic::new(
+                "translated",
+                DiagnosticCode::ResourceLimit,
+                format!(
+                    "the export is {} bytes; the declared budget is {} bytes",
+                    original.len(),
+                    limits.max_export_bytes
+                ),
+            ),
+        );
+        return Checked {
+            result,
+            package: None,
+        };
+    }
+    let derived = match statement::derive(original, target) {
+        Ok(derived) => derived,
+        Err(verdict) => {
+            result.fail(
+                "translated",
+                Diagnostic::of_refusal("translated", &verdict).with_declaration(target),
+            );
+            return Checked {
+                result,
+                package: None,
+            };
+        }
+    };
+    result.statement = Some(derived.relation.clone());
+    let package = run_stages(
+        &mut result,
+        &derived.export,
+        &derived.relation.artifact.clone(),
+        evidence,
+        limits,
+        Some((original, &derived)),
+    );
     Checked { result, package }
 }
 
@@ -314,6 +411,7 @@ fn run_stages(
     target: &str,
     evidence: &LeanEvidence,
     limits: &Limits,
+    statement: Option<(&str, &statement::Derived)>,
 ) -> Option<package::PackageFiles> {
     if let LeanEvidence::Accepted { .. } = evidence {
         result.pass("lean_accepted", "Lean compiled the project in isolation");
@@ -343,7 +441,7 @@ fn run_stages(
         );
         return None;
     }
-    let read = match intake::read(export, &STAGE_A) {
+    let read = match intake::read_admitted(export) {
         Ok(read) => read,
         Err(verdict) => {
             result.fail("translated", Diagnostic::of_refusal("translated", &verdict));
@@ -396,7 +494,8 @@ fn run_stages(
                     .taint
                     .iter()
                     .filter(|path| {
-                        !intake::STAGE_A
+                        !read
+                            .profile()
                             .allowed_axioms
                             .contains(&path.assumption.as_str())
                     })
@@ -484,12 +583,21 @@ fn run_stages(
         LeanEvidence::Accepted { axioms, .. } => Some(axioms.clone()),
         LeanEvidence::NotObserved => None,
     };
-    let build = match package::build_observed(
-        export,
-        target,
-        &evidence.build_options(),
-        print_axioms.as_deref(),
-    ) {
+    let built = match statement {
+        None => package::build_observed(
+            export,
+            target,
+            &evidence.build_options(),
+            print_axioms.as_deref(),
+        ),
+        Some((original, derived)) => package::build_statement_observed(
+            original,
+            derived,
+            &evidence.build_options(),
+            print_axioms.as_deref(),
+        ),
+    };
+    let build = match built {
         Ok(build) => build,
         Err(verdict) => {
             result.mark(
@@ -511,13 +619,21 @@ fn run_stages(
             .iter()
             .map(|a| intake::lean_name(a))
             .collect();
-        // The checked proof the result reports is its package's: every re-derived step is disclosed
-        // exactly as the package discloses it.
+        // The checked proof the result reports is its package's: every re-derived step, the
+        // statement's construction and every answer hole are disclosed exactly as the package
+        // discloses them.
         result.information_losses.extend(
             manifest
                 .information_losses
                 .iter()
-                .filter(|loss| loss.category == native_decide::INFORMATION_CATEGORY)
+                .filter(|loss| {
+                    [
+                        native_decide::INFORMATION_CATEGORY,
+                        statement::INFORMATION_CATEGORY,
+                        statement::ANSWER_CATEGORY,
+                    ]
+                    .contains(&loss.category.as_str())
+                })
                 .map(|loss| Loss {
                     category: loss.category.clone(),
                     detail: loss.detail.clone(),

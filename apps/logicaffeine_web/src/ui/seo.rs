@@ -36,7 +36,7 @@ fn organization() -> serde_json::Value {
         "name": ORG_NAME,
         "url": BASE_URL,
         "logo": LOGO_URL,
-        "description": "Turn everyday English into rigorous First-Order Logic. Debug your thoughts with precision.",
+        "description": "LOGOS is an English programming language with logic and mathematics built in.",
         "sameAs": [GITHUB_URL, "https://x.com/logicaffeine"],
     })
 }
@@ -316,8 +316,8 @@ pub struct PageMeta {
 impl Default for PageMeta {
     fn default() -> Self {
         Self {
-            title: "LOGICAFFEINE | Debug Your Thoughts",
-            description: "Humanity's last programming language. Transform plain English into compiled Rust code with Z3-powered verification. Debug your thoughts with mathematical certainty.",
+            title: "LOGICAFFEINE | Code we can all read",
+            description: "LOGOS is an English programming language with logic and mathematics built in. Bring your own coding agent: give it the instructions, then read every line it writes.",
             canonical_path: "/",
             og_image: Some("/assets/OG-photo.png"),
         }
@@ -455,7 +455,7 @@ pub fn PageHead(
             if default_card {
                 document::Meta { property: "og:image:width", content: "1200" }
                 document::Meta { property: "og:image:height", content: "630" }
-                document::Meta { property: "og:image:alt", content: "LOGICAFFEINE | Debug Your Thoughts" }
+                document::Meta { property: "og:image:alt", content: "LOGICAFFEINE | Code we can all read" }
             }
             document::Meta { name: "twitter:url", content: canonical_url.clone() }
             document::Meta { name: "twitter:title", content: title.clone() }

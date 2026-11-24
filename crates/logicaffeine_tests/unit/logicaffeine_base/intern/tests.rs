@@ -107,3 +107,46 @@ fn symbol_empty_is_empty_string() {
     let interner = Interner::new();
     assert!(Symbol::EMPTY.is(&interner, ""));
 }
+
+// ---------------------------------------------------------------------------------------------
+// The empty string is pre-interned as `Symbol::EMPTY`, and it is a string like any other: interning
+// it gives that symbol back, looking it up finds it, and there is only ever one empty symbol.
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn interning_the_empty_string_gives_back_the_pre_interned_empty_symbol() {
+    let mut interner = Interner::new();
+    assert_eq!(interner.intern(""), Symbol::EMPTY);
+}
+
+#[test]
+fn the_empty_string_is_found_without_interning_it() {
+    let interner = Interner::new();
+    assert_eq!(interner.lookup(""), Some(Symbol::EMPTY));
+}
+
+#[test]
+fn interning_the_empty_string_does_not_grow_the_table() {
+    let mut interner = Interner::new();
+    let before = interner.len();
+    interner.intern("");
+    interner.intern("");
+    assert_eq!(interner.len(), before);
+}
+
+#[test]
+fn the_first_real_string_still_gets_the_first_symbol_after_empty() {
+    let mut interner = Interner::new();
+    interner.intern("");
+    let first = interner.intern("first");
+    assert_ne!(first, Symbol::EMPTY);
+    assert_eq!(interner.resolve(first), "first");
+    assert_eq!(interner.intern(""), Symbol::EMPTY);
+}
+
+#[test]
+fn a_cloned_interner_keeps_the_empty_symbol_mapped() {
+    let interner = Interner::new();
+    let mut copy = interner.clone();
+    assert_eq!(copy.intern(""), Symbol::EMPTY);
+}

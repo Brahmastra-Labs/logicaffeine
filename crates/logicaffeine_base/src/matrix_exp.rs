@@ -48,12 +48,13 @@ pub fn characteristic_polynomial(m: &[Vec<Rational>]) -> Option<Poly> {
     Some(Poly::from_coeffs(c))
 }
 
-/// `k!/(k − j)!`, the `j`-th derivative's coefficient of `x^k`; `0` for `j > k`.
-fn falling(k: usize, j: usize) -> i64 {
+/// `k!/(k − j)!`, the `j`-th derivative's coefficient of `x^k`; `0` for `j > k`. Exact: for a
+/// 22-dimensional state `falling(21, 21) = 21!` is already past `i64::MAX`.
+fn falling(k: usize, j: usize) -> Rational {
     if j > k {
-        return 0;
+        return Rational::zero();
     }
-    ((k - j + 1)..=k).map(|v| v as i64).product::<i64>().max(1)
+    ((k - j + 1)..=k).fold(Rational::one(), |acc, v| acc.mul(&Rational::from_i64(v as i64)))
 }
 
 /// The inverse of a square matrix over the complex algebraic numbers; `None` when singular.
@@ -114,10 +115,10 @@ pub fn exp_matrix(m: &[Vec<Rational>], t: &Rational) -> Option<Vec<Vec<ExactReal
                 (0..n)
                     .map(|k| {
                         let f = falling(k, j);
-                        if f == 0 {
+                        if f.is_zero() {
                             ComplexAlgebraic::zero()
                         } else {
-                            lambda.pow((k - j) as u32).scale(&Rational::from_i64(f))
+                            lambda.pow((k - j) as u32).scale(&f)
                         }
                     })
                     .collect(),

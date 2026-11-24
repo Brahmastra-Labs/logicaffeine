@@ -1233,6 +1233,8 @@ impl HostFn {
             // so it displays deterministically: `{e0, e1, …}`.
             Kind::Set => HostFn::PrintSetI64,
             Kind::SetText | Kind::CrdtSetText => HostFn::PrintSetText,
+            // A set of tuples or lists displays through its shape's display function (`Op::Show`).
+            Kind::SetHandle => return None,
             // A `ConvergentCount`/`Tally` counter object is never `Show`n as an object: `Show obj's
             // field` projects it to its Int TOTAL at `GetField` (`lower_get_counter_total`), so this
             // per-kind sink never sees the raw counter — it has no direct display form.
@@ -1284,9 +1286,10 @@ impl HostFn {
             // An `Optional` is Shown via a dedicated null-check path in `Op::Show` (null → "nothing",
             // else the boxed inner) — so it never reaches this single-value sink.
             Kind::Optional => return None,
-            // A `Word32`/`Word64` Shows as its UNSIGNED value via a dedicated `print_word` path in
-            // `Op::Show` (Word32 zero-extends to i64 first) — never this signed single-value sink.
-            Kind::Word32 | Kind::Word64 => return None,
+            // A `Word32`/`Word64`/`Word16`/`Word8` Shows as its UNSIGNED value via a dedicated
+            // `print_word` path in `Op::Show` (an i32-riding width zero-extends to i64 first) —
+            // never this signed single-value sink.
+            Kind::Word32 | Kind::Word64 | Kind::Word16 | Kind::Word8 => return None,
         })
     }
 }
@@ -1887,6 +1890,8 @@ fn infer_with_reachability(
     param_closures: &[(u16, u16)],
     global_layout: &dyn Fn(u16) -> Option<FieldLayout>,
     global_declared: &dyn Fn(u16) -> Option<BoundaryType>,
+    declared_at: &[(usize, u16, BoundaryType)],
+    param_declared: &[(u16, BoundaryType)],
     linked: bool,
     functions: &[crate::vm::instruction::CompiledFunction],
     inout: &[u16],
@@ -1924,6 +1929,8 @@ fn infer_with_reachability(
         param_closures,
         global_layout,
         global_declared,
+        declared_at,
+        param_declared,
         &kind_reach,
         linked,
         &bigint_demand,
@@ -1948,15 +1955,47 @@ fn reachability(ops: &[Op], blocks: &Blocks) -> (Vec<bool>, Vec<bool>) {
             }
         }
     }
+    // A reachable block runs up to its first stop: the ops after one in the same block run on no path,
+    // and the lowering emits none of them.
     let mut pc_reach = vec![false; ops.len()];
     for (k, &live) in block_reach.iter().enumerate() {
         if live {
             for pc in blocks.start(k)..blocks.end(k) {
                 pc_reach[pc] = true;
+                if stops(&ops[pc]) {
+                    break;
+                }
             }
         }
     }
     (pc_reach, block_reach)
+}
+
+/// The ops of `ops` a run can reach from its entry ([`reachability`]); every op when its control flow cannot be
+/// resolved, which claims nothing dead.
+pub(super) fn live_pcs(ops: &[Op]) -> Vec<bool> {
+    match Blocks::new(ops) {
+        Some(blocks) => reachability(ops, &blocks).0,
+        None => vec![true; ops.len()],
+    }
+}
+
+/// Whether `op` ends the run of its block: a return, the end of the program, a failure.
+fn stops(op: &Op) -> bool {
+    matches!(
+        op,
+        Op::Return { .. }
+            | Op::ReturnNothing
+            | Op::Halt
+            | Op::FailWith { .. }
+            | Op::CallBuiltin {
+                builtin: BuiltinId::Fail
+                    | BuiltinId::FailReason
+                    | BuiltinId::VfsMount
+                    | BuiltinId::VfsWriteFile,
+                ..
+            }
+    )
 }
 
 /// The successor blocks of block `k`.
@@ -1984,18 +2023,7 @@ fn block_successors(ops: &[Op], blocks: &Blocks, k: usize) -> Vec<usize> {
                 s.extend(fallthrough(pc));
                 return s;
             }
-            Op::Return { .. }
-            | Op::ReturnNothing
-            | Op::Halt
-            | Op::FailWith { .. }
-            | Op::CallBuiltin {
-                builtin:
-                    BuiltinId::Fail
-                    | BuiltinId::FailReason
-                    | BuiltinId::VfsMount
-                    | BuiltinId::VfsWriteFile,
-                ..
-            } => return vec![],
+            ref op if stops(op) => return vec![],
             _ => {}
         }
     }
@@ -2581,14 +2609,14 @@ fn assemble_program_impl(
         }
         _ => false,
     };
-    // Every composite value a module renders as Text renders through its shape's display function.
+    // Every composite value a module renders as Text renders through its shape's display function, and
+    // every set of tuples or lists compares its members through its member shape's equality function.
     let shown_shapes = {
         let plans: Vec<&Plan> = std::iter::once(&main).chain(fns.iter()).collect();
-        display::ShownTable::new(display::ShownTable::collect(
-            &plans,
-            &program.struct_types,
-            &program.enum_types,
-        ))
+        display::ShownTable::new(
+            display::ShownTable::collect(&plans, &program.struct_types, &program.enum_types),
+            display::ShownTable::collect_equal(&plans, &program.struct_types, &program.enum_types),
+        )
     };
     let uses_heap = shown_shapes.len() > 0
         || std::iter::once(&main).chain(fns.iter()).any(|p| p.tower.holds())
@@ -2744,6 +2772,10 @@ fn assemble_program_impl(
                         for &e in elems {
                             note_operand_fmt(plan, e, &mut used);
                         }
+                    } else if plan.kinds.get(src as usize) == Some(Kind::SetHandle) {
+                        // A set of tuples or lists renders through its shape's display function, whose
+                        // formatters the display table notes, and prints the Text.
+                        note(HostFn::PrintText, &mut used);
                     } else if plan.kinds.get(src as usize) == Some(Kind::Enum) {
                         // A whole-enum `Show` prints the live variant's name via `print_text`; a
                         // PAYLOAD variant additionally stringifies each field inline (`Ctor(f0, …)`),
@@ -2843,7 +2875,7 @@ fn assemble_program_impl(
                         }
                     } else if matches!(
                         plan.kinds.get(src as usize),
-                        Some(Kind::Word32) | Some(Kind::Word64)
+                        Some(Kind::Word32) | Some(Kind::Word64) | Some(Kind::Word16) | Some(Kind::Word8)
                     ) {
                         // A `Word` `Show` prints its unsigned value via `print_word`.
                         note(HostFn::PrintWord, &mut used);
@@ -3628,7 +3660,9 @@ fn assemble_program_impl(
     // The display functions follow the trampoline: `(handle: i32) -> i32 Text`, one per shape.
     let mut shown_shapes = shown_shapes;
     shown_shapes.place(fn_base + fns.len() as u32 + u32::from(emit_trampoline));
-    let shown_type = (shown_shapes.len() > 0).then(|| types.intern(vec![I32], vec![I32]));
+    let shown_type = (shown_shapes.displays() > 0).then(|| types.intern(vec![I32], vec![I32]));
+    let equal_type =
+        (shown_shapes.len() > shown_shapes.displays()).then(|| types.intern(vec![I32, I32], vec![I32]));
     // The runtime functions follow the trampoline in the index space, and their indices have to be
     // known BEFORE any body is lowered because every allocation site calls them.
     let emit_heap_fns = uses_heap && !linked;
@@ -3747,6 +3781,9 @@ fn assemble_program_impl(
     for shape in shown_shapes.shapes() {
         shown_bodies.push(display::emit_display_fn(shape, &ctx)?);
     }
+    for shape in shown_shapes.equal_shapes() {
+        shown_bodies.push(display::emit_equal_fn(shape, &ctx)?);
+    }
     // Build the trampoline body + its wasm function index (after all user functions).
     let trampoline_body = emit_trampoline
         .then(|| emit_closure_trampoline(&fns, program, &fn_types, &ctx, callback_base))
@@ -3799,8 +3836,13 @@ fn assemble_program_impl(
         leb_u32(&mut func, tt);
     }
     if let Some(st) = shown_type {
-        for _ in 0..shown_shapes.len() {
+        for _ in 0..shown_shapes.displays() {
             leb_u32(&mut func, st);
+        }
+    }
+    if let Some(et) = equal_type {
+        for _ in shown_shapes.displays()..shown_shapes.len() {
+            leb_u32(&mut func, et);
         }
     }
     if let Some(r) = &runtime {
@@ -3828,8 +3870,9 @@ fn assemble_program_impl(
     // Memory section (id 5): one linear memory for the heap value model, exported as "memory". The
     // bump allocator never frees, so a build-then-scan program (a 1000-element array, an n-character
     // string built by `+`, a search that cuts a one-char Text per index) needs real headroom — one
-    // page (64 KiB) overflows on any non-tiny input. `HEAP_PAGES` * 64 KiB is the address space; the
-    // iterator stack grows down from its top, the heap up from 16, so they meet only at exhaustion.
+    // page (64 KiB) overflows on any non-tiny input. `HEAP_PAGES` * 64 KiB is where the heap starts out; it grows
+    // past that by `memory.grow`, up from the static region (the free-list table and the interned text), and each
+    // `Repeat` frame is a block on it.
     // LINKER MODE does NOT define a memory — it IMPORTS the shared one (above) and the bump allocator
     // draws from a runtime slab, so the runtime's `dlmalloc` owns the address space.
     if uses_heap && !linked {
@@ -3843,6 +3886,18 @@ fn assemble_program_impl(
     // The dynamic heap starts above the interned text. The pool is filled while bodies are lowered,
     // which is finished by now, so this is the first moment the static region's size is known.
     let heap_base = HEAP_START + text_pool_cell.borrow().image.len() as i32;
+
+    // `__heap_end`, after every other global: the end of the address range the heap owns. The allocator grows past
+    // it only, so pages another allocator grew are never handed out. Self-contained modules only.
+    let heap_end_global = (uses_heap && !linked).then(|| {
+        num_globals as u32
+            + u32::from(uses_heap)
+            + u32::from(uses_iter)
+            + 3 * u32::from(retain_base.is_some())
+            + u32::from(uses_counters)
+            + 2 * u32::from(callback_base.is_some())
+            + if presence_enabled { num_globals as u32 } else { 0 }
+    });
 
     // Global section (id 6): one mutable global per promoted Main binding (zero-initialized),
     // plus the bump-allocator pointer `__heap_ptr` when the program uses the heap.
@@ -3860,7 +3915,8 @@ fn assemble_program_impl(
                     num_globals as u32
                 } else {
                     0
-                },
+                }
+                + u32::from(heap_end_global.is_some()),
         );
         for gk in &global_kinds {
             let vt = gk.map(Kind::wasm_valtype).unwrap_or(I64);
@@ -3881,7 +3937,7 @@ fn assemble_program_impl(
             glob.push(0x0B); // end of init expr
         }
         if uses_heap {
-            // `__heap_ptr`: mutable i32. Self-contained: init 16 (the low 16 bytes stay reserved/null).
+            // `__heap_ptr`: mutable i32. Self-contained: init `heap_base`, above the static region.
             // LINKER MODE: init 0 — the `main` prologue seeds it from a runtime `logos_rt_alloc` SLAB, so
             // the bump region lives inside memory the runtime's `dlmalloc` owns (no collision).
             glob.push(I32);
@@ -3927,6 +3983,12 @@ fn assemble_program_impl(
                 i32_const(&mut glob, 1);
                 glob.push(0x0b);
             }
+        }
+        if heap_end_global.is_some() {
+            // `__heap_end`: the memory section's `HEAP_PAGES`, all the heap's at start-up.
+            glob.extend([I32, 0x01]);
+            i32_const(&mut glob, (HEAP_PAGES as i32) << 16);
+            glob.push(0x0B);
         }
         section(&mut module, 6, &glob);
     }
@@ -4042,6 +4104,7 @@ fn assemble_program_impl(
     if let Some(r) = &runtime {
         let env = RuntimeEnv {
             heap_global,
+            heap_end_global,
             iter_global,
             heap_base,
             fail_at: host_index(HostFn::LogosRtFailAt)
@@ -4090,6 +4153,23 @@ fn assemble_program_impl(
             data.extend_from_slice(&image.image);
             section(&mut module, 11, &data);
         }
+    }
+
+    // Custom section `logos.static`, when the module defines its memory: the static region's layout, for a pass
+    // that relocates the module (`reloc::module_to_relocatable`). Its presence says every address into the static
+    // region `[0, heap_base)` is written as a five-byte LEB (`i32_const_static`), that the text pool starts at
+    // `STATIC_BASE`, and which globals hold the heap's pointer and end.
+    if let Some(heap_end) = heap_end_global {
+        let mut body = Vec::new();
+        let name = b"logos.static";
+        leb_u32(&mut body, name.len() as u32);
+        body.extend_from_slice(name);
+        body.push(1); // the layout's version
+        leb_u32(&mut body, heap_base as u32);
+        leb_u32(&mut body, STATIC_BASE as u32);
+        leb_u32(&mut body, heap_global);
+        leb_u32(&mut body, heap_end);
+        section(&mut module, 0, &body);
     }
 
     Ok(module)
@@ -4218,6 +4298,8 @@ fn plan_main(
         &[],
         global_layout,
         global_declared,
+        &main_declared,
+        &[],
         linked,
         &program.functions,
         &[],
@@ -4235,6 +4317,7 @@ fn plan_main(
         global_layout,
         global_declared,
         &main_declared,
+        &[],
     );
     let cow_inserts = cow_struct_inserts(&ops, &kinds, num_regs, &program.functions);
     let reg_shape = complete_reg_shape(&structs, &kinds, program);
@@ -4550,6 +4633,13 @@ fn plan_function(
             }
         }
     }
+    // Each parameter's declared type, by its register.
+    let param_declared: Vec<(u16, BoundaryType)> = f
+        .param_types
+        .iter()
+        .enumerate()
+        .filter_map(|(i, t)| t.clone().map(|t| (i as u16, t)))
+        .collect();
     // ★ AND EVERY VALUE THE BODY DECLARES: its kind (what an empty `a new Seq of Text` lacks), and
     // its shape where it has one (a `Seq of <record>`'s row layout, a `Map`'s value kind).
     let body_declared = seed_declarations(
@@ -4641,6 +4731,8 @@ fn plan_function(
         &param_closures,
         global_layout,
         global_declared,
+        &body_declared,
+        &param_declared,
         linked,
         &program.functions,
         &f.mutable_param_regs,
@@ -4668,6 +4760,7 @@ fn plan_function(
         global_layout,
         global_declared,
         &body_declared,
+        &param_declared,
     );
     let cow_inserts = cow_struct_inserts(&ops, &kinds, num_regs, &program.functions);
     let reg_shape = complete_reg_shape(&structs, &kinds, program);
@@ -4915,11 +5008,15 @@ fn boundary_to_param_shape(bt: &BoundaryType, program: &CompiledProgram) -> Opti
         BoundaryType::Enum(_) | BoundaryType::Result(_, _) => {
             kind::enum_shape_of(bt, &program.enum_types).map(ParamShape::Enum)
         }
-        BoundaryType::Tuple(elems) => elems
-            .iter()
-            .map(kind::boundary_to_kind)
-            .collect::<Option<Vec<Kind>>>()
-            .map(ParamShape::Tuple),
+        // A homogeneous tuple shares its element's list layout, so it resolves as that list does.
+        BoundaryType::Tuple(elems) => match kind::homogeneous(elems) {
+            Some(e) => boundary_to_param_shape(&BoundaryType::Seq(Box::new(e.clone())), program),
+            None => elems
+                .iter()
+                .map(kind::boundary_to_kind)
+                .collect::<Option<Vec<Kind>>>()
+                .map(ParamShape::Tuple),
+        },
         // ★ `Seq of <record>` — the ELEMENT's layout, so a loop variable taken out of the list can
         // resolve a field. Without it, a function handed a list of records could read no field of
         // any row: the layout walk traces where a record was BUILT, and a parameter was not built
@@ -5185,8 +5282,8 @@ struct Ctx<'a> {
     /// linear-memory cursor); it follows the user globals.
     heap_global: u32,
     /// The wasm global index of the iterator-stack pointer `__iter_sp` (it follows `__heap_ptr`),
-    /// for `Repeat` iteration. Grows *down* from the top of memory toward the up-growing heap;
-    /// each live `Repeat` owns one 12-byte frame `[snapshot_ptr:i32][cursor:i32][len:i32]`.
+    /// for `Repeat` iteration: the innermost live `Repeat`'s frame, a heap block linked to the one
+    /// outside it through `FRAME_PREV` (0 while no loop runs).
     iter_global: u32,
     /// A monotonic replica identity independent of reusable heap addresses.
     replica_global: Option<u32>,
@@ -6297,20 +6394,28 @@ fn lower_op(
         }
         Op::SetAdd { set, value } => {
             emit_cow(code, kinds, &plan.structs, ctx, plan.num_regs, set)?;
-            lower_set_add(code, kinds, ctx, plan.num_regs, set, value)?;
+            let elem = SetElem::of(plan, ctx, set, Some(value))?;
+            lower_set_add(code, kinds, ctx, plan.num_regs, set, value, elem)?;
             Ok(Flow::Straight)
         }
         Op::RemoveFrom { collection, value } => {
             emit_cow(code, kinds, &plan.structs, ctx, plan.num_regs, collection)?;
-            lower_remove_from(code, kinds, ctx, plan.num_regs, collection, value)?;
+            let elem = kinds
+                .get(collection as usize)
+                .is_some_and(|k| k.is_value_set() || k == Kind::CrdtSetText)
+                .then(|| SetElem::of(plan, ctx, collection, Some(value)))
+                .transpose()?;
+            lower_remove_from(code, kinds, ctx, plan.num_regs, collection, value, elem)?;
             Ok(Flow::Straight)
         }
         Op::UnionOp { dst, lhs, rhs } => {
-            lower_union(code, kinds, ctx, plan.num_regs, dst, lhs, rhs)?;
+            let elem = SetElem::of_pair(plan, ctx, lhs, rhs)?;
+            lower_union(code, ctx, plan.num_regs, dst, lhs, rhs, elem)?;
             Ok(Flow::Straight)
         }
         Op::IntersectOp { dst, lhs, rhs } => {
-            lower_intersect(code, kinds, ctx, plan.num_regs, dst, lhs, rhs)?;
+            let elem = SetElem::of_pair(plan, ctx, lhs, rhs)?;
+            lower_intersect(code, ctx, plan.num_regs, dst, lhs, rhs, elem)?;
             Ok(Flow::Straight)
         }
         Op::Contains {
@@ -6320,8 +6425,11 @@ fn lower_op(
         } => {
             if kinds.get(collection as usize) == Some(Kind::Map) {
                 lower_map_contains(code, kinds, ctx, plan.num_regs, dst, collection, value)?;
+            } else if kinds.get(collection as usize) == Some(Kind::SetHandle) {
+                let elem = SetElem::of(plan, ctx, collection, Some(value))?;
+                lower_set_contains(code, ctx, plan.num_regs, dst, collection, value, elem);
             } else {
-                lower_contains(code, kinds, ctx, plan.num_regs, dst, collection, value)?;
+                lower_contains(code, plan, ctx, dst, collection, value)?;
             }
             Ok(Flow::Straight)
         }
@@ -6696,7 +6804,7 @@ fn lower_op(
             // scratch slot, not a normally-kinded register — `Raw` (its element kind is not tracked
             // the way a declared `Seq`/`Pipe` register's is).
             emit_empty_header(code, ctx, plan.num_regs, plan.num_regs + 8, AllocClass::Raw);
-            i32_const(code, NET_INBOX_ADDR);
+            i32_const_static(code, NET_INBOX_ADDR);
             local_get(code, plan.num_regs + 8);
             i32_store(code, 0);
             Ok(Flow::Straight)
@@ -6705,7 +6813,7 @@ fn lower_op(
             let elem = kinds.get(msg as usize).ok_or(WasmLowerError::Unsupported(
                 "Send of an unknown-kind message",
             ))?;
-            i32_const(code, NET_INBOX_ADDR);
+            i32_const_static(code, NET_INBOX_ADDR);
             i32_load(code, 0);
             local_set(code, plan.num_regs + 8);
             lower_list_push_at(code, elem, ctx, plan.num_regs, plan.num_regs + 8, msg)?;
@@ -6726,7 +6834,7 @@ fn lower_op(
                 .ok_or(WasmLowerError::Unsupported(
                     "Stream of an unknown-kind list",
                 ))?;
-            i32_const(code, NET_INBOX_ADDR);
+            i32_const_static(code, NET_INBOX_ADDR);
             i32_load(code, 0);
             local_set(code, plan.num_regs + 8);
             lower_list_push_at(code, elem, ctx, plan.num_regs, plan.num_regs + 8, values)?;
@@ -6742,7 +6850,7 @@ fn lower_op(
             let elem = kinds.get(dst as usize).ok_or(WasmLowerError::Unsupported(
                 "Await of an unknown-kind message",
             ))?;
-            i32_const(code, NET_INBOX_ADDR);
+            i32_const_static(code, NET_INBOX_ADDR);
             i32_load(code, 0);
             local_set(code, plan.num_regs + 8);
             emit_pop_front(code, elem, plan.num_regs + 8, plan.num_regs + 5, dst as u32)?;
@@ -8625,6 +8733,19 @@ fn lower_op(
                 lower_show_struct(code, plan, ctx, src)?;
                 return Ok(Flow::Straight);
             }
+            // A set of tuples or lists (`{(a, h1), (b, h2)}`) — its members in insertion order, each
+            // through its shape's display function.
+            if kind == Kind::SetHandle {
+                let print = (ctx.host_index)(HostFn::PrintText).ok_or(
+                    WasmLowerError::Unsupported("Show of a set: print_text not imported"),
+                )?;
+                let out = plan.num_regs + 8;
+                display::emit_display_of(code, plan, ctx, src, out)?;
+                local_get(code, out);
+                code.push(0x10); // call
+                leb_u32(code, print);
+                return Ok(Flow::Straight);
+            }
             // A whole `Seq of Struct` (`[Point { x: 1, y: 2 }, …]`) — each element struct rendered in
             // the same deterministic field order, concatenated into the `[…]` list display.
             if kind == Kind::SeqStruct {
@@ -8819,13 +8940,14 @@ fn lower_op(
                 code.push(0x0B); // end if
                 return Ok(Flow::Straight);
             }
-            // A `Word32`/`Word64` Shows as its UNSIGNED value via `print_word` — a `Word32` is
-            // zero-extended to `i64` first so the host's `u64` reading equals the `u32` value.
-            if kind == Kind::Word32 || kind == Kind::Word64 {
+            // A `Word32`/`Word64`/`Word16`/`Word8` Shows as its UNSIGNED value via `print_word` — an
+            // i32-riding width (`Word32`/`Word16`/`Word8`, already masked to its own ring) is
+            // zero-extended to `i64` first so the host's `u64` reading equals the unsigned value.
+            if matches!(kind, Kind::Word32 | Kind::Word64 | Kind::Word16 | Kind::Word8) {
                 let idx = (ctx.host_index)(HostFn::PrintWord)
                     .ok_or(WasmLowerError::Unsupported("Show sink not imported"))?;
                 local_get(code, src as u32);
-                if kind == Kind::Word32 {
+                if kind != Kind::Word64 {
                     code.push(0xAD); // i64.extend_i32_u
                 }
                 code.push(0x10); // call print_word
@@ -9051,6 +9173,30 @@ fn lower_arith(
             };
             arith(code, opcode, dst, lhs, rhs);
         }
+        // `Word16`/`Word8` ride an `i32` local like `Word32`, but wasm has no 16-/8-bit arithmetic: a
+        // native `i32.add`/`sub`/`mul` wraps mod 2³², not mod the ring's own width, so `+`/`-`/`*` mask
+        // the result back into the ring with `i32.and`. `/`/`%` need no mask — both operands are
+        // already within the ring (an invariant every write to a `Word16`/`Word8` register keeps), so
+        // an unsigned quotient/remainder of two such values never leaves it.
+        kw @ (Some(Kind::Word16) | Some(Kind::Word8)) => {
+            let mask: i32 = if kw == Some(Kind::Word16) { 0xFFFF } else { 0xFF };
+            match op {
+                ArithOp::Div => arith(code, 0x6E, dst, lhs, rhs), // i32.div_u
+                ArithOp::Mod => arith(code, 0x70, dst, lhs, rhs), // i32.rem_u
+                ArithOp::Add | ArithOp::Sub | ArithOp::Mul => {
+                    local_get(code, lhs as u32);
+                    local_get(code, rhs as u32);
+                    code.push(match op {
+                        ArithOp::Add => 0x6A, // i32.add
+                        ArithOp::Sub => 0x6B, // i32.sub
+                        _ => 0x6C,            // i32.mul
+                    });
+                    i32_const(code, mask);
+                    code.push(0x71); // i32.and
+                    local_set(code, dst as u32);
+                }
+            }
+        }
         Some(Kind::Float) => {
             let opcode = match op {
                 ArithOp::Add => 0xA0,
@@ -9216,9 +9362,11 @@ fn lower_compare(
             };
             compare(code, opcode, dst, lhs, rhs);
         }
-        // Words compare by their UNSIGNED value (the ℤ/2ⁿ ring order) — `Word32` as `i32` unsigned,
-        // `Word64` as `i64` unsigned, matching `WordVal`'s `to_u64`-based comparison.
-        Some(Kind::Word32) => {
+        // Words compare by their UNSIGNED value (the ℤ/2ⁿ ring order) — `Word32`/`Word16`/`Word8` as
+        // `i32` unsigned (each already masked to its own width, so a plain `i32` unsigned compare
+        // between two of the same width is exact), `Word64` as `i64` unsigned, matching `WordVal`'s
+        // `to_u64`-based comparison.
+        Some(Kind::Word32) | Some(Kind::Word16) | Some(Kind::Word8) => {
             let opcode = match cmp {
                 Cmp::Lt => 0x49, // i32.lt_u
                 Cmp::Gt => 0x4B, // i32.gt_u
@@ -9268,7 +9416,7 @@ fn lower_compare(
             return Err(WasmLowerError::Unsupported("comparison of struct values"))
         }
         Some(Kind::Map) => return Err(WasmLowerError::Unsupported("comparison of map values")),
-        Some(Kind::Set) | Some(Kind::SetText) | Some(Kind::CrdtSetText) => {
+        Some(Kind::Set) | Some(Kind::SetText) | Some(Kind::SetHandle) | Some(Kind::CrdtSetText) => {
             return Err(WasmLowerError::Unsupported("comparison of set values"))
         }
         // A raw counter object never reaches a compare — `obj's counter` projects to its Int total at
@@ -9596,9 +9744,26 @@ fn lower_builtin(
             local_set(code, dst as u32);
             Ok(Flow::Straight)
         }
-        // `intOfWord32(w)` = zero-extend the u32 to Int (`i64.extend_i32_u`); `intOfWord64(w)` = the
-        // 64-bit pattern unchanged (Int is i64).
-        BuiltinId::IntOfWord32 => {
+        // `word16(n)`/`word8(n)` = the low 16/8 bits of the Int: `i32.wrap_i64` then a mask, since
+        // wasm has no narrower integer local — the mask IS the ring (no separate truncation step).
+        BuiltinId::Word16Make | BuiltinId::Word8Make => {
+            local_get(code, arg as u32);
+            code.push(0xA7); // i32.wrap_i64
+            i32_const(
+                code,
+                if matches!(builtin, BuiltinId::Word16Make) {
+                    0xFFFF
+                } else {
+                    0xFF
+                },
+            );
+            code.push(0x71); // i32.and
+            local_set(code, dst as u32);
+            Ok(Flow::Straight)
+        }
+        // `intOfWord32(w)`/`intOfWord16(w)`/`intOfWord8(w)` = zero-extend the (already masked) `i32`
+        // to Int; `intOfWord64(w)` = the 64-bit pattern unchanged (Int is i64).
+        BuiltinId::IntOfWord32 | BuiltinId::IntOfWord16 | BuiltinId::IntOfWord8 => {
             local_get(code, arg as u32);
             code.push(0xAD); // i64.extend_i32_u
             local_set(code, dst as u32);
@@ -10692,7 +10857,7 @@ impl RuntimeFn {
 
     fn body(self, env: &RuntimeEnv) -> Vec<u8> {
         match self {
-            RuntimeFn::Alloc => emit_alloc_helper(env.heap_global, env.fail_at),
+            RuntimeFn::Alloc => emit_alloc_helper(env.heap_global, env.heap_end_global, env.fail_at),
             RuntimeFn::Free => emit_free_helper(),
             RuntimeFn::HeapAllocated => emit_heap_allocated_helper(env),
             RuntimeFn::HeapUsed => emit_heap_used_helper(env),
@@ -10750,6 +10915,8 @@ impl RuntimeFn {
 /// lowered.
 struct RuntimeEnv<'r> {
     heap_global: u32,
+    /// `__heap_end`, when the module defines its memory: the end of the range the heap owns.
+    heap_end_global: Option<u32>,
     iter_global: u32,
     /// Where the dynamic heap begins: above the free-list table and the interned text.
     heap_base: i32,
@@ -10940,7 +11107,7 @@ impl Runtime {
 fn emit_heap_allocated_helper(env: &RuntimeEnv) -> Vec<u8> {
     let mut c = vec![0x00]; // no locals
     global_get(&mut c, env.heap_global);
-    i32_const(&mut c, env.heap_base);
+    i32_const_static(&mut c, env.heap_base);
     c.push(0x6B); // i32.sub
     c.push(0x0B);
     c
@@ -10955,7 +11122,7 @@ fn emit_heap_used_helper(env: &RuntimeEnv) -> Vec<u8> {
     leb_u32(&mut c, 3);
     c.push(I32);
     global_get(&mut c, env.heap_global);
-    i32_const(&mut c, env.heap_base);
+    i32_const_static(&mut c, env.heap_base);
     c.push(0x6B);
     local_set(&mut c, 2);
     c.push(0x02);
@@ -10971,7 +11138,7 @@ fn emit_heap_used_helper(env: &RuntimeEnv) -> Vec<u8> {
     local_get(&mut c, 0);
     i32_const(&mut c, 4);
     c.push(0x6C);
-    i32_load(&mut c, FREE_TABLE_BASE as u32);
+    i32_load_static(&mut c, FREE_TABLE_BASE as u32);
     local_set(&mut c, 1);
     c.push(0x02);
     c.push(0x40); // block $list_done
@@ -11040,7 +11207,7 @@ fn emit_heap_used_helper(env: &RuntimeEnv) -> Vec<u8> {
 /// smallest power of two at or above the request (`2^(32 - clz(size - 1))`, the usual round-up-to-
 /// power-of-two identity); a request past the last power class still bumps, sized to its own exact
 /// rounded need, but is never reclaimed — the same as any size ever was before this tier existed.
-fn emit_alloc_helper(heap_global: u32, fail_at: u32) -> Vec<u8> {
+fn emit_alloc_helper(heap_global: u32, heap_end: Option<u32>, fail_at: u32) -> Vec<u8> {
     let mut c = Vec::new();
     // locals: 1 = u, 2 = slot address, 3 = head, 4 = result, 5 = this block's class size in bytes,
     // 6 = whether a free list exists for this size at all (0/1), 7 = new_top (the bump path's
@@ -11085,7 +11252,7 @@ fn emit_alloc_helper(heap_global: u32, fail_at: u32) -> Vec<u8> {
         c.push(0x6B); // i32.sub
         i32_const(&mut c, 4);
         c.push(0x6C); // i32.mul
-        i32_const(&mut c, FREE_TABLE_BASE);
+        i32_const_static(&mut c, FREE_TABLE_BASE);
         c.push(0x6A); // i32.add
         local_set(&mut c, 2);
         local_get(&mut c, 1);
@@ -11118,7 +11285,7 @@ fn emit_alloc_helper(heap_global: u32, fail_at: u32) -> Vec<u8> {
             c.push(0x6A);
             i32_const(&mut c, 4);
             c.push(0x6C);
-            i32_const(&mut c, FREE_TABLE_BASE);
+            i32_const_static(&mut c, FREE_TABLE_BASE);
             c.push(0x6A);
             local_set(&mut c, 2); // slot
                                   // class size = 1 << (POWER_MIN + power_idx)
@@ -11182,63 +11349,164 @@ fn emit_alloc_helper(heap_global: u32, fail_at: u32) -> Vec<u8> {
         c.push(0x6A); // p + class size
         local_set(&mut c, 7); // new_top
 
-        // need_grow = (cur_pages * 65536) < new_top
-        c.push(0x3F); // memory.size
-        c.push(0x00); // memory index 0
-        local_tee(&mut c, 8); // cur_pages
-        i32_const(&mut c, 16);
-        c.push(0x74); // i32.shl → cur_bytes
-        local_get(&mut c, 7); // new_top
-        c.push(0x49); // i32.lt_u
-        c.push(0x04);
-        c.push(0x40); // if (need_grow)
-        {
-            // pages_needed = ceil((new_top - cur_bytes) / 65536)
-            local_get(&mut c, 7);
-            local_get(&mut c, 8);
+        match heap_end {
+            None => {
+            // need_grow = (cur_pages * 65536) < new_top
+            c.push(0x3F); // memory.size
+            c.push(0x00); // memory index 0
+            local_tee(&mut c, 8); // cur_pages
             i32_const(&mut c, 16);
-            c.push(0x74); // i32.shl → cur_bytes (recomputed; cur_pages is still valid)
-            c.push(0x6B); // i32.sub → new_top - cur_bytes
-            i32_const(&mut c, 65535);
-            c.push(0x6A);
-            i32_const(&mut c, 16);
-            c.push(0x76); // i32.shr_u
-            local_set(&mut c, 9); // pages_needed
-
-            // grow_by = max(pages_needed, cur_pages) — never less than doubling, so a run of small
-            // allocations amortizes to O(1) `memory.grow` calls rather than one per block.
-            local_get(&mut c, 9);
-            local_get(&mut c, 8);
-            c.push(0x49); // i32.lt_u → pages_needed < cur_pages
+            c.push(0x74); // i32.shl → cur_bytes
+            local_get(&mut c, 7); // new_top
+            c.push(0x49); // i32.lt_u
             c.push(0x04);
-            c.push(0x40); // if
+            c.push(0x40); // if (need_grow)
             {
+                // pages_needed = ceil((new_top - cur_bytes) / 65536)
+                local_get(&mut c, 7);
                 local_get(&mut c, 8);
-                local_set(&mut c, 9); // grow_by = cur_pages
-            }
-            c.push(0x0B); // end if (local 9 already holds pages_needed otherwise)
+                i32_const(&mut c, 16);
+                c.push(0x74); // i32.shl → cur_bytes (recomputed; cur_pages is still valid)
+                c.push(0x6B); // i32.sub → new_top - cur_bytes
+                i32_const(&mut c, 65535);
+                c.push(0x6A);
+                i32_const(&mut c, 16);
+                c.push(0x76); // i32.shr_u
+                local_set(&mut c, 9); // pages_needed
 
-            local_get(&mut c, 9);
-            c.push(0x40); // memory.grow
-            c.push(0x00);
-            i32_const(&mut c, -1);
-            c.push(0x46); // i32.eq — the host refused to grow
-            c.push(0x04);
-            c.push(0x40); // if
-            {
-                i32_const(
-                    &mut c,
-                    crate::semantics::failcode::FailCode::OutOfMemory.code(),
-                );
-                c.push(0x42); // i64.const 0 (the value this code ignores)
-                leb_i64(&mut c, 0);
-                c.push(0x10); // call logos_rt_fail_at(code, value)
-                leb_u32(&mut c, fail_at);
-                c.push(0x00); // unreachable
+                // grow_by = max(pages_needed, cur_pages) — never less than doubling, so a run of small
+                // allocations amortizes to O(1) `memory.grow` calls rather than one per block.
+                local_get(&mut c, 9);
+                local_get(&mut c, 8);
+                c.push(0x49); // i32.lt_u → pages_needed < cur_pages
+                c.push(0x04);
+                c.push(0x40); // if
+                {
+                    local_get(&mut c, 8);
+                    local_set(&mut c, 9); // grow_by = cur_pages
+                }
+                c.push(0x0B); // end if (local 9 already holds pages_needed otherwise)
+
+                local_get(&mut c, 9);
+                c.push(0x40); // memory.grow
+                c.push(0x00);
+                i32_const(&mut c, -1);
+                c.push(0x46); // i32.eq — the host refused to grow
+                c.push(0x04);
+                c.push(0x40); // if
+                {
+                    i32_const(
+                        &mut c,
+                        crate::semantics::failcode::FailCode::OutOfMemory.code(),
+                    );
+                    c.push(0x42); // i64.const 0 (the value this code ignores)
+                    leb_i64(&mut c, 0);
+                    c.push(0x10); // call logos_rt_fail_at(code, value)
+                    leb_u32(&mut c, fail_at);
+                    c.push(0x00); // unreachable
+                }
+                c.push(0x0B); // end if
             }
-            c.push(0x0B); // end if
+            c.push(0x0B); // end if (need_grow)
+            }
+            Some(heap_end) => {
+                // need_grow = __heap_end < new_top: the heap owns [heap base, __heap_end) and no byte past it.
+                global_get(&mut c, heap_end);
+                local_get(&mut c, 7);
+                c.push(0x49); // i32.lt_u
+                c.push(0x04);
+                c.push(0x40); // if (need_grow)
+                {
+                    c.push(0x3F); // memory.size
+                    c.push(0x00);
+                    local_tee(&mut c, 8); // cur_pages
+                    i32_const(&mut c, 16);
+                    c.push(0x74); // i32.shl → cur_bytes
+                    global_get(&mut c, heap_end);
+                    c.push(0x46); // i32.eq — the heap ends where memory does: it grows in place
+                    c.push(0x04);
+                    c.push(0x40); // if
+                    {
+                        // pages_needed = ceil((new_top - __heap_end) / 65536)
+                        local_get(&mut c, 7);
+                        global_get(&mut c, heap_end);
+                        c.push(0x6B); // i32.sub
+                        i32_const(&mut c, 65535);
+                        c.push(0x6A);
+                        i32_const(&mut c, 16);
+                        c.push(0x76); // i32.shr_u
+                        local_set(&mut c, 9);
+                    }
+                    c.push(0x05); // else — pages past the heap are another allocator's: the block takes fresh ones
+                    {
+                        local_get(&mut c, 5);
+                        i32_const(&mut c, 65535);
+                        c.push(0x6A);
+                        i32_const(&mut c, 16);
+                        c.push(0x76); // pages for the block alone
+                        local_set(&mut c, 9);
+                    }
+                    c.push(0x0B); // end if
+                    // grow_by = max(pages_needed, cur_pages), as above.
+                    local_get(&mut c, 9);
+                    local_get(&mut c, 8);
+                    c.push(0x49); // i32.lt_u
+                    c.push(0x04);
+                    c.push(0x40); // if
+                    {
+                        local_get(&mut c, 8);
+                        local_set(&mut c, 9);
+                    }
+                    c.push(0x0B); // end if
+                    local_get(&mut c, 9);
+                    c.push(0x40); // memory.grow
+                    c.push(0x00);
+                    local_tee(&mut c, 8); // the first page grown
+                    i32_const(&mut c, -1);
+                    c.push(0x46); // i32.eq — the host refused to grow
+                    c.push(0x04);
+                    c.push(0x40); // if
+                    {
+                        i32_const(
+                            &mut c,
+                            crate::semantics::failcode::FailCode::OutOfMemory.code(),
+                        );
+                        c.push(0x42); // i64.const 0 (the value this code ignores)
+                        leb_i64(&mut c, 0);
+                        c.push(0x10); // call logos_rt_fail_at(code, value)
+                        leb_u32(&mut c, fail_at);
+                        c.push(0x00); // unreachable
+                    }
+                    c.push(0x0B); // end if
+                    // Grown pages that do not continue the heap: the block starts at the first of them.
+                    local_get(&mut c, 8);
+                    i32_const(&mut c, 16);
+                    c.push(0x74);
+                    global_get(&mut c, heap_end);
+                    c.push(0x47); // i32.ne
+                    c.push(0x04);
+                    c.push(0x40); // if
+                    {
+                        local_get(&mut c, 8);
+                        i32_const(&mut c, 16);
+                        c.push(0x74);
+                        local_tee(&mut c, 4); // p = the first grown byte
+                        local_get(&mut c, 5);
+                        c.push(0x6A);
+                        local_set(&mut c, 7); // new_top
+                    }
+                    c.push(0x0B); // end if
+                    // __heap_end = (first page grown + grow_by) * 65536
+                    local_get(&mut c, 8);
+                    local_get(&mut c, 9);
+                    c.push(0x6A);
+                    i32_const(&mut c, 16);
+                    c.push(0x74);
+                    global_set(&mut c, heap_end);
+                }
+                c.push(0x0B); // end if (need_grow)
+            }
         }
-        c.push(0x0B); // end if (need_grow)
 
         local_get(&mut c, 7);
         global_set(&mut c, heap_global);
@@ -12243,7 +12511,7 @@ fn emit_free_helper() -> Vec<u8> {
             c.push(0x6B);
             i32_const(&mut c, 4);
             c.push(0x6C);
-            i32_const(&mut c, FREE_TABLE_BASE);
+            i32_const_static(&mut c, FREE_TABLE_BASE);
             c.push(0x6A);
             local_set(&mut c, 3); // slot
             i32_const(&mut c, 1);
@@ -12269,7 +12537,7 @@ fn emit_free_helper() -> Vec<u8> {
                 c.push(0x6A);
                 i32_const(&mut c, 4);
                 c.push(0x6C);
-                i32_const(&mut c, FREE_TABLE_BASE);
+                i32_const_static(&mut c, FREE_TABLE_BASE);
                 c.push(0x6A);
                 local_set(&mut c, 3); // slot
                 i32_const(&mut c, 1);
@@ -13188,7 +13456,7 @@ fn emit_heap_census_visit_helper(env: &RuntimeEnv) -> Vec<u8> {
     c.push(0x0B);
     local_get(&mut c, 1);
     local_get(&mut c, 0);
-    i32_const(&mut c, env.heap_base);
+    i32_const_static(&mut c, env.heap_base);
     c.push(0x6B);
     i32_const(&mut c, 3);
     c.push(0x76);
@@ -13229,7 +13497,7 @@ fn emit_heap_census_helper(env: &RuntimeEnv) -> Vec<u8> {
     // without allocating in it, so it neither perturbs the layout it checks nor grows the heap it
     // will measure next time. Memory grows to cover it when it must.
     global_get(&mut c, env.heap_global);
-    i32_const(&mut c, env.heap_base);
+    i32_const_static(&mut c, env.heap_base);
     c.push(0x6B);
     i32_const(&mut c, 3);
     c.push(0x76); // i32.shr_u → /8
@@ -13249,42 +13517,131 @@ fn emit_heap_census_helper(env: &RuntimeEnv) -> Vec<u8> {
     c.push(0x6C);
     c.push(0x6A);
     local_set(&mut c, 10);
-    c.push(0x3F); // memory.size
-    c.push(0x00);
-    i32_const(&mut c, 16);
-    c.push(0x74); // i32.shl → bytes
-    local_get(&mut c, 10);
-    c.push(0x49); // i32.lt_u → size < end
-    c.push(0x04);
-    c.push(0x40); // if
-    {
+    match env.heap_end_global {
+        None => {
+        c.push(0x3F); // memory.size
+        c.push(0x00);
+        i32_const(&mut c, 16);
+        c.push(0x74); // i32.shl → bytes
         local_get(&mut c, 10);
-        c.push(0x3F);
-        c.push(0x00);
-        i32_const(&mut c, 16);
-        c.push(0x74);
-        c.push(0x6B); // end - size
-        i32_const(&mut c, 0xFFFF);
-        c.push(0x6A);
-        i32_const(&mut c, 16);
-        c.push(0x76); // pages = ceil((end - size) / 64 KiB)
-        c.push(0x40); // memory.grow
-        c.push(0x00);
-        i32_const(&mut c, -1);
-        c.push(0x46); // i32.eq
+        c.push(0x49); // i32.lt_u → size < end
         c.push(0x04);
-        c.push(0x40); // if the grow failed: the allocator's own out-of-memory report
+        c.push(0x40); // if
         {
-            i32_const(&mut c, 4);
-            c.push(0x42);
-            c.push(0x00); // i64.const 0
-            c.push(0x10);
-            leb_u32(&mut c, env.fail_at);
-            c.push(0x00); // unreachable
+            local_get(&mut c, 10);
+            c.push(0x3F);
+            c.push(0x00);
+            i32_const(&mut c, 16);
+            c.push(0x74);
+            c.push(0x6B); // end - size
+            i32_const(&mut c, 0xFFFF);
+            c.push(0x6A);
+            i32_const(&mut c, 16);
+            c.push(0x76); // pages = ceil((end - size) / 64 KiB)
+            c.push(0x40); // memory.grow
+            c.push(0x00);
+            i32_const(&mut c, -1);
+            c.push(0x46); // i32.eq
+            c.push(0x04);
+            c.push(0x40); // if the grow failed: the allocator's own out-of-memory report
+            {
+                i32_const(&mut c, 4);
+                c.push(0x42);
+                c.push(0x00); // i64.const 0
+                c.push(0x10);
+                leb_u32(&mut c, env.fail_at);
+                c.push(0x00); // unreachable
+            }
+            c.push(0x0B);
         }
         c.push(0x0B);
+        }
+        Some(heap_end) => {
+            // The scratch lies past the heap's end: the heap grows in place to cover it while it ends where memory
+            // does, and otherwise (another allocator's pages follow) the scratch takes fresh pages of its own,
+            // which the heap never sees.
+            global_get(&mut c, heap_end);
+            local_get(&mut c, 10);
+            c.push(0x49); // i32.lt_u → __heap_end < end
+            c.push(0x04);
+            c.push(0x40); // if
+            {
+                c.push(0x3F); // memory.size
+                c.push(0x00);
+                i32_const(&mut c, 16);
+                c.push(0x74);
+                global_get(&mut c, heap_end);
+                c.push(0x46); // i32.eq
+                c.push(0x04);
+                c.push(0x40); // if — in place
+                {
+                    local_get(&mut c, 10);
+                    global_get(&mut c, heap_end);
+                    c.push(0x6B); // end - __heap_end
+                    i32_const(&mut c, 0xFFFF);
+                    c.push(0x6A);
+                    i32_const(&mut c, 16);
+                    c.push(0x76); // pages
+                    local_tee(&mut c, 2);
+                    c.push(0x40); // memory.grow
+                    c.push(0x00);
+                    i32_const(&mut c, -1);
+                    c.push(0x46);
+                    c.push(0x04);
+                    c.push(0x40);
+                    {
+                        i32_const(&mut c, 4);
+                        c.push(0x42);
+                        c.push(0x00);
+                        c.push(0x10);
+                        leb_u32(&mut c, env.fail_at);
+                        c.push(0x00);
+                    }
+                    c.push(0x0B);
+                    global_get(&mut c, heap_end);
+                    local_get(&mut c, 2);
+                    i32_const(&mut c, 16);
+                    c.push(0x74);
+                    c.push(0x6A);
+                    global_set(&mut c, heap_end);
+                }
+                c.push(0x05); // else — fresh pages for the scratch alone
+                {
+                    local_get(&mut c, 1);
+                    i32_const(&mut c, 4);
+                    c.push(0x6C); // scratch bytes
+                    i32_const(&mut c, 0xFFFF);
+                    c.push(0x6A);
+                    i32_const(&mut c, 16);
+                    c.push(0x76);
+                    c.push(0x40); // memory.grow
+                    c.push(0x00);
+                    local_tee(&mut c, 2);
+                    i32_const(&mut c, -1);
+                    c.push(0x46);
+                    c.push(0x04);
+                    c.push(0x40);
+                    {
+                        i32_const(&mut c, 4);
+                        c.push(0x42);
+                        c.push(0x00);
+                        c.push(0x10);
+                        leb_u32(&mut c, env.fail_at);
+                        c.push(0x00);
+                    }
+                    c.push(0x0B);
+                    local_get(&mut c, 2);
+                    i32_const(&mut c, 16);
+                    c.push(0x74);
+                    local_set(&mut c, 0); // scratch_ptr
+                }
+                c.push(0x0B);
+                i32_const(&mut c, 0);
+                local_set(&mut c, 2); // mismatch starts clear, as the walk expects
+            }
+            c.push(0x0B);
+        }
     }
-    c.push(0x0B);
     // Zero the scratch before the walk, and again after it: the bump allocator hands out the memory
     // above its pointer on the promise that it is zero.
     let zero_scratch = |c: &mut Vec<u8>| {
@@ -13370,7 +13727,7 @@ fn emit_heap_census_helper(env: &RuntimeEnv) -> Vec<u8> {
     local_get(&mut c, 9);
     i32_const(&mut c, 8);
     c.push(0x6C);
-    i32_const(&mut c, env.heap_base);
+    i32_const_static(&mut c, env.heap_base);
     c.push(0x6A);
     local_tee(&mut c, 3);
     i32_load(&mut c, 16);
@@ -13564,6 +13921,7 @@ fn counted_kind(k: Option<Kind>) -> bool {
             | Some(Kind::SeqHandle)
             | Some(Kind::Set)
             | Some(Kind::SetText)
+            | Some(Kind::SetHandle)
             | Some(Kind::CrdtSetText)
             | Some(Kind::Text)
             | Some(Kind::Map)
@@ -13579,9 +13937,9 @@ fn counted_kind(k: Option<Kind>) -> bool {
 /// Whether a value of this `Kind`, held in a SLOT (a map's value, a future struct/tuple field, a
 /// `Seq`/`Set` element), is an `i32` HANDLE to a separate heap object rather than a plain scalar
 /// embedded in the slot itself. Exhaustive on purpose — an unmatched kind is a compile error, not a
-/// silently-wrong guess, the way `k.wasm_valtype() == I32` alone would be: [`Kind::Date`] and
-/// [`Kind::Word32`] are BOTH `i32`-valtype SCALARS (a day count, a wrapping ring word), the only two
-/// exceptions to "i32 valtype means handle" in the whole enum.
+/// silently-wrong guess, the way `k.wasm_valtype() == I32` alone would be: [`Kind::Date`],
+/// [`Kind::Word32`], [`Kind::Word16`] and [`Kind::Word8`] are `i32`-valtype SCALARS (a day count, a
+/// wrapping ring word), the only exceptions to "i32 valtype means handle" in the whole enum.
 ///
 /// The nine kinds documented "LINKER MODE ONLY" (`BigInt`/`Complex`/`Modular`/`Decimal`/`Money`/
 /// `Quantity`/`Uuid`/`LanesV`/`Dynamic`) never reach a SELF-CONTAINED module at all, so their answer
@@ -13600,7 +13958,9 @@ fn kind_is_handle(k: Kind) -> bool {
         | Kind::Time
         | Kind::Span
         | Kind::Word32
-        | Kind::Word64 => false,
+        | Kind::Word64
+        | Kind::Word16
+        | Kind::Word8 => false,
         Kind::SeqInt
         | Kind::SeqBool
         | Kind::SeqFloat
@@ -13617,6 +13977,7 @@ fn kind_is_handle(k: Kind) -> bool {
         | Kind::Map
         | Kind::Set
         | Kind::SetText
+        | Kind::SetHandle
         | Kind::CrdtSetText
         | Kind::CrdtCounter
         | Kind::Enum
@@ -13660,6 +14021,7 @@ fn empty_collection_class(kind: Option<Kind>) -> AllocClass {
         | Some(Kind::SeqSeqInt)
         | Some(Kind::SeqHandle)
         | Some(Kind::SetText)
+        | Some(Kind::SetHandle)
         | Some(Kind::CrdtSetText) => AllocClass::HandleHeader,
         _ => AllocClass::Raw,
     }
@@ -15934,6 +16296,7 @@ fn cow_clonable(k: Option<Kind>) -> bool {
             | Some(Kind::SeqAny)
             | Some(Kind::Set)
             | Some(Kind::SetText)
+            | Some(Kind::SetHandle)
             | Some(Kind::SeqSeqInt)
             | Some(Kind::Map)
             | Some(Kind::SeqText)
@@ -15957,7 +16320,7 @@ fn seq_clone_mode(k: Kind) -> Option<i32> {
         | Kind::SeqWord64
         | Kind::Set => i32::from(AllocClass::ScalarHeader.code()),
         Kind::SeqAny | Kind::SetText | Kind::SeqText | Kind::SeqEnum => handles,
-        Kind::SeqStruct | Kind::SeqHandle => handles | CLONE_SHARES,
+        Kind::SeqStruct | Kind::SeqHandle | Kind::SetHandle => handles | CLONE_SHARES,
         _ => return None,
     })
 }
@@ -16737,10 +17100,64 @@ fn emit_text_eq(code: &mut Vec<u8>, ctx: &Ctx, num_regs: u32, a: u32, b: u32) {
     local_get(code, res); // leave the result on the stack
 }
 
+/// What a set's 8-byte slots hold and how two of them compare, as the VM's `==` compares them: an Int
+/// by `i64.eq`; a Text by its bytes, the slot's low word its handle; a tuple, a list, a record or a
+/// variant by value, the slot's low word its handle and the comparison the generated equality function
+/// of its member shape, whose index this carries.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SetElem {
+    Int,
+    Text,
+    Value(u32),
+}
+
+impl SetElem {
+    /// The element of the set in `set`, `member` a value an op hands it.
+    fn of(plan: &Plan, ctx: &Ctx, set: u16, member: Option<u16>) -> R<SetElem> {
+        match plan.kinds.get(set as usize) {
+            Some(Kind::Set) => Ok(SetElem::Int),
+            Some(Kind::SetText | Kind::CrdtSetText) => Ok(SetElem::Text),
+            Some(Kind::SetHandle) => display::member_of(plan, set, member)
+                .and_then(|m| ctx.shown.equality(&m))
+                .map(SetElem::Value)
+                .ok_or(WasmLowerError::Unsupported(
+                    "a Set whose members are maps or sets (the wasm backend compares tuple, list, \
+                     record and variant members by value)",
+                )),
+            _ => Err(WasmLowerError::Unsupported("a set operation on a value that is not a set")),
+        }
+    }
+
+    /// The element of both operands of a union or intersection, which must hold the same.
+    fn of_pair(plan: &Plan, ctx: &Ctx, lhs: u16, rhs: u16) -> R<SetElem> {
+        let (l, r) = (SetElem::of(plan, ctx, lhs, None)?, SetElem::of(plan, ctx, rhs, None)?);
+        if l != r {
+            return Err(WasmLowerError::Unsupported(
+                "union/intersect of sets holding different kinds of member",
+            ));
+        }
+        Ok(l)
+    }
+
+    /// Whether a slot holds a handle in its low word.
+    fn is_handle(self) -> bool {
+        self != SetElem::Int
+    }
+
+    /// The class of a set holding this element.
+    fn header(self) -> AllocClass {
+        if self.is_handle() {
+            AllocClass::HandleHeader
+        } else {
+            AllocClass::ScalarHeader
+        }
+    }
+}
+
 /// Emit "does `set[idx]` equal `value`?", leaving an i32 (1/0) on the wasm stack — the element
-/// comparison shared by the set scans. Int: `i64.eq` of the slot element and `value`. `SetText`:
-/// byte-equality of the slot's `Text` handle and `value`'s (`emit_text_handles_eq`, via the `+8`
-/// slot-handle temp). Both read the 8-byte slot at `data_ptr + idx*8`.
+/// comparison shared by the set scans, by [`SetElem`]. A handle element is read into the `+13` slot
+/// temp, which no set scan, add or copy loop holds live. Each reads the 8-byte slot at
+/// `data_ptr + idx*8`.
 fn emit_set_elem_eq(
     code: &mut Vec<u8>,
     ctx: &Ctx,
@@ -16748,7 +17165,7 @@ fn emit_set_elem_eq(
     set: u32,
     idx: u32,
     value: u32,
-    is_text: bool,
+    elem: SetElem,
 ) {
     local_get(code, set);
     i32_load(code, 8); // data_ptr
@@ -16756,14 +17173,26 @@ fn emit_set_elem_eq(
     i32_const(code, 8);
     code.push(0x6C);
     code.push(0x6A); // slot addr = data_ptr + idx*8
-    if is_text {
-        i32_load(code, 0); // the slot's Text handle
-        local_set(code, num_regs + 8);
-        emit_text_eq(code, ctx, num_regs, num_regs + 8, value);
-    } else {
-        i64_load(code, 0); // the slot's i64 element
-        local_get(code, value);
-        code.push(0x51); // i64.eq
+    let slot = num_regs + 13;
+    match elem {
+        SetElem::Int => {
+            i64_load(code, 0); // the slot's i64 element
+            local_get(code, value);
+            code.push(0x51); // i64.eq
+        }
+        SetElem::Text => {
+            i32_load(code, 0); // the slot's Text handle
+            local_set(code, slot);
+            emit_text_eq(code, ctx, num_regs, slot, value);
+        }
+        SetElem::Value(eq) => {
+            i32_load(code, 0); // the slot's member handle
+            local_set(code, slot);
+            local_get(code, slot);
+            local_get(code, value);
+            code.push(0x10); // call
+            leb_u32(code, eq);
+        }
     }
 }
 
@@ -16779,18 +17208,16 @@ fn lower_remove_from(
     num_regs: u32,
     collection: u16,
     value: u16,
+    set_elem: Option<SetElem>,
 ) -> R<()> {
-    let set_text = matches!(
-        kinds.get(collection as usize),
-        Some(Kind::SetText) | Some(Kind::CrdtSetText)
-    );
+    let compared = set_elem.filter(|e| e.is_handle());
     let map_text_key = kinds.get(collection as usize) == Some(Kind::Map)
         && kinds.get(value as usize) == Some(Kind::Text);
-    if !set_text && !map_text_key && kinds.get(value as usize) != Some(Kind::Int) {
+    if compared.is_none() && !map_text_key && kinds.get(value as usize) != Some(Kind::Int) {
         return Err(WasmLowerError::Unsupported("remove of a non-Int value"));
     }
     let stride: i32 = match kinds.get(collection as usize) {
-        Some(Kind::Set) | Some(Kind::SetText) | Some(Kind::CrdtSetText) => 8,
+        Some(Kind::Set) | Some(Kind::SetText) | Some(Kind::SetHandle) | Some(Kind::CrdtSetText) => 8,
         Some(Kind::Map) => 16,
         _ => {
             return Err(WasmLowerError::Unsupported(
@@ -16816,8 +17243,8 @@ fn lower_remove_from(
     leb_u32(code, 1); // br_if block
                       // data[idx] (element / key at offset 0) == value ? — a Text element or key compares by bytes,
                       // an Int set / Map key by `i64.eq` at its stride.
-    if set_text {
-        emit_set_elem_eq(code, ctx, num_regs, c, idx, value as u32, true);
+    if let Some(elem) = compared {
+        emit_set_elem_eq(code, ctx, num_regs, c, idx, value as u32, elem);
     } else if map_text_key {
         emit_map_key_compare(code, ctx, num_regs, true, c, idx, value);
     } else {
@@ -16944,36 +17371,33 @@ fn lower_set_add(
     num_regs: u32,
     set: u16,
     value: u16,
+    elem: SetElem,
 ) -> R<()> {
-    let is_text = matches!(
-        kinds.get(set as usize),
-        Some(Kind::SetText) | Some(Kind::CrdtSetText)
-    );
-    if is_text {
-        if kinds.get(value as usize) != Some(Kind::Text) {
+    let value_kind = kinds.get(value as usize);
+    match elem {
+        SetElem::Text if value_kind != Some(Kind::Text) => {
             return Err(WasmLowerError::Unsupported(
                 "adding a non-Text value to a Set of Text",
-            ));
+            ))
         }
-    } else if kinds.get(value as usize) != Some(Kind::Int) {
-        return Err(WasmLowerError::Unsupported(
-            "set with a non-Int value (only Set of Int/Text)",
-        ));
+        SetElem::Int if value_kind != Some(Kind::Int) => {
+            return Err(WasmLowerError::Unsupported(
+                "set with a member of a kind no set holds (Int, Text, a tuple or a list)",
+            ))
+        }
+        SetElem::Value(_) if !value_kind.is_some_and(|k| k.wasm_valtype() == I32) => {
+            return Err(WasmLowerError::Unsupported(
+                "adding a value that is not a tuple or a list to a Set of them",
+            ))
+        }
+        _ => {}
     }
     let order = if kinds.get(set as usize) == Some(Kind::CrdtSetText) {
         SetOrder::Sorted
     } else {
         SetOrder::Insertion
     };
-    emit_set_add_elem(
-        code,
-        ctx,
-        num_regs,
-        set as u32,
-        value as u32,
-        is_text,
-        order,
-    );
+    emit_set_add_elem(code, ctx, num_regs, set as u32, value as u32, elem, order);
     Ok(())
 }
 
@@ -16991,16 +17415,15 @@ enum SetOrder {
 /// for a [`SetOrder::Sorted`] set, move it down to its sorted place. Uses the `+5`/`+6`/`+7` i32
 /// scratch (`idx`/`found`/`new`), and `+8..+11` for a sorted insert, over an 8-byte stride. `set`
 /// and `elem` must be locals untouched by those scratch slots — so union/intersect can drive it in a
-/// loop with their own outer counter (`+9`) and loaded element (`+1`). `is_text` selects BYTE
-/// equality (a `Set of Text`; the slot's low word is a Text handle) over `i64.eq`; a sorted set is a
-/// set of Text, ordered by bytes as `String`'s `Ord` is.
+/// loop with their own outer counter and loaded element. `kind` says how a slot compares and whether it
+/// holds a handle ([`SetElem`]); a sorted set is a set of Text, ordered by bytes as `String`'s `Ord` is.
 fn emit_set_add_elem(
     code: &mut Vec<u8>,
     ctx: &Ctx,
     num_regs: u32,
     s: u32,
     elem: u32,
-    is_text: bool,
+    kind: SetElem,
     order: SetOrder,
 ) {
     let (idx, found, new) = (num_regs + 5, num_regs + 6, num_regs + 7);
@@ -17019,7 +17442,7 @@ fn emit_set_add_elem(
     code.push(0x4E); // i32.ge_s
     code.push(0x0D);
     leb_u32(code, 1); // br_if block
-    emit_set_elem_eq(code, ctx, num_regs, s, idx, elem, is_text); // set[idx] == elem ?
+    emit_set_elem_eq(code, ctx, num_regs, s, idx, elem, kind); // set[idx] == elem ?
     code.push(0x04);
     code.push(0x40); // if (present)
     i32_const(code, 1);
@@ -17108,9 +17531,9 @@ fn emit_set_add_elem(
     code.push(0x6C);
     code.push(0x6A);
     local_get(code, elem);
-    if is_text {
+    if kind.is_handle() {
         i32_store(code, 0); // slot[num] = handle
-                            // S8's true count: the set is a further holder of the Text it now keeps.
+                            // S8's true count: the set is a further holder of the member it now keeps.
         if ctx.heap_counting() {
             emit_true_retain_of(code, ctx, |c| local_get(c, elem));
         }
@@ -17124,7 +17547,7 @@ fn emit_set_add_elem(
     code.push(0x6A);
     i32_store(code, 0); // num += 1
     if order == SetOrder::Sorted {
-        emit_sink_last_to_sorted_place(code, num_regs, s, elem, is_text);
+        emit_sink_last_to_sorted_place(code, num_regs, s, elem, kind == SetElem::Text);
     }
     code.push(0x0B); // end if (!present)
 }
@@ -17325,11 +17748,12 @@ fn emit_set_contains_to(code: &mut Vec<u8>, set: u32, elem: u32, out: u32, idx: 
     code.push(0x0B); // end block
 }
 
-/// Walk the source set `src` element-by-element (outer counter in `+9`, each element loaded into the
-/// i64 scratch `+1`) and feed each through [`emit_set_add_elem`] into `result` (whose add-if-absent
-/// dedups). With `filter = Some(other)`, only elements also present in `other` are copied — the
-/// intersection gate. The inner add uses `+5`/`+6`/`+7`; the membership scan uses `+10`/`+11`; none
-/// collide with the outer counter, the element, or `result` (`+8`), so the nest is sound.
+/// Walk the source set `src` element by element and feed each through [`emit_set_add_elem`] into
+/// `result` (whose add-if-absent dedups). With `filter = Some(other)`, only elements also present in
+/// `other` are copied — the intersection gate. An Int set keeps its outer counter in `+9` and each
+/// element in the i64 scratch `+1`, its membership scan in `+10`/`+11`; a set of handles keeps them in
+/// `+17`, `+14`, `+18`/`+19`, clear of the `+9`/`+10` an inline Text comparison takes and the `+13`
+/// slot temp. The inner add uses `+5`/`+6`/`+7` and `+23`; none collide with `result` (`+8`).
 fn emit_set_copy_loop(
     code: &mut Vec<u8>,
     ctx: &Ctx,
@@ -17337,10 +17761,13 @@ fn emit_set_copy_loop(
     result: u32,
     src: u32,
     filter: Option<u32>,
+    kind: SetElem,
 ) {
-    let outer = num_regs + 9;
-    let elem = num_regs + 1;
-    let (cidx, cfound) = (num_regs + 10, num_regs + 11);
+    let (outer, elem, cidx, cfound) = if kind.is_handle() {
+        (num_regs + 17, num_regs + 14, num_regs + 18, num_regs + 19)
+    } else {
+        (num_regs + 9, num_regs + 1, num_regs + 10, num_regs + 11)
+    };
     i32_const(code, 0);
     local_set(code, outer);
     code.push(0x02);
@@ -17360,32 +17787,24 @@ fn emit_set_copy_loop(
     i32_const(code, 8);
     code.push(0x6C);
     code.push(0x6A);
-    i64_load(code, 0);
+    if kind.is_handle() {
+        i32_load(code, 0);
+    } else {
+        i64_load(code, 0);
+    }
     local_set(code, elem);
     match filter {
-        None => emit_set_add_elem(
-            code,
-            ctx,
-            num_regs,
-            result,
-            elem,
-            false,
-            SetOrder::Insertion,
-        ),
+        None => emit_set_add_elem(code, ctx, num_regs, result, elem, kind, SetOrder::Insertion),
         Some(other) => {
-            emit_set_contains_to(code, other, elem, cfound, cidx);
+            if kind.is_handle() {
+                emit_set_membership_to(code, ctx, num_regs, other, elem, cfound, cidx, kind);
+            } else {
+                emit_set_contains_to(code, other, elem, cfound, cidx);
+            }
             local_get(code, cfound);
             code.push(0x04);
             code.push(0x40); // if (in `other`)
-            emit_set_add_elem(
-                code,
-                ctx,
-                num_regs,
-                result,
-                elem,
-                false,
-                SetOrder::Insertion,
-            );
+            emit_set_add_elem(code, ctx, num_regs, result, elem, kind, SetOrder::Insertion);
             code.push(0x0B); // end if
         }
     }
@@ -17400,28 +17819,87 @@ fn emit_set_copy_loop(
     code.push(0x0B); // end block
 }
 
-/// `a union b` — a fresh `Set` of `a`'s elements (in `a`'s order) followed by `b`'s not-already-
+/// `out = 1` when the set in `set` holds a member equal to the one in local `elem`, else `0` — the
+/// [`SetElem`]-aware membership scan, its counter in `idx`.
+#[allow(clippy::too_many_arguments)]
+fn emit_set_membership_to(
+    code: &mut Vec<u8>,
+    ctx: &Ctx,
+    num_regs: u32,
+    set: u32,
+    elem: u32,
+    out: u32,
+    idx: u32,
+    kind: SetElem,
+) {
+    i32_const(code, 0);
+    local_set(code, out); // assume absent
+    i32_const(code, 0);
+    local_set(code, idx);
+    code.push(0x02);
+    code.push(0x40); // block $exit
+    code.push(0x03);
+    code.push(0x40); // loop $loop
+    local_get(code, idx);
+    local_get(code, set);
+    i32_load(code, 0); // num
+    code.push(0x4E); // i32.ge_s
+    code.push(0x0D);
+    leb_u32(code, 1); // br_if $exit
+    emit_set_elem_eq(code, ctx, num_regs, set, idx, elem, kind);
+    code.push(0x04);
+    code.push(0x40); // if (present)
+    i32_const(code, 1);
+    local_set(code, out);
+    code.push(0x0C);
+    leb_u32(code, 2); // br $exit
+    code.push(0x0B); // end if
+    local_get(code, idx);
+    i32_const(code, 1);
+    code.push(0x6A);
+    local_set(code, idx);
+    code.push(0x0C);
+    leb_u32(code, 0); // br $loop
+    code.push(0x0B); // end loop
+    code.push(0x0B); // end block
+}
+
+/// `dst = set contains value` for a set of tuples or lists: `1`/`0` as an i64 Bool, the member compared by
+/// value through its shape's equality function.
+fn lower_set_contains(
+    code: &mut Vec<u8>,
+    ctx: &Ctx,
+    num_regs: u32,
+    dst: u16,
+    set: u16,
+    value: u16,
+    elem: SetElem,
+) {
+    let (idx, found) = (num_regs + 5, num_regs + 6);
+    emit_set_membership_to(code, ctx, num_regs, set as u32, value as u32, found, idx, elem);
+    local_get(code, found);
+    code.push(0xAD); // i64.extend_i32_u
+    local_set(code, dst as u32);
+}
+
+/// `a union b` — a fresh set of `a`'s elements (in `a`'s order) followed by `b`'s not-already-
 /// present elements (in `b`'s order), matching `semantics::collections::union` byte-for-byte
 /// (`add`'s dedup makes empty-then-add-all-of-a-then-add-all-of-b equal to clone-a-then-add-b,
 /// since a Set has no internal duplicates). Built into the `+8` scratch handle, then bound to
 /// `dst` — so a `dst` aliasing `lhs`/`rhs` reads the originals fully before being overwritten.
 fn lower_union(
     code: &mut Vec<u8>,
-    kinds: &KindTable,
     ctx: &Ctx,
     num_regs: u32,
     dst: u16,
     lhs: u16,
     rhs: u16,
+    elem: SetElem,
 ) -> R<()> {
-    require_set(kinds, lhs)?;
-    require_set(kinds, rhs)?;
     let result = num_regs + 8;
-    // `require_set` only accepts plain `Kind::Set` (Int elements) — `SetText` union/intersect is
-    // refused above — so the result is always a scalar-element header.
-    emit_empty_header(code, ctx, num_regs, result, AllocClass::ScalarHeader);
-    emit_set_copy_loop(code, ctx, num_regs, result, lhs as u32, None);
-    emit_set_copy_loop(code, ctx, num_regs, result, rhs as u32, None);
+    emit_empty_header(code, ctx, num_regs, result, elem.header());
+    emit_set_copy_loop(code, ctx, num_regs, result, lhs as u32, None, elem);
+    emit_set_copy_loop(code, ctx, num_regs, result, rhs as u32, None, elem);
     local_get(code, result);
     local_set(code, dst as u32);
     Ok(())
@@ -17432,67 +17910,51 @@ fn lower_union(
 /// [`lower_union`].
 fn lower_intersect(
     code: &mut Vec<u8>,
-    kinds: &KindTable,
     ctx: &Ctx,
     num_regs: u32,
     dst: u16,
     lhs: u16,
     rhs: u16,
+    elem: SetElem,
 ) -> R<()> {
-    require_set(kinds, lhs)?;
-    require_set(kinds, rhs)?;
     let result = num_regs + 8;
-    emit_empty_header(code, ctx, num_regs, result, AllocClass::ScalarHeader);
-    emit_set_copy_loop(code, ctx, num_regs, result, lhs as u32, Some(rhs as u32));
+    emit_empty_header(code, ctx, num_regs, result, elem.header());
+    emit_set_copy_loop(code, ctx, num_regs, result, lhs as u32, Some(rhs as u32), elem);
     local_get(code, result);
     local_set(code, dst as u32);
     Ok(())
 }
 
-/// Require a `Set` operand for union/intersection (our Sets only ever hold Int, so a `Set` kind is
-/// enough to license the 8-byte-stride element copy).
-fn require_set(kinds: &KindTable, r: u16) -> R<()> {
-    if kinds.get(r as usize) == Some(Kind::Set) {
-        Ok(())
-    } else {
-        Err(WasmLowerError::Unsupported(
-            "union/intersect of a non-Set value",
-        ))
-    }
-}
-
-/// `seq contains value` / `set contains value` — a linear membership scan (value equality,
-/// matching the tree-walker's `List::position` / set membership): `dst = 1` if any element equals
-/// `value`, else `0`. Int/Set-of-Int compare with `i64.eq`, Float with `f64.eq`.
-fn lower_contains(
-    code: &mut Vec<u8>,
-    kinds: &KindTable,
-    ctx: &Ctx,
-    num_regs: u32,
-    dst: u16,
-    collection: u16,
-    value: u16,
-) -> R<()> {
-    let set_text = matches!(
-        kinds.get(collection as usize),
-        Some(Kind::SetText) | Some(Kind::CrdtSetText)
-    );
+/// `seq contains value` / `set contains value` — a linear membership scan, each element compared with
+/// `value` BY VALUE as the VM's `==` compares them (the tree-walker's `List::position` / set membership):
+/// `dst = 1` if any element equals `value`, else `0`. An Int, a Bool or a 64-bit word compares by
+/// `i64.eq`, a Real by `f64.eq`, a 32-bit word by `i32.eq`, a Text by its bytes, and a list, a tuple, a
+/// record or a variant through its shape's equality function; a list of maps or sets is refused by name.
+fn lower_contains(code: &mut Vec<u8>, plan: &Plan, ctx: &Ctx, dst: u16, collection: u16, value: u16) -> R<()> {
+    let (kinds, num_regs) = (&plan.kinds, plan.num_regs);
     let elem = match kinds.get(collection as usize) {
-        Some(Kind::Set) => Kind::Int, // a Set of Int holds i64 values
-        Some(Kind::SetText) | Some(Kind::CrdtSetText) => Kind::Text, // a Set of Text scans by byte equality
+        Some(Kind::Set) => Kind::Int,
+        Some(Kind::SetText) | Some(Kind::CrdtSetText) => Kind::Text,
         _ => seq_elem_kind(kinds, collection)?,
     };
-    // A `Set of Text` `contains` DOES value (byte) equality (below); a plain `seq of Text contains
-    // text` is still deferred (the scalar membership scan would wrongly compare Text handle pointers).
-    if elem == Kind::Text && !set_text {
-        return Err(WasmLowerError::Unsupported(
-            "contains over a sequence of Text (needs byte-equality)",
-        ));
+    enum Compared {
+        Slot(SetElem),
+        Word(fn(&mut Vec<u8>, u32), u8),
     }
-    let (elem_load, elem_eq): (fn(&mut Vec<u8>, u32), u8) = if elem == Kind::Float {
-        (f64_load, 0x61)
-    } else {
-        (i64_load, 0x51)
+    let compared = match elem {
+        Kind::Float => Compared::Word(f64_load, 0x61),
+        Kind::Word32 => Compared::Word(i32_load, 0x46),
+        Kind::Text => Compared::Slot(SetElem::Text),
+        k if k.wasm_valtype() == I64 => Compared::Slot(SetElem::Int),
+        _ => Compared::Slot(
+            display::member_of(plan, collection, Some(value))
+                .and_then(|m| ctx.shown.equality(&m))
+                .map(SetElem::Value)
+                .ok_or(WasmLowerError::Unsupported(
+                    "contains over a list whose members are maps or sets (the wasm backend compares \
+                     tuple, list, record and variant members by value)",
+                ))?,
+        ),
     };
     let idx = num_regs + 5; // i32 scratch
     let col = collection as u32;
@@ -17514,19 +17976,20 @@ fn lower_contains(
     code.push(0x4E); // i32.ge_s
     code.push(0x0D);
     leb_u32(code, 1); // br_if $exit
-                      // element == value ? — a Set of Text compares bytes, everything else `i64.eq`/`f64.eq`.
-    if set_text {
-        emit_set_elem_eq(code, ctx, num_regs, col, idx, value as u32, true);
-    } else {
-        local_get(code, col);
-        i32_load(code, 8); // data_ptr
-        local_get(code, idx);
-        i32_const(code, 8);
-        code.push(0x6C);
-        code.push(0x6A);
-        elem_load(code, 0);
-        local_get(code, value as u32);
-        code.push(elem_eq);
+                      // element == value ?
+    match compared {
+        Compared::Slot(e) => emit_set_elem_eq(code, ctx, num_regs, col, idx, value as u32, e),
+        Compared::Word(load, eq) => {
+            local_get(code, col);
+            i32_load(code, 8); // data_ptr
+            local_get(code, idx);
+            i32_const(code, 8);
+            code.push(0x6C);
+            code.push(0x6A);
+            load(code, 0);
+            local_get(code, value as u32);
+            code.push(eq);
+        }
     }
     code.push(0x04);
     code.push(0x40); // if (void)
@@ -17939,6 +18402,7 @@ fn emit_slot_store(code: &mut Vec<u8>, k: Option<Kind>, off: u32) -> R<()> {
         | Some(Kind::Map)
         | Some(Kind::Set)
         | Some(Kind::SetText)
+        | Some(Kind::SetHandle)
         | Some(Kind::CrdtSetText)
         | Some(Kind::CrdtCounter)
         | Some(Kind::Enum)
@@ -17947,6 +18411,8 @@ fn emit_slot_store(code: &mut Vec<u8>, k: Option<Kind>, off: u32) -> R<()> {
         | Some(Kind::Rational)
         | Some(Kind::Optional)
         | Some(Kind::Word32)
+        | Some(Kind::Word16)
+        | Some(Kind::Word8)
         | Some(Kind::SeqWord32)
         | Some(Kind::SeqWord64)
         | Some(Kind::BigInt)
@@ -17987,6 +18453,7 @@ fn emit_slot_load(code: &mut Vec<u8>, k: Option<Kind>, off: u32) -> R<()> {
         | Some(Kind::Map)
         | Some(Kind::Set)
         | Some(Kind::SetText)
+        | Some(Kind::SetHandle)
         | Some(Kind::CrdtSetText)
         | Some(Kind::CrdtCounter)
         | Some(Kind::Enum)
@@ -17995,6 +18462,8 @@ fn emit_slot_load(code: &mut Vec<u8>, k: Option<Kind>, off: u32) -> R<()> {
         | Some(Kind::Rational)
         | Some(Kind::Optional)
         | Some(Kind::Word32)
+        | Some(Kind::Word16)
+        | Some(Kind::Word8)
         | Some(Kind::SeqWord32)
         | Some(Kind::SeqWord64)
         | Some(Kind::BigInt)
@@ -18890,6 +19359,7 @@ fn is_collection_clonable(k: Kind) -> bool {
             | Kind::SeqAny
             | Kind::Set
             | Kind::SetText
+            | Kind::SetHandle
             | Kind::Map
             | Kind::SeqSeqInt
             | Kind::SeqText
@@ -18975,11 +19445,11 @@ fn emit_collection_clone(code: &mut Vec<u8>, ctx: &Ctx, num_regs: u32, k: Kind, 
                 AllocClass::ScalarHeader,
             );
         }
-        // A list of Texts, records, variants or collections: a flat copy of the element handles, each
-        // element now held by both lists. A record or a collection gains a copy-on-write hold, so a
+        // A list of Texts, records, variants or collections, or a set of tuples or lists: a flat copy of
+        // the element handles, each element now held by both. A record or a collection gains a copy-on-write hold, so a
         // write to it through either list copies it first; a Text is immutable and a variant is
         // rebuilt, never written in place, so theirs are shared as they are.
-        Kind::SeqText | Kind::SeqStruct | Kind::SeqEnum | Kind::SeqHandle => {
+        Kind::SeqText | Kind::SeqStruct | Kind::SeqEnum | Kind::SeqHandle | Kind::SetHandle => {
             emit_buffer_clone(
                 code,
                 ctx,
@@ -18991,7 +19461,7 @@ fn emit_collection_clone(code: &mut Vec<u8>, ctx: &Ctx, num_regs: u32, k: Kind, 
                 AllocClass::HandleHeader,
             );
             emit_retain_children(code, ctx, hdr);
-            if matches!(k, Kind::SeqStruct | Kind::SeqHandle) {
+            if matches!(k, Kind::SeqStruct | Kind::SeqHandle | Kind::SetHandle) {
                 emit_cow_retain_each_element(code, hdr, idx);
             }
         }
@@ -20608,7 +21078,7 @@ fn lower_crdt_append(
                 plan.num_regs,
                 seq as u32,
                 value as u32,
-                true,
+                SetElem::Text,
                 SetOrder::Sorted,
             );
             Ok(())
@@ -20620,7 +21090,7 @@ fn lower_crdt_append(
                 plan.num_regs,
                 seq as u32,
                 value as u32,
-                false,
+                SetElem::Int,
                 SetOrder::Sorted,
             );
             Ok(())
@@ -21308,7 +21778,7 @@ fn lower_text_literal(code: &mut Vec<u8>, ctx: &Ctx, num_regs: u32, bytes: &[u8]
     // nothing is built at run time. See [`TextPool`].
     if let Some(pool) = ctx.text_pool {
         let addr = pool.borrow_mut().intern(bytes);
-        i32_const(code, addr);
+        i32_const_static(code, addr);
         return;
     }
     let len = bytes.len();
@@ -21987,14 +22457,14 @@ fn lower_iter_prepare(
     let handles = empty_collection_class(kinds.get(iterable as usize))
         .held_handles()
         .0;
+    // A set walks its members in insertion order: the same header and slots a sequence has.
     if !text
         && !kinds
             .get(iterable as usize)
-            .map(Kind::is_seq)
-            .unwrap_or(false)
+            .is_some_and(|k| k.is_seq() || k.is_value_set())
     {
         return Err(WasmLowerError::Unsupported(
-            "iteration over a value that is neither a sequence nor a Text",
+            "iteration over a value that is neither a sequence, a set nor a Text",
         ));
     }
     if text {

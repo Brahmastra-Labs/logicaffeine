@@ -2,7 +2,10 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Write;
 
 use super::context::{RefinementContext, VariableCapabilities};
-use super::detection::{symbol_appears_in_expr, symbol_appears_in_stmts, value_read_after};
+use super::detection::{
+    afterwards, may_set_twice, starts_over, symbol_appears_in_expr, symbol_appears_in_stmts, value_read_after,
+    written_in, AfterwardsIt, StartsOver,
+};
 use super::i64_map::map_rust_type;
 use super::types::codegen_type_expr;
 use crate::analysis::registry::TypeRegistry;
@@ -178,6 +181,28 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
     // codegen-specific extras below are recomputed from the same two statements.
     let (cl, _consumed) = crate::loop_shape::extract_counted_while(stmts, idx)?;
     let counter_sym = cl.var;
+    // A loop reading lists that may hold integers past the word runs on their words while they hold them.
+    if let Some(code) = super::int_vec::versioned_window(stmts, idx, counter_sym, ctx, interner, indent, &mut |at, ctx| {
+        try_emit_for_range_pattern(
+            stmts,
+            idx,
+            interner,
+            at,
+            mutable_vars,
+            ctx,
+            lww_fields,
+            mv_fields,
+            synced_vars,
+            var_caps,
+            async_functions,
+            pipe_vars,
+            boxed_fields,
+            registry,
+            type_env,
+        )
+    }) {
+        return Some((code, 1));
+    }
     let counter_start_expr = cl.start;
     let limit_expr = cl.limit;
     let is_exclusive = !cl.inclusive;
@@ -332,31 +357,36 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
         Some(t) if !matches!(limit_expr, Expr::Literal(Literal::Number(_))) => t,
         _ => limit_str,
     };
-    let range_str = if use_zero_based {
+    let walk = if use_zero_based {
         // 0-based: rebase inclusive `start..=limit` (1-based, indexing arr[i-1])
         // to `(start-1)..limit` indexing arr[i]. For start == 1 this is `0..limit`.
         let lo = match counter_start_expr {
             Expr::Literal(Literal::Number(n)) => format!("{}", n - 1),
             _ => format!("({} - 1)", start_str),
         };
-        if let Expr::Literal(Literal::Number(n)) = limit_expr {
+        CountedWalk::Range(if let Expr::Literal(Literal::Number(n)) = limit_expr {
             format!("{}..{}", lo, typed_limit(*n))
         } else {
             format!("{}..{}", lo, limit_str)
-        }
+        })
     } else if is_exclusive {
-        match limit_expr {
+        CountedWalk::Range(match limit_expr {
             Expr::Literal(Literal::Number(n)) if typed => {
                 format!("{}..{}", start_str, typed_limit(*n))
             }
             _ => format!("{}..{}", start_str, limit_str),
-        }
+        })
     } else {
-        // For literal limits, compute limit+1 at compile time
-        if let Expr::Literal(Literal::Number(n)) = limit_expr {
-            format!("{}..{}", start_str, typed_limit(n + 1))
-        } else {
-            format!("{}..({} + 1)", start_str, limit_str)
+        // An inclusive limit: one past it ends a half-open range wherever that cannot pass the largest Int.
+        match limit_expr {
+            Expr::Literal(Literal::Number(n)) => match n.checked_add(1) {
+                Some(past) => CountedWalk::Range(format!("{}..{}", start_str, typed_limit(past))),
+                None => CountedWalk::Through { last: typed_limit(*n) },
+            },
+            _ if super::expr::below_largest_int(limit_expr, ctx.oracle()) => {
+                CountedWalk::Range(format!("{}..({} + 1)", start_str, limit_str))
+            }
+            _ => CountedWalk::Through { last: limit_str.clone() },
         }
     };
 
@@ -446,6 +476,10 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
         Vec::new()
     };
     super::hoist::emit_hoist_open(&hoist_plan, interner, &indent_str, ctx, &mut output);
+    // The loop sits one level inside the hoist scope's braces.
+    let outer_indent_str = indent_str;
+    let indent = super::hoist::scoped_indent(&hoist_plan, indent);
+    let indent_str = "    ".repeat(indent);
 
     // A1 buffer-fill conversion: a 0-based loop that refills a registered
     // buffer-reuse buffer via one counted push → size it once (`resize`) and
@@ -459,13 +493,7 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
     };
     if let Some(buf) = fill_target {
         let buf_name = names.ident(buf);
-        let count_str = if is_exclusive {
-            limit_str.clone()
-        } else if let Expr::Literal(Literal::Number(n)) = limit_expr {
-            format!("{}", n + 1)
-        } else {
-            format!("({} + 1)", limit_str)
-        };
+        let count = pass_count(LoopEnd::Literal(0), LoopEnd::of(limit_expr, &limit_str), !is_exclusive);
         let default = ctx
             .get_variable_types()
             .get(&buf)
@@ -473,8 +501,11 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
             .unwrap_or("Default::default()");
         writeln!(
             output,
-            "{}{}.resize(({}) as usize, {});",
-            indent_str, buf_name, count_str, default
+            "{}{}.resize({}, {});",
+            indent_str,
+            buf_name,
+            count.as_usize(),
+            default
         )
         .unwrap();
         ctx.set_fill_loop(buf, counter_name.clone());
@@ -502,17 +533,33 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
             })
             .collect();
 
+    // The counter's init and the loop join the block's run of bounds hints: what they may change is dropped (all
+    // the loop may change, before its body), and the body may read what is left.
+    for consumed in [stmts[idx], stmts[idx + 1]] {
+        output.push_str(&super::stmt::emit_oracle_index_hints(consumed, ctx, interner, registry, &indent_str));
+    }
     let loop_start = output.len();
-    writeln!(
-        output,
-        "{}for {} in {} {{",
-        indent_str, counter_name, range_str
-    )
-    .unwrap();
+    let body_indent = match walk {
+        CountedWalk::Range(_) => indent + 1,
+        CountedWalk::Through { .. } => indent + 2,
+    };
+    match &walk {
+        CountedWalk::Range(range) => {
+            writeln!(output, "{}for {} in {} {{", indent_str, counter_name, range).unwrap();
+        }
+        CountedWalk::Through { last } => {
+            use super::precedence::{operand, standalone, Side, Under};
+            let first = standalone(&start_str);
+            let last = operand(last, Under::Binary("<=", Side::Right));
+            writeln!(output, "{indent_str}{{").unwrap();
+            writeln!(output, "{indent_str}    let mut {counter_name}: i64 = {first};").unwrap();
+            writeln!(output, "{indent_str}    while {counter_name} <= {last} {{").unwrap();
+        }
+    }
     emit_bounds_hint_header(
         &bounds_hints,
         interner,
-        &"    ".repeat(indent + 1),
+        &"    ".repeat(body_indent),
         &mut output,
     );
     super::stmt::emit_affine_offset_header(
@@ -521,7 +568,7 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
         &affine_empty,
         &affine_empty,
         ctx.get_variable_types(),
-        &"    ".repeat(indent + 1),
+        &"    ".repeat(body_indent),
         &mut output,
     );
 
@@ -549,8 +596,8 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
                     if let Some(ref sf) = split_fill {
                         writeln!(
                             output,
-                            "{}{}.resize(({}) as usize, {});",
-                            "    ".repeat(indent + 1),
+                            "{}{}.resize({}, {});",
+                            "    ".repeat(body_indent),
                             reuse_inner,
                             sf.cols_str,
                             sf.default
@@ -564,7 +611,7 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
                         writeln!(
                             output,
                             "{}{}.clear();",
-                            "    ".repeat(indent + 1),
+                            "    ".repeat(body_indent),
                             reuse_inner
                         )
                         .unwrap();
@@ -577,7 +624,7 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
                     writeln!(
                         output,
                         "{}{}.borrow_mut().clear();",
-                        "    ".repeat(indent + 1),
+                        "    ".repeat(body_indent),
                         reuse_inner
                     )
                     .unwrap();
@@ -595,7 +642,7 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
                 writeln!(
                     output,
                     "{}std::mem::swap(&mut {}, &mut {});",
-                    "    ".repeat(indent + 1),
+                    "    ".repeat(body_indent),
                     reuse_outer,
                     reuse_inner
                 )
@@ -613,7 +660,7 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
                     output.push_str(&super::codegen_stmt(
                         body_refs[bi],
                         interner,
-                        indent + 1,
+                        body_indent,
                         mutable_vars,
                         ctx,
                         lww_fields,
@@ -633,7 +680,7 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
             }
         }
         if let Some((code, skip)) =
-            try_emit_vec_fill_pattern(&body_refs, bi, interner, indent + 1, ctx)
+            try_emit_vec_fill_pattern(&body_refs, bi, interner, body_indent, ctx)
         {
             output.push_str(&code);
             bi += 1 + skip;
@@ -643,7 +690,7 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
             &body_refs,
             bi,
             interner,
-            indent + 1,
+            body_indent,
             mutable_vars,
             ctx,
             lww_fields,
@@ -664,7 +711,7 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
             &body_refs,
             bi,
             interner,
-            indent + 1,
+            body_indent,
             ctx.get_variable_types(),
         ) {
             output.push_str(&code);
@@ -675,7 +722,19 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
             &body_refs,
             bi,
             interner,
-            indent + 1,
+            body_indent,
+            ctx.get_variable_types(),
+            ctx.oracle(),
+        ) {
+            output.push_str(&code);
+            bi += 1 + skip;
+            continue;
+        }
+        if let Some((code, skip)) = try_emit_byte_compare_window_at(
+            &body_refs,
+            bi,
+            interner,
+            body_indent,
             ctx.get_variable_types(),
             ctx.oracle(),
         ) {
@@ -687,7 +746,7 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
             &body_refs,
             bi,
             interner,
-            indent + 1,
+            body_indent,
             mutable_vars,
             ctx,
             lww_fields,
@@ -708,7 +767,7 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
             &body_refs,
             bi,
             interner,
-            indent + 1,
+            body_indent,
             ctx.get_variable_types(),
         ) {
             output.push_str(&code);
@@ -718,7 +777,7 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
         output.push_str(&super::codegen_stmt(
             body_refs[bi],
             interner,
-            indent + 1,
+            body_indent,
             mutable_vars,
             ctx,
             lww_fields,
@@ -746,6 +805,23 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
     if use_zero_based {
         ctx.register_variable_type(counter_sym, "i64".to_string());
     }
+    // A counter the body as written never reads is not bound: `for _ in a..b`.
+    if let CountedWalk::Range(_) = &walk {
+        let header_end = loop_start + output[loop_start..].find('\n').map_or(0, |n| n + 1);
+        if !names_identifier(&output[header_end..], &counter_name) {
+            let header = output[loop_start..header_end].replacen(&format!("for {counter_name} in "), "for _ in ", 1);
+            output.replace_range(loop_start..header_end, &header);
+        }
+    }
+    if let CountedWalk::Through { last } = &walk {
+        // The last pass ends the walk before the step past `last`, which may be the largest Int.
+        let last = super::precedence::operand(last, super::precedence::Under::Binary("==", super::precedence::Side::Right));
+        writeln!(output, "{indent_str}        if {counter_name} == {last} {{").unwrap();
+        writeln!(output, "{indent_str}            break;").unwrap();
+        writeln!(output, "{indent_str}        }}").unwrap();
+        writeln!(output, "{indent_str}        {counter_name} += 1;").unwrap();
+        writeln!(output, "{indent_str}    }}").unwrap();
+    }
     writeln!(output, "{}}}", indent_str).unwrap();
     version_on_bounds_hints(
         &mut output,
@@ -757,67 +833,118 @@ pub(crate) fn try_emit_for_range_pattern<'a>(
         &indent_str,
     );
     // Close the borrow-hoist scope and restore the handles' tracked types.
-    super::hoist::emit_hoist_close(&hoist_plan, &indent_str, ctx, &mut output);
+    super::hoist::emit_hoist_close(&hoist_plan, &outer_indent_str, ctx, &mut output);
+    let indent_str = outer_indent_str;
 
-    // Emit the post-loop counter value wherever it can be read after the loop.
-    let remaining_stmts = &stmts[idx + 2..];
-    if value_read_after(counter_sym, stmts, idx + 2) {
-        // OPT-7: If the next statement immediately overwrites the counter,
-        // skip the max() computation and just declare the variable (if needed).
-        let next_stmt_overwrites_counter = remaining_stmts.first().map_or(
-            false,
-            |s| matches!(s, Stmt::Set { target, .. } if *target == counter_sym),
-        );
-
-        if next_stmt_overwrites_counter {
-            // For Let-based counters, we still need to declare the variable
-            // so it exists in scope for the overwriting Set statement.
-            if is_new_binding {
-                writeln!(output, "{}let mut {}: i64 = 0;", indent_str, counter_name).unwrap();
+    // After `while (i <= limit) { ...; i++ }`, i == limit + 1; after `while (i < limit) { ...; i++ }`, i == limit;
+    // a loop that never runs leaves the counter at its start.
+    let post_value = || {
+        if is_exclusive {
+            match (counter_start_literal, limit_expr) {
+                (Some(s), Expr::Literal(Literal::Number(n))) => format!("{}", std::cmp::max(s, *n)),
+                (Some(s), _) => format!("({}_i64).max({})", s, limit_str),
+                (None, _) => format!("({}).max({})", start_str, limit_str),
             }
         } else {
-            // After `while (i <= limit) { ...; i++ }`, i == limit + 1.
-            // After `while (i < limit) { ...; i++ }`, i == limit.
-            // If the loop never executes (start >= limit), counter stays at start.
-            let post_value = if is_exclusive {
-                match (counter_start_literal, limit_expr) {
-                    (Some(s), Expr::Literal(Literal::Number(n))) => {
-                        format!("{}", std::cmp::max(s, *n))
-                    }
-                    (Some(s), _) => {
-                        format!("({}_i64).max({})", s, limit_str)
-                    }
-                    (None, _) => {
-                        format!("({}).max({})", start_str, limit_str)
-                    }
-                }
-            } else {
-                match (counter_start_literal, limit_expr) {
-                    (Some(s), Expr::Literal(Literal::Number(n))) => {
-                        format!("{}", std::cmp::max(s, n + 1))
-                    }
-                    (Some(s), _) => {
-                        format!("({}_i64).max({} + 1)", s, limit_str)
-                    }
-                    (None, _) => {
-                        format!("({}).max({} + 1)", start_str, limit_str)
-                    }
-                }
-            };
-            if is_new_binding {
-                writeln!(
-                    output,
-                    "{}let mut {}: i64 = {};",
-                    indent_str, counter_name, post_value
-                )
-                .unwrap();
-            } else {
-                writeln!(output, "{}{} = {};", indent_str, counter_name, post_value).unwrap();
+            match (counter_start_literal, limit_expr) {
+                (Some(s), Expr::Literal(Literal::Number(n))) => match n.checked_add(1) {
+                    Some(past) => format!("{}", std::cmp::max(s, past)),
+                    None => format!("logos_add_i64({n}i64, 1)"),
+                },
+                (Some(s), _) => format!("({}_i64).max(logos_add_i64({}, 1))", s, limit_str),
+                (None, _) => format!("({}).max(logos_add_i64({}, 1))", start_str, limit_str),
             }
         }
-    }
+    };
+    emit_counter_after(
+        &mut output,
+        &indent_str,
+        counter_sym,
+        &counter_name,
+        &post_value,
+        stmts,
+        idx + 2,
+        is_new_binding,
+        ctx,
+    );
+    ctx.close_hint_run();
 
     Some((output, 1)) // consumed 1 extra statement (the While)
+}
+
+/// Whether `code` names `name` as a whole identifier.
+pub(crate) fn names_identifier(code: &str, name: &str) -> bool {
+    let ident = |c: char| c.is_alphanumeric() || c == '_';
+    code.match_indices(name).any(|(at, _)| {
+        !code[..at].chars().next_back().is_some_and(ident)
+            && !code[at + name.len()..].chars().next().is_some_and(ident)
+    })
+}
+
+/// How a counted loop walks its counter: over a half-open range, or, when its inclusive end may be the largest Int
+/// (which has no successor to end a range at), up from its start in a `while` that stops on `last`.
+enum CountedWalk {
+    Range(String),
+    Through { last: String },
+}
+
+/// The counter's binding once a counted loop over it has run, before `block[at]`. Where a later statement reads the
+/// value the loop leaves, the binding takes `post`. Where the first statement to speak of the counter gives it a value
+/// without reading it at this block's level, the old value is dead: a counter with no binding (`declares`, the loop
+/// took over its `Let`, or an earlier loop left it unbound) is left to that statement to bind. Otherwise a counter
+/// with no binding is declared without a value, for the statements that set it before reading it.
+#[allow(clippy::too_many_arguments)]
+fn emit_counter_after(
+    out: &mut String,
+    indent: &str,
+    counter: Symbol,
+    name: &str,
+    post: &dyn Fn() -> String,
+    block: &[&Stmt<'_>],
+    at: usize,
+    declares: bool,
+    ctx: &mut RefinementContext<'_>,
+) {
+    let read = starts_over(counter, block, at).is_none() && afterwards(counter, block, at) == AfterwardsIt::IsRead;
+    if !read {
+        return emit_counter_unread_after(out, indent, counter, name, block, at, declares, ctx);
+    }
+    if ctx.take_unbound(counter).is_some() || declares {
+        let mutable = if written_in(counter, &block[at..]) { super::tentative::MAYBE_MUT } else { "" };
+        writeln!(out, "{indent}let {mutable}{name}: i64 = {};", post()).unwrap();
+    } else {
+        ctx.need_binding(counter);
+        writeln!(out, "{indent}{name} = {};", post()).unwrap();
+    }
+}
+
+/// [`emit_counter_after`] for a counter no statement after `block[at]` reads before setting it.
+#[allow(clippy::too_many_arguments)]
+fn emit_counter_unread_after(
+    out: &mut String,
+    indent: &str,
+    counter: Symbol,
+    name: &str,
+    block: &[&Stmt<'_>],
+    at: usize,
+    declares: bool,
+    ctx: &mut RefinementContext<'_>,
+) {
+    let unbound = ctx.take_unbound(counter).is_some() || declares;
+    if !unbound || !symbol_appears_in_stmts(counter, &block[at..]) {
+        return;
+    }
+    match starts_over(counter, block, at) {
+        Some(StartsOver::Set { at: first }) => {
+            ctx.leave_unbound(counter, written_in(counter, &block[first + 1..]));
+        }
+        Some(StartsOver::Let) => {}
+        None => {
+            let (id, line) = super::tentative::tentative(indent, name, may_set_twice(counter, &block[at..]));
+            ctx.declare_tentatively(counter, id);
+            out.push_str(&line);
+        }
+    }
 }
 
 /// Collect all identifier symbols referenced in an expression.
@@ -2004,6 +2131,10 @@ fn try_emit_tiled_inner<'a>(
     let hoist_plan =
         super::hoist::plan_borrow_hoist(inner_loop_stmt, None, inner_body_sans_inc, ctx, interner);
     super::hoist::emit_hoist_open(&hoist_plan, interner, &tile_indent, ctx, &mut out);
+    // The nest sits one level inside the hoist scope's braces.
+    let outer_pad = pad;
+    let indent = super::hoist::scoped_indent(&hoist_plan, indent);
+    let pad = "    ".repeat(indent);
 
     // Every access the nest's versioning guard proved in range gets an `assert_unchecked` hint in the
     // innermost body, after which LLVM drops its check; the guard also proved the index arithmetic stays in
@@ -2061,8 +2192,9 @@ fn try_emit_tiled_inner<'a>(
         for (arr, idx) in &hints {
             writeln!(
                 out,
-                "{}unsafe {{ std::hint::assert_unchecked(({idx}) >= 0 && ({idx}) < ({arr}.len() as i64)); }}",
-                bi, idx = idx, arr = names.ident(*arr)
+                "{}unsafe {{ std::hint::assert_unchecked({}); }}",
+                bi,
+                super::stmt::index_in_range(idx, &names.ident(*arr))
             ).unwrap();
         }
     }
@@ -2093,31 +2225,13 @@ fn try_emit_tiled_inner<'a>(
     writeln!(out, "{}    }}", pad).unwrap();
     // Close the borrow-hoist scope and restore the handles' tracked types.
     super::hoist::emit_hoist_close(&hoist_plan, &tile_indent, ctx, &mut out);
+    let pad = outer_pad;
     writeln!(out, "{}}}", pad).unwrap();
 
-    // Post-loop counter value for the outer counter.
-    // Middle and inner counters are scoped inside the outer body and don't escape.
-    let remaining = &stmts[idx + 2..];
-    if value_read_after(outer_sym, stmts, idx + 2) {
-        let next_overwrites = remaining.first().map_or(
-            false,
-            |s| matches!(s, Stmt::Set { target, .. } if *target == outer_sym),
-        );
-        if next_overwrites {
-            if is_new_binding {
-                writeln!(out, "{}let mut {}: i64 = 0;", pad, outer_name).unwrap();
-            }
-        } else {
-            // A tiled nest counts from 0 below its bound, so its counter leaves at the bound, or at 0 when it ran
-            // no pass; a counter the nest reuses is assigned, one it declares is declared.
-            let exit = format!("(0_i64).max({})", bound_str);
-            if is_new_binding {
-                writeln!(out, "{}let mut {}: i64 = {};", pad, outer_name, exit).unwrap();
-            } else {
-                writeln!(out, "{}{} = {};", pad, outer_name, exit).unwrap();
-            }
-        }
-    }
+    // The outer counter after the nest: a tiled nest counts from 0 below its bound, so its counter leaves at the
+    // bound, or at 0 when it ran no pass. Middle and inner counters are scoped inside the outer body.
+    let exit = || format!("(0_i64).max({})", bound_str);
+    emit_counter_after(&mut out, &pad, outer_sym, &outer_name, &exit, stmts, idx + 2, is_new_binding, ctx);
 
     Some((out, 1))
 }
@@ -2141,15 +2255,12 @@ pub(crate) fn try_emit_vec_fill_pattern<'a>(
         return None;
     }
 
+    // A list that may hold integers past the word is an `IntVec`: a fill of words starts it as one.
+    let int_vec = matches!(stmts[idx], Stmt::Let { var, .. } if super::int_vec::promotes_here(*var));
     // Statement 1: Let [mutable] vec_var be a new Seq of T.
     // Note: mutable keyword is optional — mutability is inferred from Push in the loop body.
-    let (vec_sym, elem_type, vec_is_mutable) = match stmts[idx] {
-        Stmt::Let {
-            var,
-            value,
-            ty,
-            mutable,
-        } => {
+    let (vec_sym, elem_type) = match stmts[idx] {
+        Stmt::Let { var, value, ty, .. } => {
             // Check for explicit type annotation like `: Seq of Bool`
             let type_from_annotation = if let Some(TypeExpr::Generic { base, params }) = ty {
                 let base_name = interner.resolve(*base);
@@ -2170,7 +2281,7 @@ pub(crate) fn try_emit_vec_fill_pattern<'a>(
             } = value
             {
                 let tn = interner.resolve(*type_name);
-                if matches!(tn, "Seq" | "List" | "Vec") && init_fields.is_empty() {
+                if crate::semantics::collections::builds_list(tn) && init_fields.is_empty() {
                     if !type_args.is_empty() {
                         Some(codegen_type_expr(&type_args[0], interner))
                     } else {
@@ -2184,7 +2295,7 @@ pub(crate) fn try_emit_vec_fill_pattern<'a>(
             };
 
             match type_from_annotation.or(type_from_new) {
-                Some(t) => (*var, t, *mutable),
+                Some(t) => (*var, t),
                 None => return None,
             }
         }
@@ -2206,13 +2317,10 @@ pub(crate) fn try_emit_vec_fill_pattern<'a>(
             if let Expr::Identifier(sym) = collection {
                 if *sym == vec_sym {
                     let val_str = match value {
+                        Expr::Literal(lit @ Literal::Number(_)) => Some(super::expr::codegen_literal(lit, interner)),
                         Expr::Literal(
-                            lit @ (Literal::Number(_)
-                            | Literal::Float(_)
-                            | Literal::Boolean(_)
-                            | Literal::Char(_)
-                            | Literal::Text(_)),
-                        ) => Some(super::expr::codegen_literal(lit, interner)),
+                            lit @ (Literal::Float(_) | Literal::Boolean(_) | Literal::Char(_) | Literal::Text(_)),
+                        ) if !int_vec => Some(super::expr::codegen_literal(lit, interner)),
                         _ => None,
                     };
                     if let Some(vs) = val_str {
@@ -2316,13 +2424,10 @@ pub(crate) fn try_emit_vec_fill_pattern<'a>(
 
             // Push value must be a constant literal
             let fill_val_str = match push_val {
+                Expr::Literal(lit @ Literal::Number(_)) => super::expr::codegen_literal(lit, interner),
                 Expr::Literal(
-                    lit @ (Literal::Number(_)
-                    | Literal::Float(_)
-                    | Literal::Boolean(_)
-                    | Literal::Char(_)
-                    | Literal::Text(_)),
-                ) => super::expr::codegen_literal(lit, interner),
+                    lit @ (Literal::Float(_) | Literal::Boolean(_) | Literal::Char(_) | Literal::Text(_)),
+                ) if !int_vec => super::expr::codegen_literal(lit, interner),
                 _ => return None,
             };
 
@@ -2368,35 +2473,18 @@ pub(crate) fn try_emit_vec_fill_pattern<'a>(
             let limit_str = codegen_expr_simple(limit_expr, interner);
             let prefix_count = prefix_values.len();
 
-            // Calculate loop iteration count (without prefix)
-            // Inclusive (<=): loop_count = limit - start + 1
-            // Exclusive (<):  loop_count = limit - start
-            let raw_loop_count = if is_exclusive {
-                if counter_start == 0 {
-                    limit_str.clone()
-                } else {
-                    format!("({} - {})", limit_str, counter_start)
-                }
-            } else {
-                if counter_start == 0 {
-                    format!("({} + 1)", limit_str)
-                } else if counter_start == 1 {
-                    limit_str.clone()
-                } else {
-                    format!("({} - {} + 1)", limit_str, counter_start)
-                }
-            };
-
-            // Total count = prefix elements + loop iterations; a loop whose limit is below its start runs
-            // no iterations.
-            let count_expr = if prefix_count == 0 {
-                format!("({}).max(0) as usize", raw_loop_count)
-            } else {
-                format!("({} + ({}).max(0)) as usize", prefix_count, raw_loop_count)
-            };
+            // The vector's length: the prefix's items, and one per pass.
+            let count_expr = pass_count(
+                LoopEnd::Literal(counter_start),
+                LoopEnd::of(limit_expr, &limit_str),
+                !is_exclusive,
+            )
+            .plus(prefix_count)
+            .as_usize();
 
             let mut output = String::new();
-            let mut_kw = if vec_is_mutable { "mut " } else { "" };
+            // `mut` where the emitted code writes the list, which a `Set item` does however the list is bound.
+            let mut_kw = super::tentative::MAYBE_MUT;
             // O2 de-Rc: a Seq proven not to need reference semantics is a plain
             // `Vec<T>` (no Rc/RefCell); prefix overrides become direct stores.
             let de_rc = ctx.is_de_rc(vec_sym);
@@ -2404,8 +2492,20 @@ pub(crate) fn try_emit_vec_fill_pattern<'a>(
             // values is `Vec<i32>` (the fill literal coerces; access sites convert).
             let narrow = de_rc && ctx.is_narrowed(vec_sym);
             let elem = if narrow { "i32" } else { elem_type.as_str() };
-            let bits = ctx.is_bitpacked(vec_sym);
-            if bits {
+            let bits = !int_vec && ctx.is_bitpacked(vec_sym);
+            if int_vec {
+                writeln!(
+                    output,
+                    "{}let {}{}: {} = {};",
+                    indent_str,
+                    mut_kw,
+                    RustNames::new(interner).ident(vec_sym),
+                    super::int_vec::INT_VEC,
+                    super::int_vec::filled(&fill_val_str, &count_expr)
+                )
+                .unwrap();
+                ctx.register_variable_type(vec_sym, super::int_vec::INT_VEC.to_string());
+            } else if bits {
                 writeln!(
                     output,
                     "{}let {}{}: logicaffeine_data::LogosBits = logicaffeine_data::LogosBits::filled({}, {});",
@@ -2437,12 +2537,22 @@ pub(crate) fn try_emit_vec_fill_pattern<'a>(
             for (i, prefix_val) in prefix_values.iter().enumerate() {
                 if *prefix_val != fill_val_str {
                     // A narrowed buffer truncates the override (lossless by proof).
-                    let pv = if narrow_prefix {
-                        format!("({}) as i32", prefix_val)
+                    let pv = if narrow_prefix && prefix_val.parse::<i64>().is_err() {
+                        format!("{} as i32", super::precedence::operand(prefix_val, super::precedence::Under::Cast))
                     } else {
                         prefix_val.clone()
                     };
-                    if bits {
+                    if int_vec {
+                        writeln!(
+                            output,
+                            "{}{}.set_word({}, {});",
+                            indent_str,
+                            RustNames::new(interner).ident(vec_sym),
+                            i,
+                            pv
+                        )
+                        .unwrap();
+                    } else if bits {
                         writeln!(
                             output,
                             "{}{}.set_item({}, {});",
@@ -2468,17 +2578,18 @@ pub(crate) fn try_emit_vec_fill_pattern<'a>(
             // The counter as the loop leaves it: one past the limit, or its start when the loop never ran.
             let names = RustNames::new(interner);
             let counter_name = names.ident(counter_sym);
-            let after = counter_after(&format!("{}_i64", counter_start), &limit_str, is_exclusive);
-            if counter_is_new_binding {
-                writeln!(
-                    output,
-                    "{}let mut {}: i64 = {};",
-                    indent_str, counter_name, after
-                )
-                .unwrap();
-            } else {
-                writeln!(output, "{}{} = {};", indent_str, counter_name, after).unwrap();
-            }
+            let after = || counter_after(&format!("{}_i64", counter_start), &limit_str, is_exclusive);
+            emit_counter_after(
+                &mut output,
+                &indent_str,
+                counter_sym,
+                &counter_name,
+                &after,
+                stmts,
+                cursor + 2,
+                counter_is_new_binding,
+                ctx,
+            );
 
             // Extra consumed: prefix pushes + counter init + while loop
             let extra_consumed = (cursor - idx) + 1;
@@ -2523,7 +2634,7 @@ fn codegen_expr_simple(expr: &Expr, interner: &Interner) -> String {
         // `{:?}` on a &str emits a fully-escaped Rust string literal token, so a Text-literal
         // chunk (e.g. center's `" "`) becomes `" "`, never the `_` sentinel. is_simple_expr agrees.
         Expr::Literal(Literal::Text(sym)) => format!("{:?}", interner.resolve(*sym)),
-        Expr::Identifier(sym) => interner.resolve(*sym).to_string(),
+        Expr::Identifier(sym) => crate::codegen::escape_rust_ident(interner.resolve(*sym)),
         Expr::BinaryOp { op, left, right } => {
             let l = codegen_expr_simple(left, interner);
             let r = codegen_expr_simple(right, interner);
@@ -2539,7 +2650,7 @@ fn codegen_expr_simple(expr: &Expr, interner: &Interner) -> String {
         }
         Expr::Length { collection } => {
             if let Expr::Identifier(sym) = collection {
-                format!("({}.len() as i64)", interner.resolve(*sym))
+                format!("({}.len() as i64)", crate::codegen::escape_rust_ident(interner.resolve(*sym)))
             } else {
                 "_".to_string()
             }
@@ -2671,43 +2782,17 @@ pub(crate) fn try_emit_string_with_capacity_pattern<'a>(
                                 let limit_str = codegen_expr_simple(limit_expr, interner);
                                 let start_str = codegen_expr_simple(start_expr, interner);
 
-                                let capacity_expr = if is_exclusive {
-                                    match start_expr {
-                                        Expr::Literal(Literal::Number(0)) => limit_str.clone(),
-                                        Expr::Literal(Literal::Number(s)) => {
-                                            if let Expr::Literal(Literal::Number(n)) = limit_expr {
-                                                format!("{}", n - s)
-                                            } else {
-                                                format!("({} - {})", limit_str, s)
-                                            }
-                                        }
-                                        _ => format!("({} - {})", limit_str, start_str),
-                                    }
-                                } else {
-                                    match start_expr {
-                                        Expr::Literal(Literal::Number(0)) => {
-                                            if let Expr::Literal(Literal::Number(n)) = limit_expr {
-                                                format!("{}", n + 1)
-                                            } else {
-                                                format!("({} + 1)", limit_str)
-                                            }
-                                        }
-                                        Expr::Literal(Literal::Number(1)) => limit_str.clone(),
-                                        Expr::Literal(Literal::Number(s)) => {
-                                            if let Expr::Literal(Literal::Number(n)) = limit_expr {
-                                                format!("{}", n - s + 1)
-                                            } else {
-                                                format!("({} - {} + 1)", limit_str, s)
-                                            }
-                                        }
-                                        _ => format!("({} - {} + 1)", limit_str, start_str),
-                                    }
-                                };
+                                let capacity_expr = pass_count(
+                                    LoopEnd::of(start_expr, &start_str),
+                                    LoopEnd::of(limit_expr, &limit_str),
+                                    !is_exclusive,
+                                )
+                                .as_usize();
 
                                 let mut output = String::new();
                                 writeln!(
                                     output,
-                                    "{}let mut {} = String::with_capacity({} as usize);",
+                                    "{}let mut {}: String = String::with_capacity({});",
                                     indent_str, var_name, capacity_expr
                                 )
                                 .unwrap();
@@ -2794,7 +2879,7 @@ fn codegen_index_operand(
                 .get(sym)
                 .map_or(false, |t| t.contains("__bigint")) =>
         {
-            format!("{}.expect_i64(\"Int\")", interner.resolve(*sym))
+            format!("{}.expect_i64(\"Int\")", crate::codegen::escape_rust_ident(interner.resolve(*sym)))
         }
         Expr::BinaryOp { op, left, right } => {
             let l = codegen_index_operand(left, interner, variable_types);
@@ -2832,6 +2917,7 @@ pub(crate) fn simplify_1based_index(
     include_as_usize: bool,
     variable_types: &HashMap<Symbol, String>,
 ) -> String {
+    use super::precedence::{operand, Side, Under};
     let cast = if include_as_usize { " as usize" } else { "" };
 
     // A rebased 0-based counter (`j`, `j ± k`) indexes directly: its rebase already
@@ -2858,7 +2944,7 @@ pub(crate) fn simplify_1based_index(
                 (_, Expr::Literal(Literal::Number(1))) => {
                     let inner = codegen_index_operand(left, interner, variable_types);
                     if include_as_usize {
-                        format!("({}){}", inner, cast)
+                        format!("{}{}", operand(&inner, Under::Cast), cast)
                     } else {
                         inner
                     }
@@ -2867,7 +2953,7 @@ pub(crate) fn simplify_1based_index(
                 (Expr::Literal(Literal::Number(1)), _) => {
                     let inner = codegen_index_operand(right, interner, variable_types);
                     if include_as_usize {
-                        format!("({}){}", inner, cast)
+                        format!("{}{}", operand(&inner, Under::Cast), cast)
                     } else {
                         inner
                     }
@@ -2875,24 +2961,24 @@ pub(crate) fn simplify_1based_index(
                 // (X + K) where K > 1 → (X + K-1)
                 (_, Expr::Literal(Literal::Number(k))) if *k > 1 => {
                     let inner = codegen_index_operand(left, interner, variable_types);
-                    format!("({} + {}){}", inner, k - 1, cast)
+                    format!("({} + {}){}", operand(&inner, Under::Binary("+", Side::Left)), k - 1, cast)
                 }
                 // (K + X) where K > 1 → (X + K-1)
                 (Expr::Literal(Literal::Number(k)), _) if *k > 1 => {
                     let inner = codegen_index_operand(right, interner, variable_types);
-                    format!("({} + {}){}", inner, k - 1, cast)
+                    format!("({} + {}){}", operand(&inner, Under::Binary("+", Side::Left)), k - 1, cast)
                 }
                 // Fallback: (expr - 1)
                 _ => {
                     let full = codegen_index_operand(expr, interner, variable_types);
-                    format!("({} - 1){}", full, cast)
+                    format!("({} - 1){}", operand(&full, Under::Binary("-", Side::Left)), cast)
                 }
             }
         }
         // Fallback: (expr - 1)
         _ => {
             let full = codegen_index_operand(expr, interner, variable_types);
-            format!("({} - 1){}", full, cast)
+            format!("({} - 1){}", operand(&full, Under::Binary("-", Side::Left)), cast)
         }
     }
 }
@@ -3142,11 +3228,12 @@ pub(crate) fn plan_bounds_hints(
         let base_ty = variable_types
             .get(&arr_sym)
             .map(|t| t.split("|__hl:").next().unwrap_or(t.as_str()));
+        // A list that may hold integers past the word qualifies where a loop reads it through a view of its words.
         let qualifies = matches!(
             base_ty,
             Some(t) if t.starts_with("LogosSeq") || t.starts_with("Vec<")
                 || t.starts_with("&[") || t.starts_with("&mut [")
-        );
+        ) || super::int_vec::loop_view(arr_sym).is_some();
         if !qualifies {
             continue;
         }
@@ -3199,15 +3286,16 @@ pub(crate) fn emit_bounds_hint_preheader(
             HintStrength::Lt => "<",
             HintStrength::Le => "<=",
         };
+        let held = super::int_vec::loop_view(p.arr_sym).unwrap_or_else(|| arr.clone());
         writeln!(
             output,
-            "{}let __{}_bhl = {}.len() as i64;",
-            indent_str, arr, arr
+            "{}let __{}_bhl: i64 = {}.len() as i64;",
+            indent_str, arr, held
         )
         .unwrap();
         writeln!(
             output,
-            "{}let __{}_bh_ok = {} {} __{}_bhl;",
+            "{}let __{}_bh_ok: bool = {} {} __{}_bhl;",
             indent_str, arr, p.bound_str, op, arr
         )
         .unwrap();
@@ -3340,7 +3428,9 @@ pub(crate) fn version_on_bounds_hints(
     crate::optimize::mark_fired(crate::optimization::Opt::HintVersion);
     output.truncate(loop_start);
     output.push_str(&format!(
-        "{indent_str}if {flags} {{\n{assuming}{indent_str}}} else {{\n{checked}{indent_str}}}\n"
+        "{indent_str}if {flags} {{\n{}{indent_str}}} else {{\n{}{indent_str}}}\n",
+        super::precedence::indented(&assuming, "    "),
+        super::precedence::indented(&checked, "    "),
     ));
 }
 
@@ -3365,20 +3455,6 @@ pub(crate) fn exprs_equal(a: &Expr, b: &Expr) -> bool {
     }
 }
 
-/// Peephole optimization: detect swap patterns and emit `arr.swap()` instead.
-///
-/// Pattern A (conditional, adjacent indices — bubble sort):
-///   Let a be item j of arr. Let b be item (j+1) of arr.
-///   If a > b then: Set item j of arr to b. Set item (j+1) of arr to a.
-/// → `if arr[j-1] > arr[j] { arr.swap(j-1, j); }`
-///
-/// Pattern B (unconditional, any indices — quicksort/heapsort):
-///   Let tmp be item I of arr.
-///   Set item I of arr to item J of arr.
-///   Set item J of arr to tmp.
-/// → `arr.swap((I-1) as usize, (J-1) as usize);`
-///
-/// Returns (generated_code, number_of_extra_statements_consumed) or None.
 /// The `bcmp` idiom: a fixed-window byte-compare loop
 /// ```text
 /// While j < LEN:
@@ -3393,6 +3469,8 @@ pub(crate) fn exprs_equal(a: &Expr, b: &Expr) -> bool {
 /// branch. Semantics-preserving: the flag is left untouched when the windows are
 /// equal (the loop never enters the `if`), set to `V` on the first mismatch.
 pub(crate) struct ByteCompareWindow<'a> {
+    /// The loop's counter, which the window replaces.
+    pub counter: Symbol,
     pub text: Symbol,
     pub needle: Symbol,
     pub flag: Symbol,
@@ -3480,6 +3558,7 @@ pub(crate) fn match_byte_compare_window<'a>(
     }
     let (flag, flag_value) = flag?;
     saw_break.then_some(ByteCompareWindow {
+        counter: j,
         text,
         needle,
         flag,
@@ -3495,14 +3574,47 @@ pub(crate) fn match_byte_compare_window<'a>(
     })
 }
 
-pub(crate) fn try_emit_byte_compare_window(
-    stmt: &Stmt,
+/// The window at `stmts[at..]`: the counter's binding, `Let j be 0`, then a loop [`match_byte_compare_window`]
+/// recognizes counting with it, and no later statement of the block touching the counter. Only then is the window the
+/// loop: the loop compares from offset 0, and nothing reads the counter the window does not set. Both statements are
+/// the window's.
+pub(crate) fn match_byte_compare_window_at<'a>(
+    stmts: &[&'a Stmt<'a>],
+    at: usize,
+    interner: &Interner,
+    oracle: Option<&crate::optimize::OracleFacts>,
+) -> Option<ByteCompareWindow<'a>> {
+    let Stmt::Let { var, value: Expr::Literal(Literal::Number(0)), .. } = *stmts.get(at)? else {
+        return None;
+    };
+    let m = match_byte_compare_window(*stmts.get(at + 1)?, interner, oracle)?;
+    let untouched = !stmts[at + 2..].iter().any(|s| crate::optimize::mentions::stmt_touches(s, *var));
+    (m.counter == *var && untouched).then_some(m)
+}
+
+/// The window at `stmts[idx..]` ([`match_byte_compare_window_at`]) as one comparison, where both sides are bytes the
+/// program indexes, and the one statement past `idx` it consumes.
+pub(crate) fn try_emit_byte_compare_window_at(
+    stmts: &[&Stmt],
+    idx: usize,
+    interner: &Interner,
+    indent: usize,
+    variable_types: &HashMap<Symbol, String>,
+    oracle: Option<&crate::optimize::OracleFacts>,
+) -> Option<(String, usize)> {
+    let m = match_byte_compare_window_at(stmts, idx, interner, oracle)?;
+    emit_byte_compare_window(&m, interner, indent, variable_types, oracle).map(|code| (code, 1))
+}
+
+/// [`ByteCompareWindow`] `m` as one comparison: a constant window as its unrolled byte compares, any other as a
+/// slice inequality.
+fn emit_byte_compare_window(
+    m: &ByteCompareWindow,
     interner: &Interner,
     indent: usize,
     variable_types: &HashMap<Symbol, String>,
     oracle: Option<&crate::optimize::OracleFacts>,
 ) -> Option<String> {
-    let m = match_byte_compare_window(stmt, interner, oracle)?;
     if !is_byte_indexable(variable_types.get(&m.text))
         || !is_byte_indexable(variable_types.get(&m.needle))
     {
@@ -3531,18 +3643,12 @@ pub(crate) fn try_emit_byte_compare_window(
     let proven =
         |o: &crate::optimize::OracleFacts, coll, idx| o.index_provably_in_bounds(coll, idx);
     if oracle.map_or(false, |o| proven(o, m.text_collection, m.text_index)) {
-        writeln!(
-            out,
-            "{ind}unsafe {{ std::hint::assert_unchecked((({bt}) - 1) >= 0 && ((({bt}) - 1) + ({len_str})) <= ({text_n}.len() as i64)); }}"
-        )
-        .unwrap();
+        let window = window_in_range(&bt, &len_str, &text_n);
+        writeln!(out, "{ind}unsafe {{ std::hint::assert_unchecked({window}); }}").unwrap();
     }
     if oracle.map_or(false, |o| proven(o, m.needle_collection, m.needle_index)) {
-        writeln!(
-            out,
-            "{ind}unsafe {{ std::hint::assert_unchecked((({bn}) - 1) >= 0 && ((({bn}) - 1) + ({len_str})) <= ({needle_n}.len() as i64)); }}"
-        )
-        .unwrap();
+        let window = window_in_range(&bn, &len_str, &needle_n);
+        writeln!(out, "{ind}unsafe {{ std::hint::assert_unchecked({window}); }}").unwrap();
     }
     if let Some(k) = m.const_len {
         // Constant window: emit C's UNROLLED element-wise byte compare — K byte
@@ -3552,7 +3658,9 @@ pub(crate) fn try_emit_byte_compare_window(
         let terms: Vec<String> = (0..k)
             .map(|off| {
                 format!(
-                    "{text_n}.as_bytes()[(({bt}) - 1 + {off}) as usize] == {needle_n}.as_bytes()[(({bn}) - 1 + {off}) as usize]"
+                    "{text_n}.as_bytes()[{}] == {needle_n}.as_bytes()[{}]",
+                    byte_at(&bt, off),
+                    byte_at(&bn, off)
                 )
             })
             .collect();
@@ -3567,6 +3675,32 @@ pub(crate) fn try_emit_byte_compare_window(
     writeln!(out, "{ind1}{flag_n} = {fv};").unwrap();
     writeln!(out, "{ind}}}").unwrap();
     Some(out)
+}
+
+/// The 0-based byte `offset` past a 1-based `base`, as a slice index: a literal base folds to the index itself.
+fn byte_at(base: &str, offset: i64) -> String {
+    use super::precedence::{operand, Side, Under};
+    match base.trim().parse::<i64>() {
+        Ok(b) => (b - 1 + offset).to_string(),
+        Err(_) => {
+            let base = operand(base, Under::Binary("+", Side::Left));
+            let index = match offset - 1 {
+                0 => base.into_owned(),
+                k if k > 0 => format!("{base} + {k}"),
+                k => format!("{base} - {}", -k),
+            };
+            format!("{} as usize", operand(&index, Under::Cast))
+        }
+    }
+}
+
+/// The window of `len` bytes from a 1-based `base` lies inside `bytes`: `0 <= base - 1` and `base - 1 + len <= its
+/// length`, the lower half left out where a literal base settles it.
+fn window_in_range(base: &str, len: &str, bytes: &str) -> String {
+    match base.trim().parse::<i64>() {
+        Ok(b) if b >= 1 => format!("{} + ({len}) <= ({bytes}.len() as i64)", b - 1),
+        _ => format!("(({base}) - 1) >= 0 && ((({base}) - 1) + ({len})) <= ({bytes}.len() as i64)"),
+    }
 }
 
 /// The naive substring-search idiom, recognized as an OVERLAPPING occurrence
@@ -3903,6 +4037,7 @@ pub(crate) fn try_emit_naive_search(
     )
     .unwrap();
     ctx.register_variable_type(m.count, "i64".to_string());
+    emit_counter_unread_after(&mut out, &ind, m.i, &names.ident(m.i), stmts, idx + 3, true, ctx);
     crate::optimize::mark_fired(crate::optimization::Opt::Simd);
     Some((out, 2))
 }
@@ -4029,7 +4164,7 @@ fn try_emit_text_bytes_view<'a>(
     let names = RustNames::new(interner);
     let ind = "    ".repeat(indent);
     let code = format!(
-        "{}let {} = ({}).as_bytes();\n",
+        "{}let {}: &[u8] = {}.as_bytes();\n",
         ind,
         names.ident(sb),
         names.ident(s)
@@ -4208,7 +4343,7 @@ fn try_emit_radix_digit_buffer<'a>(
     let appears_stmt = |sym: Symbol, s: &Stmt| super::detection::symbol_appears_in_stmt(sym, s);
     let is_new_seq = |v: &Expr| {
         matches!(v, Expr::New { type_name, init_fields, .. }
-        if matches!(interner.resolve(*type_name), "Seq" | "List" | "Vec") && init_fields.is_empty())
+        if crate::semantics::collections::builds_list(interner.resolve(*type_name)) && init_fields.is_empty())
     };
     let is_int_lit = |e: &Expr, n: i64| matches!(e, Expr::Literal(Literal::Number(v)) if *v == n);
 
@@ -4435,7 +4570,7 @@ fn try_emit_radix_digit_buffer<'a>(
         async_functions,
         ctx.get_variable_types(),
     );
-    writeln!(out_code, "{ind}while {cond_str} {{").unwrap();
+    writeln!(out_code, "{ind}while {} {{", super::precedence::condition(&cond_str)).unwrap();
     ctx.push_scope();
     for (bi, st) in gen_body.iter().enumerate() {
         if bi == push_bi {
@@ -4469,16 +4604,19 @@ fn try_emit_radix_digit_buffer<'a>(
     }
     ctx.pop_scope();
     writeln!(out_code, "{ind}}}").unwrap();
-    writeln!(
-        out_code,
-        "{ind}return String::from_utf8({buf}[{pos}..].to_vec()).unwrap();"
-    )
-    .unwrap();
+    // The `Return` the shape ends with ends the function where it is the function's last statement: its value is then
+    // the function's.
+    let text = format!("String::from_utf8({buf}[{pos}..].to_vec()).unwrap()");
+    if ctx.is_tail(stmts[idx + 6]) {
+        writeln!(out_code, "{ind}{text}").unwrap();
+    } else {
+        writeln!(out_code, "{ind}return {text};").unwrap();
+    }
     Some((out_code, 6))
 }
 
 /// Opt::TextFromBytesBuilder — a `Let out be a new Seq of Int` used ONLY as a byte builder and
-/// consumed by `text_from_bytes(out)` lowers to a bare `Vec<u8>` (`out.push((e) as u8)` at each
+/// consumed by `text_from_bytes(out)` lowers to a bare `Vec<u8>` (`out.push(e as u8)` at each
 /// push, `String::from_utf8(out)` at the consume). Kills the `Rc<RefCell<Vec<i64>>>` output (8x
 /// memory + per-push borrow + no presize) and the separate `i64`->`u8` rebuild pass. The element
 /// type is witnessed by the `text_from_bytes(out)` consumption (its param is `Seq of Int`), so no
@@ -4502,7 +4640,7 @@ fn try_emit_text_from_bytes_builder<'a>(
     let out = *out;
     // `value` must be `a new Seq/List/Vec` (empty) — the byte-list builder.
     let is_new_empty_seq = matches!(value, Expr::New { type_name, init_fields, .. }
-        if matches!(interner.resolve(*type_name), "Seq" | "List" | "Vec") && init_fields.is_empty());
+        if crate::semantics::collections::builds_list(interner.resolve(*type_name)) && init_fields.is_empty());
     if !is_new_empty_seq {
         return None;
     }
@@ -4559,7 +4697,7 @@ pub(crate) fn match_slice_builder_at<'a>(
     };
     let out = *out;
     if !matches!(v0, Expr::New { type_name, init_fields, .. }
-        if matches!(interner.resolve(*type_name), "Seq" | "List" | "Vec") && init_fields.is_empty())
+        if crate::semantics::collections::builds_list(interner.resolve(*type_name)) && init_fields.is_empty())
     {
         return None;
     }
@@ -4822,8 +4960,8 @@ fn try_emit_str_slice_return<'a>(
     let names = RustNames::new(interner);
     let ind = "    ".repeat(indent);
     let s_name = names.ident(s);
-    let lo_str = codegen_expr_simple(lo, interner);
-    let hi_str = codegen_expr_simple(hi, interner);
+    let lo_str = super::expr::into_word(lo, codegen_expr_simple(lo, interner), ctx.get_variable_types());
+    let hi_str = super::expr::into_word(hi, codegen_expr_simple(hi, interner), ctx.get_variable_types());
     // The loop's bytes under its own rule, read back as `text_from_bytes` reads them.
     let run = if inclusive {
         "logos_text_run_through"
@@ -4855,7 +4993,7 @@ pub(crate) fn match_byte_slice_builder_at<'a>(
     };
     let out = *out;
     if !matches!(v0, Expr::New { type_name, init_fields, .. }
-        if matches!(interner.resolve(*type_name), "Seq" | "List" | "Vec") && init_fields.is_empty())
+        if crate::semantics::collections::builds_list(interner.resolve(*type_name)) && init_fields.is_empty())
     {
         return None;
     }
@@ -5044,8 +5182,8 @@ fn try_emit_byte_slice_return<'a>(
     let names = RustNames::new(interner);
     let ind = "    ".repeat(indent);
     let sb_name = names.ident(sb);
-    let lo_str = codegen_expr_simple(lo, interner);
-    let hi_str = codegen_expr_simple(hi, interner);
+    let lo_str = super::expr::into_word(lo, codegen_expr_simple(lo, interner), ctx.get_variable_types());
+    let hi_str = super::expr::into_word(hi, codegen_expr_simple(hi, interner), ctx.get_variable_types());
     // The items the loop reads, under its own rule.
     let code = format!(
         "{ind}return {};\n",
@@ -5157,22 +5295,66 @@ pub(crate) fn try_block_peepholes<'a>(
     registry: &TypeRegistry,
     type_env: &crate::analysis::types::TypeEnv,
 ) -> Option<(String, usize)> {
+    // A loop an exact local runs through as a machine word, written twice (`unboxed`).
+    if let Some(region) = super::unboxed::region_at(stmts[idx]) {
+        if let Some(code) = emit_region(
+            &region, stmts[idx], interner, indent, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps,
+            async_functions, pipe_vars, boxed_fields, registry, type_env,
+        ) {
+            return Some((code, 0));
+        }
+    }
     // The patterns below are written for machine integers and collections of them; a window that
     // reaches a value of the exact extension is emitted statement by statement on its value model.
     if super::tower::mentions_reached(&stmts[idx..]) {
         return None;
     }
+    // A function whose signature returns a slice of its parameter returns it here, whatever its integers are held as.
+    if let r @ Some(_) = try_emit_str_slice_return(stmts, idx, interner, indent, ctx) {
+        return r;
+    }
+    if let r @ Some(_) = try_emit_byte_slice_return(stmts, idx, interner, indent, ctx) {
+        return r;
+    }
+    // So does a window that reaches an `Int` the exactness decision holds as a `LogosInt`.
+    if super::exact_scalars::mentions_exact(&stmts[idx..], ctx) {
+        return None;
+    }
+    // A list that may hold integers past the word is an `IntVec`. Of these machine-word patterns only two write one:
+    // the fill of words, which it starts as, and the loop that pushes its words, which it starts with room for.
+    let int_vec_window = super::int_vec::touches(&stmts[idx..=idx]);
     // Mark Peephole as fired iff some pattern in the dispatch chain below actually
     // emitted (the `Some` is the proof). Dedicated peephole opts (Simd, Cascade,
     // IndexString, CapScale) additionally mark themselves at their own emission.
     let __peephole_result = (|| -> Option<(String, usize)> {
+        if int_vec_window {
+            if let r @ Some(_) = try_emit_vec_fill_pattern(stmts, idx, interner, indent, ctx) {
+                return r;
+            }
+            return try_emit_vec_with_capacity_pattern(
+                stmts,
+                idx,
+                interner,
+                indent,
+                mutable_vars,
+                ctx,
+                lww_fields,
+                mv_fields,
+                synced_vars,
+                var_caps,
+                async_functions,
+                pipe_vars,
+                boxed_fields,
+                registry,
+                type_env,
+            );
+        }
+        if let r @ Some(_) =
+            try_emit_byte_compare_window_at(stmts, idx, interner, indent, ctx.get_variable_types(), ctx.oracle())
+        {
+            return r;
+        }
         if let r @ Some(_) = try_emit_text_bytes_view(stmts, idx, interner, indent, ctx) {
-            return r;
-        }
-        if let r @ Some(_) = try_emit_str_slice_return(stmts, idx, interner, indent, ctx) {
-            return r;
-        }
-        if let r @ Some(_) = try_emit_byte_slice_return(stmts, idx, interner, indent, ctx) {
             return r;
         }
         if let r @ Some(_) = try_emit_radix_digit_buffer(
@@ -5228,9 +5410,7 @@ pub(crate) fn try_block_peepholes<'a>(
         if let r @ Some(_) = try_emit_vec_fill_pattern(stmts, idx, interner, indent, ctx) {
             return r;
         }
-        if let r @ Some(_) =
-            try_emit_bare_slice_push_pattern(stmts, idx, interner, indent, ctx.get_variable_types())
-        {
+        if let r @ Some(_) = try_emit_bare_slice_push_pattern(stmts, idx, interner, indent, ctx) {
             return r;
         }
         if let r @ Some(_) = try_emit_vec_with_capacity_pattern(
@@ -5412,6 +5592,131 @@ pub(crate) fn try_block_peepholes<'a>(
     __peephole_result
 }
 
+/// The loop `stmt`, a region (`unboxed`), in its two forms: its exact locals read into machine words and the loop run
+/// on them inside `failure::speculate`, written back where it finishes; and the loop as written, run where one of them
+/// held no word as it began, or where the word form met a value past the word and gave up, with the machine words it
+/// assigned restored. `None` where an exact local the region reads is not held as a `LogosInt` here.
+#[allow(clippy::too_many_arguments)]
+fn emit_region<'a>(
+    region: &super::unboxed::Region,
+    stmt: &Stmt<'a>,
+    interner: &Interner,
+    indent: usize,
+    mutable_vars: &HashSet<Symbol>,
+    ctx: &mut RefinementContext<'a>,
+    lww_fields: &HashSet<(String, String)>,
+    mv_fields: &HashSet<(String, String)>,
+    synced_vars: &mut HashSet<Symbol>,
+    var_caps: &HashMap<Symbol, VariableCapabilities>,
+    async_functions: &HashSet<Symbol>,
+    pipe_vars: &HashSet<Symbol>,
+    boxed_fields: &HashSet<(String, String, String)>,
+    registry: &TypeRegistry,
+    type_env: &crate::analysis::types::TypeEnv,
+) -> Option<String> {
+    use super::codegen_stmt;
+    let exact = |ctx: &RefinementContext, s: &Symbol| {
+        ctx.get_variable_types().get(s).is_some_and(|t| t.contains("__bigint"))
+    };
+    if !region.outer.iter().all(|s| exact(ctx, s)) {
+        return None;
+    }
+    let _emitting = super::unboxed::emitting(region);
+    let names = RustNames::new(interner);
+    let id = region.id;
+    let ind = "    ".repeat(indent);
+    let name = |s: &Symbol| names.ident(*s);
+
+    let saved: Vec<(Symbol, Option<String>, bool)> = region
+        .vars
+        .iter()
+        .map(|v| (*v, ctx.get_variable_types().get(v).cloned(), ctx.withdraw_promotable_candidate(*v)))
+        .collect();
+    // Every local the word form holds as a word is one there, those it binds inside the loop among them: a type an
+    // earlier emission recorded for the name is the exact form's.
+    for v in &region.vars {
+        ctx.register_variable_type(*v, "i64".to_string());
+    }
+    let fast = codegen_stmt(
+        stmt, interner, indent + 2, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps,
+        async_functions, pipe_vars, boxed_fields, registry, type_env,
+    );
+    for (v, ty, candidate) in saved {
+        match ty {
+            Some(ty) => ctx.register_variable_type(v, ty),
+            None => {
+                ctx.get_variable_types_mut().remove(&v);
+            }
+        }
+        if candidate {
+            ctx.restore_promotable_candidate(v);
+        }
+    }
+    let exact_form = codegen_stmt(
+        stmt, interner, indent + 1, mutable_vars, ctx, lww_fields, mv_fields, synced_vars, var_caps,
+        async_functions, pipe_vars, boxed_fields, registry, type_env,
+    );
+
+    let mut out = String::new();
+    // A tuple of `items`, `()` where there are none.
+    let tuple = |items: &[String]| if items.is_empty() { "()".to_string() } else { format!("({},)", items.join(", ")) };
+    // The region's own names are spelled from a binding's bare name: `r#match` is no part of an identifier.
+    let bare = |v: &Symbol| name(v).trim_start_matches("r#").to_string();
+    let unboxed: Vec<String> = region.outer.iter().map(|v| format!("Some(__u{id}_{})", bare(v))).collect();
+    let reads: Vec<String> = region.outer.iter().map(|v| format!("{}.to_i64()", name(v))).collect();
+    let finals: Vec<String> = region.assigned.iter().map(|v| format!("__f{id}_{}", bare(v))).collect();
+    let returned: Vec<String> = region.assigned.iter().map(name).collect();
+    let shadows = |out: &mut String, at: &str| {
+        for v in &region.outer {
+            let kw = if region.assigned.contains(v) { "let mut" } else { "let" };
+            writeln!(out, "{ind}{at}{kw} {}: i64 = __u{id}_{};", name(v), bare(v)).unwrap();
+        }
+    };
+    let rebox = |out: &mut String, at: &str| {
+        for v in &region.assigned {
+            writeln!(out, "{ind}{at}{} = logicaffeine_data::LogosInt::from(__f{id}_{});", name(v), bare(v)).unwrap();
+        }
+    };
+    writeln!(out, "{ind}let mut __done{id}: bool = false;").unwrap();
+    writeln!(out, "{ind}if let {} = {} {{", tuple(&unboxed), tuple(&reads)).unwrap();
+    if region.restarts {
+        // A restore keeps a copy: the region may move the binding it restores. A `Copy` value is its own copy.
+        for w in &region.restores {
+            let held = ctx.get_variable_types().get(w).map(|t| t.split("|__").next().unwrap_or(t).to_string());
+            let copied = held.as_deref().is_some_and(super::stmt::is_copy_type);
+            let saved = if copied { name(w) } else { format!("{}.clone()", name(w)) };
+            let typed = held.map(|t| format!(": {t}")).unwrap_or_default();
+            writeln!(out, "{ind}    let __r{id}_{}{typed} = {saved};", bare(w)).unwrap();
+        }
+        writeln!(out, "{ind}    if let Some({}) = logicaffeine_system::failure::speculate(|| {{", tuple(&finals)).unwrap();
+        shadows(&mut out, "        ");
+        out.push_str(&fast);
+        writeln!(out, "{ind}        {}", tuple(&returned)).unwrap();
+        writeln!(out, "{ind}    }}) {{").unwrap();
+        rebox(&mut out, "        ");
+        writeln!(out, "{ind}        __done{id} = true;").unwrap();
+        writeln!(out, "{ind}    }} else {{").unwrap();
+        for w in &region.restores {
+            writeln!(out, "{ind}        {} = __r{id}_{};", name(w), bare(w)).unwrap();
+        }
+        writeln!(out, "{ind}    }}").unwrap();
+    } else {
+        // Every operation on the region's words is proven to stay in the word: the word form never gives up.
+        writeln!(out, "{ind}    let {} = {{", tuple(&finals)).unwrap();
+        shadows(&mut out, "        ");
+        out.push_str(&fast);
+        writeln!(out, "{ind}        {}", tuple(&returned)).unwrap();
+        writeln!(out, "{ind}    }};").unwrap();
+        rebox(&mut out, "    ");
+        writeln!(out, "{ind}    __done{id} = true;").unwrap();
+    }
+    writeln!(out, "{ind}}}").unwrap();
+    writeln!(out, "{ind}if !__done{id} {{").unwrap();
+    out.push_str(&exact_form);
+    writeln!(out, "{ind}}}").unwrap();
+    Some(out)
+}
+
 /// The byte value of a single-byte constant: a one-char text literal or a small
 /// number literal (`0..=255`).
 fn byte_const_of(e: &Expr, interner: &Interner) -> Option<i64> {
@@ -5577,7 +5882,7 @@ pub(crate) fn try_emit_affine_cascade(
         }
     }
     let vn = RustNames::new(interner).ident(v);
-    let mut_kw = if *mutable { "mut " } else { "" };
+    let mut_kw = if *mutable { super::tentative::MAYBE_MUT } else { "" };
     let rhs = affine_rhs(a, b, &e_src.unwrap());
     let code = format!(
         "{}let {}{}: u8 = ({}) as u8;\n",
@@ -5913,6 +6218,7 @@ pub(crate) fn try_emit_indexed_string_build<'a>(
 pub(crate) fn detect_vec_presize<'a>(
     stmts: &[Stmt<'a>],
     interner: &Interner,
+    exact: &dyn Fn(Symbol) -> bool,
 ) -> HashMap<Symbol, String> {
     // All top-level locals — used to tell a not-yet-declared LOCAL (unsafe to
     // reference at the Vec's decl) from a parameter/global (always in scope).
@@ -5952,11 +6258,13 @@ pub(crate) fn detect_vec_presize<'a>(
                     continue;
                 };
                 let cap_sym = match &**right {
+                    // A bound held as a `LogosInt` sizes nothing: a capacity is a machine word's hint.
+                    Expr::Identifier(b) if exact(*b) => continue,
                     Expr::Identifier(b) => Some(*b),
                     Expr::Literal(Literal::Number(_)) => None,
                     _ => continue, // not declaration-safe (Length, arithmetic, …)
                 };
-                let cap = format!("({}).max(0)", codegen_expr_simple(right, interner));
+                let cap = super::expr::reserved(&codegen_expr_simple(right, interner));
                 let mut reads: HashSet<Symbol> = HashSet::new();
                 for st in body.iter() {
                     presize_reads_in_stmt(st, *counter, &mut reads);
@@ -6249,6 +6557,12 @@ fn swap_unchecked_proven(
 /// The names the swap peepholes hold the two elements in, first and second in source order. The checked form's
 /// first element is `__swap_tmp`, the name that marks that form in the emitted code; the proven, unchecked form
 /// holds `__cs_e1` and `__cs_e2`.
+/// `: T`, the item type of a list whose Rust type is `list`, for a binding that holds one of its items; nothing where
+/// the type is not known.
+fn item_type_of(list: Option<&String>) -> String {
+    list.and_then(|t| super::types::collection_element_type(t)).map(|item| format!(": {item}")).unwrap_or_default()
+}
+
 fn swap_temps(unchecked: bool) -> (&'static str, &'static str) {
     if unchecked {
         ("__cs_e1", "__cs_e2")
@@ -6259,11 +6573,13 @@ fn swap_temps(unchecked: bool) -> (&'static str, &'static str) {
 
 /// The read and the store a swap peephole emits for one item of `arr_name`: unchecked where the oracle
 /// proved both indices name items, a plain indexed access where the program proves this one does
-/// (`proven`), and through the one index rule (`LogosItems`) otherwise. A read clones, so a swap of
-/// non-`Copy` items moves nothing out of the sequence; a `Copy` item's clone is a copy.
+/// (`proven`), and through the one index rule (`LogosItems`) otherwise. A read of a `Copy` item (`copy`) is the
+/// item; any other read clones, so a swap moves nothing out of the sequence.
+#[allow(clippy::too_many_arguments)]
 fn swap_accessors<'n>(
     arr_name: &'n str,
     is_logos_seq: bool,
+    copy: bool,
     unchecked: bool,
     interner: &'n Interner,
     variable_types: &'n HashMap<Symbol, String>,
@@ -6279,21 +6595,18 @@ fn swap_accessors<'n>(
         } else {
             arr_name.to_string()
         };
-        if unchecked {
-            format!(
-                "unsafe {{ {}.get_unchecked({}).clone() }}",
-                arr_name,
-                offset(index)
-            )
-        } else if proven {
-            format!("{}[{}].clone()", owner, offset(index))
-        } else {
-            format!(
-                "{}.{}({}).clone()",
-                owner,
-                super::expr::item_accessor(index, oracle, false),
-                logos_index(index, interner, variable_types)
-            )
+        let at = super::precedence::standalone(&logos_index(index, interner, variable_types)).to_string();
+        match (unchecked, proven, copy) {
+            (true, _, true) => format!("unsafe {{ *{}.get_unchecked({}) }}", arr_name, offset(index)),
+            (true, _, false) => format!("unsafe {{ {}.get_unchecked({}).clone() }}", arr_name, offset(index)),
+            (false, true, true) => format!("{}[{}]", owner, offset(index)),
+            (false, true, false) => format!("{}[{}].clone()", owner, offset(index)),
+            (false, false, true) => {
+                format!("*{}.{}({})", owner, super::expr::item_accessor(index, oracle, false), at)
+            }
+            (false, false, false) => {
+                format!("{}.{}({}).clone()", owner, super::expr::item_accessor(index, oracle, false), at)
+            }
         }
     };
     let write = move |index: &Expr, proven: bool, value: &str| -> String {
@@ -6316,7 +6629,7 @@ fn swap_accessors<'n>(
                 "*{}.{}({}) = {};",
                 owner,
                 super::expr::item_accessor(index, oracle, true),
-                logos_index(index, interner, variable_types),
+                super::precedence::standalone(&logos_index(index, interner, variable_types)),
                 value
             )
         }
@@ -6324,6 +6637,20 @@ fn swap_accessors<'n>(
     (read, write)
 }
 
+/// Peephole optimization: detect swap patterns and emit `arr.swap()` instead.
+///
+/// Pattern A (conditional, adjacent indices — bubble sort):
+///   Let a be item j of arr. Let b be item (j+1) of arr.
+///   If a > b then: Set item j of arr to b. Set item (j+1) of arr to a.
+/// → `if arr[j-1] > arr[j] { arr.swap(j-1, j); }`
+///
+/// Pattern B (unconditional, any indices — quicksort/heapsort):
+///   Let tmp be item I of arr.
+///   Set item I of arr to item J of arr.
+///   Set item J of arr to tmp.
+/// → `arr.swap((I-1) as usize, (J-1) as usize);`
+///
+/// Returns (generated_code, number_of_extra_statements_consumed) or None.
 pub(crate) fn try_emit_swap_pattern<'a>(
     stmts: &[&Stmt<'a>],
     idx: usize,
@@ -6534,15 +6861,20 @@ pub(crate) fn try_emit_swap_pattern<'a>(
             if swap_unchecked {
                 crate::optimize::mark_fired(crate::optimization::Opt::Unchecked);
             }
+            let copy = variable_types
+                .get(&arr_sym_1)
+                .is_some_and(|t| super::stmt::has_copy_element_type(t));
             let (read, write) = swap_accessors(
                 arr_name,
                 is_logos_seq,
+                copy,
                 swap_unchecked,
                 interner,
                 variable_types,
                 oracle,
             );
             let (first, second) = swap_temps(swap_unchecked);
+            let held = item_type_of(variable_types.get(&arr_sym_1));
             let (ge_lhs, ge_rhs) = if guard_left_is_a {
                 (first, second)
             } else {
@@ -6554,22 +6886,8 @@ pub(crate) fn try_emit_swap_pattern<'a>(
             let proven_2 = super::expr::range_proves_index(coll_expr_2, idx_expr_2);
 
             let mut output = String::new();
-            writeln!(
-                output,
-                "{}let {} = {};",
-                indent_str,
-                first,
-                read(idx_expr_1, proven_1)
-            )
-            .unwrap();
-            writeln!(
-                output,
-                "{}let {} = {};",
-                indent_str,
-                second,
-                read(idx_expr_2, proven_2)
-            )
-            .unwrap();
+            writeln!(output, "{indent_str}let {first}{held} = {};", read(idx_expr_1, proven_1)).unwrap();
+            writeln!(output, "{indent_str}let {second}{held} = {};", read(idx_expr_2, proven_2)).unwrap();
             // This peephole consumes the `Let a = item I` / `Let b = item J` bindings. A binding read
             // AFTER this block keeps the value it had before the swap.
             if value_read_after(a_sym, stmts, idx + 3) {
@@ -6635,10 +6953,17 @@ fn copied_run(owner: &str, start: &str, end: &str, exclusive: bool) -> String {
 /// The counter as a counted loop from `start` leaves it: one past `end` (or `end` itself for `<`), or
 /// `start` when the loop never ran.
 fn counter_after(start: &str, end: &str, exclusive: bool) -> String {
+    let literal = |code: &str| code.trim_end_matches("_i64").trim_end_matches("i64").parse::<i64>().ok();
+    if let (Some(s), Some(e)) = (literal(start), literal(end)) {
+        let past = if exclusive { Some(e) } else { e.checked_add(1) };
+        if let Some(past) = past {
+            return s.max(past).to_string();
+        }
+    }
     let past = if exclusive {
         end.to_string()
     } else {
-        format!("{} + 1", end)
+        format!("logos_add_i64({}, 1)", end)
     };
     format!("std::cmp::max({}, {})", start, past)
 }
@@ -6727,7 +7052,7 @@ pub(crate) fn try_emit_seq_from_slice_pattern<'a>(
             } = value
             {
                 let tn = interner.resolve(*type_name);
-                if matches!(tn, "Seq" | "List" | "Vec") && init_fields.is_empty() {
+                if crate::semantics::collections::builds_list(tn) && init_fields.is_empty() {
                     if !type_args.is_empty() {
                         Some(codegen_type_expr(&type_args[0], interner))
                     } else {
@@ -6822,6 +7147,7 @@ pub(crate) fn try_emit_seq_from_slice_pattern<'a>(
                         {
                             if c_dst_check == dst_sym
                                 && c_src_sym != dst_sym
+                                && kept_list(c_src_sym, ctx).is_some()
                                 && !symbol_appears_in_expr(dst_sym, c_end_expr)
                                 && !symbol_appears_in_expr(c_sym, c_end_expr)
                             {
@@ -6905,17 +7231,18 @@ pub(crate) fn try_emit_seq_from_slice_pattern<'a>(
                                     );
                                 }
 
-                                // Re-emit the counter's post-loop value wherever it can be read.
-                                if value_read_after(c_sym, stmts, scan + 1) {
-                                    writeln!(
-                                        cont_output,
-                                        "{}{} = {};",
-                                        indent_str,
-                                        counter_name,
-                                        counter_after(&counter_name, &end_str, c_is_exclusive)
-                                    )
-                                    .unwrap();
-                                }
+                                let after = || counter_after(&counter_name, &end_str, c_is_exclusive);
+                                emit_counter_after(
+                                    &mut cont_output,
+                                    &indent_str,
+                                    c_sym,
+                                    &counter_name,
+                                    &after,
+                                    stmts,
+                                    scan + 1,
+                                    false,
+                                    ctx,
+                                );
 
                                 let extra_consumed = scan - idx;
                                 return Some((cont_output, extra_consumed));
@@ -7020,6 +7347,7 @@ pub(crate) fn try_emit_seq_from_slice_pattern<'a>(
                 }
                 _ => return None,
             };
+            kept_list(src_sym, ctx)?;
 
             match &body[1] {
                 Stmt::Set { target, value } => {
@@ -7167,9 +7495,10 @@ pub(crate) fn try_emit_seq_from_slice_pattern<'a>(
                     let slice = vec_init
                         .strip_suffix(".to_vec()")
                         .unwrap_or(vec_init.as_str());
-                    // `&<slice>[..]` is a `&[T]` whatever `<slice>` is: a whole container (`src` /
-                    // `src.borrow()`) or the run the loop copies.
-                    let slice_ref = format!("&{}[..]", slice);
+                    // The run the loop copies is a `&[T]` already; a whole container (`src` / `src.borrow()`)
+                    // coerces to one borrowed.
+                    let run = slice.contains(".logos_run_through(") || slice.contains(".logos_run_before(");
+                    let slice_ref = if run { slice.to_string() } else { format!("&{}", slice) };
                     writeln!(output, "{}{}.clear();", indent_str, dst_name).unwrap();
                     writeln!(
                         output,
@@ -7207,24 +7536,24 @@ pub(crate) fn try_emit_seq_from_slice_pattern<'a>(
                 ctx.register_variable_type(dst_sym, format!("LogosSeq<{}>", elem_type));
             }
 
-            // Re-emit the counter wherever its post-loop value can be read.
-            if value_read_after(counter_sym, stmts, while_idx + 1) {
-                let post_val = counter_after(
+            let post_val = || {
+                counter_after(
                     &codegen_expr_simple(start_expr, interner),
                     &codegen_expr_simple(end_expr, interner),
                     is_exclusive,
-                );
-                if counter_is_new_binding {
-                    writeln!(
-                        output,
-                        "{}let mut {}: i64 = {};",
-                        indent_str, counter_name, post_val
-                    )
-                    .unwrap();
-                } else {
-                    writeln!(output, "{}{} = {};", indent_str, counter_name, post_val).unwrap();
-                }
-            }
+                )
+            };
+            emit_counter_after(
+                &mut output,
+                &indent_str,
+                counter_sym,
+                &counter_name,
+                &post_val,
+                stmts,
+                while_idx + 1,
+                counter_is_new_binding,
+                ctx,
+            );
 
             let extra_consumed = while_idx - idx;
             Some((output, extra_consumed))
@@ -7317,14 +7646,116 @@ fn pushes_per_iter(body: &[Stmt], sym: Symbol) -> usize {
 }
 
 /// Scale a trip-count capacity string by the per-iteration push count. `<= 1`
-/// leaves it unchanged (the common case); `k > 1` multiplies it.
+/// leaves it unchanged (the common case); `k > 1` multiplies it, where it is written for a literal capacity.
 fn scale_capacity(cap: &str, pushes: usize) -> String {
     if pushes <= 1 {
         cap.to_string()
+    } else if let Ok(literal) = super::precedence::standalone(cap).parse::<usize>() {
+        crate::optimize::mark_fired(crate::optimization::Opt::CapScale);
+        literal.saturating_mul(pushes).to_string()
     } else {
         crate::optimize::mark_fired(crate::optimization::Opt::CapScale);
-        format!("({}) * {}", cap, pushes)
+        format!(
+            "{}.saturating_mul({pushes})",
+            super::precedence::operand(cap, super::precedence::Under::Postfix)
+        )
     }
+}
+
+/// One end of a counted loop, as [`pass_count`] reads it: a literal, or the Rust code for an `i64`.
+#[derive(Clone, Copy)]
+pub(crate) enum LoopEnd<'s> {
+    Literal(i64),
+    Code(&'s str),
+}
+
+impl<'s> LoopEnd<'s> {
+    /// The end `expr`, whose Rust code is `code`.
+    pub(crate) fn of(expr: &Expr, code: &'s str) -> LoopEnd<'s> {
+        match expr {
+            Expr::Literal(Literal::Number(n)) => LoopEnd::Literal(*n),
+            _ => LoopEnd::Code(code),
+        }
+    }
+}
+
+/// How many passes a counted loop makes ([`pass_count`]).
+pub(crate) enum PassCount {
+    /// Both ends are literals: the count itself.
+    Known(i64),
+    /// The Rust code for the count, an `i64`.
+    AtRunTime(String),
+}
+
+impl PassCount {
+    /// The count with `extra` passes more.
+    pub(crate) fn plus(self, extra: usize) -> PassCount {
+        let extra = i64::try_from(extra).unwrap_or(i64::MAX);
+        match self {
+            count if extra == 0 => count,
+            PassCount::Known(n) => PassCount::Known(n.saturating_add(extra)),
+            PassCount::AtRunTime(code) => PassCount::AtRunTime(format!("{code}.saturating_add({extra})")),
+        }
+    }
+
+    /// The count as an `i64`.
+    pub(crate) fn as_i64(&self) -> String {
+        match self {
+            PassCount::Known(n) => format!("{n}i64"),
+            PassCount::AtRunTime(code) => code.clone(),
+        }
+    }
+
+    /// The count as the `usize` a collection is sized by.
+    pub(crate) fn as_usize(&self) -> String {
+        match self {
+            PassCount::Known(n) => n.to_string(),
+            PassCount::AtRunTime(code) => format!("{code} as usize"),
+        }
+    }
+}
+
+/// How many passes a loop counting by one from `start` up to `limit` makes, through `limit` when `inclusive`. A loop
+/// whose limit is below its start makes none, and a count past the largest Int saturates there, a count no
+/// allocation can hold, where a wrapped one would be small or negative. Two literal ends fold, an end whose code is an
+/// integer literal (a proven bound rendered as code) being that literal.
+pub(crate) fn pass_count(start: LoopEnd<'_>, limit: LoopEnd<'_>, inclusive: bool) -> PassCount {
+    use super::precedence::{operand, standalone, Under};
+    let literal = |end: LoopEnd<'_>| -> Option<i64> {
+        match end {
+            LoopEnd::Literal(n) => Some(n),
+            LoopEnd::Code(code) => standalone(code).parse().ok(),
+        }
+    };
+    let start = literal(start).map_or(start, LoopEnd::Literal);
+    let limit = literal(limit).map_or(limit, LoopEnd::Literal);
+    if let (LoopEnd::Literal(s), LoopEnd::Literal(l)) = (start, limit) {
+        let count = i128::from(l) - i128::from(s) + i128::from(inclusive);
+        return PassCount::Known(count.clamp(0, i128::from(i64::MAX)) as i64);
+    }
+    let limit = match limit {
+        LoopEnd::Literal(l) => format!("{l}i64"),
+        LoopEnd::Code(code) => operand(code, Under::Postfix).into_owned(),
+    };
+    // The count is `limit` less the last value before the first pass: `start` itself before an exclusive limit,
+    // `start - 1` through an inclusive one.
+    let less = |k: i64| match k {
+        0 => format!("{limit}.max(0)"),
+        i64::MIN => format!("{limit}.saturating_sub(i64::MIN).max(0)"),
+        k if k > 0 => format!("{limit}.saturating_sub({k}).max(0)"),
+        k => format!("{limit}.saturating_add({}).max(0)", -k),
+    };
+    PassCount::AtRunTime(match (start, inclusive) {
+        (LoopEnd::Literal(s), false) => less(s),
+        (LoopEnd::Literal(s), true) => match s.checked_sub(1) {
+            Some(k) => less(k),
+            None => format!("{limit}.saturating_sub(i64::MIN).saturating_add(1).max(0)"),
+        },
+        (LoopEnd::Code(code), false) => format!("{limit}.saturating_sub({}).max(0)", standalone(code)),
+        (LoopEnd::Code(code), true) => {
+            format!("{limit}.saturating_sub({}).saturating_add(1).max(0)", standalone(code))
+        }
+    })
 }
 
 /// Emit the runtime preconditions a narrowed (`Vec<i32>`) sequence depends on
@@ -7374,13 +7805,8 @@ pub(crate) fn try_emit_vec_with_capacity_pattern<'a>(
     }
 
     // Statement 1: Let [mutable] vec_var = new Seq of T (or Map of K to V)
-    let (vec_sym, collection_info, vec_is_mutable) = match stmts[idx] {
-        Stmt::Let {
-            var,
-            value,
-            ty,
-            mutable,
-        } => {
+    let (vec_sym, collection_info) = match stmts[idx] {
+        Stmt::Let { var, value, ty, .. } => {
             let type_from_annotation = if let Some(TypeExpr::Generic { base, params }) = ty {
                 let base_name = interner.resolve(*base);
                 if matches!(base_name, "Seq" | "List" | "Vec") && !params.is_empty() {
@@ -7404,7 +7830,7 @@ pub(crate) fn try_emit_vec_with_capacity_pattern<'a>(
             } = value
             {
                 let tn = interner.resolve(*type_name);
-                if matches!(tn, "Seq" | "List" | "Vec")
+                if crate::semantics::collections::builds_list(tn)
                     && init_fields.is_empty()
                     && !type_args.is_empty()
                 {
@@ -7425,7 +7851,7 @@ pub(crate) fn try_emit_vec_with_capacity_pattern<'a>(
             };
 
             match type_from_annotation.or(type_from_new) {
-                Some(info) => (*var, info, *mutable),
+                Some(info) => (*var, info),
                 None => return None,
             }
         }
@@ -7594,27 +8020,13 @@ pub(crate) fn try_emit_vec_with_capacity_pattern<'a>(
         _ => None,
     };
 
-    let capacity_expr = match (start_lit, limit_lit) {
-        (Some(s), Some(l)) => {
-            let count = if is_exclusive { l - s } else { l - s + 1 };
-            format!("{}", std::cmp::max(0, count))
-        }
-        _ => {
-            if is_exclusive {
-                if start_str == "0" {
-                    format!("{} as usize", limit_str)
-                } else {
-                    format!("({} - {}) as usize", limit_str, start_str)
-                }
-            } else {
-                if start_str == "1" {
-                    format!("{} as usize", limit_str)
-                } else {
-                    format!("({} - {} + 1) as usize", limit_str, start_str)
-                }
-            }
-        }
-    };
+    // The loop's pass count: `count_expr` as an i64, `capacity_expr` as the `usize` a collection is sized by.
+    let passes = pass_count(
+        start_lit.map_or(LoopEnd::Code(&start_str), LoopEnd::Literal),
+        limit_lit.map_or(LoopEnd::Code(&limit_str), LoopEnd::Literal),
+        !is_exclusive,
+    );
+    let (count_expr, capacity_expr) = (passes.as_i64(), passes.as_usize());
 
     let indent_str = "    ".repeat(indent);
     let vec_name = interner.resolve(vec_sym);
@@ -7655,10 +8067,20 @@ pub(crate) fn try_emit_vec_with_capacity_pattern<'a>(
     };
 
     let mut output = String::new();
-    let is_mutable = vec_is_mutable || mutable_vars.contains(&vec_sym);
-    let mut_kw = if is_mutable { "mut " } else { "" };
+    // `mut` where the emitted code writes the list, which a `Set item` does however the list is bound.
+    let mut_kw = super::tentative::MAYBE_MUT;
 
     match &collection_info {
+        // A list that may hold integers past the word is an `IntVec`: room for the words the loop pushes, or the fill.
+        CollInfo::Vec(_) if super::int_vec::promotes_here(vec_sym) => {
+            let init = match &vec_fill_literal {
+                Some(fill) => super::int_vec::filled(fill, &capacity_expr),
+                None => super::int_vec::with_room(&scale_capacity(&capacity_expr, pushes_per_iter(body, vec_sym))),
+            };
+            writeln!(output, "{indent_str}let {mut_kw}{}: {} = {init};", RustNames::new(interner).ident(vec_sym), super::int_vec::INT_VEC)
+                .unwrap();
+            ctx.register_variable_type(vec_sym, super::int_vec::INT_VEC.to_string());
+        }
         CollInfo::Vec(elem_type) => {
             // O2 de-Rc: this Seq never needs reference semantics → plain Vec<T>
             // (no Rc/RefCell); otherwise the reference-semantics LogosSeq.
@@ -7681,20 +8103,20 @@ pub(crate) fn try_emit_vec_with_capacity_pattern<'a>(
             let prim_cap = scale_capacity(&capacity_expr, pushes_per_iter(body, vec_sym));
             let rhs = match (&vec_fill_literal, de_rc) {
                 (Some(fill), _) if bits => format!(
-                    "logicaffeine_data::LogosBits::filled(({}) as usize, {})",
+                    "logicaffeine_data::LogosBits::filled({}, {})",
                     capacity_expr, fill
                 ),
                 (None, _) if bits => {
                     format!(
-                        "logicaffeine_data::LogosBits::with_capacity(({}) as usize)",
+                        "logicaffeine_data::LogosBits::with_capacity({})",
                         prim_cap
                     )
                 }
-                (Some(fill), true) => format!("vec![{}; ({}) as usize]", fill, capacity_expr),
+                (Some(fill), true) => format!("vec![{}; {}]", fill, capacity_expr),
                 (Some(fill), false) => {
                     format!("LogosSeq::from_vec(vec![{}; {}])", fill, capacity_expr)
                 }
-                (None, true) => format!("Vec::with_capacity(({}) as usize)", prim_cap),
+                (None, true) => format!("Vec::with_capacity({})", prim_cap),
                 (None, false) => format!("LogosSeq::with_capacity({})", prim_cap),
             };
             writeln!(
@@ -7723,11 +8145,15 @@ pub(crate) fn try_emit_vec_with_capacity_pattern<'a>(
                 // is exactly large enough — the dense gate already declined any map
                 // whose cap does not render, so this resolves.
                 let cap =
-                    dense_cap_rust(vec_sym, ctx, interner).unwrap_or_else(|| capacity_expr.clone());
+                    dense_cap_rust(vec_sym, ctx, interner).unwrap_or_else(|| count_expr.clone());
                 writeln!(
                     output,
-                    "{}let mut {}: {} = {}::with_bounds(0, (({}) + 1) as usize);",
-                    indent_str, vec_name, rust_ty, rust_ty, cap
+                    "{}let mut {}: {} = {}::with_bounds(0, {});",
+                    indent_str,
+                    vec_name,
+                    rust_ty,
+                    rust_ty,
+                    pass_count(LoopEnd::Literal(0), LoopEnd::Code(&cap), true).as_usize()
                 )
                 .unwrap();
             } else if rust_ty.starts_with("LogosI64") || rust_ty.starts_with("LogosI32") {
@@ -7756,6 +8182,23 @@ pub(crate) fn try_emit_vec_with_capacity_pattern<'a>(
     let body_without_increment = &body[..body.len() - 1];
     for stmt in intervening {
         let sibling_cap = detect_sibling_collection(stmt, body_without_increment, interner);
+        // A list that may hold integers past the word is an `IntVec`, with room for the words the loop pushes.
+        if let Some((sib_sym, CollInfo::Vec(_), _)) = sibling_cap
+            .as_ref()
+            .filter(|(sib_sym, _, _)| super::int_vec::promotes_here(*sib_sym) && ctx.affine_array(*sib_sym).is_none())
+        {
+            let pushes = pushes_per_iter(body_without_increment, *sib_sym);
+            writeln!(
+                output,
+                "{indent_str}let {mut_kw}{}: {} = {};",
+                RustNames::new(interner).ident(*sib_sym),
+                super::int_vec::INT_VEC,
+                super::int_vec::with_room(&scale_capacity(&capacity_expr, pushes))
+            )
+            .unwrap();
+            ctx.register_variable_type(*sib_sym, super::int_vec::INT_VEC.to_string());
+            continue;
+        }
         if let Some((sib_sym, sib_info, sib_mutable)) = sibling_cap {
             // A deleted affine read-only array emits no declaration here — its
             // build push is suppressed and reads substitute the closed form. (Also
@@ -7793,11 +8236,11 @@ pub(crate) fn try_emit_vec_with_capacity_pattern<'a>(
                     );
                     let rhs = if sib_bits {
                         format!(
-                            "logicaffeine_data::LogosBits::with_capacity(({}) as usize)",
+                            "logicaffeine_data::LogosBits::with_capacity({})",
                             sib_cap
                         )
                     } else if de_rc {
-                        format!("Vec::with_capacity(({}) as usize)", sib_cap)
+                        format!("Vec::with_capacity({})", sib_cap)
                     } else {
                         format!("LogosSeq::with_capacity({})", sib_cap)
                     };
@@ -7819,11 +8262,15 @@ pub(crate) fn try_emit_vec_with_capacity_pattern<'a>(
                     let rust_ty = map_rust_type(key_type, val_type, sib_sym, ctx);
                     if rust_ty.starts_with("LogosDense") {
                         let cap = dense_cap_rust(sib_sym, ctx, interner)
-                            .unwrap_or_else(|| capacity_expr.clone());
+                            .unwrap_or_else(|| count_expr.clone());
                         writeln!(
                             output,
-                            "{}let mut {}: {} = {}::with_bounds(0, (({}) + 1) as usize);",
-                            indent_str, sib_name, rust_ty, rust_ty, cap
+                            "{}let mut {}: {} = {}::with_bounds(0, {});",
+                            indent_str,
+                            sib_name,
+                            rust_ty,
+                            rust_ty,
+                            pass_count(LoopEnd::Literal(0), LoopEnd::Code(&cap), true).as_usize()
                         )
                         .unwrap();
                     } else if rust_ty.starts_with("LogosI64") || rust_ty.starts_with("LogosI32") {
@@ -7928,7 +8375,7 @@ fn detect_sibling_collection<'a>(
     } = value
     {
         let tn = interner.resolve(*type_name);
-        if matches!(tn, "Seq" | "List" | "Vec") && init_fields.is_empty() && !type_args.is_empty() {
+        if crate::semantics::collections::builds_list(tn) && init_fields.is_empty() && !type_args.is_empty() {
             Some(CollInfo::Vec(codegen_type_expr(&type_args[0], interner)))
         } else if matches!(tn, "Map" | "HashMap") && init_fields.is_empty() && type_args.len() >= 2
         {
@@ -8028,7 +8475,7 @@ pub(crate) fn try_emit_merge_capacity_pattern<'a>(
             } = value
             {
                 let tn = interner.resolve(*type_name);
-                if matches!(tn, "Seq" | "List" | "Vec")
+                if crate::semantics::collections::builds_list(tn)
                     && init_fields.is_empty()
                     && !type_args.is_empty()
                 {
@@ -8135,7 +8582,7 @@ pub(crate) fn try_emit_merge_capacity_pattern<'a>(
     if ctx.is_de_rc(vec_sym) {
         writeln!(
             output,
-            "{}let mut {}: Vec<{}> = Vec::with_capacity(({}) as usize);",
+            "{}let mut {}: Vec<{}> = Vec::with_capacity({});",
             indent_str, vec_name, elem_type, capacity_expr
         )
         .unwrap();
@@ -8143,7 +8590,7 @@ pub(crate) fn try_emit_merge_capacity_pattern<'a>(
     } else {
         writeln!(
             output,
-            "{}let mut {}: LogosSeq<{}> = LogosSeq::with_capacity(({}) as usize);",
+            "{}let mut {}: LogosSeq<{}> = LogosSeq::with_capacity({});",
             indent_str, vec_name, elem_type, capacity_expr
         )
         .unwrap();
@@ -8612,35 +9059,26 @@ fn try_emit_unconditional_swap<'a>(
     // Pattern matched! The program reads item I, reads item J, stores the latter at I and the former at
     // J; the emission does exactly that, each access through the one index rule.
     let indent_str = "    ".repeat(indent);
-    let arr_name = interner.resolve(arr_sym);
+    let arr_ident = RustNames::new(interner).ident(arr_sym);
+    let arr_name = &*arr_ident;
     let is_logos_seq = variable_types
         .get(&arr_sym)
         .map_or(false, |t| t.starts_with("LogosSeq"));
+    let copy = variable_types
+        .get(&arr_sym)
+        .is_some_and(|t| super::stmt::has_copy_element_type(t));
     let (read, write) =
-        swap_accessors(arr_name, is_logos_seq, false, interner, variable_types, oracle);
+        swap_accessors(arr_name, is_logos_seq, copy, false, interner, variable_types, oracle);
     let (first, second) = swap_temps(false);
+    let held = item_type_of(variable_types.get(&arr_sym));
     // Both items are read before either is stored and nothing between changes the length, so a read the
     // program proves in range proves the store at the same index.
     let proven_1 = super::expr::range_proves_index(coll_expr_1, idx_expr_1);
     let proven_2 = super::expr::range_proves_index(coll_expr_2, idx_expr_2);
 
     let mut output = String::new();
-    writeln!(
-        output,
-        "{}let {} = {};",
-        indent_str,
-        first,
-        read(idx_expr_1, proven_1)
-    )
-    .unwrap();
-    writeln!(
-        output,
-        "{}let {} = {};",
-        indent_str,
-        second,
-        read(idx_expr_2, proven_2)
-    )
-    .unwrap();
+    writeln!(output, "{indent_str}let {first}{held} = {};", read(idx_expr_1, proven_1)).unwrap();
+    writeln!(output, "{indent_str}let {second}{held} = {};", read(idx_expr_2, proven_2)).unwrap();
     // The peephole consumes `Let tmp be item I of arr`; a program that reads `tmp` afterwards keeps it.
     if symbol_appears_in_stmts(tmp_sym, &stmts[idx + 3..]) {
         writeln!(
@@ -8691,16 +9129,14 @@ pub(crate) fn try_emit_bare_slice_push_pattern<'a>(
     idx: usize,
     interner: &Interner,
     indent: usize,
-    variable_types: &HashMap<Symbol, String>,
+    ctx: &mut RefinementContext<'a>,
 ) -> Option<(String, usize)> {
     // Try form 1: counter init + While (2-statement pattern)
-    if let Some(result) =
-        try_bare_slice_push_with_init(stmts, idx, interner, indent, variable_types)
-    {
+    if let Some(result) = try_bare_slice_push_with_init(stmts, idx, interner, indent, ctx) {
         return Some(result);
     }
     // Try form 2: bare While (1-statement pattern, counter already exists)
-    try_bare_slice_push_bare_while(stmts, idx, interner, indent, variable_types)
+    try_bare_slice_push_bare_while(stmts, idx, interner, indent, ctx)
 }
 
 fn try_bare_slice_push_with_init<'a>(
@@ -8708,7 +9144,7 @@ fn try_bare_slice_push_with_init<'a>(
     idx: usize,
     interner: &Interner,
     indent: usize,
-    variable_types: &HashMap<Symbol, String>,
+    ctx: &mut RefinementContext<'a>,
 ) -> Option<(String, usize)> {
     if idx + 1 >= stmts.len() {
         return None;
@@ -8737,7 +9173,8 @@ fn try_bare_slice_push_with_init<'a>(
     let while_info = extract_push_copy_while(stmts[idx + 1], counter_sym)?;
 
     // Validate types
-    validate_slice_push_types(while_info.src_sym, while_info.dst_sym, variable_types)?;
+    validate_slice_push_types(while_info.src_sym, while_info.dst_sym, ctx.get_variable_types())?;
+    kept_list(while_info.src_sym, ctx)?;
     bounds_hold_still(
         &[start_expr, while_info.end_expr],
         while_info.dst_sym,
@@ -8745,8 +9182,8 @@ fn try_bare_slice_push_with_init<'a>(
     )?;
 
     // Emit the optimized code
-    let remaining = &stmts[idx + 2..];
-    let src_is_logos_seq = variable_types
+    let src_is_logos_seq = ctx
+        .get_variable_types()
         .get(&while_info.src_sym)
         .map(|t| t.split("|__hl:").next().unwrap_or(t.as_str()))
         .map(|t| t.starts_with("LogosSeq"))
@@ -8760,9 +9197,10 @@ fn try_bare_slice_push_with_init<'a>(
         start_expr,
         while_info.end_expr,
         while_info.is_exclusive,
-        remaining,
-        Some(is_new_binding),
+        (stmts, idx + 2),
+        is_new_binding,
         src_is_logos_seq,
+        ctx,
     );
 
     Some((output, 1)) // consumed 1 extra statement (the While)
@@ -8773,7 +9211,7 @@ fn try_bare_slice_push_bare_while<'a>(
     idx: usize,
     interner: &Interner,
     indent: usize,
-    variable_types: &HashMap<Symbol, String>,
+    ctx: &mut RefinementContext<'a>,
 ) -> Option<(String, usize)> {
     // Statement at idx must be a While loop
     let while_stmt = stmts[idx];
@@ -8793,15 +9231,16 @@ fn try_bare_slice_push_bare_while<'a>(
     };
 
     // Validate types
-    validate_slice_push_types(src_sym, dst_sym, variable_types)?;
+    validate_slice_push_types(src_sym, dst_sym, ctx.get_variable_types())?;
+    kept_list(src_sym, ctx)?;
     bounds_hold_still(&[end_expr], dst_sym, counter_sym)?;
 
     // For bare While, the counter already has a value from a previous statement.
     // We use the counter identifier as the start expression.
     let start_expr = Expr::Identifier(counter_sym);
 
-    let remaining = &stmts[idx + 1..];
-    let src_is_logos_seq = variable_types
+    let src_is_logos_seq = ctx
+        .get_variable_types()
         .get(&src_sym)
         .map(|t| t.split("|__hl:").next().unwrap_or(t.as_str()))
         .map(|t| t.starts_with("LogosSeq"))
@@ -8815,9 +9254,10 @@ fn try_bare_slice_push_bare_while<'a>(
         &start_expr,
         end_expr,
         is_exclusive,
-        remaining,
-        None,
+        (stmts, idx + 1),
+        false,
         src_is_logos_seq,
+        ctx,
     );
 
     Some((output, 0)) // no extra statements consumed
@@ -8955,6 +9395,12 @@ fn bounds_hold_still(bounds: &[&Expr], dst: Symbol, counter: Symbol) -> Option<(
     still.then_some(())
 }
 
+/// A list a copy may read whole: one the emitter keeps, not an affine read-only list it deleted to write each read as
+/// its closed form (`affine_array`), which has no storage to slice.
+fn kept_list(sym: Symbol, ctx: &RefinementContext) -> Option<()> {
+    ctx.affine_array(sym).is_none().then_some(())
+}
+
 fn validate_slice_push_types(
     src_sym: Symbol,
     dst_sym: Symbol,
@@ -8981,7 +9427,8 @@ fn validate_slice_push_types(
     Some(())
 }
 
-fn emit_extend_from_slice(
+#[allow(clippy::too_many_arguments)]
+fn emit_extend_from_slice<'a>(
     interner: &Interner,
     indent: usize,
     dst_sym: Symbol,
@@ -8990,9 +9437,10 @@ fn emit_extend_from_slice(
     start_expr: &Expr,
     end_expr: &Expr,
     is_exclusive: bool,
-    remaining: &[&Stmt],
-    binding_info: Option<bool>, // Some(true) = new let, Some(false) = reassignment, None = already exists
+    (block, after_loop): (&[&Stmt<'a>], usize),
+    declares: bool,
     src_is_logos_seq: bool,
+    ctx: &mut RefinementContext<'a>,
 ) -> String {
     let indent_str = "    ".repeat(indent);
     let names = RustNames::new(interner);
@@ -9017,22 +9465,18 @@ fn emit_extend_from_slice(
     )
     .unwrap();
 
-    if symbol_appears_in_stmts(counter_sym, remaining) {
-        let post_val = counter_after(&start_str, &end_str, is_exclusive);
-        match binding_info {
-            Some(true) => {
-                writeln!(
-                    output,
-                    "{}let mut {}: i64 = {};",
-                    indent_str, counter_name, post_val
-                )
-                .unwrap();
-            }
-            Some(false) | None => {
-                writeln!(output, "{}{} = {};", indent_str, counter_name, post_val).unwrap();
-            }
-        }
-    }
+    let post_val = || counter_after(&start_str, &end_str, is_exclusive);
+    emit_counter_after(
+        &mut output,
+        &indent_str,
+        counter_sym,
+        &counter_name,
+        &post_val,
+        block,
+        after_loop,
+        declares,
+        ctx,
+    );
 
     output
 }
@@ -9181,7 +9625,7 @@ pub(crate) fn try_emit_drain_tail_in_while<'a>(
     };
 
     // Emit the If with extend_from_slice + break for the then-branch.
-    writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
+    writeln!(output, "{}if {} {{", indent_str, super::precedence::condition(&cond_str)).unwrap();
     // Copy only up to the loop's upper bound, NOT to the end of the array: `while i <= bound` pushes
     // items i through bound, under the loop's own rule.
     // The loop leaves its counter one past the bound, which the drain reached.
@@ -9254,8 +9698,9 @@ pub(crate) struct BufferReuseInfo {
 /// `While c <= BOUND: Push item c of SRC to dst; c += 1`)? This mirrors that
 /// peephole's forward scan so that gating it on `is_scratch_hoist` is sound: if
 /// this returns true, the peephole WILL recognize and emit the copy (now as a
-/// `clear()` + `extend_from_slice` reuse rather than a fresh `.to_vec()`).
-fn followed_by_full_copy_fill(stmts: &[&Stmt], let_idx: usize, dst: Symbol) -> bool {
+/// `clear()` + `extend_from_slice` reuse rather than a fresh `.to_vec()`). The source is a list the emitter keeps
+/// ([`kept_list`]), as the peephole requires.
+fn followed_by_full_copy_fill(stmts: &[&Stmt], let_idx: usize, dst: Symbol, ctx: &RefinementContext) -> bool {
     for scan in (let_idx + 1)..stmts.len() {
         let stmt = stmts[scan];
         let is_counter_init = match stmt {
@@ -9277,8 +9722,9 @@ fn followed_by_full_copy_fill(stmts: &[&Stmt], let_idx: usize, dst: Symbol) -> b
                     let push_ok = match &body[0] {
                         Stmt::Push { value, collection } => {
                             matches!(collection, Expr::Identifier(s) if *s == dst)
-                                && matches!(value, Expr::Index { index, .. }
-                                    if matches!(index, Expr::Identifier(s) if *s == c_sym))
+                                && matches!(value, Expr::Index { collection: Expr::Identifier(src), index }
+                                    if matches!(index, Expr::Identifier(s) if *s == c_sym)
+                                        && kept_list(*src, ctx).is_some())
                         }
                         _ => false,
                     };
@@ -9349,7 +9795,7 @@ pub(crate) fn detect_scratch_hoist_in_body<'a>(
                 } = value
                 {
                     let tn = interner.resolve(*type_name);
-                    if matches!(tn, "Seq" | "List" | "Vec")
+                    if crate::semantics::collections::builds_list(tn)
                         && init_fields.is_empty()
                         && !type_args.is_empty()
                     {
@@ -9392,7 +9838,7 @@ pub(crate) fn detect_scratch_hoist_in_body<'a>(
             continue;
         }
         // (5) Fully overwritten by a recognized copy fill.
-        if !followed_by_full_copy_fill(&body_refs, li, dst) {
+        if !followed_by_full_copy_fill(&body_refs, li, dst, ctx) {
             continue;
         }
         out.push((dst, elem_type));
@@ -9409,7 +9855,7 @@ pub(crate) fn detect_scratch_hoist_in_body<'a>(
 pub(crate) struct SplitFillInfo {
     /// Index of the version-guard `If` in the outer-loop body.
     pub if_idx: usize,
-    /// The full buffer size (the suffix loop's exclusive end), as Rust source.
+    /// The full buffer size (the suffix loop's exclusive end), as the `usize` Rust code a `resize` takes.
     pub cols_str: String,
     /// The shared sub-loop counter name (every sub-loop writes `curr[iv]`).
     pub iv_name: String,
@@ -9476,14 +9922,7 @@ pub(crate) fn detect_split_fill<'a>(
         _ => return None,
     };
     let limit_str = codegen_expr_simple(limit_expr, interner);
-    let cols_str = if inclusive {
-        match limit_expr {
-            Expr::Literal(Literal::Number(n)) => format!("{}", n + 1),
-            _ => format!("({} + 1)", limit_str),
-        }
-    } else {
-        limit_str
-    };
+    let cols_str = pass_count(LoopEnd::Literal(0), LoopEnd::of(limit_expr, &limit_str), inclusive).as_usize();
     let default = default_literal_for_vec_elem(&format!("Vec<{}>", inner_elem_type));
     Some(SplitFillInfo {
         if_idx,
@@ -9533,7 +9972,7 @@ pub(crate) fn detect_buffer_reuse_in_body<'a>(
                 } = value
                 {
                     let tn = interner.resolve(*type_name);
-                    if matches!(tn, "Seq" | "List" | "Vec")
+                    if crate::semantics::collections::builds_list(tn)
                         && init_fields.is_empty()
                         && !type_args.is_empty()
                     {
@@ -9694,36 +10133,7 @@ pub(crate) fn try_emit_buffer_reuse_while<'a>(
         .unwrap();
     }
 
-    // Loop bounds hoisting (replicate from stmt.rs While handler).
-    use super::stmt::{collect_length_syms_from_stmts, extract_length_expr_syms};
-    let mut all_length_syms_raw = extract_length_expr_syms(cond);
-    collect_length_syms_from_stmts(body, &mut all_length_syms_raw);
-    let mut seen = HashSet::new();
-    let all_length_syms: Vec<Symbol> = all_length_syms_raw
-        .into_iter()
-        .filter(|s| seen.insert(*s))
-        .collect();
-
-    let mut hoisted_syms: Vec<(Symbol, Option<String>)> = Vec::new();
-    for len_sym in &all_length_syms {
-        if !body_mutates_collection(body, *len_sym) && !body_modifies_var(body, *len_sym) {
-            let name = interner.resolve(*len_sym);
-            let hoisted_name = format!("{}_len", name);
-            writeln!(
-                output,
-                "{}let {} = ({}.len() as i64);",
-                indent_str, hoisted_name, name
-            )
-            .unwrap();
-            let old_type = ctx.get_variable_types().get(len_sym).cloned();
-            let new_type = match &old_type {
-                Some(existing) => format!("{}|__hl:{}", existing, hoisted_name),
-                None => format!("|__hl:{}", hoisted_name),
-            };
-            ctx.register_variable_type(*len_sym, new_type);
-            hoisted_syms.push((*len_sym, old_type));
-        }
-    }
+    let hoisted_syms = super::stmt::hoist_loop_lengths(&mut output, cond, body, interner, ctx, &indent_str);
 
     // Emit the while condition.
     use super::expr::codegen_expr_with_async;
@@ -9777,6 +10187,18 @@ pub(crate) fn try_emit_buffer_reuse_while<'a>(
         }
 
         // Standard peephole chain for body statements.
+        if let Some((code, skip)) = try_emit_byte_compare_window_at(
+            &body_refs,
+            bi,
+            interner,
+            indent + 1,
+            ctx.get_variable_types(),
+            ctx.oracle(),
+        ) {
+            output.push_str(&code);
+            bi += 1 + skip;
+            continue;
+        }
         if let Some((code, skip)) = try_emit_seq_from_slice_pattern(
             &body_refs,
             bi,
@@ -9912,14 +10334,7 @@ pub(crate) fn try_emit_buffer_reuse_while<'a>(
 
     ctx.pop_scope();
 
-    // Restore hoisted length symbols.
-    for (sym, old_type) in hoisted_syms {
-        if let Some(old) = old_type {
-            ctx.register_variable_type(sym, old);
-        } else {
-            ctx.get_variable_types_mut().remove(&sym);
-        }
-    }
+    super::stmt::restore_loop_lengths(ctx, hoisted_syms);
 
     writeln!(output, "{}}}", indent_str).unwrap();
 

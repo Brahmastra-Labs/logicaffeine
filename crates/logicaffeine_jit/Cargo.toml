@@ -20,7 +20,8 @@ workspace = true
 logicaffeine-compile = { workspace = true }
 
 # The forge JIT builds only on x86_64 System V (Linux + macOS); elsewhere this
-# crate is empty and the VM runs bytecode, so the dependency is target-gated to
+# crate is empty and the VM runs bytecode, so the dependencies are target-gated to
 # match (keeping forge's build.rs off unsupported targets entirely).
 [target.'cfg(all(target_arch = "x86_64", not(target_os = "windows")))'.dependencies]
+logicaffeine-base = { workspace = true }
 logicaffeine-forge = { workspace = true }

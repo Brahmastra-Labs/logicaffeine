@@ -44,6 +44,7 @@ pub mod registry;
 pub mod roadmap;
 pub mod roadmap_data;
 pub mod roadmap_history;
+pub mod preview_builds;
 pub mod studio;
 pub mod studio_actions;
 pub mod studio_files;

@@ -1417,6 +1417,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn consume_type_name(&mut self) -> ParseResult<Symbol> {
         let t = self.advance().clone();
         match t.kind {
+            // ★ A TYPE IS NAMED BY THE WORD AS WRITTEN. The lexer reads a capitalized plural before
+            // a verb as a common noun and interns it lowercased (`Dogs bark.` is about dogs), and
+            // the next word it looks at can sit past the punctuation: in
+            // `## Component KindsView (k: Kinds)` it is the `View` that opens the section, so the
+            // prop was typed `kinds`, a type nobody declared. A capitalized word keeps its capital,
+            // as the type-discovery pass keeps it.
+            TokenType::Noun(_)
+                if self
+                    .interner
+                    .resolve(t.lexeme)
+                    .chars()
+                    .next()
+                    .is_some_and(char::is_uppercase) =>
+            {
+                Ok(t.lexeme)
+            }
             TokenType::Noun(s) | TokenType::Adjective(s) => Ok(s),
             TokenType::ProperName(s) => Ok(s),
             // Verbs can be type names when lexed ambiguously (e.g., "Set" as type vs verb)
@@ -2168,7 +2184,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         if self.check_verb() {
             // "who runs" pattern
-            let verb = self.consume_verb();
+            let verb = self.consume_verb()?;
             let body = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice([var_term]),
@@ -2181,7 +2197,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // "what John ate" pattern
             let subject = self.parse_noun_phrase(true)?;
             if self.check_verb() {
-                let verb = self.consume_verb();
+                let verb = self.consume_verb()?;
                 let body = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
                     args: self
@@ -5251,6 +5267,52 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         let ex = self.te_bin(BinaryOpKind::Pow, self.te_float(E), neg);
         let denom = self.te_bin(BinaryOpKind::Add, self.te_float(1.0), ex);
         let y = self.te_bin(BinaryOpKind::Divide, self.te_float(1.0), denom);
+        let body = self.te_block(vec![
+            Stmt::Push {
+                value: y,
+                collection: self.te_id(var),
+            },
+            Stmt::Set {
+                target: i,
+                value: self.te_bin(BinaryOpKind::Add, self.te_id(i), self.te_int(1)),
+            },
+        ]);
+        let loop_ = Stmt::While {
+            cond: self.te_bin(BinaryOpKind::LtEq, self.te_id(i), self.te_int(total)),
+            body,
+            decreasing: None,
+        };
+        let outer = self.te_block(vec![
+            Stmt::Let {
+                var,
+                ty: None,
+                value: new_seq,
+                mutable: true,
+            },
+            Stmt::Let {
+                var: i,
+                ty: None,
+                value: self.te_int(1),
+                mutable: true,
+            },
+            loop_,
+        ]);
+        Stmt::Splice { body: outer }
+    }
+
+    /// `Let Y be erf of X` → elementwise `Y[i] = erf(X[i])`, the library's error function (`math.lg`), which the
+    /// loader splices for the sentence as it does for a call it reads.
+    fn desugar_tensor_erf(&mut self, var: Symbol, x: Symbol, total: i64) -> Stmt<'a> {
+        let erf_sym = self.interner.intern("erf");
+        let seq_sym = self.interner.intern("Seq");
+        let real_sym = self.interner.intern("Real");
+        let i = self.fresh_desugar_temp("ef_i");
+        let new_seq = self.ctx.alloc_imperative_expr(Expr::New {
+            type_name: seq_sym,
+            type_args: vec![TypeExpr::Named(real_sym)],
+            init_fields: vec![],
+        });
+        let y = self.te_call(erf_sym, vec![self.te_index(self.te_id(x), self.te_id(i))]);
         let body = self.te_block(vec![
             Stmt::Push {
                 value: y,
@@ -10231,6 +10293,26 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.user_bound.insert(var);
             self.bind_tensor(var, (r, c), false);
             return Ok(Some(self.desugar_tensor_gelu(var, x, r * c)));
+        }
+        // `Let Y be erf of X` — the error function, elementwise: exact GELU's `0.5·x·(1 + erf(x/√2))`. A
+        // scalar operand is no tensor sentence, and parses as the call it is.
+        if self.check_word("erf") {
+            let saved = self.backtrack_point();
+            self.advance();
+            if !self.check_preposition_is("of") {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            }
+            self.advance();
+            let x = self.peek().lexeme;
+            let Some(&(r, c)) = self.tensor_shapes.get(&x) else {
+                self.backtrack_to(&saved);
+                return Ok(None);
+            };
+            self.advance();
+            self.user_bound.insert(var);
+            self.bind_tensor(var, (r, c), false);
+            return Ok(Some(self.desugar_tensor_erf(var, x, r * c)));
         }
         // `Let A be decay of Ar with bias Dt rate Alog` — Gated DeltaNet's per-head forget gate.
         if self.check_word("decay") {
@@ -15941,9 +16023,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         })
     }
 
-    /// Phase 50: Parse Check statement - mandatory security guard
-    /// Syntax: Check that [subject] is [predicate].
-    /// Syntax: Check that [subject] can [action] the [object].
+    /// Phase 50: Parse Check statement - the mandatory contract.
+    /// Security guard: `Check that [subject] is [predicate].` with a one-word predicate.
+    /// Security guard: `Check that [subject] can [action] the [object].`
+    /// Value check: `Check that <condition>.` for every other condition (`capped is at most
+    /// watts`, `x > 0 and y < 10`), which stops the program when false, like `Require that`.
     fn parse_check_statement(&mut self) -> ParseResult<Stmt<'a>> {
         let start_span = self.current_span();
         self.advance(); // consume "Check"
@@ -15951,6 +16035,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Optionally consume "that"
         if self.check(&TokenType::That) {
             self.advance();
+        }
+
+        if !self.check_is_security_guard() {
+            if matches!(self.peek().kind, TokenType::Article(Definiteness::Distal)) {
+                self.advance();
+            }
+            let condition = self.parse_condition()?;
+            let reason = self.parse_contract_reason()?;
+            return Ok(Stmt::RuntimeAssert {
+                condition,
+                hard: true,
+                dim: None,
+                reason,
+            });
         }
 
         // Consume optional "the"
@@ -16073,6 +16171,46 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             source_text,
             span: start_span,
         })
+    }
+
+    /// Is the `Check` sentence at the cursor a security guard: `[the] subject is|are predicate.`
+    /// with a one-token predicate, or `[the] subject can action [the] object.`? Decided on the
+    /// token shape alone, before anything is consumed, so every other sentence is read as a
+    /// condition. Every sentence the guard grammar accepted before is still a guard.
+    fn check_is_security_guard(&self) -> bool {
+        let kind = |i: usize| self.tokens.get(i).map(|t| &t.kind);
+        let ends = |i: usize| {
+            matches!(
+                kind(i),
+                None | Some(
+                    TokenType::Period
+                        | TokenType::Exclamation
+                        | TokenType::EOF
+                        | TokenType::Newline
+                        | TokenType::Dedent
+                )
+            )
+        };
+        let is_word = |i: usize| !ends(i);
+        let mut i = self.current;
+        if matches!(kind(i), Some(TokenType::Article(_))) {
+            i += 1;
+        }
+        if !is_word(i) {
+            return false;
+        }
+        i += 1;
+        match kind(i) {
+            Some(TokenType::Is | TokenType::Are) => is_word(i + 1) && ends(i + 2),
+            Some(TokenType::Can) => {
+                i += 2;
+                if matches!(kind(i), Some(TokenType::Article(_))) {
+                    i += 1;
+                }
+                is_word(i) && ends(i + 1)
+            }
+            _ => false,
+        }
     }
 
     /// Read the current token's lexeme as an owned `String` and advance.
@@ -19307,7 +19445,6 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// cannot express, so it is kept as text rather than parsed here.
     fn parse_axiom_block(&mut self) -> ParseResult<Stmt<'a>> {
         use crate::ast::axiom::AxiomBlock;
-        self.skip_whitespace_tokens();
         let name = self.read_block_name();
         self.skip_whitespace_tokens();
         if self.check(&TokenType::Colon) {
@@ -19322,7 +19459,6 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// name; the remainder of the block is captured as development text, parsed downstream.
     fn parse_theory_block(&mut self) -> ParseResult<Stmt<'a>> {
         use crate::ast::axiom::TheoryBlock;
-        self.skip_whitespace_tokens();
         let name = self.read_block_name();
         self.skip_whitespace_tokens();
         if self.check(&TokenType::Colon) {
@@ -19333,8 +19469,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     /// Read a block's leading name token (a proper name / noun / adjective / verb lexeme),
-    /// returning its text. `"Anonymous"` if no name token is present.
+    /// returning its text. `"Anonymous"` if no name token is present, as when the lexer ends
+    /// an unnamed header's line with a `Newline`.
     fn read_block_name(&mut self) -> String {
+        while self.check(&TokenType::Indent) || self.check(&TokenType::Dedent) {
+            self.advance();
+        }
         if let Some(token) = self.tokens.get(self.current) {
             if matches!(
                 token.kind,
@@ -21232,12 +21372,17 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             // A live user binding wins over the constructor reading
             // (`Let some be 5. Show some + 1.`); `expect_identifier` already
             // accepts `some` in name position, so the read side must too.
+            //
+            // `some` takes ONE value, as `none` stands alone: its operand is a comparison, the
+            // precedence of a constructor's field value, so the `and`/`or` that join clauses and
+            // fields end it. Read as a whole condition, `predict some (…) and title "One"`
+            // swallowed the next field into the Option.
             TokenType::Some => {
                 if self.user_bound.contains(&token.lexeme) {
                     return self.shadowed_literal_word_expr(token.lexeme);
                 }
                 self.advance(); // consume "some"
-                let value = self.parse_imperative_expr()?;
+                let value = self.parse_comparison()?;
                 Ok(self.ctx.alloc_imperative_expr(Expr::OptionSome { value }))
             }
 
@@ -23234,7 +23379,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 world: None,
             }));
         }
-        let (red_verb, _t, _a, _c) = self.consume_verb_with_metadata();
+        let (red_verb, _t, _a, _c) = self.consume_verb_with_metadata()?;
         preds.push(self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: red_verb,
             args: self.ctx.terms.alloc_slice([term]),
@@ -24144,7 +24289,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         };
 
                         if p.check_verb() {
-                            let verb = p.consume_verb();
+                            let verb = p.consume_verb()?;
                             let predicate = p.ctx.exprs.alloc(LogicExpr::Predicate {
                                 name: verb,
                                 args: p
@@ -24180,7 +24325,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let topic_attempt = self.try_parse(|p| {
                     let real_subject = p.parse_noun_phrase(true)?;
                     if p.check_verb() {
-                        let verb = p.consume_verb();
+                        let verb = p.consume_verb()?;
                         let predicate = p.ctx.exprs.alloc(LogicExpr::Predicate {
                             name: verb,
                             args: p.ctx.terms.alloc_slice([
@@ -24275,7 +24420,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 }));
             }
             if self.check_verb() {
-                let (verb, verb_time, _, _) = self.consume_verb_with_metadata();
+                let (verb, verb_time, _, _) = self.consume_verb_with_metadata()?;
                 let var_term = Term::Variable(var_name);
 
                 // A bare verb keeps the simple event; material after it
@@ -24504,7 +24649,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         world: None,
                     }));
                 }
-                let (red_verb, _t, _a, _c) = p.consume_verb_with_metadata();
+                let (red_verb, _t, _a, _c) = p.consume_verb_with_metadata()?;
                 preds.push(p.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: red_verb,
                     args: p.ctx.terms.alloc_slice([Term::Variable(placeholder)]),
@@ -25159,7 +25304,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             };
 
             if !prefer_adjective && self.check_verb() {
-                let (verb, _verb_time, verb_aspect, verb_class) = self.consume_verb_with_metadata();
+                let (verb, _verb_time, verb_aspect, verb_class) = self.consume_verb_with_metadata()?;
 
                 // Stative verbs cannot be progressive
                 if verb_class.is_stative() && verb_aspect == Aspect::Progressive {
@@ -26202,7 +26347,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             crate::lexicon::VerbClass::Activity,
                         )
                     } else {
-                        self.consume_verb_with_metadata()
+                        self.consume_verb_with_metadata()?
                     };
                     let subject_term = self.noun_phrase_to_term(&subject);
 
@@ -26423,7 +26568,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.advance(); // do/does
             self.advance(); // not
             let var_name = self.next_var_name();
-            let (verb, _t, _a, _) = self.consume_verb_with_metadata();
+            let (verb, _t, _a, _) = self.consume_verb_with_metadata()?;
             let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: subject.noun,
                 args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
@@ -26463,7 +26608,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         if is_bare_plural {
             let var_name = self.next_var_name();
-            let (verb, verb_time, verb_aspect, _) = self.consume_verb_with_metadata();
+            let (verb, verb_time, verb_aspect, _) = self.consume_verb_with_metadata()?;
 
             let type_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: subject.noun,
@@ -26550,7 +26695,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             if self.check_verb() {
-                let (verb, verb_time, verb_aspect, verb_class) = self.consume_verb_with_metadata();
+                let (verb, verb_time, verb_aspect, verb_class) = self.consume_verb_with_metadata()?;
                 let verb_lemma = self.interner.resolve(verb).to_lowercase();
 
                 // Check for embedded wh-clause with negation: "I don't know who"
@@ -26876,7 +27021,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
             // Try parsing as reduced relative: first verb is modifier, look for main verb after
             if let Some(garden_path_result) = self.try_parse(|p| {
-                let (modifier_verb, _modifier_time, _, _) = p.consume_verb_with_metadata();
+                let (modifier_verb, _modifier_time, _, _) = p.consume_verb_with_metadata()?;
 
                 // Collect any PP modifiers on the reduced relative
                 let mut pp_mods: Vec<&'a LogicExpr<'a>> = Vec::new();
@@ -26910,7 +27055,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     });
                 }
 
-                let (main_verb, main_time, _, _) = p.consume_verb_with_metadata();
+                let (main_verb, main_time, _, _) = p.consume_verb_with_metadata()?;
 
                 // Adjective complement of the main verb ("proved FALSE") is
                 // its predicated result.
@@ -27061,7 +27206,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         // Handle "never" temporal negation: "John never runs"
         if self.check(&TokenType::Never) {
             self.advance();
-            let verb = self.consume_verb();
+            let verb = self.consume_verb()?;
             let subject_term = self.noun_phrase_to_term(&subject);
 
             // Optional object: quantified ("two requests") raises past the
@@ -27173,7 +27318,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         }
 
         if self.check_verb() {
-            let (mut verb, verb_time, verb_aspect, verb_class) = self.consume_verb_with_metadata();
+            let (mut verb, verb_time, verb_aspect, verb_class) = self.consume_verb_with_metadata()?;
 
             // Check for verb sort violation (metaphor detection)
             let subject_sort = lexicon::lookup_sort(self.interner.resolve(subject.noun));
@@ -28870,7 +29015,10 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 let anchor = if let TokenType::TemporalAdverb(adv) = self.advance().kind.clone() {
                     adv
                 } else {
-                    panic!("Expected temporal adverb");
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedTemporalAdverb,
+                        span: self.current_span(),
+                    });
                 };
                 self.ctx.exprs.alloc(LogicExpr::TemporalAnchor {
                     anchor,
@@ -29553,37 +29701,35 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         false
     }
 
-    fn consume_verb(&mut self) -> Symbol {
-        let t = self.advance().clone();
-        match t.kind {
-            TokenType::Verb { lemma, .. } => lemma,
-            TokenType::Ambiguous { primary, .. } => match *primary {
-                TokenType::Verb { lemma, .. } => lemma,
-                _ => panic!("Expected verb in Ambiguous primary, got {:?}", primary),
-            },
-            _ => panic!("Expected verb, got {:?}", t.kind),
-        }
+    fn consume_verb(&mut self) -> ParseResult<Symbol> {
+        self.consume_verb_with_metadata().map(|(lemma, ..)| lemma)
     }
 
-    fn consume_verb_with_metadata(&mut self) -> (Symbol, Time, Aspect, VerbClass) {
+    /// The verb here, with its tense, aspect and class — or [`ParseErrorKind::ExpectedVerb`]
+    /// naming what stands there instead.
+    ///
+    /// ★ NEVER A PANIC. Callers reach this after a lookahead decided a verb comes next, and a
+    /// lookahead can be wrong: in `Where does the OS a machine installs come from?` the reduced
+    /// relative clause puts an article where the question's verb was expected. A sentence the
+    /// parser cannot read is a parse error for the author, never a crash of the tool reading it.
+    fn consume_verb_with_metadata(&mut self) -> ParseResult<(Symbol, Time, Aspect, VerbClass)> {
+        let span = self.current_span();
         let t = self.advance().clone();
-        match t.kind {
+        let verb = match &t.kind {
+            TokenType::Ambiguous { primary, .. } => primary.as_ref(),
+            other => other,
+        };
+        match verb {
             TokenType::Verb {
                 lemma,
                 time,
                 aspect,
                 class,
-            } => (lemma, time, aspect, class),
-            TokenType::Ambiguous { primary, .. } => match *primary {
-                TokenType::Verb {
-                    lemma,
-                    time,
-                    aspect,
-                    class,
-                } => (lemma, time, aspect, class),
-                _ => panic!("Expected verb in Ambiguous primary, got {:?}", primary),
-            },
-            _ => panic!("Expected verb, got {:?}", t.kind),
+            } => Ok((*lemma, *time, *aspect, *class)),
+            _ => Err(ParseError {
+                kind: ParseErrorKind::ExpectedVerb { found: t.kind.clone() },
+                span,
+            }),
         }
     }
 
@@ -29636,7 +29782,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         self.negative_depth += 1;
 
-        let verb = self.consume_verb();
+        let verb = self.consume_verb()?;
 
         if self.check_npi_object() {
             let obj_npi_token = self.advance().kind.clone();
@@ -29735,7 +29881,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.negative_depth += 1;
         }
 
-        let verb = self.consume_verb();
+        let verb = self.consume_verb()?;
         let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: verb,
             args: self.ctx.terms.alloc_slice([Term::Constant(subject.noun)]),

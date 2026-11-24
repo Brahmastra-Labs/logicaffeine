@@ -428,6 +428,24 @@ fn exact_recurse(op: exact::Op, a: RuntimeValue, b: RuntimeValue) -> Result<Runt
     }
 }
 
+/// The largest magnitude the integer `a op b` (`+`, `-`, `*`, `/`, `%`) takes where `|a| <= l` and `|b| <= r`,
+/// computed by a machine operation on a two's-complement word whose results reach magnitude `limit`; `divisor` is
+/// `b` where it is a literal. `None` where the result may pass `limit`, and where the operation itself may leave
+/// the word: a quotient or remainder of a dividend that may be the word's least value by a divisor that may be -1
+/// (`MIN / -1` overflows, and a machine `MIN % -1` traps). A raw operation is exact only when every step of its
+/// chain has a bound, the steps a remainder or a quotient narrows included.
+pub(crate) fn word_op_magnitude(op: BinaryOpKind, l: u128, r: u128, divisor: Option<i64>, limit: u128) -> Option<u128> {
+    let dividend_in_word = || l <= limit || divisor.is_some_and(|d| d != -1);
+    let m = match op {
+        BinaryOpKind::Add | BinaryOpKind::Subtract => l.checked_add(r)?,
+        BinaryOpKind::Multiply => l.checked_mul(r)?,
+        BinaryOpKind::Divide if dividend_in_word() => l,
+        BinaryOpKind::Modulo if dividend_in_word() => l.min(r),
+        _ => return None,
+    };
+    (m <= limit).then_some(m)
+}
+
 pub fn binary_op(
     op: BinaryOpKind,
     left: RuntimeValue,

@@ -87,7 +87,7 @@ impl Shim for EngineShim<'_> {
             GemvNormEpilogue | PrefillNormEpilogues | AttnResidualNorm | RecomputeFanout | ElementwiseChains | ElementwiseRegions => Decompose,
             QkNormRope | QkNormRopeKvAppend | RopeKvAppend | RopeQkOneLaunch | QkNormRopeGateSplit | QkvHeadEpilogue => Decompose,
             HorizontalNormRopeInsert | CrossLayerLaunch | ConvParts | ConvSiluL2norm | GdnGateProjections | GdnInputEpilogue => Decompose,
-            GdnPostConvPrep | GdnDecodeWhole | GemvGateUpGlu | MergedGateUp | GemmDequantInkernel | FusedSampling | LastLayerRows | DeltaQkNorm => Decompose,
+            GdnPostConvPrep | GdnDecodeWhole | GemvGateUpGlu | MergedGateUp | GemmDequantInkernel | FusedSampling | LastLayerRows | DeltaQkNorm | HcPost | GemmAct | HcMix | HcPostNorm => Decompose,
             NormQuant | AddNormQuant | GluActMulQuant | ElementwiseQuant | GdnOutputQuant | GemvQuant | AttnOutputQuant | GdnStep => Decompose,
             AttnOutputGate | RowWriteQuant | CapArgmax => Decompose,
             GemmBias | GemmScale | AffineInputFold => Refuse("the engine's matvec unit adds no bias and scales by no factor"),
@@ -123,6 +123,7 @@ impl Shim for EngineShim<'_> {
             let refused = match leaf.prim() {
                 Some(TensorOpSpec::Moe(_)) => Some(Refusal::Ffn { layer: 0, what: "experts" }.gap()),
                 Some(TensorOpSpec::Gelu(_)) => Some(Refusal::Ffn { layer: 0, what: "GELU" }.gap()),
+                Some(TensorOpSpec::Erf(_)) => Some(Refusal::Ffn { layer: 0, what: "the error function of an exact GELU" }.gap()),
                 Some(TensorOpSpec::Attention(a)) if a.window.is_some() => Some(Refusal::Attention { layer: 0, what: "a sliding window" }.gap()),
                 Some(TensorOpSpec::Attention(a)) if a.sinks.is_some() => Some(Refusal::Attention { layer: 0, what: "attention sinks" }.gap()),
                 Some(TensorOpSpec::Attention(a)) if a.softcap.is_some() => {

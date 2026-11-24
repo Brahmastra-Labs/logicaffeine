@@ -6,7 +6,9 @@
 //! equal when their characters are. Two sequences are equal item for item, two maps or sets entry for entry whatever
 //! order their entries went in and whatever capacity either grew to, two records or tuples field for field. A
 //! value-or-nothing is equal to another when both hold nothing or both hold equal values, and to a value when it holds
-//! one equal to it; `nothing` is equal only to a value-or-nothing that holds nothing.
+//! one equal to it; two values of one enum when they are the same variant with equal fields. `nothing` is equal to
+//! `nothing`, to a value-or-nothing that holds nothing and to an `Option` that is `None`, and to no other value — which
+//! is still computed: the VM computes both sides of a comparison, whatever it finds.
 //!
 //! A comparison of structured values is a function of its own, generated once for each pair of types beside the
 //! program's other generated functions and declared before its body, so a record holding a list of itself compares
@@ -57,16 +59,89 @@ pub(super) fn table_parts(ty: &CType) -> Option<(CType, Option<CType>)> {
         return Some((key, Some(value)));
     }
     match ty {
-        CType::MapStrValue(value) => Some((CType::String, Some((**value).clone()))),
-        CType::MapI64Value(value) => Some((CType::Int64, Some((**value).clone()))),
         CType::SetI64(ints) => Some((ints.ctype(), None)),
         CType::SetStr => Some((CType::String, None)),
+        CType::SetTuple(elems) => Some((CType::Tuple(elems.clone()), None)),
         _ => None,
     }
 }
 
+/// Whether two values of C type `ty` compare by a generated function rather than by C's `==`: a sequence of any
+/// element, a map or a set, a record, a tuple, or a value of an enum.
+pub(super) fn is_structured(ty: &CType, ctx: &CContext) -> bool {
+    seq_element(ty, ctx.registry).is_some()
+        || table_parts(ty).is_some()
+        || matches!(ty, CType::Struct(_) | CType::Tuple(_) | CType::Record(_) | CType::Enum(_))
+}
+
+/// Whether the C expression `operand` is a literal — a number, a truth value or a text — which a comparison has nothing
+/// left to compute of. A name is read, as the VM reads it.
+fn inert(operand: &str) -> bool {
+    let literal_text = operand.len() >= 2
+        && operand.starts_with('"')
+        && operand.ends_with('"')
+        && !operand[1..operand.len() - 1].contains('"');
+    let number = operand.starts_with(|c: char| c.is_ascii_digit())
+        && operand.chars().all(|c| c.is_ascii_alphanumeric() || c == '.');
+    literal_text || number || operand == "true" || operand == "false"
+}
+
+/// The C expression of `is not equal to` from `eq`, the one of `is equal to`: a decided answer is the other one,
+/// anything else its negation.
+pub(super) fn unequal(eq: String) -> String {
+    match eq.as_str() {
+        "true" => "false".to_string(),
+        "false" => "true".to_string(),
+        _ => format!("(!{eq})"),
+    }
+}
+
+/// When `ty` is an `Option` (the built-in one as the program monomorphized it, or the program's own): its `None`
+/// constant.
+fn option_none(ty: &CType, ctx: &CContext) -> Option<String> {
+    let CType::Enum(sym) = ty else { return None };
+    let shown = ctx.display_names.get(sym).copied().unwrap_or(*sym);
+    let has_none = matches!(
+        ctx.registry.get(*sym),
+        Some(crate::analysis::TypeDef::Enum { variants, .. })
+            if variants.iter().any(|v| ctx.interner.resolve(v.name) == "None")
+    );
+    (ctx.interner.resolve(shown) == "Option" && has_none)
+        .then(|| format!("{}_None", escape_c_ident(ctx.interner.resolve(*sym))))
+}
+
+/// Whether `value`, of C type `ty`, which is not a value-or-nothing, is `nothing`: an `Option` is when it is `None`;
+/// a value of any other type never is, though it is still computed.
+fn is_nothing(ty: &CType, value: &str, ctx: &CContext) -> String {
+    match option_none(ty, ctx) {
+        Some(none) => format!("(({value}).tag == {none})"),
+        None if inert(value) => "false".to_string(),
+        None => format!("((void)({value}), false)"),
+    }
+}
+
+/// `test`, with `first` computed before it when it computes anything: the left operand of a comparison whose `test`
+/// reads only the right.
+fn first_then(first: &str, test: String) -> String {
+    if first.is_empty() || inert(first) {
+        test
+    } else {
+        format!("((void)({first}), {test})")
+    }
+}
+
+/// `test`, with `then` computed after it when it computes anything: the right operand of a comparison whose `test`
+/// reads only the left.
+fn then_computed(test: String, then: &str, n: usize) -> String {
+    if then.is_empty() || inert(then) {
+        test
+    } else {
+        format!("({{ bool __tested{n} = {test}; (void)({then}); __tested{n}; }})")
+    }
+}
+
 /// The C expression of whether `left`, of C type `lt`, equals `right`, of `rt`, as the VM compares them; `None` for a
-/// pair it does not compare, which the caller lowers its own way. Each operand is evaluated once.
+/// pair it does not compare, which the caller lowers its own way. Each operand is evaluated once, left first.
 pub(super) fn value_equal(lt: &CType, left: &str, rt: &CType, right: &str, ctx: &CContext) -> Option<String> {
     if let Some(same) = scalar_equal(lt, left, rt, right, ctx) {
         return Some(same);
@@ -74,9 +149,11 @@ pub(super) fn value_equal(lt: &CType, left: &str, rt: &CType, right: &str, ctx: 
     let n = ctx.select_ctr.get();
     ctx.select_ctr.set(n + 1);
     match (lt, rt) {
-        (CType::Void, CType::Void) => Some("true".to_string()),
-        (CType::Opt(_), CType::Void) => Some(format!("(!({left}).present)")),
-        (CType::Void, CType::Opt(_)) => Some(format!("(!({right}).present)")),
+        (CType::Void, CType::Void) => Some(first_then(left, then_computed("true".to_string(), right, n))),
+        (CType::Opt(_), CType::Void) => Some(then_computed(format!("(!({left}).present)"), right, n)),
+        (CType::Void, CType::Opt(_)) => Some(first_then(left, format!("(!({right}).present)"))),
+        (other, CType::Void) => Some(then_computed(is_nothing(other, left, ctx), right, n)),
+        (CType::Void, other) => Some(first_then(left, is_nothing(other, right, ctx))),
         (CType::Opt(l), CType::Opt(r)) => {
             let same = value_equal(
                 l,
@@ -150,6 +227,45 @@ fn fields(ty: &CType, ctx: &CContext) -> Option<Vec<(String, CType)>> {
     })
 }
 
+/// One variant of an enum, as a comparison reads it: its tag constant, and each field's member, whether it is held
+/// through a pointer (a field naming its own enum), and its C type.
+struct Variant {
+    tag: String,
+    fields: Vec<(String, bool, CType)>,
+}
+
+/// The variants a value of the enum of C type `ty` compares by, in declaration order; `None` for any other type.
+fn variants(ty: &CType, ctx: &CContext) -> Option<Vec<Variant>> {
+    let CType::Enum(sym) = ty else { return None };
+    let crate::analysis::TypeDef::Enum { variants, .. } = ctx.registry.get(*sym)? else {
+        return None;
+    };
+    let name = escape_c_ident(ctx.interner.resolve(*sym));
+    Some(
+        variants
+            .iter()
+            .map(|v| {
+                let vname = escape_c_ident(ctx.interner.resolve(v.name));
+                let fields = v
+                    .fields
+                    .iter()
+                    .map(|f| {
+                        let member = format!("data.{vname}.{}", escape_c_ident(ctx.interner.resolve(f.name)));
+                        let boxed = matches!(&f.ty, crate::analysis::FieldType::Named(fsym) if fsym == sym);
+                        let ctype = if boxed {
+                            ty.clone()
+                        } else {
+                            super::exact::field_ctype(v.name, f, ctx.interner, ctx.registry, &ctx.field_facts())
+                        };
+                        (member, boxed, ctype)
+                    })
+                    .collect();
+                Variant { tag: format!("{name}_{vname}"), fields }
+            })
+            .collect(),
+    )
+}
+
 /// Whether every comparison a structured comparison of `lt` and `rt` makes is one this module makes.
 fn compares(lt: &CType, rt: &CType, ctx: &CContext, seen: &mut Vec<(CType, CType)>) -> bool {
     if seen.iter().any(|(l, r)| l == lt && r == rt) {
@@ -188,7 +304,10 @@ fn compares(lt: &CType, rt: &CType, ctx: &CContext, seen: &mut Vec<(CType, CType
                 Some((key, value)) => {
                     compares(&key, &key, ctx, seen) && value.as_ref().is_none_or(|v| compares(v, v, ctx, seen))
                 }
-                None => fields(lt, ctx).is_some_and(|fs| fs.iter().all(|(_, t)| compares(t, t, ctx, seen))),
+                None => match variants(lt, ctx) {
+                    Some(vs) => vs.iter().flat_map(|v| &v.fields).all(|(_, _, t)| compares(t, t, ctx, seen)),
+                    None => fields(lt, ctx).is_some_and(|fs| fs.iter().all(|(_, t)| compares(t, t, ctx, seen))),
+                },
             },
         },
     };
@@ -231,18 +350,45 @@ fn structured_equal(lt: &CType, left: &str, rt: &CType, right: &str, ctx: &CCont
                         Some(value) => value_equal(value, "a.vals[i]", value, "b.vals[j]", ctx)?,
                         None => "true".to_string(),
                     };
-                    let hash = if key == CType::String { "_map_hash_str" } else { "_map_hash" };
+                    let slot = match &key {
+                        CType::String => "_map_hash_str(a.keys[i], b.cap)".to_string(),
+                        CType::Tuple(_) => format!(
+                            "__logos_hash_slot({}_hash(a.keys[i]), b.cap)",
+                            super::types::c_type_str_resolved(&key, ctx.interner)
+                        ),
+                        _ => "_map_hash(a.keys[i], b.cap)".to_string(),
+                    };
                     // Each key of `a` is probed for in `b`, the probe bounded by `b`'s capacity: neither slot
                     // positions nor insertion order are values.
                     format!(
                         "if (a.len != b.len) return false; if (a.len == 0) return true; if (b.cap == 0) return false; \
                          for (size_t i = 0; i < a.cap; i++) {{ if (a.state[i] != 1) continue; \
-                         size_t j = {hash}(a.keys[i], b.cap); bool found = false; \
+                         size_t j = {slot}; bool found = false; \
                          for (size_t p = 0; p < b.cap && b.state[j]; p++) {{ \
                          if (b.state[j] == 1 && {same_key}) {{ if (!({same_value})) return false; found = true; break; }} \
                          j = (j + 1) & (b.cap - 1); }} \
                          if (!found) return false; }} return true;"
                     )
+                }
+                None if variants(lt, ctx).is_some() => {
+                    let vs = variants(lt, ctx)?;
+                    let mut cases = String::new();
+                    for v in &vs {
+                        if v.fields.is_empty() {
+                            continue;
+                        }
+                        let mut checks = Vec::new();
+                        for (member, boxed, ty) in &v.fields {
+                            let at = |x: &str| if *boxed { format!("(*{x}.{member})") } else { format!("{x}.{member}") };
+                            checks.push(value_equal(ty, &at("a"), ty, &at("b"), ctx)?);
+                        }
+                        cases.push_str(&format!("case {}: return {}; ", v.tag, checks.join(" && ")));
+                    }
+                    if cases.is_empty() {
+                        "return a.tag == b.tag;".to_string()
+                    } else {
+                        format!("if (a.tag != b.tag) return false; switch (a.tag) {{ {cases}default: return true; }}")
+                    }
                 }
                 None => {
                     let mut checks = Vec::new();
@@ -263,3 +409,7 @@ fn structured_equal(lt: &CType, left: &str, rt: &CType, right: &str, ctx: &CCont
     }
     Some(format!("{name}({left}, {right})"))
 }
+
+#[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/codegen_c/equality/tests.rs"]
+mod tests;

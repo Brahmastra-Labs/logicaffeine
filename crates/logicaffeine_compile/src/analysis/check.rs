@@ -95,6 +95,10 @@ pub struct Instantiations {
     /// Each generic function's type parameters in declaration order, each as the type its
     /// variable resolved to (its own unbound variable, unless the body pinned it).
     pub type_params: HashMap<Symbol, Vec<(Symbol, InferType)>>,
+    /// Every expression the checker resolved to an `Int`, whatever form a backend holds it in.
+    pub ints: std::collections::HashSet<Site>,
+    /// Every expression the checker resolved to a `Seq of Int`.
+    pub int_seqs: std::collections::HashSet<Site>,
 }
 
 /// Bidirectional type checking environment.
@@ -121,6 +125,8 @@ struct CheckEnv<'r> {
     sites: Instantiations,
     /// Each generic call's argument types, to judge its precision once the program is checked.
     call_arg_types: HashMap<Site, Vec<InferType>>,
+    /// Every expression's type as inferred, unresolved until the program is checked.
+    expr_types: Vec<(Site, InferType)>,
     /// Each bare type name that IS a namespaced type, so both spellings are one type.
     twins: HashMap<Symbol, Symbol>,
 }
@@ -138,6 +144,7 @@ impl<'r> CheckEnv<'r> {
             type_params_in_scope: HashMap::new(),
             sites: Instantiations::default(),
             call_arg_types: HashMap::new(),
+            expr_types: Vec::new(),
             twins: registry.namespaced_twins(interner),
         }
     }
@@ -222,7 +229,22 @@ impl<'r> CheckEnv<'r> {
         let table = &self.table;
         let sites = self.sites;
         let arg_types = self.call_arg_types;
+        let mut ints = std::collections::HashSet::new();
+        let mut int_seqs = std::collections::HashSet::new();
+        for (site, t) in &self.expr_types {
+            match table.resolve(t) {
+                InferType::Int => {
+                    ints.insert(*site);
+                }
+                InferType::Seq(item) if matches!(table.resolve(&item), InferType::Int) => {
+                    int_seqs.insert(*site);
+                }
+                _ => {}
+            }
+        }
         Instantiations {
+            ints,
+            int_seqs,
             calls: sites
                 .calls
                 .into_iter()
@@ -454,6 +476,12 @@ impl<'r> CheckEnv<'r> {
 
     /// Infer the type of an expression (synthesis mode).
     fn infer_expr(&mut self, expr: &Expr) -> Result<InferType, TypeError> {
+        let ty = self.infer_expr_shape(expr)?;
+        self.expr_types.push((Site::of_expr(expr), ty.clone()));
+        Ok(ty)
+    }
+
+    fn infer_expr_shape(&mut self, expr: &Expr) -> Result<InferType, TypeError> {
         match expr {
             Expr::Literal(lit) => Ok(InferType::from_literal(lit)),
 
@@ -554,16 +582,16 @@ impl<'r> CheckEnv<'r> {
                 type_args,
                 init_fields,
             } => {
-                let name = self.interner.resolve(*type_name);
-                let ty = match name {
-                    "Seq" | "List" | "Vec" => {
+                use crate::semantics::collections::{built_by, Built};
+                let ty = match built_by(self.interner.resolve(*type_name)) {
+                    Some(Built::List) => {
                         let elem = type_args
                             .first()
                             .map(|t| self.written_type(t))
                             .unwrap_or_else(|| self.table.fresh());
                         InferType::Seq(Box::new(elem))
                     }
-                    "Map" | "HashMap" => {
+                    Some(Built::Map) => {
                         let key = type_args
                             .first()
                             .map(|t| self.written_type(t))
@@ -574,14 +602,14 @@ impl<'r> CheckEnv<'r> {
                             .unwrap_or(InferType::String);
                         InferType::Map(Box::new(key), Box::new(val))
                     }
-                    "Set" | "HashSet" => {
+                    Some(Built::Set) => {
                         let elem = type_args
                             .first()
                             .map(|t| self.written_type(t))
                             .unwrap_or_else(|| self.table.fresh());
                         InferType::Set(Box::new(elem))
                     }
-                    _ => {
+                    None => {
                         // A struct constructor's field initialisers were never checked: the arm
                         // matched `..` and returned the nominal type, so `a new P with x "text"`
                         // stored a Text in an Int field and `a new P with z 5` invented a field,

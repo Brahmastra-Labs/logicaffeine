@@ -31,15 +31,15 @@ use crate::codegen_cuda::knobs::{CachePrecision, CudaKnobs, StatePrecision};
 use crate::codegen_cuda::qwen_emit::Q8MatKind;
 use crate::tensor_graph::facts;
 use crate::tensor_graph::fuse::{
-    allreduce_partials, class, conv, epilogued_product, gemv, leaves, moe, norm, parts_norm, rope, scaled_norm, slice, unit_output, ChipRule, ConvForm,
-    GemvForm, Rewriter, Weights,
+    allreduce_partials, class, conv, epilogued_product, gemv, leaves, moe, norm, parts_norm, rope, scaled_norm, side_norm, slice, unit_output, ChipRule,
+    ConvForm, GemvForm, Rewriter, Weights,
 };
 use crate::tensor_graph::front::TensorOpSpec;
 use crate::tensor_graph::graph::{Access, Fused, Op, QuantFormat, RowSel, Storage, Sym, TensorGraph};
 use crate::tensor_graph::numerics::{holds_accumulator, AttentionNumerics, Block, Bound, Contract, Keep, Scale, Scheme, SixteenBit, Taken};
 use crate::tensor_graph::shim::{Position, Shim, Support};
 use crate::tensor_graph::symbols::ClassId;
-use crate::tensor_recognize::qwen::{GateAct, MoeAct, RowIndex};
+use crate::tensor_recognize::qwen::{MoeAct, RowIndex};
 use crate::tensor_recognize::ElementwiseOp;
 
 use super::lane::kernels;
@@ -113,11 +113,17 @@ impl LaneShim {
         gemv(op, g).filter(|p| matches!(p.weights, Weights::Rows(_)))
     }
 
-    /// The product a member of a GEMV in parts computes: a plain product by checkpoint rows, or one that turns its
-    /// heads in its epilogue.
+    /// The product a member of a GEMV or GEMM in parts computes: a plain product by checkpoint rows, one that turns its
+    /// heads in its epilogue, or one with its scale or activation folded in (`gemm_scale`, `gemm_act`), which a part's
+    /// epilogue applies as its own launch's does — its epilogue's operands a row of its outputs at most, the same for
+    /// every row a launch of the parts takes.
     fn part_product(op: &Op, g: &TensorGraph) -> Option<GemvForm> {
         match &op.sym {
             Sym::Fused(f) if f.class == ClassId::QkvHeadEpilogue => Self::rows_product(&f.parts[0], g),
+            Sym::Fused(f) if matches!(f.class, ClassId::GemmScale | ClassId::GemmAct) => epilogued_product(op, g).filter(|p| {
+                let rowwise = op.ins.iter().filter(|t| **t != p.x && **t != p.w).all(|t| g.tensors.get(t).is_some_and(|x| x.len() <= p.n));
+                matches!(p.weights, Weights::Rows(_)) && p.dst.own().is_some() && op.dst.own().is_some() && rowwise
+            }),
             _ => Self::rows_product(op, g),
         }
     }
@@ -176,7 +182,10 @@ impl LaneShim {
     /// Whether every member of a GEMM in parts is one the tensor cores take together: whole tiles of the int8 GEMM's
     /// outputs, or of the 16-bit GEMM's (`gemm_h16_tile_n`), so the parts are one launch.
     fn gemm_parts(&self, members: &[Op], g: &TensorGraph) -> bool {
-        let products: Option<Vec<GemvForm>> = members.iter().map(|m| Self::rows_product(m, g)).collect();
+        let products: Option<Vec<GemvForm>> = members.iter().map(|m| match &m.sym {
+            Sym::Fused(f) if f.class != ClassId::QkvHeadEpilogue => Self::part_product(m, g),
+            _ => Self::rows_product(m, g),
+        }).collect();
         let Some(products) = products else { return false };
         let first = &products[0];
         let tile = |p: &GemvForm| {
@@ -188,9 +197,14 @@ impl LaneShim {
                 None
             }
         };
+        // Parts of whole tiles; on the int8 tensor cores beside them a part narrower than one tile, from a tile of its
+        // own (`kernels::gemm_part_cols`) — alone its few outputs took a GEMM whose every block ran the whole depth,
+        // where beside the whole-tile parts they ride the launch that fills the chip (a gated delta layer's gates).
+        let whole = |p: &GemvForm| tile(p).is_some_and(|t| p.n % t == 0);
+        let beside = products.iter().any(whole);
         products.len() <= kernels::GEMM_PARTS
             && products.iter().all(|p| {
-                tile(p).is_some_and(|t| p.n % t == 0)
+                (whole(p) || (beside && self.on_tensor_cores(p) && p.n < kernels::GEMM_TILE_N))
                     && Self::lands_whole(p)
                     && p.weights == first.weights
                     && (p.x.as_str(), p.k, p.m) == (first.x.as_str(), first.k, first.m)
@@ -303,14 +317,18 @@ impl Shim for LaneShim {
             NormQuant | AddNormQuant | GluActMulQuant | ElementwiseQuant | GdnOutputQuant | GemvQuant => epilogue,
             GemvNormEpilogue => Native,
             EmbedNorm => Native,
-            NormWeightOffset | DualNorm | PrefillNormEpilogues | AttnResidualNorm => Decompose,
-            QkvHeadEpilogue => Native,
+            NormWeightOffset | PrefillNormEpilogues | AttnResidualNorm => Decompose,
+            DualNorm => Native,
+            // The heads turned in the projections' launch only where the `head_epilogue` knob asks: apart, the projections
+            // overlap in the step's graph.
+            QkvHeadEpilogue if self.knobs.head_epilogue => Native,
+            QkvHeadEpilogue => Decompose,
             RecomputeFanout | QkNormRopeGateSplit | HorizontalNormRopeInsert | CrossLayerLaunch => Decompose,
             AttnOutputQuant => epilogue,
             AttnOutputGate | RowWriteQuant => Native,
             MlaPrologue | MlaUnabsorbInFold | ElementwiseChains | ElementwiseRegions => Decompose,
             MaskedExpertActivation | AffineInputFold | RouterSharedGateMerge | MoeGatherInOperand => Decompose,
-            MoeDeferredFinalize | GdnInputEpilogue | DeltaQkNorm => Native,
+            MoeDeferredFinalize | GdnInputEpilogue | DeltaQkNorm | HcPost | GemmAct | HcMix | HcPostNorm => Native,
             GdnDecodeWhole | GdnPostConvPrep | LastLayerRows => Decompose,
             MixedBatchAttention => Refuse("the lane attends a batch's sequences each at its own position, none mid-prefill"),
             SparseAttention => Refuse("the lane's attention reads every cached row of its span"),
@@ -331,19 +349,6 @@ impl Shim for LaneShim {
         let refuse = |why: &str| Err(why.to_string());
         for leaf in leaves(op.clone()) {
             match leaf.prim() {
-                Some(TensorOpSpec::GatedDelta(g)) if g.gate == GateAct::Sigmoid => {
-                    return refuse("the lane's gated delta gates by SiLU, not a sigmoid")
-                }
-                Some(TensorOpSpec::LaneSums(_) | TensorOpSpec::SignedRoot(_)) => {
-                    return refuse("the lane computes no lane sum and no signed root")
-                }
-                Some(TensorOpSpec::NgramIds(_)) => return refuse("the lane hashes no n-gram ids"),
-                Some(TensorOpSpec::LaneMean(_) | TensorOpSpec::LaneSpread(_)) => {
-                    return refuse("the lane mixes and spreads no hyper-connected residual's lanes")
-                }
-                Some(TensorOpSpec::FusedRow(r)) if r.weight_rows > 1 => {
-                    return refuse("the lane's norms read one weight row, not one for each of their lanes (`in L lanes`)")
-                }
                 _ => {}
             }
             if let Some(u) = &leaf.dst.unit {
@@ -396,6 +401,18 @@ impl Shim for LaneShim {
                     refuse("relu² folds into its producer only where the product quantizes what a product reads of it, four rows a warp, whole blocks")
                 }
             }
+            // A mean of the lanes quantizes its result a warp a 32-value group, its rows whole groups.
+            ClassId::ElementwiseQuant
+                if leaves(op.clone()).iter().any(|l| matches!(l.prim(), Some(TensorOpSpec::LaneMean(m)) if m.cols % QBLOCK != 0)) =>
+            {
+                refuse("a mean of the lanes quantizes its result only where each row is whole 32-value groups")
+            }
+            // An activation folds into its producer's epilogue; what a product reads of it quantized is quantized in that
+            // epilogue where the product quantizes its outputs (`gemv_quant`), and by its own launch where it does not.
+            ClassId::GemmAct => match gemv(&f.parts[0], g).or_else(|| epilogued_product(&f.parts[0], g)) {
+                Some(_) => Ok(()),
+                None => refuse("an activation folds into the epilogue of a product"),
+            },
             ClassId::GemvNormEpilogue => {
                 let (Some(p), Some(n)) = (gemv(&f.parts[0], g), norm(&f.parts[1])) else {
                     return refuse("a projection's epilogue norms the add of its result");
@@ -417,6 +434,11 @@ impl Shim for LaneShim {
                     refuse("a projection norms in its last block only where its block is at least the norm's width")
                 }
             }
+            // Each side runs in its blocks as its own launch does: none norms its added operand first (a sandwich's).
+            ClassId::DualNorm => match f.parts.iter().map(side_norm).collect::<Option<Vec<_>>>() {
+                Some(sides) if sides.iter().all(|n| !n.pre) => Ok(()),
+                _ => refuse("the lane's two norms in one launch each norm their rows, neither norming its added operand first"),
+            },
             ClassId::MoeDeferredFinalize => {
                 let (Some(m), Some(n)) = (moe(&f.parts[0]), f.parts.last().and_then(norm)) else {
                     return refuse("a mixture's last step norms the add of its result");
@@ -576,7 +598,10 @@ impl Shim for LaneShim {
                 Some(TensorOpSpec::Attention(a)) if a.rows <= GEMV_ROWS && a.vd % 32 == 0 => Ok(()),
                 _ => refuse("an attention quantizes its output only in the decode step's and a short chunk's kernels, its heads whole 32-value groups"),
             },
-            ClassId::NormQuant if norm(&f.parts[0]).or_else(|| embedded_norm(&f.parts[0])).or_else(|| scaled_norm(&f.parts[0]).map(|(n, _)| n)).is_none() => {
+            ClassId::NormQuant
+                if norm(&f.parts[0]).or_else(|| embedded_norm(&f.parts[0])).or_else(|| scaled_norm(&f.parts[0]).map(|(n, _)| n)).is_none()
+                    && !in_lanes(&f.parts[0]) =>
+            {
                 refuse("the lane's norm quantizes its result only from an RMS norm")
             }
             ClassId::GemvQuant => match gemv(&f.parts[0], g).or_else(|| epilogued_product(&f.parts[0], g)) {
@@ -615,7 +640,7 @@ impl Shim for LaneShim {
                 if self.gemm_parts(&f.parts, g) || (!self.held.contains(&"gemv_parts") && self.gemv_in_parts(&f.parts, g)) {
                     Ok(())
                 } else {
-                    refuse("products of one activation are one launch in parts: at most four, one format — on the tensor cores whole tiles of their GEMM's outputs, in the GEMV one number of rows a warp")
+                    refuse("products of one activation are one launch in parts: at most six, one format — on the tensor cores whole tiles of their GEMM's outputs, beside them on the int8 ones parts narrower than a tile, in the GEMV one number of rows a warp")
                 }
             }
             _ => Ok(()),
@@ -630,7 +655,7 @@ impl Shim for LaneShim {
                 return self.activation(&f.parts[0], operand, g);
             }
             // A projection with its epilogue folded in reads its operands first, as the projection alone reads them.
-            if matches!(f.class, GemvNormEpilogue | QkvHeadEpilogue | MoeDeferredFinalize | GemmScale | ReluSqr) {
+            if matches!(f.class, GemvNormEpilogue | QkvHeadEpilogue | MoeDeferredFinalize | GemmScale | ReluSqr | GemmAct) {
                 return self.activation(&f.parts[0], operand, g).filter(|_| operand < f.parts[0].ins.len());
             }
             // A gated delta layer's inputs read its activation as their GEMV in parts reads it; gates projected in
@@ -951,6 +976,7 @@ impl LaneShim {
             vd: l.vd,
             len: l.len,
             rows: l.rows,
+            row0: 0,
             window: None,
             chunked: false,
             vstride: l.heads * l.vd,
@@ -1008,4 +1034,15 @@ pub struct Latent {
 /// idle.
 pub fn chunks_apart(splits: usize, rows: usize, head_blocks: usize, sms: usize) -> bool {
     splits > 1 && rows * head_blocks < 2 * sms
+}
+
+/// Whether `op` is a norm in lanes (`rmsnorm … in L lanes`): an RMS norm by a weight row a lane, of nothing added or
+/// of a post's spread added to the residual (`hc_post_norm`), whose launch quantizes each lane's row whole blocks at a
+/// time as a norm of one row does.
+fn in_lanes(op: &Op) -> bool {
+    match &op.sym {
+        Sym::Fused(f) if f.class == ClassId::HcPostNorm => f.parts.last().is_some_and(in_lanes),
+        _ => matches!(op.prim(), Some(TensorOpSpec::FusedRow(r)) if r.reduce == crate::tensor_recognize::RowReduceKind::RmsNorm
+            && r.bias.is_none() && r.residual.is_none() && r.weight_rows > 1 && r.cols % QBLOCK == 0),
+    }
 }

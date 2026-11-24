@@ -20,12 +20,40 @@ thread_local! {
     /// Each call or construction site's turbofish (`::<_, i64>`), for the program being emitted.
     /// Set once per program at codegen entry by [`install`].
     static TURBOFISH: std::cell::RefCell<HashMap<Site, String>> = std::cell::RefCell::new(HashMap::new());
+    /// The program's generic functions, whose declared results name their own type parameters.
+    static GENERIC: std::cell::RefCell<std::collections::HashSet<Symbol>> = std::cell::RefCell::new(Default::default());
+    /// Every expression of the program being emitted that the checker resolved to an `Int`.
+    static INTS: std::cell::RefCell<std::collections::HashSet<Site>> = std::cell::RefCell::new(Default::default());
+    /// Every expression of the program being emitted that the checker resolved to a `Seq of Int`.
+    static INT_SEQS: std::cell::RefCell<std::collections::HashSet<Site>> = std::cell::RefCell::new(Default::default());
+}
+
+/// Holds what the checker solved for the program being emitted, until its emission ends.
+pub(crate) struct Checked;
+
+impl Drop for Checked {
+    fn drop(&mut self) {
+        INTS.with(|i| i.borrow_mut().clear());
+        INT_SEQS.with(|i| i.borrow_mut().clear());
+    }
+}
+
+/// Whether the checker resolved `e`, an expression of the program being emitted, to an `Int`.
+pub(crate) fn checked_int(e: &Expr) -> bool {
+    INTS.with(|i| i.borrow().contains(&Site::of_expr(e)))
+}
+
+/// Whether the checker resolved `e`, an expression of the program being emitted, to a `Seq of Int`.
+pub(crate) fn checked_int_seq(e: &Expr) -> bool {
+    INT_SEQS.with(|i| i.borrow().contains(&Site::of_expr(e)))
 }
 
 /// Solve `stmts` — the exact statements about to be emitted, so each site's address is the one
-/// the emitters see — and record the turbofish every phantom-carrying site needs.
-pub(crate) fn install(stmts: &[Stmt], registry: &TypeRegistry, interner: &Interner) {
-    let inst = infer_instantiations(stmts, interner, registry);
+/// the emitters see — and record the turbofish every phantom-carrying site needs and which expressions are `Int`s.
+pub(crate) fn install(stmts: &[Stmt], registry: &TypeRegistry, interner: &Interner) -> Checked {
+    let mut inst = infer_instantiations(stmts, interner, registry);
+    INTS.with(|i| *i.borrow_mut() = std::mem::take(&mut inst.ints));
+    INT_SEQS.with(|i| *i.borrow_mut() = std::mem::take(&mut inst.int_seqs));
     let params: HashMap<TyVar, Symbol> = inst
         .type_params
         .values()
@@ -49,6 +77,14 @@ pub(crate) fn install(stmts: &[Stmt], registry: &TypeRegistry, interner: &Intern
         }
     }
     TURBOFISH.with(|f| *f.borrow_mut() = fish);
+    GENERIC.with(|g| *g.borrow_mut() = inst.type_params.keys().copied().collect());
+    Checked
+}
+
+/// Whether `function` is one of the program's generic functions: a call of it returns its declared result with the
+/// call's own type arguments in place of the parameters, so the declared result names no type at the call site.
+pub(crate) fn is_generic(function: Symbol) -> bool {
+    GENERIC.with(|g| g.borrow().contains(&function))
 }
 
 /// The turbofish a call expression needs, or `""`.

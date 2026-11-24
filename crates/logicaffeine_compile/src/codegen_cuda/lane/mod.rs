@@ -36,7 +36,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 use std::path::Path;
 
-use crate::codegen_cuda::knobs::CudaKnobs;
+use crate::codegen_cuda::knobs::{CudaKnobs, Logits};
 use crate::model::author::{self, NotYet};
 use crate::model::program::{self, Cut, Identity};
 use crate::model::gguf::Gguf;
@@ -44,6 +44,7 @@ use crate::model::spec::{Mixer, ModelSpec};
 use crate::spatial::passes::recognize_stages::recognize_stages;
 
 use emit::{Checkpoint, Program};
+pub use emit::Front;
 use graph::{GraphError, Role, StepGraph};
 use plan::{Schedule, SeqIo, StepIo};
 
@@ -72,6 +73,9 @@ pub enum LaneError {
     Io(String),
     /// Arrays the device must hold — its caches, arena and buffers, every matrix moved to host memory — past its memory.
     Memory { needed: usize, budget: usize },
+    /// A decode step's layers from `from` on that leave the device no layer or the host none: `from` is past the first
+    /// and before the last of `layers`.
+    Span { from: usize, layers: usize },
 }
 
 impl fmt::Display for LaneError {
@@ -95,6 +99,9 @@ impl fmt::Display for LaneError {
             LaneError::Io(e) => write!(f, "the checkpoint: {e}"),
             LaneError::Memory { needed, budget } => {
                 write!(f, "the caches, arena and buffers take {needed} bytes of the device's {budget}, every matrix moved to the host")
+            }
+            LaneError::Span { from, layers } => {
+                write!(f, "the layers from {from} of {layers}: the host's span is the first layers, the device's the rest, each one or more")
             }
         }
     }
@@ -182,12 +189,12 @@ impl Lane {
 
 /// The names the authored decode step reads and writes across steps.
 pub fn decode_io() -> StepIo {
-    StepIo { token: "tok".into(), position: "pos".into(), logits: "logits".into(), next: "next".into(), more: Vec::new(), logits_read: true }
+    StepIo { token: "tok".into(), position: "pos".into(), logits: "logits".into(), next: "next".into(), more: Vec::new(), logits_read: true, hidden_in: None, hidden_out: None }
 }
 
 /// The names an authored prefill chunk reads and writes across steps.
 pub fn prefill_io() -> StepIo {
-    StepIo { token: "toks".into(), position: "pos_s0".into(), logits: "logits".into(), next: "next".into(), more: Vec::new(), logits_read: true }
+    StepIo { token: "toks".into(), position: "pos_s0".into(), logits: "logits".into(), next: "next".into(), more: Vec::new(), logits_read: true, hidden_in: None, hidden_out: None }
 }
 
 /// The names an authored batch of `rows` sequences reads and writes across steps: its tokens, one a sequence, and
@@ -200,6 +207,25 @@ pub fn batch_io(rows: usize) -> StepIo {
         next: "next_s0".into(),
         more: (1..rows).map(|b| SeqIo { position: format!("pos_s{b}"), logits: format!("logits_s{b}"), next: format!("next_s{b}") }).collect(),
         logits_read: true,
+        hidden_in: None,
+        hidden_out: None,
+    }
+}
+
+/// The names a decode step's layers `[from, to)` read and write across steps (`Cut::DecodeSpan`): from the first layer
+/// its token, from any other the hidden state it starts from; through the last its logits and next token, short of it
+/// the hidden state it ends with.
+pub fn span_io(spec: &ModelSpec, from: usize, to: usize) -> StepIo {
+    let last = to == spec.layers.len();
+    StepIo {
+        token: if from == 0 { "tok".into() } else { String::new() },
+        position: "pos".into(),
+        logits: if last { "logits".into() } else { String::new() },
+        next: if last { "next".into() } else { String::new() },
+        more: Vec::new(),
+        logits_read: last,
+        hidden_in: (from > 0).then(|| author::layer_input(from)),
+        hidden_out: (!last).then(|| author::layer_input(to)),
     }
 }
 
@@ -219,10 +245,14 @@ fn form(
 ) -> Result<Form, LaneError> {
     let ((source, _, q8), identity) = program::written(spec, cut);
     let rp = recognize_stages(&source).map_err(|e| LaneError::Parse(format!("{e:?}")))?;
-    let graph = StepGraph::build(&rp)?;
+    // A span of the step's layers lifts knowing its names across steps — the hidden state it starts from a state its
+    // host writes, its logits read as the knob says; a whole step lifts as its plan then reads it.
+    let span = io.hidden_in.is_some() || io.hidden_out.is_some();
+    let span_io = StepIo { logits_read: io.logits_read && opts.knobs.logits == Logits::Written, ..io.clone() };
+    let graph = StepGraph::build_io(&rp, span.then_some(&span_io))?;
     let mut constants = BTreeMap::new();
-    for t in graph.of_role(Role::Constant) {
-        let placed = weights::place(spec, g, &t.name, t.len(), q8.contains_key(&t.name), opts.ctx)?;
+    for t in graph.lifted.tensors.values().filter(|t| t.role == Role::Constant) {
+        let placed = weights::place_declared(spec, g, t, q8.contains_key(&t.name), opts.ctx)?;
         constants.insert(t.name.clone(), placed);
     }
     let schedule = plan::plan(&graph, &|s| rp.name(s).to_string(), constants, opts.knobs.activations, &opts.knobs, io, held)?;
@@ -238,11 +268,11 @@ fn split_form(spec: &ModelSpec, g: &mut Gguf, tp: usize, opts: &LaneOptions, hel
     let rp = recognize_stages(&source).map_err(|e| LaneError::Parse(format!("{e:?}")))?;
     let graph = StepGraph::build(&rp)?;
     let mut constants = BTreeMap::new();
-    for t in graph.of_role(Role::Constant) {
+    for t in graph.lifted.tensors.values().filter(|t| t.role == Role::Constant) {
         // A slice is a quantized matrix when the matrix it cuts is one: the author declares the whole matrix.
         let placed = match manifest.slices.get(&t.name) {
             Some(slice) => weights::place_slice(spec, g, &t.name, t.len(), slice, q8.contains_key(&slice.of))?,
-            None => weights::place(spec, g, &t.name, t.len(), q8.contains_key(&t.name), opts.ctx)?,
+            None => weights::place_declared(spec, g, t, q8.contains_key(&t.name), opts.ctx)?,
         };
         constants.insert(t.name.clone(), placed);
     }
@@ -269,7 +299,32 @@ pub fn compile_split_holding(spec: &ModelSpec, checkpoint: &Path, opts: &LaneOpt
     let io = |e: std::io::Error| LaneError::Io(e.to_string());
     let mut g = Gguf::open(checkpoint).map_err(io)?;
     let forms = vec![split_form(spec, &mut g, tp, opts, held)?];
-    finish(forms, checkpoint, &mut g, opts)
+    finish(forms, checkpoint, &mut g, opts, None)
+}
+
+/// Compile the device's half of `spec` cut at layer `from` (`Cut::DecodeSpan`): its decode step's layers from `from` on,
+/// the head and the arg-max, reading the hidden state at `from` that its host writes each step — the half a model whose
+/// first `from` layers another tier computes takes (`codegen_cpu::split`) — against the checkpoint at `checkpoint`, only
+/// those layers' matrices placed, its program linked with `front`. The prompt runs a decode step at a time
+/// (`opts.prefill` 1).
+pub fn compile_from(spec: &ModelSpec, checkpoint: &Path, opts: &LaneOptions, from: usize, front: Front) -> Result<Lane, LaneError> {
+    author::check(spec).map_err(LaneError::NotYet)?;
+    lane_check(spec).map_err(LaneError::NotYet)?;
+    let layers = spec.layers.len();
+    if from == 0 || from >= layers {
+        return Err(LaneError::Span { from, layers });
+    }
+    if spec.ple.as_ref().is_some_and(|p| p.layer >= from) {
+        return Err(LaneError::NotYet(NotYet("a per-layer embedding on the device's side of a cut: its hash reads the token, which only the host's layers take")));
+    }
+    if opts.prefill != 1 {
+        return Err(LaneError::Chunk { rows: opts.prefill, ctx: opts.ctx });
+    }
+    let io = |e: std::io::Error| LaneError::Io(e.to_string());
+    let mut g = Gguf::open(checkpoint).map_err(io)?;
+    let cut = Cut::DecodeSpan { from, to: layers, ctx: opts.ctx };
+    let forms = vec![form(spec, &mut g, 1, FormKind::Decode, cut, opts, span_io(spec, from, layers), &[], &|_| false)?];
+    finish(forms, checkpoint, &mut g, opts, Some(front))
 }
 
 /// Compile the lane of `spec` against the checkpoint at `checkpoint`: its decode step and its prefill chunks.
@@ -335,11 +390,11 @@ fn compile_forms(spec: &ModelSpec, checkpoint: &Path, opts: &LaneOptions, batch:
     if batch > 1 {
         forms.push(form(spec, &mut g, batch, FormKind::Batch, Cut::Batch { rows: batch, ctx: opts.ctx }, opts, batch_io(batch), held, &own)?);
     }
-    finish(forms, checkpoint, &mut g, opts)
+    finish(forms, checkpoint, &mut g, opts, None)
 }
 
 /// The lane of `forms` against the checkpoint at `checkpoint` (opened as `g`): its matrices placed, its program printed.
-fn finish(forms: Vec<Form>, checkpoint: &Path, g: &mut Gguf, opts: &LaneOptions) -> Result<Lane, LaneError> {
+fn finish(forms: Vec<Form>, checkpoint: &Path, g: &mut Gguf, opts: &LaneOptions, front: Option<Front>) -> Result<Lane, LaneError> {
     let io = |e: std::io::Error| LaneError::Io(e.to_string());
     let ckpt = Checkpoint {
         size: std::fs::metadata(checkpoint).map_err(io)?.len(),
@@ -349,6 +404,6 @@ fn finish(forms: Vec<Form>, checkpoint: &Path, g: &mut Gguf, opts: &LaneOptions)
     let mut plan = residence::plan(&forms, opts.ctx, emit::captured_nodes(&forms, &opts.knobs));
     plan.copies = emit::captured_copies(&forms, &plan);
     let residence = residence::place(&plan, opts.knobs.chip.mem_bytes.saturating_sub(residence::CONTEXT_RESERVE + plan.spare))?;
-    let program = emit::emit(&forms, &opts.knobs, opts.ctx, ckpt, &plan)?;
+    let program = emit::emit(&forms, &opts.knobs, opts.ctx, ckpt, &plan, front)?;
     Ok(Lane { forms, program, plan, residence })
 }

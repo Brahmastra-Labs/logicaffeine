@@ -289,7 +289,9 @@ pub(crate) fn site_without_entry(root: &Path) -> CliError {
     )
 }
 
-/// The project's entry file: the manifest's `entry`, else its `.md` sibling.
+/// The project's entry file: the manifest's `entry`, else the same path with each other module
+/// extension in turn — so the default `src/main.lg` finds `src/main.logos`, and a literate
+/// `src/main.md` still serves.
 ///
 /// `Ok(None)` only for a site whose manifest declares no `entry` — the conventional default is
 /// allowed to be absent there. A DECLARED entry that is missing is an error for every shape, or a
@@ -316,19 +318,24 @@ pub(crate) fn entry_file(root: &Path, manifest: &Manifest) -> Result<Option<Path
     if entry.exists() {
         return Ok(Some(entry));
     }
-    let md = entry.with_extension("md");
-    if md.exists() {
-        return Ok(Some(md));
+    let tried: Vec<PathBuf> = logicaffeine_compile::source_files::MODULE_EXTENSIONS
+        .iter()
+        .map(|ext| entry.with_extension(ext))
+        .filter(|candidate| *candidate != entry)
+        .collect();
+    if let Some(found) = tried.iter().find(|candidate| candidate.exists()) {
+        return Ok(Some(found.clone()));
     }
     let has_site = root.join("pages").is_dir() || root.join("static").is_dir();
     if has_site && !manifest_declares_entry(root) {
         return Ok(None);
     }
+    let tried: Vec<String> = tried.iter().map(|p| p.display().to_string()).collect();
     Err(CliError::with_hint(
         format!(
             "entry point not found: {} (also tried {})",
             entry.display(),
-            md.display()
+            tried.join(", ")
         ),
         "check the `entry` field in Largo.toml",
     ))

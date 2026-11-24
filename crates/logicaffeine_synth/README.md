@@ -1,11 +1,11 @@
 # logicaffeine-synth
 
-Z3 specifications for the integer ALU micro-ops of EXODIA, the copy-and-patch JIT, and a harness that checks
-the JIT's machine code against them. A miscompiled stencil returns a wrong number without crashing, so the
-harness runs Z3-chosen and corner-case inputs through the real stencil, the forge's reference interpreter and
-the spec, and any disagreement is a finding. Coverage is the 13 integer ops `all_specs` returns (floats,
-memory, calls and control flow have no spec), each checked on those witnesses rather than proved for every
-input.
+Z3 specifications for the integer ALU micro-ops of EXODIA, the copy-and-patch JIT, and two checks of the JIT's
+machine code against them. A miscompiled stencil returns a wrong number without crashing. The proof decodes each
+frame-form stencil's own bytes and executes every path through them symbolically, so each of the 13 integer ops
+`all_specs` returns is proved to meet its spec for every input (floats, memory, calls and control flow have no
+spec). The witness harness also runs Z3-chosen and corner-case inputs through the real stencil, the forge's
+reference interpreter and the spec, and any disagreement is a finding.
 
 Part of the [Logicaffeine](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/README.md) workspace, tier 1.
 Outside `default-members` because it needs Z3, and unpublished (`publish = false`): it runs at development and
@@ -19,8 +19,9 @@ to machine code through an executable-memory stencil runtime. This crate pins
 each integer ALU op to an SMT-bitvector specification ahead of time and grounds
 that spec against the real compiled stencil chain. It consumes `MicroOp`,
 `compile_straightline`, `reference_eval`, and `ChainOutcome` from
-`logicaffeine_forge::jit`; it is invoked only by the test crate's
-`phase_exodia_forge` (behind that crate's `verification` feature) and by its
+`logicaffeine_forge::jit`, and the frame-form stencils (`ST_*3`) with their
+relocations; it is invoked only by the test crate's `phase_exodia_forge` and
+`stencil_proof_lock` (behind that crate's `verification` feature) and by its
 own unit tests. Library only, with no binaries and no feature flags of its own.
 
 See [proof-and-verification](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/proof-and-verification.md) for the
@@ -106,6 +107,51 @@ a fresh one) plus an adversarial 12-value corner battery (`i64::MIN`, `MIN+1`,
 -2, -1, 0, 1, 2, 63, 64, 65, `MAX-1`, `MAX`) crossed for 144 pairs. For
 `Checked` ops at a precondition-excluded input, all three must side-exit.
 
+### `stencil_proof`
+
+```text
+pub const PRESERVED: [Gpr; 13];
+
+pub struct StencilProof {
+    pub op: &'static str, pub stencil: String, pub instructions: usize,
+    pub continue_paths: usize, pub exit_paths: usize,
+    pub divisions: usize, pub narrowed_paths: usize, pub obligations: usize,
+}
+
+pub enum ProofError { NoStencil { .. }, Decode { .. }, Unmodelled { .. }, Refuted { .. }, Undecided { .. } }
+
+pub fn stencil_for(spec: &OpSpec) -> Result<&'static Stencil, ProofError>;
+pub fn prove_op(spec: &OpSpec) -> Result<StencilProof, ProofError>;
+pub fn prove_stencil(spec: &OpSpec, stencil: &Stencil) -> Result<StencilProof, ProofError>;
+pub fn prove_code(spec: &OpSpec, name: &str, code: &[u8], relocs: &[Reloc]) -> Result<StencilProof, ProofError>;
+pub fn check_lowering(spec: &OpSpec) -> Result<(), String>;
+pub fn check_lowering_to(spec: &OpSpec, stencil: &Stencil) -> Result<(), String>;
+```
+
+`prove_stencil` decodes the stencil with `x86` and executes every path symbolically over BV64: the frame is a Z3
+array, each constant hole a free word (so the operand and destination slots may alias), each conditional jump a
+fork. Each obligation is discharged by refutation: the paths cover every input and each ends at continuation 0 or
+1; continuation 1 is taken exactly when `pre` fails, leaving the frame as it was; continuation 0 leaves the frame
+with `result` stored at the destination; no `div`/`idiv` raises `#DE`; the 13 `PRESERVED` registers hold their
+entry values. Flags follow the Intel manual, and a flag it leaves undefined is a fresh unconstrained value. Any
+address, pointer arithmetic or control flow outside the model is `Unmodelled`, never assumed. `check_lowering`
+confirms the JIT lowers each spec's micro-op to the proved stencil, with the hole and continuation bindings the
+proof assumes.
+
+### `x86`
+
+```text
+pub fn decode(code: &[u8], at: usize) -> Result<Insn, DecodeError>;
+pub fn decode_all(code: &[u8]) -> Result<Vec<Insn>, DecodeError>;
+pub struct Insn { pub offset: usize, pub len: usize, pub op: Op }
+```
+
+A decoder for the closed subset of x86-64 the frame-form stencils use: an optional REX prefix, the one-byte and
+`0F` maps, ModRM/SIB addressing, 8-, 32- and 64-bit operands. It covers `mov`, `movzx`, the ALU group without
+`adc`/`sbb`, `test`, 64-bit shifts, two-operand `imul`, `neg`, `div`/`idiv`, `cdq`/`cqo`, `setcc`, `jcc` and
+`jmp`. Any other byte (a legacy prefix, a high-byte register, a 32-bit shift, a parity condition) is a
+`DecodeError`, so a codegen change that leaves the subset stops the proof instead of being misread.
+
 ### `reversible`
 
 ```text
@@ -134,8 +180,8 @@ identity on its pair of words.
 - Internal: `logicaffeine_forge` (`jit::MicroOp`, `compile_straightline`,
   `reference_eval`, `ChainOutcome`).
 - External: `z3` 0.20 (the SMT solver). On Linux, building the tests needs
-  `Z3_SYS_Z3_HEADER=/usr/include/z3.h`; the gate runs via
-  `cargo test -p logicaffeine-tests --features verification --test phase_exodia_forge`.
+  `Z3_SYS_Z3_HEADER=/usr/include/z3.h`; the gates run via
+  `cargo test -p logicaffeine-tests --features verification --test phase_exodia_forge --test stencil_proof_lock`.
 
 ## License
 

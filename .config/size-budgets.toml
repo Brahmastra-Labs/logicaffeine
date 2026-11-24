@@ -67,6 +67,14 @@
 # 1,440,725 -> 1,443,468, language 1,063,540 -> 1,088,934, lsp 113,966 -> 115,638, proof 812,343 -> 876,410,
 # runtime 28,439 -> 28,836, system 219,323 -> 226,072 bytes.
 
+# Raised 2026-11-11 (Tristen's approval) by measured growth only (no new headroom): logicaffeine-proof 876,410 ->
+# 1,095,422 B, packaged as check-packaging.sh packages it, on 1098b62a9 (876,275) and on a5cc94637: the SAT and EDA
+# campaign, 23 new files, every byte source or shipped docs, no test or fixture. By file (uncompressed growth):
+# rewrite_npn4.txt +104,701 (new: the circuits of all 222 NPN classes of four inputs), preprocess.rs +74,506 (new),
+# cdcl.rs +64,121, itp.rs +53,556 (new), pdr.rs +48,810 (new), CHANGELOG.md +46,989, orbit_stability.rs +38,088
+# (new), polycalc_gfp.rs +32,183 (new), count.rs +27,351 (new), rewrite.rs +23,729 (new), xor_engine.rs +23,553,
+# scorr.rs +19,578 (new), polycalc_zm.rs +19,556 (new), and 28 files under +17,740.
+
 # The .crate tarball `cargo package` produces.
 [crates]
 logicaffeine-base = 377775
@@ -79,7 +87,7 @@ logicaffeine-kernel = 1443468
 logicaffeine-language = 1088934
 logicaffeine-lexicon = 44316
 logicaffeine-lsp = 115638
-logicaffeine-proof = 876410
+logicaffeine-proof = 1095422
 logicaffeine-runtime = 28836
 logicaffeine-system = 226072
 logicaffeine-tv = 28747

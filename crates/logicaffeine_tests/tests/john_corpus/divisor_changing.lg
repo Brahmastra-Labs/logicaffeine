@@ -1,0 +1,14 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let k be parseInt(item 2 of args()).
+Let mutable total be 0.
+Let mutable d be k.
+While d is less than k + 40:
+    Let mutable i be 0 - 300.
+    While i is less than 300:
+        Set total to total + (i * 31) % d + (i * 17) / d.
+        Set i to i + 1.
+    Set d to d + 1.
+Show total.

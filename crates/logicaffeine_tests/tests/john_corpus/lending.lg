@@ -1,0 +1,20 @@
+## To total (xs: Seq of Int) -> Int:
+    Let mutable sum be 0.
+    Repeat for x in xs:
+        Set sum to sum + x.
+    Return sum.
+
+## To double (xs: Seq of Int) -> Seq of Int:
+    Repeat for i from 1 to length of xs:
+        Set item i of xs to (item i of xs) * 2.
+    Return xs.
+
+## To keep (xs: Seq of Int):
+    Show length of xs.
+
+## Main
+Let mutable items be [1, 2, 3].
+Show total(items).
+Set items to double(items).
+Show items.
+Give items to keep.

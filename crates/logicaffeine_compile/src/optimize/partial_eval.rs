@@ -276,6 +276,94 @@ fn make_spec_name(
     sym
 }
 
+/// The function `name` was specialized from, through every round of specialization: `name` with the
+/// `_s{position}_{value}` parts [`make_spec_name`] appends, and the `_`s that kept it unique, taken off;
+/// `name` itself when it is no specialization. A specialization plays its origin's part — a page entry,
+/// a component's render, the writer of a `vdom.lg` feature — so a reader that knows a function's role
+/// by its name reads the origin's. A name the program writes in a specialization's own form (`f_s0_1`)
+/// reads as one.
+pub fn specialization_origin(name: &str) -> &str {
+    let mut origin = name;
+    while let Some(k) = (1..origin.len())
+        .filter(|&k| origin.is_char_boundary(k))
+        .find(|&k| specialization_parts(&origin[k..]))
+    {
+        origin = &origin[..k];
+    }
+    origin
+}
+
+/// Whether `rest` is one or more `_s{position}_{value}` parts, then only the `_`s of uniqueness.
+fn specialization_parts(rest: &str) -> bool {
+    fn part(rest: &str) -> Option<&str> {
+        let rest = rest.strip_prefix("_s")?;
+        let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+        if digits == 0 {
+            return None;
+        }
+        rest[digits..].strip_prefix('_')
+    }
+    fn after_value(rest: &str) -> bool {
+        rest.chars().all(|c| c == '_') || specialization_parts(rest)
+    }
+    let Some(value) = part(rest) else {
+        return false;
+    };
+    value_lengths(value)
+        .into_iter()
+        .any(|len| after_value(&value[len..]))
+}
+
+/// Every length of a prefix of `text` that [`literal_to_name_part`] can write. A value can read more
+/// than one way (`false` is a word, and `fa` a float's bits), so each reading is kept for the caller to
+/// try against what follows.
+fn value_lengths(text: &str) -> Vec<usize> {
+    fn run(text: &str, keep: fn(char) -> bool) -> usize {
+        text.len() - text.trim_start_matches(keep).len()
+    }
+    fn hex(c: char) -> bool {
+        c.is_ascii_hexdigit() && !c.is_ascii_uppercase()
+    }
+    fn digit(c: char) -> bool {
+        c.is_ascii_digit()
+    }
+    // A signed count: digits, `m` before a negative one's.
+    let signed = |text: &str| -> Option<usize> {
+        let sign = usize::from(text.starts_with('m'));
+        let digits = run(&text[sign..], digit);
+        (digits > 0).then_some(sign + digits)
+    };
+    let mut lengths = Vec::new();
+    for word in ["nothing", "true", "false"] {
+        if text.starts_with(word) {
+            lengths.push(word.len());
+        }
+    }
+    for tag in ["f", "t", "c"] {
+        if let Some(rest) = text.strip_prefix(tag) {
+            let digits = run(rest, hex);
+            if digits > 0 {
+                lengths.push(tag.len() + digits);
+            }
+        }
+    }
+    for tag in ["du", "da", "mo", "ti"] {
+        if let Some(n) = text.strip_prefix(tag).and_then(signed) {
+            lengths.push(tag.len() + n);
+        }
+    }
+    if let Some(months) = text.strip_prefix("sp").and_then(signed) {
+        let after = &text[2 + months..];
+        if let Some(days) = after.strip_prefix('_').and_then(signed) {
+            lengths.push(2 + months + 1 + days);
+        }
+    }
+    if let Some(n) = signed(text) {
+        lengths.push(n);
+    }
+    lengths
+}
+
 /// A literal's part of a specialization's name: an identifier fragment, and a different one for every
 /// literal. A float is named by its bits, so `15.0` is not `15` and `-0.0` is not `0.0`.
 fn literal_to_name_part(lit: &Literal) -> String {
@@ -861,7 +949,7 @@ fn count_stmts(stmts: &[Stmt]) -> usize {
 }
 
 /// Whether a written type names any of `names` (a function's type parameters) anywhere inside it.
-fn type_mentions_any(t: &TypeExpr, names: &[Symbol]) -> bool {
+pub(crate) fn type_mentions_any(t: &TypeExpr, names: &[Symbol]) -> bool {
     match t {
         TypeExpr::Primitive(s) | TypeExpr::Named(s) => names.contains(s),
         TypeExpr::Generic { base, params } => {
@@ -1861,3 +1949,7 @@ fn cleanup_stmt<'a>(
 fn stmt_structurally_equal(a: &Stmt, b: &Stmt) -> bool {
     std::mem::discriminant(a) == std::mem::discriminant(b)
 }
+
+#[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/partial_eval/tests.rs"]
+mod tests;

@@ -1001,6 +1001,13 @@ const PRIMITIVE_TAXONOMY: &[(&str, &str, &str)] = &[
          and a clamp of `x·K` is a sign only above `1/K`; the signed root `sign(g)·√max(|g|, ε)` of \
          Qwen3.8's n-gram gate needs it exact below its floor.",
     ),
+    (
+        "SfpuKind",
+        "Erf",
+        "the error function — exact GELU's `0.5·x·(1 + erf(x/√2))`, which Exp, Recip, Rsqrt and Ln reach only through \
+         a series: `erf_tile` on Tensix's SFPU, and wherever the IR is evaluated the library's `erf` (Go's `math.Erf`, \
+         `tensor_graph::eval::lib_erf`), so a chip's error function is the VM's bit for bit.",
+    ),
     // ── TensorBody: the scalar grammar at one point of the iteration space ──
     (
         "TensorBody",
@@ -1158,7 +1165,7 @@ const PRIMITIVE_STRUCTS: &[(&str, &[&str])] = &[
 const FROZEN_PRIMITIVE_SIZES: &[(&str, usize)] = &[
     ("IterKind", 2),
     ("ReducePool", 3),
-    ("SfpuKind", 7),
+    ("SfpuKind", 8),
     ("TensorBody", 11),
     ("Pred", 2),
     ("PredRhs", 2),

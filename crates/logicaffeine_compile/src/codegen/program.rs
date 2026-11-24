@@ -14,46 +14,56 @@ use crate::token::Span as LogosSpan;
 use super::context::{analyze_variable_capabilities, RefinementContext};
 use crate::analysis::callgraph::CallGraph;
 
+/// The bit intrinsics (`optimize::popcount_leaf` inserts calls to them): each name, and the free function emitted
+/// where the program calls it. Each takes and returns an `i64`, two's-complement faithful to the tree-walker's and the
+/// VM's builtins.
+const BIT_INTRINSICS: [(&str, &str); 3] = [
+    (
+        "count_ones",
+        "#[inline(always)]\nfn count_ones(x: i64) -> i64 { (x as u64).count_ones() as i64 }\n",
+    ),
+    (
+        "leading_zeros",
+        "#[inline(always)]\nfn leading_zeros(x: i64) -> i64 { (x as u64).leading_zeros() as i64 }\n",
+    ),
+    (
+        "trailing_zeros",
+        "#[inline(always)]\nfn trailing_zeros(x: i64) -> i64 { (x as u64).trailing_zeros() as i64 }\n",
+    ),
+];
+
+/// The records a `Merge` or `Converge` folds anywhere in the program (`Merge b into a`), by the record type the
+/// checker gives each name it folds: the tree-walker folds any record field by field, `Shared` or not.
+fn merged_records(stmts: &[Stmt], type_env: &crate::analysis::types::TypeEnv) -> HashSet<Symbol> {
+    use logicaffeine_language::ast_depth::{for_each_node, Visited};
+    let mut records = HashSet::new();
+    for_each_node(stmts, |node| {
+        if let Visited::Stmt(Stmt::MergeCrdt { source, target } | Stmt::JoinCrdt { source, target }) = node {
+            for side in [*source, *target] {
+                if let Expr::Identifier(name) = side {
+                    if let crate::analysis::types::LogosType::UserDefined(record) = type_env.lookup(*name) {
+                        records.insert(*record);
+                    }
+                }
+            }
+        }
+    });
+    records
+}
+
 /// Does the program call a bit-intrinsic helper `name` (`count_ones` /
 /// `leading_zeros` / `trailing_zeros`, inserted by `optimize::popcount_leaf`)?
 /// Gates emission of that helper so programs that don't use it have
 /// byte-identical codegen (keeps the codegen snapshot tests stable).
 fn program_calls_named(stmts: &[Stmt], interner: &Interner, name: &str) -> bool {
-    fn in_expr(e: &Expr, it: &Interner, name: &str) -> bool {
-        match e {
-            Expr::Call { function, args } => {
-                it.resolve(*function) == name || args.iter().any(|a| in_expr(a, it, name))
-            }
-            Expr::BinaryOp { left, right, .. } => {
-                in_expr(left, it, name) || in_expr(right, it, name)
-            }
-            Expr::Not { operand } => in_expr(operand, it, name),
-            Expr::Index { collection, index } => {
-                in_expr(collection, it, name) || in_expr(index, it, name)
-            }
-            Expr::Length { collection } => in_expr(collection, it, name),
-            _ => false,
+    use logicaffeine_language::ast_depth::{for_each_node, Visited};
+    let mut calls = false;
+    for_each_node(stmts, |node| {
+        if let Visited::Expr(Expr::Call { function, .. }) = node {
+            calls |= interner.resolve(*function) == name;
         }
-    }
-    fn in_block(b: &[Stmt], it: &Interner, name: &str) -> bool {
-        b.iter().any(|s| match s {
-            Stmt::Let { value, .. } | Stmt::Set { value, .. } => in_expr(value, it, name),
-            Stmt::Return { value } => value.map_or(false, |e| in_expr(e, it, name)),
-            Stmt::If {
-                cond,
-                then_block,
-                else_block,
-            } => {
-                in_expr(cond, it, name)
-                    || in_block(then_block, it, name)
-                    || else_block.map_or(false, |b| in_block(b, it, name))
-            }
-            Stmt::While { cond, body, .. } => in_expr(cond, it, name) || in_block(body, it, name),
-            Stmt::FunctionDef { body, .. } => in_block(body, it, name),
-            _ => false,
-        })
-    }
-    in_block(stmts, interner, name)
+    });
+    calls
 }
 use crate::analysis::liveness::LivenessResult;
 use crate::analysis::readonly::{MutableBorrowParams, ReadonlyParams};
@@ -64,7 +74,7 @@ use super::detection::{
     collect_interleaved_groups, collect_mutable_vars, collect_mutable_vars_stmt,
     collect_pipe_sender_params, collect_pipe_vars, collect_pure_functions,
     collect_scalarizable_seqs, collect_single_char_text_vars, collect_vec_return_fns,
-    detect_double_recursion_closed_form, is_copy_type_expr, is_result_type, is_vec_type_expr,
+    is_result_type, is_vec_type_expr,
     requires_async, requires_vfs, serves, should_inline, should_memoize, vec_to_mut_slice_type,
     vec_to_slice_type,
 };
@@ -537,6 +547,31 @@ fn fixed_array_params(
         .collect()
 }
 
+/// Whether `function` is the program's own declaration: neither the standard library's definition
+/// ([`is_library_function`](crate::loader::is_library_function)) nor a specialization the optimizer made of another
+/// of the program's functions ([`specialization_origin`](crate::optimize::partial_eval::specialization_origin)).
+fn declared_by_program(function: Symbol, stmts: &[Stmt], interner: &Interner) -> bool {
+    let name = interner.resolve(function);
+    let origin = crate::optimize::partial_eval::specialization_origin(name);
+    let specialized = origin != name
+        && stmts
+            .iter()
+            .any(|s| matches!(s, Stmt::FunctionDef { name: f, .. } if interner.resolve(*f) == origin));
+    !specialized && !crate::loader::is_library_function(name)
+}
+
+/// `text`, the items emitted for a function nothing reaches, each `fn` marked `#[allow(dead_code)]`.
+fn unused_items(text: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 64);
+    for line in text.split_inclusive('\n') {
+        if ["fn ", "pub fn ", "async fn ", "pub async fn "].iter().any(|p| line.starts_with(p)) {
+            out.push_str("#[allow(dead_code)]\n");
+        }
+        out.push_str(line);
+    }
+    out
+}
+
 pub fn codegen_program(
     stmts: &[Stmt],
     registry: &TypeRegistry,
@@ -612,7 +647,6 @@ pub fn codegen_program_mapped(
     (code, map.expect("mapping was requested"))
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Emit the panic hook that makes a LOGOS runtime error look the same on the AOT tier as on every
 /// other one: the message alone on stderr, then exit status 1.
 ///
@@ -622,42 +656,17 @@ pub fn codegen_program_mapped(
 /// two different observable failures depending on how it was run. The runtime already carries the
 /// right words; only the presentation was wrong.
 fn emit_logos_panic_hook(output: &mut String, exit_immediately: bool) {
-    // ★ FULLY QUALIFIED, because `use user_types::*;` sits above this and a LOGOS record may
-    // legitimately be called `Box`. A shipping box, a text box, a box of parts — an ordinary
-    // domain noun that shadowed `std::boxed::Box` and made the generated program fail to COMPILE,
-    // with an error pointing at scaffolding the author never wrote. `String` has the same
-    // problem for the same reason; both are spelled out in full wherever the compiler emits them.
-    writeln!(
-        output,
-        "    std::panic::set_hook(::std::boxed::Box::new(|_logos_info| {{"
-    )
-    .unwrap();
-    writeln!(output, "        logicaffeine_system::io::flush_stdout();").unwrap();
-    writeln!(output, "        let _logos_msg = _logos_info.payload().downcast_ref::<&str>().map(|s| s.to_string())").unwrap();
-    writeln!(
-        output,
-        "            .or_else(|| _logos_info.payload().downcast_ref::<String>().cloned())"
-    )
-    .unwrap();
-    writeln!(
-        output,
-        "            .unwrap_or_else(|| \"LOGOS runtime error\".to_string());"
-    )
-    .unwrap();
-    writeln!(output, "        eprintln!(\"{{}}\", _logos_msg);").unwrap();
     // A failure ends the program, under either panic strategy, unless a runtime boundary catches it: a served
     // request answers `500` and the server keeps serving. Replay tasks always unwind into the scheduler, which lets
     // their peers finish and then returns the failed run to main.
-    if exit_immediately {
-        writeln!(
-            output,
-            "        if !logicaffeine_system::failure::is_caught() {{ std::process::exit(1); }}"
-        )
-        .unwrap();
-    }
-    writeln!(output, "    }}));").unwrap();
+    writeln!(
+        output,
+        "    logicaffeine_system::failure::install_hook({exit_immediately});"
+    )
+    .unwrap();
 }
 
+#[allow(clippy::too_many_arguments)]
 fn codegen_program_inner(
     stmts: &[Stmt],
     registry: &TypeRegistry,
@@ -694,6 +703,33 @@ fn codegen_program_inner(
     } else {
         versioned
     };
+    // Each pure function on integers gets a word twin it runs first (`word_twin`), named in this emission's interner:
+    // none whose parameters or result can hold `nothing`, which no word twin takes.
+    let holds_nothing = |versioned: &[Stmt], reader: &Interner| -> HashSet<Symbol> {
+        let types = crate::analysis::types::TypeEnv::infer_program(versioned, reader, registry);
+        let absence = crate::analysis::absence::of_program(versioned, &types, reader);
+        versioned
+            .iter()
+            .filter_map(|s| match s {
+                Stmt::FunctionDef { name, params, .. }
+                    if absence.returned(*name).is_some()
+                        || params.iter().any(|(p, _)| absence.parameter(*name, *p).is_some()) =>
+                {
+                    Some(*name)
+                }
+                _ => None,
+            })
+            .collect()
+    };
+    let (versioned, _twins) =
+        if super::word_twin::wants_twins(&versioned, own.as_ref().unwrap_or(interner), &HashSet::new()) {
+            let excluded = holds_nothing(&versioned, own.as_ref().unwrap_or(interner));
+            let (with_twins, twins) =
+                super::word_twin::add_twins(versioned, arenas, own.get_or_insert_with(|| interner.clone()), &excluded);
+            (with_twins, Some(twins))
+        } else {
+            (versioned, None)
+        };
     // Where a stored `nothing` reaches, on exactly what this emission lowers (`absent`).
     let absence = super::absent::of_program(&versioned, registry, own.as_ref().unwrap_or(interner));
     if absence.is_some() {
@@ -705,8 +741,10 @@ fn codegen_program_inner(
     // How each `Repeat` may iterate: the shared optimizer's proofs, on exactly what this emission lowers.
     crate::optimize::iteration::prove_iteration_facts(stmts, interner);
     // Mode B replays the interpreter's scheduler, so it lowers exactly the programs the interpreter
-    // runs on one; any other program compiles as it does in Mode A.
-    let replay = super::deterministic_replay_enabled() && crate::concurrency::uses_scheduler(stmts);
+    // runs on one — every such program, unless the compile asked for threads; any other program has
+    // no concurrency to lower.
+    let replay = crate::concurrency::uses_scheduler(stmts)
+        && (super::deterministic_replay_enabled() || !super::threaded_concurrency());
     super::with_replay_mode(replay, || {
         codegen_program_body(
             stmts,
@@ -723,6 +761,26 @@ fn codegen_program_inner(
 }
 
 #[allow(clippy::too_many_arguments)]
+/// One body for the region planner (`unboxed`): `owner`'s statements (`None` is Main) with the locals its emission
+/// holds exact, and the proof the planner asks of its operations (`exact_scalars::stays_word`).
+fn region_body<'b, 'p>(
+    owner: Option<Symbol>,
+    stmts: &'b [Stmt<'b>],
+    exact: HashSet<Symbol>,
+    promo: &'p super::bigint_promote::PromotionFacts,
+) -> super::unboxed::Body<'b, 'p> {
+    super::unboxed::Body {
+        stmts,
+        ints: super::exact_scalars::int_locals(stmts),
+        exact,
+        proves: Box::new(move |e: &Expr, still: &HashSet<Symbol>| {
+            super::exact_scalars::stays_word(e, still, &promo.bigint_fns, &promo.bigint_fields, &|list| {
+                super::int_vec::promotes(owner, list)
+            })
+        }),
+    }
+}
+
 fn codegen_program_body(
     stmts: &[Stmt],
     registry: &TypeRegistry,
@@ -759,10 +817,101 @@ fn codegen_program_body(
         .collect();
     super::expr::set_route_refusals(&route_refusals);
     super::stmt::set_serve_facts(stmts, interner);
+    super::stmt::set_callee_globals(stmts);
+    // O1 borrow hoisting: analyze the oracle ONCE on this exact statement
+    // slice (loop alias snapshots are keyed by Stmt address; codegen walks
+    // the same Stmts, so the pointers match). One forward pass with bounded
+    // per-loop fixpoints; gated for very large programs and by LOGOS_HOIST=0.
+    const MAX_HOIST_ORACLE_STMTS: usize = 5_000;
+    let oracle: Option<std::rc::Rc<crate::optimize::OracleFacts>> =
+        if super::hoist::hoisting_disabled() || stmts.len() > MAX_HOIST_ORACLE_STMTS {
+            None
+        } else {
+            Some(std::rc::Rc::new(
+                crate::optimize::oracle_analyze_with_entry_guards(stmts, interner),
+            ))
+        };
+
+    // The range oracle: the whole program's range facts, computed on this exact
+    // statement slice — the same one codegen walks, so expression addresses match
+    // — or the borrow-hoist `oracle` above when that exists. It answers whether an
+    // Int op stays in i64 (`oracle_proves_int_op_in_range`) and whether an access
+    // names an item (`range_proves_index`), with what the emitted program's own
+    // guards establish recorded in it (`mark_index_in_range`). Borrow-hoisting /
+    // BCE / fast-div read the `ExprCtx` oracle. Installed for this compile and
+    // removed when it ends, so a freed arena's reused addresses never meet it.
+    let range_oracle: Option<std::rc::Rc<crate::optimize::OracleFacts>> =
+        oracle.clone().or_else(|| {
+            (stmts.len() <= MAX_HOIST_ORACLE_STMTS).then(|| {
+                std::rc::Rc::new(crate::optimize::oracle_analyze_with_entry_guards(
+                    stmts, interner,
+                ))
+            })
+        });
+    // What the checker solved for these exact statements, before any decision reads it: each call's type
+    // arguments, and which expressions are `Int`s and `Seq of Int`s.
+    let _checked = super::instantiation::install(stmts, registry, interner);
+    // Which `Int` locals outgrow the word, by the shared decision over these exact statements: the range oracle's
+    // proofs and the checker's `Int`s, read before the promotion facts that every representation follows.
+    let _scalars = super::exact_scalars::install(range_oracle.clone(), interner, collect_pure_functions(stmts, interner));
     let promo = super::bigint_promote::promotion_facts(stmts, interner);
+    // Which `Seq of Int` lists outgrow the word, decided before any list's representation is: an `IntVec` takes none
+    // of the fast forms a `Vec<i64>` takes.
+    let _int_vec_scope = super::int_vec::install(stmts, interner, &promo, range_oracle.as_deref());
+    // The loops an exact local runs through as a machine word, run again exactly where an update leaves the word
+    // (`unboxed`): each body with the locals its emission holds exact, as its emission decides them.
+    let (_regions, speculates) = {
+        let none = HashSet::new();
+        let mut bodies = vec![region_body(
+            None,
+            stmts,
+            super::bigint_promote::promotable_int_vars(stmts, &promo.promo_fns, &promo.bigint_fields, &none),
+            &promo,
+        )];
+        for s in stmts {
+            if let Stmt::FunctionDef { name, params, body: fbody, is_native: false, .. } = s {
+                let seeds = if promo.exact_hofs.contains(name) {
+                    super::bigint_promote::exact_param_seeds(params, interner)
+                } else {
+                    HashSet::new()
+                };
+                bodies.push(region_body(
+                    Some(*name),
+                    fbody,
+                    super::bigint_promote::promotable_int_vars(fbody, &promo.bigint_fns, &promo.bigint_fields, &seeds),
+                    &promo,
+                ));
+            }
+        }
+        super::unboxed::plan_program(&bodies, &collect_pure_functions(stmts, interner))
+    };
+    // A twinned function runs its twin first where it holds anything exact: a local, a parameter, its result.
+    let twinned_needed: HashSet<Symbol> = stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FunctionDef { name, params, body, .. } if super::word_twin::twin_of(*name).is_some() => {
+                let seeds = if promo.exact_hofs.contains(name) {
+                    super::bigint_promote::exact_param_seeds(params, interner)
+                } else {
+                    HashSet::new()
+                };
+                let exact = promo.bigint_fns.contains(name)
+                    || !seeds.is_empty()
+                    || !super::bigint_promote::promotable_int_vars(body, &promo.bigint_fns, &promo.bigint_fields, &seeds)
+                        .is_empty()
+                    || !super::int_vec::locals_of(Some(*name)).is_empty()
+                    || super::int_vec::promotes_return(*name)
+                    || (0..params.len()).any(|i| super::int_vec::promotes_param(*name, i));
+                exact.then_some(*name)
+            }
+            _ => None,
+        })
+        .collect();
+    let speculates = speculates || !twinned_needed.is_empty();
+    super::word_twin::set_needed(twinned_needed);
     let mut output = String::new();
     let replay = requires_async(stmts) && super::deterministic_replay_enabled();
-    if replay || serves(stmts) {
+    if replay || serves(stmts) || speculates {
         output.push_str(super::UNWIND_PROFILE_HEADER);
     }
     // (rust line, LOGOS span) records; materialized into the SourceMap at the
@@ -770,36 +919,59 @@ fn codegen_program_body(
     let mut line_records: Vec<(u32, LogosSpan)> = Vec::new();
     let mut lines = LineCount::default();
 
-    // Prelude
-    // Use extracted crates instead of logos_core
-    writeln!(output, "#[allow(unused_imports)]").unwrap();
-    writeln!(output, "use std::fmt::Write as _;").unwrap();
-    writeln!(output, "use logicaffeine_data::*;").unwrap();
-    writeln!(output, "use logicaffeine_system::*;\n").unwrap();
+    let mut writes_near_constant = false;
+    logicaffeine_language::ast_depth::for_each_node(stmts, |node| {
+        if let logicaffeine_language::ast_depth::Visited::Expr(Expr::Literal(crate::ast::stmt::Literal::Float(x))) = node {
+            writes_near_constant |= super::expr::near_f64_constant(*x);
+        }
+    });
+    if writes_near_constant {
+        writeln!(output, "// A Real literal near a constant of `std::f64::consts` is the value the program wrote.").unwrap();
+        writeln!(output, "#![allow(clippy::approx_constant)]").unwrap();
+    }
+
+    let mut searches = false;
+    logicaffeine_language::ast_depth::for_each_node(stmts, |node| {
+        use logicaffeine_language::ast_depth::Visited;
+        if let Visited::Stmt(Stmt::Repeat { body, .. }) = node {
+            logicaffeine_language::ast_depth::for_each_node(body, |inner| {
+                searches |= matches!(inner, Visited::Stmt(Stmt::Return { .. }));
+            });
+        }
+    });
+    if searches {
+        writeln!(output, "// A loop that returns what it finds is the search the program wrote.").unwrap();
+        writeln!(output, "#![allow(clippy::manual_find)]").unwrap();
+    }
+
+    let mut names_outside_snake_case = false;
+    logicaffeine_language::ast_depth::for_each_node(stmts, |node| {
+        use logicaffeine_language::ast_depth::Visited;
+        let named = match node {
+            Visited::Expr(Expr::Identifier(s)) | Visited::Stmt(Stmt::Let { var: s, .. }) => Some(*s),
+            Visited::Stmt(Stmt::FunctionDef { name, .. }) => Some(*name),
+            _ => None,
+        };
+        names_outside_snake_case |= named.is_some_and(|s| interner.resolve(s).chars().any(|c| c.is_ascii_uppercase()));
+    });
+    if names_outside_snake_case {
+        writeln!(output, "// The program's names are kept as it wrote them.").unwrap();
+        writeln!(output, "#![allow(non_snake_case)]").unwrap();
+    }
+
+    // Prelude: the same imports for every program, each allowed to go unused by one that needs none of it.
+    for import in ["std::fmt::Write as _", "logicaffeine_data::*", "logicaffeine_system::*"] {
+        writeln!(output, "#[allow(unused_imports)]\nuse {import};").unwrap();
+    }
+    writeln!(output).unwrap();
     // Bit-count intrinsics — each emitted ONLY when the program calls it (so
     // unrelated codegen is byte-identical). Free functions so every codegen path
     // renders the call plainly; two's-complement faithful, matching the
     // tree-walker/VM builtins (optimize::popcount_leaf inserts them).
-    if program_calls_named(stmts, interner, "count_ones") {
-        writeln!(
-            output,
-            "#[inline(always)]\nfn count_ones(x: i64) -> i64 {{ (x as u64).count_ones() as i64 }}\n"
-        )
-        .unwrap();
-    }
-    if program_calls_named(stmts, interner, "leading_zeros") {
-        writeln!(
-            output,
-            "#[inline(always)]\nfn leading_zeros(x: i64) -> i64 {{ (x as u64).leading_zeros() as i64 }}\n"
-        )
-        .unwrap();
-    }
-    if program_calls_named(stmts, interner, "trailing_zeros") {
-        writeln!(
-            output,
-            "#[inline(always)]\nfn trailing_zeros(x: i64) -> i64 {{ (x as u64).trailing_zeros() as i64 }}\n"
-        )
-        .unwrap();
+    for (name, definition) in BIT_INTRINSICS {
+        if program_calls_named(stmts, interner, name) {
+            writeln!(output, "{definition}").unwrap();
+        }
     }
     // SIMD substring-count kernel — emitted ONLY when the program contains a
     // recognized naive-search nest (unrelated codegen stays byte-identical). The
@@ -930,7 +1102,7 @@ fn codegen_program_body(
     // Emit struct and enum definitions in user_types module if any exist
     if !structs.is_empty() || !enums.is_empty() {
         writeln!(output, "pub mod user_types {{").unwrap();
-        writeln!(output, "    use super::*;\n").unwrap();
+        writeln!(output, "    #[allow(unused_imports)]\n    use super::*;\n").unwrap();
 
         // An imported type reaches the registry under BOTH its bare simple name
         // (from the inline splice) and its canonical `Alias::Name` (from import
@@ -944,6 +1116,7 @@ fn codegen_program_body(
         super::expr::set_bigint_struct_fields(&promo.bigint_fields, registry);
 
         let twins = registry.namespaced_twins(interner);
+        let merged = merged_records(stmts, type_env);
 
         for (name, fields, generics, is_portable, is_shared) in &structs {
             if let Some(twin) = twins.get(name) {
@@ -962,6 +1135,7 @@ fn codegen_program_body(
                 generics,
                 *is_portable,
                 *is_shared,
+                merged.contains(name),
                 interner,
                 4,
                 &c_abi_value_structs,
@@ -994,7 +1168,7 @@ fn codegen_program_body(
         }
 
         writeln!(output, "}}\n").unwrap();
-        writeln!(output, "use user_types::*;\n").unwrap();
+        writeln!(output, "#[allow(unused_imports)]\nuse user_types::*;\n").unwrap();
     }
 
     // Phase 50: Generate policy impl blocks with predicate and capability methods
@@ -1253,12 +1427,20 @@ fn codegen_program_body(
     // Step 3b: functions returning a fixed-size buffer return `[T; N]` by value (a stack array). Disjoint
     // from vec-return (the array is the stricter, zero-heap representation) — exclude them from vec-return
     // so the array path is authoritative.
-    let array_return_fns =
+    let mut array_return_fns =
         super::affine_array::collect_array_return_fns(stmts, &borrow_params_map, interner);
-    vec_return_fns.retain(|f| !array_return_fns.contains_key(f));
+    // A twin gives a stack array only where the function it twins could return one: no caller of that function
+    // writes the result.
+    let array_capable: HashSet<Symbol> = array_return_fns.keys().copied().collect();
+    array_return_fns.retain(|f, _| {
+        !super::word_twin::is_twin(*f) || super::word_twin::origin_of(*f).is_some_and(|o| array_capable.contains(&o))
+    });
+    // A list that outgrows the word is returned as the `IntVec` it is, never as a stack array or a `Vec<i64>`.
+    array_return_fns.retain(|f, _| !super::int_vec::promotes_return(*f));
+    vec_return_fns.retain(|f| !array_return_fns.contains_key(f) && !super::int_vec::promotes_return(*f));
     // Fixed-array borrow-parameter propagation: a read-borrow param passed only fixed `[T; N]` arrays
     // becomes `&[T; N]` (LLVM elides its constant-index bounds checks).
-    let fixed_array_param_map = fixed_array_params(
+    let mut fixed_array_param_map = fixed_array_params(
         stmts,
         &borrow_params_map,
         &mut_borrow_params_map,
@@ -1266,6 +1448,9 @@ fn codegen_program_body(
         &array_return_fns,
         interner,
     );
+    // A twin's prologue hands it its lists as slices.
+    fixed_array_param_map
+        .retain(|(f, i), _| !super::int_vec::promotes_param(*f, *i) && !super::word_twin::is_twin(*f));
 
     // Build function return type map for variable type inference at call sites.
     // Phase 4: a return-type-de-Rc'd function returns `Vec<T>`, so callers infer
@@ -1276,10 +1461,16 @@ fn codegen_program_body(
         .filter_map(|s| {
             if let Stmt::FunctionDef {
                 name,
+                generics,
                 return_type: Some(rt),
                 ..
             } = s
             {
+                // A result written in the function's own type parameters is a different type at every call: no one
+                // spelling of it types a call's value.
+                if crate::optimize::partial_eval::type_mentions_any(rt, generics) {
+                    return None;
+                }
                 let ty = codegen_type_expr(rt, interner);
                 let ty = if let Some(info) = array_return_fns.get(name) {
                     format!("[{}; {}]", info.elem_ty, info.len)
@@ -1315,6 +1506,18 @@ fn codegen_program_body(
     for f in &bigint_fns {
         fn_returns_map.insert(*f, "i64|__bigint".to_string());
     }
+    for f in fn_returns_map.keys().copied().collect::<Vec<_>>() {
+        if super::int_vec::promotes_return(f) {
+            fn_returns_map.insert(f, super::int_vec::INT_VEC.to_string());
+        }
+    }
+    // A function whose `Result of Int and …` the exact path widens returns what it emits
+    // (`Result<logicaffeine_data::LogosInt, String>`), whatever it declares.
+    for f in &exact_result_fns {
+        if let Some(declared) = fn_returns_map.get(f).cloned() {
+            fn_returns_map.insert(*f, exactify_rust_int_type(&declared));
+        }
+    }
     // A function the exact extension reaches returns the compiled exact value, whatever its
     // declared type.
     for f in fn_returns_map.keys().copied().collect::<Vec<_>>() {
@@ -1338,7 +1541,6 @@ fn codegen_program_body(
     let simd_fns = Rc::new(super::simd_reduce::build_fn_map(stmts));
     super::expr::set_bigint_returning_fns(&bigint_fns);
     super::expr::set_exact_hofs(&exact_hofs);
-    super::instantiation::install(stmts, registry, interner);
 
     // Whole-program function → parameter Rust types, so a call passing an integer to an `f64`
     // (`Real`) parameter coerces with `as f64` at the emit — matching the interpreter/VM, which
@@ -1348,7 +1550,7 @@ fn codegen_program_body(
     // to hand-written host signatures, not this coercion path). An exact-HOF's parameter types are
     // EXACTIFIED (`i64` → `LogosInt`, inside `impl Fn(..)` too) so the call-site half promotes a
     // closure / integer argument to the exactified parameter.
-    let fn_param_types_map: HashMap<Symbol, Vec<String>> = stmts
+    let mut fn_param_types_map: HashMap<Symbol, Vec<String>> = stmts
         .iter()
         .filter_map(|s| match s {
             Stmt::FunctionDef {
@@ -1362,9 +1564,12 @@ fn codegen_program_body(
                     *name,
                     params
                         .iter()
-                        .map(|(_, ty)| {
+                        .enumerate()
+                        .map(|(i, (_, ty))| {
                             let t = codegen_type_expr(ty, interner);
-                            if is_exact {
+                            if super::int_vec::promotes_param(*name, i) {
+                                super::int_vec::INT_VEC.to_string()
+                            } else if is_exact && !matches!(ty, TypeExpr::Mutable { .. }) {
                                 exactify_rust_int_type(&t)
                             } else {
                                 t
@@ -1376,42 +1581,23 @@ fn codegen_program_body(
             _ => None,
         })
         .collect();
+    // A bit intrinsic takes an `i64`, unless the program declares a function of its name.
+    for (name, _) in BIT_INTRINSICS {
+        if let Some(sym) = interner.lookup(name) {
+            fn_param_types_map.entry(sym).or_insert_with(|| vec!["i64".to_string()]);
+        }
+    }
     super::expr::set_fn_param_types(&fn_param_types_map);
 
-    // O1 borrow hoisting: analyze the oracle ONCE on this exact statement
-    // slice (loop alias snapshots are keyed by Stmt address; codegen walks
-    // the same Stmts, so the pointers match). One forward pass with bounded
-    // per-loop fixpoints; gated for very large programs and by LOGOS_HOIST=0.
-    const MAX_HOIST_ORACLE_STMTS: usize = 5_000;
-    let oracle: Option<std::rc::Rc<crate::optimize::OracleFacts>> =
-        if super::hoist::hoisting_disabled() || stmts.len() > MAX_HOIST_ORACLE_STMTS {
-            None
-        } else {
-            Some(std::rc::Rc::new(
-                crate::optimize::oracle_analyze_with_entry_guards(stmts, interner),
-            ))
-        };
-
-    // The range oracle: the whole program's range facts, computed on this exact
-    // statement slice — the same one codegen walks, so expression addresses match
-    // — or the borrow-hoist `oracle` above when that exists. It answers whether an
-    // Int op stays in i64 (`oracle_proves_int_op_in_range`) and whether an access
-    // names an item (`range_proves_index`), with what the emitted program's own
-    // guards establish recorded in it (`mark_index_in_range`). Borrow-hoisting /
-    // BCE / fast-div read the `ExprCtx` oracle. Installed for this compile and
-    // removed when it ends, so a freed arena's reused addresses never meet it.
-    let range_oracle: Option<std::rc::Rc<crate::optimize::OracleFacts>> =
-        oracle.clone().or_else(|| {
-            (stmts.len() <= MAX_HOIST_ORACLE_STMTS).then(|| {
-                std::rc::Rc::new(crate::optimize::oracle_analyze_with_entry_guards(
-                    stmts, interner,
-                ))
-            })
-        });
     let _range_oracle_scope = super::expr::install_range_oracle(range_oracle);
     let _emission_facts = crate::optimize::facts::scope();
 
     let aot_compiled = crate::analysis::callgraph::aot_compiled_functions(stmts, interner);
+    let reached = crate::analysis::callgraph::reached_functions(stmts, interner);
+    // What the binary carries: what a run reaches, every function the program declared whether or not anything calls
+    // it, and what those name.
+    let carried =
+        crate::analysis::callgraph::reached_from(stmts, interner, &|f| declared_by_program(f, stmts, interner));
     // Phase 32/38: Emit function definitions before main
     for (top_idx, stmt) in stmts.iter().enumerate() {
         let fn_emit_start = lines.of(&output) + 1;
@@ -1436,6 +1622,9 @@ fn codegen_program_body(
             if !aot_compiled.contains(name) {
                 continue;
             }
+            if super::word_twin::is_twin(*name) && !super::word_twin::twin_emitted(*name) {
+                continue;
+            }
             if mutual_tce_members.contains(name) {
                 // Part of a mutual pair — emit merged function when we see the first member
                 if !mutual_tce_emitted.contains(name) {
@@ -1448,6 +1637,7 @@ fn codegen_program_body(
                             *a,
                             *b,
                             stmts,
+                            exact_hofs.contains(a) || exact_hofs.contains(b),
                             interner,
                             &lww_fields,
                             &mv_fields,
@@ -1462,7 +1652,13 @@ fn codegen_program_body(
                 }
                 // Skip individual emission — already emitted as part of merged pair
             } else {
-                output.push_str(&codegen_function_def(
+                // A function a run does not reach is compiled all the same when the binary carries it, and marked
+                // unused.
+                if !carried.contains(name) {
+                    continue;
+                }
+                let unreached = !reached.contains(name);
+                let text = codegen_function_def(
                     *name,
                     generics,
                     params,
@@ -1497,7 +1693,8 @@ fn codegen_program_body(
                     &exact_result_fns,
                     &ascii_masks,
                     &simd_fns,
-                ));
+                );
+                output.push_str(&if unreached { unused_items(&text) } else { text });
             }
             if let Some((spans, _)) = mapping {
                 record_emitted_lines(
@@ -1532,6 +1729,15 @@ fn codegen_program_body(
     // OPT: Detect single-char text variables (emit u8 instead of String)
     let single_char_vars = collect_single_char_text_vars(stmts, interner);
 
+    // A file statement reaches the program's one file system wherever it stands: in Main, in a function, in a
+    // task. It is the platform's, opened at the first statement that needs it.
+    if requires_vfs(stmts) {
+        writeln!(output, "fn logos_vfs() -> std::sync::Arc<dyn logicaffeine_system::fs::Vfs + Send + Sync> {{").unwrap();
+        writeln!(output, "    static VFS: std::sync::OnceLock<std::sync::Arc<dyn logicaffeine_system::fs::Vfs + Send + Sync>> = std::sync::OnceLock::new();").unwrap();
+        writeln!(output, "    VFS.get_or_init(|| std::sync::Arc::from(logicaffeine_system::fs::get_platform_vfs())).clone()").unwrap();
+        writeln!(output, "}}\n").unwrap();
+    }
+
     // Main function
     // Phase 51: Use async main when async operations are present
     if replay {
@@ -1541,9 +1747,10 @@ fn codegen_program_body(
         emit_logos_panic_hook(&mut output, false);
         writeln!(
             output,
-            "    let _logos_outcome = std::thread::Builder::new()"
+            "    let _logos_outcome: std::thread::Result<Result<(), logicaffeine_system::replay::Failure>> ="
         )
         .unwrap();
+        writeln!(output, "        std::thread::Builder::new()").unwrap();
         writeln!(output, "        .stack_size(67_108_864)").unwrap();
         writeln!(output, "        .spawn(|| {{").unwrap();
         writeln!(
@@ -1590,11 +1797,15 @@ fn codegen_program_body(
         writeln!(output, "}}").unwrap();
         writeln!(output, "fn _logos_main() {{").unwrap();
     }
-    // Phase 53: Inject VFS when file operations or persistence is used
-    if requires_vfs(stmts) {
-        writeln!(output, "    let vfs: std::sync::Arc<dyn logicaffeine_system::fs::Vfs + Send + Sync> = std::sync::Arc::from(logicaffeine_system::fs::get_platform_vfs());").unwrap();
-    }
+    super::stmt::install_element_free(stmts, interner);
     let mut main_ctx = RefinementContext::from_type_env(type_env);
+    // A list the decision holds as an `IntVec` is one from the body's first line, before any rewrite that reads a
+    // list's type emits a loop ahead of the list's own `Let`.
+    for list in super::int_vec::locals_of(None) {
+        main_ctx.register_variable_type(list, super::int_vec::INT_VEC.to_string());
+    }
+    // `Main`'s body is `fn _logos_main()`'s: a `Return` in it ends the program.
+    main_ctx.set_returns_nothing(true);
     // Opt::StrengthReducePow2: the Main body's always-non-negative variables (walking `stmts` skips
     // FunctionDef bodies, so this is exactly Main's set). Per-function registration does not cover Main.
     super::expr::set_nonneg_vars(super::expr::collect_always_nonneg(stmts));
@@ -1611,12 +1822,16 @@ fn codegen_program_body(
     // A LOCAL and a FIELD must be decided from the SAME answer to "can this exceed i64", or a
     // decoder's local is a `LogosInt` while the record it fills holds an `i64`. `promo_fns` is the
     // fixpoint's own seed — the set `bigint_struct_fields` was computed against.
-    let promotable_vars = crate::codegen::bigint_promote::promotable_int_vars(
+    let mut promotable_vars = crate::codegen::bigint_promote::promotable_int_vars(
         stmts,
         &promo.promo_fns,
         &promo.bigint_fields,
         &HashSet::new(),
     );
+    // A binding lent to a `mutable` parameter is held as the callee holds it: a machine word.
+    let mut lent = HashSet::new();
+    super::detection::collect_lent_vars(stmts, &mut lent);
+    promotable_vars.retain(|v| !lent.contains(v));
     // Opt::WideAccumulator: Main's bounded counting accumulators safe to widen to i128. A qualifying
     // loop bound must be i64, so pass the promotable/bignum set to reject a bignum-bounded loop.
     super::expr::set_wide_acc(crate::codegen::stmt::collect_wide_accumulators(
@@ -1637,7 +1852,8 @@ fn codegen_program_body(
         main_ctx.register_variable_type(*sym, "__single_char_u8".to_string());
     }
     // O3: scalarize fixed-size, non-escaping Seqs to `[T; N]` arrays (Main only).
-    let scalarizable_seqs = collect_scalarizable_seqs(stmts, interner);
+    let mut scalarizable_seqs = collect_scalarizable_seqs(stmts, interner);
+    scalarizable_seqs.retain(|sym, _| !super::int_vec::promotes(None, *sym));
     // AoS interleaving: fuse co-indexed same-type groups (round-robin pushes)
     // into one `[[T; W]; N]` backing array reusing the first member's symbol, so
     // per-entity fields are memory-adjacent (C's struct-array layout) and LLVM
@@ -1697,6 +1913,8 @@ fn codegen_program_body(
             crate::optimize::mark_preempted(Opt::Scalarize, Opt::Unbox);
         }
     }
+    // A list that outgrows the word is an `IntVec`, which no representation below reshapes.
+    de_rc_seqs.retain(|sym| !super::int_vec::promotes(None, *sym));
     // Straight-line-push fixed buffers in Main → `[T; K]` (borrow-aware — the scalarizer disqualifies any
     // call-arg, even a read-only borrow, so Main's small input buffers stayed heap Vecs). The O3 `Let`/
     // `Push` handlers emit the stack array + `buf[k]=expr` fills.
@@ -1778,7 +1996,10 @@ fn codegen_program_body(
     main_ctx.set_i64_maps(main_i64.maps);
     // Pre-size push-built Vecs that a later counted loop index-reads to a bound.
     // A deleted affine array must not also be pre-sized (its declaration is gone).
-    let mut main_presize = super::peephole::detect_vec_presize(stmts, interner);
+    let mut main_presize = super::peephole::detect_vec_presize(stmts, interner, &|s| {
+        main_ctx.is_promotable_candidate(s)
+            || main_ctx.get_variable_types().get(&s).is_some_and(|t| t.contains("__bigint"))
+    });
     main_presize.retain(|sym, _| main_ctx.affine_array(*sym).is_none());
     main_ctx.set_vec_presize(main_presize);
     // Loop-invariant positive divisors → precomputed `LogosDivU64` magic multiply.
@@ -1793,6 +2014,8 @@ fn codegen_program_body(
     let main_var_caps = analyze_variable_capabilities(stmts, interner);
     {
         let stmt_refs: Vec<&Stmt> = stmts.iter().collect();
+        // `Main` ends at its last statement: a `Return` there leaves nothing to write but its value.
+        main_ctx.set_tail(stmt_refs.iter().rev().find(|s| !matches!(s, Stmt::FunctionDef { .. })).copied());
         let mut i = 0;
         while i < stmt_refs.len() {
             // Skip function definitions - they're already emitted above
@@ -1877,10 +2100,16 @@ fn codegen_program_body(
     }
     writeln!(output, "}}").unwrap();
 
+    let (output, dropped) = super::tentative::settle(&output);
+    let output = super::tentative::settle_mutability(&output);
     let map = mapping.map(|(spans, logos_source)| {
         let mut builder = SourceMapBuilder::new(logos_source);
         for (line, span) in line_records {
-            builder.record_line_at(line, span);
+            if dropped.binary_search(&line).is_ok() {
+                continue;
+            }
+            let before = dropped.partition_point(|&d| d < line) as u32;
+            builder.record_line_at(line - before, span);
         }
         record_var_origins(stmts, spans, interner, &mut builder);
         builder.build()
@@ -1904,6 +2133,19 @@ impl LineCount {
         self.read = output.len();
         self.lines
     }
+}
+
+/// The entry precondition of a recursive 1-based partition over `arr`: `1 <= lo` and `hi <= length + adjust`,
+/// checked on the indexing path (`lo < hi`).
+fn partition_entry_guard(arr: &str, lo: &str, hi: &str, adjust: i64) -> String {
+    let adjusted = match adjust {
+        0 => String::new(),
+        a if a > 0 => format!(" + {a}"),
+        a => format!(" - {}", a.unsigned_abs()),
+    };
+    format!(
+        "    if {lo} < {hi} {{ let __{arr}_glen: i64 = {arr}.len() as i64{adjusted}; assert!(({lo}) >= 1 && ({hi}) <= __{arr}_glen, \"LOGOS precondition guard: 1-based index range\"); }}\n"
+    )
 }
 
 /// Map every line an emission produced (`start..=` the current line) to the
@@ -2059,7 +2301,7 @@ fn record_var_origins(
 /// (scalar exact-HOFs only reach here, so an `impl Fn`'s integer positions are the only `i64`s).
 /// Any other type is unchanged. The call-site half of the selective higher-order-overflow analysis
 /// (`exact_hof_fns`) uses this to type a closure/integer argument to the exactified parameter.
-fn exactify_rust_int_type(t: &str) -> String {
+pub(super) fn exactify_rust_int_type(t: &str) -> String {
     if t == "i64" {
         "logicaffeine_data::LogosInt".to_string()
     } else if t.starts_with("impl Fn") {
@@ -2189,6 +2431,7 @@ fn codegen_function_def<'p>(
     simd_fns: &Rc<super::simd_reduce::FnMap<'p>>,
 ) -> String {
     let mut output = String::new();
+    let _int_vec_body = super::int_vec::enter_body(Some(name));
     let _tower_scope = super::tower::enter_scope(Some(name));
     let _absent_scope = super::absent::enter_function(name);
     // Overflow-promoting return: this `Int`-returning function's value can exceed i64, so it is
@@ -2299,29 +2542,17 @@ fn codegen_function_def<'p>(
     };
     let is_acc = acc_info.is_some();
 
-    // Closed-form: Detect double recursion f(0)=base, f(d)=k+f(d-1)+f(d-1)
-    // Emits ((base+k) << d) - k instead of memoization — matches GCC/LLVM -O2.
-    let closed_form_info = if !is_tce && !is_acc && !is_native && !is_c_export_early && !reached_by_tower {
-        detect_double_recursion_closed_form(name, params, body, interner)
-    } else {
-        None
-    };
-    let is_closed_form = closed_form_info.is_some();
-    if is_closed_form {
-        // The affine double-recursion collapse (`f(d)=k+f(d-1)+f(d-1)` → `(base+k)<<d - k`)
-        // is a codegen-time closed form; record it in the firing trace so a
-        // `## Require closedform` can depend on it, like the optimize-pass collapses.
-        crate::optimize::mark_fired(Opt::ClosedForm);
-    }
+    // A function the closed form answers (`optimize::closed_form`) answers every argument in its range without a
+    // call: a cache in front of it only costs, and its few lines inline.
+    let is_closed_form = params.len() == 1 && crate::optimize::answers_in_closed_form(body, params[0].0);
 
     // Memoization: Detect pure multi-call recursive functions with hashable params
     // Respects ## No Memo / ## No Optimize annotations
     let no_memo = !crate::optimize::active_config()
         .merged(opt_flags)
         .is_on(Opt::Memo);
-    let is_memo = !is_tce
+    let memoizable = !is_tce
         && !is_acc
-        && !is_closed_form
         && !reached_by_tower
         && !is_native
         && !is_c_export_early
@@ -2334,8 +2565,11 @@ fn codegen_function_def<'p>(
             pure_functions.contains(&name),
             interner,
         );
+    let is_memo = memoizable && !is_closed_form;
     if is_memo {
         crate::optimize::mark_fired(Opt::Memo);
+    } else if memoizable {
+        crate::optimize::mark_preempted(Opt::ClosedForm, Opt::Memo);
     }
     // A tail-recursive function that WOULD otherwise memoize is claimed by TCE
     // instead — Tco preempts Memo (eval `should_memoize` only here, where `is_memo`
@@ -2379,6 +2613,14 @@ fn codegen_function_def<'p>(
         .enumerate()
         .map(|(i, (param_name, param_type))| {
             let pname = names.ident(*param_name);
+            if super::int_vec::promotes_param(name, i) {
+                let ty = super::int_vec::param_type(
+                    borrow_indices.contains(&i),
+                    mut_borrow_indices.contains(&i) || matches!(param_type, crate::ast::stmt::TypeExpr::Mutable { .. }),
+                );
+                let mutable = ty == super::int_vec::INT_VEC && (needs_mut_params || func_mutable_vars.contains(param_name));
+                return format!("{}{}: {}", if mutable { "mut " } else { "" }, pname, ty);
+            }
             if super::tower::param(name, *param_name) {
                 let mutable = needs_mut_params || func_mutable_vars.contains(param_name);
                 return format!("{}{}: {}", if mutable { "mut " } else { "" }, pname, super::tower::VALUE);
@@ -2397,7 +2639,7 @@ fn codegen_function_def<'p>(
             // Exact-HOF: exactify this parameter's integer types (`i64` → `LogosInt`, inside
             // `impl Fn(..)` too), so the fn-param is `impl Fn(LogosInt) -> LogosInt` and an integer
             // param is `LogosInt` — the closure/integer arguments the call-site promotes flow in.
-            let ty = if is_exact_hof {
+            let ty = if is_exact_hof && !matches!(param_type, crate::ast::stmt::TypeExpr::Mutable { .. }) {
                 exactify_rust_int_type(&ty)
             } else {
                 ty
@@ -2486,6 +2728,8 @@ fn codegen_function_def<'p>(
             .map(|t| vec_to_slice_type(&codegen_type_expr(t, interner)).replacen('&', "&'a ", 1))
     } else if has_mut_borrow {
         None // No return type — mutation is in-place via &mut [T]
+    } else if super::int_vec::promotes_return(name) {
+        Some(super::int_vec::INT_VEC.to_string())
     } else if let Some(info) = array_return {
         // Step 3b: `LogosSeq<T>` → a fixed-size stack array `[T; N]` returned by value.
         Some(format!("[{}; {}]", info.elem_ty, info.len))
@@ -2646,8 +2890,7 @@ fn codegen_function_def<'p>(
             None => HashSet::new(),
         });
 
-    // Emit #[inline] for small non-recursive, non-exported functions
-    // Closed-form functions are tiny (2 lines) and should always inline.
+    // Emit #[inline] for small non-recursive, non-exported functions, and for one the closed form answers.
     if is_closed_form
         || (!is_tce && !is_acc && should_inline(name, body, is_native, is_exported, is_async))
     {
@@ -2670,6 +2913,8 @@ fn codegen_function_def<'p>(
     // Phase 38: Handle native functions
     if is_native {
         let arg_names: Vec<&str> = params.iter().map(|(n, _)| interner.resolve(*n)).collect();
+        // A call is lowered to the runtime directly; the wrapper serves a use that is not a call.
+        writeln!(output, "#[allow(dead_code)]").unwrap();
 
         if let Some(path_sym) = native_path {
             // User-defined native path: call the Rust path directly
@@ -2752,6 +2997,74 @@ fn codegen_function_def<'p>(
     } else {
         // Non-native: emit body (also used for exported functions which have bodies)
         writeln!(output, "{} {{", signature).unwrap();
+        // A function with a word twin runs it first, on its arguments as words, and returns what it returns; it runs
+        // its own exact body where an argument is no word or the twin meets a value past the word (`word_twin`).
+        if let Some(twin) = super::word_twin::twin_of(name).filter(|_| super::word_twin::needed(name)) {
+            let exact_params =
+                if is_exact_hof { super::bigint_promote::exact_param_seeds(params, interner) } else { HashSet::new() };
+            let forms = super::word_twin::WordListForms {
+                borrow: borrow_params_map,
+                mut_borrow: mut_borrow_params_map,
+                vec_return: vec_return_fns,
+                byte_slice_return: byte_slice_return_fns,
+                array_return: array_return_fns,
+            };
+            let mut unboxed = Vec::new();
+            let mut reads = Vec::new();
+            let mut args = Some(Vec::new());
+            for (i, (p, ty)) in params.iter().enumerate() {
+                let n = names.ident(*p);
+                // The unboxed word's name: a raw identifier (`r#loop`) names it by its bare spelling.
+                let w = format!("__w_{}", n.trim_start_matches("r#"));
+                let held = params_str[i].split_once(": ").map_or("", |(_, t)| t);
+                if !super::word_twin::held_for_a_twin(held, exact_params.contains(p), is_vec_type_expr(ty, interner)) {
+                    args = None;
+                }
+                let arg = if exact_params.contains(p) {
+                    unboxed.push(format!("Some({w})"));
+                    reads.push(format!("{n}.to_i64()"));
+                    Some(w.clone())
+                } else if is_vec_type_expr(ty, interner) {
+                    let held = forms.param(name, i);
+                    if held == super::word_twin::WordList::Exact {
+                        // A list that may hold integers past the word reaches the twin as its words, while it holds them.
+                        unboxed.push(format!("Some({w})"));
+                        reads.push(format!("{n}.words()"));
+                    }
+                    super::word_twin::WordList::hand(held, forms.param(twin, i), &n)
+                } else {
+                    Some(n)
+                };
+                args = args.zip(arg).map(|(mut args, arg)| {
+                    args.push(arg);
+                    args
+                });
+            }
+            let widened = if return_type.is_some_and(|t| super::word_twin::int_list(t, interner)) {
+                super::word_twin::WordList::give(forms.result(twin), forms.result(name))
+            } else if returns_bigint {
+                Some("logicaffeine_data::LogosInt::from(__w)".to_string())
+            } else {
+                Some("__w".to_string())
+            };
+            let list_result = return_type.is_some_and(|t| super::word_twin::int_list(t, interner));
+            let result_held = return_type_str.as_deref().unwrap_or("");
+            let widened = widened.filter(|_| {
+                list_result || super::word_twin::held_for_a_twin(result_held, returns_bigint, false)
+            });
+            if let (Some(args), Some(widened)) = (args, widened) {
+                let call = format!(
+                    "if let Some(__w) = logicaffeine_system::failure::speculate(|| {}({})) {{ return {widened}; }}",
+                    names.ident(twin),
+                    args.join(", "),
+                );
+                if unboxed.is_empty() {
+                    writeln!(output, "    {call}").unwrap();
+                } else {
+                    writeln!(output, "    if let ({},) = ({},) {{ {call} }}", unboxed.join(", "), reads.join(", ")).unwrap();
+                }
+            }
+        }
 
         // Entry precondition guard (BCE for recursive 1-based partitions): make
         // the function's `1 <= lo` and `hi <= len` precondition explicit so LLVM
@@ -2763,17 +3076,13 @@ fn codegen_function_def<'p>(
         // `Set result to qs(...)` threading TCE-able): the assert runs on the
         // INITIAL params before the loop (sound), and every in-loop access keeps
         // its own oracle `assert_unchecked` hint.
-        if !is_acc {
+        // A guard is written on the machine words its parameters hold: an exactified function states none.
+        if !is_acc && !is_exact_hof {
             if let Some(g) = super::entry_guard::detect_entry_guard(params, body, interner) {
                 let arr = names.ident(g.arr);
                 let lo = names.ident(g.lo);
                 let hi = names.ident(g.hi);
-                let adj = g.hi_len_adjust;
-                writeln!(
-                    output,
-                    "    if ({lo}) < ({hi}) {{ let __{arr}_glen = {arr}.len() as i64 + {adj}; assert!(({lo}) >= 1 && ({hi}) <= __{arr}_glen, \"LOGOS precondition guard: 1-based index range\"); }}"
-                )
-                .unwrap();
+                output.push_str(&partition_entry_guard(&arr, &lo, &hi, g.hi_len_adjust));
                 // The same precondition (`hi <= arr.len()`) that licenses the
                 // unchecked indexing also bounds the partition counters, so their
                 // `+ 1` cannot overflow — lower it raw. Sound; see the fn's doc.
@@ -2790,7 +3099,7 @@ fn codegen_function_def<'p>(
                 let end = names.ident(g.end);
                 writeln!(
                     output,
-                    "    if (2i64.wrapping_mul({start}).wrapping_add(1)) <= ({end}) {{ let __{arr}_glen = {arr}.len() as i64; assert!(({start}) >= 0 && ({end}) < __{arr}_glen, \"LOGOS precondition guard: affine index range\"); }}"
+                    "    if 2i64.wrapping_mul({start}).wrapping_add(1) <= {end} {{ let __{arr}_glen: i64 = {arr}.len() as i64; assert!(({start}) >= 0 && ({end}) < __{arr}_glen, \"LOGOS precondition guard: affine index range\"); }}"
                 )
                 .unwrap();
                 // The same `end < arr.len()` precondition bounds every heap index in
@@ -2812,6 +3121,9 @@ fn codegen_function_def<'p>(
         }
 
         let mut func_ctx = RefinementContext::new();
+        for list in super::int_vec::locals_of(Some(name)) {
+            func_ctx.register_variable_type(list, super::int_vec::INT_VEC.to_string());
+        }
         func_ctx.set_simd_fns(Rc::clone(simd_fns));
         // O1 borrow hoisting: same oracle, keyed by the loop Stmts in this
         // body (sub-slice of the program codegen analyzed).
@@ -2831,17 +3143,28 @@ fn codegen_function_def<'p>(
         } else {
             HashSet::new()
         };
-        func_ctx.set_promotable_candidates(crate::codegen::bigint_promote::promotable_int_vars(
+        // A `mutable` parameter is the caller's binding, lent, and held as the caller holds it.
+        let mut candidates = crate::codegen::bigint_promote::promotable_int_vars(
             body,
             bigint_fns,
             &crate::codegen::expr::bigint_struct_fields_snapshot(),
             &exact_params,
-        ));
+        );
+        for (p, ty) in params {
+            if matches!(ty, TypeExpr::Mutable { .. }) {
+                candidates.remove(p);
+            }
+        }
+        // So is a binding this body lends to a `mutable` parameter: the callee holds it as its caller does.
+        let mut lent = HashSet::new();
+        super::detection::collect_lent_vars(body, &mut lent);
+        candidates.retain(|v| !lent.contains(v));
+        func_ctx.set_promotable_candidates(candidates);
         // O2 de-Rc: function-LOCAL Seqs that never need reference semantics →
         // plain Vec<T>. The use-scan disqualifies any returned/escaping/aliased
         // handle, so only genuinely-local buffers (sieve flags, scratch arrays)
         // de-Rc. Parameters are not candidates (Phase 3 handles those).
-        let func_de_rc = collect_de_rc_seqs(
+        let mut func_de_rc = collect_de_rc_seqs(
             body,
             interner,
             borrow_params_map,
@@ -2849,6 +3172,8 @@ fn codegen_function_def<'p>(
             vec_return_fns,
             returns_vec,
         );
+        // A list that outgrows the word is an `IntVec`, which no representation below reshapes.
+        func_de_rc.retain(|sym| !super::int_vec::promotes(Some(name), *sym));
         let func_worklists = super::worklist::detect_worklists(body, &func_de_rc, interner);
         let mut func_affine =
             super::affine_array::detect_affine_arrays(body, &func_de_rc, interner);
@@ -2986,7 +3311,10 @@ fn codegen_function_def<'p>(
         }
         func_ctx.set_i64_sets(func_i64.sets);
         func_ctx.set_i64_maps(func_i64.maps);
-        let mut func_presize = super::peephole::detect_vec_presize(body, interner);
+        let mut func_presize = super::peephole::detect_vec_presize(body, interner, &|s| {
+            func_ctx.is_promotable_candidate(s)
+                || func_ctx.get_variable_types().get(&s).is_some_and(|t| t.contains("__bigint"))
+        });
         func_presize.retain(|sym, _| {
             func_ctx.affine_array(*sym).is_none()
                 && !func_const_tables.contains_key(sym)
@@ -3021,7 +3349,16 @@ fn codegen_function_def<'p>(
         // Borrow-optimized params get &[T] or &mut [T] type so downstream codegen handles them correctly
         for (i, (param_name, param_type)) in params.iter().enumerate() {
             let type_name = codegen_type_expr(param_type, interner);
-            if let Some(held) = super::absent::parameter(name, *param_name, &type_name) {
+            if super::int_vec::promotes_param(name, i) {
+                func_ctx.register_variable_type(
+                    *param_name,
+                    super::int_vec::param_type(
+                        borrow_indices.contains(&i),
+                        mut_borrow_indices.contains(&i)
+                            || matches!(param_type, crate::ast::stmt::TypeExpr::Mutable { .. }),
+                    ),
+                );
+            } else if let Some(held) = super::absent::parameter(name, *param_name, &type_name) {
                 func_ctx.register_variable_type(*param_name, held);
             } else if super::tower::param(name, *param_name) {
                 func_ctx.register_variable_type(*param_name, super::tower::VALUE.to_string());
@@ -3055,7 +3392,10 @@ fn codegen_function_def<'p>(
                     *param_name,
                     format!("{}{}", exactify_rust_int_type(&type_name), "|__exact_fnptr"),
                 );
-            } else if is_exact_hof && type_name == "i64" {
+            } else if is_exact_hof
+                && type_name == "i64"
+                && !matches!(param_type, crate::ast::stmt::TypeExpr::Mutable { .. })
+            {
                 // An exactified integer param — promoted (`__bigint`) so the body's arithmetic on it is
                 // exact and it passes into a `LogosInt`-param closure without narrowing.
                 func_ctx.register_variable_type(*param_name, "i64|__bigint".to_string());
@@ -3077,10 +3417,15 @@ fn codegen_function_def<'p>(
         // Phase 54: Functions receive pipe senders as parameters, no local pipe declarations
         let func_pipe_vars = HashSet::new();
 
-        // Emit the constant-table stack arrays once at the top of the body (before every emission path);
-        // their original heap-`Vec` `Let`/`Push` build is filtered out (`is_const_table_stmt`), and reads
-        // hit the `[T; N]` array via the registered type. Zero-alloc constant tables — MD5's shift words.
-        for (sym, info) in &func_const_tables {
+        // Emit the constant-table stack arrays once at the top of the body (before every emission path), in the
+        // order the body declares them; their original heap-`Vec` `Let`/`Push` build is filtered out
+        // (`is_const_table_stmt`), and reads hit the `[T; N]` array via the registered type. Zero-alloc constant
+        // tables — MD5's shift words.
+        let declared_tables = body.iter().filter_map(|s| match s {
+            Stmt::Let { var, .. } => func_const_tables.get_key_value(var),
+            _ => None,
+        });
+        for (sym, info) in declared_tables {
             writeln!(
                 output,
                 "    let {}: [{}; {}] = [{}];",
@@ -3200,6 +3545,25 @@ fn codegen_function_def<'p>(
         // helper, rendered here and prepended to the wrapper at return.
         let mut outlined_helper = String::new();
 
+        // A divisor that is a parameter is defined at the function's entry: its libdivide helper is computed there,
+        // once. A tail-call loop rebinds its parameters on every lap, and a parameter held as anything but an `i64`
+        // is no machine divisor, so neither takes one.
+        for (param, _) in params {
+            let Some(helper) = func_ctx.get_fast_div().get(param).cloned() else {
+                continue;
+            };
+            if is_tce || func_ctx.get_variable_types().get(param).map(String::as_str) != Some("i64") {
+                func_ctx.forget_fast_div(*param);
+            } else {
+                writeln!(
+                    output,
+                    "    let {helper}: logicaffeine_data::LogosDivU64 = logicaffeine_data::LogosDivU64::new({} as u64);",
+                    super::precedence::operand(&names.ident(*param), super::precedence::Under::Cast)
+                )
+                .unwrap();
+            }
+        }
+
         if is_tce {
             // TCE: Wrap body in loop, use TCE-aware statement emitter
             writeln!(output, "    loop {{").unwrap();
@@ -3289,9 +3653,14 @@ fn codegen_function_def<'p>(
                 )
                 .unwrap();
             } else {
-                writeln!(output, "    let mut __acc: i64 = {};", acc.identity).unwrap();
+                if returns_bigint {
+                    writeln!(output, "    let mut __acc: logicaffeine_data::LogosInt = logicaffeine_data::LogosInt::from({}_i64);", acc.identity).unwrap();
+                } else {
+                    writeln!(output, "    let mut __acc: i64 = {};", acc.identity).unwrap();
+                }
             }
             writeln!(output, "    loop {{").unwrap();
+            let _exact_acc = super::tce::exact_accumulator(returns_bigint && !super::tower::returns(name));
             let stmt_refs: Vec<&Stmt> = body
                 .iter()
                 .filter(|s| {
@@ -3345,89 +3714,57 @@ fn codegen_function_def<'p>(
                 si += 1;
             }
             writeln!(output, "    }}").unwrap();
-        } else if let Some(ref cf) = closed_form_info {
-            // Closed-form: f(d) = ((base + k) << d) - k
-            let param_name = names.ident(params[0].0);
-            let base_plus_k = cf.base + cf.k;
-            writeln!(
-                output,
-                "    if {} == 0 {{ return {}; }}",
-                param_name, cf.base
-            )
-            .unwrap();
-            // Multiply by 2^d with a shift that yields 0 once d reaches the i64
-            // bit width, matching the recurrence's repeated WRAPPING doubling
-            // (a raw `<< d` is UB in debug and masks the count in release for
-            // d >= 64, diverging from the interpreter/VM).
-            let pow2d = format!(
-                "(if ({p} as u64) >= 64 {{ 0i64 }} else {{ 1i64 << {p} }})",
-                p = param_name
-            );
-            if cf.k == 0 {
-                writeln!(output, "    {}i64.wrapping_mul({})", base_plus_k, pow2d).unwrap();
-            } else {
-                writeln!(
-                    output,
-                    "    ({}i64.wrapping_mul({})).wrapping_sub({})",
-                    base_plus_k, pow2d, cf.k
-                )
-                .unwrap();
-            }
         } else if is_memo {
             // Memoization: Wrap body in closure with thread-local cache
             let ret_ty = return_type_str.as_deref().unwrap_or("i64");
             let memo_name = format!("__MEMO_{}", func_name.to_uppercase());
 
-            // Build key type and key expression
-            let (key_type, key_expr, copy_method) = if params.len() == 1 {
-                let ty = codegen_type_expr(params[0].1, interner);
-                let pname = interner.resolve(params[0].0).to_string();
-                let copy = if is_copy_type_expr(params[0].1, interner) {
-                    "copied"
-                } else {
-                    "cloned"
-                };
-                (ty, pname, copy)
+            // The key is the arguments as the signature takes them (an exact-HOF parameter is a `LogosInt`); a hit
+            // hands back the cached result, copied where the result is a machine value, cloned otherwise.
+            let key_ty = |t: &TypeExpr| {
+                let ty = codegen_type_expr(t, interner);
+                if is_exact_hof { exactify_rust_int_type(&ty) } else { ty }
+            };
+            let copy_method = if matches!(ret_ty, "i64" | "i32" | "u8" | "u64" | "f64" | "bool" | "char" | "usize") {
+                "copied"
             } else {
-                let types: Vec<String> = params
-                    .iter()
-                    .map(|(_, t)| codegen_type_expr(t, interner))
-                    .collect();
-                let names: Vec<String> = params
-                    .iter()
-                    .map(|(n, _)| interner.resolve(*n).to_string())
-                    .collect();
-                let copy = if params.iter().all(|(_, t)| is_copy_type_expr(t, interner)) {
-                    "copied"
-                } else {
-                    "cloned"
-                };
-                (
-                    format!("({})", types.join(", ")),
-                    format!("({})", names.join(", ")),
-                    copy,
-                )
+                "cloned"
+            };
+            let machine = |ty: &str| matches!(ty, "i64" | "i32" | "u8" | "u64" | "f64" | "bool" | "char" | "usize");
+            let owned = |name: String, ty: &str| if machine(ty) { name } else { format!("{name}.clone()") };
+            let (key_type, key_owned) = if params.len() == 1 {
+                let (ty, name) = (key_ty(params[0].1), escape_rust_ident(interner.resolve(params[0].0)));
+                let key = owned(name, &ty);
+                (ty, key)
+            } else {
+                let types: Vec<String> = params.iter().map(|(_, t)| key_ty(t)).collect();
+                let names: Vec<String> = params.iter().map(|(n, _)| escape_rust_ident(interner.resolve(*n))).collect();
+                let keys: Vec<String> = names.iter().zip(&types).map(|(n, t)| owned(n.clone(), t)).collect();
+                (format!("({})", types.join(", ")), format!("({})", keys.join(", ")))
             };
 
             writeln!(output, "    use std::cell::RefCell;").unwrap();
             writeln!(output, "    thread_local! {{").unwrap();
             writeln!(output, "        static {}: RefCell<FxHashMap<{}, {}>> = RefCell::new(FxHashMap::default());", memo_name, key_type, ret_ty).unwrap();
             writeln!(output, "    }}").unwrap();
+            // The key as the cache keeps it, taken before the lookup and the body may move an argument.
+            writeln!(output, "    let __memo_key: {key_type} = {key_owned};").unwrap();
             writeln!(
                 output,
-                "    if let Some(__v) = {}.with(|c| c.borrow().get(&{}).{}()) {{",
-                memo_name, key_expr, copy_method
+                "    if let Some(__v) = {}.with(|c| c.borrow().get(&__memo_key).{}()) {{",
+                memo_name, copy_method
             )
             .unwrap();
             writeln!(output, "        return __v;").unwrap();
             writeln!(output, "    }}").unwrap();
-            writeln!(output, "    let __memo_result = (|| -> {} {{", ret_ty).unwrap();
+            writeln!(output, "    let __memo_result: {ret_ty} = (|| -> {ret_ty} {{").unwrap();
             let stmt_refs: Vec<&Stmt> = body
                 .iter()
                 .filter(|s| {
                     !is_affine_array_decl(s, &func_ctx) && !is_const_table_stmt(s, &func_ctx)
                 })
                 .collect();
+            func_ctx.set_tail(stmt_refs.last().copied());
             let mut si = 0;
             while si < stmt_refs.len() {
                 if !no_peephole {
@@ -3471,11 +3808,13 @@ fn codegen_function_def<'p>(
                 ));
                 si += 1;
             }
+            func_ctx.set_tail(None);
             writeln!(output, "    }})();").unwrap();
             writeln!(
                 output,
-                "    {}.with(|c| c.borrow_mut().insert({}, __memo_result));",
-                memo_name, key_expr
+                "    {}.with(|c| c.borrow_mut().insert(__memo_key, {}));",
+                memo_name,
+                if copy_method == "copied" { "__memo_result" } else { "__memo_result.clone()" }
             )
             .unwrap();
             writeln!(output, "    __memo_result").unwrap();
@@ -3541,11 +3880,13 @@ fn codegen_function_def<'p>(
 
             // Eligibility: a Borrow-lowered (`&mut [T]`) self-recursive function
             // matching the divide-and-conquer shape.
+            // The leaf hands its live-outs back as machine words: a body reaching an exact `Int` is not split.
             let outline_plan = if !mut_borrow_indices.is_empty()
                 && crate::optimize::active_config()
                     .merged(opt_flags)
                     .is_on(Opt::Borrow)
                 && std::env::var("LOGOS_NO_OUTLINE").is_err()
+                && !super::exact_scalars::mentions_exact(&stmt_refs, &func_ctx)
             {
                 mut_borrow_indices
                     .iter()
@@ -3572,12 +3913,7 @@ fn codegen_function_def<'p>(
                     let arr = names.ident(g.arr);
                     let lo = names.ident(g.lo);
                     let hi = names.ident(g.hi);
-                    let adj = g.hi_len_adjust;
-                    writeln!(
-                        helper_body,
-                        "    if ({lo}) < ({hi}) {{ let __{arr}_glen = {arr}.len() as i64 + {adj}; assert!(({lo}) >= 1 && ({hi}) <= __{arr}_glen, \"LOGOS precondition guard: 1-based index range\"); }}"
-                    )
-                    .unwrap();
+                    helper_body.push_str(&partition_entry_guard(&arr, &lo, &hi, g.hi_len_adjust));
                 }
                 emit_span!(helper_body, plan.region_start, plan.region_end);
                 // The wrapper: base-case guards, the helper call, the alias, then
@@ -3592,30 +3928,26 @@ fn codegen_function_def<'p>(
                 } else {
                     format!("({})", liveouts.join(", "))
                 };
-                writeln!(
-                    output,
-                    "    let {} = {}__part({});",
-                    bind,
-                    func_name,
-                    args.join(", ")
-                )
-                .unwrap();
+                // The live-outs are `i64` (LOGOS `Int`), as the helper below declares them.
+                let ret_ty = if liveouts.len() == 1 {
+                    "i64".to_string()
+                } else {
+                    format!("({})", vec!["i64"; liveouts.len()].join(", "))
+                };
+                writeln!(output, "    let {bind}: {ret_ty} = {func_name}__part({});", args.join(", ")).unwrap();
                 for lo in &plan.live_outs {
                     func_ctx.register_variable_type(*lo, "i64".to_string());
                 }
                 if let Some(ai) = plan.alias_idx {
                     emit_span!(output, ai, ai + 1);
                 }
+                func_ctx.set_tail(stmt_refs.last().copied());
                 emit_span!(output, plan.region_end, stmt_refs.len());
+                func_ctx.set_tail(None);
                 // Assemble the leaf (prepended before the wrapper at return). Same
                 // parameter list as the wrapper (`&mut [T]`, scalars), returning the
                 // live-outs — assumed `i64` (LOGOS `Int`); a wrong assumption is a
                 // loud compile error, never silent corruption.
-                let ret_ty = if liveouts.len() == 1 {
-                    "i64".to_string()
-                } else {
-                    format!("({})", vec!["i64"; liveouts.len()].join(", "))
-                };
                 let ret_expr = if liveouts.len() == 1 {
                     liveouts[0].clone()
                 } else {
@@ -3630,7 +3962,9 @@ fn codegen_function_def<'p>(
                     ret_expr
                 );
             } else {
+                func_ctx.set_tail(stmt_refs.last().copied());
                 emit_span!(output, 0, stmt_refs.len());
+                func_ctx.set_tail(None);
             }
         }
 

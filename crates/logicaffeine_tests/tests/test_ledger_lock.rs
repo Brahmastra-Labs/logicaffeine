@@ -280,17 +280,41 @@ fn tests_ending_together_each_append_one_whole_line() {
 }
 
 fn report(ledger: &str, args: &[&str]) -> Output {
+    report_of(&[ledger], args)
+}
+
+/// The report over several ledgers, given in this order.
+fn report_of(ledgers: &[&str], args: &[&str]) -> Output {
     let dir = scratch();
-    let path = dir.path().join("fixture.ledger.tsv");
-    std::fs::File::create(&path).unwrap().write_all(ledger.as_bytes()).unwrap();
-    let out = Command::new("python3")
-        .arg(repo_root().join("scripts/test/test-ledger-report.py"))
-        .arg(&path)
-        .args(args)
-        .output()
-        .expect("python3 runs the report");
+    let mut cmd = Command::new("python3");
+    cmd.arg(repo_root().join("scripts/test/test-ledger-report.py"));
+    for (i, ledger) in ledgers.iter().enumerate() {
+        let path = dir.path().join(format!("fixture-{i}.ledger.tsv"));
+        std::fs::File::create(&path).unwrap().write_all(ledger.as_bytes()).unwrap();
+        cmd.arg(path);
+    }
+    let out = cmd.args(args).output().expect("python3 runs the report");
     assert!(out.status.success(), "the report runs: {}", String::from_utf8_lossy(&out.stderr));
     out
+}
+
+/// A report's overrides, as (filter, the table's other keys) rows in the order written.
+fn overrides(out: &Output) -> Vec<(String, toml::Table)> {
+    let text = String::from_utf8(out.stdout.clone()).unwrap();
+    if text.trim().is_empty() {
+        return Vec::new();
+    }
+    let toml: toml::Table = text.parse().unwrap_or_else(|e| panic!("the overrides are TOML: {e}\n{text}"));
+    toml["profile"]["full"]["overrides"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|o| {
+            let mut t = o.as_table().unwrap().clone();
+            let filter = t.remove("filter").unwrap().as_str().unwrap().to_string();
+            (filter, t)
+        })
+        .collect()
 }
 
 /// A ledger of one run, by hand: four tests over 0..1200 s, and a stray line of a nested run.
@@ -367,6 +391,119 @@ r\tlogicaffeine-tests::huge_lock\tsaturates\t1000\t1100\t100.000\t9000.000\t0.00
     );
 }
 
+/// Widths can come from several ledgers, each read as its own run (a gate's, and a measurement of tests it cannot time):
+/// a test in more than one is declared once, as the last ledger given measured it.
+#[test]
+fn the_report_reads_each_ledger_it_is_given_as_its_own_run() {
+    let gate = "run_id\tbinary_id\ttest\tstart\tend\twall_s\tuser_s\tsys_s\tmaxrss_kb\toutcome
+gate\tlogicaffeine-tests::a_lock\tsweeps\t1000\t1300\t300.000\t1500.000\t0.000\t1024\texit 0
+gate\tlogicaffeine-tests::b_lock\tremeasured\t1000\t1300\t300.000\t1500.000\t0.000\t1024\texit 0
+nested\tlogicaffeine-tests::c_lock\tinside\t1000\t1100\t100.000\t900.000\t0.000\t1024\texit 0
+";
+    let measured = "run_id\tbinary_id\ttest\tstart\tend\twall_s\tuser_s\tsys_s\tmaxrss_kb\toutcome
+quiet\tlogicaffeine-tests::b_lock\tremeasured\t5000\t5100\t100.000\t800.000\t0.000\t1024\texit 0
+quiet\tlogicaffeine-tests::d_lock\tfans_out\t5000\t5200\t200.000\t1000.000\t0.000\t1024\texit 0
+";
+    let rows: Vec<(String, i64)> = overrides(&report_of(&[gate, measured], &["--widths", "4", "--min-cpu", "120"]))
+        .into_iter()
+        .map(|(f, t)| (f, t["threads-required"].as_integer().unwrap()))
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("binary_id(logicaffeine-tests::a_lock) & test(=sweeps)".to_string(), 5),
+            ("binary_id(logicaffeine-tests::b_lock) & test(=remeasured)".to_string(), 8),
+            ("binary_id(logicaffeine-tests::d_lock) & test(=fans_out)".to_string(), 5),
+        ],
+        "both ledgers' wide tests, the remeasured one as the second ledger has it, the nested run's line in neither"
+    );
+}
+
+/// A test that passes in longer than a full gate's load lets it inside the full profile's 30-minute backstop gets a
+/// backstop of its own: `--backstops K` writes each passing test whose wall clock, K times over, passes 30 minutes as an
+/// override of K times its wall clock in whole five-minute periods. A test a signal ended, or one that failed, is
+/// measured by no run, and gets none.
+#[test]
+fn the_report_writes_the_longest_tests_backstops_as_nextest_overrides() {
+    let ledger = "run_id\tbinary_id\ttest\tstart\tend\twall_s\tuser_s\tsys_s\tmaxrss_kb\toutcome
+r\tlogicaffeine-tests::sim_lock\tsimulates_long\t1000\t2000\t1000.000\t990.000\t5.000\t1024\texit 0
+r\tlogicaffeine-tests::sim_lock\tsimulates_briefly\t1000\t1300\t300.000\t290.000\t5.000\t1024\texit 0
+r\tlogicaffeine-tests::sim_lock\tat_the_backstop\t1000\t1450\t450.000\t440.000\t5.000\t1024\texit 0
+r\tlogicaffeine-tests::sim_lock\tjust_past_it\t1000\t1451\t451.000\t440.000\t5.000\t1024\texit 0
+r\tlogicaffeine-tests::sim_lock\tcut_short\t1000\t6000\t5000.000\t-\t-\t-\tsignal 15
+r\tlogicaffeine-tests::sim_lock\tfails_late\t1000\t2000\t1000.000\t990.000\t5.000\t1024\texit 101
+r\tlogicaffeine-compile\trtl::tests::elaborates\t1000\t1800\t800.000\t790.000\t5.000\t1024\texit 0
+";
+    let rows: Vec<(String, String, i64)> = overrides(&report(ledger, &["--backstops", "4"]))
+        .into_iter()
+        .map(|(f, t)| {
+            assert_eq!(t.len(), 1, "{f}: a backstop override sets its backstop alone: {t:?}");
+            let timeout = t["slow-timeout"].as_table().unwrap_or_else(|| panic!("{f}: a slow-timeout table"));
+            (f, timeout["period"].as_str().unwrap().to_string(), timeout["terminate-after"].as_integer().unwrap())
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            ("binary_id(logicaffeine-compile) & test(=rtl::tests::elaborates)".to_string(), "300s".to_string(), 11),
+            ("binary_id(logicaffeine-tests::sim_lock) & test(=just_past_it)".to_string(), "300s".to_string(), 7),
+            ("binary_id(logicaffeine-tests::sim_lock) & test(=simulates_long)".to_string(), "300s".to_string(), 14),
+        ],
+        "4 × 800 s is 11 periods of 300 s, 4 × 451 s is 7, 4 × 1,000 s is 14; 4 × 450 s is the full profile's own 30 minutes"
+    );
+}
+
+/// The backstops the full profile declares are a ledger's, set before its widths: every one names a test that exists,
+/// sets its backstop alone, and outlasts the full profile's 30 minutes, which it would otherwise only repeat.
+#[test]
+fn every_declared_backstop_names_a_test_that_exists_and_outlasts_the_full_profiles() {
+    let text = std::fs::read_to_string(repo_root().join(".config/nextest.toml")).unwrap();
+    let begin = text.find("# BEGIN test backstops").expect("the full profile's measured backstops");
+    let end = text.find("# END test backstops").expect("its end marker");
+    assert!(begin < end && end < text.find("# BEGIN test widths").unwrap(), "the backstops come before the widths");
+    let block: toml::Table = text[begin..end].parse().expect("the backstops block is TOML on its own");
+    let declared = block["profile"]["full"]["overrides"].as_array().expect("the block declares full-profile overrides");
+    assert!(!declared.is_empty());
+    let config: toml::Table = text.parse().unwrap();
+    let full = config["profile"]["full"]["slow-timeout"].as_table().unwrap();
+    let seconds = |t: &toml::Table| {
+        let period = t["period"].as_str().unwrap().strip_suffix('s').unwrap().parse::<i64>().unwrap();
+        period * t["terminate-after"].as_integer().unwrap()
+    };
+    for o in declared {
+        let filter = o["filter"].as_str().unwrap();
+        assert_eq!(o.as_table().map(|t| t.len()), Some(2), "{filter}: a backstop override sets its backstop alone");
+        let backstop = o["slow-timeout"].as_table().unwrap_or_else(|| panic!("{filter}: a slow-timeout table"));
+        assert!(seconds(backstop) > seconds(full), "{filter}: {} s outlasts the full profile's {} s", seconds(backstop), seconds(full));
+        assert_names_a_test(filter);
+    }
+}
+
+/// `filter` is an exact `binary_id(…) & test(=…)` filter, and its binary holds that test.
+fn assert_names_a_test(filter: &str) {
+    let (bin, test) = filter
+        .strip_prefix("binary_id(")
+        .and_then(|r| r.split_once(") & test(="))
+        .and_then(|(b, t)| t.strip_suffix(')').map(|t| (b, t)))
+        .unwrap_or_else(|| panic!("an exact filter: {filter}"));
+    let leaf = test.rsplit("::").next().unwrap();
+    let tests_dir = repo_root().join("crates/logicaffeine_tests/tests");
+    let src = match bin.split_once("::") {
+        Some(("logicaffeine-tests", b)) => std::fs::read_to_string(tests_dir.join(format!("{b}.rs")))
+            .or_else(|_| std::fs::read_to_string(tests_dir.join(b).join("main.rs")))
+            .unwrap_or_else(|_| panic!("{filter}: no test binary {b}")),
+        _ => {
+            let dir = repo_root().join("crates/logicaffeine_tests/unit");
+            let mut all = String::new();
+            for e in walk(&dir) {
+                all.push_str(&std::fs::read_to_string(e).unwrap_or_default());
+            }
+            all
+        }
+    };
+    assert!(src.contains(&format!("fn {leaf}(")), "{filter}: no test {leaf} in {bin}");
+}
+
 /// The widths the full profile declares are a ledger's, and every one names a test that exists: a renamed test would
 /// leave its override matching nothing, and its width undeclared.
 #[test]
@@ -382,32 +519,12 @@ fn every_declared_width_names_a_test_that_exists() {
     assert!(declared.len() >= 10, "the widths block declares the widest tests: {}", declared.len());
     let last_hand_written = text[..begin].matches("[[profile.full.overrides]]").count();
     assert_eq!(overrides.len(), last_hand_written + declared.len(), "the widths come after every hand-written override");
-    let tests_dir = repo_root().join("crates/logicaffeine_tests/tests");
     for o in declared {
         let filter = o["filter"].as_str().unwrap();
         let n = o["threads-required"].as_integer().expect("a width is a number of threads");
         assert!((2..=24).contains(&n), "{filter}: {n} threads");
         assert_eq!(o.as_table().map(|t| t.len()), Some(2), "{filter}: a width override sets its width alone");
-        let (bin, test) = filter
-            .strip_prefix("binary_id(")
-            .and_then(|r| r.split_once(") & test(="))
-            .and_then(|(b, t)| t.strip_suffix(')').map(|t| (b, t)))
-            .unwrap_or_else(|| panic!("an exact filter: {filter}"));
-        let leaf = test.rsplit("::").next().unwrap();
-        let src = match bin.split_once("::") {
-            Some(("logicaffeine-tests", b)) => std::fs::read_to_string(tests_dir.join(format!("{b}.rs")))
-                .or_else(|_| std::fs::read_to_string(tests_dir.join(b).join("main.rs")))
-                .unwrap_or_else(|_| panic!("{filter}: no test binary {b}")),
-            _ => {
-                let dir = repo_root().join("crates/logicaffeine_tests/unit");
-                let mut all = String::new();
-                for e in walk(&dir) {
-                    all.push_str(&std::fs::read_to_string(e).unwrap_or_default());
-                }
-                all
-            }
-        };
-        assert!(src.contains(&format!("fn {leaf}(")), "{filter}: no test {leaf} in {bin}");
+        assert_names_a_test(filter);
     }
 }
 

@@ -128,3 +128,23 @@ fn a_counted_repeat_a_break_of_its_own_can_end_is_not_counted() {
         "a Break ends a counted Repeat early"
     );
 }
+
+#[test]
+fn a_while_whose_bound_reads_its_counter_is_not_counted() {
+    let (ea, sa, mut it) = (Arena::new(), Arena::new(), Interner::new());
+    let (p, n) = (it.intern("p"), it.intern("n"));
+    // `Let p be 2. While p <= n - p: Set p to p + 1.`
+    let loop_ = [
+        Stmt::Let { var: p, ty: None, value: num(&ea, 2), mutable: true },
+        Stmt::While {
+            cond: op(&ea, BinaryOpKind::LtEq, var(&ea, p), op(&ea, BinaryOpKind::Subtract, var(&ea, n), var(&ea, p))),
+            body: sa.alloc_slice(vec![step(&ea, p)]),
+            decreasing: None,
+        },
+    ];
+    let refs: Vec<&Stmt> = loop_.iter().collect();
+    assert!(
+        extract_counted_while(&refs, 0).is_none(),
+        "the bound `n - p` moves with each step of `p`: the loop runs no number of times fixed on entry"
+    );
+}

@@ -273,12 +273,14 @@ pub const FIRST_CLASS_VALUE_KINDS: &[&str] = &[
     "seq_text",
     "seq_seq",
     "set_int",
+    "set_tuple",
     "struct",
     "tuple_anon",
     "multi_return",
     "record_named",
     "destructure",
     "seq_tuple",
+    "tuple_of_sets",
 ];
 
 /// Run `source` on the TREE-WALKER (the oracle), capturing partial output and
@@ -291,6 +293,69 @@ pub fn tw_outcome(source: &str) -> RunOutcome {
         output: result.lines.join("\n"),
         error: result.error,
     }
+}
+
+/// The URLs a page's `Paths:` section answers, evaluated on the TREE-WALKER — `Ok(None)` for a
+/// source whose page declares no `Paths:`.
+///
+/// The program's definitions and top-level bindings run first, exactly as they do before a page
+/// mounts, so the section can read the same data the page renders; the page itself is NOT mounted,
+/// because what is being asked is where to build it, not what it shows. A value other than a list
+/// of `Text` is refused by name rather than coerced into addresses nobody wrote. A source that does
+/// not parse answers `Ok(None)`: compiling the page reports that, at the line it is on.
+pub fn page_build_paths(source: &str) -> Result<Option<Vec<String>>, String> {
+    use logicaffeine_language::ast::stmt::Stmt;
+    use logicaffeine_language::parser::lgx_lower::PATHS_FN_PREFIX;
+    crate::ui_bridge::with_parsed_program(source, |parsed, interner| {
+        // A source that does not parse has no answer to give, and the page's own compile reports
+        // the mistake where it is; claiming it for the `Paths:` section would misplace it.
+        let Ok((stmts, types, policies)) = parsed else {
+            return Ok(None);
+        };
+        let paths_fn = stmts.iter().find_map(|s| match s {
+            Stmt::FunctionDef { name, .. } if interner.resolve(*name).starts_with(PATHS_FN_PREFIX) => {
+                Some(*name)
+            }
+            _ => None,
+        });
+        let Some(paths_fn) = paths_fn else {
+            return Ok(None);
+        };
+        let definitions: Vec<Stmt<'_>> = stmts
+            .iter()
+            .filter(|s| !matches!(s, Stmt::Ui(_)))
+            .cloned()
+            .collect();
+        let mut interp = crate::interpreter::Interpreter::new(interner)
+            .with_type_registry(types)
+            .with_policies(policies)
+            .with_vfs(std::sync::Arc::new(logicaffeine_system::fs::MemVfs::new()));
+        let value = futures::executor::block_on(async {
+            interp.run(&definitions).await?;
+            interp.call_named(paths_fn, Vec::new()).await
+        })
+        .map_err(|e| format!("its `Paths:` section failed: {e}"))?;
+        let list = match value {
+            crate::interpreter::RuntimeValue::List(items) => items.borrow().to_values(),
+            other => {
+                return Err(format!(
+                    "its `Paths:` section must return a `Seq of Text` of addresses, and it \
+                     returned a {}",
+                    other.type_name()
+                ))
+            }
+        };
+        list.into_iter()
+            .map(|v| match v {
+                crate::interpreter::RuntimeValue::Text(t) => Ok(t.to_string()),
+                other => Err(format!(
+                    "its `Paths:` section must return `Text` addresses, and one was a {}",
+                    other.type_name()
+                )),
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some)
+    })
 }
 
 /// [`tw_outcome`] with the shown lines kept apart. The exact bytes a run writes to standard output are
@@ -1487,6 +1552,7 @@ fn compile_to_c_tiered(
         parser.required_optimizations(),
     );
     let codegen_registry = parser.into_type_registry();
+    check_as_written(&stmts, &interner)?;
     // Unreachable functions were tree-shaken above, so a native-kernel declaration that survives is
     // one the program calls — and C cannot link the Rust kernels.
     if let Some(kernel) = stmts.iter().find_map(|s| match s {
@@ -1986,6 +2052,7 @@ fn with_optimized_program<T>(
         parser.required_optimizations(),
     );
     let codegen_registry = parser.into_type_registry();
+    check_as_written(&stmts, &interner)?;
     // Memoization is an AST rewrite, so it must run before the shared
     // optimizer.  Optimizer facts are keyed to the exact arena nodes they
     // prove; rewriting the tree after optimization silently discarded
@@ -2380,7 +2447,12 @@ pub fn compile_model_to_rdu_streamed(
         lower_forward_streamed, lower_prefill_streamed, lower_tp_decode_streamed, StreamedReject,
     };
     let (spec, storage) = (&rdu.spec, rdu.storage);
-    crate::model::author::check(spec).map_err(|e| format!("{}: {e}", rdu.name))?;
+    // A decode deployment's cache length decides whether a QSA layer is written as the dense attention it is there.
+    match decode.as_ref().map(|d| d.ctx) {
+        Some(ctx) => crate::model::author::check_at(spec, ctx),
+        None => crate::model::author::check(spec),
+    }
+    .map_err(|e| format!("{}: {e}", rdu.name))?;
 
     let facts = chip.facts();
     let target = facts.spatial_target();
@@ -2714,6 +2786,129 @@ pub fn compile_model_to_rdu_streamed(
     })
 }
 
+pub const RDU_GRAPH_MANIFEST_SCHEMA: &str = "logos.rdu.graph_manifest";
+
+/// A statement the RDU cannot host, as every refusal of a partial program names it: its place, the tensor it binds, its
+/// op and why.
+fn missing_line(m: &crate::spatial::pipeline::MissingStage) -> String {
+    format!("stmt {} `{}` [{}]: {}", m.stmt_index, m.binder, m.kind, m.why)
+}
+
+/// An exported graph's RDU bundle: its manifest, the program the author wrote of the graph (`program.lg`), and that
+/// program lowered whole (`forward/`).
+pub struct RduGraphBundle {
+    pub manifest: String,
+    pub program: String,
+    pub forward: RduProgramFiles,
+}
+
+/// An exported graph's forward lowered whole on `target`: the program the author writes of it
+/// ([`crate::model::author::graph`]), the one spatial program it lowers to, and that program's lineage. A program the
+/// target cannot host whole is refused naming the statements it cannot.
+pub fn lower_graph(
+    graph: &crate::model::graph::Graph,
+    name: &str,
+    target: &crate::spatial::target::SpatialTarget,
+) -> Result<(crate::model::author::GraphProgram, crate::spatial::ir::SpatialProgram, crate::spatial::lineage::Lineage), String> {
+    use crate::spatial::pipeline::compile_program_to_spatial_traced;
+    let authored = crate::model::author::graph(graph).map_err(|e| format!("{name}: {e}"))?;
+    let none = std::collections::BTreeSet::new();
+    let (lowering, lineage) = compile_program_to_spatial_traced(&authored.text, target, &none, None, &none)
+        .map_err(|e| format!("rdu backend: {name}: the {} cannot host the graph's program: {e:?}", target.name))?;
+    let Some(program) = lowering.whole().cloned() else {
+        let missing: Vec<String> =
+            lowering.missing.iter().map(missing_line).collect();
+        return Err(format!(
+            "rdu backend: {name}: the {} cannot host {} of the graph's {} statements: {}",
+            target.name,
+            lowering.missing.len(),
+            lowering.statements,
+            missing.join(" | ")
+        ));
+    };
+    Ok((authored, program, lineage))
+}
+
+/// Lower an exported graph to the RDU as the chip would run it: the graph's forward lowered whole on the chip
+/// ([`lower_graph`]), certified and rechecked, and a manifest binding every tensor the program reads to the graph's
+/// input or to a parameter of the archive, in the view the program declares it, and naming the tensor that is the
+/// graph's output.
+pub fn compile_graph_to_rdu(
+    graph: &crate::model::graph::Graph,
+    name: &str,
+    chip: crate::spatial::rdu_chip::RduChip,
+) -> Result<RduGraphBundle, String> {
+    use crate::model::bind::View;
+    use crate::spatial::lower::rdu::{certificate_summary, RduSpatialBackend};
+    use crate::spatial::lower::{SpatialArtifact, SpatialBackend};
+    let facts = chip.facts();
+    let target = facts.spatial_target();
+    let (authored, program, lineage) = lower_graph(graph, name, &target)?;
+    let program = &program;
+    let artifact = match RduSpatialBackend::with_facts(facts.clone()).lower(program) {
+        Ok(SpatialArtifact::SdkGated(a)) => a,
+        other => return Err(format!("rdu backend: {name}: the backend did not produce an SDK-gated artifact: {other:?}")),
+    };
+    let rechecked = artifact.rechecked || artifact.certificate.recheck(program);
+    let digest = artifact.certificate.schedule_digest;
+    let mut cert = certificate_summary(&artifact.certificate);
+    cert["digest_hex"] = serde_json::json!(format!("{digest:016x}"));
+    cert["rechecked"] = serde_json::json!(rechecked);
+    let forward = RduProgramFiles {
+        dir: "forward".to_string(),
+        neutral_json: artifact.json,
+        placement_txt: artifact.pretty,
+        certificate_json: format!("{}\n", serde_json::to_string_pretty(&cert).expect("JSON")),
+        whole_certificate_json: crate::spatial::lower::rdu::whole_certificate(&artifact.certificate),
+        report_json: crate::spatial::lower::rdu_report::program_report(program, digest, Some(&lineage), &facts),
+    };
+    let tensors: Vec<serde_json::Value> = program
+        .tensors
+        .iter()
+        .map(|t| {
+            let mut entry = serde_json::json!({ "program": t.name, "role": format!("{:?}", t.role).to_lowercase() });
+            if t.name == authored.input.var {
+                entry["input"] = serde_json::json!(authored.input.graph);
+            }
+            if let Some((_, b)) = authored.params.iter().find(|(v, _)| *v == t.name) {
+                entry["param"] = serde_json::json!(b.tensor);
+                entry["view"] = serde_json::json!(match b.view {
+                    View::Transposed => "transposed",
+                    _ => "same",
+                });
+            }
+            if t.name == authored.output.var {
+                entry["output"] = serde_json::json!(authored.output.graph);
+            }
+            entry
+        })
+        .collect();
+    let digest_line = |text: &str| -> String { crate::crypto_accel::sha256(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect() };
+    let port = |p: &crate::model::author::GraphPort| serde_json::json!({ "program": p.var, "graph": p.graph, "rows": p.rows, "cols": p.cols });
+    let manifest = serde_json::json!({
+        "schema": RDU_GRAPH_MANIFEST_SCHEMA,
+        "version": 1,
+        "chip": chip.as_str(),
+        "target": target.name,
+        "graph": { "name": name, "ops": graph.ops.len(), "params": graph.params.len() },
+        "form": "forward",
+        "program": format!("LOGOS program: the exported graph {name}'s forward, sha256 {}", digest_line(&authored.text)),
+        "provenance": crate::spatial::fit::PROVENANCE_MODELED,
+        "no_speed_claim": true,
+        "input": port(&authored.input),
+        "output": port(&authored.output),
+        "forward": {
+            "dir": "forward", "schedule_digest": format!("{digest:016x}"), "rechecked": rechecked,
+            "sections": program.sections.len(), "stages": program.stages.len(), "tensors": tensors,
+        },
+    });
+    Ok(RduGraphBundle {
+        manifest: format!("{}\n", serde_json::to_string_pretty(&manifest).expect("JSON")),
+        program: authored.text,
+        forward,
+    })
+}
+
 /// Compile to the **SambaNova RDU** — ONE front door, three lanes chosen by program shape: the **tensor lane**
 /// (a tensor program lifted through the spatial IR, placed on the chip's descriptor and certified), the
 /// **loop lane** (a counted-range-loop function through the Plasticine metapipeline model on the RDU mesh
@@ -2766,7 +2961,7 @@ pub fn compile_to_rdu(
                         .missing
                         .iter()
                         .take(3)
-                        .map(|m| format!("stmt {} `{}` [{}]: {}", m.stmt_index, m.binder, m.kind, m.why))
+                        .map(missing_line)
                         .collect();
                     Err(custom(format!(
                         "rdu backend: tensor lane: the {} cannot host {} of this program's {} tensor statements — REFUSING rather than reporting a fraction as the whole program ({} lowered into {} section(s)). Missing: {}",
@@ -3045,6 +3240,9 @@ pub fn compile_to_tenstorrent_matmul(
 ) -> Result<(crate::codegen_tt::matmul_lower::MatmulSpec, String), String> {
     crate::ui_bridge::with_parsed_program(source, |parsed, interner| {
         let (stmts, _types, _policies) = parsed?;
+        if stmts.iter().any(crate::tensor_recognize::holds_an_op_by_hand) {
+            return Err("an op inside a loop or branch the program wrote — the block runs it once a turn or on one arm, so it is not the op".to_string());
+        }
         let spec = crate::tensor_recognize::recognize_matmul(stmts, interner)
             .map_err(|r| format!("not a tile-matmul the compiler can lower: {r:?}"))?;
         // The kernel comes from the spatial IR, like every other tensor lowering — see
@@ -3085,6 +3283,9 @@ pub fn compile_to_cuda_matmul_with(
 ) -> Result<(crate::codegen_tt::matmul_lower::MatmulSpec, String), String> {
     crate::ui_bridge::with_parsed_program(source, |parsed, interner| {
         let (stmts, _types, _policies) = parsed?;
+        if stmts.iter().any(crate::tensor_recognize::holds_an_op_by_hand) {
+            return Err("an op inside a loop or branch the program wrote — the block runs it once a turn or on one arm, so it is not the op".to_string());
+        }
         let spec = crate::tensor_recognize::recognize_matmul(stmts, interner)
             .map_err(|r| format!("not a matmul the CUDA backend can lower: {r:?}"))?;
         let cu = crate::codegen_cuda::matrix::lower_matmul_to_cuda_with(&spec, knobs);
@@ -3108,6 +3309,9 @@ pub fn compile_to_cuda_tensor_op(source: &str) -> Result<String, String> {
         // `recognize_stages` avoids this by trying the composite recognizers first; this entry point had no
         // such ordering. Fail closed: composites lower through the forward path
         // (`compile_to_cuda_forward_q8_moe*`), which emits the grouped-expert / attention kernels.
+        if stmts.iter().any(crate::tensor_recognize::holds_an_op_by_hand) {
+            return Err("an op inside a loop or branch the program wrote — the block runs it once a turn or on one arm, so it is not the op".to_string());
+        }
         if crate::codegen_cuda::qwen_emit::recognize_moe(stmts).is_some() {
             return Err("`moe` is a composite block — lower it with compile_to_cuda_forward_q8_moe*, not the single-op path".to_string());
         }
@@ -3153,6 +3357,9 @@ pub fn compile_to_sol_solution(
         let (stmts, _types, _policies) = parsed?;
         let spec = crate::tensor_recognize::recognize_fused_row(stmts, interner)
             .map_err(|r| format!("not a fused-row op the SOL-ExecBench bridge can lower: {r:?}"))?;
+        if spec.weight_rows > 1 {
+            return Err("a norm in lanes (`in L lanes`), each row by its own row of the weight — the SOL-ExecBench kernel reads one weight row".to_string());
+        }
         Ok(crate::codegen_cuda::emit_fused_row_solution(
             &spec,
             &crate::codegen_cuda::knobs::CudaKnobs::default(),
@@ -3861,6 +4068,12 @@ pub fn send_check_source(
     Ok(crate::concurrency::check_send_escape(&stmts))
 }
 
+/// [`compile_program_full`] with the program's concurrency lowered onto threads (tokio) instead of the replay
+/// executor: the opt-in `largo build --threads` asks for.
+pub fn compile_program_full_threaded(source: &str) -> Result<CompileOutput, ParseError> {
+    crate::codegen::with_threaded_concurrency(|| compile_program_full(source))
+}
+
 /// [`compile_program_full`] for **deterministic replay** — the full
 /// output (rust + dependencies) with every scheduler operation lowered onto
 /// `logicaffeine_system::replay`. The seeded differential harness uses this so it
@@ -4022,7 +4235,7 @@ pub fn compile_program_full_with_proven(
     refuse_undeclared_types(&parsed, &parsed_spans, &codegen_registry, &interner)?;
 
     // Escape analysis reads the program as written, before observation was elided.
-    check_as_written(&parsed, &interner, AsWritten::Escapes)?;
+    check_as_written(&parsed, &interner)?;
 
     // Type-directed division: rewrite `Divide → ExactDivide` in every Rational context
     // (the integer default stays floor), so a `Let x: Rational be 7 / 2` compiles exact
@@ -4675,27 +4888,19 @@ fn extract_dependencies(
     Ok(deps)
 }
 
-/// What an entry point judges on the program as written.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum AsWritten {
-    /// Zone escapes — every compile refuses one.
-    Escapes,
-    /// Zone escapes and uses after `Give` — the checked compile.
-    EscapesAndOwnership,
-}
-
-/// Judge the program as its author wrote it: the freshly-parsed statements, before observation
-/// elision, division resolution or the optimizer rewrite them. Those rewrites can fold away the
-/// very names the checks follow — once `x` is a known constant, propagation turns `Give x to p.`
-/// into `Give 5 to p.` and `Show x.` into `Show 5.`, and folding flattens a constant `If` — so a
-/// check run afterwards passes whatever the optimizer happened to fold, and disagrees with the
-/// editor, which judges the parse. Run it before `install_decorators`, so a refused program never
-/// opens a `## Require` trace.
-fn check_as_written(
-    stmts: &[Stmt],
-    interner: &Interner,
-    checks: AsWritten,
-) -> Result<(), ParseError> {
+/// Judge the program as its author wrote it: a value escaping its zone, and a value used after it was
+/// given away. Every front door runs this — `largo check`, every engine `largo run --interpret`
+/// takes, every compile and every emit — so a program the language says is ill-formed gets ONE
+/// verdict, before any tier runs it, rather than output from one tier and a backend's own complaint
+/// from another.
+///
+/// It reads the freshly-parsed statements, before observation elision, division resolution or the
+/// optimizer rewrite them. Those rewrites can fold away the very names the checks follow — once `x`
+/// is a known constant, propagation turns `Give x to p.` into `Give 5 to p.` and `Show x.` into
+/// `Show 5.`, and folding flattens a constant `If` — so a check run afterwards passes whatever the
+/// optimizer happened to fold, and disagrees with the editor, which judges the parse. Run it before
+/// `install_decorators`, so a refused program never opens a `## Require` trace.
+pub(crate) fn check_as_written(stmts: &[Stmt], interner: &Interner) -> Result<(), ParseError> {
     fn refusal(message: String, span: crate::token::Span) -> ParseError {
         ParseError {
             kind: crate::error::ParseErrorKind::Custom(message),
@@ -4705,11 +4910,9 @@ fn check_as_written(
     EscapeChecker::new(interner)
         .check_program(stmts)
         .map_err(|e| refusal(e.to_string(), e.span))?;
-    if checks == AsWritten::EscapesAndOwnership {
-        OwnershipChecker::new(interner)
-            .check_program(stmts)
-            .map_err(|e| refusal(e.to_string(), e.span))?;
-    }
+    OwnershipChecker::new(interner)
+        .check_program(stmts)
+        .map_err(|e| refusal(e.to_string(), e.span))?;
     Ok(())
 }
 
@@ -4818,7 +5021,7 @@ pub fn compile_to_rust_checked(source: &str) -> Result<String, ParseError> {
 
     // Pass 3: Escape and ownership analysis — use-after-move with control-flow awareness —
     // on the program as written.
-    check_as_written(&stmts, &interner, AsWritten::EscapesAndOwnership)?;
+    check_as_written(&stmts, &interner)?;
 
     let resolved = crate::resolve_program::resolve_program(
         &stmts,
@@ -4987,7 +5190,7 @@ pub fn compile_to_rust_verified(source: &str) -> Result<String, ParseError> {
     refuse_undeclared_types(&parsed, &parsed_spans, &codegen_registry, &interner)?;
 
     // Pass 3: Escape analysis, on the program as written
-    check_as_written(&stmts, &interner, AsWritten::Escapes)?;
+    check_as_written(&stmts, &interner)?;
 
     let resolved = crate::resolve_program::resolve_program(
         &stmts,
@@ -5692,6 +5895,7 @@ pub fn copy_runtime_crates(output_dir: &Path) -> Result<(), CompileError> {
     // Find workspace root
     let workspace_root = find_workspace_root()?;
     let workspace = WorkspacePackage::read(&workspace_root)?;
+    refuse_a_runtime_of_another_version(&workspace_root, &workspace)?;
 
     // Copy logicaffeine_data
     let data_src = workspace_root.join(CRATES_DATA_PATH);
@@ -5731,12 +5935,39 @@ pub fn copy_runtime_crates(output_dir: &Path) -> Result<(), CompileError> {
     Ok(())
 }
 
+/// The runtime crates are staged from a checkout, and the Rust this compiler generates calls the
+/// runtime API of its OWN version. A checkout of another version (`LOGOS_WORKSPACE` pointed at an
+/// older clone) stages a runtime that API does not match, and rustc's errors in the generated
+/// project would then read as a compiler bug. The lockstep version says which runtime a checkout
+/// holds, so the mismatch is refused here, naming both versions, before anything is built.
+fn refuse_a_runtime_of_another_version(
+    workspace_root: &Path,
+    workspace: &WorkspacePackage,
+) -> Result<(), CompileError> {
+    let ours = env!("CARGO_PKG_VERSION");
+    let Some(theirs) = workspace.version.as_deref().filter(|v| *v != ours) else {
+        return Ok(());
+    };
+    let chosen_by = if std::env::var_os("LOGOS_WORKSPACE").is_some() {
+        "LOGOS_WORKSPACE points at"
+    } else {
+        "the workspace found for this build is"
+    };
+    Err(CompileError::Io(format!(
+        "version mismatch: this compiler is LOGOS {ours}, but {chosen_by} {} at version {theirs}. \
+         The generated program needs the runtime crates of the compiler's own version. Point \
+         LOGOS_WORKSPACE at a {ours} checkout, or unset it so the matching {ours} runtime is used",
+        workspace_root.display()
+    )))
+}
+
 /// The settings a staged crate inherits from the workspace, read from `[workspace.package]` in the
 /// root `Cargo.toml`, so a standalone copy declares exactly the edition and minimum Rust the
-/// workspace does.
+/// workspace does, and the lockstep `version` the checkout's runtime crates carry.
 struct WorkspacePackage {
     edition: String,
     rust_version: String,
+    version: Option<String>,
 }
 
 impl WorkspacePackage {
@@ -5752,10 +5983,11 @@ impl WorkspacePackage {
         })
     }
 
-    /// The quoted `edition` and `rust-version` values of the `[workspace.package]` table.
+    /// The quoted `edition`, `rust-version` and `version` values of the `[workspace.package]`
+    /// table. `version` may be absent; the other two may not.
     fn parse(root_manifest: &str) -> Option<WorkspacePackage> {
         let mut in_table = false;
-        let (mut edition, mut rust_version) = (None, None);
+        let (mut edition, mut rust_version, mut version) = (None, None, None);
         for line in root_manifest.lines() {
             let t = line.trim();
             if t.starts_with('[') {
@@ -5776,12 +6008,14 @@ impl WorkspacePackage {
             match key.trim() {
                 "edition" => edition = Some(quoted),
                 "rust-version" => rust_version = Some(quoted),
+                "version" => version = Some(quoted),
                 _ => {}
             }
         }
         Some(WorkspacePackage {
             edition: edition?,
             rust_version: rust_version?,
+            version,
         })
     }
 }
@@ -6240,6 +6474,8 @@ pub(crate) fn describe_parse_error(pe: &ParseError) -> String {
 /// Enforce per-file scoping for a project WITHOUT codegen. The interpreter and
 /// other lightweight tiers call this so transitive leakage is rejected uniformly
 /// with `largo build` — a program that fails scoping on one tier fails on all.
+/// It also judges the program as written ([`check_as_written`]), so a value used
+/// after it was given away is refused at this door as at every other.
 /// Returns `Ok(())` when every reference stays within its file's scope, else the
 /// clean scope-violation message.
 pub fn enforce_project_scope(entry_file: &Path) -> Result<(), String> {
@@ -6249,8 +6485,8 @@ pub fn enforce_project_scope(entry_file: &Path) -> Result<(), String> {
 /// Why a project fails [`enforce_project_scope_with_deps`].
 #[derive(Debug)]
 pub enum ProjectScopeError {
-    /// The assembled program does not parse — the parser's own error, so a surface can show it
-    /// where it is rather than as a sentence with no place.
+    /// The assembled program does not parse, or is ill-formed as written ([`check_as_written`]) — the
+    /// error itself, so a surface can show it where it is rather than as a sentence with no place.
     Parse(ParseError),
     /// The project does not assemble, or a file reaches a name it neither defines nor imports.
     Refused(String),
@@ -6323,7 +6559,8 @@ pub fn enforce_project_scope_with_deps(
     );
     let stmts = parser.parse_program().map_err(ProjectScopeError::Parse)?;
 
-    check_scopes(&stmts, &assembled.scope, &interner).map_err(ProjectScopeError::Refused)
+    check_scopes(&stmts, &assembled.scope, &interner).map_err(ProjectScopeError::Refused)?;
+    check_as_written(&stmts, &interner).map_err(ProjectScopeError::Parse)
 }
 
 /// Compile LOGOS source with a pre-populated type registry, returning full output.
@@ -6405,7 +6642,7 @@ fn compile_to_rust_with_registry_full(
             span: crate::token::Span::default(),
         })?;
     }
-    check_as_written(&stmts, interner, AsWritten::Escapes)?;
+    check_as_written(&stmts, interner)?;
 
     let resolved = crate::resolve_program::resolve_program(
         &stmts,
@@ -10385,7 +10622,7 @@ fn decompile_component(
                 format!(" {props}")
             }
         )),
-        ComponentKind::Page { path, params } => {
+        ComponentKind::Page { path, params, .. } => {
             let ps = decompile_params(params, interner);
             out.push_str(&format!(
                 "## Page {}{}\n",
@@ -10561,6 +10798,15 @@ fn decompile_component(
         out.push_str("Style:\n");
         for line in interner.resolve(style.css).lines() {
             out.push_str(&format!("    {line}\n"));
+        }
+    }
+    if let ComponentKind::Page {
+        paths: Some(body), ..
+    } = &def.kind
+    {
+        out.push_str("Paths:\n");
+        for inner in body.iter() {
+            decompile_stmt(inner, interner, out, 1);
         }
     }
 }

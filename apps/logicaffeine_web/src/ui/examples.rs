@@ -957,6 +957,8 @@ Proof: Auto.
 
 pub const LOGIC_BARBER: &str = r#"# The Barber Paradox
 # A barber who shaves exactly the men who do not shave themselves cannot exist.
+# Expect a derivation the kernel will not certify: the prover finds one, the kernel
+# refuses it, and the Studio says so. That honesty is the point of this example.
 
 ## Theorem: Barber_Paradox
 Given: The barber is a man.

@@ -16,13 +16,13 @@ use crate::codegen_cuda::knobs::{CachePrecision, CudaKnobs, Logits, StatePrecisi
 use crate::codegen_cuda::qwen_emit::Q8MatKind;
 use crate::model::quant::GgmlType;
 use crate::spatial::passes::recognize_stages::TensorOpSpec;
-use crate::tensor_recognize::qwen::{Activation, MoeAct};
+use crate::tensor_recognize::qwen::{Activation, GateAct, MoeAct};
 use crate::tensor_recognize::{ElementwiseOp, Epsilon};
 
 use crate::codegen_cuda::lane_link::link;
 use crate::codegen_cuda::lane_shim::{chunks_apart, LaneShim};
 use crate::tensor_graph::fuse::{gates_rows, optimize, steps};
-use crate::tensor_graph::graph::{Storage, Sym, TensorGraph};
+use crate::tensor_graph::graph::{Elem, Storage, Sym, TensorGraph};
 use crate::tensor_graph::symbols::ClassId;
 
 pub use crate::tensor_graph::graph::{SeqIo, StepIo};
@@ -115,12 +115,13 @@ pub enum ScaleBy {
 
 /// What a product's epilogue does past its bias, each step rounded as its own launch rounds it: its scale
 /// (`gemm_scale`), then a constant it adds — a row, or a constant of the product's shape (`true`) — then the square of
-/// the ReLU of that (`relu_sqr`, folded into its producer).
+/// the ReLU of that (`relu_sqr`, folded into its producer), or an activation of it and a factor after (`gemm_act`).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Epilogue {
     pub scale: Option<ScaleBy>,
     pub after: Option<(String, bool)>,
     pub relu_sq: bool,
+    pub act: Option<(Activation, f64)>,
 }
 
 impl Epilogue {
@@ -134,13 +135,15 @@ impl Epilogue {
     }
 }
 
-/// A part of a GEMM in parts: its matrix, bias, destination and outputs a row.
+/// A part of a GEMM in parts: its matrix, bias, destination and outputs a row, and what its epilogue does past its bias
+/// (`epi`, a product's own scale or activation folded in — a hyper-connected mix's gate and shares beside each other).
 #[derive(Clone, Debug, PartialEq)]
 pub struct GemmPart {
     pub w: String,
     pub bias: Option<String>,
     pub y: Dst,
     pub n: usize,
+    pub epi: Option<Epilogue>,
 }
 
 /// A part of a row normed by parts: its `cols` values a row, read at `x` — a part of every unit of it where `part` says.
@@ -168,8 +171,30 @@ pub enum Launch {
     /// `into`: where its `f32` result lands when not in `out`'s own buffer. `scale`: the factor its result is scaled by
     /// once rounded to `f32`, before it is stored or quantized (`norm_scale`); the sum it writes on is unscaled. `fold`:
     /// the partials whose left fold is its added operand, in place of `add` — each read where it lives and summed in
-    /// order as the adds of an all-reduce sum them (`allreduce_norm`).
-    Norm { x: String, part: Option<Part>, add: Option<String>, pre: Option<PreNorm>, sum: Option<String>, w: Option<String>, out: String, into: Option<Dst>, f32: bool, quant: bool, rows: usize, cols: usize, eps: Epsilon, scale: Option<f64>, fold: Vec<String> },
+    /// order as the adds of an all-reduce sum them (`allreduce_norm`). `lanes`: a norm in lanes (`rmsnorm … in L lanes`),
+    /// its row `r` a hyper-connected residual's lane normed by row `r mod lanes` of the weight; 1 otherwise. `spread`: the
+    /// shares the added operand is spread over the lanes by — `add` one row a token, lane `l` of token `t` adding it times
+    /// `spread[t·lanes + l]`, the product rounded once (`hc_post_norm`).
+    Norm { x: String, part: Option<Part>, add: Option<String>, pre: Option<PreNorm>, sum: Option<String>, w: Option<String>, out: String, into: Option<Dst>, f32: bool, quant: bool, rows: usize, cols: usize, eps: Epsilon, scale: Option<f64>, fold: Vec<String>, lanes: usize, spread: Option<String> },
+    /// `y[t·cols + c] = (Σ_l x[(t·lanes + l)·cols + c]) / lanes` over `rows` rows, the lanes summed in order (`the mean of X
+    /// over L lanes`): a hyper-connected residual's gated lanes mixed into the one row a sublayer reads. `by`: the operand
+    /// each value is multiplied by first, through its activation where given (`hc_mix`); `quant` quantizes the mean, a
+    /// warp a 32-value group, `f32` writes it.
+    LaneMean { x: String, by: Option<(String, Option<Activation>)>, y: String, rows: usize, lanes: usize, cols: usize, f32: bool, quant: bool },
+    /// `y[(t·lanes + l)·cols + c] = x[t·cols + c]`, times `by[t·lanes + l]` where given, over `rows` rows (`O spread over L
+    /// lanes by S`): a sublayer's output joining each lane of a hyper-connected residual by the lane's share. `add`: the
+    /// residual it lands added to (`hc_post`).
+    LaneSpread { x: String, by: Option<String>, y: String, rows: usize, lanes: usize, cols: usize, add: Option<String> },
+    /// `y[t·lanes + l] = Σ_c x[(t·lanes + l)·cols + c]` over `rows` rows, each lane's values summed in order (`the lane
+    /// sums of X over L lanes`).
+    LaneSums { x: String, y: String, rows: usize, lanes: usize, cols: usize },
+    /// `y = sign(x)·√max(|x|, eps)` over `n` values (`the signed root of X`).
+    SignedRoot { x: String, y: String, n: usize, eps: Epsilon },
+    /// The table rows `tokens` token rows `t` name by their n-grams of order 2 to `ngram` (`the ngram ids of T after R by
+    /// M modulo V from O ending at E`), `per_order` heads an order into `ids`; `hist`, the `ngram − 1` token rows before
+    /// the first, read and left holding the last `ngram − 1`. `m` the multipliers, `v` the heads' moduli, `o` their
+    /// offsets, `eos` the row of an end of document.
+    NgramIds { t: String, hist: String, m: String, v: String, o: String, ids: String, tokens: usize, ngram: usize, per_order: usize, eos: i64 },
     /// An RMS norm of `rows` rows `cols` wide, each row the `parts` side by side: each part's sum of squares as a norm of
     /// that part alone sums it, the parts' sums added in order, and each of `normed` scaled by the whole row's, its
     /// weights from the part's place in the row on — a norm of a row joined from parts, and the same with each part
@@ -196,6 +221,8 @@ pub enum Launch {
     Softcap { x: String, y: String, n: usize, cap: f64 },
     SwiGlu { g: String, u: String, out: String, f32: bool, quant: bool, n: usize },
     Unary { act: Activation, x: String, y: String, n: usize },
+    /// `y = erf(x)` elementwise.
+    Erf { x: String, y: String, n: usize },
     /// `out = max(x, 0)`, squared when `square` (`relu_sqr`): a NaN and either zero give +0, as the language's `max`
     /// does.
     Relu { x: String, out: String, n: usize, square: bool, f32: bool, quant: bool },
@@ -229,7 +256,9 @@ pub enum Launch {
     /// of the batch's gate, 0 otherwise.
     /// `stream`: on the f16 tensor cores, the stream-K blocks that split the items past the whole waves
     /// (`kernels::attn_mma_stream_blocks`, where `kernels::attn_mma_stream` takes the schedule), 0 for one block an item.
-    Attention { q: String, kc: String, vc: String, pos: Option<String>, sinks: Option<String>, out: String, heads: usize, group: usize, hd: usize, vd: usize, len: usize, rows: usize, window: Option<usize>, chunked: bool, vstride: usize, voff: usize, scale: f64, cap: Option<f64>, per_block: usize, splits: usize, parallel: bool, split: Option<Split>, shared: Option<usize>, seq: Option<usize>, f32: bool, quant: bool, gate: Option<(String, Activation)>, goff: usize, stream: usize },
+    /// `row0`: the row of its chunk the first query row stands for — row `r` attends as row `row0 + r` does — where a
+    /// prefill chunk's last layer runs its output row alone; 0 otherwise.
+    Attention { q: String, kc: String, vc: String, pos: Option<String>, sinks: Option<String>, out: String, heads: usize, group: usize, hd: usize, vd: usize, len: usize, rows: usize, row0: usize, window: Option<usize>, chunked: bool, vstride: usize, voff: usize, scale: f64, cap: Option<f64>, per_block: usize, splits: usize, parallel: bool, split: Option<Split>, shared: Option<usize>, seq: Option<usize>, f32: bool, quant: bool, gate: Option<(String, Activation)>, goff: usize, stream: usize },
     /// `advance`: what the arg-max that closes the step moves on besides its result (`argmax_advance`).
     /// `rows`: a batch's arg-maxes over its `rows` sequences (`sequences`), each row's logits, result and advance its
     /// own; 1 otherwise.
@@ -250,8 +279,9 @@ pub enum Launch {
     GateProj { x: String, wb: String, wa: String, dt: String, al: String, beta: String, decay: String, k: usize, heads: usize, parts: usize },
     /// `seqs`: a batch's delta rules over its `seqs` sequences, a row and a memory each (`sequences`), each input,
     /// gate, memory and output the sequence's part of one array of them all; 1 otherwise. `qk`: the epsilon of the L2
-    /// norm the step takes of each query and key head it reads, where it norms them itself (`delta_qk_norm`).
-    Delta { q: String, k: String, v: String, z: String, b: String, a: String, st: String, gn: String, out: String, f32: bool, quant: bool, hv: usize, hk: usize, d: usize, rows: usize, eps: Epsilon, seqs: usize, qk: Option<Epsilon> },
+    /// norm the step takes of each query and key head it reads, where it norms them itself (`delta_qk_norm`). `gate`: the
+    /// gated norm's gate on `z`, SiLU or a sigmoid (Qwen3.8's).
+    Delta { q: String, k: String, v: String, z: String, b: String, a: String, st: String, gn: String, out: String, f32: bool, quant: bool, hv: usize, hk: usize, d: usize, rows: usize, eps: Epsilon, seqs: usize, qk: Option<Epsilon>, gate: GateAct },
     /// A mixture of `experts` experts of `dff` keeping `k`, and the `shared` experts every token takes, summed after —
     /// its gate and up rows `per_warp` a warp — over `rows` rows of `x` routed each on its own, every expert reading its
     /// weights once for all the rows that chose it. `router_split`: the parts an `f32` router's logits GEMM cuts each
@@ -365,8 +395,8 @@ impl Launch {
         let mut v: Vec<&str> = match self {
             Launch::Gather { table, index, .. } => vec![table, index],
             Launch::View { src, .. } => vec![src],
-            Launch::Norm { x, add, pre, w, into, fold, .. } => {
-                let mut r = strs([Some(x), add.as_ref(), w.as_ref(), pre.as_ref().and_then(|p| p.w.as_ref())].into_iter().flatten().chain(fold));
+            Launch::Norm { x, add, pre, w, into, fold, spread, .. } => {
+                let mut r = strs([Some(x), add.as_ref(), w.as_ref(), pre.as_ref().and_then(|p| p.w.as_ref()), spread.as_ref()].into_iter().flatten().chain(fold));
                 r.extend(into.iter().flat_map(row_param));
                 r
             }
@@ -385,13 +415,16 @@ impl Launch {
             }
             Launch::GemmParts { x, parts, .. } => {
                 let mut r = vec![x.as_str()];
-                r.extend(parts.iter().flat_map(|p| std::iter::once(p.w.as_str()).chain(p.bias.as_deref()).chain(row_param(&p.y))));
+                r.extend(parts.iter().flat_map(|p| std::iter::once(p.w.as_str()).chain(p.bias.as_deref()).chain(p.epi.iter().flat_map(Epilogue::reads)).chain(row_param(&p.y))));
                 r
             }
             Launch::Binary { a, b, .. } => vec![a, b],
             Launch::Scale { x, .. } | Launch::Softcap { x, .. } => vec![x],
             Launch::SwiGlu { g, u, .. } => vec![g, u],
-            Launch::Unary { x, .. } | Launch::Relu { x, .. } => vec![x],
+            Launch::Unary { x, .. } | Launch::Erf { x, .. } | Launch::Relu { x, .. } | Launch::LaneSums { x, .. } | Launch::SignedRoot { x, .. } => vec![x],
+            Launch::LaneMean { x, by, .. } => strs(std::iter::once(x).chain(by.as_ref().map(|(b, _)| b))),
+            Launch::NgramIds { t, hist, m, v, o, .. } => vec![t, hist, m, v, o],
+            Launch::LaneSpread { x, by, add, .. } => strs(std::iter::once(x).chain(by).chain(add)),
             Launch::Rope { x, norm, cos, sin, pos, y, .. } => {
                 let mut r = strs([Some(x), norm.as_ref().map(|(w, _)| w), Some(cos), Some(sin), pos.as_ref()].into_iter().flatten());
                 r.extend(row_param(y));
@@ -523,7 +556,17 @@ impl Launch {
             | Launch::Moe { y, .. }
             | Launch::Join { y, .. }
             | Launch::HeadGemv { y, .. } => vec![y.buf.as_str()],
-            Launch::Unary { y, .. } | Launch::Scale { y, .. } | Launch::Softcap { y, .. } | Launch::L2Norm { y, .. } | Launch::Decay { y, .. } => vec![y],
+            Launch::Unary { y, .. }
+            | Launch::Erf { y, .. }
+            | Launch::Scale { y, .. }
+            | Launch::Softcap { y, .. }
+            | Launch::L2Norm { y, .. }
+            | Launch::Decay { y, .. }
+            | Launch::LaneMean { y, .. }
+            | Launch::LaneSpread { y, .. }
+            | Launch::LaneSums { y, .. }
+            | Launch::SignedRoot { y, .. } => vec![y],
+            Launch::NgramIds { ids, hist, .. } => vec![ids, hist],
             Launch::SetRow { table, .. } => vec![table],
             Launch::Conv { y, ring, .. } => vec![y, ring],
             Launch::ConvParts { parts, .. } => parts.iter().flat_map(|p| [p.y.as_str(), p.ring.as_str()]).collect(),
@@ -578,7 +621,8 @@ impl Launch {
                 w.extend(sum.iter().map(|s| (s.as_str(), Touch::Plain)));
                 w
             }
-            Launch::Binary { out, f32, quant, .. }
+            Launch::LaneMean { y: out, f32, quant, .. }
+            | Launch::Binary { out, f32, quant, .. }
             | Launch::Relu { out, f32, quant, .. }
             | Launch::SwiGlu { out, f32, quant, .. }
             | Launch::GemvGlu { out, f32, quant, .. }
@@ -691,6 +735,17 @@ impl Launch {
         }
     }
 
+    /// Whether the launch applies an activation in a product's epilogue (`gemm_act`), its own or one of its parts': the
+    /// program then compiles `lk_epi`'s activation in (`LK_EPI_ACT`).
+    pub fn activates(&self) -> bool {
+        let act = |e: &Option<Epilogue>| e.as_ref().is_some_and(|e| e.act.is_some());
+        self.parts().into_iter().any(|l| match l {
+            Launch::Gemv { epi, .. } | Launch::GemvF32 { epi, .. } => act(epi),
+            Launch::GemmParts { parts, .. } => parts.iter().any(|p| act(&p.epi)),
+            _ => false,
+        })
+    }
+
     /// [`Self::parts`], each open for the schedule to set how it runs.
     pub fn parts_mut(&mut self) -> Vec<&mut Launch> {
         match self {
@@ -707,6 +762,14 @@ impl Launch {
         let Launch::Fold { first: products, then: convs } = first.as_ref() else { return None };
         match (products.as_ref(), convs.as_ref(), gates.as_ref()) {
             (p @ Launch::GemmParts { .. }, c @ Launch::ConvParts { .. }, g @ (Launch::Gates { .. } | Launch::GateProj { .. })) => Some((p, c, g)),
+            _ => None,
+        }
+    }
+
+    /// Two norms of independent rows as one launch (`dual_norm`): its sides.
+    pub fn dual_norm(&self) -> Option<(&Launch, &Launch)> {
+        match self {
+            Launch::Fold { first, then } if matches!((first.as_ref(), then.as_ref()), (Launch::Norm { .. }, Launch::Norm { .. })) => Some((first, then)),
             _ => None,
         }
     }
@@ -757,11 +820,20 @@ impl Launch {
     }
 
     /// The tiles a tensor-core GEMM's outputs a row take: of `GEMM_TILE_N` outputs, a gated pair's of half as many
-    /// hidden values (its gate's and up's side by side).
+    /// hidden values (its gate's and up's side by side), a GEMM in parts' each part from a tile of its own.
     pub fn gemm_tiles_wide(&self) -> usize {
         match self {
             Launch::GemvGlu { n, .. } => n.div_ceil(kernels::GEMM_TILE_N / 2),
-            _ => self.gemm_cols().div_ceil(kernels::GEMM_TILE_N),
+            _ => self.gemm_tile_cols() / kernels::GEMM_TILE_N,
+        }
+    }
+
+    /// A tensor-core GEMM's outputs a row as its tiles lay them: a GEMM in parts' each part from a tile of its own
+    /// (`kernels::gemm_part_cols`), any other projection's outputs in whole tiles.
+    pub fn gemm_tile_cols(&self) -> usize {
+        match self {
+            Launch::GemmParts { parts, .. } => parts.iter().map(|p| kernels::gemm_part_cols(p.n)).sum(),
+            _ => self.gemm_cols().next_multiple_of(kernels::GEMM_TILE_N),
         }
     }
 
@@ -878,6 +950,7 @@ impl Launch {
             | Launch::Softcap { n, .. }
             | Launch::SwiGlu { n, .. }
             | Launch::Unary { n, .. }
+            | Launch::Erf { n, .. }
             | Launch::Decay { n, .. }
             | Launch::Gates { n, .. } => *n,
             Launch::GateProj { heads, .. } => *heads,
@@ -937,12 +1010,12 @@ impl Launch {
         }
     }
 
-    /// Whether a projection that reads its input quantized reads it `f32` as well: an expert mixture's `f32` router
-    /// does.
+    /// Whether a projection that reads its input quantized reads it `f32` as well: an expert mixture's router does, its
+    /// matrix `f32` or checkpoint rows.
     fn reads_f32_input(&self) -> bool {
         match self {
             Launch::Fold { first, .. } => first.reads_f32_input(),
-            l => matches!(l, Launch::Moe { router: Router::F32, .. }),
+            l => matches!(l, Launch::Moe { .. }),
         }
     }
 
@@ -987,6 +1060,8 @@ pub struct Fusion {
 pub enum DType {
     F32,
     I32,
+    /// An integer table the program sets itself (`Placement::Ints`).
+    I64,
     /// A recurrent memory stored in bfloat16 between steps (`CudaKnobs::recurrent_state`).
     Bf16,
     /// An attention's cache stored in binary16 (`CudaKnobs::cache_precision`).
@@ -1001,6 +1076,7 @@ impl DType {
         match self {
             DType::F32 => "float",
             DType::I32 => "int",
+            DType::I64 => "long long",
             DType::Bf16 => "__nv_bfloat16",
             DType::F16 => "__half",
             DType::E4m3 => "__nv_fp8_e4m3",
@@ -1011,6 +1087,7 @@ impl DType {
     pub fn bytes(self) -> usize {
         match self {
             DType::F32 | DType::I32 => 4,
+            DType::I64 => 8,
             DType::Bf16 | DType::F16 => 2,
             DType::E4m3 => 1,
         }
@@ -1129,6 +1206,7 @@ pub fn kind(l: &Launch) -> &'static str {
         Launch::Softcap { .. } => "softcap",
         Launch::SwiGlu { .. } => "swiglu",
         Launch::Unary { .. } => "unary",
+        Launch::Erf { .. } => "erf",
         Launch::Relu { .. } => "relu",
         Launch::Rope { .. } | Launch::RopeParts { .. } => "rope",
         Launch::SetRow { .. } => "set_row",
@@ -1144,10 +1222,16 @@ pub fn kind(l: &Launch) -> &'static str {
         Launch::Join { .. } => "join",
         Launch::HeadGemv { .. } => "head_gemv",
         Launch::GemvGlu { .. } => "gemv_glu",
+        Launch::LaneMean { .. } => "lane_mean",
+        Launch::LaneSpread { .. } => "lane_spread",
+        Launch::LaneSums { .. } => "lane_sums",
+        Launch::SignedRoot { .. } => "signed_root",
+        Launch::NgramIds { .. } => "ngram_ids",
         l @ Launch::Fold { .. } if l.gdn_inputs().is_some() => "gemv_gdn",
         Launch::Fold { first, .. } if matches!(first.as_ref(), Launch::Gather { .. }) => "gather_norm",
         Launch::Fold { then, .. } if matches!(then.as_ref(), Launch::RopeParts { .. }) => "gemv_rope",
         l @ Launch::Fold { .. } if l.finished_mixture().is_some() => "moe_norm",
+        l @ Launch::Fold { .. } if l.dual_norm().is_some() => "dual_norm",
         Launch::Fold { .. } => "gemv_norm",
     }
 }
@@ -1694,20 +1778,20 @@ fn merge_argmaxes(members: &[&Launch], buffers: &BTreeMap<String, Buffer>, posit
 /// A recurrent layer's delta rules, one launch a sequence over its one row and its own memory, as one launch over the
 /// sequences: each input, gate, memory and output the sequence's part of one array of them all.
 fn merge_deltas(members: &[&Launch], buffers: &BTreeMap<String, Buffer>, _: &str) -> Option<Launch> {
-    let Launch::Delta { q, k, v, z, b, a, st, gn, out, f32, quant, hv, hk, d, rows: 1, eps, qk, .. } = members[0] else { return None };
+    let Launch::Delta { q, k, v, z, b, a, st, gn, out, f32, quant, hv, hk, d, rows: 1, eps, qk, gate, .. } = members[0] else { return None };
     let widths = [(q, hk * d), (k, hk * d), (v, hv * d), (z, hv * d), (b, *hv), (a, *hv), (st, hv * d * d), (out, hv * d)];
     let arrays: Vec<String> = widths.iter().map(|(t, w)| sequence_part(buffers, t, *w).map(|(arr, _)| arr)).collect::<Option<_>>()?;
     for (s, l) in members.iter().enumerate() {
-        let Launch::Delta { q, k, v, z, b, a, st, gn: g, out, f32: f, quant: qu, hv: h, hk: kk, d: dd, rows: 1, eps: e, qk: n, .. } = l else { return None };
+        let Launch::Delta { q, k, v, z, b, a, st, gn: g, out, f32: f, quant: qu, hv: h, hk: kk, d: dd, rows: 1, eps: e, qk: n, gate: ga, .. } = l else { return None };
         let names = [q, k, v, z, b, a, st, out];
-        if (g, f, qu, h, kk, dd, e, n) != (gn, f32, quant, hv, hk, d, eps, qk)
+        if (g, f, qu, h, kk, dd, e, n, ga) != (gn, f32, quant, hv, hk, d, eps, qk, gate)
             || names.iter().zip(&widths).zip(&arrays).any(|((t, (_, w)), arr)| sequence_part(buffers, t, *w) != Some((arr.clone(), s)))
         {
             return None;
         }
     }
     let [q, k, v, z, b, a, st, out]: [String; 8] = arrays.try_into().ok()?;
-    Some(Launch::Delta { q, k, v, z, b, a, st, gn: gn.clone(), out, f32: *f32, quant: *quant, hv: *hv, hk: *hk, d: *d, rows: 1, eps: *eps, seqs: members.len(), qk: *qk })
+    Some(Launch::Delta { q, k, v, z, b, a, st, gn: gn.clone(), out, f32: *f32, quant: *quant, hv: *hv, hk: *hk, d: *d, rows: 1, eps: *eps, seqs: members.len(), qk: *qk, gate: *gate })
 }
 
 /// A recurrent layer's gates, one launch a sequence over its row of the gate projections, as one launch over every
@@ -1834,12 +1918,12 @@ fn merge_attentions(members: &[&Launch], buffers: &BTreeMap<String, Buffer>, pos
         let Launch::Attention { q: qb, kc: kb, vc: vb, out: ob, pos: _, gate: gb, goff: gob, .. } = l else { return None };
         let same = |x: &Launch| match (x, members[0]) {
             (
-                Launch::Attention { sinks, heads, group, hd, vd, len, window, chunked, vstride, voff, scale, cap, per_block, splits, parallel, split, shared, f32, quant, .. },
-                Launch::Attention { sinks: s0, heads: h0, group: g0, hd: d0, vd: v0, len: l0, window: w0, chunked: c0, vstride: vs0, voff: vo0, scale: sc0, cap: cp0, per_block: p0, splits: sp0, parallel: pa0, split: st0, shared: sh0, f32: f0, quant: qu0, .. },
+                Launch::Attention { sinks, heads, group, hd, vd, len, window, chunked, vstride, voff, scale, cap, per_block, splits, parallel, split, shared, f32, quant, row0, .. },
+                Launch::Attention { sinks: s0, heads: h0, group: g0, hd: d0, vd: v0, len: l0, window: w0, chunked: c0, vstride: vs0, voff: vo0, scale: sc0, cap: cp0, per_block: p0, splits: sp0, parallel: pa0, split: st0, shared: sh0, f32: f0, quant: qu0, row0: r0, .. },
             ) => {
                 (sinks, heads, group, hd, vd, len, window, chunked) == (s0, h0, g0, d0, v0, l0, w0, c0)
                     && (vstride, voff, per_block, splits, parallel, split, shared) == (vs0, vo0, p0, sp0, pa0, st0, sh0)
-                    && (f32, quant) == (f0, qu0)
+                    && (f32, quant, row0) == (f0, qu0, r0)
                     && scale.to_bits() == sc0.to_bits()
                     && cap.map(f64::to_bits) == cp0.map(f64::to_bits)
             }
@@ -1919,7 +2003,7 @@ fn values_in_key_rows(s: &Slots, j: usize) -> bool {
 /// decode step's products of one activation as one GEMV in parts (`gemv_parts`); `rows_a_warp`, the schedule's four
 /// rows a warp for a wide product; and `sequences`, a batch's launches over its sequences as one. The
 /// arg-max's advance closes the step and is always taken; the activation quantizer's fusion is the `fuse_quant` knob.
-pub const RULES: [&str; 35] = [
+pub const RULES: [&str; 40] = [
     "add_norm",
     "sandwich_norm",
     "allreduce_norm",
@@ -1954,11 +2038,16 @@ pub const RULES: [&str; 35] = [
     "rows_a_warp",
     "rope_parts",
     "gemv_parts",
+    "dual_norm",
+    "hc_post_norm",
+    "hc_post",
+    "gemm_act",
+    "hc_mix",
     "sequences",
 ];
 
 /// A projection, gated pair or mixture whose shape outruns one output row a warp takes several
-/// (`kernels::rows_a_warp`), each row's dot unchanged. A GEMV in parts takes its parts' rows a warp as the link set
+/// (`kernels::rows_a_warp`; a mixture's gate and up `kernels::moe_rows_a_warp`), each row's dot unchanged. A GEMV in parts takes its parts' rows a warp as the link set
 /// them, each part recorded as taking them: the parts of the op of `g` that computes the launch's ops.
 fn rows_a_warp(s: &mut Slots, fusions: &mut Vec<Fusion>, g: &TensorGraph) {
     for i in 0..s.len() {
@@ -1980,7 +2069,7 @@ fn rows_a_warp(s: &mut Slots, fusions: &mut Vec<Fusion>, g: &TensorGraph) {
             Launch::Moe { formats, d, dff, k, shared, per_warp, rows: 1, .. } => {
                 let hidden = *k * *dff + shared.as_ref().map_or(0, |e| e.dff);
                 let formats = [formats[0], formats[1]].into_iter().chain(shared.iter().flat_map(|e| [e.formats[0], e.formats[1]]));
-                (formats.map(|f| kernels::rows_a_warp(f, hidden, *d, 1)).min().expect("the gate's format"), per_warp)
+                (formats.map(|f| kernels::moe_rows_a_warp(f, hidden, *d)).min().expect("the gate's format"), per_warp)
             }
             Launch::GemmParts { per_warp, .. } if *per_warp > 1 => {
                 for part in products_of(g, ops) {
@@ -2106,7 +2195,10 @@ fn buffers(
 ) -> Result<BTreeMap<String, Buffer>, LaneError> {
     let ints: BTreeSet<&str> = launches
         .iter()
-        .filter_map(|l| if let Launch::ArgMax { out, .. } = l { Some(out.as_str()) } else { None })
+        .filter_map(|l| match l {
+            Launch::ArgMax { out, .. } | Launch::NgramIds { ids: out, .. } => Some(out.as_str()),
+            _ => None,
+        })
         .collect();
     let views: BTreeMap<&str, (&str, usize)> = launches
         .iter()
@@ -2127,13 +2219,14 @@ fn buffers(
             let t = g.tensors.get(name).ok_or_else(|| LaneError::Unbound(name.to_string()))?;
             let (dtype, fill) = match t.role {
                 Role::Param => (DType::I32, Fill::Param),
+                Role::State if g.lifted.tensors.get(name).is_some_and(|t| t.elem == Elem::Int) => (DType::I32, Fill::Zero),
                 Role::State => (DType::F32, Fill::Zero),
                 Role::Constant => {
                     let mut p = constants.remove(name).ok_or_else(|| LaneError::Unbound(name.to_string()))?;
                     if let (true, Placement::Values(v)) = (transposed.contains(name), &mut p) {
                         *v = (0..t.cols).flat_map(|c| (0..t.rows).map(move |r| (r, c))).map(|(r, c)| v[r * t.cols + c]).collect();
                     }
-                    (DType::F32, Fill::Constant(p))
+                    (if matches!(p, Placement::Ints(_)) { DType::I64 } else { DType::F32 }, Fill::Constant(p))
                 }
                 Role::Activation => match views.get(name) {
                     Some(&(of, offset)) => (DType::F32, Fill::Alias { of: of.to_string(), offset }),

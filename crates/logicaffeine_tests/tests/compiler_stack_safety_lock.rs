@@ -19,7 +19,10 @@
 //!   1. a program at the language's maximum sanctioned nesting depth compiles and runs on an
 //!      ORDINARY thread, through every entry point;
 //!   2. past that depth the compiler REPORTS `AstTooDeep` — it never aborts the process;
-//!   3. the benchmark corpus compiles at the inliner's default unfold depth;
+//!   3. the benchmark corpus compiles at the inliner's default unfold depth: every program, through every compile
+//!      entry point, on an ordinary thread, in the unoptimized build a `cargo nextest run --test` makes as much as in
+//!      the gate's optimized one (whose frames are smaller, so a corpus program that overflows only unoptimized
+//!      passes the gate and aborts the binary a developer runs);
 //!   4. the AST nodes stay small, so a new statement or expression kind cannot quietly multiply
 //!      every compiler frame by widening the node every recursion level holds;
 //!   5. the nest the inliner unfolds compiles in bounded time and memory: the abstract interpreter
@@ -27,7 +30,11 @@
 //!      constraint set at every variable it eliminates, so the optimizer's prover works under a
 //!      budget and reads a proof past it as not found. Without the budget a recursive function
 //!      calling itself inside a constant loop (corpus program 6ea4a494d4ea4fcb) kept both
-//!      `largo run` and the optimizer lattice compiling past 30 GB and never finished.
+//!      `largo run` and the optimizer lattice compiling past 30 GB and never finished;
+//!   6. the oracle records each loop's facts once: a walk whose facts are thrown away — an enclosing fixpoint's ascent
+//!      or narrowing pass — computes states and records nothing. Recording in those walks re-ran every loop's proofs
+//!      once per pass of every loop around it: a program using the standard library's Datalog evaluator, eight loops
+//!      deep, took 2.7 s to analyze in a release build.
 //!
 //! Each entry point is named explicitly — a new one is not covered until it is added here.
 
@@ -238,6 +245,96 @@ fn the_benchmark_corpus_compiles_at_the_default_unfold_depth() {
     );
 }
 
+/// The benchmark corpus: every program under `benchmarks/programs`, by name, in name order.
+fn benchmark_corpus() -> Vec<(String, String)> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../benchmarks/programs");
+    let mut corpus: Vec<(String, String)> = std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .map(|entry| entry.expect("a directory entry").path())
+        .filter(|path| path.join("main.lg").is_file())
+        .map(|path| {
+            let name = path.file_name().expect("a program directory").to_string_lossy().into_owned();
+            let src = std::fs::read_to_string(path.join("main.lg")).expect("main.lg");
+            (name, src)
+        })
+        .collect();
+    corpus.sort();
+    assert!(
+        corpus.iter().any(|(name, _)| name == "fib") && corpus.iter().any(|(name, _)| name == "nqueens"),
+        "the corpus is read from {}: {:?}",
+        dir.display(),
+        corpus.iter().map(|(name, _)| name).collect::<Vec<_>>()
+    );
+    corpus
+}
+
+/// Every corpus program compiled through `entry` on its own ordinary thread. A stack overflow aborts the process past
+/// any assertion, so each program's name is written before its compile: the failure's output ends with the program
+/// the compiler died on.
+fn the_corpus_compiles_through(entry: &str, compile: fn(&str) -> Result<(), String>) {
+    let mut refused = Vec::new();
+    for (name, src) in benchmark_corpus() {
+        eprintln!("{entry}: {name}");
+        if let Err(e) = on_an_ordinary_thread(move || compile(&src)) {
+            refused.push(format!("{name}: {e}"));
+        }
+    }
+    assert!(refused.is_empty(), "{entry} refuses benchmark programs:\n  {}", refused.join("\n  "));
+}
+
+#[test]
+fn the_benchmark_corpus_compiles_to_rust_on_an_ordinary_thread() {
+    the_corpus_compiles_through("compile_to_rust", |src| {
+        logicaffeine_compile::compile::compile_to_rust(src).map(|_| ()).map_err(|e| format!("{e:?}"))
+    });
+}
+
+#[test]
+fn the_benchmark_corpus_compiles_through_the_traced_rust_backend_on_an_ordinary_thread() {
+    the_corpus_compiles_through("compile_program_traced", |src| {
+        logicaffeine_compile::compile::compile_program_traced(src).map(|_| ()).map_err(|e| format!("{e:?}"))
+    });
+}
+
+#[test]
+fn the_benchmark_corpus_compiles_to_c_on_an_ordinary_thread() {
+    the_corpus_compiles_through("compile_to_c", |src| {
+        logicaffeine_compile::compile::compile_to_c(src).map(|_| ()).map_err(|e| format!("{e:?}"))
+    });
+}
+
+#[test]
+fn the_benchmark_corpus_compiles_through_the_traced_c_backend_on_an_ordinary_thread() {
+    the_corpus_compiles_through("compile_to_c_traced", |src| {
+        logicaffeine_compile::compile::compile_to_c_traced(src).map(|_| ()).map_err(|e| format!("{e:?}"))
+    });
+}
+
+#[test]
+fn the_benchmark_corpus_compiles_to_c_through_bytecode_on_an_ordinary_thread() {
+    the_corpus_compiles_through("compile_to_c_via_bytecode_traced", |src| {
+        logicaffeine_compile::compile::compile_to_c_via_bytecode_traced(src)
+            .map(|_| ())
+            .map_err(|e| format!("{e:?}"))
+    });
+}
+
+#[test]
+fn the_benchmark_corpus_compiles_for_the_vm_on_an_ordinary_thread() {
+    the_corpus_compiles_through("compile_to_program", |src| {
+        logicaffeine_compile::compile::compile_to_program(src).map(|_| ()).map_err(|e| format!("{e:?}"))
+    });
+}
+
+#[test]
+fn the_benchmark_corpus_compiles_through_the_optimizer_lattice_on_an_ordinary_thread() {
+    the_corpus_compiles_through("compile_to_program_optimized", |src| {
+        logicaffeine_compile::compile::compile_to_program_optimized(src)
+            .map(|_| ())
+            .map_err(|e| format!("{e:?}"))
+    });
+}
+
 /// Every compiler frame that holds an AST node grows with the enum, at every recursion level — and a
 /// compiler walk holds many of them per frame, so widening the node multiplies the compiler's stack
 /// use across the board. These are SHRINK-ONLY ceilings: a new variant with a large payload must be
@@ -369,3 +466,71 @@ fn the_rust_backend_compiles_loop_interleaved_recursion_in_bounded_time() {
     });
     assert!(out.is_ok(), "compile_to_rust refuses the program: {out:?}");
 }
+
+/// `depth` loops, each inside the last, alternately `While` and `Repeat`, every level but the innermost with a sibling
+/// `While` after its nested loop.
+fn loop_nest(depth: usize) -> String {
+    fn level(src: &mut String, at: usize, depth: usize) {
+        let pad = "    ".repeat(at);
+        if at > depth {
+            src.push_str(&format!("{pad}Set total to total + 1.\n"));
+            return;
+        }
+        if at % 2 == 1 {
+            src.push_str(&format!("{pad}Let mutable i{at} be 0.\n{pad}While i{at} is less than n:\n"));
+            level(src, at + 1, depth);
+            src.push_str(&format!("{pad}    Set i{at} to i{at} + 1.\n"));
+        } else {
+            src.push_str(&format!("{pad}Repeat for x{at} in xs:\n"));
+            level(src, at + 1, depth);
+        }
+        if at < depth {
+            src.push_str(&format!(
+                "{pad}Let mutable s{at} be 0.\n{pad}While s{at} is less than n:\n{pad}    Set s{at} to s{at} + 1.\n"
+            ));
+        }
+    }
+    let mut src = String::from("## To f (n: Int, xs: Seq of Int) -> Int:\n    Let mutable total be 0.\n");
+    level(&mut src, 1, depth);
+    src.push_str("    Return total.\n\n## Main\nShow f(2, [1, 2]).\n");
+    src
+}
+
+/// The loops a program's source states.
+fn loops_in(src: &str) -> u64 {
+    src.lines()
+        .map(str::trim_start)
+        .filter(|l| l.starts_with("While ") || l.starts_with("Repeat for "))
+        .count() as u64
+}
+
+/// How many times the oracle records a loop's facts analyzing `src`.
+fn oracle_recordings(src: &str) -> u64 {
+    logicaffeine_compile::ui_bridge::with_parsed_program(src, |parsed, interner| {
+        let (stmts, _, _) = parsed.expect("the program parses");
+        logicaffeine_compile::optimize::oracle_analyze_with(stmts, interner).loop_recordings()
+    })
+}
+
+#[test]
+fn the_oracle_records_each_loops_facts_once_however_deep_the_nest() {
+    for depth in 1..=10 {
+        let src = loop_nest(depth);
+        let (recordings, loops) = (oracle_recordings(&src), loops_in(&src));
+        assert_eq!(recordings, loops, "depth {depth}: {recordings} recordings of {loops} loops:\n{src}");
+    }
+}
+
+#[test]
+fn the_oracle_records_each_loop_of_the_datalog_evaluator_once() {
+    let src = "## Main\nLet mutable facts be a new Seq of DatalogFact.\n\
+               Push datalogFact(\"e\", [\"a\", \"b\"]) to facts.\n\
+               Let outcome be datalogEvaluate(facts, a new Seq of DatalogRule).\n\
+               Inspect outcome:\n    When DatalogModel (model):\n        Show length of model.\n    \
+               When DatalogRefusal (reason):\n        Show reason.\n";
+    let spliced = logicaffeine_compile::loader::apply_prelude(src);
+    let (recordings, loops) = (oracle_recordings(src), loops_in(&spliced));
+    assert!(spliced.contains("## To datalogEvaluate"), "the program brings in the evaluator");
+    assert_eq!(recordings, loops, "the evaluator and the modules it brings in: {recordings} recordings of {loops} loops");
+}
+

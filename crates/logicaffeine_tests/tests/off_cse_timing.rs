@@ -12,7 +12,8 @@
 //!       off_cse_time_nbody
 //!   done
 
-#![cfg(not(target_arch = "wasm32"))]
+// This suite tests the native tier alone, which exists only on x86_64 outside Windows.
+#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 
 use logicaffeine_compile::compile::vm_outcome_with_args;
 use logicaffeine_compile::vm::NativeTier;

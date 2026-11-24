@@ -1008,6 +1008,11 @@ fn body_expr(
                     return Err(SpatialLowerError::Unsupported("a natural log outside `e^(a·ln b)` with b positive, on the fabric flavor — Tungsten prints `ln` as a bare `log(…)` its contexts shadow"));
                 }
                 SfpuKind::Ln => format!("ln({x})"),
+                SfpuKind::Erf => {
+                    return Err(SpatialLowerError::Unsupported(
+                        "an error function — Spatial's math library has no `erf`, and no lock holds one composed of its operations to the VM yet",
+                    ))
+                }
             }
         }
         // Decided by POSITION: a `mux` on the axis, both branches computed (branch-free), as the oracle does.

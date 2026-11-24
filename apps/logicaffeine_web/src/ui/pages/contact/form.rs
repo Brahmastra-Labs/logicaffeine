@@ -174,7 +174,7 @@ pub fn LeadForm() -> Element {
                         p { "An engineer will reply, with a few questions about how you plan to use LOGOS." }
                         p {
                             "Meanwhile, "
-                            Link { to: Route::Studio { file: None }, "open Studio" }
+                            Link { to: "/studio", "open Studio" }
                             " or "
                             Link { to: Route::Guide {}, "read the guide" }
                             "."
@@ -189,7 +189,7 @@ pub fn LeadForm() -> Element {
             }
             p { class: "lead-privacy",
                 "We use these only to reply to you. "
-                Link { to: Route::Privacy { section: "pricing-requests".to_string() }, "Privacy policy" }
+                Link { to: Route::Privacy { section: "contact-requests".to_string() }, "Privacy policy" }
             }
             p { class: "lead-fallback",
                 "Prefer email? "

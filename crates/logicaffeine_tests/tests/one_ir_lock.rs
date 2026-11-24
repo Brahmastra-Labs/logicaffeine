@@ -183,7 +183,7 @@ const ALLOWED: &[(&str, &[&str])] = &[
             "codegen_cuda/lane/plan.rs::merge_rotations",
             "codegen_cuda/lane/plan.rs::merge_row_sets",
             "spatial/lower/cuda.rs::merge_programs",
-            "spatial/passes/from_qwen_ops.rs::merge_fans",
+            "spatial/passes/from_qwen_ops/attention.rs::merge_fans",
             "spatial/passes/fuse_generic.rs::fuse_generic",
             "spatial/passes/fuse_generic.rs::fuse_once",
             "spatial/passes/fuse_readers.rs::fuse_readers",
@@ -701,7 +701,8 @@ fn the_shared_table_fires_what_the_lane_fires() {
     // the block formats by turns and chunks of 32 rows, on the tensor cores; the medium models in Q4_K, whose wide
     // products the GEMV takes four rows a warp; Qwen3 four times as wide split over two ranks, its decode step's
     // all-reduces each folded into its norm, and again with MiniMax-M2's QK norm across every head, each side normed by
-    // its ranks' parts; and Gemma 2 with its logits unread, each final cap folded into its arg-max.
+    // its ranks' parts; Gemma 2 with its logits unread, each final cap folded into its arg-max; and dense attention and
+    // Qwen3.8's hybrid with their residuals in four lanes, each mix's gate, shares and mean and each post fused.
     enum Weights {
         Q8,
         Turns,
@@ -725,6 +726,8 @@ fn the_shared_table_fires_what_the_lane_fires() {
     }
     models.push(("qwen3-whole-over-2".to_string(), whole, Weights::Q8, 24, 1, 2, Logits::Written));
     models.push(("gemma2-greedy".to_string(), Tiny::Gemma2.spec(24), Weights::Q8, 24, 4, 1, Logits::Unread));
+    models.push(("qwen3-hyper".to_string(), tiny_models::hyper_connected(Tiny::Qwen3, 24, 4, false), Weights::Q8, 24, 4, 1, Logits::Written));
+    models.push(("qwen35-hyper".to_string(), tiny_models::hyper_connected(Tiny::Qwen35, 24, 4, true), Weights::Q8, 24, 4, 1, Logits::Written));
     let mut differ = Vec::new();
     let mut compared = 0usize;
     let mut fired_anywhere: BTreeSet<String> = BTreeSet::new();

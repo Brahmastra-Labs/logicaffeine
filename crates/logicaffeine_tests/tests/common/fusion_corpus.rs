@@ -63,7 +63,7 @@ pub fn lifted(source: &str, rows: bool, io: Option<StepIo>) -> TensorGraph {
 
 pub fn io(cut: Cut) -> StepIo {
     match cut {
-        Cut::Prefill { .. } => StepIo { token: "toks".into(), position: "pos_s0".into(), logits: "logits".into(), next: "next".into(), more: Vec::new(), logits_read: true },
+        Cut::Prefill { .. } => StepIo { token: "toks".into(), position: "pos_s0".into(), logits: "logits".into(), next: "next".into(), more: Vec::new(), logits_read: true, hidden_in: None, hidden_out: None },
         Cut::Batch { rows, .. } => StepIo {
             token: "toks".into(),
             position: "pos_s0".into(),
@@ -71,8 +71,10 @@ pub fn io(cut: Cut) -> StepIo {
             next: "next_s0".into(),
             more: (1..rows).map(|b| SeqIo { position: format!("pos_s{b}"), logits: format!("logits_s{b}"), next: format!("next_s{b}") }).collect(),
             logits_read: true,
+            hidden_in: None,
+            hidden_out: None,
         },
-        _ => StepIo { token: "tok".into(), position: "pos".into(), logits: "logits".into(), next: "next".into(), more: Vec::new(), logits_read: true },
+        _ => StepIo { token: "tok".into(), position: "pos".into(), logits: "logits".into(), next: "next".into(), more: Vec::new(), logits_read: true, hidden_in: None, hidden_out: None },
     }
 }
 
@@ -202,6 +204,30 @@ pub const HOLD_BACKS: &[(&str, &str, &str, &str)] = &[
         "a second norm of the first one's result",
         "## Main\nLet A be a 1 by 8 tensor of Real.\nLet W be a 1 by 8 tensor of Real.\nLet V be a 1 by 8 tensor of Real.\nLet Y be rmsnorm of A with weight W.\nLet Z be rmsnorm of Y with weight V.\n",
         "## Main\nLet A be a 1 by 8 tensor of Real.\nLet W be a 1 by 8 tensor of Real.\nLet V be a 1 by 8 tensor of Real.\nLet Y be rmsnorm of A with weight W.\nLet B be a 1 by 8 tensor of Real.\nLet Z be rmsnorm of B with weight V.\n",
+    ),
+    (
+        "gemm_act",
+        "a product read by a second op besides its activation",
+        "## Main\nLet X be a 1 by 8 tensor of Real.\nLet M be a 8 by 8 tensor of Real.\nLet P be X matmul M.\nLet A be sigmoid of P.\nLet Y be A scaled by 2.0.\nLet Z be P plus X.\n",
+        "## Main\nLet X be a 1 by 8 tensor of Real.\nLet M be a 8 by 8 tensor of Real.\nLet P be X matmul M.\nLet A be sigmoid of P.\nLet Y be A scaled by 2.0.\n",
+    ),
+    (
+        "hc_mix",
+        "a gated product read by a second op besides the lane mean",
+        "## Main\nLet N be a 1 by 16 tensor of Real.\nLet U be a 1 by 16 tensor of Real.\nLet G be sigmoid of U.\nLet X be N hadamard G.\nLet Y be the mean of X over 4 lanes.\nLet Z be X scaled by 2.0.\n",
+        "## Main\nLet N be a 1 by 16 tensor of Real.\nLet U be a 1 by 16 tensor of Real.\nLet G be sigmoid of U.\nLet X be N hadamard G.\nLet Y be the mean of X over 4 lanes.\n",
+    ),
+    (
+        "hc_post",
+        "a spread read by a second op besides the residual's add",
+        "## Main\nLet H be a 1 by 16 tensor of Real.\nLet O be a 1 by 4 tensor of Real.\nLet S be a 1 by 4 tensor of Real.\nLet P be O spread over 4 lanes by S.\nLet Y be H plus P.\nLet Z be P scaled by 2.0.\n",
+        "## Main\nLet H be a 1 by 16 tensor of Real.\nLet O be a 1 by 4 tensor of Real.\nLet S be a 1 by 4 tensor of Real.\nLet P be O spread over 4 lanes by S.\nLet Y be H plus P.\n",
+    ),
+    (
+        "hc_post_norm",
+        "a post's sum read first by something other than the norm",
+        "## Main\nLet H be a 1 by 16 tensor of Real.\nLet O be a 1 by 4 tensor of Real.\nLet S be a 1 by 4 tensor of Real.\nLet W be a 1 by 16 tensor of Real.\nLet P be O spread over 4 lanes by S.\nLet Y be H plus P.\nLet Z be Y scaled by 2.0.\nLet N be rmsnorm of Y with weight W in 4 lanes.\n",
+        "## Main\nLet H be a 1 by 16 tensor of Real.\nLet O be a 1 by 4 tensor of Real.\nLet S be a 1 by 4 tensor of Real.\nLet W be a 1 by 16 tensor of Real.\nLet P be O spread over 4 lanes by S.\nLet Y be H plus P.\nLet N be rmsnorm of Y with weight W in 4 lanes.\n",
     ),
     (
         "embed_norm",

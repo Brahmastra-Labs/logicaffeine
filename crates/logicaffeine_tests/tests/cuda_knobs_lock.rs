@@ -34,6 +34,7 @@ const KNOB_FIELDS: &[&str] = &[
     "kv_cache",
     "cuda_graphs",
     "fuse_quant",
+    "head_epilogue",
     "chip",
     "activations",
     "recurrent_state",
@@ -100,6 +101,7 @@ fn defaults_are_the_best_general_case() {
     assert!(d.kv_cache, "KV-cache defaults on");
     assert!(d.cuda_graphs, "CUDA-graph replay defaults on");
     assert!(d.fuse_quant, "quant fusion defaults on");
+    assert!(!d.head_epilogue, "the projections turn no heads in their launch by default: apart they overlap in the step's graph, faster on the 3060");
     assert_eq!(
         d.activations,
         Q8MatKind::TwoPassInt8,

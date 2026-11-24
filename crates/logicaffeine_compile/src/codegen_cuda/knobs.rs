@@ -95,6 +95,12 @@ pub struct CudaKnobs {
     /// Fuse activation-quantization into the preceding norm/elementwise kernel — saves a global round-trip at
     /// the cost of a slightly larger, less-reusable kernel. Default `true`.
     pub fuse_quant: bool,
+    /// Turn a step's query and key heads — their norms and rotations — in the epilogue of the projections' launch
+    /// (`qkv_head_epilogue`): one launch where apart the projections and the rotations are two, but its blocks count
+    /// each head in and the block finishing it turns it, where the projections apart overlap in the step's graph. On the
+    /// 3060 apart decodes faster (Llama-3.2-1B Q4_K_M 341.3 tok/s against 328.0, Gemma-3-1B 250.0 against 245.0,
+    /// Qwen3-8B 65.6 against 64.2). Default `false`.
+    pub head_epilogue: bool,
     /// The activation precision of a projection by Q8_0 weights in the compiled generation lane: `f32` activations
     /// with `f64` sums (`Dequant`), a high and a low int8 word per value (`TwoPassInt8`, ~14 bits), or one int8 word
     /// (`Int8Act`, llama.cpp's precision). Default [`Q8MatKind::TwoPassInt8`].
@@ -161,6 +167,7 @@ impl Default for CudaKnobs {
             kv_cache: true,
             cuda_graphs: true,
             fuse_quant: true,
+            head_epilogue: false,
             activations: Q8MatKind::TwoPassInt8,
             chip: CudaChip::rtx3060(),
             recurrent_state: StatePrecision::F32,
@@ -220,6 +227,13 @@ impl CudaKnobs {
                 default: "on",
                 wins: "quant-then-consume chains — one global round-trip saved",
                 loses: "when the un-fused quantized activation is reused by several consumers",
+            },
+            KnobTradeoff {
+                knob: "head_epilogue",
+                default: "off",
+                wins: "a step whose rotations cost more as a launch than the projections lose by turning heads in their blocks",
+                loses: "on the 3060 at Q4_K_M: the projections apart overlap in the step's graph, Llama-3.2-1B 4.1%, \
+                        Gemma-3-1B 2.0% and Qwen3-8B 2.2% faster",
             },
             KnobTradeoff {
                 knob: "activations",

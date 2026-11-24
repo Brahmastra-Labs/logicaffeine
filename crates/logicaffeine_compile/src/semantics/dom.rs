@@ -2245,6 +2245,10 @@ pub fn set_head_html(html: &str) {
     });
 }
 
+/// The `<link rel>`s a document carries one of, so a page's own replaces the default — the set
+/// `runtime.js`'s `SINGLE_LINK_RELS` holds too.
+pub const SINGLE_LINK_RELS: &[&str] = &["icon", "shortcut icon", "canonical", "manifest"];
+
 /// The head HTML the last mounted page declared, if it declared one. `None` means the
 /// page has no `Head:` — which is not the same as an EMPTY head, and the difference is
 /// whether the default shell's title stands. What a server composes the page's document from.
@@ -2278,7 +2282,10 @@ impl HeadTag {
     /// `runtime.js`'s `headIdentity`, read off the same attributes: an attribute counts by its
     /// presence and its own value, never by text that happens to appear inside another's value. A
     /// `<meta>` named with a `media` (`theme-color` for light and for dark) keys on both, so one
-    /// never replaces the other.
+    /// never replaces the other. A `<link>` whose `rel` a document has one of (an icon, a
+    /// canonical address, a manifest) keys on the `rel` alone; any other `<link>` keys on its
+    /// `href` too, so a page linking two stylesheets keeps both, and the same one linked twice is
+    /// one.
     pub fn identity(&self) -> Option<String> {
         let attr = |name: &str| self.attrs.get(name).map(|v| v.to_ascii_lowercase());
         match self.tag.as_str() {
@@ -2293,7 +2300,12 @@ impl HeadTag {
                 (None, Some(property)) => Some(format!("meta:property={property}")),
                 (None, None) => None,
             },
-            "link" => attr("rel").map(|rel| format!("link:rel={rel}")),
+            "link" => attr("rel").map(|rel| match self.attrs.get("href") {
+                Some(href) if !SINGLE_LINK_RELS.contains(&rel.as_str()) => {
+                    format!("link:rel={rel}@{href}")
+                }
+                _ => format!("link:rel={rel}"),
+            }),
             _ => None,
         }
     }

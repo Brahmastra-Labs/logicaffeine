@@ -366,10 +366,10 @@ fn the_guide_opens_plainly_for_any_agent() {
     }
 }
 
-/// The language on one page (the user, 2026-11-02): every line short, every construct it names a
-/// form the quickguide lists as working today, and the heal worker's primer the same lines.
+/// The language on one page (the user, 2026-11-02): every line short, and every construct it names a
+/// form the quickguide lists as working today.
 #[test]
-fn the_syntax_matrix_is_the_guides_and_the_heal_workers() {
+fn the_syntax_matrix_is_the_guides() {
     use logicaffeine_web::ui::pages::landing::content::SYNTAX_MATRIX;
     assert!(SYNTAX_MATRIX.len() >= 25, "the matrix is {} lines", SYNTAX_MATRIX.len());
     let text = content::instructions_text();
@@ -381,12 +381,6 @@ fn the_syntax_matrix_is_the_guides_and_the_heal_workers() {
     for form in ["## Main", "## To add", "## A Point has:", "## A Shape is one of:", "## Page", "## Route", "## Test:", "## Theorem:", "Let mutable", "Increase", "Inspect", "When ", "Push ", "Pop from", "items ", "through", "combined with", "is divisible by", "is between", "always be", "on-click=", "bind=", "keyed by", "Style:", "Proof: Auto."] {
         assert!(guide.contains(form), "the matrix names {form:?}, which the quickguide does not list");
     }
-    let primer = std::fs::read_to_string(repo_root().join("services/heal/src/primer.js")).expect("the heal worker's primer");
-    let start = primer.find("PRIMER_LINES = [").expect("the primer's lines") + "PRIMER_LINES = ".len();
-    let end = primer[start..].find("];").expect("the primer's lines end") + start + 1;
-    let array = primer[start..end].trim_end_matches(']').trim_end().trim_end_matches(',').to_string() + "]";
-    let lines: Vec<String> = serde_json::from_str(&array).expect("the primer's lines are JSON strings");
-    assert_eq!(lines, SYNTAX_MATRIX.iter().map(|l| l.to_string()).collect::<Vec<_>>(), "the heal worker's primer is not the guide's matrix");
 }
 
 #[test]
@@ -1088,11 +1082,11 @@ fn the_page_is_the_words_then_the_studio_then_the_comparison_the_library_and_the
 /// something else.
 #[test]
 fn every_studio_link_on_the_front_page_opens_a_shipped_example() {
-    let studio = Route::Studio { file: None }.to_string();
+    let studio = "/studio";
     let mut files = Vec::new();
     for (attrs, text) in links(landing()) {
         let Some(href) = attrs.get("href") else { continue };
-        // A bare `/studio?` (the nav's link) opens the Studio on its own first file.
+        // A bare `/studio` (the nav's link) opens the Studio on its own first file.
         let Some(file) = href.strip_prefix("/studio?").and_then(|query| query.strip_prefix("file=")) else { continue };
         let spec = seeded_examples().find(|spec| spec.vfs_path.trim_start_matches('/') == file);
         assert!(spec.is_some(), "{text:?} opens {file} in the Studio, which the Studio does not ship");
@@ -1106,9 +1100,12 @@ fn every_studio_link_on_the_front_page_opens_a_shipped_example() {
 fn the_hero_keeps_the_way_to_the_studio_to_learn_and_to_contact() {
     let top = element_by_id(landing(), "top");
     let hero_links = links(top);
-    let studio = Route::Studio { file: None }.to_string();
+    let studio = "/studio".to_string();
     let learn = Route::Learn { module: String::new() }.to_string();
     assert!(hero_links.iter().any(|(a, t)| t == "Open Studio" && a.get("href") == Some(&studio)), "the hero does not open the Studio");
+    // `Route::Studio { file: None }` serializes to a bare `/studio?` (DAT-174), so plain Studio links are written `/studio`.
+    let bare = links(landing()).into_iter().filter(|(a, _)| a.get("href").is_some_and(|h| h == "/studio?")).count();
+    assert_eq!(bare, 0, "{bare} links on the front page still point at a bare /studio?");
     assert!(hero_links.iter().any(|(a, t)| t == "Learn" && a.get("href") == Some(&learn)), "the hero does not start Learn");
     assert!(hero_links.iter().any(|(a, t)| t == "Contact" && a.get("href").is_some_and(|h| h == "/contact")), "the hero does not lead to Contact");
 }

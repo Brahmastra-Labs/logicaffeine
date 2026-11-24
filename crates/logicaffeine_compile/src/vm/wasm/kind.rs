@@ -126,6 +126,13 @@ pub(crate) enum Kind {
     /// display is deterministic (`print_set_text`). Distinct from [`Set`] only in the element
     /// comparison + display; the storage/scan/swap-remove are identical.
     SetText,
+    /// A `Set` whose members are HANDLES compared by value — tuples and lists, a relation `Set of (Text,
+    /// Text)` among them. The same `[num][cap][data_ptr]` header and 8-byte slots as [`SetText`], each
+    /// slot's low word one member's handle; `add`/`remove`/`contains` compare members STRUCTURALLY, through
+    /// the generated equality function of the member's shape (`display::ShapeFns`), so a duplicate add is
+    /// one member and membership is by value, exactly as the VM's `==`. What a member IS comes from the
+    /// set's declared type, as a `Seq of <record>`'s elements do.
+    SetHandle,
     /// A `SharedSet of Text` (OR-Set CRDT) FIELD of a `Shared` struct — the same byte layout + ops as
     /// [`SetText`], but MUTABLE-SHARED (reference-semantic, not value-semantic): a CRDT field is held
     /// behind an `Rc`, so `Add X to <obj>'s <set-field>` mutates the shared field IN PLACE. Modeled as
@@ -178,6 +185,16 @@ pub(crate) enum Kind {
     /// A `Word64` — the ℤ/2⁶⁴ wrapping-integer ring (the Keccak/SHA-3 substrate). Rides a native wasm
     /// `i64` local with wrapping ops; `Show` prints the unsigned `u64` value via `print_word`.
     Word64,
+    /// A `Word16` — the ℤ/2¹⁶ wrapping-integer ring. Rides the SAME native wasm `i32` local a `Word32`
+    /// does, but every op that could leave the ring (`+`/`-`/`*`) masks its result back to 16 bits with
+    /// `i32.and 0xFFFF` — wasm has no narrower integer arithmetic, so the ring is kept by masking rather
+    /// than by width. `word16Shr`/`rotl`/`rotr` have no 16-bit caller yet and stay unlowered (refused by
+    /// name, as every other not-yet-built op is); `Show` prints the unsigned value (`print_word`, the low
+    /// 16 bits zero-extended).
+    Word16,
+    /// A `Word8` — the ℤ/2⁸ wrapping-integer ring. Rides an `i32` local exactly as `Word16` does, masked
+    /// to 8 bits (`i32.and 0xFF`) after `+`/`-`/`*`.
+    Word8,
     /// A growable sequence of `Word32` — the crypto message-schedule / state array (SHA-256's `W[0..64]`,
     /// MD5's block words). Rides the `SeqText` representation (an `i32` element per 8-byte slot); `item
     /// N of xs` yields a `Word32`, refined from a `Word32` `Push` like any list.
@@ -269,6 +286,7 @@ impl Kind {
             | Kind::Map
             | Kind::Set
             | Kind::SetText
+            | Kind::SetHandle
             | Kind::CrdtSetText
             | Kind::CrdtCounter
             | Kind::Enum
@@ -277,6 +295,8 @@ impl Kind {
             | Kind::Rational
             | Kind::Optional
             | Kind::Word32
+            | Kind::Word16
+            | Kind::Word8
             | Kind::SeqWord32
             | Kind::SeqWord64
             | Kind::BigInt
@@ -312,6 +332,35 @@ impl Kind {
             Kind::SeqWord64 => Some(Kind::Word64),
             _ => None,
         }
+    }
+
+    /// Whether a value of this kind is a set a `Repeat` walks: the same header and 8-byte slots a
+    /// sequence has, its members in insertion order.
+    pub(crate) fn is_value_set(self) -> bool {
+        matches!(self, Kind::Set | Kind::SetText | Kind::SetHandle)
+    }
+
+    /// The set kind holding members of kind `member`: `Set` of Int, `SetText` of Text, `SetHandle` of any
+    /// other handle (a tuple, a list); `None` for a member no set representation holds.
+    pub(crate) fn set_of(member: Kind) -> Option<Kind> {
+        match member {
+            Kind::Int => Some(Kind::Set),
+            Kind::Text => Some(Kind::SetText),
+            k if k.wasm_valtype() == I32 && !k.is_value_set() => Some(Kind::SetHandle),
+            _ => None,
+        }
+    }
+
+    /// The sequence kind holding elements of kind `elem` — a list literal's or a homogeneous tuple's —
+    /// where a sequence of that element has a name, and `SeqHandle` for any other handle element (a set,
+    /// a map, a tuple, a nested list of anything but Int).
+    fn seq_of_handle(elem: Kind) -> Option<Kind> {
+        (elem.wasm_valtype() == I32
+            && !matches!(
+                elem,
+                Kind::Text | Kind::Struct | Kind::Enum | Kind::SeqInt | Kind::Word32 | Kind::Date
+            ))
+        .then_some(Kind::SeqHandle)
     }
 
     /// Whether this is any sequence kind.
@@ -373,6 +422,7 @@ impl Kind {
             | Kind::Map
             | Kind::Set
             | Kind::SetText
+            | Kind::SetHandle
             | Kind::CrdtSetText
             | Kind::CrdtCounter
             | Kind::Enum
@@ -381,6 +431,8 @@ impl Kind {
             | Kind::Optional
             | Kind::Word32
             | Kind::Word64
+            | Kind::Word16
+            | Kind::Word8
             | Kind::Complex
             | Kind::Modular
             | Kind::Money
@@ -454,6 +506,8 @@ fn numeric_join(a: Option<Kind>, b: Option<Kind>) -> Result<Option<Kind>, WasmLo
         // `Word * Word` wrap; a Word/Int mix is a width error the VM also rejects, so it defers.
         (Some(Kind::Word32), Some(Kind::Word32)) => Ok(Some(Kind::Word32)),
         (Some(Kind::Word64), Some(Kind::Word64)) => Ok(Some(Kind::Word64)),
+        (Some(Kind::Word16), Some(Kind::Word16)) => Ok(Some(Kind::Word16)),
+        (Some(Kind::Word8), Some(Kind::Word8)) => Ok(Some(Kind::Word8)),
         // One side still unknown and the other not Float: defer (revisited next pass).
         _ => Ok(None),
     }
@@ -899,14 +953,15 @@ fn declared_elem_kind_at(env: &Env<'_>, pc: usize) -> Option<Kind> {
     env.declared_elem_kind.get(pc).copied().flatten()
 }
 
-/// One container level off a declared type: what `item … of <this>` yields.
+/// One container level off a declared type: what `item … of <this>` yields, or what a `Repeat` over it binds.
 ///
-/// A `Seq of T` and a `Map of K to T` both answer `T`, and the caller does not need to know which
+/// A `Seq of T`, a `Set of T` and a `Map of K to T` all answer `T`, and the caller does not need to know which
 /// it unwrapped — only that one layer came off. That is the whole reason a single RESIDUAL type can
 /// replace the per-shape resolvers this file used to carry.
 fn declared_element(t: &BoundaryType) -> Option<BoundaryType> {
     match t {
-        BoundaryType::Seq(e) => Some((**e).clone()),
+        BoundaryType::Seq(e) | BoundaryType::Set(e) => Some((**e).clone()),
+        BoundaryType::Tuple(es) => homogeneous(es).cloned(),
         BoundaryType::Map(_, v) => Some((**v).clone()),
         _ => None,
     }
@@ -928,8 +983,22 @@ fn seed_declared(
     map_param_value: &mut std::collections::HashMap<u16, Kind>,
     map_param_key: &mut std::collections::HashMap<u16, Kind>,
     map_param_layout: &mut std::collections::HashMap<u16, FieldLayout>,
+    enum_types: &[EnumTypeDef],
+    enum_param_variants: &mut std::collections::HashMap<u16, EnumShape>,
+    ind_type_of: &mut std::collections::HashMap<u16, String>,
 ) {
     match t {
+        // A variant value — a named enum, a `Result`, an `Option` — answers which payloads its arms
+        // bind: a loop over a `Seq of Statement` parameter reads a `When Allocate (v, h)` row's fields
+        // as a loop over a locally built list does.
+        BoundaryType::Enum(_) | BoundaryType::Result(_, _) | BoundaryType::Option(_) => {
+            if let Some(shape) = enum_shape_of(t, enum_types) {
+                enum_param_variants.insert(reg, shape);
+            }
+            if let BoundaryType::Enum(name) = t {
+                ind_type_of.insert(reg, name.clone());
+            }
+        }
         BoundaryType::Struct(name) => {
             if let Some(l) = resolve_named_layout(name, struct_types, constants) {
                 call_result.insert(reg, l);
@@ -1044,13 +1113,16 @@ pub(crate) fn nested_of(ftype: &BoundaryType) -> FieldNested {
         BoundaryType::Enum(_) | BoundaryType::Result(_, _) | BoundaryType::Option(_) => {
             FieldNested::Enum(ftype.clone())
         }
-        BoundaryType::Tuple(elems) => match elems
-            .iter()
-            .map(boundary_to_kind)
-            .collect::<Option<Vec<_>>>()
-        {
-            Some(ks) => FieldNested::Tuple(ks),
-            None => FieldNested::None,
+        BoundaryType::Tuple(elems) => match homogeneous(elems) {
+            Some(e) => FieldNested::List(BoundaryType::Seq(Box::new(e.clone()))),
+            None => match elems
+                .iter()
+                .map(boundary_to_kind)
+                .collect::<Option<Vec<_>>>()
+            {
+                Some(ks) => FieldNested::Tuple(ks),
+                None => FieldNested::None,
+            },
         },
         BoundaryType::Seq(_) => FieldNested::List(ftype.clone()),
         _ => FieldNested::None,
@@ -1080,6 +1152,9 @@ pub(crate) fn struct_layout(
     // register right after its op, and from there travels like any declared type — through moves,
     // item reads, field reads and iteration — so a copy of a declared value is as typed as the value.
     declared_at: &[(usize, u16, BoundaryType)],
+    // Each parameter's declared type, by its register: what it holds from the function's first op, so
+    // a loop over a `Seq of (Text, Int)` parameter knows its rows as a loop over a local list does.
+    param_declared: &[(u16, BoundaryType)],
 ) -> StructLayout {
     let n = ops.len();
     let mut slot = vec![None; n];
@@ -1116,7 +1191,7 @@ pub(crate) fn struct_layout(
     // residual type costs one clone per index and answers all of them, including ones nobody has
     // written yet.
     let mut reg_declared: std::collections::HashMap<u16, BoundaryType> =
-        std::collections::HashMap::new();
+        param_declared.iter().cloned().collect();
     let mut map_param_layout: std::collections::HashMap<u16, FieldLayout> =
         std::collections::HashMap::new();
     // Per enum-handle register, its per-variant payload layout — for an enum PARAMETER (seeded below)
@@ -1419,6 +1494,9 @@ pub(crate) fn struct_layout(
                         &mut map_param_value,
                         &mut map_param_key,
                         &mut map_param_layout,
+                        enum_types,
+                        &mut enum_param_variants,
+                        &mut ind_type_of,
                     );
                     reg_declared.insert(dst, t);
                 }
@@ -1598,6 +1676,12 @@ pub(crate) fn struct_layout(
             }
             // A channel's element scalar kind is statically evident from `ChanNew`'s `ChanElem`; record
             // it so a later `ChanTryRecv` on this channel can type its `Optional` result's inner value.
+            // The union or intersection of two sets holds what they hold: its declared type is theirs.
+            Op::UnionOp { dst, lhs, rhs } | Op::IntersectOp { dst, lhs, rhs } => {
+                if let Some(t) = reg_declared.get(&lhs).or_else(|| reg_declared.get(&rhs)).cloned() {
+                    reg_declared.insert(dst, t);
+                }
+            }
             Op::ChanNew { dst, elem, .. } => {
                 let k = match elem {
                     ChanElem::Int => Kind::Int,
@@ -1664,6 +1748,9 @@ pub(crate) fn struct_layout(
                         &mut map_param_value,
                         &mut map_param_key,
                         &mut map_param_layout,
+                        enum_types,
+                        &mut enum_param_variants,
+                        &mut ind_type_of,
                     );
                     declared_elem_kind[pc] = boundary_to_kind(&inner);
                     reg_declared.insert(dst, inner);
@@ -1675,6 +1762,31 @@ pub(crate) fn struct_layout(
                 {
                     if iv >= 1 {
                         index_value_kind[pc] = ks.get((iv - 1) as usize).copied();
+                    }
+                }
+                // …and its declared TYPE, so what the position holds resolves in turn: the relation a
+                // `Let (edges, nodes) be graph(3)` takes out of a returned tuple is a set whose members
+                // a later loop needs.
+                if let (Some(BoundaryType::Tuple(positions)), Some(&iv)) =
+                    (reg_declared.get(&collection), const_int.get(&index))
+                {
+                    if let Some(t) = usize::try_from(iv - 1).ok().and_then(|k| positions.get(k)).cloned() {
+                        seed_declared(
+                            dst,
+                            &t,
+                            struct_types,
+                            constants,
+                            &mut call_result,
+                            &mut seq_param_elem,
+                            &mut map_param_value,
+                            &mut map_param_key,
+                            &mut map_param_layout,
+                            enum_types,
+                            &mut enum_param_variants,
+                            &mut ind_type_of,
+                        );
+                        declared_elem_kind[pc] = boundary_to_kind(&t);
+                        reg_declared.insert(dst, t);
                     }
                 }
                 // Heterogeneous-tuple access: a constant index into a known tuple resolves to a
@@ -1811,6 +1923,9 @@ pub(crate) fn struct_layout(
                                 &mut map_param_value,
                                 &mut map_param_key,
                                 &mut map_param_layout,
+                                enum_types,
+                                &mut enum_param_variants,
+                                &mut ind_type_of,
                             );
                             reg_declared.insert(dst, t);
                         }
@@ -2067,6 +2182,9 @@ pub(crate) fn struct_layout(
                             &mut map_param_value,
                             &mut map_param_key,
                             &mut map_param_layout,
+                            enum_types,
+                            &mut enum_param_variants,
+                            &mut ind_type_of,
                         );
                         declared_elem_kind[pc] = boundary_to_kind(&inner);
                         reg_declared.insert(dst, inner);
@@ -2329,6 +2447,11 @@ pub(crate) fn infer(
     param_closures: &[(u16, u16)],
     global_layout: &dyn Fn(u16) -> Option<FieldLayout>,
     global_declared: &dyn Fn(u16) -> Option<BoundaryType>,
+    // The region's local declarations (`a new Set of (Text, Text)`, `Let x: Seq of Todo be …`) — the
+    // same ones the final layout pass reads, so a kind the declaration alone decides (a loop over an
+    // empty-built set's members) is decided here too.
+    declared_at: &[(usize, u16, BoundaryType)],
+    param_declared: &[(u16, BoundaryType)],
     reachable: &[bool],
     linked: bool,
     bigint_demand: &std::collections::HashSet<Reg>,
@@ -2357,7 +2480,8 @@ pub(crate) fn infer(
         param_closures,
         global_layout,
         global_declared,
-        &[],
+        declared_at,
+        param_declared,
     );
     let env = Env {
         constants,
@@ -2466,6 +2590,11 @@ pub(crate) fn infer(
                         .get(&src)
                         .and_then(|es| es.get(i as usize))
                         .and_then(|&e| kinds[e as usize])
+                        .or_else(|| match sl.reg_declared.get(&src) {
+                            Some(BoundaryType::Tuple(es)) => es.get(i as usize).and_then(boundary_to_kind),
+                            Some(BoundaryType::Seq(e)) => boundary_to_kind(e),
+                            _ => None,
+                        })
                         .or_else(|| kinds[src as usize].and_then(Kind::seq_elem));
                     if let Some(k) = k {
                         unify_strict(
@@ -3101,15 +3230,21 @@ fn op_kind_effect(
         // (byte-equality dedup). An Int value keeps `Set`. `unify_strict` lets `Set` (the empty-set
         // default) absorb this `SetText` refinement, exactly as `SeqAny` refines to a concrete seq.
         Op::SetAdd { set, value } => {
-            let k = match kinds.get(value as usize).copied().flatten() {
-                Some(Kind::Text) => Some(Kind::SetText),
-                _ => Some(Kind::Set),
-            };
-            Some((set as usize, k))
+            let k = kinds
+                .get(value as usize)
+                .copied()
+                .flatten()
+                .and_then(Kind::set_of)
+                .unwrap_or(Kind::Set);
+            Some((set as usize, Some(k)))
         }
-        // `a union b` / `a intersection b` build a fresh combined Set.
-        Op::UnionOp { dst, .. } | Op::IntersectOp { dst, .. } => {
-            Some((dst as usize, Some(Kind::Set)))
+        // `a union b` / `a intersection b` build a fresh set of the members its operands hold.
+        Op::UnionOp { dst, lhs, rhs } | Op::IntersectOp { dst, lhs, rhs } => {
+            let held = [lhs, rhs]
+                .into_iter()
+                .filter_map(|r| kinds.get(r as usize).copied().flatten())
+                .find(|k| matches!(k, Kind::SetText | Kind::SetHandle));
+            Some((dst as usize, Some(held.unwrap_or(Kind::Set))))
         }
         // `item key of m` yields the map's VALUE kind (the kind of a value stored into it — Int,
         // Float, or Bool, resolved via [`struct_layout`]'s `map_value` track) for a Map, or the
@@ -3166,6 +3301,11 @@ fn op_kind_effect(
                     // in grid` over a `Seq of (Seq of <record>)` bound a row of generic-handle
                     // kind, and the loop over THAT row was refused as a non-sequence.
                     Kind::SeqHandle => declared_elem_kind_at(env, pc).or_else(|| k.seq_elem()),
+                    // A set walks its members: an Int, a Text, or — a set of tuples or lists — the
+                    // member its declaration names.
+                    Kind::Set => Some(Kind::Int),
+                    Kind::SetText => Some(Kind::Text),
+                    Kind::SetHandle => declared_elem_kind_at(env, pc),
                     // A Text walks its characters, each a one-character Text.
                     Kind::Text => Some(Kind::Text),
                     // A value of the exact extension walks the runtime's values of its items.
@@ -3205,6 +3345,7 @@ fn op_kind_effect(
                 Some(Kind::SeqInt) => Kind::SeqSeqInt,
                 Some(Kind::Word32) => Kind::SeqWord32,
                 Some(Kind::Word64) => Kind::SeqWord64,
+                Some(handle) if Kind::seq_of_handle(handle).is_some() => Kind::SeqHandle,
                 _ => Kind::SeqInt,
             };
             Some((dst as usize, Some(seq)))
@@ -3219,20 +3360,7 @@ fn op_kind_effect(
             let elems: Vec<Option<Kind>> = (0..count)
                 .map(|j| kinds.get((start + j) as usize).copied().flatten())
                 .collect();
-            let k = if elems.iter().any(Option::is_none) {
-                None
-            } else if elems.iter().all(|e| *e == elems[0]) {
-                Some(match elems[0] {
-                    Some(Kind::Float) => Kind::SeqFloat,
-                    Some(Kind::Text) => Kind::SeqText,
-                    Some(Kind::Struct) => Kind::SeqStruct,
-                    Some(Kind::Enum) => Kind::SeqEnum,
-                    Some(Kind::SeqInt) => Kind::SeqSeqInt,
-                    _ => Kind::SeqInt,
-                })
-            } else {
-                Some(Kind::Tuple)
-            };
+            let k = elems.into_iter().collect::<Option<Vec<Kind>>>().map(|ks| tuple_kind(&ks));
             Some((dst as usize, k))
         }
         // Numeric builtins. `sqrt` always returns a Float; `floor`/`ceil`/`round` always return
@@ -3417,10 +3545,14 @@ fn op_kind_effect(
                 BuiltinId::WriteWireResidual => Some(Kind::Int),
                 // `chr(code) -> Text` — a one-character Text built inline (`lower_chr`).
                 BuiltinId::Chr => Some(Kind::Text),
-                // Word ring construct/extract: `word32`/`word64` build a Word; `intOfWord*` yield an Int.
+                // Word ring construct/extract: `word8`/`word16`/`word32`/`word64` build a Word;
+                // `intOfWord*` yield an Int.
                 BuiltinId::Word32 => Some(Kind::Word32),
                 BuiltinId::Word64 => Some(Kind::Word64),
-                BuiltinId::IntOfWord32 | BuiltinId::IntOfWord64 => Some(Kind::Int),
+                BuiltinId::Word16Make => Some(Kind::Word16),
+                BuiltinId::Word8Make => Some(Kind::Word8),
+                BuiltinId::IntOfWord32 | BuiltinId::IntOfWord64 | BuiltinId::IntOfWord16
+                | BuiltinId::IntOfWord8 => Some(Kind::Int),
                 // `rotl`/`rotr`/`word_and`/`word_or`/`word_not` PRESERVE the (first) word operand's kind
                 // (`a` = the `args_start` register's kind — `Word32` or `Word64`).
                 BuiltinId::Rotl | BuiltinId::Rotr | BuiltinId::Wand | BuiltinId::Wor | BuiltinId::Wnot => a,
@@ -3547,11 +3679,11 @@ fn unify_strict(
         Some(s) if s.is_seq() && k == Kind::SeqAny => {}
         // Set element refinement: the `Set` default (an empty `new Set of …`) refines to `SetText`
         // the first time a Text is added; a concrete `SetText` absorbs a later `Set` (Int-default) no-op.
-        Some(Kind::Set) if k == Kind::SetText => {
-            kinds[r] = Some(Kind::SetText);
+        Some(Kind::Set) if matches!(k, Kind::SetText | Kind::SetHandle) => {
+            kinds[r] = Some(k);
             *changed = true;
         }
-        Some(Kind::SetText) if k == Kind::Set => {}
+        Some(Kind::SetText | Kind::SetHandle) if k == Kind::Set => {}
         // A CRDT set field's kind is fixed by `NewCrdt`; a `SetAdd`/`RemoveFrom` on it re-derives a
         // `Set`/`SetText` kind, which `CrdtSetText` ABSORBS (it stays the mutable-shared CRDT kind).
         Some(Kind::CrdtSetText) if k == Kind::Set || k == Kind::SetText => {}
@@ -3631,6 +3763,33 @@ fn unify_strict(
 /// Map a resolved [`BoundaryType`] to this backend's [`Kind`] — the bridge from the bytecode's
 /// static type registry to the AOT value model. `None` only for a type this backend has no value
 /// model for at all; every BOXED shape resolves, nested ones through [`Kind::SeqHandle`].
+/// The kind a tuple of elements of these kinds is held at: a homogeneous one shares the list layout of
+/// its element — a sequence kind — and a heterogeneous one is a `Tuple`. The ONE rule a built tuple
+/// (`NewTuple`) and a declared tuple type both resolve through, so the two always agree: a tuple of two
+/// sets of different members is homogeneous here, two `SetHandle`s, wherever it was declared.
+pub(crate) fn tuple_kind(elems: &[Kind]) -> Kind {
+    match elems.split_first() {
+        None => Kind::SeqInt,
+        Some((first, rest)) if rest.iter().all(|k| k == first) => match first {
+            Kind::Float => Kind::SeqFloat,
+            Kind::Text => Kind::SeqText,
+            Kind::Struct => Kind::SeqStruct,
+            Kind::Enum => Kind::SeqEnum,
+            Kind::SeqInt => Kind::SeqSeqInt,
+            handle if Kind::seq_of_handle(*handle).is_some() => Kind::SeqHandle,
+            _ => Kind::SeqInt,
+        },
+        _ => Kind::Tuple,
+    }
+}
+
+/// The one element type of a homogeneous tuple's positions, whose layout is a list of it; `None` for an
+/// empty or heterogeneous tuple.
+pub(crate) fn homogeneous(positions: &[BoundaryType]) -> Option<&BoundaryType> {
+    let first = positions.first()?;
+    positions.iter().all(|p| p == first).then_some(first)
+}
+
 pub(crate) fn boundary_to_kind(bt: &BoundaryType) -> Option<Kind> {
     Some(match bt {
         BoundaryType::Int => Kind::Int,
@@ -3682,19 +3841,17 @@ pub(crate) fn boundary_to_kind(bt: &BoundaryType) -> Option<Kind> {
         // one i32 whose word 0 is the constructor tag. `TestArm` compares that tag and `BindArm`
         // reads the payload slot; neither needed a line of new lowering.
         BoundaryType::Option(_) => Kind::Enum,
-        // One i32 handle to an insertion-ordered dedup'd buffer. Only the two element kinds with a
-        // self-describing set representation resolve: `Set of Int` → `Kind::Set` (i64 slots), `Set of
-        // Text` → `Kind::SetText` (Text-handle slots). Other elements have no self-contained set kind.
-        BoundaryType::Set(elem) => match boundary_to_kind(elem)? {
-            Kind::Int => Kind::Set,
-            Kind::Text => Kind::SetText,
-            _ => return None,
-        },
+        // One i32 handle to an insertion-ordered dedup'd buffer: `Set of Int` → `Kind::Set` (i64 slots),
+        // `Set of Text` → `Kind::SetText` (Text-handle slots), a set of tuples or lists →
+        // `Kind::SetHandle` (member-handle slots compared by value).
+        BoundaryType::Set(elem) => Kind::set_of(boundary_to_kind(elem)?)?,
         // One i32 handle. The value kind is carried by the param seed (for `item k of m`), not here.
         BoundaryType::Map(_, _) => Kind::Map,
-        // One i32 handle to a mixed-kind slot buffer. The per-position kinds are carried by the param
-        // seed (for `item N of t`), not here.
-        BoundaryType::Tuple(_) => Kind::Tuple,
+        // A tuple is held at the kind `NewTuple` gives one of its positions' kinds ([`tuple_kind`]); a
+        // heterogeneous one's per-position kinds are carried by the param seed (for `item N of t`).
+        BoundaryType::Tuple(es) => {
+            tuple_kind(&es.iter().map(boundary_to_kind).collect::<Option<Vec<_>>>()?)
+        }
         // A first-class builtin value type — its handle/scalar kind is fixed by name. A name with no
         // wasm kind returns `None` (early), leaving the parameter soundly unmodeled.
         BoundaryType::Builtin(name) => return builtin_name_to_kind(name),

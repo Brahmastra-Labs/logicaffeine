@@ -249,17 +249,20 @@ fn a_sliced_seq_carries_the_same_class_as_its_source() {
 /// makes forever; this reads the stamp each one actually carries, off the handle `print_text` receives.
 #[test]
 fn every_text_a_program_builds_is_stamped_text_header() {
+    // The numbers and texts arrive on the command line, so the optimizer folds none of these Texts to a constant and
+    // each site builds its Text at run time.
     let src = "## Main
-Let n be 7.
-Let t be \"ab\".
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let t be item 3 of arguments.
 Show t + \"cd\".
 Show \"n={n}\".
 Show format(n).
-Show \"{2.5}\".
+Show \"{n * 0.5}\".
 Show item 1 of t.
-Show chr(65).
-Let mutable acc be \"x\".
-Repeat for i from 1 to 3:
+Show chr(58 + n).
+Let mutable acc be t + \"x\".
+Repeat for i from 1 to n:
     Set acc to acc + \"y\".
 Show acc.
 Repeat for ch in t:
@@ -287,6 +290,7 @@ Show \"literal\".
     .expect("print_text");
     common::wasm_host::link_failure_hooks::<D>(&mut l);
     common::wasm_host::link_value_imports::<D>(&mut l);
+    common::wasm_host::link_args::<D>(&mut l, &["prog", "7", "ab"]);
     let mut store = wasmi::Store::new(&engine, seen.clone());
     crate::common::wasm_host::link_unmodelled_imports(&mut l);
     let inst = l

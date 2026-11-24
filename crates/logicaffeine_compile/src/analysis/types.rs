@@ -113,10 +113,11 @@ impl LogosType {
         }
     }
 
-    /// Whether this type is Copy in Rust (no .clone() needed).
+    /// Whether this type is Copy in Rust (no .clone() needed): the scalars, the DOM handles and views, and the
+    /// temporal values and UUIDs, which the runtime keeps in a word or two (`LogosDuration(i64)`, `LogosUuid`).
     ///
     /// This is the single source of truth for clone decisions,
-    /// replacing `is_copy_type()`, `has_copy_element_type()`, `has_copy_value_type()`.
+    /// replacing `is_copy_type()` and `has_copy_element_type()`.
     pub fn is_copy(&self) -> bool {
         matches!(
             self,
@@ -130,6 +131,12 @@ impl LogosType {
                 | LogosType::Element
                 | LogosType::Event
                 | LogosType::View
+                | LogosType::Duration
+                | LogosType::Date
+                | LogosType::Moment
+                | LogosType::Time
+                | LogosType::Span
+                | LogosType::Uuid
         )
     }
 
@@ -268,7 +275,7 @@ impl LogosType {
                     .map(|p| p.to_rust_type())
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!("impl Fn({}) -> {}", params_str, ret.to_rust_type())
+                format!("impl Fn({}) -> {} + Clone", params_str, ret.to_rust_type())
             }
             LogosType::UserDefined(_) => "_".into(),
             LogosType::Unknown => "_".into(),
@@ -687,6 +694,13 @@ impl TypeEnv {
                         Some(e) => LogosType::Set(Box::new(self.infer_expr_with(e, interner, field))),
                         None => LogosType::Unknown,
                     },
+                    // `n copies of x` desugars to `repeatSeq(x, n)` — a Seq of `x`'s type. Typed, a grid of
+                    // copies is a `Seq of Seq of …` its readers and writers know: a store into one of its rows
+                    // is the nested store that copies the rows a copy of the grid still shares.
+                    "repeatSeq" => match args.first() {
+                        Some(e) => LogosType::Seq(Box::new(self.infer_expr_with(e, interner, field))),
+                        None => LogosType::Unknown,
+                    },
                     _ => {
                         // Look up function signature
                         if let Some(sig) = self.lookup_fn(*function) {
@@ -719,16 +733,16 @@ impl TypeEnv {
                 type_args,
                 ..
             } => {
-                let name = interner.resolve(*type_name);
-                match name {
-                    "Seq" | "List" | "Vec" => {
+                use crate::semantics::collections::{built_by, Built};
+                match built_by(interner.resolve(*type_name)) {
+                    Some(Built::List) => {
                         let elem = type_args
                             .first()
                             .map(|t| LogosType::from_type_expr(t, interner))
                             .unwrap_or(LogosType::Unit);
                         LogosType::Seq(Box::new(elem))
                     }
-                    "Map" | "HashMap" => {
+                    Some(Built::Map) => {
                         let key = type_args
                             .first()
                             .map(|t| LogosType::from_type_expr(t, interner))
@@ -739,14 +753,14 @@ impl TypeEnv {
                             .unwrap_or(LogosType::String);
                         LogosType::Map(Box::new(key), Box::new(val))
                     }
-                    "Set" | "HashSet" => {
+                    Some(Built::Set) => {
                         let elem = type_args
                             .first()
                             .map(|t| LogosType::from_type_expr(t, interner))
                             .unwrap_or(LogosType::Unit);
                         LogosType::Set(Box::new(elem))
                     }
-                    _ => LogosType::Unknown,
+                    None => LogosType::Unknown,
                 }
             }
 

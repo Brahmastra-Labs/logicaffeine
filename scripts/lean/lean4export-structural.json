@@ -1,0 +1,12 @@
+{
+  "schema": "logos-lean4export-structural-patch/1",
+  "purpose": "Key lean4export's expression tables by Lean.ExprStructEq (Expr.equal: binder names and binder annotations included) instead of Expr's BEq (Expr.eqv: alpha equivalence, binder annotations ignored), so that two expressions differing only in a binder's name or annotation are exported as two records and every exported binder is the source's own.",
+  "file": "Export.lean",
+  "replacements": [
+    ["visitedExprs : HashMap Expr Nat", "visitedExprs : HashMap ExprStructEq Nat"],
+    ["noMDataExprs : HashMap Expr Expr", "noMDataExprs : HashMap ExprStructEq Expr"],
+    ["noMDataExprs[e]?", "noMDataExprs[ExprStructEq.mk e]?"],
+    ["noMDataExprs.insert e e'", "noMDataExprs.insert (ExprStructEq.mk e) e'"],
+    ["getIdx e \"ie\"", "getIdx (ExprStructEq.mk e) \"ie\""]
+  ]
+}

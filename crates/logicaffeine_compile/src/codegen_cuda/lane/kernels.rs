@@ -111,25 +111,38 @@ struct lk_out {
 #define LK_ROW(p, row, pitch) ((p) + ((row) ? (long)(*(row) - 1) * (long)(pitch) : 0L))
 // A product's epilogue on its output `v` at row `t`, column `c` of `n`: plus the bias `b[c]`, times the scale — `s`, or
 // `cs[c]` a column's own, or `cs[t·n + c]` each output's own (`each`) — plus `b2` (a row, or each output's own:
-// `each2`) (`gemm_scale`), then squared past its ReLU (`sq`, `relu_sqr`, as `lk_relu` squares it), each step rounded as
-// its own launch rounds it. A bias pointer alone converts to one.
+// `each2`) (`gemm_scale`), then squared past its ReLU (`sq`, `relu_sqr`, as `lk_relu` squares it) or activated (`act`,
+// `lk_act`'s code) and scaled after (`post`) (`gemm_act`, as `lk_unary` and `lk_scale` compute them), each step rounded
+// as its own launch rounds it. A bias pointer alone converts to one.
+template<int ACT> __device__ __forceinline__ float lk_act(float v);
 struct lk_epi {
   const float* b = nullptr; float s = 1.f; const float* cs = nullptr; bool each = false; const float* b2 = nullptr;
-  bool each2 = false; bool sq = false;
+  bool each2 = false; bool sq = false; int act = -1; float post = 1.f;
   lk_epi() = default;
   __host__ __device__ lk_epi(std::nullptr_t) {}
   __host__ __device__ lk_epi(const float* bias) : b(bias) {}
   __host__ __device__ lk_epi(const float* bias, float scale, const float* scales, bool own, const float* after, bool own_after,
-                             bool square)
-      : b(bias), s(scale), cs(scales), each(own), b2(after), each2(own_after), sq(square) {}
-  __device__ __forceinline__ float operator()(float v, long t, long c, long n) const {
+                             bool square, int activation = -1, float factor = 1.f)
+      : b(bias), s(scale), cs(scales), each(own), b2(after), each2(own_after), sq(square), act(activation), post(factor) {}
+  // The epilogue, its activation compiled in only under `ACT`: a kernel whose launch takes no activated epilogue
+  // (`Launch::activates`, the kernel's `EA`) leaves it out, and with it the nvcc time and the registers its select of
+  // three activations costs every unrolled epilogue.
+  template<bool ACT>
+  __device__ __forceinline__ float apply(float v, long t, long c, long n) const {
     if(b) v = __fadd_rn(v, b[c]);
     if(cs) v = __fmul_rn(v, cs[each ? t * n + c : c]);
     else if(s != 1.f) v = __fmul_rn(v, s);
     if(b2) v = __fadd_rn(v, b2[each2 ? t * n + c : c]);
     if(sq){ float r = v > 0.f ? v : 0.f; v = __fmul_rn(r, r); }
+    if constexpr(ACT){
+      if(act >= 0){
+        v = act == 0 ? lk_act<0>(v) : act == 1 ? lk_act<1>(v) : lk_act<2>(v);
+        if(post != 1.f) v = __fmul_rn(v, post);
+      }
+    }
     return v;
   }
+  __device__ __forceinline__ float operator()(float v, long t, long c, long n) const { return apply<true>(v, t, c, n); }
 };
 
 __device__ __forceinline__ float lk_warp_sum(float v){
@@ -356,6 +369,35 @@ __device__ __forceinline__ void lk_q8_round(float (&acc)[W], const signed char* 
     }
   }
 }
+// The last round of rows `o … o + W − 1` dotted with one activation row, their last `n` blocks each (`n` under sixteen,
+// `W·n` at most sixteen) in one round of the warp: pair `r·n + j` holds row `r`'s block `j`, and each partial `q` of row
+// `r` takes its steps `j = q, q + 4, …` in order by `shfl_down` from lane `2(r·n + j)` — the steps `lk_q8_round` takes
+// over a round of the row alone, so every sum is its own bits.
+template<int Q, int W>
+__device__ __forceinline__ void lk_q8_round_merged(float (&acc)[W], const signed char* __restrict__ wq, const __half* __restrict__ ws, long o, int K,
+                                                   const signed char* __restrict__ xq, const signed char* __restrict__ xl, const float* __restrict__ xs,
+                                                   int c, int n){
+  const int lane = threadIdx.x & 31, p = lane >> 1, nb = K >> 5;
+  const bool in = p < W * n;
+  const int r = in ? p / n : 0, j = in ? p % n : 0, blk = c * 16 + j, at = blk * 2 + (lane & 1);
+  const int4 zero = make_int4(0, 0, 0, 0);
+  const int4 h = in ? ((const int4*)xq)[at] : zero;
+  const int4 l = Q == 2 && in ? ((const int4*)xl)[at] : zero;
+  const float s = in ? xs[blk] : 0.f;
+  const int4 w = in ? ((const int4*)(wq + (o + r) * K))[at] : zero;
+  const float wsc = in ? __half2float(ws[(o + r) * nb + blk]) : 0.f;
+  const int d = lk_q8_block_dot(w, h), e = Q == 2 ? lk_q8_block_dot(w, l) : 0;
+  const float2 t = lk_q8_term<Q>(wsc, s, (float)d, (float)e);
+  #pragma unroll
+  for(int rr = 0; rr < W; ++rr){
+    #pragma unroll
+    for(int k = 0; k < 4; ++k){
+      const int delta = 2 * (rr * n + 4 * k);
+      const float a = __shfl_down_sync(0xffffffffu, t.x, delta & 31), b = __shfl_down_sync(0xffffffffu, t.y, delta & 31);
+      if(lane < 8 && (lane & 1) == 0 && (lane >> 1) + 4 * k < n && delta < 32) acc[rr] = __fmaf_rn(a, b, acc[rr]);
+    }
+  }
+}
 // Rows `o … o + W − 1` of a Q8_0 matrix (int8 values `wq`, a half scale per 32 in `ws`) dotted with the `M` activation
 // rows of `K` values — one warp of a block of at most `WARPS` — row `r`'s dots at `out + r·M`, in every lane. Under the
 // precise numerics (Q 0) the activations are `f32` and the sums `f64`, four values a lane at a time. Quantized (int8
@@ -400,7 +442,8 @@ __device__ __forceinline__ void lk_q8_rows_dot(const signed char* __restrict__ w
     for(int r = 0; r < W; ++r) acc[r] = 0.f;
     const int full = nb >> 4, rest = nb & 15;
     for(int c = 0; c < full; ++c) lk_q8_round<Q, W, true>(acc, wq, ws, o, K, xq, xl, xs, c, 16);
-    if(rest) lk_q8_round<Q, W, false>(acc, wq, ws, o, K, xq, xl, xs, full, rest);
+    if(rest && W > 1 && W * rest <= 16) lk_q8_round_merged<Q, W>(acc, wq, ws, o, K, xq, xl, xs, full, rest);
+    else if(rest) lk_q8_round<Q, W, false>(acc, wq, ws, o, K, xq, xl, xs, full, rest);
     #pragma unroll
     for(int r = 0; r < W; ++r){
       float v = acc[r];
@@ -759,12 +802,21 @@ pub fn format_arg(ty: crate::model::quant::GgmlType) -> u32 {
 pub const GEMV_F32_ROWS: usize = 4;
 
 /// The outputs a block of the decode step's expert down projection takes (`W` of `lk_moe_down`), and the warps its
-/// shared expert's rows take (`SW`): four outputs where `d` divides by four, so each kept expert's warp has four rows'
-/// weight loads in flight over one load of the hidden row — and a warp a row of the shared expert's where its rows are
-/// wider than an expert's, so no warp holds the block back. Against a block of one output on the 3060, DeepSeek-V2-Lite's
-/// down projections (Q8_0 beside a shared Q6_K, Q5_0 beside a shared Q4_K) drop 13–31%, gpt-oss-20b's (MXFP4) 23–36%
-/// and Qwen3-30B-A3B's shape (Q4_K, Q6_K) 16–33%; eight outputs lost but in MXFP4.
+/// shared expert's rows take (`SW`), so every warp of the block reads the same values: where the shared expert is a
+/// whole number of experts wide, more than one and at most eight, that divides `d` (DeepSeek-V2's two), as many outputs
+/// as that and a warp a shared row — each kept expert's warp reads that many rows of an expert's width, each shared warp
+/// one row of the shared expert's; otherwise four outputs where `d` divides by four, each kept expert's warp four rows'
+/// weight loads in flight over one load of the hidden row, and a warp a row of a wider shared expert's. Against a block of
+/// one output on the 3060, DeepSeek-V2-Lite's down projections (Q8_0 beside a shared Q6_K, Q5_0 beside a shared Q4_K)
+/// drop 13–31%, gpt-oss-20b's (MXFP4) 23–36% and Qwen3-30B-A3B's shape (Q4_K, Q6_K) 16–33%; eight outputs lost but in
+/// MXFP4. DeepSeek-V2-Lite's at two outputs and two shared warps against four and four: 73.8 µs from 79.3 beside Q6_K,
+/// 51.6 from 52.8 beside Q4_K, and two and two the fastest of every pair in every 32-value format
+/// (`logs/fusion-k09/k20/sw-*.txt`); Qwen3-30B-A3B's, with no shared expert, fastest at four.
 pub fn moe_down_rows(d: usize, dff: usize, sdff: usize) -> (usize, usize) {
+    if sdff > dff && sdff % dff == 0 && (2..=8).contains(&(sdff / dff)) && d % (sdff / dff) == 0 {
+        let w = sdff / dff;
+        return (w, w);
+    }
     let w = [4, 2, 1].into_iter().find(|w| d % w == 0).expect("one divides every width");
     (w, if sdff > dff { w } else { 1 })
 }
@@ -781,6 +833,66 @@ pub fn moe_down_launch(d: usize, dff: usize, k: usize, sdff: usize) -> (usize, u
 /// four where a warp takes `per_warp` rows past one.
 pub fn gemv_blk_norm_threads(per_warp: usize) -> usize {
     32 * if per_warp == 1 { 8 } else { 4 }
+}
+
+/// The output rows a warp of a gated delta layer's inputs takes over Q8_0 rows under one activation word (`lk_gemv_gdn`,
+/// a warp's rows one part's): two where every part's outputs are whole twos, one otherwise. On the 3060 two took
+/// Qwen3.5-0.8B's decode step from 3.194 ms to 3.178 (its 18 layers' inputs 1024 → 6144 + 2048 + 16 + 16), the logits
+/// the same bytes; four took 3.186. Rows a warp never change a sum.
+pub fn q8_gdn_launch_rows(parts: &[usize]) -> usize {
+    if parts.iter().all(|n| n % 2 == 0) {
+        2
+    } else {
+        1
+    }
+}
+
+/// The rows of a gated delta layer's memory a warp of its step takes (`lk_delta_step`'s `RW`): two — the key and query
+/// loaded, normed and dotted once for both, both rows' loads in flight, a head's 128 rows in 16 blocks of four warps. On
+/// the 3060 two took Qwen3.5-0.8B's step (16 heads, 1 MiB of memory) from 10.98 µs to 9.91 with its head norm, 8.50 to
+/// 7.53 alone (its floor 6.13 at 342.2 GB/s), and Qwen3.8's (48 heads, 3 MiB) from 26.21 to 23.68, 22.30 to 20.77
+/// alone; four took 10.28 and 25.28. Every row's sums are its own.
+pub const DELTA_ROWS_A_WARP: usize = 2;
+
+/// The output rows a warp of a Q8_0 GEMV in parts of a step's one row takes under one activation word (`lk_gemv_parts`,
+/// eight warps a block): four where every part's outputs are whole fours, two where whole twos, one otherwise — a warp's
+/// rows one part's, their last blocks past whole rounds of sixteen in one round (`lk_q8_round_merged`). On the 3060 four
+/// took Llama-3.2-1B's query, key and value (2048 → 2048 + 512 + 512) from 24.81 µs at one row a warp to 22.04, Qwen3-8B's
+/// (4096 → 6144) from 83.11 to 80.81 and Gemma-3-1B's (1152 → 1536) from 8.65 to 7.93, and Qwen3.5-0.8B's gated query,
+/// key and value (1024 → 5120) from 18.39 to 18.69. Rows a warp never change a sum.
+pub fn q8_parts_launch_rows(parts: &[usize]) -> usize {
+    [4, 2, 1].into_iter().find(|w| parts.iter().all(|n| n % w == 0)).unwrap_or(1)
+}
+
+/// The output rows a warp of a gated pair of a step's one row in Q8_0 or a block format takes under one activation word
+/// (`lk_gemv_glu`, its outputs quantized a block of 32): four — the gate's and the up's rows of four outputs a warp,
+/// eight rows' loads in flight over one load of the activation, blocks of 8 warps where one row a warp takes blocks of
+/// 32 a multiprocessor holds one of, a Q8_0 row's last blocks of a width past whole rounds of sixteen in one round
+/// (`lk_q8_round_merged`) and a block-format row's last sub-blocks past whole rounds of 32 in one round
+/// (`lk_blk_round_merged`). On the 3060 four took Gemma-3-1B's Q8_0 pair (1152 → 6912) from 59.48 µs at one row a warp
+/// to 52.82 (two: 53.33), Qwen3.5-0.8B's (1024 → 3584) from 25.71 to 25.02 (25.30) and Llama-3.2-1B's (2048 → 8192)
+/// from 107.69 to 106.67 (106.67), and held Qwen3-8B's (4096 → 12288) at 316; Gemma-3-1B Q4_K_M's Q5_0 pair from 60.71
+/// to 42.88 (two: 46.08, eight: 51.84); and every block format faster at four than at one, at 1024, 1152 and 2048 wide,
+/// 4096 outputs — Q4_0's 1024-wide pair 26.18 → 16.90, Q4_K's 19.99 → 17.71, Q3_K's 33.12 → 20.83, Q6_K's 34.66 → 26.56
+/// (`logs/fusion-k09/k08/glu-rows-sweep.txt`; eight was faster again in some formats). The merged round took the Q5_0
+/// pair from 41.78 µs to 37.22 at four (eight: 48.74 → 36.66) and every format of 32-value blocks 1152 wide 1.4–12%
+/// faster at two and four, 6912 outputs (`logs/fusion-k09/k08/merged/`). Rows a warp never change a sum.
+pub const GLU_ROWS: usize = 4;
+
+/// The output rows a warp of a Q8_0 projection of a step's one row takes where its last block norms the row
+/// (`lk_gemv_q8_norm`, blocks of the norm's `threads`, one a multiprocessor) on a chip of `sms` multiprocessors: two where
+/// one row a warp takes more blocks than the chip holds at once and two fit them in one wave, one otherwise. On the 3060
+/// two rows a warp took Qwen3.5-0.8B's 1024-wide projections from 11.47 to 10.76 µs (the attention's output) and from
+/// 17.77 to 15.45 (the down projection), Gemma-3-1B's 1152-wide from 9.24 to 8.42 and from 31.46 to 29.95, and lost
+/// 1.45 and 3.7 µs at Llama-3.2-1B's 2048 (64 blocks one row a warp, 32 two). Rows a warp never change a sum, so the
+/// launch chooses them for the chip alone.
+pub fn q8_norm_launch_rows(rows: usize, threads: usize, sms: usize) -> usize {
+    let blocks = |w: usize| rows.div_ceil(threads / 32 * w);
+    if rows % 2 == 0 && blocks(1) > sms && blocks(2) <= sms {
+        2
+    } else {
+        1
+    }
 }
 
 /// Whether a block of `threads` runs a norm of a row of `cols` as the norm's own block does, each of its threads one of
@@ -874,6 +986,20 @@ pub fn rows_a_warp(ty: crate::model::quant::GgmlType, n: usize, k: usize, m: usi
         4
     } else {
         1
+    }
+}
+
+/// The rows a warp of a decode mixture's gate and up rows in format `ty` take, `n` of them over activation rows `k` wide
+/// (`lk_moe_up`'s `W`): two in MXFP4 where `rows_a_warp` gives four, `rows_a_warp`'s otherwise. On the 3060 two was
+/// MXFP4's fastest at every mixture shape measured — gpt-oss-20b's gate and up (2880 → 4 × 2880) in 110.4 µs a layer
+/// against 116.0 at four (320.6 GB/s, 93.7% of the card's read), DeepSeek-V2-Lite's shape 76.9 against 79.0,
+/// Qwen3-30B-A3B's 43.8 against 45.3 (`logs/fusion-k09/k20/`); every output the same bits at every rows a warp.
+pub fn moe_rows_a_warp(ty: crate::model::quant::GgmlType, n: usize, k: usize) -> usize {
+    let w = rows_a_warp(ty, n, k, 1);
+    if ty == crate::model::quant::GgmlType::Mxfp4 && w == 4 {
+        2
+    } else {
+        w
     }
 }
 
@@ -1080,6 +1206,10 @@ pub enum Kernel {
     GatherBlk,
     GatherF32,
     RmsNorm,
+    DualNorm,
+    NormLanes,
+    Lanes,
+    Ngram,
     NormParts,
     GatherNorm,
     Quant,
@@ -1097,6 +1227,7 @@ pub enum Kernel {
     Softcap,
     SwiGlu,
     Unary,
+    Erf,
     Relu,
     Rope,
     GemvPartsRope,
@@ -1138,6 +1269,10 @@ impl Kernel {
             Kernel::GatherBlk => "lk_gather_blk",
             Kernel::GatherF32 => "lk_gather_f32",
             Kernel::RmsNorm => "lk_rmsnorm",
+            Kernel::DualNorm => "lk_rmsnorm2",
+            Kernel::NormLanes => "lk_rmsnorm_lanes",
+            Kernel::Lanes => "lk_lane_mean",
+            Kernel::Ngram => "lk_ngram_ids",
             Kernel::NormParts => "lk_norm_by_sums",
             Kernel::GatherNorm => "lk_gather_norm",
             Kernel::Quant => "lk_quant",
@@ -1155,6 +1290,7 @@ impl Kernel {
             Kernel::Softcap => "lk_softcap",
             Kernel::SwiGlu => "lk_swiglu",
             Kernel::Unary => "lk_unary",
+            Kernel::Erf => "lk_erf",
             Kernel::Relu => "lk_relu",
             Kernel::Rope => "lk_rope",
             Kernel::GemvPartsRope => "lk_gemv_parts_rope",
@@ -1196,6 +1332,10 @@ impl Kernel {
             Kernel::GatherBlk => GATHER_BLK,
             Kernel::GatherF32 => GATHER_F32,
             Kernel::RmsNorm => RMSNORM,
+            Kernel::DualNorm => DUAL_NORM,
+            Kernel::NormLanes => NORM_LANES,
+            Kernel::Lanes => LANES,
+            Kernel::Ngram => NGRAM,
             Kernel::NormParts => NORM_PARTS,
             Kernel::GatherNorm => GATHER_NORM,
             Kernel::Quant => QUANT,
@@ -1213,6 +1353,7 @@ impl Kernel {
             Kernel::Softcap => SOFTCAP,
             Kernel::SwiGlu => SWIGLU,
             Kernel::Unary => UNARY,
+            Kernel::Erf => ERF,
             Kernel::Relu => RELU,
             Kernel::Rope => ROPE,
             Kernel::GemvPartsRope => GEMV_PARTS_ROPE,
@@ -1276,7 +1417,8 @@ struct lk_part_y {
 // Up to `LK_PARTS` matrices one activation is projected by (the planner's `GEMM_PARTS`), their outputs side by side:
 // part `p`'s matrix `w[p]`, outputs `y[p]` (rows from the one-based position `row[p]` names, `pitch[p]` apart, where it
 // names one), epilogue `bias[p]` (its bias, or every step a product's epilogue takes: `lk_epi`), and its outputs
-// `end[p − 1] … end[p] − 1` of the launch's.
+// `end[p − 1] … end[p] − 1` of the launch's — of which the part's own are the first `n[p]` where that is not 0, a
+// tensor-core GEMM laying a part narrower than its tiles from a tile of its own (`kernels::gemm_part_cols`).
 #define LK_PARTS 6
 struct lk_parts {
   lk_w w[LK_PARTS];
@@ -1285,6 +1427,7 @@ struct lk_parts {
   int end[LK_PARTS];
   const int* row[LK_PARTS];
   long pitch[LK_PARTS];
+  int n[LK_PARTS];
 };
 __device__ __forceinline__ lk_out lk_part_out(const lk_parts& parts, int p){
   const lk_part_y& y = parts.y[p];
@@ -1296,15 +1439,15 @@ __device__ __forceinline__ lk_out lk_part_out(const lk_parts& parts, int p){
 // parameter bank (indexed by a part computed at run time, they would be copied to every thread's stack).
 __device__ __forceinline__ void lk_take_part(const lk_parts& parts, int& n0, lk_w& w, lk_out& y, lk_epi& bias,
                                              const int* __restrict__& yrow, long& ypitch, int& N){
-  int start = 0, end = parts.end[0];
+  int start = 0, end = parts.end[0], own = parts.n[0];
   w = parts.w[0]; y = lk_part_out(parts, 0); bias = parts.bias[0]; yrow = parts.row[0]; ypitch = parts.pitch[0];
   #pragma unroll
   for(int q = 1; q < LK_PARTS; ++q)
     if(n0 >= parts.end[q - 1]){
-      start = parts.end[q - 1]; end = parts.end[q];
+      start = parts.end[q - 1]; end = parts.end[q]; own = parts.n[q];
       w = parts.w[q]; y = lk_part_out(parts, q); bias = parts.bias[q]; yrow = parts.row[q]; ypitch = parts.pitch[q];
     }
-  N = end - start; n0 -= start;
+  N = own > 0 ? own : end - start; n0 -= start;
 }
 // The little-endian f16 at `p`, as an `f32`.
 __device__ __forceinline__ float lk_h(const unsigned char* p){ return __half2float(__ushort_as_half((unsigned short)(p[0] | (p[1] << 8)))); }
@@ -2173,6 +2316,35 @@ __device__ __forceinline__ void lk_quarter4_q6k(const unsigned char* __restrict_
     d[k][1] = dd * (float)(signed char)((sw >> (16 * (k & 1) + 8)) & 0xff);
   }
 }
+// The last round of rows `0 … W − 1` of a block-format matrix (`rb` bytes a row from `r0`) dotted with one activation
+// row, their last `n` sub-blocks each from `s0` (`W·n` at most 32) in one round of the warp: lane `r·n + j` decodes and
+// dots row `r`'s sub-block `s0 + j`, and lane `j` takes each row's step from it by `shfl` — the step lane `j` takes over
+// the round of the row alone, so every sum is its own bits.
+template<int F, int Q, int W>
+__device__ __forceinline__ void lk_blk_round_merged(float (&acc)[W][1], const unsigned char* __restrict__ r0, long rb, int s0, int n,
+                                                    const signed char* __restrict__ xq, const signed char* __restrict__ xl,
+                                                    const float* __restrict__ xs){
+  const int lane = threadIdx.x & 31;
+  const bool in = lane < W * n;
+  const int r = in ? lane / n : 0, sb = s0 + (in ? lane % n : 0);
+  float s = 0.f, dot = 0.f;
+  if(in){
+    const int* hp = (const int*)xq + sb * 8;
+    const int* lp = Q == 2 ? (const int*)xl + sb * 8 : nullptr;
+    int h[8], l[8];
+    #pragma unroll
+    for(int i = 0; i < 8; ++i){ h[i] = hp[i]; l[i] = Q == 2 ? lp[i] : 0; }
+    s = xs[sb];
+    int wv[8]; float d[2], c[2];
+    lk_sub4<F>(r0 + r * rb, sb, wv, d, c);
+    dot = lk_sub_dot<Q>(wv, d, c, h, Q == 2 ? l : nullptr);
+  }
+  #pragma unroll
+  for(int rr = 0; rr < W; ++rr){
+    const float a = __shfl_sync(0xffffffffu, s, (rr * n + lane) & 31), b = __shfl_sync(0xffffffffu, dot, (rr * n + lane) & 31);
+    if(lane < n) acc[rr][0] += a * b;
+  }
+}
 template<int F, int Q, int M, int W = 1>
 __device__ __forceinline__ void lk_row_dot_blk(lk_w w, long row, int K, const float* __restrict__ x,
                                                const signed char* __restrict__ xq, const signed char* __restrict__ xl,
@@ -2212,7 +2384,11 @@ __device__ __forceinline__ void lk_row_dot_blk(lk_w w, long row, int K, const fl
       #pragma unroll
       for(int t = 0; t < M; ++t) acc[r][t] = 0.f;
     static_assert(W == 1 || M == 1, "several rows a warp meet one activation row");
-    for(int sb = lane; sb < nb; sb += 32){
+    // Several rows' last sub-blocks past whole rounds of 32, as few as the warp holds at once, in one round
+    // (`lk_blk_round_merged`); the rows' pairs and quarters of Q4_K and Q6_K keep their rounds.
+    const int whole = nb & ~31, rest = nb - whole;
+    const bool merged = F != 12 && F != 14 && W > 1 && rest > 0 && W * rest <= 32;
+    for(int sb = lane; sb < (merged ? whole : nb); sb += 32){
       if constexpr(F == 12){
         // A lane a pair of sub-blocks, `2·sb` and the next, decoded from the words they share, each dotted as
         // `lk_sub_dot` dots it — the decode step's rows a warp and a chunk's rows alike.
@@ -2305,6 +2481,7 @@ __device__ __forceinline__ void lk_row_dot_blk(lk_w w, long row, int K, const fl
         }
       }
     }
+    if constexpr(F != 12 && F != 14 && W > 1 && M == 1) if(merged) lk_blk_round_merged<F, Q, W>(acc, r0, w.rb, whole, rest, xq, xl, xs);
     #pragma unroll
     for(int r = 0; r < W; ++r)
       #pragma unroll
@@ -2602,7 +2779,7 @@ template<int F> __device__ __forceinline__ void lk_unpack(const lk_raw<F>& raw, 
 /// (`QO`) a block of `32 / W` warps takes 32 outputs, one quantized block a row, quantized as `lk_quant_lane` quantizes
 /// it, and `y` (when not null) takes the `f32` result too.
 const GEMV_BLK: &str = r#"
-template<int F, int Q, int M, int W, int QO>
+template<int F, int Q, int M, int W, int QO, bool EA = false>
 __device__ __forceinline__ void lk_gemv_blk_rows(lk_w w, const float* __restrict__ x, const signed char* __restrict__ xq,
                             const signed char* __restrict__ xl, const float* __restrict__ xs,
                             lk_epi bias, lk_out y, const int* __restrict__ yrow,
@@ -2614,7 +2791,7 @@ __device__ __forceinline__ void lk_gemv_blk_rows(lk_w w, const float* __restrict
   if(o < N){
     lk_out yo = y ? LK_ROW(y, yrow, ypitch) : lk_out();
     auto out = [&](int r, int t, float d){
-      float val = bias(d, t, o + r, N);
+      float val = bias.apply<EA>(d, t, o + r, N);
       if(yo) yo[(long)t * N + o + r] = val;
       if(QO > 0) v[t][warp * W + r] = val;
     };
@@ -2636,13 +2813,13 @@ __device__ __forceinline__ void lk_gemv_blk_rows(lk_w w, const float* __restrict
     }
   }
 }
-template<int F, int Q, int M, int W = 1, int QO = 0>
+template<int F, int Q, int M, int W = 1, int QO = 0, bool EA = false>
 __global__ void lk_gemv_blk(lk_w w, const float* __restrict__ x, const signed char* __restrict__ xq,
                             const signed char* __restrict__ xl, const float* __restrict__ xs,
                             lk_epi bias, lk_out y, const int* __restrict__ yrow,
                             long ypitch, int K, int N, signed char* __restrict__ yq, signed char* __restrict__ yl,
                             float* __restrict__ ys){
-  lk_gemv_blk_rows<F, Q, M, W, QO>(w, x, xq, xl, xs, bias, y, yrow, ypitch, K, N, yq, yl, ys);
+  lk_gemv_blk_rows<F, Q, M, W, QO, EA>(w, x, xq, xl, xs, bias, y, yrow, ypitch, K, N, yq, yl, ys);
 }
 "#;
 
@@ -2676,9 +2853,10 @@ __global__ void lk_gemv_blk_norm(lk_w w, const float* __restrict__ x, const sign
 /// The projections of one activation's `M` rows (`M ≤ 16`) by up to `GEMM_PARTS` matrices in format `F` (8: Q8_0's
 /// split arrays), their `N` outputs side by side as `parts` lays them out: warp `o` dots `W` consecutive rows of the
 /// part holding output `o` (a part's outputs a whole number of warps' rows) as the part's own GEMV dots them
-/// (`lk_gemv_dot`), and writes each, plus the part's bias, where the part's outputs go.
+/// (`lk_gemv_dot`), and writes each through the part's epilogue — its bias, scale and activation — where the part's
+/// outputs go.
 const GEMV_PARTS: &str = r#"
-template<int F, int Q, int M, int W = 1>
+template<int F, int Q, int M, int W = 1, bool EA = false>
 __global__ void lk_gemv_parts(const float* __restrict__ x, const signed char* __restrict__ xq, const signed char* __restrict__ xl,
                               const float* __restrict__ xs, int K, int N, lk_parts parts){
   long o = (((long)blockIdx.x * blockDim.x + threadIdx.x) >> 5) * W;
@@ -2692,11 +2870,11 @@ __global__ void lk_gemv_parts(const float* __restrict__ x, const signed char* __
   if constexpr(lk_h16_rows<F, Q, M>()){
     float c[lk_h16_tiles<W, M>()][4];
     lk_h16_mma_rows<F, Q, W, M>(parts.w[p], r, K, x, K, c);
-    lk_h16_each<W, M>([&](int i, int t, int k, int e){ yo[(long)t * n + r + i] = b(c[k][e], t, r + i, n); });
+    lk_h16_each<W, M>([&](int i, int t, int k, int e){ yo[(long)t * n + r + i] = b.apply<EA>(c[k][e], t, r + i, n); });
   } else {
     float d[W * M];
     lk_gemv_dot<F, Q, M, W>(parts.w[p], r, K, x, xq, xl, xs, d);
-    for(int j = threadIdx.x & 31; j < W * M; j += 32) yo[(long)j % M * n + r + j / M] = b(lk_pick(d, j), j % M, r + j / M, n);
+    for(int j = threadIdx.x & 31; j < W * M; j += 32) yo[(long)j % M * n + r + j / M] = b.apply<EA>(lk_pick(d, j), j % M, r + j / M, n);
   }
 }
 "#;
@@ -2764,7 +2942,7 @@ __device__ __forceinline__ void lk_mma_blocks(float (&acc)[MW][NW][4][4], const 
     }
   }
 }
-template<int Q, int MT, int NT, int MW = 1, int NW = 1>
+template<int Q, int MT, int NT, int MW = 1, int NW = 1, bool EA = false>
 __global__ void __launch_bounds__(32 * (NT / NW) * (MT / MW), MW == 1 && NW == 1 ? 512 / (32 * NT * MT) : 1) lk_gemv_mma(
     const signed char* __restrict__ xq, const signed char* __restrict__ xl, const float* __restrict__ xs, int K, int N, int M,
     lk_parts parts){
@@ -2900,7 +3078,7 @@ __global__ void __launch_bounds__(32 * (NT / NW) * (MT / MW), MW == 1 && NW == 1
           const long start = p ? parts.end[p - 1] : 0, rr = o - start, np = parts.end[p] - start;
           lk_out yo = LK_ROW(lk_part_out(parts, p), parts.row[p], parts.pitch[p]);
           const lk_epi bias = parts.bias[p];
-          yo[(long)t * np + rr] = bias(v, t, rr, np);
+          yo[(long)t * np + rr] = bias.apply<EA>(v, t, rr, np);
         }
       }
     }
@@ -2962,7 +3140,7 @@ __device__ __forceinline__ void lk_mb_act(const signed char* __restrict__ xr0, c
   s1 += __shfl_xor_sync(0xffffffffu, s1, 1); s1 += __shfl_xor_sync(0xffffffffu, s1, 2);
   sh[0] = s0; sh[1] = s1;
 }
-template<int F>
+template<int F, bool EA = false>
 __global__ void __launch_bounds__(512, 1) lk_gemv_mma_blk(const signed char* __restrict__ xq, const signed char* __restrict__ xl,
                                                          const float* __restrict__ xs, int K, int N, int M, lk_parts parts){
   static_assert(F == 12 || F == 14 || F == 2 || F == 3 || F == 6 || F == 7, "a batch's tensor-core GEMV of Q4_K, Q6_K, Q4_0, Q4_1, Q5_0 or Q5_1 rows");
@@ -3194,7 +3372,7 @@ __global__ void __launch_bounds__(512, 1) lk_gemv_mma_blk(const signed char* __r
     for(int L = 0; L < 4; ++L) v[L] += v[L + 4];
     v[0] += v[2]; v[1] += v[3];
     v[0] += v[1];
-    yo[(long)t * np + nl + o] = bias(v[0], t, nl + o, np);
+    yo[(long)t * np + nl + o] = bias.apply<EA>(v[0], t, nl + o, np);
   }
 }
 "#;
@@ -3265,6 +3443,10 @@ __global__ void lk_gather_f32(const float* __restrict__ t, const int* __restrict
 /// than 1 scales `y` once it is rounded to `f32`, before it is stored or quantized, as `lk_scale` scales the stored row
 /// (`norm_scale`); the sum is written unscaled. With the partials of an all-reduce (`f`, `allreduce_norm`), the added
 /// operand is their left fold, each partial read where it lives and summed in order as the all-reduce's adds sum them.
+/// A thread issues every load of its values — the row's, the added operand's and the weight's — before it stores any,
+/// so its values' round trips overlap: a load the compiler leaves behind a store waits for the load that store's value
+/// came from. A Q8_0 fold of Qwen3-8B's 4096 then waits on one round trip through L2 in its last block where it waited
+/// on four.
 const RMSNORM: &str = r#"
 // The partials whose left fold a norm adds in place of one operand: `p[0] + p[1] + …`, the first `N` (`L2`: read past
 // the L1). `N` is the kernel's own, so every partial's pointer is a register, never an array indexed at run time.
@@ -3285,15 +3467,20 @@ struct lk_norm_of {
   const float* x; const float* r; float* s; const float* w; lk_out y; const int* yrow; long ypitch;
   signed char* yq; signed char* yl; float* ys; float eps; const float* pw; float peps;
 };
-template<bool ADD, bool SUM, bool OUTF, int Q, int PER, typename A, bool PRE, bool L2, int VW = 1, int FN = 0>
+template<bool ADD, bool SUM, bool OUTF, int Q, int PER, typename A, bool PRE, bool L2, int VW = 1, int FN = 0, bool SPREAD = false, bool REG = false>
 __device__ __forceinline__ void lk_rmsnorm_row(const float* x, const float* r, float* __restrict__ s,
                            const float* __restrict__ w, lk_out yr, signed char* __restrict__ yq,
                            signed char* __restrict__ yl, float* __restrict__ ys, int cols, float eps, long base, long xb,
-                           const float* __restrict__ pw, float peps, A* red, int vt, float c = 1.f, lk_fold f = {}){
+                           const float* __restrict__ pw, float peps, A* red, int vt, float c = 1.f, lk_fold f = {},
+                           float share = 0.f, const float* regs = nullptr){
   auto ld = [](const float* p){ return L2 ? __ldcg(p) : *p; };
-  // The added operand at `i`: its own array's value, or the fold of the all-reduce's `FN` partials.
+  // Under REG the row's values are the caller's, `regs[k]` the value at `threadIdx.x + k·vt`, one warp a norm's warp.
+  static_assert(!REG || (VW == 1 && !ADD && !PRE), "a row in registers is one norm's thread's own, nothing added to it");
+  // The added operand at `base + i`: its own array's value, the fold of the all-reduce's `FN` partials, or, under
+  // SPREAD, the one row `r` holds times this row's `share`, the product rounded once.
   auto added = [&](long i){
     if constexpr(FN > 0) return f.template at<FN, L2>(i);
+    else if constexpr(SPREAD) return __fmul_rn(ld(r + (i - base)), share);
     else return ld(r + i);
   };
   const int nw = blockDim.x >> 5, vw = vt >> 5, warp = threadIdx.x >> 5, lane = threadIdx.x & 31;
@@ -3325,6 +3512,24 @@ __device__ __forceinline__ void lk_rmsnorm_row(const float* x, const float* r, f
       }
     }
   }
+  // Every value this thread reads, each at a column in range — one past the row reads the row's last and drops it — so
+  // no load waits behind a branch, nor behind a store of what an earlier load brought.
+  float a[VW][ADD && !PRE ? PER : 1], g[VW][PER];
+  #pragma unroll
+  for(int j = 0; j < VW; ++j){
+    #pragma unroll
+    for(int k = 0; k < PER; ++k){
+      const int i = u(j) + k * vt, at = min(i, cols - 1);
+      const bool in = on(j) && i < cols;
+      const float xv = REG ? regs[k] : ld(x + xb + at);
+      v[j][k] = in ? xv : 0.f;
+      if constexpr(ADD && !PRE){
+        const float av = added(base + at);
+        a[j][k] = in ? av : 0.f;
+      }
+      g[j][k] = w ? w[at] : 1.f;
+    }
+  }
   A acc[VW];
   #pragma unroll
   for(int j = 0; j < VW; ++j){
@@ -3332,10 +3537,10 @@ __device__ __forceinline__ void lk_rmsnorm_row(const float* x, const float* r, f
     #pragma unroll
     for(int k = 0; k < PER; ++k){
       int i = u(j) + k * vt;
-      v[j][k] = 0.f;
-      if(on(j) && i < cols){
-        v[j][k] = ld(x + xb + i);
-        if(ADD){ v[j][k] += PRE ? p[j][k] : added(base + i); if(SUM) s[base + i] = v[j][k]; }
+      if(ADD && on(j) && i < cols){
+        if constexpr(PRE) v[j][k] += p[j][k];
+        else v[j][k] += a[j][k];
+        if(SUM) s[base + i] = v[j][k];
       }
       acc[j] += (A)v[j][k] * (A)v[j][k];
     }
@@ -3349,7 +3554,7 @@ __device__ __forceinline__ void lk_rmsnorm_row(const float* x, const float* r, f
       int i = u(j) + k * vt;
       // A warp holds a whole 32-value group: the quantizer's maximum is the warp's.
       if(Q == 0 ? i < cols : (i & ~31) < cols){
-        float o = w ? (float)((A)v[j][k] / den * (A)w[i]) : (float)((A)v[j][k] / den);
+        float o = w ? (float)((A)v[j][k] / den * (A)g[j][k]) : (float)((A)v[j][k] / den);
         if(c != 1.f) o = o * c;
         if(Q == 0 || OUTF) yr[i] = o;
         if(Q > 0) lk_quant_lane<Q>(o, yq, yl, ys, base + i, (base + i) >> 5);
@@ -3368,6 +3573,141 @@ __global__ void __launch_bounds__(1024 / VW) lk_rmsnorm(const float* __restrict_
   lk_out yr = y ? LK_ROW(y, yrow, ypitch) + (long)blockIdx.x * yp + yo : lk_out();
   lk_rmsnorm_row<ADD, SUM, OUTF, Q, PER, A, PRE, false, VW, FN>(x, r, s, w, yr, yq, yl, ys, cols, eps, base, xb, pw, peps, red,
                                                                 VW * blockDim.x, c, f);
+}
+"#;
+
+/// A norm in lanes (`rmsnorm … in L lanes`, a hyper-connected residual's), a block a row: `lk_rmsnorm` over rows each a
+/// lane of `cols` values, row `r` normed by row `r mod lanes` of the weight — every row's work `lk_rmsnorm_row`, so a
+/// lane is normed bit for bit as a norm of that row alone by that weight row is. Under SPREAD the added operand is one
+/// row a token, lane `l` of token `t` adding it times `by[t·lanes + l]` (`hc_post_norm`): the sum `lk_lane_spread`
+/// writes with the residual, each product and sum rounded once.
+const NORM_LANES: &str = r#"
+template<bool ADD, bool SUM, bool OUTF, int Q, int PER, typename A, int VW = 1, bool SPREAD = false>
+__global__ void __launch_bounds__(1024 / VW) lk_rmsnorm_lanes(const float* __restrict__ x, const float* __restrict__ r,
+                           float* __restrict__ s, const float* __restrict__ w, lk_out y,
+                           signed char* __restrict__ yq, signed char* __restrict__ yl, float* __restrict__ ys, int cols,
+                           float eps, long xp, long xo, const int* __restrict__ yrow, long ypitch, long yp, long yo, int lanes,
+                           const float* __restrict__ by){
+  __shared__ A red[32];
+  long base = (long)blockIdx.x * cols, xb = (long)blockIdx.x * xp + xo;
+  lk_out yr = y ? LK_ROW(y, yrow, ypitch) + (long)blockIdx.x * yp + yo : lk_out();
+  const float* added = SPREAD ? r + (long)(blockIdx.x / lanes) * cols : r;
+  lk_rmsnorm_row<ADD, SUM, OUTF, Q, PER, A, false, false, VW, 0, SPREAD>(x, added, s, w + (long)(blockIdx.x % lanes) * cols, yr, yq, yl,
+                                                                        ys, cols, eps, base, xb, nullptr, 0.f, red, VW * blockDim.x,
+                                                                        1.f, {}, SPREAD ? by[blockIdx.x] : 0.f);
+}
+"#;
+
+/// A hyper-connected residual's lanes, a thread a value: `lk_lane_mean`, each row's `lanes` lanes of `cols` summed in
+/// order in the accumulator `A` and divided by their count (`the mean of X over L lanes`) — each value first times `by`'s
+/// through its activation `act` where given, rounded once as `lk_binary` rounds it (`hc_mix`), the mean written where
+/// `OUTF` and quantized where `Q`, a warp a 32-value group; `lk_lane_spread`, each row
+/// laid in every one of its lanes, lane `l` of row `t` times `by[t·lanes + l]` where given (`O spread over L lanes by S`),
+/// added to the residual `add` where given (`hc_post`) — each product and sum rounded once, as the launches apart do;
+/// `lk_lane_sums`, each lane's values summed in order (`the lane sums of X over L lanes`); `lk_signed_root`,
+/// `sign(x)·√max(|x|, eps)` (`the signed root of X`).
+const LANES: &str = r#"
+template<typename A, bool OUTF, int Q>
+__global__ void lk_lane_mean(const float* __restrict__ x, const float* __restrict__ by, int act, float* __restrict__ y,
+                             signed char* __restrict__ yq, signed char* __restrict__ yl, float* __restrict__ ys, int rows, int lanes,
+                             int cols){
+  const long i = (long)blockIdx.x * blockDim.x + threadIdx.x;
+  if(i >= (long)rows * cols) return;
+  const long t = i / cols, c = i % cols;
+  A sum = 0;
+  for(int l = 0; l < lanes; ++l){
+    const long at = (t * lanes + l) * cols + c;
+    float v = x[at];
+    if(by){
+      const float g = act < 0 ? by[at] : act == 0 ? lk_act<0>(by[at]) : act == 1 ? lk_act<1>(by[at]) : lk_act<2>(by[at]);
+      v = __fmul_rn(v, g);
+    }
+    sum = sum + (A)v;
+  }
+  const float m = (float)(sum / (A)lanes);
+  if(OUTF) y[i] = m;
+  if(Q > 0) lk_quant_lane<Q>(m, yq, yl, ys, i, i >> 5);
+}
+__global__ void lk_lane_spread(const float* __restrict__ x, const float* __restrict__ by, const float* __restrict__ add, float* __restrict__ y,
+                               int rows, int lanes, int cols){
+  const long i = (long)blockIdx.x * blockDim.x + threadIdx.x;
+  if(i >= (long)rows * lanes * cols) return;
+  const long c = i % cols, lane = i / cols, t = lane / lanes;
+  const float v = by ? __fmul_rn(x[t * cols + c], by[lane]) : x[t * cols + c];
+  y[i] = add ? __fadd_rn(add[i], v) : v;
+}
+template<typename A>
+__global__ void lk_lane_sums(const float* __restrict__ x, float* __restrict__ y, int rows, int lanes, int cols){
+  const long i = (long)blockIdx.x * blockDim.x + threadIdx.x;
+  if(i >= (long)rows * lanes) return;
+  A sum = 0;
+  for(int c = 0; c < cols; ++c) sum = sum + (A)x[i * cols + c];
+  y[i] = (float)sum;
+}
+__global__ void lk_signed_root(const float* __restrict__ x, float* __restrict__ y, long n, float eps){
+  const long i = (long)blockIdx.x * blockDim.x + threadIdx.x;
+  if(i >= n) return;
+  const float v = x[i];
+  y[i] = (v > 0.f ? 1.f : v < 0.f ? -1.f : 0.f) * sqrtf(fmaxf(fabsf(v), eps));
+}
+"#;
+
+/// The most token rows one launch of the n-gram hash takes: a block of a thread a row.
+pub const NGRAM_ROWS: usize = 1024;
+
+/// The n-gram hash (`the ngram ids of T after R by M modulo V from O ending at E`), one block of a thread a token row:
+/// row `i`'s history the `n − 1` rows before it — the carried `hist` (oldest first, 0 where no token was), then the
+/// launch's own rows — read back from the nearest, a 0, an end of document (row `eos`) and everything beyond one reading
+/// as an end of document; each order's product `(row − 1)·m[k]` XORed on in 64-bit integers, wrapping as the
+/// multipliers keep it below 2⁶³, and each of its `per` heads taking it modulo its `v` plus its `o` plus one. Once every
+/// thread has read the history, the first leaves it holding the last `n − 1` rows.
+const NGRAM: &str = r#"
+__global__ void lk_ngram_ids(const int* __restrict__ t, int* hist, const long long* __restrict__ m, const long long* __restrict__ v,
+                             const long long* __restrict__ o, int* __restrict__ ids, int rows, int n, int per, long long eos){
+  const int i = threadIdx.x;
+  if(i < rows){
+    unsigned long long x = (unsigned long long)(t[i] - 1) * (unsigned long long)m[0];
+    bool seen = false;
+    for(int k = 0; k < n - 1; ++k){
+      const int j = i - 1 - k;
+      long long back = j >= 0 ? t[j] : hist[n - 1 + j];
+      if(back == 0) back = eos;
+      seen = seen || back == eos;
+      if(seen) back = eos;
+      x ^= (unsigned long long)(back - 1) * (unsigned long long)m[k + 1];
+      for(int h = 0; h < per; ++h){
+        const int head = k * per + h;
+        ids[(long)i * (n - 1) * per + head] = (int)((long long)(x % (unsigned long long)v[head]) + o[head] + 1);
+      }
+    }
+  }
+  __syncthreads();
+  if(i == 0)
+    for(int q = 0; q < n - 1; ++q) hist[q] = rows + q < n - 1 ? hist[rows + q] : t[rows + q - (n - 1)];
+}
+"#;
+
+/// Two norms of independent rows as one launch (`dual_norm`), a block a row: the first side's `rows0` rows, then the
+/// second's, each block running its side's row as that side's own `lk_rmsnorm` runs it — `lk_rmsnorm_row` over the
+/// norm's own `vt` threads, played `VW` a warp — so every value either side writes is its norm's alone, bit for bit. The
+/// block is the wider side's; the narrower side's warps past its norm's sit its rows out.
+const DUAL_NORM: &str = r#"
+// A side of two norms in one launch: what `lk_rmsnorm` takes, with its row's width and its norm's threads.
+struct lk_norm_side {
+  const float* x; const float* r; float* s; const float* w; lk_out y; const int* yrow; long ypitch;
+  signed char* yq; signed char* yl; float* ys; int cols; float eps; long xp, xo, yp, yo; int vt;
+};
+template<bool ADD, bool SUM, bool OUTF, int Q, int PER, typename A, int VW>
+__device__ __forceinline__ void lk_norm_side_row(const lk_norm_side& n, long row, A* red){
+  lk_out yr = n.y ? LK_ROW(n.y, n.yrow, n.ypitch) + row * n.yp + n.yo : lk_out();
+  lk_rmsnorm_row<ADD, SUM, OUTF, Q, PER, A, false, false, VW>(n.x, n.r, n.s, n.w, yr, n.yq, n.yl, n.ys, n.cols, n.eps,
+                                                              row * n.cols, row * n.xp + n.xo, nullptr, 0.f, red, n.vt);
+}
+template<bool ADD0, bool SUM0, bool OUTF0, int Q0, int PER0, int VW0, bool ADD1, bool SUM1, bool OUTF1, int Q1, int PER1, int VW1, typename A>
+__global__ void __launch_bounds__(1024) lk_rmsnorm2(lk_norm_side a, lk_norm_side b, int rows0){
+  __shared__ A red[32];
+  if((int)blockIdx.x < rows0) lk_norm_side_row<ADD0, SUM0, OUTF0, Q0, PER0, A, VW0>(a, blockIdx.x, red);
+  else lk_norm_side_row<ADD1, SUM1, OUTF1, Q1, PER1, A, VW1>(b, (long)blockIdx.x - rows0, red);
 }
 "#;
 
@@ -3426,7 +3766,9 @@ __global__ void __launch_bounds__(1024) lk_norm_by_sums(lk_row_parts in, lk_norm
 /// (`embed_norm`). A block of the norm's threads, or of a `VW`-th of them each warp playing `VW` of the norm's
 /// (`norm_block`), gathers its row into `out` — the raw row its later readers take — as the gather of the table's
 /// format computes it (`F` 0: an `f32` table `t`; 8: Q8_0's split arrays; a block format otherwise), then norms it as
-/// `lk_rmsnorm`'s block for that row does.
+/// `lk_rmsnorm`'s block for that row does — an `f32` or Q8_0 row a block of the norm's threads gathers in registers,
+/// each thread the values its norm thread reads, every load before any store, and norms where they lie (on the 3060 a
+/// Q8_0 row of 2048 from DRAM in 3.09 µs, of 4096 in 4.46); any other row through `out`.
 const GATHER_NORM: &str = r#"
 template<int F, bool OUTF, int Q, int PER, typename A, int VW = 1>
 __global__ void __launch_bounds__(1024 / VW) lk_gather_norm(lk_w w, const float* __restrict__ t, const int* __restrict__ idx,
@@ -3435,27 +3777,47 @@ __global__ void __launch_bounds__(1024 / VW) lk_gather_norm(lk_w w, const float*
                            const int* __restrict__ yrow, long ypitch){
   __shared__ A red[32];
   const long r = (long)(idx[blockIdx.x] - 1), base = (long)blockIdx.x * cols;
-  if constexpr(F == 0){
-    for(int c = threadIdx.x; c < cols; c += blockDim.x) out[base + c] = lk_gather_f32_at(t, r, c, cols, scale);
-  } else if constexpr(F == 8){
-    for(int c = threadIdx.x; c < cols; c += blockDim.x) out[base + c] = lk_gather_q8_at(w.q, w.s, r, c, cols, scale);
-  } else {
-    for(int sb = threadIdx.x; sb < (cols >> 5); sb += blockDim.x) lk_gather_sub<F>(w, r, sb, out + base + sb * 32, scale);
-  }
-  __syncthreads();
   lk_out yr = y ? LK_ROW(y, yrow, ypitch) + base : lk_out();
-  lk_rmsnorm_row<false, false, OUTF, Q, PER, A, false, false, VW>(out, nullptr, nullptr, nw, yr, yq, yl, ys, cols, eps, base, base,
-                                                                  nullptr, 0.f, red, VW * blockDim.x);
+  if constexpr((F == 0 || F == 8) && VW == 1){
+    // Each thread gathers the values its norm thread reads, every load at a column in range before any store (as the
+    // norm's own), norms them where they lie, then writes them for the row's later readers.
+    float g[PER];
+    #pragma unroll
+    for(int k = 0; k < PER; ++k){
+      const int c = threadIdx.x + k * blockDim.x, at = min(c, cols - 1);
+      const float v = F == 0 ? lk_gather_f32_at(t, r, at, cols, scale) : lk_gather_q8_at(w.q, w.s, r, at, cols, scale);
+      g[k] = c < cols ? v : 0.f;
+    }
+    lk_rmsnorm_row<false, false, OUTF, Q, PER, A, false, false, 1, 0, false, true>(out, nullptr, nullptr, nw, yr, yq, yl, ys, cols, eps,
+                                                                                   base, base, nullptr, 0.f, red, blockDim.x, 1.f, {},
+                                                                                   0.f, g);
+    #pragma unroll
+    for(int k = 0; k < PER; ++k){
+      const int c = threadIdx.x + k * blockDim.x;
+      if(c < cols) out[base + c] = g[k];
+    }
+  } else {
+    if constexpr(F == 0){
+      for(int c = threadIdx.x; c < cols; c += blockDim.x) out[base + c] = lk_gather_f32_at(t, r, c, cols, scale);
+    } else if constexpr(F == 8){
+      for(int c = threadIdx.x; c < cols; c += blockDim.x) out[base + c] = lk_gather_q8_at(w.q, w.s, r, c, cols, scale);
+    } else {
+      for(int sb = threadIdx.x; sb < (cols >> 5); sb += blockDim.x) lk_gather_sub<F>(w, r, sb, out + base + sb * 32, scale);
+    }
+    __syncthreads();
+    lk_rmsnorm_row<false, false, OUTF, Q, PER, A, false, false, VW>(out, nullptr, nullptr, nw, yr, yq, yl, ys, cols, eps, base, base,
+                                                                    nullptr, 0.f, red, VW * blockDim.x);
+  }
 }
 "#;
 
 /// `lk_gemv_q8`, then, in its last-arriving block, `lk_rmsnorm` over the rows it wrote: a projection with the residual
-/// add and the next norm in its epilogue. A block of `norm_threads(N)` threads, a warp an output row, computes each row
-/// as `lk_gemv_q8` does and writes it to `y`; every block counts in at `cnt` once its rows are out, and the last reads
-/// `y` back through L2 and norms each of the `M` rows as `lk_rmsnorm`'s block for that row does — the norm's `x` and
-/// `r` are its operands, one of them `y` — then resets the count.
+/// add and the next norm in its epilogue. A block of `norm_threads(N)` threads, a warp `W` output rows
+/// (`q8_norm_launch_rows`), computes each row as `lk_gemv_q8` does and writes it to `y`; every block counts in at `cnt`
+/// once its rows are out, and the last reads `y` back through L2 and norms each of the `M` rows as `lk_rmsnorm`'s block
+/// for that row does — the norm's `x` and `r` are its operands, one of them `y` — then resets the count.
 const GEMV_Q8_NORM: &str = r#"
-template<int Q, int M, bool ADD, bool SUM, bool OUTF, int QO, int PER, typename A, bool PRE>
+template<int Q, int M, bool ADD, bool SUM, bool OUTF, int QO, int PER, typename A, bool PRE, int W = 1>
 __global__ void __launch_bounds__(1024) lk_gemv_q8_norm(const signed char* __restrict__ wq, const __half* __restrict__ ws,
                            const float* __restrict__ ax, const signed char* __restrict__ xq,
                            const signed char* __restrict__ xl, const float* __restrict__ xs,
@@ -3466,13 +3828,14 @@ __global__ void __launch_bounds__(1024) lk_gemv_q8_norm(const signed char* __res
                            const float* __restrict__ pw = nullptr, float peps = 0.f){
   __shared__ A red[32];
   __shared__ int last;
-  int o = (blockIdx.x * blockDim.x + threadIdx.x) >> 5;
+  int o = ((blockIdx.x * blockDim.x + threadIdx.x) >> 5) * W;
   if(o < N){
-    float v[M];
-    lk_q8_rows_dot<Q, M, 1>(wq, ws, o, K, ax, xq, xl, xs, v);
-    for(int t = threadIdx.x & 31; t < M; t += 32){
-      const float vt = lk_pick(v, t);
-      y[(long)t * N + o] = bias ? vt + bias[o] : vt;
+    float v[W * M];
+    lk_q8_rows_dot<Q, M, W>(wq, ws, o, K, ax, xq, xl, xs, v);
+    for(int j = threadIdx.x & 31; j < W * M; j += 32){
+      const int r = j / M, t = j % M;
+      const float vt = lk_pick(v, j);
+      y[(long)t * N + o + r] = bias ? vt + bias[o + r] : vt;
     }
   }
   __threadfence();
@@ -3504,7 +3867,7 @@ __global__ void lk_quant(const float* __restrict__ x, signed char* __restrict__ 
 /// an f16 scale per 32), one warp per output row: the weight row is read once for every row of `X`. `Q` is the
 /// activations' numerics; the result may land in the rows of a cache a position names.
 const GEMV_Q8: &str = r#"
-template<int Q, int M>
+template<int Q, int M, bool EA = false>
 __global__ void lk_gemv_q8(const signed char* __restrict__ wq, const __half* __restrict__ ws,
                            const float* __restrict__ x, const signed char* __restrict__ xq,
                            const signed char* __restrict__ xl, const float* __restrict__ xs,
@@ -3514,7 +3877,7 @@ __global__ void lk_gemv_q8(const signed char* __restrict__ wq, const __half* __r
   lk_out yo = LK_ROW(y, yrow, ypitch);
   float v[M];
   lk_q8_rows_dot<Q, M, 1>(wq, ws, o, K, x, xq, xl, xs, v);
-  for(int t = threadIdx.x & 31; t < M; t += 32) yo[(long)t * N + o] = bias(lk_pick(v, t), t, o, N);
+  for(int t = threadIdx.x & 31; t < M; t += 32) yo[(long)t * N + o] = bias.apply<EA>(lk_pick(v, t), t, o, N);
 }
 "#;
 
@@ -3762,7 +4125,7 @@ __device__ __forceinline__ void lk_ldsm_s(int* r, unsigned s){
 template<bool PAIR> __device__ __forceinline__ int lk_q8_row(int rw){ return PAIR ? (rw >> 5) * 16 + (rw & 15) : rw; }
 // The streamed path of `lk_gemm_blk<8>` over a `K` of whole 128-value scale groups, each warp `WM` rows by 32 outputs
 // of the tile: `lk_gemm_blk`'s arguments, its block's dynamic shared memory at `lk_sm`.
-template<int Q, int G, int BM, int ACT, int WM, bool PLAIN>
+template<int Q, int G, int BM, int ACT, int WM, bool PLAIN, bool EA>
 __device__ __forceinline__ void lk_blk_streamed(unsigned char* lk_sm, lk_w w, const signed char* __restrict__ xq,
     const signed char* __restrict__ xl, const float* __restrict__ xs, lk_epi bias, lk_out y,
     const int* __restrict__ yrow, long ypitch, int K, int N, int M, const int* __restrict__ ecount,
@@ -4026,7 +4389,7 @@ __device__ __forceinline__ void lk_blk_streamed(unsigned char* lk_sm, lk_w w, co
         int row = m0 + wm + mt * 16 + g + (e >= 2 ? 8 : 0);
         int col = n0 + wn + nt * 8 + t4 * 2 + (e & 1);
         if(row >= M || col >= N) continue;
-        float v = bias(acc[mt][nt][e], row, wbase + col, N);
+        float v = bias.apply<EA>(acc[mt][nt][e], row, wbase + col, N);
         // G 2 weighs each choice's result by its weight, as the expert mixture's down projection does.
         if constexpr(GROUPED) yg[(long)row * N + col] = G == 2 ? v * wt[list[first + row]] : v;
         else yo[(long)row * N + col] = v;
@@ -4047,7 +4410,7 @@ template<int F, int Q, int BM> __host__ __device__ constexpr bool lk_stage_over(
   return lk_stage_pipelined<F, Q, BM>() && lk_gemm_blk_blocks<F, Q, BM>() == 1
       && 2 * lk_stage_acts<Q, BM>() + 2 * lk_stage_wt<F>() + lk_stage_sums<F, Q, BM>() <= 101376;
 }
-template<int F, int Q, int G = 0, int BM = (G >= 1 && G <= 3 ? 64 : 128), int ACT = 0, bool PLAIN = false>
+template<int F, int Q, int G = 0, int BM = (G >= 1 && G <= 3 ? 64 : 128), int ACT = 0, bool PLAIN = false, bool EA = false>
 __global__ void __launch_bounds__(BM * 4, lk_gemm_blk_blocks<F, Q, BM>()) lk_gemm_blk(lk_w w, const signed char* __restrict__ xq,
     const signed char* __restrict__ xl, const float* __restrict__ xs, lk_epi bias, lk_out y,
     const int* __restrict__ yrow, long ypitch, int K, int N, int M, const int* __restrict__ ecount = nullptr,
@@ -4061,12 +4424,12 @@ __global__ void __launch_bounds__(BM * 4, lk_gemm_blk_blocks<F, Q, BM>()) lk_gem
       // Launched as eight warps over 128 rows, each warp takes 64 of them; otherwise 32.
       if constexpr(BM == 128){
         if(blockDim.x == 256){
-          lk_blk_streamed<Q, G, BM, ACT, 64, PLAIN>(lk_sm, w, xq, xl, xs, bias, y, yrow, ypitch, K, N, M, ecount, eoff, list, wt, w2, bias2,
+          lk_blk_streamed<Q, G, BM, ACT, 64, PLAIN, EA>(lk_sm, w, xq, xl, xs, bias, y, yrow, ypitch, K, N, M, ecount, eoff, list, wt, w2, bias2,
                                              hq, hl, hs, limit, slope, tail, split, part, cnt, parts);
           return;
         }
       }
-      lk_blk_streamed<Q, G, BM, ACT, 32, PLAIN>(lk_sm, w, xq, xl, xs, bias, y, yrow, ypitch, K, N, M, ecount, eoff, list, wt, w2, bias2,
+      lk_blk_streamed<Q, G, BM, ACT, 32, PLAIN, EA>(lk_sm, w, xq, xl, xs, bias, y, yrow, ypitch, K, N, M, ecount, eoff, list, wt, w2, bias2,
                                          hq, hl, hs, limit, slope, tail, split, part, cnt, parts);
       return;
     }
@@ -4468,7 +4831,7 @@ __global__ void __launch_bounds__(BM * 4, lk_gemm_blk_blocks<F, Q, BM>()) lk_gem
         int row = m0 + wm + mt * 16 + g + (e >= 2 ? 8 : 0);
         int col = n0 + wn + nt * 8 + t4 * 2 + (e & 1);
         if(row >= M || col >= N) continue;
-        float v = bias(acc[mt][nt][e], row, wbase + col, N);
+        float v = bias.apply<EA>(acc[mt][nt][e], row, wbase + col, N);
         // G 2 weighs each choice's result by its weight, as the expert mixture's down projection does.
         if constexpr(GROUPED) yg[(long)row * N + col] = G == 2 ? v * wt[list[first + row]] : v;
         else yo[(long)row * N + col] = v;
@@ -4495,7 +4858,7 @@ const GEMM_H16: &str = r#"
 #define LK_H16_BM 128
 #define LK_H16_STAGES 4
 #define LK_H16_BP 32
-template<int F, int Q, int G = 0, int ACT = 0, int TN = 128>
+template<int F, int Q, int G = 0, int ACT = 0, int TN = 128, bool EA = false>
 __global__ void __launch_bounds__(256, Q == 1 && TN <= 96 ? 2 : 1) lk_gemm_h16(lk_w w, const float* __restrict__ x, lk_epi bias, lk_out y,
     const int* __restrict__ yrow, long ypitch, int K, int N, int M, lk_w w2 = {}, const float* __restrict__ bias2 = nullptr,
     lk_parts parts = {}){
@@ -4656,7 +5019,7 @@ __global__ void __launch_bounds__(256, Q == 1 && TN <= 96 ? 2 : 1) lk_gemm_h16(l
     for(int c = lane; c < TN; c += 32){
       const int col = n0 + c;
       if(col >= N) break;
-      const float v = epi(E[r * TN + c], row, col, N);
+      const float v = epi.apply<EA>(E[r * TN + c], row, col, N);
       const long i = (long)row * N + col;
       if(yf) yf[i] = v;
       else yo[i] = v;
@@ -4851,6 +5214,12 @@ pub fn gemm_blk_rows(f: u32, two_pass: bool) -> usize {
 /// single block on the 3060, 16.8 µs a layer).
 pub const GEMM_PARTS: usize = 6;
 
+/// The outputs a part of `n` takes in a tensor-core GEMM in parts (`lk_parts`): whole tiles of `GEMM_TILE_N`, a part
+/// narrower than its tiles the rest of its last tile unread and unwritten (`lk_parts`'s `n`).
+pub fn gemm_part_cols(n: usize) -> usize {
+    n.next_multiple_of(GEMM_TILE_N)
+}
+
 /// The rows of a tiled per-head matmul block (`lk_head_tiled`), each block 64 of a head's outputs.
 pub const HEAD_TILE_M: usize = 128;
 
@@ -4863,6 +5232,7 @@ pub const GEMM_TILE_N: usize = 128;
 /// each weight value read once for all of them, every row summed as a row alone sums.
 const GEMV_F32: &str = r#"
 #define LK_F32_ROWS 4
+template<bool EA = false>
 __global__ void __launch_bounds__(256) lk_gemv_f32(const float* __restrict__ w, const float* __restrict__ x,
     lk_epi bias, lk_out y, const int* __restrict__ yrow, long ypitch, int K, int N, int M,
     int parts = 1){
@@ -4889,7 +5259,7 @@ __global__ void __launch_bounds__(256) lk_gemv_f32(const float* __restrict__ w, 
     if(parts == 1){
       #pragma unroll
       for(int r = 0; r < LK_F32_ROWS; ++r)
-        if(live && lane == 0 && t0 + r < t1) yo[(long)(t0 + r) * N + o] = bias((float)acc[r], t0 + r, o, N);
+        if(live && lane == 0 && t0 + r < t1) yo[(long)(t0 + r) * N + o] = bias.apply<EA>((float)acc[r], t0 + r, o, N);
       continue;
     }
     if(lane == 0)
@@ -4902,7 +5272,7 @@ __global__ void __launch_bounds__(256) lk_gemv_f32(const float* __restrict__ w, 
         if(t0 + r < t1){
           double s = 0.0;
           for(int i = 0; i < parts; ++i) s += run[r][warp + i];
-          yo[(long)(t0 + r) * N + o] = bias((float)s, t0 + r, o, N);
+          yo[(long)(t0 + r) * N + o] = bias.apply<EA>((float)s, t0 + r, o, N);
         }
     __syncthreads();
   }
@@ -4923,6 +5293,7 @@ pub fn gemv_f32_parts(n: usize, k: usize, sms: usize) -> usize {
 /// `split` parts (grid layer `z` a part, [`gemm_f32_splits`]) each tile's `k` is cut into that many runs of whole
 /// chunks; each part parks its sums in `part`, and the tile's last part to arrive (`cnt`) sums them in order.
 const GEMM_F32: &str = r#"
+template<bool EA = false>
 __global__ void __launch_bounds__(256) lk_gemm_f32(const float* __restrict__ x, const float* __restrict__ w,
                                                    lk_epi bias, lk_out y, int M, int N, int K,
                                                    int split = 1, float* __restrict__ part = nullptr, int* __restrict__ cnt = nullptr){
@@ -4988,7 +5359,7 @@ __global__ void __launch_bounds__(256) lk_gemm_f32(const float* __restrict__ x, 
     #pragma unroll
     for(int c = 0; c < 4; ++c){
       int n = n0 + 4 * tn + c;
-      if(n < N) y[(long)m * N + n] = bias(acc[r][c], m, n, N);
+      if(n < N) y[(long)m * N + n] = bias.apply<EA>(acc[r][c], m, n, N);
     }
   }
 }
@@ -5042,6 +5413,14 @@ template<int ACT>
 __global__ void lk_unary(const float* __restrict__ x, float* __restrict__ y, long n){
   long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i >= n) return;
   y[i] = lk_act<ACT>(x[i]);
+}
+"#;
+
+/// The error function elementwise, as CUDA's math library computes it in `f32` (`erff`, within two ulps).
+const ERF: &str = r#"
+__global__ void lk_erf(const float* __restrict__ x, float* __restrict__ y, long n){
+  long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i >= n) return;
+  y[i] = erff(x[i]);
 }
 "#;
 
@@ -5160,7 +5539,7 @@ __global__ void lk_rope_parts(lk_rope_side a, lk_rope_side b, const float* __res
 const GEMV_PARTS_ROPE: &str = r#"
 // A 16-bit float matrix's launch names `NT`, the threads its blocks launch with: the registers a thread may take, and so
 // how many blocks of its weights the dots keep in flight; every other format's blocks take up to 1024.
-template<int F, int Q, int M, int W, bool NORM, typename A, int NT = 1024>
+template<int F, int Q, int M, int W, bool NORM, typename A, int NT = 1024, bool EA = false>
 __global__ void __launch_bounds__((F == 1 || F == 30) ? NT : 1024) lk_gemv_parts_rope(const float* __restrict__ x, const signed char* __restrict__ xq,
                               const signed char* __restrict__ xl, const float* __restrict__ xs, int K, int N,
                               lk_parts parts, lk_rope_side a, lk_rope_side b, int pa, int pb,
@@ -5182,7 +5561,7 @@ __global__ void __launch_bounds__((F == 1 || F == 30) ? NT : 1024) lk_gemv_parts
     const lk_epi b = parts.bias[p];
     for(int j = threadIdx.x & 31; j < W * M; j += 32){
       const int i = j / M, t = j % M;
-      yo[(long)t * n + r + i] = b(lk_pick(d, j), t, r + i, n);
+      yo[(long)t * n + r + i] = b.apply<EA>(lk_pick(d, j), t, r + i, n);
     }
   }
   __threadfence();
@@ -6016,7 +6395,7 @@ __device__ __forceinline__ void lk_attention_run(const float* __restrict__ q, co
     const VE* __restrict__ vc, const int* __restrict__ pos, const float* __restrict__ sinks, float* __restrict__ out,
     A* __restrict__ part, int* __restrict__ cnt, int len, int win, int hd, int vd, int group, int heads, int kvw,
     int vw, int voff, float scale, int minc, int splits, long kz, int held, A* mx, A* sum, A* alpha, A* fm, A* fl,
-    int& last, lk_qout qo, float cap){
+    int& last, lk_qout qo, float cap, int row0){
   extern __shared__ __align__(16) unsigned char lk_smem[];
   float* qs = (float*)lk_smem;
   A* sc = (A*)(lk_smem + ((G * hd * 4 + 15) & ~15));
@@ -6028,9 +6407,9 @@ __device__ __forceinline__ void lk_attention_run(const float* __restrict__ q, co
   int hb = blockIdx.x, r = blockIdx.y, t = blockIdx.z;
   int h0 = hb * G, kvh = h0 / group;
   // A batch's rows (`kz` > 0) are its sequences: row `r` attends its own caches, `kz` values on from the last's, up
-  // to its own position; a chunk's rows share the caches, at consecutive positions.
+  // to its own position; a chunk's rows share the caches, at consecutive positions, the first standing for row `row0`.
   if(kz){ kc += r * kz; vc += r * kz; }
-  int end = pos ? (kz ? pos[r] : *pos + r) : len;
+  int end = pos ? (kz ? pos[r] : *pos + row0 + r) : len;
   int lo = lk_window_lo(win, end), n = end - lo;
   int pe = max(1, min(splits, (n + minc - 1) / minc)), chunk = (n + pe - 1) / pe;
   if(t >= pe) return;
@@ -6133,15 +6512,16 @@ template<int G, int VPT, typename A, int MB = 2, typename KE = float, typename V
 __global__ void __launch_bounds__(256, MB) lk_attention(const float* __restrict__ q, const KE* __restrict__ kc,
     const VE* __restrict__ vc, const int* __restrict__ pos, const float* __restrict__ sinks, float* __restrict__ out,
     A* __restrict__ part, int* __restrict__ cnt, int len, int win, int hd, int vd, int group, int heads, int kvw,
-    int vw, int voff, float scale, int minc, int splits, long kz = 0, int held = 0, lk_qout qo = {}, float cap = 0.f){
+    int vw, int voff, float scale, int minc, int splits, long kz = 0, int held = 0, lk_qout qo = {}, float cap = 0.f,
+    int row0 = 0){
   __shared__ A mx[G], sum[G], alpha[G], fm[G], fl[G];
   __shared__ int last;
   if(RW == 0 ? lk_attn_run_width(hd) == 16 : RW == 16)
     lk_attention_run<16, G, VPT, A, KE, VE, QO, PATH, MB <= 2>(q, kc, vc, pos, sinks, out, part, cnt, len, win, hd, vd, group, heads, kvw, vw, voff,
-                                                scale, minc, splits, kz, held, mx, sum, alpha, fm, fl, last, qo, cap);
+                                                scale, minc, splits, kz, held, mx, sum, alpha, fm, fl, last, qo, cap, row0);
   else
     lk_attention_run<32, G, VPT, A, KE, VE, QO, PATH, MB <= 2>(q, kc, vc, pos, sinks, out, part, cnt, len, win, hd, vd, group, heads, kvw, vw, voff,
-                                                scale, minc, splits, kz, held, mx, sum, alpha, fm, fl, last, qo, cap);
+                                                scale, minc, splits, kz, held, mx, sum, alpha, fm, fl, last, qo, cap, row0);
 }
 "#;
 
@@ -6171,7 +6551,7 @@ template<int G, int VPT, int H4, bool VK, typename KE = float, typename VE = flo
 __global__ void __launch_bounds__(256) lk_attention_shared(const float* __restrict__ q, const KE* __restrict__ kc,
     const VE* __restrict__ vc, const int* __restrict__ pos, const float* __restrict__ sinks, float* __restrict__ out,
     float* __restrict__ part, int len, int win, int vd, int heads, int kvw, int vw, int voff, float scale, int minc,
-    int splits, long kz = 0, lk_qout qo = {}, float cap = 0.f){
+    int splits, long kz = 0, lk_qout qo = {}, float cap = 0.f, int row0 = 0){
   constexpr int HD = 4 * H4, HQ = G <= 4 ? 1 : (G <= 8 ? 2 : 4), GP = 4 * HQ, TN = LK_ST * HQ / 8, NV = 4 * TN;
   constexpr int M2 = (2 * H4 + 31) / 32, RF = (LK_ST * H4 + 255) / 256;
   extern __shared__ __align__(16) float lk_ss[];
@@ -6179,9 +6559,9 @@ __global__ void __launch_bounds__(256) lk_attention_shared(const float* __restri
   float* sc = ks + 2 * LK_ST * HD;            // [LK_ST][GP]: a step's scores, then weights, a key's heads together
   __shared__ float mx[G], sum[G], alpha[G];
   int hb = blockIdx.x, r = blockIdx.y, t = blockIdx.z, tid = threadIdx.x, lane = tid & 31, warp = tid >> 5;
-  // A batch's rows (`kz` > 0) are its sequences, as `lk_attention` takes them.
+  // A batch's rows (`kz` > 0) are its sequences, as `lk_attention` takes them; a chunk's first row stands for `row0`.
   if(kz){ kc += r * kz; vc += r * kz; }
-  int end = pos ? (kz ? pos[r] : *pos + r) : len;
+  int end = pos ? (kz ? pos[r] : *pos + row0 + r) : len;
   int lo = lk_window_lo(win, end), chunk;
   int pe = lk_shared_chunks(end - lo, splits, minc, chunk);
   if(t >= pe) return;
@@ -6326,11 +6706,11 @@ __global__ void __launch_bounds__(256) lk_attention_shared(const float* __restri
 template<int QO = 0>
 __global__ void __launch_bounds__(64) lk_attention_fold(const float* __restrict__ part, const int* __restrict__ pos,
     const float* __restrict__ sinks, float* __restrict__ out, int len, int win, int vd, int heads, int minc, int splits,
-    int seqs = 0, lk_qout qo = {}){
+    int seqs = 0, lk_qout qo = {}, int row0 = 0){
   extern __shared__ float lk_ff[];
   __shared__ float fl;
   int h = blockIdx.x, r = blockIdx.y, tid = threadIdx.x, lane = tid & 31;
-  int end = pos ? (seqs ? pos[r] : *pos + r) : len;
+  int end = pos ? (seqs ? pos[r] : *pos + row0 + r) : len;
   int lo = lk_window_lo(win, end), chunk;
   int pe = lk_shared_chunks(end - lo, splits, minc, chunk);
   if(pe == 1) return;
@@ -8332,10 +8712,11 @@ __global__ void __launch_bounds__(256) lk_gate_proj(const float* __restrict__ wb
 }
 "#;
 
-/// The delta-rule step over the `R` rows of a block in turn, one warp per row of a value head's `D×D` memory
-/// (`grid = (HV, D / warps)`) kept in registers across the block — a lane's `DW` values of the row, `DW` at least
-/// `D / 32`: value head `h` reads key head `h % NK`; one pass over the row accumulates `S·k`, `S·q` and `k·q`, rewrites
-/// the row `α·S + β·(v − α·S·k)·kᵀ`, and reads the updated memory as `α·(S·q) + coef·(k·q)`, scaled by `1/√D`. Given a
+/// The delta-rule step over the `R` rows of a block in turn, a warp `RW` rows of a value head's `D×D` memory
+/// (`grid = (HV, D / (warps·RW))`) kept in registers across the block — a lane's `DW` values of each row, `DW` at least
+/// `D / 32`: value head `h` reads key head `h % NK`, the warp its key and query once for its rows and `k·q` once; one
+/// pass over each row accumulates `S·k` and `S·q`, rewrites the row `α·S + β·(v − α·S·k)·kᵀ`, and reads the updated
+/// memory as `α·(S·q) + coef·(k·q)`, scaled by `1/√D` — every row's sums the ones it takes a warp alone. Given a
 /// `qk_eps` (zero or more) the step norms each row's query and key heads itself (`delta_qk_norm`), each value its head's
 /// over the head's L2 norm with `qk_eps` summed as the convolution's norm (`lk_l2_unit`) sums it; without one (negative,
 /// its default) it takes the heads as given.
@@ -8360,7 +8741,7 @@ __device__ __forceinline__ A lk_head_den(const float (&v)[DW], int D, float eps)
     for(int l = 0; l < DW; ++l) if(l < o && l + o < DW && l + o < (D >> 5)) s[l] += s[l + o];
   return __shfl_sync(0xffffffffu, sqrt(s[0] + (A)eps), 0);
 }
-template<typename A, int DW, typename SS>
+template<typename A, int DW, typename SS, int RW = 1>
 __device__ __forceinline__ void lk_delta_rows(const float* __restrict__ q, const float* __restrict__ k, const float* __restrict__ v,
                               const float* __restrict__ bet, const float* __restrict__ alp, SS* __restrict__ S,
                               float* __restrict__ o, int D, int NK, int HV, int R, int seqs, float qk_eps = -1.f){
@@ -8371,12 +8752,13 @@ __device__ __forceinline__ void lk_delta_rows(const float* __restrict__ q, const
     q += z * NK * D; k += z * NK * D; v += z * HV * D; bet += z * HV; alp += z * HV; S += z * HV * D * D; o += z * HV * D;
   }
   int h = blockIdx.x, lane = threadIdx.x & 31, warp = threadIdx.x >> 5;
-  int a = blockIdx.y * (blockDim.x >> 5) + warp;
-  if(a >= D) return;
-  long base = (long)h * D * D + (long)a * D;
-  float sreg[DW];
+  int a0 = (blockIdx.y * (blockDim.x >> 5) + warp) * RW;
+  if(a0 >= D) return;
+  float sreg[RW][DW];
   #pragma unroll
-  for(int i = 0; i < DW; ++i) if(lane + 32 * i < D) sreg[i] = lk_from(S[base + lane + 32 * i]);
+  for(int j = 0; j < RW; ++j)
+    #pragma unroll
+    for(int i = 0; i < DW; ++i) if(a0 + j < D && lane + 32 * i < D) sreg[j][i] = lk_from(S[(long)h * D * D + (long)(a0 + j) * D + lane + 32 * i]);
   for(int r = 0; r < R; ++r){
     const float* kk = k + ((long)r * NK + h % NK) * D;
     const float* qq = q + ((long)r * NK + h % NK) * D;
@@ -8394,24 +8776,36 @@ __device__ __forceinline__ void lk_delta_rows(const float* __restrict__ q, const
       #pragma unroll
       for(int i = 0; i < DW; ++i){ kv[i] = (float)((A)kv[i] / dk); qv[i] = (float)((A)qv[i] / dq); }
     }
-    A su = 0, sw = 0, skq = 0;
+    A skq = 0;
     #pragma unroll
     for(int i = 0; i < DW; ++i){
       const int b = lane + 32 * i;
-      if(b < D){
-        A sv = sreg[i], kb = kv[i], qb = qv[i];
-        su += sv * kb; sw += sv * qb; skq += kb * qb;
-      }
+      if(b < D){ A kb = kv[i], qb = qv[i]; skq += kb * qb; }
     }
-    float u = (float)lk_warp_sum(su), w = (float)lk_warp_sum(sw), kq = (float)lk_warp_sum(skq);
+    const float kq = (float)lk_warp_sum(skq);
     long hr = (long)r * HV + h;
-    float alpha = alp[hr], coef = bet[hr] * (v[hr * D + a] - alpha * u);
-    if(lane == 0) o[hr * D + a] = (alpha * w + coef * kq) * (1.0f / sqrtf((float)D));
+    float alpha = alp[hr], beta = bet[hr];
     #pragma unroll
-    for(int i = 0; i < DW; ++i) if(lane + 32 * i < D) sreg[i] = lk_kept<SS>(alpha * sreg[i] + coef * kv[i]);
+    for(int j = 0; j < RW; ++j){
+      const int a = a0 + j;
+      if(a >= D) break;
+      A su = 0, sw = 0;
+      #pragma unroll
+      for(int i = 0; i < DW; ++i){
+        const int b = lane + 32 * i;
+        if(b < D){ A sv = sreg[j][i], kb = kv[i], qb = qv[i]; su += sv * kb; sw += sv * qb; }
+      }
+      float u = (float)lk_warp_sum(su), w = (float)lk_warp_sum(sw);
+      float coef = beta * (v[hr * D + a] - alpha * u);
+      if(lane == 0) o[hr * D + a] = (alpha * w + coef * kq) * (1.0f / sqrtf((float)D));
+      #pragma unroll
+      for(int i = 0; i < DW; ++i) if(lane + 32 * i < D) sreg[j][i] = lk_kept<SS>(alpha * sreg[j][i] + coef * kv[i]);
+    }
   }
   #pragma unroll
-  for(int i = 0; i < DW; ++i) if(lane + 32 * i < D) S[base + lane + 32 * i] = lk_to<SS>(sreg[i]);
+  for(int j = 0; j < RW; ++j)
+    #pragma unroll
+    for(int i = 0; i < DW; ++i) if(a0 + j < D && lane + 32 * i < D) S[(long)h * D * D + (long)(a0 + j) * D + lane + 32 * i] = lk_to<SS>(sreg[j][i]);
 }
 template<typename A, int DW = 32, typename SS = float>
 __global__ void lk_delta_step(const float* __restrict__ q, const float* __restrict__ k, const float* __restrict__ v,
@@ -8603,7 +8997,7 @@ __global__ void __launch_bounds__(64) lk_delta_state(const float* __restrict__ k
     float xr[RB], xo[RB];
     #pragma unroll
     for(int a = 0; a < RB; ++a){ xr[a] = 0.f; xo[a] = 0.f; }
-    #pragma unroll 4
+    #pragma unroll 16
     for(int b = 0; b < D; ++b){
       float kv = __ldg(Kc + b * LK_DC + t), qv = __ldg(Qc + b * LK_DC + t);
       const float4* sp = (const float4*)(sm + b * RB);
@@ -8626,7 +9020,7 @@ __global__ void __launch_bounds__(64) lk_delta_state(const float* __restrict__ k
     __syncthreads();
     #pragma unroll
     for(int a = 0; a < RB; ++a) xr[a] = 0.f;
-    #pragma unroll 8
+    #pragma unroll
     for(int sr = 0; sr < LK_DC; ++sr){
       float tv = __ldg(Tc + sr * LK_DC + t);
       const float4* rp = (const float4*)(rd + sr * RB);
@@ -8641,7 +9035,7 @@ __global__ void __launch_bounds__(64) lk_delta_state(const float* __restrict__ k
     #pragma unroll
     for(int a = 0; a < RB; ++a) rd[t * RB + a] = xr[a];
     __syncthreads();
-    #pragma unroll 8
+    #pragma unroll
     for(int sr = 0; sr < LK_DC; ++sr){
       float pv = __ldg(Pc + sr * LK_DC + t);
       const float4* dp = (const float4*)(rd + sr * RB);
@@ -8662,7 +9056,7 @@ __global__ void __launch_bounds__(64) lk_delta_state(const float* __restrict__ k
     for(int a = 0; a < 8; ++a)
       #pragma unroll
       for(int i = 0; i < B; ++i) s[a][i] *= gn;
-    #pragma unroll 8
+    #pragma unroll 16
     for(int tt = 0; tt < n; ++tt){
       float kv[B];
       lk_load<B>(k + ((long)(r0 + tt) * NK + kh) * D + b0, kv);
@@ -8718,22 +9112,26 @@ pub fn delta_chunk_scratch(chunks: usize, hv: usize, d: usize) -> [usize; 5] {
 }
 
 /// The delta-rule output's epilogue, one block of `D` threads per value head: RMSNorm the head, scale by `gn`, gate
-/// by `silu(z)`; `Q` quantizes the result, `OUTF` writes it. The head's work is `lk_delta_norm_row`, which the step's
+/// by `silu(z)` — or, with `SIG`, by `sigmoid(z)` (Qwen3.8's); `Q` quantizes the result, `OUTF` writes it. The head's work is `lk_delta_norm_row`, which the step's
 /// last block a head also runs (`DELTA_STEP_NORM`), its warps playing the norm's `D` threads.
 const DELTA_NORM: &str = r#"
 // The head of `D` values at `i0`, a value a thread of the norm's own block: warp `w` of the block's plays the norm's
 // warps `w`, `w + nw`, … (`VW` of them), each value read past the L1 under `L2`.
-template<bool OUTF, int Q, typename A, int VW, bool L2>
+template<bool OUTF, int Q, typename A, int VW, bool L2, bool SIG = false>
 __device__ __forceinline__ void lk_delta_norm_row(const float* __restrict__ z, const float* __restrict__ gn, const float* o,
                               float* __restrict__ out, signed char* __restrict__ oq, signed char* __restrict__ ol,
                               float* __restrict__ os, long i0, int D, float eps, A* red){
   const int nw = blockDim.x >> 5, vw = (D + 31) >> 5, warp = threadIdx.x >> 5, lane = threadIdx.x & 31;
-  float val[VW];
+  // Each value's gate and norm weight read with it, their loads in flight over the head's sum.
+  float val[VW], zs[VW], gs[VW];
   A acc[VW];
   #pragma unroll
   for(int j = 0; j < VW; ++j){
     const int u = (warp + j * nw) * 32 + lane;
-    val[j] = warp + j * nw < vw && u < D ? (L2 ? __ldcg(o + i0 + u) : o[i0 + u]) : 0.f;
+    const bool live = warp + j * nw < vw && u < D;
+    val[j] = live ? (L2 ? __ldcg(o + i0 + u) : o[i0 + u]) : 0.f;
+    zs[j] = live ? z[i0 + u] : 0.f;
+    gs[j] = live ? gn[u] : 0.f;
     acc[j] = (A)val[j] * (A)val[j];
   }
   A den = sqrt(lk_warps_sum<VW>(acc, vw, red) / (A)D + (A)eps);
@@ -8742,29 +9140,29 @@ __device__ __forceinline__ void lk_delta_norm_row(const float* __restrict__ z, c
     const int u = (warp + j * nw) * 32 + lane;
     if(warp + j * nw >= vw || u >= D) continue;
     const long i = i0 + u;
-    float zz = z[i];
-    float r = (float)((A)gn[u] * (A)val[j] / den) * (zz / (1.0f + expf(-zz)));
+    float zz = zs[j];
+    float r = (float)((A)gs[j] * (A)val[j] / den) * (SIG ? 1.0f / (1.0f + expf(-zz)) : zz / (1.0f + expf(-zz)));
     if(OUTF) out[i] = r;
     if(Q > 0) lk_quant_lane<Q>(r, oq, ol, os, i, i >> 5);
   }
 }
-template<bool OUTF, int Q, typename A>
+template<bool OUTF, int Q, typename A, bool SIG = false>
 __global__ void lk_delta_norm(const float* __restrict__ z, const float* __restrict__ gn, const float* __restrict__ o,
                               float* __restrict__ out, signed char* __restrict__ oq, signed char* __restrict__ ol,
                               float* __restrict__ os, int D, float eps){
   __shared__ A red[32];
-  lk_delta_norm_row<OUTF, Q, A, 1, false>(z, gn, o, out, oq, ol, os, (long)blockIdx.x * D, D, eps, red);
+  lk_delta_norm_row<OUTF, Q, A, 1, false, SIG>(z, gn, o, out, oq, ol, os, (long)blockIdx.x * D, D, eps, red);
 }
 "#;
 
 /// The delta-rule step a row at a time with its epilogue in its last block a head: `lk_delta_step` given the norm's
 /// operands (`OUTF`, `Q`, its gate `z` and weight `gn`) and a count a head (a sequence's own, in a batch) — its blocks
 /// write their rows' outputs and count in; the last reads the head's outputs back through L2 and runs
-/// `lk_delta_norm_row` over each row's head, its warps playing the norm's `D` threads (`VW` each), then resets the
+/// `lk_delta_norm_row` (its gate SiLU, or a sigmoid with `SIG`) over each row's head, its warps playing the norm's `D` threads (`VW` each), then resets the
 /// count. Every output, memory, norm and quantized word is the one `lk_delta_step` then `lk_delta_norm` compute. Given a
 /// `qk_eps` its rows' query and key heads are normed first, as `lk_delta_rows` norms them.
 const DELTA_STEP_NORM: &str = r#"
-template<typename A, int DW, bool OUTF, int Q, int VW, typename SS>
+template<typename A, int DW, bool OUTF, int Q, int VW, typename SS, bool SIG = false, int RW = 1>
 __global__ void lk_delta_step(const float* __restrict__ q, const float* __restrict__ k, const float* __restrict__ v,
                               const float* __restrict__ bet, const float* __restrict__ alp, SS* __restrict__ S,
                               float* o, int D, int NK, int HV, int R, int seqs, const float* __restrict__ z,
@@ -8773,7 +9171,7 @@ __global__ void lk_delta_step(const float* __restrict__ q, const float* __restri
                               float qk_eps = -1.f){
   __shared__ A red[32];
   __shared__ int last;
-  lk_delta_rows<A, DW, SS>(q, k, v, bet, alp, S, o, D, NK, HV, R, seqs, qk_eps);
+  lk_delta_rows<A, DW, SS, RW>(q, k, v, bet, alp, S, o, D, NK, HV, R, seqs, qk_eps);
   __threadfence();
   __syncthreads();
   const long zs = seqs ? blockIdx.z : 0, h = blockIdx.x;
@@ -8781,7 +9179,7 @@ __global__ void lk_delta_step(const float* __restrict__ q, const float* __restri
   __syncthreads();
   if(!last) return;
   __threadfence();
-  for(int r = 0; r < R; ++r) lk_delta_norm_row<OUTF, Q, A, VW, true>(z, gn, o, out, oq, ol, os, ((zs * R + r) * HV + h) * D, D, eps, red);
+  for(int r = 0; r < R; ++r) lk_delta_norm_row<OUTF, Q, A, VW, true, SIG>(z, gn, o, out, oq, ol, os, ((zs * R + r) * HV + h) * D, D, eps, red);
   if(threadIdx.x == 0) cnt[zs * HV + h] = 0;
 }
 "#;
@@ -8898,7 +9296,8 @@ __global__ void __launch_bounds__(256) lk_moe_route(const float* __restrict__ x,
       if(Q == 0){ double a = 0.0; for(int t = lane; t < d; t += 32) a += (double)we[t] * (double)x[t]; v = (float)lk_warp_sum_d(a); }
       else { float a = 0.f; for(int t = lane; t < d; t += 32) a += we[t] * x[t]; v = lk_warp_sum(a); }
     } else {
-      lk_gemv_dot<FR, Q, 1>(wr, e, d, x, xq, xl, xs, &v);
+      // A router of checkpoint rows reads its input's values under every numerics, as an `f32` one does.
+      lk_gemv_dot<FR, 0, 1>(wr, e, d, x, nullptr, nullptr, nullptr, &v);
     }
     if(lane == 0) logits[e] = rb ? v + rb[e] : v;
   }

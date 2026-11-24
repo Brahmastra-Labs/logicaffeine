@@ -39,7 +39,7 @@ use crate::spatial::pipeline::StageNames;
 use crate::spatial::target::{precision_int_bits, SpatialTarget};
 use crate::tensor_recognize::qwen::Window;
 use crate::tensor_recognize::qwen::{
-    ArgMaxSpec, AttentionSpec, CausalConvSpec, DecaySpec, FullAttentionSpec, GateAct, GatedDeltaSpec,
+    ArgMaxSpec, AttentionSpec, CausalConvSpec, DecaySpec, ErfSpec, FullAttentionSpec, GatedDeltaSpec,
     GeluSpec, HeadSliceSpec, IntClampSpec, IntRequantSpec, JoinSpec, L2NormSpec, LutAttentionSpec, MoeGroups, MoeScore, MoeSpec,
     ReluSpec,
     RopeSpec, RowGatherSpec, RowIndex, RowsGatherSpec, ScaleSpec, SetRowSpec, SigmoidSpec, SiluSpec, SoftcapSpec,
@@ -183,14 +183,6 @@ fn silu_expr(x: Box<TensorBody>) -> Box<TensorBody> {
         kind: SfpuKind::Silu,
         arg: x,
     })
-}
-
-/// A Gated DeltaNet's output gate on `z`: `silu(z)`, or `σ(z)` as `1/(1 + e^(−z))`.
-fn delta_gate(gate: GateAct, z: Box<TensorBody>) -> Box<TensorBody> {
-    match gate {
-        GateAct::Silu => silu_expr(z),
-        GateAct::Sigmoid => unary(SfpuKind::Recip, add(konst(1.0), unary(SfpuKind::Exp, mul(z, konst(-1.0))))),
-    }
 }
 
 /// Nested `Select`s over the flat column axis: `bands[k] = (hi, body)` computes `body` for every column

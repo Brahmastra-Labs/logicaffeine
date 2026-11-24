@@ -42,19 +42,14 @@ with `0xE2`.
 | 11 | PSRAM SCLK | output |
 | 12–15 | PSRAM SIO[0..3] | bidirectional |
 
-Every other user GPIO is a no-pull input (`verilog/rtl/user_defines.v`). The engine runs on `user_clock2` at
-47.62 MHz (21 ns), the period the macro is hardened at; the UART's bit is 413 of its cycles,
-0.09 % from 115200 baud.
-
-Caravel's chip signoff times its core clock at 25 ns, and that clock is `wb_clk_i`, on which the management
-SoC runs; only the Wishbone acknowledge runs on it here. `user_clock2` is the PLL's 90° phase through a
-divider of its own (`caravel_clocking.v`), so the firmware sets the two apart in the housekeeping registers:
-`user_clock2` is f(DCO) / `pll90_sel` and `wb_clk_i` is f(DCO) / `pll_sel` (register 0x11), with f(DCO) the
-reference clock times `pll_div` (register 0x12). It sets them so `user_clock2` runs at 47.62 MHz or slower and
-`wb_clk_i` at 40 MHz or less.
+Every other user GPIO is a no-pull input (`verilog/rtl/user_defines.v`). The engine runs on `wb_clk_i`, the
+core clock, at 20.83 MHz (48 ns), the period the macro and the wrapper are signed off at; the UART's bit is 181 of
+its cycles, 0.09 % from 115200 baud. Caravel's chip signoff times the core clock at 25 ns, and the management SoC
+runs on it too, so the firmware sets it to the engine's period: `wb_clk_i` is f(DCO) / `pll_sel` (register 0x11),
+with f(DCO) the reference clock times `pll_div` (register 0x12), at 20.83 MHz or slower. `user_clock2` is unused.
 
 The engine's reset is `wb_rst_i`, or logic-analyzer probe 0 while the management SoC drives it, brought
-into the engine's clock domain through two flops. At power-on the PLL is bypassed and `user_clock2` is the
+into the engine's clock domain through two flops. At power-on the PLL is bypassed and `wb_clk_i` is the
 pad clock; the firmware that switches it to the PLL then resets the engine on probe 0. It configures the
 probe as an output from the CPU (`reg_la0_oenb = reg_la0_iena = 1`, as caravel_user_project's `la_test1`
 configures its outputs), writes 1 to `reg_la0_data`, then 0.
@@ -66,13 +61,14 @@ configures its outputs), writes 1 to `reg_la0_data`, then 0.
 
 A PSRAM read's round trip — SCLK out through the harness (at most 9.12 ns, efabless's characterization of
 Caravel's `io_out` path), the board, the part's tACLK (5.5 ns), the board, and the harness back to
-`io_in` (at most 4.55 ns) — is 21.17 ns, inside the 37 ns half SCLK period the edge samples on: two engine
-cycles per half, a 74 ns SCLK.
+`io_in` (at most 4.55 ns) — is 21.17 ns, inside the 48 ns half SCLK period the edge samples on: one engine
+cycle per half, a 96 ns SCLK.
 
 ## Signoff
 
-Hardened with OpenLane v1 on the open sky130A PDK. The macro and the wrapper are each clean on every
-physical gate: Magic DRC 0, Netgen LVS a unique clean match, KLayout-vs-Magic XOR 0, detailed routing 0,
+Hardened with OpenLane v1 on the open sky130A PDK at 48 ns (macro `RUN_2026.09.28_20.20.58`). The engine's
+RTL in this repository has changed since that run and is not yet re-signed; the signed GDS is the engine as that run
+built it. The macro and the wrapper are each clean on every physical gate: Magic DRC 0, Netgen LVS a unique clean match, KLayout-vs-Magic XOR 0, detailed routing 0,
 antenna 0, the golden efabless `sky130A_mr` shuttle DRC 0 with zeroarea 0, and setup and hold met at
 every corner (ss/tt/ff × min/nom/max RC).
 

@@ -420,6 +420,96 @@ fn lib_tanh(x: f64) -> f64 {
     sinh / cosh
 }
 
+/// The coefficients of the library's `erf` (Go's `math.Erf`), each polynomial's from its highest power down: `PP/QQ`
+/// in `x²` below 0.84375, `PA/QA` in `|x| − 1` below 1.25, `RA/SA` in `1/x²` below `1/0.35`, `RB/SB` past it.
+const ERF_PP: [f64; 5] = [
+    -2.376_301_665_665_016_3e-05, -0.005_770_270_296_489_442, -0.028_481_749_575_598_51, -0.325_042_107_247_001_5,
+    0.128_379_167_095_512_56,
+];
+const ERF_QQ: [f64; 6] = [
+    -3.960_228_278_775_368e-06, 0.000_132_494_738_004_321_64, 0.005_081_306_281_875_766, 0.065_022_249_988_767_3,
+    0.397_917_223_959_155_35, 1.0,
+];
+const ERF_PA: [f64; 7] = [
+    -0.002_166_375_594_868_791, 0.035_478_304_325_618_236, -0.110_894_694_282_396_68, 0.318_346_619_901_161_75,
+    -0.372_207_876_035_701_3, 0.414_856_118_683_748_33, -0.002_362_118_560_752_659_4,
+];
+const ERF_QA: [f64; 7] = [
+    0.011_984_499_846_799_107, 0.013_637_083_912_029_05, 0.126_171_219_808_761_64, 0.071_828_654_414_196_27,
+    0.540_397_917_702_171, 0.106_420_880_400_844_23, 1.0,
+];
+const ERF_RA: [f64; 8] = [
+    -9.814_329_344_169_145, -81.287_435_506_306_6, -184.605_092_906_711_04, -162.396_669_462_573_47,
+    -62.375_332_450_326_006, -10.558_626_225_323_291, -0.693_858_572_707_181_8, -0.009_864_944_034_847_148,
+];
+const ERF_SA: [f64; 9] = [
+    -0.060_424_415_214_858_1, 6.570_249_770_319_282, 108.635_005_541_779_44, 429.008_140_027_567_83,
+    645.387_271_733_267_9, 434.565_877_475_229_23, 137.657_754_143_519_04, 19.651_271_667_439_257, 1.0,
+];
+const ERF_RB: [f64; 7] = [
+    -483.519_191_608_651_4, -1_025.095_131_611_077_2, -637.566_443_368_389_6, -160.636_384_855_821_92,
+    -17.757_954_917_754_752, -0.799_283_237_680_523, -0.009_864_942_924_700_1,
+];
+const ERF_SB: [f64; 8] = [
+    -22.440_952_446_585_82, 474.528_541_206_955_37, 2_553.050_406_433_164_4, 3_199.858_219_508_595_5,
+    1_536.729_586_084_437, 325.792_512_996_573_9, 30.338_060_743_482_46, 1.0,
+];
+
+/// The library's `floorR`: the magic-constant round, one less where it rounded up.
+fn floor_r(y: f64) -> f64 {
+    let rr = round_r(y);
+    if rr > y {
+        rr - 1.0
+    } else {
+        rr
+    }
+}
+
+/// `c₀ + z·(c₁ + z·(… + z·cₙ))` from its coefficients `cₙ` down to `c₀`, as the library's `Set p to c + z * p` lines
+/// compute it.
+fn horner(z: f64, from_top: &[f64]) -> f64 {
+    from_top[1..].iter().fold(from_top[0], |p, c| c + z * p)
+}
+
+/// The library's `erf`, operation for operation (`assets/std/math.lg`) — the spatial evaluator's `SfpuKind::Erf` too, so
+/// a chip's error function is the VM's bit for bit.
+pub(crate) fn lib_erf(x: f64) -> f64 {
+    let (sign, ax) = if x < 0.0 { (0.0 - 1.0, 0.0 - x) } else { (1.0, x) };
+    if ax < 0.84375 {
+        if ax < 3.725_290_298_461_914e-9 {
+            if ax < 2.848_094_538_889_218e-306 {
+                return sign * (0.125 * ((8.0 * ax) + (1.027_033_336_764_100_7 * ax)));
+            }
+            return sign * (ax + (0.128_379_167_095_512_6 * ax));
+        }
+        let z = ax * ax;
+        return sign * (ax + ax * (horner(z, &ERF_PP) / horner(z, &ERF_QQ)));
+    }
+    if ax < 1.25 {
+        let d = ax - 1.0;
+        return sign * (0.845_062_911_510_467_5 + (horner(d, &ERF_PA) / horner(d, &ERF_QA)));
+    }
+    if ax >= 6.0 {
+        return sign;
+    }
+    let w = 1.0 / (ax * ax);
+    let (rr, ss) = if ax < 2.857_142_857_142_857 {
+        (horner(w, &ERF_RA), horner(w, &ERF_SA))
+    } else {
+        (horner(w, &ERF_RB), horner(w, &ERF_SB))
+    };
+    let scale = if ax < 2.0 {
+        1_048_576.0
+    } else if ax < 4.0 {
+        524_288.0
+    } else {
+        262_144.0
+    };
+    let z = floor_r(ax * scale) / scale;
+    let tail = lib_exp((0.0 - (z * z)) - 0.5625) * lib_exp(((z - ax) * (z + ax)) + (rr / ss));
+    sign * (1.0 - (tail / ax))
+}
+
 /// The value a map's turn at place `p` computes for `t`, as the VM computes the statements it was read from; `done` the
 /// values the turns before it wrote.
 fn turn(at: usize, m: &MapSpec, t: &Term, p: usize, ins: &[Data], done: &[V]) -> Result<V, EvalError> {
@@ -492,6 +582,7 @@ fn turn(at: usize, m: &MapSpec, t: &Term, p: usize, ins: &[Data], done: &[V]) ->
                 (Fun::Exp, [x]) => V::Real(lib_exp(x.real())),
                 (Fun::Ln, [x]) => V::Real(lib_ln(x.real())),
                 (Fun::Tanh, [x]) => V::Real(lib_tanh(x.real())),
+                (Fun::Erf, [x]) => V::Real(lib_erf(x.real())),
                 (Fun::Sqrt, [x]) => V::Real(x.real().sqrt()),
                 (Fun::Abs, [V::Int(x)]) => V::Int(x.checked_abs().ok_or_else(|| EvalError::Overflow { op: at, what: "an absolute value".into() })?),
                 (Fun::Abs, [x]) => V::Real(x.real().abs()),
@@ -631,6 +722,7 @@ fn prim(at: usize, spec: &TensorOpSpec, names: &[String], ins: &[Data], env: &BT
                 })
                 .collect())
         }
+        TensorOpSpec::Erf(e) => out(real(0, e.n)?.into_iter().take(e.n).map(lib_erf).collect()),
         TensorOpSpec::SwiGlu(s) => {
             let (g, u) = (real(0, s.total)?, real(1, s.total)?);
             out((0..s.total).map(|i| silu(g[i]) * u[i]).collect())
@@ -1245,7 +1337,7 @@ fn attention(
             if matches!(p, RowIndex::Named(_)) {
                 k += 1;
             }
-            Some(v)
+            Some(v + a.from_row as i64)
         }
         None => None,
     };

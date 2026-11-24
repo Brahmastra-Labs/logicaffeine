@@ -920,3 +920,63 @@ fn shown_duration_writes_the_largest_whole_unit_truncated_toward_zero_and_signed
         assert_eq!(shown_duration(nanos), shown, "{nanos}ns");
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// A fraction of any length parses to its whole nanoseconds, truncated toward zero, exactly: digits
+// far past the nanosecond still decide where a long run of 9s rounds, and none of them overflows.
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn a_fraction_longer_than_i128_holds_parses_to_its_whole_nanoseconds() {
+    assert_eq!(parse_duration("1.000000000000000000000000000000000000001s"), Some(1_000_000_000));
+    assert_eq!(parse_duration(&format!("1.{}s", "0".repeat(200))), Some(1_000_000_000));
+    assert_eq!(parse_duration(&format!("0.{}1s", "0".repeat(200))), Some(0));
+}
+
+#[test]
+fn a_long_fraction_of_a_day_truncates_toward_zero() {
+    // 0.99999999999999999999999999 d is just under 86 400 s, so 86 399 999 999 999 ns.
+    assert_eq!(parse_duration("0.99999999999999999999999999d"), Some(86_399_999_999_999));
+    assert_eq!(parse_duration(&format!("0.{}d", "9".repeat(100))), Some(86_399_999_999_999));
+    assert_eq!(parse_duration(&format!("-0.{}d", "9".repeat(100))), Some(-86_399_999_999_999));
+}
+
+#[test]
+fn short_fractions_keep_their_exact_values() {
+    assert_eq!(parse_duration("1.5s"), Some(1_500_000_000));
+    assert_eq!(parse_duration("0.000000001s"), Some(1));
+    assert_eq!(parse_duration("0.0000000019s"), Some(1));
+    assert_eq!(parse_duration("1.5d"), Some(129_600_000_000_000));
+    assert_eq!(parse_duration("0.25ns"), Some(0));
+    assert_eq!(parse_duration("2.5h30.5m"), Some(9_000_000_000_000 + 1_830_000_000_000));
+}
+
+#[test]
+fn a_fraction_that_lands_exactly_on_a_nanosecond_after_many_digits_is_exact() {
+    // 1/2^16 of a day is exactly 1 318 359 375 ns, written with 16 fraction digits then zeros.
+    assert_eq!(parse_duration("0.0000152587890625d"), Some(1_318_359_375));
+    assert_eq!(parse_duration(&format!("0.0000152587890625{}d", "0".repeat(50))), Some(1_318_359_375));
+}
+
+// ---------------------------------------------------------------------------------------------
+// The number of business days to walk is the count's magnitude, for every `i64` count.
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn the_business_day_step_count_is_taken_without_negating_it() {
+    // The walk itself would take forever for i64::MIN, so this checks the count the walk starts from.
+    assert_eq!(business_step_count(i64::MIN), 1u64 << 63);
+    assert_eq!(business_step_count(-1), 1);
+    assert_eq!(business_step_count(0), 0);
+    assert_eq!(business_step_count(i64::MAX), i64::MAX as u64);
+}
+
+#[test]
+fn business_days_still_move_both_ways() {
+    let friday = 1; // 1970-01-02 was a Friday
+    assert_eq!(add_business_days(friday, 1), 4); // the next Monday
+    assert_eq!(add_business_days(4, -1), friday);
+    assert_eq!(add_business_days(friday, 0), friday);
+    assert_eq!(add_business_days(friday, 5), friday + 7);
+    assert_eq!(add_business_days(friday, -5), friday - 7);
+}

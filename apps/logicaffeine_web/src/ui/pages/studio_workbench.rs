@@ -17,7 +17,7 @@ use crate::ui::components::logic_output::{LogicOutput, OutputFormat};
 use crate::ui::components::proof_panel::{dock_prompt, ProofNode, ProofPanel, ProofStatus, Walkthrough};
 use crate::ui::components::repl_output::ReplOutput;
 use crate::ui::components::socratic_guide::{logic_guide, GuideMode, SocraticGuide};
-use crate::ui::components::status_bar::{EditorStatus, StatusBar};
+use crate::ui::components::status_bar::{EditorStatus, RunTime, StatusBar};
 use crate::ui::components::symbol_dictionary::{symbols_in, SymbolGroups};
 use crate::ui::examples::{compiled_runtime_notice, planted_bug_notice};
 use crate::ui::fault::{contain, ActionFault};
@@ -28,7 +28,7 @@ use crate::ui::pages::hardware_report::{
     Compiled, HardwareKind, HardwareReport,
 };
 use crate::ui::pages::studio::{
-    attempt, auto_view, formula_on_screen, kg_svg, parse_math_statements, run_logic, run_math,
+    attempt, auto_view, emit_target, formula_on_screen, kg_svg, parse_math_statements, run_logic, run_math,
     traffic_svg, waveform_svg, CodeOutputMode, LogicRun, LogicView, MathContext, TheoremView,
     COLLAPSE_FILES_SVG, FILES_SVG, STUDIO_STYLE,
 };
@@ -36,6 +36,8 @@ use crate::ui::pages::studio_actions::{actions_for, Actions, Offer};
 use crate::ui::pages::studio_files::example_text;
 use crate::ui::pages::studio_layout::{first_pane, Columns, MobileTab, Resizer, Shown, DRAWER_INITIAL, PROOF_DRAWER_INITIAL};
 use crate::ui::pages::studio_opening::StudioOpening;
+use crate::ui::pages::preview_builds::remember;
+use crate::ui::pages::studio_run::Stopwatch;
 use crate::ui::responsive::media;
 use crate::ui::router::studio_file_url;
 use crate::ui::state::{FileNode, ReplLine, StudioMode};
@@ -43,7 +45,7 @@ use dioxus::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use logicaffeine_compile::interpret_for_ui_baseline;
 use logicaffeine_compile::{
-    extract_logic_rust, extract_math_rust, generate_rust_code, interpret_streaming_with_vfs,
+    extract_logic_rust, extract_math_rust, interpret_streaming_with_vfs,
     interpreter::InterpreterResult, CompileResult, TheoremCompileResult,
 };
 use logicaffeine_kernel::interface::Repl;
@@ -57,6 +59,41 @@ use std::sync::Arc;
 
 /// The Web preview's name, for a screen reader.
 pub const PREVIEW_TITLE: &str = "The page, built from the code";
+
+/// The preview frame's paper, the colour a page is drawn on, so the panel and the page match.
+const PREVIEW_FRAME_STYLE: &str = "width: 100%; height: 100%; border: 0; background: #faf9f5;";
+
+/// A key that names one preview document: equal documents get equal keys.
+pub fn preview_key(doc: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    doc.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The Web preview's frame for `doc`. A frame is only ever created with its document already in
+/// place, and another document gets another frame. Chromium drops a document set on a sandboxed
+/// frame in the same task that frame went in with an empty one, so a frame created empty and filled
+/// a moment later stayed blank until something set its document again. Before there is a document,
+/// the panel shows the page's paper and no frame.
+#[component]
+pub fn PreviewFrame(doc: String) -> Element {
+    if doc.is_empty() {
+        return rsx! { div { class: "preview-waiting", style: PREVIEW_FRAME_STYLE } };
+    }
+    let key = preview_key(&doc);
+    rsx! {
+        for doc in std::iter::once(doc) {
+            iframe {
+                key: "{key}",
+                title: PREVIEW_TITLE,
+                srcdoc: "{doc}",
+                "sandbox": "allow-scripts",
+                style: PREVIEW_FRAME_STYLE,
+            }
+        }
+    }
+}
 
 /// Where a workbench is drawn, and so what it may reach beyond itself.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -125,6 +162,13 @@ pub fn preview_document(source: &str) -> String {
 /// [`FRAME_STYLE`] for what a frame lays out itself.
 /// The id of the frame's element on its page: what a Try it button names, and scrolls to.
 pub const FRAME_ID: &str = "studio-frame";
+
+/// The dock bar's line under a file of sentences, which has nothing to prove.
+pub const SENTENCES_DOCK: &str = "Sentences read into logic. To prove something, open a theorem example such as prover-demo.logic, or write a ## Theorem: block with Given and Prove lines.";
+/// What Prove says of a file that states sentences and gives no premises.
+pub const NO_GIVENS: &str = "No givens to prove from. Add Given lines in a ## Theorem: block, as prover-demo.logic does.";
+/// The drawer's longer form of [`NO_GIVENS`].
+const NO_GIVENS_DETAIL: &str = "This file states sentences and gives no premises, so no derivation can start. A sentence on its own is only provable when it is a logical truth. To prove something, write a ## Theorem: block with Given lines and a Prove line, as prover-demo.logic does.";
 
 #[component]
 pub fn StudioFrame(state: WorkbenchState) -> Element {
@@ -286,7 +330,8 @@ pub struct WorkbenchState {
     pub(super) code_input: Signal<String>,
     pub(super) code_output_mode: Signal<CodeOutputMode>,
     pub(super) interpreter_result: Signal<InterpreterResult>,
-    pub(super) generated_rust: Signal<String>,
+    /// The program in each language the dropdown has been asked for, or why it could not be written.
+    pub(super) generated: Signal<HashMap<CodeOutputMode, Result<String, String>>>,
     pub(super) debugging: Signal<bool>,
     pub(super) debug_output: Signal<InterpreterResult>,
     pub(super) drawer_height: Signal<f64>,
@@ -312,10 +357,12 @@ pub struct WorkbenchState {
     pub(super) fault: Signal<Option<ActionFault>>,
     pub(super) actions: Memo<Actions>,
     pub(super) editor_status: Signal<EditorStatus>,
-    /// LLM Heal: where the fairy is and what her card shows (work/LLM_HEAL.md).
+    /// How long the open program's last run took: shown under its output and in the status bar.
+    pub(super) run_time: Signal<Option<RunTime>>,
+    /// Heal: where the fairy is and what her card shows.
     pub(super) heal: Signal<heal::Flight>,
-    /// What each file's text was when it opened or was last kept, by path: a heal mends only the
-    /// lines a person wrote since (the user, 2026-11-02).
+    /// What each file's text was when it first opened this visit, by path: what Heal puts a
+    /// reader's own file back to.
     pub(super) heal_baseline: Signal<std::collections::HashMap<String, String>>,
     // Layout
     pub(super) column_pref: Signal<Option<Columns>>,
@@ -389,7 +436,7 @@ pub fn use_workbench(opening: &StudioOpening, tree: impl FnOnce() -> FileNode) -
         lines: vec![],
         error: None,
     });
-    let generated_rust = use_signal(String::new);
+    let generated = use_signal(HashMap::new);
     // Code-mode debugger drawer (bottom-docked, additive — see `DebugDrawer`).
     let debugging = use_signal(|| false);
 
@@ -454,6 +501,7 @@ pub fn use_workbench(opening: &StudioOpening, tree: impl FnOnce() -> FileNode) -
     });
     // Where the editor's caret is and what its language service found, for the status bar.
     let editor_status = use_signal(EditorStatus::default);
+    let run_time = use_signal(|| None::<RunTime>);
     let proof_height = use_signal(|| PROOF_DRAWER_INITIAL);
     let proof_open = use_signal(|| true);
     // The pane a phone shows, the one that shows the file first.
@@ -487,6 +535,8 @@ pub fn use_workbench(opening: &StudioOpening, tree: impl FnOnce() -> FileNode) -
     // The file the settled source came from: a source that arrives with another file is a file
     // opened, not a keystroke, and shows at once.
     let mut settled_file = use_signal(|| opening.current_file());
+    let last_doc = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(String::new())));
+    let opened_doc = last_doc.clone();
     use_effect(move || {
         if *mode.read() != StudioMode::Web {
             return;
@@ -494,12 +544,17 @@ pub fn use_workbench(opening: &StudioOpening, tree: impl FnOnce() -> FileNode) -
         let src = code_input.read().clone();
         let file = current_file.read().clone();
         if *debounced_code.peek() == src {
+            // The editor is back on the settled text: whatever edit was waiting is void.
+            let void = *web_edit_gen.peek() + 1;
+            web_edit_gen.set(void);
             return;
         }
         // A page opened after another mode shows instantly — nothing to debounce against
         // yet — and so does a file opened from the tree; only the *edits* wait for the quiet window.
         if debounced_code.peek().is_empty() || *settled_file.peek() != file {
             settled_file.set(file);
+            // Another file's page never stands in for this one while this one builds.
+            opened_doc.borrow_mut().clear();
             debounced_code.set(src);
             return;
         }
@@ -526,7 +581,8 @@ pub fn use_workbench(opening: &StudioOpening, tree: impl FnOnce() -> FileNode) -
     // fetch below, read by the memo; `last_doc` is what the frame keeps showing while a fetch is on
     // its way, so nothing is built that the fetch will bring.
     let prebuilt = use_signal(std::collections::HashMap::<String, String>::new);
-    let last_doc = use_hook(|| std::rc::Rc::new(std::cell::RefCell::new(String::new())));
+    // Counts the builds the worker has brought back, so the preview takes each one up.
+    let worker_builds = use_signal(|| 0u64);
     // The server's render already holds the open page's document in the frame on the page: take
     // it before the first render, so hydration shows it instead of building it again (the user,
     // 2026-11-02: a web file took two seconds to open; that was the compiler running once more).
@@ -596,13 +652,16 @@ pub fn use_workbench(opening: &StudioOpening, tree: impl FnOnce() -> FileNode) -
             return String::new();
         }
         let src = debounced_code.read().clone();
-        if let Some(doc) = built.borrow().get(&src) {
-            return doc.clone();
+        let _ = worker_builds.read();
+        let kept = built.borrow().get(&src).cloned();
+        if let Some(doc) = kept {
+            *last_doc.borrow_mut() = doc.clone();
+            return doc;
         }
         if let Some(path) = current_file.read().as_deref() {
             if example_text(path).is_some_and(|text| text == src) && prebuilt_preview_path(path).is_some() {
                 if let Some(doc) = prebuilt.read().get(path) {
-                    built.borrow_mut().insert(src, doc.clone());
+                    remember(&mut built.borrow_mut(), src, doc.clone());
                     *last_doc.borrow_mut() = doc.clone();
                     return doc.clone();
                 }
@@ -618,8 +677,23 @@ pub fn use_workbench(opening: &StudioOpening, tree: impl FnOnce() -> FileNode) -
                 }
             }
         }
+        // In the browser the worker builds it while the frame keeps its last document; the server,
+        // and a browser with no worker to ask, build it here.
+        #[cfg(target_arch = "wasm32")]
+        {
+            let (kept, source, mut builds) = (built.clone(), src.clone(), worker_builds);
+            let asked = crate::ui::pages::preview_builds::worker::build(src.clone(), move |doc| {
+                let doc = doc.unwrap_or_else(|| preview_document(&source));
+                remember(&mut kept.borrow_mut(), source, doc);
+                let next = *builds.peek() + 1;
+                builds.set(next);
+            });
+            if asked {
+                return last_doc.borrow().clone();
+            }
+        }
         let doc = preview_document(&src);
-        built.borrow_mut().insert(src, doc.clone());
+        remember(&mut built.borrow_mut(), src, doc.clone());
         *last_doc.borrow_mut() = doc.clone();
         doc
     });
@@ -662,7 +736,7 @@ pub fn use_workbench(opening: &StudioOpening, tree: impl FnOnce() -> FileNode) -
         code_input,
         code_output_mode,
         interpreter_result,
-        generated_rust,
+        generated,
         debugging,
         debug_output,
         drawer_height,
@@ -683,6 +757,7 @@ pub fn use_workbench(opening: &StudioOpening, tree: impl FnOnce() -> FileNode) -
         fault,
         actions,
         editor_status,
+        run_time,
         heal,
         heal_baseline,
         column_pref,
@@ -791,7 +866,7 @@ impl WorkbenchState {
     /// effect builds it from the editor.
     #[cfg(target_arch = "wasm32")]
     async fn run_opened(self, file_mode: StudioMode, path: String, content: String) {
-        let WorkbenchState { mut result, mut current_proof_expr, mut interpreter_result, mut hw_report, mut hw_compiled, fault, .. } = self;
+        let WorkbenchState { mut result, mut current_proof_expr, mut interpreter_result, mut hw_report, mut hw_compiled, mut run_time, fault, .. } = self;
         match file_mode {
             StudioMode::Logic => match attempt(fault, "Execute", || run_logic(&content)) {
                 Some(LogicRun::Theorem(theorem)) => self.show_theorem(theorem),
@@ -805,14 +880,15 @@ impl WorkbenchState {
             },
             // A native-only example opens to its notice: run here, it would only pretend.
             StudioMode::Code => {
-                interpreter_result.set(if compiled_runtime_notice(&path).is_some() {
-                    InterpreterResult {
-                        lines: Vec::new(),
-                        error: None,
-                    }
+                if compiled_runtime_notice(&path).is_some() {
+                    interpreter_result.set(InterpreterResult { lines: Vec::new(), error: None });
+                    run_time.set(None);
                 } else {
-                    interpret_for_ui_baseline(&content).await
-                })
+                    let watch = Stopwatch::start();
+                    let ran = interpret_for_ui_baseline(&content).await;
+                    run_time.set(Some(watch.stop(ran.error.is_none())));
+                    interpreter_result.set(ran);
+                }
             }
             StudioMode::Hardware => {
                 hw_report.set(analyze_hardware(&content));
@@ -831,16 +907,39 @@ impl WorkbenchState {
         let WorkbenchState { mut mode, mut fault, .. } = self;
         let file_mode = StudioMode::for_file(&path, &content).unwrap_or(*mode.peek());
         mode.set(file_mode);
+        self.show_output();
         // A note about the last file's run says nothing about this one.
         if fault.peek().is_some() {
             fault.set(None);
         }
+        // The text the file had when it first opened this visit, before any edit: what Heal puts a
+        // reader's own file back to (a shipped example goes back to its registry source).
+        let mut baseline = self.heal_baseline;
+        baseline.write().entry(path.clone()).or_insert_with(|| content.clone());
         let content = self.opening_text(&path, content);
         self.editor(file_mode).set(content.clone());
-        // A heal mends what the reader writes from here.
-        let mut baseline = self.heal_baseline;
-        baseline.write().insert(path.clone(), content.clone());
         self.run_opened(file_mode, path, content).await;
+    }
+
+    /// A file just opened shows what it does: every output column goes back to its Output view (a
+    /// program's output, a document's logic) and the last file's run time goes with the last file.
+    pub(super) fn show_output(self) {
+        let WorkbenchState { mut code_output_mode, mut math_output_mode, mut hw_output_mode, mut logic_output_mode, mut run_time, .. } = self;
+        if *code_output_mode.peek() != CodeOutputMode::Interpret {
+            code_output_mode.set(CodeOutputMode::Interpret);
+        }
+        if *math_output_mode.peek() != CodeOutputMode::Interpret {
+            math_output_mode.set(CodeOutputMode::Interpret);
+        }
+        if *hw_output_mode.peek() != CodeOutputMode::Interpret {
+            hw_output_mode.set(CodeOutputMode::Interpret);
+        }
+        if *logic_output_mode.peek() != LogicView::Logic {
+            logic_output_mode.set(LogicView::Logic);
+        }
+        if run_time.peek().is_some() {
+            run_time.set(None);
+        }
     }
 
     /// The text a file opens with: what the reader left it at this visit, or else `content`.
@@ -870,6 +969,7 @@ impl WorkbenchState {
         }
         self.keep_edit();
         current_file.set(Some(path.clone()));
+        self.show_output();
         #[cfg(target_arch = "wasm32")]
         if let Some(text) = example_text(&path) {
             let mut active_tab = self.active_tab;
@@ -909,7 +1009,7 @@ pub fn Workbench(
     #[props(default)]
     on_choose: Option<EventHandler<String>>,
 ) -> Element {
-    let WorkbenchState { mode, mut sidebar_open, drawer, mut drawer_open, panes_fixed, keyboard_inset, mut file_tree, current_file, mut input, mut result, mut format, mut proof_text, mut proof_tree, mut proof_status, mut proof_hint, mut current_proof_expr, mut knowledge_base, mut logic_output_mode, mut generated_logic_rust, dictionary_open, tree_open, dictionary, proof_height, mut proof_open, mut code_input, mut code_output_mode, mut interpreter_result, mut generated_rust, mut debugging, debug_output, drawer_height, program_store, mut math_input, mut math_context, mut math_output, mut math_output_mode, mut generated_math_rust, mut hw_input, mut hw_output_mode, mut hw_report, mut generated_hw_rust, mut hw_compiled, web_preview, fault, actions, editor_status, mut heal, mut heal_baseline, column_pref, viewport_width, mut active_tab, mut editor_expanded, mut output_expanded, mobile_split, .. } = state;
+    let WorkbenchState { mode, mut sidebar_open, drawer, mut drawer_open, panes_fixed, keyboard_inset, mut file_tree, current_file, mut edits, mut input, mut result, mut format, mut proof_text, mut proof_tree, mut proof_status, mut proof_hint, mut current_proof_expr, mut knowledge_base, mut logic_output_mode, mut generated_logic_rust, dictionary_open, tree_open, dictionary, proof_height, mut proof_open, mut code_input, mut code_output_mode, mut interpreter_result, mut generated, mut debugging, debug_output, drawer_height, program_store, mut math_input, mut math_context, mut math_output, mut math_output_mode, mut generated_math_rust, mut hw_input, mut hw_output_mode, mut hw_report, mut generated_hw_rust, mut hw_compiled, web_preview, fault, actions, editor_status, mut run_time, mut heal, mut heal_baseline, column_pref, viewport_width, mut active_tab, mut editor_expanded, mut output_expanded, mobile_split, .. } = state;
 
     // The width of a frame's panel row, measured in the browser once the frame is on the page and
     // again whenever the window changes size; `None` on the server and before the first measure.
@@ -959,7 +1059,9 @@ pub fn Workbench(
             lines: vec![],
             error: None,
         });
+        run_time.set(None);
         spawn(async move {
+            let watch = Stopwatch::start();
             // Create streaming callback that updates the signal as output arrives
             let callback = Rc::new(RefCell::new(move |line: String| {
                 // Update the signal with the new line
@@ -971,35 +1073,36 @@ pub fn Workbench(
             // browser. A frame, and the native build, have none.
             let vfs = program_store.read().clone();
             let result = interpret_streaming_with_vfs(&code, callback, vfs).await;
+            run_time.set(Some(watch.stop(result.error.is_none())));
             // Set final result (includes any error)
             interpreter_result.set(result);
         });
     };
 
-    // Code mode: Compile button handler (generate Rust)
-    // Uses generate_rust_code which works on WASM
-    let handle_code_compile = move |_| {
+    // Code mode: the program written in one of the backend's languages, into the Output column.
+    // Every language the dropdown lists is produced here, in the browser, by the same compiler
+    // largo emit runs; the column keeps each one it has made until the text changes.
+    let compile_into = use_callback(move |target: CodeOutputMode| {
         let code = code_input.read().clone();
         // Switch to Output tab (Panel2) on mobile
         active_tab.set(MobileTab::Panel2);
+        code_output_mode.set(target);
         spawn(async move {
             // Yield once so the switch to the output renders before the work.
             #[cfg(target_arch = "wasm32")]
             gloo_timers::future::TimeoutFuture::new(0).await;
-            match generate_rust_code(&code) {
-                Ok(rust_code) => {
-                    generated_rust.set(rust_code);
-                    code_output_mode.set(CodeOutputMode::Rust);
-                }
-                Err(e) => {
-                    interpreter_result.set(InterpreterResult {
-                        lines: vec![],
-                        error: Some(format!("Compile error: {:?}", e)),
-                    });
-                    code_output_mode.set(CodeOutputMode::Interpret);
-                }
-            }
+            let made = emit_target(target, &code);
+            generated.write().insert(target, made);
         });
+    });
+    // The Compile button writes the program in the language the dropdown shows, Rust when the
+    // column shows output.
+    let handle_code_compile = move |_| {
+        let target = match *code_output_mode.peek() {
+            CodeOutputMode::Interpret => CodeOutputMode::Rust,
+            other => other,
+        };
+        compile_into.call(target);
     };
 
     // Math mode execute handler (vernacular REPL).
@@ -1073,7 +1176,7 @@ pub fn Workbench(
                 if let Some(expr) = proof.proof_expr {
                     current_proof_expr.set(Some(expr));
                     proof_status.set(ProofStatus::Idle);
-                    proof_hint.set(Some("Press Prove to check the first sentence, or give it Given lines in a ## Theorem: block.".to_string()));
+                    proof_hint.set(Some(SENTENCES_DOCK.to_string()));
                 } else if let Some(err) = proof.error {
                     current_proof_expr.set(None);
                     proof_status.set(ProofStatus::Failed(err));
@@ -1132,6 +1235,7 @@ pub fn Workbench(
             first.trim_start_matches(|c: char| c.is_ascii_digit() || c == ')' || c == ' ').to_string()
         });
         proof_open.set(true);
+        active_tab.set(MobileTab::Panel3);
         match maybe_goal {
             Some(goal) => {
                 let before = proof_status.peek().clone();
@@ -1139,17 +1243,24 @@ pub fn Workbench(
                 let shown = attempt(fault, "Prove", || auto_view(&kb, &goal, logic_str.as_deref().unwrap_or("(no expression)")));
                 match shown {
                     Some(view) => {
-                        // A sentence with no givens proves only if it is a logical truth: say what
-                        // was missing, not just that the search failed.
-                        let hint = if kb.is_empty() && matches!(view.status, ProofStatus::Failed(_)) {
-                            "No givens to prove from. Add Given lines in a ## Theorem: block, as prover-demo.logic does.".to_string()
+                        // A sentence with no givens proves only if it is a logical truth. A file of
+                        // sentences is not a failed proof search: say what is missing, in the status
+                        // line and the drawer both, not just in the hint.
+                        if kb.is_empty() && matches!(view.status, ProofStatus::Failed(_)) {
+                            proof_text.set(format!(
+                                "<span class=\"rule\">Nothing to prove from</span>\n\nGoal: {}\n\n{}",
+                                crate::ui::components::hover_hint::escape(logic_str.as_deref().unwrap_or("(no expression)")),
+                                NO_GIVENS_DETAIL
+                            ));
+                            proof_tree.set(None);
+                            proof_status.set(ProofStatus::Failed(NO_GIVENS.to_string()));
+                            proof_hint.set(Some(NO_GIVENS.to_string()));
                         } else {
-                            view.hint
-                        };
-                        proof_text.set(view.html);
-                        proof_tree.set(view.tree);
-                        proof_status.set(view.status);
-                        proof_hint.set(Some(hint));
+                            proof_text.set(view.html);
+                            proof_tree.set(view.tree);
+                            proof_status.set(view.status);
+                            proof_hint.set(Some(view.hint));
+                        }
                     }
                     // Prove faulted: the proof drawer keeps what it showed before.
                     None => proof_status.set(before),
@@ -1361,16 +1472,24 @@ pub fn Workbench(
 
     let current_format = *format.read();
     let current_mode = *mode.read();
-    // The pane a phone shows: the one its switch names, the output when it names a third panel the
+    // A file with a `## Theorem:` block is something to prove; a file of sentences is read into
+    // logic and offers no Prove (Collin, 2026-11-02: a Prove that has nothing to prove from is a
+    // red result for a demo that did its job).
+    let is_theorem = input.read().lines().any(|line| line.trim_start().starts_with("## Theorem:"));
+    // On a phone a theorem's proof is a pane of the switch, so it never shares the screen with the
+    // program. Everywhere else it stays the drawer that rises from the dock.
+    let proof_pane = current_mode == StudioMode::Logic && is_theorem;
+    // The pane a phone shows: the one its switch names, the output when it names a third pane the
     // file does not have.
     let current_tab = match *active_tab.read() {
-        MobileTab::Panel3 if !show_panel3 => MobileTab::Panel2,
+        MobileTab::Panel3 if !show_panel3 && !proof_pane => MobileTab::Panel2,
         tab => tab,
     };
+    let on_proof = proof_pane && current_tab == MobileTab::Panel3;
     let on_phone = |tab: MobileTab| if current_tab == tab { " phone-shown" } else { "" };
     // Where the panes share the screen with the editor (a phone on its side, an upright tablet), the
     // other half shows the output or, when the switch names it, the third panel.
-    let right_half = if current_tab == MobileTab::Panel3 { MobileTab::Panel3 } else { MobileTab::Panel2 };
+    let right_half = if current_tab == MobileTab::Panel3 && show_panel3 { MobileTab::Panel3 } else { MobileTab::Panel2 };
     let on_right = |tab: MobileTab| if right_half == tab { " phone-right" } else { "" };
 
     // Panel classes: mobile-expanded/collapsed for the stacked layout, phone-shown for the one pane a
@@ -1407,7 +1526,7 @@ pub fn Workbench(
 
     // Mobile tab labels based on mode
     let (tab1_icon, tab1_label, tab2_icon, tab2_label, tab3_icon, tab3_label) = match current_mode {
-        StudioMode::Logic => ("\u{270F}", "Input", "\u{2200}", "Logic", "", ""),
+        StudioMode::Logic => ("\u{270F}", "Input", "\u{2200}", "Logic", "\u{22A2}", "Proof"),
         StudioMode::Code => (
             "\u{03BB}",
             "Editor",
@@ -1440,54 +1559,36 @@ pub fn Workbench(
     // Where a first visit stands, for the proof drawer's walkthrough and the dock bar's line.
     let walkthrough = Walkthrough { wrote: !input.read().trim().is_empty(), executed: result.read().logic.is_some() };
     let dock_text = match current_mode {
+        StudioMode::Logic if !is_theorem => SENTENCES_DOCK.to_string(),
         StudioMode::Logic => dock_prompt(walkthrough, proof_hint.read().as_deref()),
         StudioMode::Code if debugging() => "Stepping through the program, one instruction at a time.".to_string(),
         StudioMode::Code => "Debug runs the program one instruction at a time, every variable in view.".to_string(),
         _ => String::new(),
     };
-    // LLM Heal: the fairy mends the editor's English (work/LLM_HEAL.md). Code and Logic only; the
-    // worker answers, the card shows both texts, and nothing lands in the editor until Keep.
+    // Heal puts the file back as it was before the reader changed it (DAT-424, Collin 2026-11-18): the
+    // shipped example, or the text a reader's own file opened with. Instant, nothing leaves the page,
+    // and Undo on the card brings the reader's version back.
     let heal_source: Signal<String> = if current_mode == StudioMode::Logic { input } else { code_input };
-    let heal_mode = if current_mode == StudioMode::Logic { heal::Mode::Logic } else { heal::Mode::Code };
     let handle_heal = use_callback(move |_: ()| {
-        let text = heal_source.read().clone();
-        let begun = heal::Flight::begin(&text);
-        let flying = begun.busy();
-        heal.set(begun);
-        if !flying {
-            return;
-        }
-        // Only what the reader wrote since the file opened, or since the last Keep.
-        let baseline = current_file.peek().as_deref().and_then(|path| heal_baseline.peek().get(path).cloned()).unwrap_or_default();
-        let regions = heal::edited_regions(&baseline, &text);
-        if regions.is_empty() {
-            heal.set(heal::Flight::Failed(heal::NOTHING_NEW.to_string()));
-            return;
-        }
-        heal.set(heal::Flight::Flying { to: regions[0].start });
-        spawn(async move {
-            let mut mended = Vec::with_capacity(regions.len());
-            for region in &regions {
-                let fragment = heal::region_text(&text, region);
-                match heal::send(heal_mode, &fragment, true).await {
-                    Ok(lines) => mended.push(heal::reindent(&fragment, &lines)),
-                    Err(reason) => {
-                        heal.set(heal::Flight::Failed(reason));
-                        return;
-                    }
-                }
+        let mut editor = heal_source;
+        let text = editor.peek().clone();
+        let path = current_file.peek().clone();
+        let original = path.as_deref().and_then(|path| example_text(path).map(str::to_string).or_else(|| heal_baseline.peek().get(path).cloned()));
+        let next = heal::restore(&text, original.as_deref());
+        if let (heal::Flight::Restored { .. }, Some(original)) = (&next, original) {
+            editor.set(original);
+            // The edit is gone from this visit too, so coming back to the file finds it as it was.
+            if let Some(path) = path {
+                edits.write().remove(&path);
             }
-            let after = heal::splice(&text, &regions, &mended);
-            heal.set(heal::Flight::answered(text, Ok(after)));
-        });
+        }
+        heal.set(next);
     });
     let heal_button = move || {
-        let busy = heal.read().busy();
         rsx! {
             button {
                 class: "execute-btn heal-btn",
-                disabled: busy,
-                title: "Mend the English in the editor, then keep or undo the mend",
+                title: "Put the program back as it was before your changes",
                 onclick: move |_| handle_heal.call(()),
                 img { class: "heal-btn-icon", src: heal::FAIRY, alt: "" }
                 span { class: "desktop-label", "Heal" }
@@ -1504,9 +1605,9 @@ pub fn Workbench(
             class: "{panel1_class} col-left",
             style: "{panel1_style}",
 
-            // LLM Heal: the fairy and her card, over the editor, while a heal is under way.
+            // Heal: the fairy and her card, over the editor, after Heal is pressed.
             if matches!(current_mode, StudioMode::Code | StudioMode::Logic | StudioMode::Web) {
-                HealOverlay { flight: heal, editor: heal_source, file: current_file, baseline: heal_baseline }
+                HealOverlay { flight: heal, editor: heal_source }
             }
 
             match current_mode {
@@ -1732,18 +1833,24 @@ pub fn Workbench(
                             }
                         },
                         span { "Output" }
-                        div {
-                            class: "output-mode-toggle",
+                        // The dropdown: the program's output, or the program in any language the
+                        // backend writes. Choosing a language writes it at once.
+                        select {
+                            class: "output-target",
+                            "aria-label": "What the column shows",
+                            value: current_code_output_mode.value(),
                             onclick: move |evt| evt.stop_propagation(),
-                            button {
-                                class: if current_code_output_mode == CodeOutputMode::Interpret { "output-mode-btn active" } else { "output-mode-btn" },
-                                onclick: move |_| code_output_mode.set(CodeOutputMode::Interpret),
-                                "Output"
-                            }
-                            button {
-                                class: if current_code_output_mode == CodeOutputMode::Rust { "output-mode-btn active" } else { "output-mode-btn" },
-                                onclick: move |_| code_output_mode.set(CodeOutputMode::Rust),
-                                "Rust"
+                            onchange: move |evt| {
+                                if let Some(target) = CodeOutputMode::from_value(&evt.value()) {
+                                    if target == CodeOutputMode::Interpret || generated.peek().contains_key(&target) {
+                                        code_output_mode.set(target);
+                                    } else {
+                                        compile_into.call(target);
+                                    }
+                                }
+                            },
+                            for target in CodeOutputMode::ALL {
+                                option { key: "{target.value()}", value: target.value(), selected: target == current_code_output_mode, "{target.label()}" }
                             }
                         }
                     }
@@ -1777,23 +1884,28 @@ pub fn Workbench(
                                             if let Some(ref err) = result.error {
                                                 div { class: "interpreter-error", "{err}" }
                                             }
+                                            // The run time is drawn under the output and is not part of it: what a
+                                            // reader copies, and what an example promises, is the program's lines.
+                                            if !stepping {
+                                                if let Some(run) = *run_time.read() {
+                                                    div { class: "interpreter-run-time", "data-run-time": "{run.millis}", "data-label": "{run.output_label()}" }
+                                                }
+                                            }
                                         }
                                     }
                                 }
                             }
                         } else {
                             {
-                                let rust_code = generated_rust.read().clone();
+                                let made = generated.read().get(&current_code_output_mode).cloned();
                                 rsx! {
-                                    if rust_code.is_empty() {
-                                        div { class: "interpreter-empty",
-                                            "Compile your code to see generated Rust"
-                                        }
-                                    } else {
-                                        CodeView {
-                                            code: rust_code,
-                                            language: Language::Rust,
-                                        }
+                                    match made {
+                                        None => rsx! { div { class: "interpreter-empty", "{current_code_output_mode.empty_note()}" } },
+                                        Some(Err(why)) => rsx! { div { class: "interpreter-error", "{why}" } },
+                                        Some(Ok(text)) if current_code_output_mode == CodeOutputMode::Rust => rsx! {
+                                            CodeView { code: text, language: Language::Rust }
+                                        },
+                                        Some(Ok(text)) => rsx! { pre { class: "emitted-code", "{text}" } },
                                     }
                                 }
                             }
@@ -1962,12 +2074,7 @@ pub fn Workbench(
                     rsx! {
                         div { class: "panel-header", span { "Preview" } }
                         div { class: "panel-content", style: "padding: 0; overflow: hidden;",
-                            iframe {
-                                title: PREVIEW_TITLE,
-                                srcdoc: "{doc}",
-                                "sandbox": "allow-scripts",
-                                style: "width: 100%; height: 100%; border: 0; background: #faf9f5;",
-                            }
+                            PreviewFrame { doc }
                         }
                     }
                 },
@@ -2174,7 +2281,7 @@ pub fn Workbench(
                         title: actions().compile.reason().map(str::to_string),
                         onclick: handle_code_compile,
                         span { class: "desktop-label", "\u{1F980} Compile" }
-                        span { class: "mobile-label", "\u{1F980} Compile to Rust" }
+                        span { class: "mobile-label", "\u{1F980} Compile" }
                     }
                     if host == Host::Page {
                         button {
@@ -2279,9 +2386,13 @@ pub fn Workbench(
         // A phone's switch between its panes, one shown at a time.
         nav { class: if show_panel3 { "mobile-tabs has-third" } else { "mobile-tabs" }, role: "tablist", "aria-label": "Panes",
             for (tab, icon, label) in [(MobileTab::Panel1, tab1_icon, tab1_label), (MobileTab::Panel2, tab2_icon, tab2_label), (MobileTab::Panel3, tab3_icon, tab3_label)] {
-                if tab != MobileTab::Panel3 || show_panel3 {
+                if tab != MobileTab::Panel3 || show_panel3 || proof_pane {
                     button {
-                        class: if current_tab == tab { "mobile-tab active" } else { "mobile-tab" },
+                        class: format!(
+                            "mobile-tab{}{}",
+                            if current_tab == tab { " active" } else { "" },
+                            if tab == MobileTab::Panel3 && !show_panel3 { " phone-proof-tab" } else { "" },
+                        ),
                         role: "tab",
                         "aria-selected": if current_tab == tab { "true" } else { "false" },
                         onclick: move |_| active_tab.set(tab),
@@ -2294,7 +2405,9 @@ pub fn Workbench(
 
         // Socratic Guide (Logic mode only)
         if current_mode == StudioMode::Logic {
-            div { class: "studio-guide",
+            div {
+                // The program has the whole pane on a phone: only a problem with it speaks over it.
+                class: if current_tab == MobileTab::Panel1 && !matches!(guide_mode, GuideMode::Error(_) | GuideMode::Hint(_)) { "studio-guide phone-quiet" } else { "studio-guide" },
                 SocraticGuide {
                     mode: guide_mode.clone(),
                     on_hint_request: None,
@@ -2303,7 +2416,7 @@ pub fn Workbench(
         }
 
         // Main content with optional sidebar
-        div { class: "studio-content", style: columns_style,
+        div { class: if on_proof { "studio-content phone-on-proof" } else { "studio-content" }, style: columns_style,
             // File browser sidebar
             // Mobile overlay to close sidebar when clicking outside
             if *sidebar_open.read() || *drawer_open.read() {
@@ -2365,15 +2478,17 @@ pub fn Workbench(
 
         // The drawers rise from the dock bar below them, on either host: Logic's proof and Code's
         // debugger, each bottom-docked and dragged by its grip.
-        if current_mode == StudioMode::Logic && *proof_open.read() {
-            ProofPanel {
-                proof_text: proof_text.read().clone(),
-                tree: proof_tree.read().clone(),
-                status: proof_status.read().clone(),
-                steps: walkthrough,
-                height: proof_height,
-                on_prove: move |_| handle_prove.call(()),
-                on_close: move |_| proof_open.set(false),
+        if proof_pane && (*proof_open.read() || on_proof) {
+            div { class: if on_proof { "proof-home phone-proof" } else { "proof-home" },
+                ProofPanel {
+                    proof_text: proof_text.read().clone(),
+                    tree: proof_tree.read().clone(),
+                    status: proof_status.read().clone(),
+                    steps: walkthrough,
+                    height: proof_height,
+                    on_prove: move |_| handle_prove.call(()),
+                    on_close: move |_| proof_open.set(false),
+                }
             }
         }
         if debugging() && current_mode == StudioMode::Code {
@@ -2390,20 +2505,22 @@ pub fn Workbench(
             div { class: "studio-dock",
                 span { class: "studio-dock-icon", "aria-hidden": "true", "\u{1F4A1}" }
                 span { class: "studio-dock-text", role: "status", "{dock_text}" }
-                button {
-                    class: "studio-dock-btn primary",
-                    title: "Ask the kernel whether the first sentence follows",
-                    onclick: move |_| handle_prove.call(()),
-                    "\u{25B6} Prove"
-                }
-                button {
-                    class: "studio-dock-btn",
-                    aria_expanded: if *proof_open.read() { "true" } else { "false" },
-                    onclick: move |_| {
-                        let open = *proof_open.read();
-                        proof_open.set(!open);
-                    },
-                    if *proof_open.read() { "Hide proof" } else { "Show proof" }
+                if is_theorem {
+                    button {
+                        class: "studio-dock-btn primary",
+                        title: "Ask the kernel whether the goal follows from the givens",
+                        onclick: move |_| handle_prove.call(()),
+                        "\u{25B6} Prove"
+                    }
+                    button {
+                        class: "studio-dock-btn proof-toggle",
+                        aria_expanded: if *proof_open.read() { "true" } else { "false" },
+                        onclick: move |_| {
+                            let open = *proof_open.read();
+                            proof_open.set(!open);
+                        },
+                        if *proof_open.read() { "Hide proof" } else { "Show proof" }
+                    }
                 }
             }
         }
@@ -2433,6 +2550,7 @@ pub fn Workbench(
             language: status_language.name(&status_source).to_string(),
             indent: Indentation::of(status_language, &status_source).step.len(),
             problems: current_mode != StudioMode::Math,
+            run: if current_mode == StudioMode::Code { *run_time.read() } else { None },
         }
         }
     }
@@ -2442,88 +2560,35 @@ pub fn Workbench(
 #[path = "../../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/pages/studio_workbench/tests.rs"]
 mod tests;
 
-/// The fairy and her card (work/LLM_HEAL.md): nothing while she is home; the fairy alone, flying
-/// to the line, while the worker thinks and mends; the card beside her with Before, After, Keep
-/// and Undo once the mend is back, or the reason there is none with a way to close it. Keep writes
-/// the mend into the editor; Undo leaves the editor as it was.
+/// The fairy and her card: nothing while she is home; after Heal, the card beside her saying the
+/// file is back, with Undo (the reader's version written back) and Done, or the reason nothing was
+/// put back with a way to close it.
 #[component]
-fn HealOverlay(flight: Signal<heal::Flight>, editor: Signal<String>, file: Signal<Option<String>>, baseline: Signal<std::collections::HashMap<String, String>>) -> Element {
+fn HealOverlay(flight: Signal<heal::Flight>, editor: Signal<String>) -> Element {
     let state = flight.read().clone();
-    if state == heal::Flight::Idle {
-        return rsx! {};
-    }
-    let line = state.line();
-    let mended = match &state {
-        heal::Flight::Review { lines, .. } => format!("{} place{} mended. Nothing changes until Keep.", lines.len(), if lines.len() == 1 { "" } else { "s" }),
-        _ => String::new(),
-    };
     let phase = match &state {
-        heal::Flight::Flying { .. } => "flying",
-        heal::Flight::Mending => "mending",
-        heal::Flight::Review { .. } => "review",
+        heal::Flight::Idle => return rsx! {},
         heal::Flight::Failed(_) => "failed",
-        heal::Flight::Idle => "idle",
+        heal::Flight::Restored { .. } => "restored",
     };
-    // Escape closes the card, as a dialog should: the same as Undo, the editor untouched.
+    // Escape closes the card, as a dialog should: the editor stays as it is (after a restore, restored).
     #[cfg(target_arch = "wasm32")]
-    {
-        let closable = matches!(state, heal::Flight::Review { .. } | heal::Flight::Failed(_));
-        use_effect(move || {
-            if !closable {
-                return;
+    use_effect(move || {
+        use wasm_bindgen::{closure::Closure, JsCast};
+        let Some(window) = web_sys::window() else { return };
+        let on_key = Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(move |event: web_sys::KeyboardEvent| {
+            if event.key() == "Escape" {
+                let next = flight.peek().clone().undo();
+                flight.set(next);
             }
-            use wasm_bindgen::{closure::Closure, JsCast};
-            let Some(window) = web_sys::window() else { return };
-            let on_key = Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(move |event: web_sys::KeyboardEvent| {
-                if event.key() == "Escape" {
-                    let next = flight.peek().clone().undo();
-                    flight.set(next);
-                }
-            });
-            let _ = window.add_event_listener_with_callback("keydown", on_key.as_ref().unchecked_ref());
-            on_key.forget();
         });
-    }
+        let _ = window.add_event_listener_with_callback("keydown", on_key.as_ref().unchecked_ref());
+        on_key.forget();
+    });
     rsx! {
-        div { class: "heal-overlay", style: "--heal-line: {line};",
+        div { class: "heal-overlay",
             img { class: "heal-fairy {phase}", src: heal::FAIRY, alt: "The fairy", "aria-hidden": "true" }
             match &state {
-                heal::Flight::Review { before, after, diff, .. } => rsx! {
-                    div { class: "heal-card", role: "dialog", "aria-label": "Review the mend",
-                        div { class: "heal-card-cols",
-                            section { class: "heal-card-col",
-                                h3 { "Before" }
-                                pre { class: "heal-before", {marked_lines(before, after, &diff.before, &diff.after, "replaced")} }
-                            }
-                            section { class: "heal-card-col",
-                                h3 { "After" }
-                                pre { class: "heal-after", {marked_lines(after, before, &diff.after, &diff.before, "mended")} }
-                            }
-                        }
-                        div { class: "heal-card-actions",
-                            span { class: "heal-card-note", "{mended}" }
-                            button {
-                                class: "studio-dock-btn",
-                                onclick: move |_| { let next = flight.peek().clone().undo(); flight.set(next); },
-                                "Undo"
-                            }
-                            button {
-                                class: "studio-dock-btn primary heal-keep",
-                                onclick: move |_| {
-                                    let (next, kept) = flight.peek().clone().keep();
-                                    if let Some(text) = kept {
-                                        editor.set(text.clone());
-                                        if let Some(path) = file.peek().clone() {
-                                            baseline.write().insert(path, text);
-                                        }
-                                    }
-                                    flight.set(next);
-                                },
-                                "Keep"
-                            }
-                        }
-                    }
-                },
                 heal::Flight::Failed(reason) => rsx! {
                     div { class: "heal-card heal-card-failed", role: "alert",
                         p { "{reason}" }
@@ -2534,38 +2599,76 @@ fn HealOverlay(flight: Signal<heal::Flight>, editor: Signal<String>, file: Signa
                         }
                     }
                 },
-                _ => rsx! {},
+                // The file is back as it was: the reader's text pixelates away as the file's forms over
+                // the editor, then Undo writes the reader's version back and Done keeps the restore.
+                heal::Flight::Restored { previous } => rsx! {
+                    HealSwap { before: previous.clone(), after: editor.read().clone() }
+                    div { class: "heal-card heal-card-restored", role: "status",
+                        p { "{heal::RESTORED}" }
+                        div { class: "heal-card-actions",
+                            button {
+                                class: "studio-dock-btn",
+                                onclick: move |_| {
+                                    let (next, previous) = flight.peek().clone().take_back();
+                                    if let Some(text) = previous {
+                                        editor.set(text);
+                                    }
+                                    flight.set(next);
+                                },
+                                "Undo"
+                            }
+                            button {
+                                class: "studio-dock-btn primary",
+                                onclick: move |_| { let next = flight.peek().clone().undo(); flight.set(next); },
+                                "Done"
+                            }
+                        }
+                    }
+                },
+                heal::Flight::Idle => rsx! {},
             }
         }
     }
 }
 
-/// `text` line by line for the card, the lines in `own` marked with `class`, and within a marked
-/// line that replaces one line of the other side (its counterpart in `other`), the words that
-/// differ marked stronger. So the reader sees the word that changed, not only the line.
-fn marked_lines(text: &str, other_text: &str, own: &[std::ops::Range<usize>], other: &[std::ops::Range<usize>], class: &'static str) -> Element {
-    let other_lines: Vec<&str> = other_text.lines().collect();
-    let counterpart = |i: usize| -> Option<&str> {
-        let (k, r) = own.iter().enumerate().find(|(_, r)| r.contains(&i))?;
-        let o = other.get(k)?;
-        (r.len() == 1 && o.len() == 1).then(|| other_lines.get(o.start).copied()).flatten()
-    };
+/// A restore, shown over the editor: the reader's text pixelates away one character at a time
+/// while the file's text forms in the mirror of that order, then the whole layer fades, leaving the
+/// editor, which already holds the file. Both texts sit in the editor's own type, so each line
+/// changes where it stands. Past [`heal::PIXEL_LIMIT`] characters the editor simply shows the file.
+/// A new restore is another layer (keyed by its texts), so its animation plays from the start.
+#[component]
+fn HealSwap(before: String, after: String) -> Element {
+    if before.chars().count() > heal::PIXEL_LIMIT || after.chars().count() > heal::PIXEL_LIMIT {
+        return rsx! {};
+    }
+    let key = preview_text_key(&before, &after);
     rsx! {
-        for (i, line) in text.lines().enumerate() {
-            if own.iter().any(|r| r.contains(&i)) {
-                span { class: "heal-line {class}",
-                    if let Some(pair) = counterpart(i) {
-                        for (piece, differs) in heal::word_marks(line, pair) {
-                            span { class: if differs { "heal-word" } else { "" }, "{piece}" }
-                        }
-                    } else {
-                        "{line}"
-                    }
-                    "\n"
-                }
-            } else {
-                span { class: "heal-line", "{line}\n" }
+        for (before, after) in std::iter::once((before, after)) {
+            div { key: "{key}", class: "heal-swap", "aria-hidden": "true",
+                pre { class: "heal-swap-layer", {pixel_spans(&before, false)} }
+                pre { class: "heal-swap-layer", {pixel_spans(&after, true)} }
             }
         }
     }
+}
+
+/// `text` as one span per character, each dissolving (`forming` false) or forming at its turn.
+fn pixel_spans(text: &str, forming: bool) -> Element {
+    let chars: Vec<char> = text.chars().collect();
+    let len = chars.len();
+    let turns = heal::pixel_turns(len, 11, forming);
+    let class = if forming { "heal-px in" } else { "heal-px out" };
+    rsx! {
+        for (ch, turn) in chars.into_iter().zip(turns) {
+            span { class, style: "animation-delay: {heal::pixel_delay_ms(turn, len)}ms;", "{ch}" }
+        }
+    }
+}
+
+/// A key for one restore's pair of texts.
+fn preview_text_key(before: &str, after: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (before, after).hash(&mut hasher);
+    hasher.finish()
 }

@@ -865,10 +865,17 @@ const headIdentity = (el) => {
   }
   if (tag === 'link') {
     const rel = el.getAttribute('rel');
-    return rel != null ? `link:rel=${rel.toLowerCase()}` : null;
+    if (rel == null) return null;
+    const r = rel.toLowerCase();
+    const href = el.getAttribute('href');
+    return href != null && !SINGLE_LINK_RELS.includes(r) ? `link:rel=${r}@${href}` : `link:rel=${r}`;
   }
   return null;
 };
+// The `<link rel>`s a document carries one of, so a page's own replaces the default; any other
+// `<link>` keys on its `href` too, so a page linking two stylesheets keeps both. The same set as
+// `semantics::dom::SINGLE_LINK_RELS`.
+const SINGLE_LINK_RELS = ['icon', 'shortcut icon', 'canonical', 'manifest'];
 // `Head:`'s rendered `<title>`/`<meta>`/`<link>`/`<base>` fragment, merged into the live
 // `document.head` over whatever is already there (the default set the host shell ships, or an
 // earlier merge): a tag with an identity above REPLACES the existing tag of that identity;
@@ -1215,6 +1222,14 @@ const exactWord = (v) => {
   exactHeld[h] = v;
   return (BigInt(h) << 1n) | 1n;
 };
+const parseIntExactly = (text) => {
+  const s = text.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, '');
+  if (/^[+-]?[0-9]+$/.test(s)) {
+    const v = BigInt(s);
+    if (v >= -(1n << 63n) && v < (1n << 63n)) return v;
+  }
+  throw new Error(`Cannot parse '${text}' as Int`);
+};
 const exactImports = {
   exact_box: (v) => exactWord(v),
   exact_narrow: (t) => { const v = exactValue(t); return v >= -(1n << 63n) && v < (1n << 63n) ? v : 0n; },
@@ -1264,7 +1279,7 @@ const env = {
   fmt_seq_i64_into: (buf, h) => writeStr(buf, displaySeqI64(h)),
   fmt_seq_bool_into: (buf, h) => writeStr(buf, displaySeqBool(h)),
   fmt_set_i64_into: (buf, h) => writeStr(buf, displaySetI64(h)),
-  parse_int: (h) => BigInt(parseInt(readText(h).trim(), 10) || 0),
+  parse_int: (h) => parseIntExactly(readText(h)),
   parse_float: (h) => parseFloat(readText(h).trim()),
   read_reals: (_path) => { throw new Error('readReals: a page in the browser has no files to read'); },
   parse_timestamp: (h) => parseRfc3339(readText(h)),

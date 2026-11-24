@@ -854,9 +854,14 @@ fn lower_program_stored(
     // end proves for it; the buffer that carries it once joined holds what the producer's compute proves. Where the
     // front end knows more than any analysis of that compute can see — an attention's context, a weighted mean of its
     // values, computed by a division — the join would hand the next compute a wider value than its load did, and every
-    // width sized from it after.
+    // width sized from it after. A carrier at a float precision — an Int program on a chip whose pointwise datapath is
+    // float — holds what the store and the load would have held at that precision, and a load at a float precision is
+    // proven in no interval ([`declare_ranges`]): the join widens nothing.
     let keeps = |j: &super::passes::forward::Joint, t: &str, known: &std::collections::BTreeMap<String, super::value_range::Interval>| {
         let Some(&bound) = known.get(t) else { return true };
+        if super::target::precision_int_bits(j.program.buffer(j.carrier).dtype).is_none() {
+            return true;
+        }
         let proven = super::value_range::program_ranges(&declare_ranges(j.program.clone(), known));
         proven.buffers[j.carrier.idx()].is_some_and(|iv| bound.0 <= iv.0 && iv.1 <= bound.1)
     };
@@ -1165,16 +1170,24 @@ fn lower_program_stored(
             })
         })
         .collect();
+    // The statement that first makes each result, and the results already reported: each load is checked in time
+    // independent of the program's length, so a program of many sections is checked in time linear in its loads.
+    let mut first_made: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    for st in &rp.stages {
+        first_made.entry(st.out.as_str()).or_insert(st.stmt_index);
+    }
+    let mut reported: std::collections::BTreeSet<String> = missing.iter().map(|m| m.binder.clone()).collect();
     for p in &sections {
         for s in &p.stages {
             let StageKind::Load { tensor, .. } = &s.kind else { continue };
             let name = &p.tensor(*tensor).name;
-            if stored.contains(name.as_str()) || missing.iter().any(|m| m.binder == *name) {
+            if stored.contains(name.as_str()) || reported.contains(name) {
                 continue;
             }
-            if let Some(st) = rp.stages.iter().find(|st| st.out == *name) {
+            if let Some(&stmt_index) = first_made.get(name.as_str()) {
+                reported.insert(name.clone());
                 missing.push(MissingStage {
-                    stmt_index: st.stmt_index,
+                    stmt_index,
                     binder: name.clone(),
                     kind: "read".into(),
                     why: format!("section {} loads it and no section stores it", p.name),

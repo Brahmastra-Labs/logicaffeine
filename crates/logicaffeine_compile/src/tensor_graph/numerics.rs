@@ -99,6 +99,7 @@ fn direct_class(op: &Op) -> Option<ClassId> {
         (Some(TensorOpSpec::GatedDelta(_)), _) => Some(ClassId::GdnOutputQuant),
         (Some(TensorOpSpec::Attention(_)), _) => Some(ClassId::AttnOutputQuant),
         (Some(TensorOpSpec::FusedRow(_)), _) => Some(ClassId::NormQuant),
+        (Some(TensorOpSpec::LaneMean(_)), _) => Some(ClassId::ElementwiseQuant),
         _ => None,
     }
 }
@@ -373,14 +374,7 @@ impl Keep {
             Keep::F32 => f64::from(v as f32),
             Keep::F16 => f64::from(crate::model::quant::f16_to_f32(crate::model::quant::f32_to_f16(v as f32))),
             Keep::E4m3 => f64::from(crate::model::quant::e4m3_to_f32(crate::model::quant::f32_to_e4m3(v as f32))),
-            Keep::Bf16 => {
-                let x = v as f32;
-                if x.is_nan() {
-                    return Some(f64::from(x));
-                }
-                let bits = x.to_bits();
-                f64::from(f32::from_bits(bits.wrapping_add(0x7FFF + ((bits >> 16) & 1)) & 0xFFFF_0000))
-            }
+            Keep::Bf16 => f64::from(crate::model::quant::bf16_to_f32(crate::model::quant::f32_to_bf16(v as f32))),
         })
     }
 }

@@ -134,7 +134,7 @@ fn detect_loop_buffer_swap(body: &[Stmt], interner: &Interner) -> Option<LoopBuf
         else {
             return None;
         };
-        (matches!(interner.resolve(*type_name), "Seq" | "List" | "Vec") && init_fields.is_empty())
+        (crate::semantics::collections::builds_list(interner.resolve(*type_name)) && init_fields.is_empty())
             .then_some(*var)
     })?;
 
@@ -333,28 +333,43 @@ fn param_kind_of_type(
 /// Resolve a type NAME to its full [`BoundaryType`] — a scalar/temporal primitive, or (if the name
 /// is a user type) a `Struct`/`Enum` reference (`user_types[name]` = true for struct, false for
 /// enum). `None` for an unmodeled type (Map, generic param…).
+///
+/// ★ A PROGRAM'S OWN TYPE WINS over a builtin value type of the same name. `Span`, `Money`,
+/// `Time`, `Date` and the rest are ordinary nouns a program declares its own records and sum types
+/// under (`## A Span has: …`), and the tree-walker has always used the declaration. Resolving the
+/// builtin first told every compiled tier that `(s: Span)` was the builtin scalar, with no fields
+/// to read and no variants to match. Only the core scalars, which no declaration can shadow, are
+/// resolved ahead of the program's names.
 fn boundary_of_name(
     s: Symbol,
     user_types: &std::collections::HashMap<Symbol, bool>,
     interner: &Interner,
 ) -> Option<BoundaryType> {
-    Some(match interner.resolve(s) {
-        "Int" | "Nat" | "Element" | "Event" | "View" => BoundaryType::Int,
-        "Float" | "Real" => BoundaryType::Float,
-        "Bool" => BoundaryType::Bool,
-        "Text" => BoundaryType::Text,
+    let name = interner.resolve(s);
+    let scalar = match name {
+        "Int" | "Nat" | "Element" | "Event" | "View" => Some(BoundaryType::Int),
+        "Float" | "Real" => Some(BoundaryType::Float),
+        "Bool" => Some(BoundaryType::Bool),
+        "Text" => Some(BoundaryType::Text),
+        "Word32" => Some(BoundaryType::Word32),
+        "Word64" => Some(BoundaryType::Word64),
+        _ => None,
+    };
+    if scalar.is_some() {
+        return scalar;
+    }
+    match user_types.get(&s) {
+        Some(true) => return Some(BoundaryType::Struct(name.to_string())),
+        Some(false) => return Some(BoundaryType::Enum(name.to_string())),
+        None => {}
+    }
+    Some(match name {
         "Date" => BoundaryType::Date,
         "Moment" => BoundaryType::Moment,
-        "Word32" => BoundaryType::Word32,
-        "Word64" => BoundaryType::Word64,
-        name @ ("Duration" | "Time" | "Span" | "Rational" | "Complex" | "Decimal" | "Modular"
-        | "Money" | "Quantity" | "Uuid" | "Algebraic" | "ExactReal" | "Hyperreal" | "Hypernatural"
-        | "Ordinal") => BoundaryType::Builtin(name.to_string()),
-        other => match user_types.get(&s) {
-            Some(true) => BoundaryType::Struct(other.to_string()),
-            Some(false) => BoundaryType::Enum(other.to_string()),
-            None => return None,
-        },
+        "Duration" | "Time" | "Span" | "Rational" | "Complex" | "Decimal" | "Modular" | "Money"
+        | "Quantity" | "Uuid" | "Algebraic" | "ExactReal" | "Hyperreal" | "Hypernatural"
+        | "Ordinal" => BoundaryType::Builtin(name.to_string()),
+        _ => return None,
     })
 }
 
@@ -390,10 +405,10 @@ fn boundary_of_type_expr(
             boundary_of_type_expr(&params[0], user_types, interner)
                 .map(|e| BoundaryType::Set(Box::new(e)))
         }
-        // A HOMOGENEOUS tuple (`Pair of Int and Int`, `Triple of Int and Int and Int`) lays out
-        // identically to a `Seq` of the shared element kind, so it resolves through the same seq path
-        // (`item N of t` = seq index). A heterogeneous tuple has no single AOT element kind and stays
-        // rejected — exactly as a heterogeneous tuple LITERAL is rejected at lowering.
+        // A tuple (`Pair of Int and Int`, `Triple of Int and Text and Int`) is a `Tuple` of its
+        // per-position types, homogeneous or not: a backend whose homogeneous tuple shares a list's
+        // layout reads that from the positions, and the type still says it is a tuple — what it
+        // displays as `(a, b)` and compares as position for position.
         TypeExpr::Generic { base, params }
             if matches!(interner.resolve(*base), "Pair" | "Triple") =>
         {
@@ -403,15 +418,11 @@ fn boundary_of_type_expr(
                 .collect();
             if elems.len() != params.len() {
                 None
-            } else if elems.windows(2).all(|w| w[0] == w[1]) {
-                Some(BoundaryType::Seq(Box::new(elems[0].clone())))
             } else {
                 Some(BoundaryType::Tuple(elems))
             }
         }
-        // An ANONYMOUS tuple type `(Int, Int)` / `(Int, Text)` — identical resolution to `Pair`/`Triple`:
-        // a homogeneous tuple lays out as a `Seq` of the shared element (so `item N of t` = seq index),
-        // a heterogeneous one is a `Tuple` of per-position kinds.
+        // An ANONYMOUS tuple type `(Int, Int)` / `(Int, Text)` — identical resolution to `Pair`/`Triple`.
         TypeExpr::Tuple(params) => {
             let elems: Vec<BoundaryType> = params
                 .iter()
@@ -419,8 +430,6 @@ fn boundary_of_type_expr(
                 .collect();
             if elems.len() != params.len() {
                 None
-            } else if elems.windows(2).all(|w| w[0] == w[1]) {
-                Some(BoundaryType::Seq(Box::new(elems[0].clone())))
             } else {
                 Some(BoundaryType::Tuple(elems))
             }
@@ -526,9 +535,8 @@ fn boundary_of_field_type(
             let v = boundary_of_field_type(&params[1], user_types, interner)?;
             Some(BoundaryType::Map(Box::new(k), Box::new(v)))
         }
-        // A HOMOGENEOUS tuple field (`Pair of Int and Int`, `Triple of …`) lays out identically to a
-        // `Seq` of the shared element kind, so it resolves through the seq path (`item N of s's t` =
-        // seq index). A heterogeneous tuple field has no single AOT element kind and stays rejected.
+        // A tuple FIELD (`Pair of Int and Int`, `Triple of …`) is a `Tuple` of its per-position types,
+        // as a tuple parameter is (`boundary_of_type_expr`).
         FieldType::Generic { base, params }
             if matches!(interner.resolve(*base), "Pair" | "Triple") =>
         {
@@ -538,8 +546,6 @@ fn boundary_of_field_type(
                 .collect();
             if elems.len() != params.len() {
                 None
-            } else if elems.windows(2).all(|w| w[0] == w[1]) {
-                Some(BoundaryType::Seq(Box::new(elems[0].clone())))
             } else {
                 Some(BoundaryType::Tuple(elems))
             }
@@ -561,8 +567,8 @@ fn boundary_of_field_type(
             let err = boundary_of_field_type(&params[1], user_types, interner)?;
             Some(BoundaryType::Result(Box::new(ok), Box::new(err)))
         }
-        // A tuple FIELD rides the boundary exactly as a `Pair`/`Triple` field does: a homogeneous
-        // one as a `Seq` of its element, a heterogeneous one as a `Tuple`.
+        // A tuple FIELD rides the boundary exactly as a `Pair`/`Triple` field does: a `Tuple` of its
+        // per-position types.
         FieldType::Tuple(_) | FieldType::Record(_) => {
             let items: Vec<&FieldType> = match ft {
                 FieldType::Tuple(items) => items.iter().collect(),
@@ -575,8 +581,6 @@ fn boundary_of_field_type(
                 .collect();
             if elems.len() != items.len() || elems.is_empty() {
                 None
-            } else if elems.windows(2).all(|w| w[0] == w[1]) {
-                Some(BoundaryType::Seq(Box::new(elems[0].clone())))
             } else {
                 Some(BoundaryType::Tuple(elems))
             }
@@ -654,8 +658,7 @@ fn boundary_of_value_expr(
         Expr::Literal(Literal::Float(_)) => Some(BoundaryType::Float),
         Expr::Literal(Literal::Boolean(_)) => Some(BoundaryType::Bool),
         Expr::Literal(Literal::Text(_)) => Some(BoundaryType::Text),
-        // A tuple literal — every element's type must resolve. A homogeneous tuple lays out like a
-        // `Seq` (self-describing, no shape needed); a heterogeneous one carries its per-position kinds.
+        // A tuple literal — every element's type must resolve; it carries its per-position types.
         Expr::Tuple(elems) if !elems.is_empty() => {
             let bts: Vec<BoundaryType> = elems
                 .iter()
@@ -663,8 +666,6 @@ fn boundary_of_value_expr(
                 .collect();
             if bts.len() != elems.len() {
                 None
-            } else if bts.windows(2).all(|w| w[0] == w[1]) {
-                Some(BoundaryType::Seq(Box::new(bts[0].clone())))
             } else {
                 Some(BoundaryType::Tuple(bts))
             }
@@ -3274,8 +3275,14 @@ impl<'i> Compiler<'i> {
                 self.loop_stack.push(loop_start);
                 let enabled = self.emit_hoist_guards(s);
                 self.hoist_enabled.push(enabled);
-                let c = self.compile_expr(cond)?;
-                let jexit = self.emit_placeholder_jump_if_false(c);
+                // `While true` (the run path's accumulator loop among them) leaves only by a `Break` or a `Return`:
+                // it tests nothing, so the code after it is reached only through its breaks.
+                let jexit = if matches!(cond, Expr::Literal(Literal::Boolean(true))) {
+                    None
+                } else {
+                    let c = self.compile_expr(cond)?;
+                    Some(self.emit_placeholder_jump_if_false(c))
+                };
                 self.flow_stack.push(FlowCtx::Loop {
                     breaks: Vec::new(),
                     is_repeat: false,
@@ -3302,7 +3309,9 @@ impl<'i> Compiler<'i> {
                 self.loop_stack.pop();
                 self.emit(Op::Jump { target: loop_start });
                 let exit_pc = self.current_pc();
-                self.patch_jump_target(jexit, exit_pc)?;
+                if let Some(jexit) = jexit {
+                    self.patch_jump_target(jexit, exit_pc)?;
+                }
                 if let Some(FlowCtx::Loop { breaks, .. }) = self.flow_stack.pop() {
                     for j in breaks {
                         self.patch_jump_target(j, exit_pc)?;
@@ -4585,7 +4594,7 @@ impl<'i> Compiler<'i> {
                 {
                     if init_fields.is_empty() {
                         match self.interner.resolve(*type_name) {
-                            "Seq" | "List" | "Vec" => {
+                            name if crate::semantics::collections::builds_list(name) => {
                                 let capacity = self.compile_expr(capacity)?;
                                 self.emit(Op::NewEmptyListWithCapacity { dst, capacity });
                                 return Ok(());

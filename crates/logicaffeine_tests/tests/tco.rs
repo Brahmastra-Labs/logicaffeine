@@ -16,6 +16,7 @@
 
 use logicaffeine_compile::compile::{tw_outcome_with_args, vm_outcome_with_args};
 use logicaffeine_compile::vm::NativeTier;
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_jit::ForgeTier;
 
 fn on_big_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
@@ -31,8 +32,13 @@ fn on_big_stack<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T 
 fn both_tiers(src: &str) -> (String, Option<String>, String, Option<String>) {
     let src = src.to_string();
     on_big_stack(move || {
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
         let tier = ForgeTier::new();
-        let vm = vm_outcome_with_args(&src, &[], Some(&tier as &dyn NativeTier));
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+        let native = Some(&tier as &dyn NativeTier);
+        #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+        let native: Option<&dyn NativeTier> = None;
+        let vm = vm_outcome_with_args(&src, &[], native);
         let tw = tw_outcome_with_args(&src, &[]);
         (
             vm.output.trim().to_string(),

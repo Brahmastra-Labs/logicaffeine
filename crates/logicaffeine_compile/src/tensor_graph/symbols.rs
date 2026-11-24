@@ -316,6 +316,22 @@ registry! {
     GemvQuant = "gemv_quant", Fused, Ours, Exemplar::None(NUMERICS);
     ElementwiseQuant = "elementwise_quant", Fused, Ours, Exemplar::None(NUMERICS);
     DeltaQkNorm = "delta_qk_norm", Fused, Ours, Exemplar::None("a chip's own fold of a gated delta layer's step and the norms its inputs' launch hands it, held by the tiny Qwen3.5 cuts");
+    GemmAct = "gemm_act", Fused, Book, ex(
+        "## Main\nLet X be a 1 by 8 tensor of Real.\nLet M be a 8 by 8 tensor of Real.\nLet P be X matmul M.\nLet A be sigmoid of P.\nLet Y be A scaled by 2.0.\n",
+        &["Matmul", "Sigmoid", "Scale"],
+    );
+    HcMix = "hc_mix", Fused, Book, ex(
+        "## Main\nLet N be a 1 by 16 tensor of Real.\nLet U be a 1 by 16 tensor of Real.\nLet G be sigmoid of U.\nLet X be N hadamard G.\nLet Y be the mean of X over 4 lanes.\n",
+        &["Sigmoid", "Elementwise", "LaneMean"],
+    );
+    HcPost = "hc_post", Fused, Book, ex(
+        "## Main\nLet H be a 1 by 16 tensor of Real.\nLet O be a 1 by 4 tensor of Real.\nLet S be a 1 by 4 tensor of Real.\nLet P be O spread over 4 lanes by S.\nLet Y be H plus P.\n",
+        &["LaneSpread", "Elementwise"],
+    );
+    HcPostNorm = "hc_post_norm", Fused, Book, ex(
+        "## Main\nLet H be a 1 by 16 tensor of Real.\nLet O be a 1 by 4 tensor of Real.\nLet S be a 1 by 4 tensor of Real.\nLet W be a 1 by 16 tensor of Real.\nLet P be O spread over 4 lanes by S.\nLet Y be H plus P.\nLet N be rmsnorm of Y with weight W in 4 lanes.\n",
+        &["LaneSpread", "Elementwise", "FusedRow"],
+    );
 }
 
 impl ClassId {

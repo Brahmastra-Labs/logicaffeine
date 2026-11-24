@@ -19,8 +19,9 @@
 //!   * genuinely recursive (≥ 2 self-calls, so caching pays).
 //!
 //! `fib` is the canonical case: turning its exponential recursion into O(n).
-//! A function `closed_form` already solved has no self-calls left when this pass
-//! runs (after ClosedForm), so it declines — the natural preemption.
+//! A function `closed_form` already solved answers its range without a call
+//! when this pass runs (after ClosedForm), so it declines: ClosedForm preempts
+//! Memo.
 
 use std::collections::HashMap;
 
@@ -74,6 +75,12 @@ pub fn memoize_run_stmts<'a>(
                 &purity,
                 interner,
             ) {
+                // A function the closed form answers answers every argument in its range without a call: a cache in
+                // front of it only costs.
+                if params.len() == 1 && super::closed_form::answers_in_closed_form(body, params[0].0) {
+                    super::mark_preempted(Opt::ClosedForm, Opt::Memo);
+                    continue;
+                }
                 targets.push(m);
             }
         }

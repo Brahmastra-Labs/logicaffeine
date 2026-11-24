@@ -83,6 +83,8 @@ benchmarks/generated/
 # the computed results (results/arena/*.json) and the scripts stay tracked.
 benchmarks/arena/cache/
 benchmarks/arena/instances/
+# A local selection of those instances: links into instances/, meaningful on this machine only.
+benchmarks/arena/arena-sel/
 benchmarks/results/raw/
 benchmarks/results/raw-local/
 benchmarks/results/raw-logos-vs-c/
@@ -204,9 +206,10 @@ benchmarks/silicon/qor/sky130/
 # corpora, sibling tools): one local-only tree, each checkout carrying its own .git
 /external
 
-# Environment
+# Environment and credentials: never committed (no_secret_in_the_tree_lock)
 .env
-.env.local
+.env.*
+*.credentials*
 .claude/
 typescript
 
@@ -232,6 +235,6 @@ apps/logicaffeine_web/public/data/
 proofs/
 /reference-kernels
 /cpu-performance-engineering/
-# Wrangler local secrets (the NVIDIA key for a `wrangler dev` of services/heal): never committed.
+# Wrangler local secrets (a `wrangler dev` of any worker under services/): never committed.
 .dev.vars
 **/.dev.vars

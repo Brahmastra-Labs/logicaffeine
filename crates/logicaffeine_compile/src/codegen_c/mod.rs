@@ -707,6 +707,8 @@ fn emit_main(
     let mut changed = values::mutated_roots(stmts, &ctx.fn_inout);
     changed.extend(ctx.changed_statics.iter().copied());
     ctx.mutated = changed;
+    ctx.exact_vars = ctx.exact.main_locals.clone();
+    ctx.seq_exact_vars = ctx.exact.main_seq_elem_exact.clone();
     if uses_concurrency && tier == TaskTier::Stepped {
         ctx.bigint_vars = ctx.exact.main_locals.clone();
         ctx.number_locals = numbers::number_locals(stmts, ctx);
@@ -762,12 +764,8 @@ fn emit_main(
         let ownership = body_ownership(stmts, &std::collections::HashSet::new(), ctx);
         ctx.in_body(true, |ctx| {
             ctx.ownership = Some(ownership);
-            for stmt in stmts {
-                match stmt {
-                    Stmt::FunctionDef { .. } => continue,
-                    _ => codegen_stmt(stmt, ctx, &mut out, 1),
-                }
-            }
+            let main: Vec<&Stmt> = stmts.iter().filter(|s| !matches!(s, Stmt::FunctionDef { .. })).collect();
+            codegen_block_refs(&main, ctx, &mut out, 1);
         });
         ctx.main_root_depth = None;
         ctx.exit_scope();
@@ -788,12 +786,8 @@ fn emit_main(
         let ownership = body_ownership(stmts, &std::collections::HashSet::new(), ctx);
         ctx.in_body(true, |ctx| {
             ctx.ownership = Some(ownership);
-            for stmt in stmts {
-                match stmt {
-                    Stmt::FunctionDef { .. } => continue,
-                    _ => codegen_stmt(stmt, ctx, &mut out, 1),
-                }
-            }
+            let main: Vec<&Stmt> = stmts.iter().filter(|s| !matches!(s, Stmt::FunctionDef { .. })).collect();
+            codegen_block_refs(&main, ctx, &mut out, 1);
         });
         ctx.main_root_depth = None;
         ctx.exit_scope();
@@ -841,7 +835,7 @@ fn collect_tuple_types(
     // A named record SHARES the positional tuple struct, and a Seq-of-tuple's element IS a tuple — so all
     // three surface the same underlying element tuple.
     let elems: Option<Vec<CType>> = match cty {
-        CType::Tuple(elems) | CType::SeqTuple(elems) => Some(elems.clone()),
+        CType::Tuple(elems) | CType::SeqTuple(elems) | CType::SetTuple(elems) => Some(elems.clone()),
         CType::Record(fields) => Some(fields.iter().map(|(_, t)| t.clone()).collect()),
         _ => None,
     };
@@ -1027,23 +1021,37 @@ fn collect_stmt_tuple_types<'a>(
     }
 }
 
-/// Record a map whose VALUE no fixed family holds — a Seq (`Map of Text to Seq of Int` → `Map_str_Seq_i64`), a value
-/// of the exact extension (`Map of Int to Hyperreal` → `Map_i64_LTower`) — so its generic family can be synthesized.
-/// Value-TYPE maps (`Map of Text to Money`) keep their own fixed family, so those are skipped here (avoids a duplicate
-/// typedef).
+/// Record each map in `cty`, at any depth (inside a list, a tuple or an option too), whose VALUE no fixed family holds
+/// — a list (`Map of Text to Seq of Int` → `Map_str_Seq_i64`), a record (`Map of Int to Point` → `Map_i64_Point`), a
+/// value of the exact extension (`Map_i64_LTower`) — so its generic family is synthesized once. A text-keyed map of a
+/// value type (`Map of Text to Money`) keeps its own fixed family, and a map of values-or-nothing the shared one, so
+/// those are skipped (no duplicate typedef).
 fn collect_mapvalue_from_ctype(
     cty: &CType,
     seen: &mut std::collections::HashSet<String>,
     out: &mut Vec<CType>,
     interner: &Interner,
 ) {
-    if let CType::MapStrValue(v) | CType::MapI64Value(v) = cty {
-        if !crate::codegen_c::types::is_c_value_type(v) {
-            let name = c_type_str_resolved(cty, interner);
-            if seen.insert(name) {
+    match cty {
+        CType::MapStrValue(v) | CType::MapI64Value(v) => {
+            collect_mapvalue_from_ctype(v, seen, out, interner);
+            // A text-keyed map of a value type has its fixed family; one of values-or-nothing, the shared family the
+            // program carries whenever it holds `nothing`.
+            let own_family = (matches!(cty, CType::MapStrValue(_)) && crate::codegen_c::types::is_c_value_type(v))
+                || matches!(**v, CType::Opt(_));
+            if !own_family && seen.insert(c_type_str_resolved(cty, interner)) {
                 out.push(cty.clone());
             }
         }
+        CType::SeqValue(inner) | CType::SeqSeq(inner) | CType::Opt(inner) => {
+            collect_mapvalue_from_ctype(inner, seen, out, interner)
+        }
+        CType::Tuple(items) => {
+            for item in items {
+                collect_mapvalue_from_ctype(item, seen, out, interner);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -1120,10 +1128,45 @@ fn collect_stmt_mapvalue_types<'a>(
 /// values-or-nothing is one family whatever they hold, and what renders them is the payload's (`c_field_to_string_expr`).
 fn emit_generic_map_family(output: &mut String, map: &CType, interner: &Interner, rendered: bool) {
     use std::fmt::Write;
+    let Some(typedef) = generic_map_typedef(map, interner) else {
+        return;
+    };
+    writeln!(output, "{typedef}").unwrap();
+    for f in generic_map_fns(map, interner, rendered) {
+        writeln!(output, "{} {}", f.sig, f.body).unwrap();
+    }
+}
+
+/// The typedef of the generic map family of `map` (see [`emit_generic_map_family`]): its keys, its values behind a
+/// pointer, and its insertion order. `None` for a type that is no generic map.
+fn generic_map_typedef(map: &CType, interner: &Interner) -> Option<String> {
+    let (name, members) = generic_map_layout(map, interner)?;
+    Some(format!("typedef struct {{ {members} }} {name};"))
+}
+
+/// The generic map family of `map`'s C name and its struct's members: its keys, its values behind a pointer, and its
+/// insertion order. `None` for a type that is no generic map.
+fn generic_map_layout(map: &CType, interner: &Interner) -> Option<(String, String)> {
+    let (v, k, key_t) = match map {
+        CType::MapStrValue(v) => (v, "str", "char *"),
+        CType::MapI64Value(v) => (v, "i64", "int64_t "),
+        _ => return None,
+    };
+    let vname = c_type_str_resolved(v, interner);
+    Some((
+        format!("Map_{k}_{vname}"),
+        format!("{key_t}*keys; {vname} *vals; uint8_t *state; size_t cap; size_t len; size_t *order; size_t ord_len;"),
+    ))
+}
+
+/// The functions of the generic map family of `map` (see [`emit_generic_map_family`]): `new`, `set`, `get`,
+/// `contains`, `remove`, `len`, and, `rendered`, `to_string` and `show`. Each takes or returns a value whole, so it
+/// follows the definition of the value's type.
+fn generic_map_fns(map: &CType, interner: &Interner, rendered: bool) -> Vec<CFn> {
     let (v, k, key_t, key_param, hash, store_key, key_fmt) = match map {
         CType::MapStrValue(v) => (v, "str", "char *", "const char *key", "_map_hash_str", "lc_gc_strdup(key)", "%s"),
         CType::MapI64Value(v) => (v, "i64", "int64_t ", "int64_t key", "_map_hash", "key", "%\" PRId64 \""),
-        _ => return,
+        _ => return Vec::new(),
     };
     let eq = |slot: &str| match k {
         "str" => format!("strcmp({slot}, key) == 0"),
@@ -1138,21 +1181,22 @@ fn emit_generic_map_family(output: &mut String, map: &CType, interner: &Interner
     let mp = format!("Map_{k}_{vname}");
     let f = format!("map_{k}_{vname}");
     let vrender = crate::codegen_c::types::c_field_to_string_expr(v, "m->vals[si]", interner);
-    writeln!(output, "typedef struct {{ {key_t}*keys; {vname} *vals; uint8_t *state; size_t cap; size_t len; size_t *order; size_t ord_len; }} {mp};").unwrap();
-    writeln!(output, "__attribute__((unused)) static {mp} {f}_new(void) {{ size_t cap = 16; {mp} m = {{({key_t}*)lc_gc_calloc(cap, sizeof({key_t})), ({vname} *)lc_gc_calloc(cap, sizeof({vname})), (uint8_t *)lc_gc_calloc(cap, 1), cap, 0, (size_t *)lc_gc_calloc(cap, sizeof(size_t)), 0}}; return m; }}").unwrap();
-    writeln!(output, "__attribute__((unused)) static void _{f}_resize({mp} *m) {{ {key_t}*ok = m->keys; {vname} *ov = m->vals; uint8_t *os = m->state; size_t *oo = m->order; size_t ool = m->ord_len; size_t nc = m->cap * 2; m->keys = ({key_t}*)lc_gc_calloc(nc, sizeof({key_t})); m->vals = ({vname} *)lc_gc_calloc(nc, sizeof({vname})); m->state = (uint8_t *)lc_gc_calloc(nc, 1); m->order = (size_t *)lc_gc_calloc(nc, sizeof(size_t)); m->cap = nc; m->len = 0; m->ord_len = 0; for (size_t oi = 0; oi < ool; oi++) {{ size_t si = oo[oi]; if (!os[si]) continue; size_t idx = {hash}(ok[si], nc); while (m->state[idx]) idx = (idx + 1) & (nc - 1); m->keys[idx] = ok[si]; m->vals[idx] = ov[si]; m->state[idx] = 1; m->len++; m->order[m->ord_len++] = idx; }} lc_gc_free(ok); lc_gc_free(ov); lc_gc_free(os); lc_gc_free(oo); }}").unwrap();
-    writeln!(output, "__attribute__((unused)) static void {f}_set({mp} *m, {key_param}, {vname} val) {{ if (m->ord_len * 4 >= m->cap * 3) _{f}_resize(m); size_t idx = {hash}(key, m->cap); while (m->state[idx]) {{ if ({eq_idx}) {{ m->vals[idx] = val; return; }} idx = (idx + 1) & (m->cap - 1); }} m->keys[idx] = {store_key}; m->vals[idx] = val; m->state[idx] = 1; m->len++; m->order[m->ord_len++] = idx; }}").unwrap();
-    writeln!(output, "__attribute__((unused)) static {vname} {f}_get({mp} *m, {key_param}) {{ size_t idx = {hash}(key, m->cap); while (m->state[idx]) {{ if ({eq_idx}) return m->vals[idx]; idx = (idx + 1) & (m->cap - 1); }} logos_map_miss(); {vname} z; memset(&z, 0, sizeof({vname})); return z; }}").unwrap();
-    writeln!(output, "__attribute__((unused)) static bool {f}_contains({mp} *m, {key_param}) {{ size_t idx = {hash}(key, m->cap); while (m->state[idx]) {{ if ({eq_idx}) return true; idx = (idx + 1) & (m->cap - 1); }} return false; }}").unwrap();
-    writeln!(output, "__attribute__((unused)) static void {f}_remove({mp} *t, {key_param}) {{ size_t mask = t->cap - 1, i = {hash}(key, t->cap); while (t->state[i] && {ne_i}) i = (i + 1) & mask; if (!t->state[i]) return; _logos_order_drop(t->order, &t->ord_len, i); t->len--; for (size_t j = (i + 1) & mask; t->state[j]; j = (j + 1) & mask) {{ if (_logos_slot_backs({hash}(t->keys[j], t->cap), i, j, mask)) {{ t->keys[i] = t->keys[j]; t->vals[i] = t->vals[j]; _logos_order_move(t->order, t->ord_len, j, i); i = j; }} }} t->state[i] = 0; }}").unwrap();
-    writeln!(output, "__attribute__((unused)) static int64_t {f}_len({mp} *m) {{ return (int64_t)m->len; }}").unwrap();
+    let mut fns = Vec::new();
+    fns.push(CFn { sig: format!("__attribute__((unused)) static {mp} {f}_new(void)"), body: format!("{{ size_t cap = 16; {mp} m = {{({key_t}*)lc_gc_calloc(cap, sizeof({key_t})), ({vname} *)lc_gc_calloc(cap, sizeof({vname})), (uint8_t *)lc_gc_calloc(cap, 1), cap, 0, (size_t *)lc_gc_calloc(cap, sizeof(size_t)), 0}}; return m; }}") });
+    fns.push(CFn { sig: format!("__attribute__((unused)) static void _{f}_resize({mp} *m)"), body: format!("{{ {key_t}*ok = m->keys; {vname} *ov = m->vals; uint8_t *os = m->state; size_t *oo = m->order; size_t ool = m->ord_len; size_t nc = m->cap * 2; m->keys = ({key_t}*)lc_gc_calloc(nc, sizeof({key_t})); m->vals = ({vname} *)lc_gc_calloc(nc, sizeof({vname})); m->state = (uint8_t *)lc_gc_calloc(nc, 1); m->order = (size_t *)lc_gc_calloc(nc, sizeof(size_t)); m->cap = nc; m->len = 0; m->ord_len = 0; for (size_t oi = 0; oi < ool; oi++) {{ size_t si = oo[oi]; if (!os[si]) continue; size_t idx = {hash}(ok[si], nc); while (m->state[idx]) idx = (idx + 1) & (nc - 1); m->keys[idx] = ok[si]; m->vals[idx] = ov[si]; m->state[idx] = 1; m->len++; m->order[m->ord_len++] = idx; }} lc_gc_free(ok); lc_gc_free(ov); lc_gc_free(os); lc_gc_free(oo); }}") });
+    fns.push(CFn { sig: format!("__attribute__((unused)) static void {f}_set({mp} *m, {key_param}, {vname} val)"), body: format!("{{ if (m->ord_len * 4 >= m->cap * 3) _{f}_resize(m); size_t idx = {hash}(key, m->cap); while (m->state[idx]) {{ if ({eq_idx}) {{ m->vals[idx] = val; return; }} idx = (idx + 1) & (m->cap - 1); }} m->keys[idx] = {store_key}; m->vals[idx] = val; m->state[idx] = 1; m->len++; m->order[m->ord_len++] = idx; }}") });
+    fns.push(CFn { sig: format!("__attribute__((unused)) static {vname} {f}_get({mp} *m, {key_param})"), body: format!("{{ size_t idx = {hash}(key, m->cap); while (m->state[idx]) {{ if ({eq_idx}) return m->vals[idx]; idx = (idx + 1) & (m->cap - 1); }} logos_map_miss_{k}(key); }}") });
+    fns.push(CFn { sig: format!("__attribute__((unused)) static bool {f}_contains({mp} *m, {key_param})"), body: format!("{{ size_t idx = {hash}(key, m->cap); while (m->state[idx]) {{ if ({eq_idx}) return true; idx = (idx + 1) & (m->cap - 1); }} return false; }}") });
+    fns.push(CFn { sig: format!("__attribute__((unused)) static void {f}_remove({mp} *t, {key_param})"), body: format!("{{ size_t mask = t->cap - 1, i = {hash}(key, t->cap); while (t->state[i] && {ne_i}) i = (i + 1) & mask; if (!t->state[i]) return; _logos_order_drop(t->order, &t->ord_len, i); t->len--; for (size_t j = (i + 1) & mask; t->state[j]; j = (j + 1) & mask) {{ if (_logos_slot_backs({hash}(t->keys[j], t->cap), i, j, mask)) {{ t->keys[i] = t->keys[j]; t->vals[i] = t->vals[j]; _logos_order_move(t->order, t->ord_len, j, i); i = j; }} }} t->state[i] = 0; }}") });
+    fns.push(CFn { sig: format!("__attribute__((unused)) static int64_t {f}_len({mp} *m)"), body: format!("{{ return (int64_t)m->len; }}") });
     if !rendered {
-        return;
+        return fns;
     }
-    writeln!(output, "__attribute__((unused)) static char *{f}_to_string({mp} *m) {{ char *out = lc_gc_strdup(\"{{\"); int first = 1; for (size_t oi = 0; oi < m->ord_len; oi++) {{ size_t si = m->order[oi]; if (!m->state[si]) continue; char *__v = {vrender}; char *e = logos_dyn_sprintf(\"%s{key_fmt}: %s\", first ? \"\" : \", \", m->keys[si], __v); lc_gc_free(__v); char *nw = str_concat(out, e); lc_gc_free(out); lc_gc_free(e); out = nw; first = 0; }} char *nw = str_concat(out, \"}}\"); lc_gc_free(out); return nw; }}").unwrap();
-    writeln!(output, "__attribute__((unused)) static void show_{f}({mp} *m) {{ char *t = {f}_to_string(m); printf(\"%s\\n\", t); lc_gc_free(t); }}").unwrap();
+    fns.push(CFn { sig: format!("__attribute__((unused)) static char *{f}_to_string({mp} *m)"), body: format!("{{ char *out = lc_gc_strdup(\"{{\"); int first = 1; for (size_t oi = 0; oi < m->ord_len; oi++) {{ size_t si = m->order[oi]; if (!m->state[si]) continue; char *__v = {vrender}; char *e = logos_dyn_sprintf(\"%s{key_fmt}: %s\", first ? \"\" : \", \", m->keys[si], __v); lc_gc_free(__v); char *nw = str_concat(out, e); lc_gc_free(out); lc_gc_free(e); out = nw; first = 0; }} char *nw = str_concat(out, \"}}\"); lc_gc_free(out); return nw; }}") });
+    fns.push(CFn { sig: format!("__attribute__((unused)) static void show_{f}({mp} *m)"), body: format!("{{ char *t = {f}_to_string(m); printf(\"%s\\n\", t); lc_gc_free(t); }}") });
+    fns
 }
-use emit::codegen_stmt;
+use emit::{codegen_block, codegen_block_refs};
 
 /// Promote an integer `CType` to the EXACT arbitrary-precision `LInt` (`CType::BigInt`) in place, recursing into
 /// a function-pointer's return + params. Non-integer types are untouched.
@@ -1536,6 +1580,7 @@ fn codegen_function(stmt: &Stmt, ctx: &mut CContext, output: &mut String) {
             .map(|(pn, pt)| (*pn, param_ctype(ctx, *name, *pn, pt)))
             .collect();
         let mut bigint_vars = body_exact_locals(ctx, *name, body, &param_types);
+        let saved_exact_vars = std::mem::replace(&mut ctx.exact_vars, bigint_vars.clone());
         let branchless_words =
             direct_c_branchless_word_vars(body, &bigint_vars, &ctx.exact.pure_calls);
         bigint_vars.retain(|sym| !branchless_words.contains(sym));
@@ -1565,6 +1610,10 @@ fn codegen_function(stmt: &Stmt, ctx: &mut CContext, output: &mut String) {
         let saved_vars = ctx.vars.clone();
         let saved_scope = std::mem::replace(&mut ctx.tower_scope, Some(*name));
         let saved_big = std::mem::take(&mut ctx.bigint_vars);
+        let saved_seq_exact = std::mem::replace(
+            &mut ctx.seq_exact_vars,
+            ctx.exact.seq_elem_exact.get(name).cloned().unwrap_or_default(),
+        );
         let saved_numbers = std::mem::take(&mut ctx.number_locals);
         let saved_returns = ctx.current_fn_returns.clone();
         let saved_nonnegative = std::mem::replace(
@@ -1668,9 +1717,7 @@ fn codegen_function(stmt: &Stmt, ctx: &mut CContext, output: &mut String) {
             writeln!(output, "        int64_t {end_word} = ({end_exact}).small;").unwrap();
             ctx.in_body(false, |ctx| {
                 ctx.ownership = Some(ownership.clone());
-                for s in *body {
-                    codegen_stmt(s, ctx, output, 2);
-                }
+                codegen_block(body, ctx, output, 2);
             });
             ctx.bigint_vars = exact_bigints;
             ctx.exit_scope();
@@ -1679,9 +1726,7 @@ fn codegen_function(stmt: &Stmt, ctx: &mut CContext, output: &mut String) {
             ctx.enter_scope();
             ctx.in_body(false, |ctx| {
                 ctx.ownership = Some(ownership.clone());
-                for s in *body {
-                    codegen_stmt(s, ctx, output, 2);
-                }
+                codegen_block(body, ctx, output, 2);
             });
             ctx.exit_scope();
             writeln!(output, "    }}").unwrap();
@@ -1689,9 +1734,7 @@ fn codegen_function(stmt: &Stmt, ctx: &mut CContext, output: &mut String) {
         } else {
             ctx.in_body(false, |ctx| {
                 ctx.ownership = Some(ownership);
-                for s in *body {
-                    codegen_stmt(s, ctx, output, 1);
-                }
+                codegen_block(body, ctx, output, 1);
             });
         }
         ctx.mutated = saved_changed;
@@ -1700,6 +1743,8 @@ fn codegen_function(stmt: &Stmt, ctx: &mut CContext, output: &mut String) {
         ctx.vars = saved_vars;
         ctx.tower_scope = saved_scope;
         ctx.bigint_vars = saved_big;
+        ctx.seq_exact_vars = saved_seq_exact;
+        ctx.exact_vars = saved_exact_vars;
         ctx.number_locals = saved_numbers;
         ctx.current_fn_returns = saved_returns;
         ctx.nonnegative_vars = saved_nonnegative;
@@ -1803,11 +1848,12 @@ fn ordered_type_defs(
 /// its signatures and statements use, and the nested-sequence wrappers — in four phases, each safe
 /// only once the PRIOR phase has run for every type (the forward-declare/body split a genuinely
 /// cyclic container reference needs, see `type_value_deps`):
-/// A. forward-declare every record, enum and tuple (`typedef struct Name Name;`) — always legal, a
-///    struct tag can be declared before its members are known.
+/// A. forward-declare every record, enum, tuple and generic map (`typedef struct Name Name;`) — always
+///    legal, a struct tag can be declared before its members are known.
 /// B. every CONTAINER — `Seq_<Name>` for each of those, then each nested `Seq_Seq_…` innermost
-///    first. A container holds its element behind a pointer, so it needs only A's declaration, and
-///    a record may then hold any sequence by value.
+///    first, then each generic map's body. A container holds its element behind a pointer, so it
+///    needs only A's declaration — a list may hold a map, a map a list — and a record may then hold
+///    any sequence or map by value.
 /// C. every value body in TRUE by-value dependency order: records and enums interleaved (see
 ///    `ordered_type_defs`), then tuples, which may hold a record but never appear inside one.
 /// D. every FUNCTION — each container's `new`/`push`/`get`/`set`/`len`, each `_to_string` and
@@ -1824,6 +1870,7 @@ fn codegen_c_aggregates(
     facts: &exact::FieldFacts,
     tuples: &[(String, Vec<CType>)],
     seqseqs: &[CType],
+    maps: &[CType],
     output: &mut String,
 ) {
     use std::fmt::Write;
@@ -1839,6 +1886,11 @@ fn codegen_c_aggregates(
     }
     for (tname, _) in tuples {
         writeln!(output, "typedef struct {0} {0};", tname).unwrap();
+    }
+    for map in maps {
+        if let Some((name, _)) = generic_map_layout(map, interner) {
+            writeln!(output, "typedef struct {0} {0};", name).unwrap();
+        }
     }
 
     for name in users
@@ -1860,6 +1912,20 @@ fn codegen_c_aggregates(
                 "typedef struct {{ {elem} *data; size_t len; size_t cap; }} Seq_{elem};"
             )
             .unwrap();
+        }
+    }
+    for (tname, elems) in tuples {
+        if crate::codegen_c::types::tuple_is_set_key(elems) {
+            writeln!(
+                output,
+                "typedef struct {{ {tname} *keys; uint8_t *state; size_t cap; size_t len; size_t *order; size_t ord_len; }} Set_{tname};"
+            )
+            .unwrap();
+        }
+    }
+    for map in maps {
+        if let Some((name, members)) = generic_map_layout(map, interner) {
+            writeln!(output, "struct {name} {{ {members} }};").unwrap();
         }
     }
 
@@ -1906,6 +1972,9 @@ fn codegen_c_aggregates(
         phase_d.extend(seq_family(tname, tname));
         phase_d.push(tuple_show(tname, elems, interner));
         phase_d.extend(seq_show(tname, &format!("{tname}_to_string(s->data[i])")));
+        if crate::codegen_c::types::tuple_is_set_key(elems) {
+            phase_d.extend(set_tuple_family(tname, elems, interner));
+        }
     }
     for st in seqseqs {
         if let CType::SeqSeq(inner) = st {
@@ -1917,6 +1986,18 @@ fn codegen_c_aggregates(
                 crate::codegen_c::types::c_field_to_string_expr(inner, "s->data[i]", interner);
             phase_d.extend(seq_show(&elem, &render));
         }
+    }
+    for map in maps {
+        let rendered = match map {
+            CType::MapStrValue(v) | CType::MapI64Value(v) => crate::codegen_c::types::c_ctype_showable(
+                v,
+                registry,
+                interner,
+                &mut std::collections::HashSet::new(),
+            ),
+            _ => false,
+        };
+        phase_d.extend(generic_map_fns(map, interner, rendered));
     }
     for f in &phase_d {
         writeln!(output, "{};", f.sig).unwrap();
@@ -2051,6 +2132,89 @@ fn seq_show(key: &str, render: &str) -> Vec<CFn> {
             sig: format!("__attribute__((unused)) static void show_seq_{key}({sq} *s)"),
             body: format!("{{ char *t = seq_{key}_to_string(s); printf(\"%s\\n\", t); lc_gc_free(t); }}"),
         },
+    ]
+}
+
+/// The insertion-ordered set keyed by the tuple `tname` — `Set_<tname>` with `set_<tname>_new/add/contains/
+/// remove/len/union/intersect/to_string` and `show_set_<tname>` — over `<tname>_hash` and `<tname>_eq`: the
+/// open-addressing table `Set_str` is, its key the tuple struct. A key hashes each field through its own
+/// hash, folded, and compares field for field as the VM's `==` does, so a duplicate add is one member and
+/// `(-0.0, 1)` finds `(0.0, 1)`. Iteration, `Show` and union walk the `order` array: insertion order.
+fn set_tuple_family(tname: &str, elems: &[CType], interner: &Interner) -> Vec<CFn> {
+    use crate::codegen_c::types::{set_key_equal, set_key_hash};
+    let st = format!("Set_{tname}");
+    let hash = elems.iter().enumerate().fold(
+        "1469598103934665603ULL".to_string(),
+        |h, (i, e)| format!("__logos_hash_fold({h}, {})", set_key_hash(e, &format!("v.f{i}"), interner)),
+    );
+    let eq = if elems.is_empty() {
+        "true".to_string()
+    } else {
+        elems
+            .iter()
+            .enumerate()
+            .map(|(i, e)| set_key_equal(e, &format!("a.f{i}"), &format!("b.f{i}"), interner))
+            .collect::<Vec<_>>()
+            .join(" && ")
+    };
+    let f = |sig: String, body: String| CFn { sig, body };
+    let unused = "__attribute__((unused)) static";
+    vec![
+        f(format!("{unused} uint64_t {tname}_hash({tname} v)"), format!("{{ return {hash}; }}")),
+        f(format!("{unused} bool {tname}_eq({tname} a, {tname} b)"), format!("{{ return {eq}; }}")),
+        f(
+            format!("{unused} {st} set_{tname}_new(void)"),
+            format!(
+                "{{ size_t cap = 16; {st} s = {{({tname} *)lc_gc_calloc(cap, sizeof({tname})),                  (uint8_t *)lc_gc_calloc_atomic(cap, 1), cap, 0, (size_t *)lc_gc_calloc_atomic(cap, sizeof(size_t)), 0}};                  return s; }}"
+            ),
+        ),
+        f(
+            format!("{unused} void _set_{tname}_resize({st} *s)"),
+            format!(
+                "{{ {tname} *ok = s->keys; uint8_t *os = s->state; size_t *oo = s->order; size_t ool = s->ord_len;                  size_t nc = s->cap * 2; s->keys = ({tname} *)lc_gc_calloc(nc, sizeof({tname}));                  s->state = (uint8_t *)lc_gc_calloc_atomic(nc, 1); s->order = (size_t *)lc_gc_calloc_atomic(nc, sizeof(size_t));                  s->cap = nc; s->len = 0; s->ord_len = 0;                  for (size_t oi = 0; oi < ool; oi++) {{ size_t si = oo[oi]; if (!os[si]) continue;                  size_t idx = __logos_hash_slot({tname}_hash(ok[si]), nc); while (s->state[idx]) idx = (idx + 1) & (nc - 1);                  s->keys[idx] = ok[si]; s->state[idx] = 1; s->len++; s->order[s->ord_len++] = idx; }}                  lc_gc_free(ok); lc_gc_free(os); lc_gc_free(oo); }}"
+            ),
+        ),
+        f(
+            format!("{unused} void set_{tname}_add({st} *s, {tname} val)"),
+            format!(
+                "{{ if (s->ord_len * 4 >= s->cap * 3) _set_{tname}_resize(s);                  size_t idx = __logos_hash_slot({tname}_hash(val), s->cap);                  while (s->state[idx]) {{ if ({tname}_eq(s->keys[idx], val)) return; idx = (idx + 1) & (s->cap - 1); }}                  s->keys[idx] = val; s->state[idx] = 1; s->len++; s->order[s->ord_len++] = idx; }}"
+            ),
+        ),
+        f(
+            format!("{unused} bool set_{tname}_contains({st} *s, {tname} val)"),
+            format!(
+                "{{ size_t idx = __logos_hash_slot({tname}_hash(val), s->cap);                  while (s->state[idx]) {{ if ({tname}_eq(s->keys[idx], val)) return true; idx = (idx + 1) & (s->cap - 1); }}                  return false; }}"
+            ),
+        ),
+        f(
+            format!("{unused} void set_{tname}_remove({st} *t, {tname} key)"),
+            format!(
+                "{{ size_t mask = t->cap - 1, i = __logos_hash_slot({tname}_hash(key), t->cap);                  while (t->state[i] && !{tname}_eq(t->keys[i], key)) i = (i + 1) & mask;                  if (!t->state[i]) return; _logos_order_drop(t->order, &t->ord_len, i); t->len--;                  for (size_t j = (i + 1) & mask; t->state[j]; j = (j + 1) & mask) {{                  if (_logos_slot_backs(__logos_hash_slot({tname}_hash(t->keys[j]), t->cap), i, j, mask)) {{                  t->keys[i] = t->keys[j]; _logos_order_move(t->order, t->ord_len, j, i); i = j; }} }}                  t->state[i] = 0; }}"
+            ),
+        ),
+        f(format!("{unused} int64_t set_{tname}_len({st} *s)"), "{ return (int64_t)s->len; }".to_string()),
+        f(
+            format!("{unused} {st} set_{tname}_union({st} *a, {st} *b)"),
+            format!(
+                "{{ {st} r = set_{tname}_new();                  for (size_t oi = 0; oi < a->ord_len; oi++) {{ size_t si = a->order[oi]; if (a->state[si]) set_{tname}_add(&r, a->keys[si]); }}                  for (size_t oi = 0; oi < b->ord_len; oi++) {{ size_t si = b->order[oi]; if (b->state[si]) set_{tname}_add(&r, b->keys[si]); }}                  return r; }}"
+            ),
+        ),
+        f(
+            format!("{unused} {st} set_{tname}_intersect({st} *a, {st} *b)"),
+            format!(
+                "{{ {st} r = set_{tname}_new();                  for (size_t oi = 0; oi < a->ord_len; oi++) {{ size_t si = a->order[oi];                  if (a->state[si] && set_{tname}_contains(b, a->keys[si])) set_{tname}_add(&r, a->keys[si]); }}                  return r; }}"
+            ),
+        ),
+        f(
+            format!("{unused} char *set_{tname}_to_string({st} *s)"),
+            format!(
+                "{{ char *out = lc_gc_strdup(\"{{\"); int first = 1;                  for (size_t oi = 0; oi < s->ord_len; oi++) {{ size_t si = s->order[oi]; if (!s->state[si]) continue;                  char *v = {tname}_to_string(s->keys[si]); char *e = logos_dyn_sprintf(\"%s%s\", first ? \"\" : \", \", v);                  lc_gc_free(v); char *nw = str_concat(out, e); lc_gc_free(out); lc_gc_free(e); out = nw; first = 0; }}                  char *nw = str_concat(out, \"}}\"); lc_gc_free(out); return nw; }}"
+            ),
+        ),
+        f(
+            format!("{unused} void show_set_{tname}({st} *s)"),
+            format!("{{ char *t = set_{tname}_to_string(s); printf(\"%s\\n\", t); lc_gc_free(t); }}"),
+        ),
     ]
 }
 
@@ -2490,7 +2654,7 @@ pub fn codegen_monomorphic_program_c(
     // Value-type `Map` families — `Map of Text to Money/Quantity/…` → `Map_str_LMoney` etc., an
     // open-addressing string-keyed hash map whose VALUE is a value-type struct (mirrors `Map_str_i64`,
     // reusing the runtime's `_map_hash_str`). Always emitted, `__attribute__((unused))`. `get` on a
-    // missing key returns a zeroed value (correct programs never hit it).
+    // missing key stops the program as every other family's does.
     for (elem, vstr) in [
         ("LMoney", "money_to_string(m->vals[si])"),
         ("LQuant", "quant_to_string(m->vals[si])"),
@@ -2504,7 +2668,7 @@ pub fn codegen_monomorphic_program_c(
         writeln!(output, "__attribute__((unused)) static {mp} map_str_{elem}_new(void) {{ size_t cap = 16; {mp} m = {{(char **)lc_gc_calloc(cap, sizeof(char *)), ({elem} *)lc_gc_calloc(cap, sizeof({elem})), (uint8_t *)lc_gc_calloc(cap, 1), cap, 0, (size_t *)lc_gc_calloc(cap, sizeof(size_t)), 0}}; return m; }}").unwrap();
         writeln!(output, "__attribute__((unused)) static void _map_str_{elem}_resize({mp} *m) {{ char **ok = m->keys; {elem} *ov = m->vals; uint8_t *os = m->state; size_t *oo = m->order; size_t ool = m->ord_len; size_t nc = m->cap * 2; m->keys = (char **)lc_gc_calloc(nc, sizeof(char *)); m->vals = ({elem} *)lc_gc_calloc(nc, sizeof({elem})); m->state = (uint8_t *)lc_gc_calloc(nc, 1); m->order = (size_t *)lc_gc_calloc(nc, sizeof(size_t)); m->cap = nc; m->len = 0; m->ord_len = 0; for (size_t oi = 0; oi < ool; oi++) {{ size_t si = oo[oi]; if (!os[si]) continue; size_t idx = _map_hash_str(ok[si], nc); while (m->state[idx]) idx = (idx + 1) & (nc - 1); m->keys[idx] = ok[si]; m->vals[idx] = ov[si]; m->state[idx] = 1; m->len++; m->order[m->ord_len++] = idx; }} lc_gc_free(ok); lc_gc_free(ov); lc_gc_free(os); lc_gc_free(oo); }}").unwrap();
         writeln!(output, "__attribute__((unused)) static void map_str_{elem}_set({mp} *m, const char *key, {elem} val) {{ if (m->ord_len * 4 >= m->cap * 3) _map_str_{elem}_resize(m); size_t idx = _map_hash_str(key, m->cap); while (m->state[idx]) {{ if (strcmp(m->keys[idx], key) == 0) {{ m->vals[idx] = val; return; }} idx = (idx + 1) & (m->cap - 1); }} m->keys[idx] = lc_gc_strdup(key); m->vals[idx] = val; m->state[idx] = 1; m->len++; m->order[m->ord_len++] = idx; }}").unwrap();
-        writeln!(output, "__attribute__((unused)) static {elem} map_str_{elem}_get({mp} *m, const char *key) {{ size_t idx = _map_hash_str(key, m->cap); while (m->state[idx]) {{ if (strcmp(m->keys[idx], key) == 0) return m->vals[idx]; idx = (idx + 1) & (m->cap - 1); }} {elem} z; memset(&z, 0, sizeof({elem})); return z; }}").unwrap();
+        writeln!(output, "__attribute__((unused)) static {elem} map_str_{elem}_get({mp} *m, const char *key) {{ size_t idx = _map_hash_str(key, m->cap); while (m->state[idx]) {{ if (strcmp(m->keys[idx], key) == 0) return m->vals[idx]; idx = (idx + 1) & (m->cap - 1); }} logos_map_miss_str(key); }}").unwrap();
         writeln!(output, "__attribute__((unused)) static bool map_str_{elem}_contains({mp} *m, const char *key) {{ size_t idx = _map_hash_str(key, m->cap); while (m->state[idx]) {{ if (strcmp(m->keys[idx], key) == 0) return true; idx = (idx + 1) & (m->cap - 1); }} return false; }}").unwrap();
         writeln!(output, "__attribute__((unused)) static void map_str_{elem}_remove({mp} *t, const char *key) {{ size_t mask = t->cap - 1, i = _map_hash_str(key, t->cap); while (t->state[i] && strcmp(t->keys[i], key) != 0) i = (i + 1) & mask; if (!t->state[i]) return; _logos_order_drop(t->order, &t->ord_len, i); t->len--; for (size_t j = (i + 1) & mask; t->state[j]; j = (j + 1) & mask) {{ if (_logos_slot_backs(_map_hash_str(t->keys[j], t->cap), i, j, mask)) {{ t->keys[i] = t->keys[j]; t->vals[i] = t->vals[j]; _logos_order_move(t->order, t->ord_len, j, i); i = j; }} }} t->state[i] = 0; }}").unwrap();
         writeln!(output, "__attribute__((unused)) static int64_t map_str_{elem}_len({mp} *m) {{ return (int64_t)m->len; }}").unwrap();
@@ -2513,14 +2677,12 @@ pub fn codegen_monomorphic_program_c(
     }
 
     // Maps whose value no fixed family holds — `Map of Text to Seq of Int` → the generic `Map_str_Seq_i64`
-    // family, `Map of Int to Hyperreal` → `Map_i64_LTower`. Emitted HERE (before struct defs) so a struct may
-    // hold such a map; the value's type is already in scope (scalar seqs live in `C_RUNTIME`, value-type seqs
-    // just above, `LTower` with the extension's runtime). Collected from signatures AND
-    // statement expressions (`is_c_map_value` deliberately excludes struct/nested-seq values, whose Seq
-    // families are emitted later).
+    // family, `Map of Int to Point` → `Map_i64_Point`. Collected from signatures and statement expressions here,
+    // from the records' and enums' fields with the aggregates below, and emitted in the aggregate unit, so a
+    // record may hold such a map and a map may hold any record.
+    let mut mv_seen = std::collections::HashSet::new();
+    let mut map_values: Vec<CType> = Vec::new();
     {
-        let mut mv_seen = std::collections::HashSet::new();
-        let mut map_values: Vec<CType> = Vec::new();
         for stmt in stmts {
             if let Stmt::FunctionDef {
                 params,
@@ -2559,9 +2721,6 @@ pub fn codegen_monomorphic_program_c(
                 interner,
             );
         }
-        for map in &map_values {
-            emit_generic_map_family(&mut output, map, interner, true);
-        }
     }
 
     // Every aggregate: the program's records and enums, plus each tuple and nested sequence its
@@ -2576,6 +2735,7 @@ pub fn codegen_monomorphic_program_c(
         let mut collect = |cty: &CType| {
             collect_tuple_types(cty, &mut tup_seen, &mut tuples, interner);
             collect_seqseq_types(cty, &mut ss_seen, &mut seqseqs, interner);
+            collect_mapvalue_from_ctype(cty, &mut mv_seen, &mut map_values, interner);
         };
         let defined = crate::analysis::callgraph::program_type_defs(stmts, _registry);
         for (_, def) in _registry
@@ -2638,6 +2798,7 @@ pub fn codegen_monomorphic_program_c(
             &ctx.field_facts(),
             &tuples,
             &seqseqs,
+            &map_values,
             &mut output,
         );
     }
@@ -3163,12 +3324,17 @@ fn codegen_step_function(stmt: &Stmt, ctx: &mut CContext) -> (String, String) {
         .map(|(pn, pt)| (*pn, param_ctype(ctx, *name, *pn, pt)))
         .collect();
     let bigint_vars = body_exact_locals(ctx, *name, body, &param_types);
+    let saved_exact_vars = std::mem::replace(&mut ctx.exact_vars, bigint_vars.clone());
     let returns = ctx.funcs.get(name).cloned().unwrap_or_else(|| {
         return_type.map_or(CType::Void, |rt| {
             resolve_type_expr_with_registry(rt, ctx.interner, Some(ctx.registry))
         })
     });
     let saved_big = std::mem::replace(&mut ctx.bigint_vars, bigint_vars);
+    let saved_seq_exact = std::mem::replace(
+        &mut ctx.seq_exact_vars,
+        ctx.exact.seq_elem_exact.get(name).cloned().unwrap_or_default(),
+    );
     let saved_vars = ctx.vars.clone();
     for (pn, pt) in &param_types {
         ctx.vars.insert(*pn, pt.clone());
@@ -3186,8 +3352,14 @@ fn codegen_step_function(stmt: &Stmt, ctx: &mut CContext) -> (String, String) {
         stepped::emit_step(&cname, &param_types, returns, body, ctx)
     });
     ctx.bigint_vars = saved_big;
+    ctx.seq_exact_vars = saved_seq_exact;
+    ctx.exact_vars = saved_exact_vars;
     ctx.number_locals = saved_numbers;
     ctx.current_fn_returns = saved_returns;
     ctx.nonnegative_vars = saved_nonnegative;
     out
 }
+
+#[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/codegen_c/tests.rs"]
+mod tests;

@@ -215,6 +215,23 @@ impl<T: Showable> Showable for Vec<T> {
     }
 }
 
+// A list of `Int` that may have promoted: its words, or its exact integers, in the same bracket notation.
+impl Showable for logicaffeine_data::IntVec {
+    fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "[")?;
+        for i in 0..self.len() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            match self {
+                logicaffeine_data::IntVec::Words(v) => v[i].format_show(f)?,
+                logicaffeine_data::IntVec::Exact(v) => v[i].format_show(f)?,
+            }
+        }
+        write!(f, "]")
+    }
+}
+
 impl<T: Showable> Showable for logicaffeine_data::LogosSeq<T> {
     #[inline(always)]
     fn format_show(&self, f: &mut fmt::Formatter) -> fmt::Result {

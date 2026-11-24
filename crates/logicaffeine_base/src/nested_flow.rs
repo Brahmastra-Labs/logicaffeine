@@ -102,6 +102,21 @@ fn mat_vec(a: &NMatrix, x: &[Number]) -> Result<Vec<Number>, String> {
         .collect()
 }
 
+/// The start state holds one value per row of the update. A recipe read off the wire carries the
+/// state as a vector of any length, so a short one would index past its end (or be cut short by
+/// `mat_vec`'s `zip`) unless it is refused here, before anything reads it.
+fn check_start_state(a: &NMatrix, start: &[Number]) -> Result<(), String> {
+    if start.len() == a.len() {
+        Ok(())
+    } else {
+        Err(format!(
+            "the update has {} rows but the start state holds {} values",
+            a.len(),
+            start.len()
+        ))
+    }
+}
+
 fn lcm(a: u32, b: u32) -> u32 {
     fn gcd(a: u64, b: u64) -> u64 {
         if b == 0 {
@@ -437,6 +452,7 @@ impl Source<Number> for FlowComponent {
 /// The state after `N = T/s + δ` steps of `x ↦ A·x`, `A`'s entries values of `scale` and the larger
 /// infinitesimals: each component a germ of several infinitesimals at `scale`.
 pub(crate) fn flow(scale: &Arc<Scale>, a: &NMatrix, t: Rational, delta: Rational, start: &[Number]) -> Result<Vec<Number>, String> {
+    check_start_state(a, start)?;
     let n = a.len();
     let (entries, grid) = expansions(a, scale)?;
     let at_zero = term(&entries, 0)?;
@@ -737,6 +753,7 @@ impl Source<Number> for PowerComponent {
 /// and larger ones: exactly, by `exp(N·log A)` in `scale`, when `A` is the identity at order `0`; a
 /// scalar update otherwise by `exp(N·ln A)`; a matrix update otherwise refused by name.
 pub(crate) fn power(scale: &Arc<Scale>, a: &NMatrix, count: Number, start: &[Number]) -> Result<Vec<Number>, String> {
+    check_start_state(a, start)?;
     let counted = tower::number_germ(&count, scale)?.expansion.clone();
     if counted.floor() < 0 {
         return logarithmic_power(scale, a, count, counted, start);
@@ -800,3 +817,7 @@ pub(crate) fn power(scale: &Arc<Scale>, a: &NMatrix, count: Number, start: &[Num
         })
         .collect())
 }
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_base/nested_flow/tests.rs"]
+mod tests;

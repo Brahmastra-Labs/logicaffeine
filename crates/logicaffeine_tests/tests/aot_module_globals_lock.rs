@@ -251,3 +251,14 @@ fn a_page_reading_the_session_beside_csrf_builds_as_a_binary() {
         built.stderr, built.rust_code
     );
 }
+
+/// A function reaches the program's bindings through the record it is lent by naming the record: a field access goes
+/// through the reference on its own, so the generated Rust never spells it out (`(*__program).counter`).
+#[test]
+fn a_function_reaches_the_programs_bindings_by_naming_the_record() {
+    for src in [COUNTER, RECORD, SEQ, MAP] {
+        let rust = logicaffeine_compile::compile::compile_to_rust(src).expect("Rust for the program");
+        assert!(!rust.contains("(*__program)."), "a field of the program's record is read through `(*__program)`:\n{rust}");
+        assert!(rust.contains("__program."), "the function does not reach the program's record:\n{rust}");
+    }
+}

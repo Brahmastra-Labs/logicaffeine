@@ -153,8 +153,11 @@ fn run_engine_on(
             .enable_all()
             .build()
             .expect("the LOGOS runtime starts");
-        runtime.block_on(logicaffeine_compile::interpret_for_ui_with_args(
-            source, argv,
+        // File statements reach the disk as the compiled program's do, by the same paths.
+        runtime.block_on(logicaffeine_compile::interpret_for_ui_with_files(
+            source,
+            argv,
+            logicaffeine_compile::Files::Host,
         ))
     };
     let fuel = handles.map(|h| (h.exhausted.get(), h.budget - h.remaining.get()));

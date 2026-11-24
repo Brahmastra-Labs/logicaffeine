@@ -1,5 +1,5 @@
 {
-  "description": "Shared validation vectors for the pricing lead form. Two validators walk this file and must agree on every case: the page's `apps/logicaffeine_web/src/ui/pages/pricing/lead.rs` (unit tests in `crates/logicaffeine_tests/unit/logicaffeine_web/ui/pages/pricing/lead/tests.rs`) and the worker's `services/leads/src/lead.js` (vitest in `services/leads/src`). A change to a rule changes this file first.",
+  "description": "Shared validation vectors for the contact form. Two validators walk this file and must agree on every case: the page's `apps/logicaffeine_web/src/ui/pages/pricing/lead.rs` (unit tests in `crates/logicaffeine_tests/unit/logicaffeine_web/ui/pages/pricing/lead/tests.rs`) and the worker's `services/leads/src/lead.js` (vitest in `services/leads/src`). A change to a rule changes this file first.",
   "version": 1,
   "shape": {
     "email[]": "{ input: string | null, valid: bool, note: string, input_length?: int, and when valid: normalized: string, when invalid: error: \"invalid_email\", reason: \"required\" | \"malformed\" }",

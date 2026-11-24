@@ -77,12 +77,15 @@ The full subcommand set (from the `Commands` enum in `cli.rs`):
 | `largo serve [--watch] [--port <n>] [--open] [--host <addr>] [--timeout <dur>] [--seed <n>] [-- args…]` | Serve the project over HTTP — a site, a full-stack site, or a backend, decided by the project itself |
 | `largo emit <target> [file] [-o path]` | Print/write a compiled translation without building a binary (every target: [emit](#emit)) |
 | `largo fmt [paths…] [--check] [--json]` | Format LOGOS sources (same rules as the language server) and sort each import block |
-| `largo opts <file> [--json]` | Report which optimizations fired for a file, and which enabled or preempted which |
+| `largo opts <file> [--json] [--jit [-- args]]` | Report which optimizations fired for a file, and which enabled or preempted which |
 | `largo replay <bundle> [--verify]` | Re-run a recorded `.replay` bundle and report reproduced, fixed, or diverged |
 | `largo bringup <checkpoint> [--target <chips>] [--ctx <n>] -o <dir>` | Bring a model up on every chip from its one program: the CUDA lane, the D5005 decode engine, the SN50 |
 | `largo drop <checkpoint> [--ctx <n>] [--prompt <ids>] [--tokens <n>] [--fetch-weights] -o <dir>` | Write a self-checking SN50 drop: the decode bundle, its weights, the goldens our evaluator decodes, and the sha256 of every file |
 | `largo check-drop <dir> [--weights <checkpoint>]` | Verify a drop: every digest, every program's certificate, every golden decoded again bit for bit |
 | `largo expand <file>` | Show what an LGX page became: the functions its components, actions and routes lower to |
+| `largo points-to <file> [--contexts] [--json]` | What each variable of a program may point to, by Whaley and Lam's rules over its statements |
+| `largo datalog <file> [--bdd] [--certify] [--contexts] [--json]` | Evaluate a theory's rules bottom-up as Datalog: every relation they derive, optionally over BDDs, kernel-certified or in every calling context |
+| `largo specialize p1 <file>\|p2\|p3 [-o path] [--check]` | The three Futamura projections through the offline specializer: a residual program, a compiler, a compiler generator |
 
 **Agents**
 
@@ -99,7 +102,7 @@ The full subcommand set (from the `Commands` enum in `cli.rs`):
 | `largo logic "<sentence>" [flags]` | English → First-Order Logic from the terminal |
 | `largo prove [file] [--trace\|--json\|--certificate]` | Prove `## Theory` / `## Theorem` blocks, kernel-certified; `--kernel <file>` checks a kernel-vernacular document |
 | `largo sat <file.cnf> [--proof <path>] [--stats]` | The certified SAT engine on DIMACS CNF (exit 10/20) |
-| `largo lean import --project <dir> --target <Name> --out <dir>` | Lean 4 → LOGOS: import a Lean declaration as a checked, independently re-verified LOGOS package |
+| `largo lean import --project <dir> --target <Name> --out <dir>` | Lean 4 → LOGOS: import a Lean declaration (or, with `--statement`, the proposition it states) as a checked, independently re-verified LOGOS package |
 | `largo lean replay <package>` | Re-verify a published Lean → LOGOS package in a fresh process |
 | `largo verify` | Run Z3 static verification only (the full build) |
 
@@ -178,11 +181,12 @@ A **site** — pages and assets with no `Serve` backend — has no program to co
 | Flag | Effect |
 |------|--------|
 | `-r`, `--release` | Optimized build |
+| `--threads` | Run the program's tasks, pipes, timers and selects on OS threads (tokio) instead of the deterministic replay executor every other tier schedules by: for work that truly runs in parallel, at the price of a schedule, and so an order of concurrent output, that may differ from run to run |
 | `--verify` | Run Z3 static verification after compilation (the full build) |
 | `--lib` | Generate a library (`lib.rs`, `crate-type = ["cdylib"]`) instead of a binary |
 | `--target <triple>` | Cross-compile; `wasm` is shorthand for `wasm32-unknown-unknown` |
 | `--native-functions` | Pre-build every `is exported for native` function — the entry's and every imported module's — into a cached cdylib under `.logos-native/`; a function outside the native scalar subset is skipped and keeps running on the VM and JIT. `largo run --interpret` loads the bundle |
-| `--emit c` | Build the same executable through C instead of Rust: the program lowered to C and compiled by `$CC` (default `cc`), published at the same `target/debug/<name>` or `target/release/<name>`, the generated source kept in `target/<mode>/build-c/main.c`. Debug is `-O0 -g`; `--release` is `-O3 -march=native -flto -ffp-contract=off`, the flags the benchmark suite builds its hand-written C with, and strips like the Rust release build unless `CARGO_PROFILE_RELEASE_STRIP=false`. A program the exact extension reaches also links that extension's value runtime, a static library built once from the same Rust the interpreter runs. `-v` prints the compiler command |
+| `--emit c` | Build the same executable through C instead of Rust: the program lowered to C and compiled by `$CC` (default `cc`), published at the same `target/debug/<name>` or `target/release/<name>`, the generated source kept in `target/<mode>/build-c/main.c`. Both profiles compile it as `-std=gnu17`, the C17-with-GNU-extensions dialect it is written in. Debug is `-O0 -g`; `--release` is `-O3 -march=native -flto -ffp-contract=off`, the flags the benchmark suite builds its hand-written C with, and strips like the Rust release build unless `CARGO_PROFILE_RELEASE_STRIP=false`. A program the exact extension reaches also links that extension's value runtime, a static library built once from the same Rust the interpreter runs. `-v` prints the compiler command |
 | `--emit c-bytecode` | As `--emit c`, lowering the VM's bytecode to C instead of the optimized syntax tree |
 | `--emit wasm` | Compile straight to a self-contained `target/<name>.wasm` (plus its `<name>.mjs` Node.js host shim) via the built-in backend: no rustc, cargo, or wasm-bindgen in the loop; milliseconds. A program the exact extension reaches is refused by name: its values need the runtime `wasm-linked` links |
 | `--emit wasm-linked` | As `--emit wasm`, but links the real Rust runtime via `rust-lld`, so overflowing integer arithmetic computes the exact big number instead of wrapping and a program the exact extension reaches runs on that extension's value runtime (needs the Rust toolchain + a wasm32 build of the runtime) |
@@ -199,6 +203,7 @@ A **site** — pages and assets with no `Serve` backend — has no program to co
 | Flag | Effect |
 |------|--------|
 | `-r`, `--release` | Optimized build before running |
+| `--threads` | Run the program's tasks, pipes, timers and selects on OS threads (tokio) instead of the deterministic replay executor every other tier schedules by: for work that truly runs in parallel, at the price of a schedule, and so an order of concurrent output, that may differ from run to run |
 | `-i`, `--interpret` | Skip Rust compilation and run in-process for sub-second feedback: the bytecode VM with its JIT tiers, or the tree-walking interpreter for a concurrent or asynchronous program and for any construct the VM compiler does not take. A program declaring `## Require <opt>` is refused on this path; the compiled path (`largo run`, `largo build`) is the one that checks it |
 | `--engine jit` \| `vm` \| `tree` | The in-process engine (`--interpret` only): `jit`, the default, is the bytecode VM with JIT tier-up where the platform has one; `vm` the bytecode VM alone; `tree` the tree-walking interpreter. Every engine runs the same optimized program |
 | `--emit c` \| `c-bytecode` | Build through C (as `largo build --emit c`), then run the binary |
@@ -297,9 +302,31 @@ both from the compiled path. `--json` emits `{"fired": […], "paths": {"compile
 "vm": […]}, "changes_algorithm": […], "blockers": [[winner, loser], …], "dependencies": [[dependent,
 dep], …]}`.
 
+`--jit` also runs the program through a private native tier, with the program's arguments after `--`,
+and reports the JIT's coverage (functions and loops compiled of those tried), its native lowerings,
+why it declined what it declined, and every loop it specialized on a value: the register and the value,
+the entries that ran the specialized loop, the entries that found another value (`value-guard misses`,
+each one entry, with how many of them the loop's generic region ran instead of bytecode) and whether the
+generic region replaced it. It lists every function it specialized on the arguments its warm-up passed: the
+function, its entry pc and each register with its value (the function checks them at its entry and runs its generic
+code for any other). It also lists every loop region it compiled: the entries that ran native and how
+each ended (completed, an exit resuming the VM where it stopped, or a side exit replaying from the loop head),
+the guard misses (entries whose registers held kinds the region was not compiled for, one for each entry,
+which then run on bytecode) and whether the region was demoted to bytecode, which happens once its misses
+reach eight and outnumber the entries it ran, counted over a window that halves both as it fills. The JIT
+report is printed whether or not a shared pass fired. Under `--json` these are `jit_native`, its
+`value_specializations` each `{head_pc, guards: [{slot, value}], entries, misses, generic_entries,
+replaced}`, its `function_specializations` each `{function, entry_pc, guards: [{slot, value}]}` and its `regions`
+each `{head_pc, entries, completions, exits, deopts, guard_misses, demoted, cold_entries, cold_exits}`. A loop whose
+body holds an op no region lowers on a path its warm-up never ran (a branch
+direction that never ran while the branch ran at least 32 times the other way) is compiled without that path: the line
+names its cold entries and how many times the loop left native code there, and a region whose cold exits come on
+more than one iteration in sixteen is demoted.
+
 ```bash
 largo opts src/main.lg
 largo opts src/main.lg --json
+largo opts src/main.lg --jit -- 7
 ```
 
 ### `verify`
@@ -366,6 +393,7 @@ target:
 | `--format <format>` | The artifact printed bare or added to the bundle: `placement` (the default), `spatial` (`spatial.scala`), `sambaflow` (`model.py`, `compile.py` and `manifest.json` — a PyTorch module and its SambaFlow compile scaffold), `vllm` (`vllm_plan.json`, the Qwen3.8 deployment plan for the chip's vLLM backend) or `report` (the modeled report). The `sambaflow` and `vllm` artifacts are written before the lowering, since neither derives from it |
 | `--bridge <name>` | Hand the certified artifact to an SDK bridge — `mock` or `sambaflow` — adding `vendor_config.json` (or `.bin`) and `bridge.json`, which records the certificate digest |
 | `--model <model>` | Lower a whole model instead of a file: `qwen38` (Qwen3.8-27B, every layer), `qwen38-tiny`, `qwen38-mini` (the tiny shape with heads that split over two or four chips), or a Qwen3.5/3.8 checkpoint's `.gguf`, whose program is read from the checkpoint. One certified program per layer kind (a directory each holding `neutral.json`, `placement.txt` and `certificate.json`) plus the head, the model constants, `program.lg` (the model's program the bundle deploys) and a `manifest.json` binding every layer and naming the cut of the program each part was lowered from (`LOGOS program: <cut>, sha256 <hex>`). Needs `-o DIR`, takes no file |
+| `--graph <pt2>` | Lower a network `torch.export` exported (`torch.export.save`'s `.pt2` archive) from its graph alone: its linear layers, GELU (exact or tanh), ReLU, SiLU, sigmoid, sums and products, every parameter read from the archive's weights; an ATen op it does not map is refused by name. The author writes the forward as a program (`program.lg`), lowered whole as one certified program (`forward/`), with a `manifest.json` binding the graph's input and every parameter to the archive. Needs `-o DIR`, takes no file |
 | `--ctx <n>` | With `--model`: the decode deployment with a KV cache of `n` positions — an embedding program, layer kinds whose attention appends to and reads the cache, and a head that emits the next token. Without it the bundle is the authored forward |
 | `--batch <n>` | With `--model --ctx`: `n` sequences per decode step, every weight read once for all of them; `auto` takes the most sequences whose per-step working set stays in a chip's SRAM. The default is one |
 | `--tp <n>` | With `--model --ctx`: tensor-parallel over `n` chips, each with its own heads, FFN columns and weight slice; `n` is any width the author writes the model at, heads in balanced runs where `n` divides none (Qwen3.8-27B's 24 heads over 16 chips); a width the author cannot write is refused with its reason. `auto` takes the widest width the heads admit within the chip's scale-up domain. The default is one chip |
@@ -380,6 +408,7 @@ largo emit wasm-dom pages/app.lg -o dist/app.wasm
 largo emit cuda -o cuda_out/
 largo emit rdu --chip sn40l kernel.lg -o rdu_out/
 largo emit rdu --model qwen38 --ctx 4096 --tp 8 -o qwen38_sn50_tp8/
+largo emit rdu --graph net.pt2 -o net_sn50/
 ```
 
 ### `bringup`
@@ -398,6 +427,7 @@ comma-separated; every one when absent) lowers a cut of that program:
 | `rust` | `decode.rs`, the decode step as one Rust program | its generation program built in release into one staged project and run |
 | `riscv-qemu` | `decode.s`, the decode step as RISC-V assembly | its generation program linked by `riscv64-linux-gnu-gcc` once and run under `qemu-riscv64` |
 | `wasm` | `decode.wasm` and `decode.mjs`, its host | its generation program's module under `node` |
+| `cpu` | `model.cpp`, the decode step and its prefill chunks linked from the one IR into one C++ program for the host's cores, and `model.side`, the values it reads | the program built by `g++` for x86-64 with AVX2, FMA, F16C and AVX-VNNI, on the host's threads (a hybrid CPU's performance cores) |
 | `cuda` | `lane.cu`, the decode step and its prefill chunks as one fused CUDA program, and `lane.side`, the constants it reads | the lane built by `nvcc` for this machine's GPU |
 | `d5005` | the decode engine's program: `commands.txt`, `words.hex` (the sequencer's words), `program.lg` and `program.txt` | the engine's machine model, which runs the card's jobs over the card's memory image |
 | `sn50` | the certified decode bundle: a program per layer kind, the embedding and the head, `manifest.json` and `program.lg` | nothing: the SN50 runs under SambaNova's gated SDK |
@@ -408,19 +438,20 @@ different chips can be checked to be the same program. A backend that does not r
 (the D5005 engine has no unit for experts). `--ctx` sets the positions the decode step's caches hold (4096 unless
 given).
 
-`--run` then runs the model on every chip that brought it up. A CPU tier builds one generation program, once, and runs
-it once: every weight declared and read once at run time from a file of its values (`readReals`), each sequence's
-state (the caches, memories and rings the step carries) declared afresh, and the decode step's own statements in a loop
-over the positions — the prompt fed a token a step, then each token the step generates. The program it ran is
-`<dir>/<chip>/run/generation.lg`. The CUDA lane is built once and runs each sequence; the D5005 runs its engine's
-machine model. Each chip's verdict gains a line, `ran:` with its tokens, its tokens a second (prompt to last token)
-and how many of them lead the reference's before the first that does not, or `did not run:` with the reason by name —
-a tool or a device this machine lacks, or the work a run waits for. The reference is the model's f64 reference
-generating from the prompt (`--prompt`, token ids from 0, `5,17,2,30` unless given; `--tokens`, 8 unless given), or a
-golden (`--golden`): its first prompt, and its continuation as the tokens to agree with. `--prompts N` (or `all`) runs
-the golden's first N prompts instead, each from an empty state and judged against its own continuation: the `ran:`
-line totals them, and a `sequence` line a prompt gives its tokens and agreement. `--tokens` then caps every
-sequence.
+`--run` then runs the model on every chip that brought it up. A tier of general programs (`vm`, `jit`, `c`, `rust`,
+`riscv-qemu`, `wasm`) builds one generation program, once, and runs it once: every weight declared and read once at
+run time from a file of its values (`readReals`), each sequence's state (the caches, memories and rings the step
+carries) declared afresh, and the decode step's own statements in a loop over the positions — the prompt fed a token a
+step, then each token the step generates. The program it ran is `<dir>/<chip>/run/generation.lg`. The CPU tier's
+program and the CUDA lane are built once and run each sequence, the CPU's refusing at load, by name, a host without
+its instruction set; the D5005 runs its engine's machine model. Each chip's verdict gains a line, `ran:` with its
+tokens, its tokens a second (prompt to last token) and how many of them lead the reference's before the first that
+does not, or `did not run:` with the reason by name — a tool or a device this machine lacks, or the work a run waits
+for. The reference is the model's f64 reference generating from the prompt (`--prompt`, token ids from 0, `5,17,2,30`
+unless given; `--tokens`, 8 unless given), or a golden (`--golden`): its first prompt, and its continuation as the
+tokens to agree with. `--prompts N` (or `all`) runs the golden's first N prompts instead, each from an empty state and
+judged against its own continuation: the `ran:` line totals them, and a `sequence` line a prompt gives its tokens and
+agreement. `--tokens` then caps every sequence.
 
 ```bash
 largo bringup models/qwen3.8-27b/Qwen3.8-27B-Q4_K_M.gguf -o qwen38/
@@ -472,6 +503,71 @@ browser tier refuses, is reported at its `file:line:col`.
 
 ```bash
 largo expand pages/app.lg
+```
+
+### `specialize`
+
+The three Futamura projections, built by the offline specializer `mix` (two-level programs, a polyvariant
+binding-time analysis whose variants are named by their binding-time pattern) over the self-interpreter `sint`.
+`p1 <file>` specializes the self-interpreter to that program and prints the residual program, reporting its
+interpretive dispatch on stderr: zero dispatch is Jones optimality. `p2` specializes the specializer to the
+self-interpreter and prints the compiler it makes; `p3` specializes the specializer to itself and prints the compiler
+generator, and `--check` runs that generator on the self-interpreter and says whether it regenerated the second
+projection's compiler byte for byte. `-o` writes the artifact to a file. Each artifact is the library's
+(`compile::mix_projection1`/`2`/`3`) byte for byte, and a program the specializer refuses is refused with its reason;
+today that is a program reading input at run time.
+
+```bash
+largo specialize p1 fact.lg
+largo specialize p2 -o compiler.lg
+largo specialize p3 -o cogen.lg --check
+```
+
+### `datalog`
+
+Reads the file's `## Theory` (and its `## Axiom` blocks) as a Datalog program, every ground atom a fact and every
+`for all …, if … then …` whose condition is a conjunction of atoms and negated atoms a Horn rule, and evaluates it to
+its least model: semi-naively, stratum by stratum, so a negated atom reads a relation already complete. It prints
+each relation the rules derive with its facts, then how many facts were derived and how many rule instances were
+joined. `--bdd` evaluates the program again with every relation a binary decision diagram (constants as binary codes,
+a join as a relational product) and gives each relation's diagram size; `--certify` proves every derived fact in the
+kernel from the theory's axioms and fails if one is not proved; `--json` prints `{relations, derived, given,
+rule_instances}`, with `bdd_nodes` and `certified` when asked for. A theory that is not Datalog (an existential, a
+disjunctive conclusion, a function symbol), a rule whose head names a variable its body does not bind, and a negation
+through recursion are refused, naming the axiom or the predicates.
+
+`--contexts` makes the evaluation context-sensitive the way bddbddb does. It numbers every call path of the theory's
+`Calls(caller, site, callee)` facts: a method no call enters has one context, every other one context per path that
+reaches it, each call into it taking the next range of its contexts, and the methods of a recursive cycle share theirs.
+The rules then read two relations computed from the numbering, `Context(method, c)` (c is one of the method's
+contexts) and `CallContext(c, site, d, callee)` (the call at `site`, in its caller's context c, enters the callee in
+context d), and the whole evaluation runs over diagrams, so 2^40 contexts cost nodes polynomial in the call graph. It
+prints the number of contexts, every relation without a context argument with its tuples, and every relation with one
+by its size; `--json` gives `{contexts, context_bits, methods, relations, tuples, bdd_nodes, total_nodes}`. A theory
+that states `Context` or `CallContext` itself, derives `Calls` from those contexts, or joins a context to a constant is
+refused (a `Calls` the rules discover without reading the contexts is evaluated first and numbered then);
+`--certify` does not combine with it, since the numbering is not among the axioms the kernel proves from.
+
+```bash
+largo datalog points_to.lg
+largo datalog points_to.lg --bdd --certify
+largo datalog points_to.lg --json
+largo datalog calls.lg --contexts
+```
+
+### `points-to`
+
+Reads a program's statements as the facts `largo datalog`'s points-to rules take (each allocation a site, each copy,
+field or element write and read, each call of a function the program defines with its arguments, parameters and
+result) and evaluates Whaley and Lam's rules over them. It prints each function's variables with the allocation sites
+each may hold, the heap's field edges (`Elem` for a collection's elements) and what each site allocates. `--contexts`
+analyzes every call path as its own context, so a function called from two places keeps the two calls' objects apart;
+`--json` gives `{contexts, variables, heap, sites}`. A closure's body is not read, and a builtin's result is taken as a
+fresh object.
+
+```bash
+largo points-to src/main.lg
+largo points-to src/main.lg --contexts --json
 ```
 
 ### `replay`
@@ -549,17 +645,22 @@ declarations, proved in citation order) and English `## Theorem` blocks (Given/P
 through the proof engine, and every ✓ is certified by the type-theory kernel — a mere derivation
 never counts. Without a file it proves the project entry; either way the source is assembled with
 the modules it imports, so a theorem in an imported module is proved too. A name that is both a
-theorem and an axiom is refused, so an assumption cannot pass as a proved fact.
+theorem and an axiom is refused, so an assumption cannot pass as a proved fact. A development's
+`refute` theorem is a ✓ when the least model of its premises, re-checked premise by premise,
+makes the refuted formula false; its line names the countermodel's size.
 
 - `--trace` renders the derivation tree under each proved theorem.
-- `--json` emits `file`, `axioms`, `theorems` (each `name`, `verified`, `error`) and `all_verified`,
-  plus the claim `inventory` — every theorem classified proved or unproved, every admitted axiom
-  reported as an assumption — and its `summary`.
-- `--certificate` emits the independently re-checkable certificate of every proved English
-  `## Theorem`: the kernel proof term, the goal and the disclosed premises, each re-checked here by
+- `--json` emits `file`, `axioms`, `theorems` (each `name`, `verified`, `refuted`, `error`, and a
+  refutation's `countermodel` size: `facts`, `domain`) and `all_verified`, plus the claim
+  `inventory` — every theorem classified proved or unproved, every refutation refuted or unrefuted
+  and never a proof, every admitted axiom reported as an assumption — and its `summary`.
+- `--certificate` emits the independently re-checkable certificate of every proved theorem, from a
+  `## Theory` development or an English `## Theorem`: the kernel proof term, the goal and the
+  disclosed premises (a development's axioms and cited lemmas among them), each re-checked here by
   type-checking the term (`rechecks`, `two_kernel_agreement`), with the kernel's `prelude_version`. A
-  third party re-checks it with the kernel alone, no prover. A `## Theory` theorem, whose proof path
-  exposes no kernel term, and an unproved goal report `certificate: null` with the reason.
+  third party re-checks it with the kernel alone, no prover. An unproved goal reports
+  `certificate: null` with the reason, and a refutation `certificate: null` with its countermodel's
+  domain and facts.
 - `--kernel <file>` checks a kernel-vernacular document instead (see [`check`](#check)).
 
 The three output flags are exclusive, and any failed theorem exits 1.
@@ -594,32 +695,65 @@ largo lean replay ./Demo.andSwap
 largo lean check Demo.ndjson                                                        # the kernel core, as the Arena runs it
 ```
 
-`--project` compiles the project in isolation with the pinned Lean 4.14.0 (`--lean <path>` names the
-executable, `lean` by default, whose elan shim selects the toolchain) and exports the target with the
-pinned `lean4export` (revision `20c4a64a`, export format 3.1.0), located by `--exporter <dir>`, else
-`$LOGOS_LEAN4EXPORT`, else `~/.logos/lean/lean4export`. The declaration's closure is then checked by
-the LOGOS kernel and rechecked by the independent second kernel, and the whole export is decided once more
-by the kernel core `largo lean check` runs, the check the Lean Kernel Arena runs: a refusal there is a
-disagreement between the kernels, and the import stops. It is held to the assumption policy
-by Lean's own `#print axioms` rule (`propext`, `Quot.sound` and `Classical.choice` are allowed;
-`sorryAx` is refused, including through lemmas), and emitted as one literate `<Target>.lg` document
-that is re-parsed and re-checked in a fresh context. The target's statement is compared with an
-independent reference translation of the Lean type. The package (`manifest.json`, `<Target>.lg`,
-`certificate.json`, `correspondence.json`, `source/export.ndjson`) is published atomically, and
-only after a separate process has replayed it; a failed run leaves nothing at `--out`.
+`--project` compiles the project in isolation under the Lean profile its `lean-toolchain` pins — Lean
+4.14.0, 4.28.0, 4.33.1, 4.34.0-rc1 or 4.34.1 (no `lean-toolchain`: 4.14.0) — and refuses any other pin
+as `unsupported_toolchain` before Lean runs. A profile binds the toolchain, which must report the
+profile's release and commit (`--lean <path>` names the executable, `lean` by default, whose elan shim
+selects the toolchain), and the one `lean4export` that exports it: revision `20c4a64a` run from its
+sources for 4.14.0, and for every later release the release's upstream revision with the
+structural-key patch, built as an executable pinned by SHA-256. The exporter is `--exporter <dir>`, else
+(4.14.0) `$LOGOS_LEAN4EXPORT` or `~/.logos/lean/lean4export`, else the registry entry
+`$LOGOS_LEAN_EXPORTERS/<version>` (default `~/.logos/lean/exporters/<version>`), which
+`scripts/lean/install-lean-exporters.py install` builds reproducibly, with a receipt. Every exporter
+source and the built executable are held to the profile's digests, and the export's header must name
+exactly the profile's release and commit: a header retagged to another release is refused, also when
+the export's own `String` contradicts it.
 
-stdout is one `logos-lean-result/1` document reporting seven stages: `lean_accepted`,
-`translated`, `primary_check`, `independent_recheck`, `assumption_policy`, `emission_reparsed` and
-`fresh_replay`. The outcome is `verified` only when all seven passed, so only `--project` can reach
-it: an export given directly was never seen being accepted by Lean. stderr carries the diagnostics
-as NDJSON, each with a typed code. Exit codes: `0` verified · `1` invalid source · `2` unsupported
-feature · `3` disallowed assumptions · `4` resource limit · `5` infrastructure failure (a defect of
-LOGOS's own artifact, never blamed on the input) · `64` usage. `--timeout-secs` (default 1800)
-bounds the whole run and `--max-export-bytes` (default 1 GiB) the export, both checked before the
-work they bound.
+A project with Lake dependencies (Mathlib) needs `--module <Module>`, the module declaring the target.
+Every `lake-manifest.json` dependency must be a git package checked out at exactly its pinned revision;
+only that module is compiled — by the profile's Lake in the project's own context, `lake --no-build -H`,
+so nothing is built or written in the project and every import resolves to its prebuilt, re-hashed
+build — into the isolated work directory; the run records every dependency's identity, and the package
+carries the module's source with the project's `lean-toolchain`, lakefile and `lake-manifest.json`.
 
-`replay` prints the package's receipt document and exits `0` when every stage replays, `1` at a
-failed stage, `2` when the receipt is otherwise incomplete, and `5` when the package cannot be read.
+The declaration's closure is then checked by the LOGOS kernel and rechecked by the independent second
+kernel, and the whole export is decided once more by the kernel core `largo lean check` runs, the check
+the Lean Kernel Arena runs: a refusal there is a disagreement between the kernels, and the import stops.
+A Lean `have` the elaborator wrote as a nondependent let (`letE` with `nondep: true`, every release after
+4.14.0) is checked as the ordinary let Lean's kernel reads, and disclosed as the `SOURCE_METADATA` loss
+`letE.nondep = true` at its expression. The result is held to the assumption policy by Lean's own
+`#print axioms` rule (`propext`, `Quot.sound` and `Classical.choice` are allowed; `sorryAx` is refused,
+including through lemmas), and emitted as one literate `<Target>.lg` document that is re-parsed and
+re-checked in a fresh context. The target's statement is compared with an independent reference
+translation of the Lean type. The package (`manifest.json`, `<Target>.lg`, `certificate.json`,
+`correspondence.json`, `source/export.ndjson`) is published atomically, and only after a separate
+process has replayed it; a failed run leaves nothing at `--out`.
+
+`--statement` imports the proposition the target states instead of its proof — a theorem's type, or the
+value of a safe definition whose type is `Prop` — as the definition `<Target>.logos_statement`. Only that
+expression's closure is selected, so the theorem's own proof (an open problem's `sorry`) is never part
+of it; an `answer(sorry)` hole becomes a parameter of the artifact, an open template, and no answer is
+chosen; a proof the statement's own definitions rest on is kept, so an unfinished one is refused by the
+assumption policy with its path. In project mode Lean builds the same artifact and reports its
+`#print axioms`. The result is a `logos-lean-result/2` document (`purpose: statement`,
+`proof_status: not_claimed`, the `statement` relation), and the package
+(`logos-lean-statement-package/1`) carries the original export as `source/original.ndjson` beside the
+derived one: its replay re-derives the artifact from the original and refuses a package whose artifact
+states any other proposition, however well typed.
+
+stdout is one `logos-lean-result/1` document (`/2` with `--statement`) reporting seven stages:
+`lean_accepted`, `translated`, `primary_check`, `independent_recheck`, `assumption_policy`,
+`emission_reparsed` and `fresh_replay`. The outcome is `verified` only when all seven passed, so only
+`--project` can reach it: an export given directly was never seen being accepted by Lean. stderr carries
+the diagnostics as NDJSON, each with a typed code. Exit codes: `0` verified · `1` invalid source · `2`
+unsupported feature · `3` disallowed assumptions · `4` resource limit · `5` infrastructure failure (a
+defect of LOGOS's own artifact, never blamed on the input) · `64` usage. `--timeout-secs` (default 1800)
+bounds the whole run and `--max-export-bytes` (default 1 GiB) the export, both checked before the work
+they bound.
+
+`replay` prints the package's receipt document (`logos-lean-replay/1`, or `/2` for a statement
+package) and exits `0` when every stage replays, `1` at a failed stage, `2` when the receipt is otherwise
+incomplete, and `5` when the package cannot be read.
 
 `--arena-protocol` is the Lean Kernel Arena benchmark protocol byte for byte: `ACCEPT` and exit
 0/1/2, nothing else. It takes an export and no `--project`, `--target` or `--out`; under it,
@@ -633,10 +767,20 @@ Arena runs as the `logos-kernel` entry (the `logos-kernel` binary of `logicaffei
 largo lean check Mathlib.ndjson          # the value engine
 largo lean check --dual Mathlib.ndjson   # both engines, which must agree on every declaration
 largo lean check - < Mathlib.ndjson      # the export on standard input
+largo lean check --assumptions lean --json Proof.ndjson             # Lean's assumption policy, as JSON
+largo lean check Proof.ndjson --target Demo.thm --bind Original.ndjson  # the same statement as the original
 ```
 
 It exits `0` when the export is accepted, `1` when it is rejected and `2` when it is declined, and writes
-the reason, or the declarations and records it accepted, on stderr.
+the reason, or the declarations and records it accepted, on stderr. `--assumptions lean` holds what the
+declarations depend on — with `#print axioms` semantics, through types and values, transitively; with
+`--target`, only that declaration's — to `propext`, `Quot.sound` and `Classical.choice` in their
+canonical statements: `sorryAx`, `Lean.ofReduceBool`, `Lean.trustCompiler`, `lcProof`, any other axiom,
+and a standard name declared with another statement are refused with the path to them, and the check
+exits `3`; an axiom nothing depends on is no violation. `--json` writes one `logos-lean-check/1`
+document on stdout. `--bind <original> --target <Name>` requires the target to state exactly the
+original export's proposition — the two statement fingerprints, which do not depend on how an export
+numbers its records, must agree — and exits `1` when they do not.
 
 ### `doc`
 
@@ -809,7 +953,8 @@ Read by `largo` itself:
 | `LOGOS_MAX_AST_DEPTH` | Raise/lower the AST nesting-depth limit (default 128, at least 16), read by the parser; `largo` also sizes its worker stack from it. The default is sized for the smallest standard stacks (worker threads, browser wasm); machines with deep stacks can raise it for heavily generated code, constrained embedders can lower it |
 | `CHROME_BIN` | The Chrome or Chromium binary `largo test --browser` drives; else the first of `google-chrome`, `google-chrome-stable`, `chromium`, `chromium-browser`, `chrome` on `PATH` |
 | `LOGOS_BROWSER_TRACE` | Set (and not `0`): print every DevTools frame `largo test --browser` exchanges with Chrome to stderr, with each reply's round-trip time |
-| `LOGOS_LEAN4EXPORT` | The pinned `lean4export` checkout `largo lean import --project` uses when `--exporter` is not given |
+| `LOGOS_LEAN4EXPORT` | The pinned Lean 4.14.0 `lean4export` checkout `largo lean import --project` uses when `--exporter` is not given |
+| `LOGOS_LEAN_EXPORTERS` | The exporter registry `largo lean import --project` finds each profile's pinned `lean4export` in (`<registry>/<version>/`); default `~/.logos/lean/exporters` |
 | `LOGOS_STATS` | Set: `largo sat` prints solver statistics, as `--stats` does |
 | `LOGOS_MCP_STEP_BUDGET` | Set by `largo mcp` on its sandbox worker from `logos_run`'s `step_budget`; not a user setting |
 

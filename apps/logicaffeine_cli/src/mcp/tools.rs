@@ -236,7 +236,7 @@ fn prove(args: &Value) -> Result<Value, String> {
     let theorems: Vec<Value> = report
         .outcomes
         .iter()
-        .map(|o| json!({"name": o.name, "verified": o.verified, "error": o.error}))
+        .map(|o| json!({"name": o.name, "verified": o.verified, "refuted": o.refuted, "error": o.error}))
         .collect();
     let all_verified = report.outcomes.iter().all(|o| o.verified);
     Ok(json!({

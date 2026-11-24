@@ -2610,6 +2610,74 @@ pub(super) fn record_integer_text(
     Ok(())
 }
 
+/// `[]` → `[i64]`: the TRUE tagged word a record's Int field names — through the counted cell when the
+/// field's trailer byte says it holds one, the raw slot word tagged otherwise (never the cell's own
+/// handle, and never the field's untagged slot bits read as if they already were a tagged word; a
+/// `Word16`'s-worth of care, scaled up). [`record_int_field_eq`]'s two reads, factored out so a caller
+/// adding more field-level exact ops (none yet) has it ready.
+fn record_int_field_tagged_word(code: &mut Vec<u8>, ctx: &Ctx, object: u32, slot: u16, s: u32) -> R<()> {
+    record_field_is_handle(code, object, slot);
+    code.extend([0x04, I64]); // if (result i64)
+    record_cell_word(code, object, slot);
+    code.push(0x05); // else — the field's own slot IS the integer, untagged
+    local_get(code, object);
+    i32_load(code, 8);
+    i64_load(code, slot as u32 * 8);
+    tag_top(code, ctx, s)?;
+    code.push(0x0B); // end if
+    Ok(())
+}
+
+/// `[i64 sa][i64 sb]` (read from the given locals) → `[i32]`: whether the tagged words name the same
+/// integer. Native `i64.eq` decides it exactly when BOTH are small (`(sa|sb)&1 == 0` — the only case a
+/// bit pattern alone decides); a held integer's handle is never interned (`exact_clone` always mints a
+/// fresh one, `compile_common::wasm_host::exact_word`), so two equal-valued held integers can disagree
+/// bit for bit, and the host's `exact_cmp` (a real `BigInt` compare) decides those, and every mixed
+/// small/held pair, the same way [`compare`]'s `Order::Eq` does for two REGISTERS.
+fn tagged_int_eq(code: &mut Vec<u8>, ctx: &Ctx, sa: u32, sb: u32) -> R<()> {
+    let cmp = import(ctx, HostFn::ExactCmp)?;
+    local_get(code, sa);
+    local_get(code, sb);
+    code.push(0x84); // i64.or
+    i64_const(code, 1);
+    code.push(0x83); // i64.and
+    code.push(0x50); // i64.eqz
+    code.push(0x04);
+    code.push(I32); // if (result i32)
+    local_get(code, sa);
+    local_get(code, sb);
+    code.push(0x51); // i64.eq
+    code.push(0x05); // else
+    local_get(code, sa);
+    local_get(code, sb);
+    call(code, cmp);
+    i32_const(code, 0);
+    code.push(0x46); // i32.eq
+    code.push(0x0B);
+    Ok(())
+}
+
+/// `[]` → `[i32]`: whether record `a`'s Int field `slot` equals record `b`'s same field BY VALUE —
+/// decoding each side's counted integer cell exactly as [`record_integer_text`] does, never by its
+/// (uninterned, so not value-comparable) handle. `sa`/`sb` are `i64` scratch locals private to this
+/// call (the caller's [`emit_equal_fn`] body already has a pair free: the plain-Int comparator's own
+/// `wa`/`wb`, unused on this path).
+pub(super) fn record_int_field_eq(
+    code: &mut Vec<u8>,
+    ctx: &Ctx,
+    a: u32,
+    b: u32,
+    slot: u16,
+    sa: u32,
+    sb: u32,
+) -> R<()> {
+    record_int_field_tagged_word(code, ctx, a, slot, sa)?;
+    local_set(code, sa);
+    record_int_field_tagged_word(code, ctx, b, slot, sb)?;
+    local_set(code, sb);
+    tagged_int_eq(code, ctx, sa, sb)
+}
+
 /// An explicit record copy shares immutable integer cells with its own counted hold.
 pub(super) fn retain_record_integer(code: &mut Vec<u8>, ctx: &Ctx, object: u32, slot: u16) {
     record_field_is_handle(code, object, slot);

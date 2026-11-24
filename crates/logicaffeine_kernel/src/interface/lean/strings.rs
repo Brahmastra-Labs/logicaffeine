@@ -1,68 +1,32 @@
 //! Lean string literals elaborate to the constructor spelling of the export's own Lean release.
 //! No Text primitive, UTF-8 byte indexing, or Unicode normalization is involved.
+use super::profile::StringLiterals;
 use super::*;
 
 const CHAR: &str = "/s:\"Char\"";
 const CHAR_OF_NAT: &str = "/s:\"Char\"/s:\"ofNat\"";
 const STRING: &str = "/s:\"String\"";
 const STRING_MK: &str = "/s:\"String\"/s:\"mk\"";
-const STRING_OF_BYTE_ARRAY: &str = "/s:\"String\"/s:\"ofByteArray\"";
 const STRING_OF_LIST: &str = "/s:\"String\"/s:\"ofList\"";
 const LIST: &str = "/s:\"List\"";
 const LIST_NIL: &str = "/s:\"List\"/s:\"nil\"";
 const LIST_CONS: &str = "/s:\"List\"/s:\"cons\"";
 
-/// The constant a Lean release's kernel applies to a literal's list of `Char.ofNat` code points.
-///
-/// Read from each release's `Init.Prelude`. While `String` is the structure
-/// `String.mk (data : List Char)` (Lean 4.14.0, the pinned Stage-A toolchain of the corpus) a literal
-/// is `String.mk [Char.ofNat c, …]`. Once `String` is UTF-8 bytes (`structure String where
-/// ofByteArray ::`: Lean 4.29.1, 4.30.0 and 4.33.0, every Arena export) it is
-/// `String.ofList [Char.ofNat c, …]`. Any other release has no pinned reading.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum Packing {
-    /// `String.mk : List Char → String`, `String`'s only constructor.
-    ListStructure,
-    /// The definition `String.ofList : List Char → String`; `String`'s only constructor is
-    /// `String.ofByteArray`.
-    Utf8Bytes,
-}
-
-impl Packing {
-    pub(super) fn of_release(version: &str) -> Option<Self> {
-        match version {
-            "4.14.0" => Some(Self::ListStructure),
-            "4.29.1" | "4.30.0" | "4.33.0" => Some(Self::Utf8Bytes),
-            _ => None,
-        }
-    }
-    fn constant(self) -> &'static str {
-        match self {
-            Self::ListStructure => STRING_MK,
-            Self::Utf8Bytes => STRING_OF_LIST,
-        }
-    }
-    fn string_constructor(self) -> &'static str {
-        match self {
-            Self::ListStructure => STRING_MK,
-            Self::Utf8Bytes => STRING_OF_BYTE_ARRAY,
-        }
-    }
-    /// The export holds exactly this release's `String`: its one constructor, and the packing
-    /// constant as that constructor or as a definition.
-    fn held_by(self, ctx: &Context) -> bool {
-        let constructors = ctx.get_constructors(STRING);
-        constructors.len() == 1
-            && constructors[0].0 == self.string_constructor()
-            && match self {
-                Self::ListStructure => ctx.constructor_inductive(STRING_MK) == Some(STRING),
-                Self::Utf8Bytes => {
-                    !ctx.is_constructor(STRING_OF_LIST)
-                        && !ctx.is_inductive(STRING_OF_LIST)
-                        && ctx.get_definition_body(STRING_OF_LIST).is_some()
-                }
+/// The export holds exactly `literals`' release's `String`: its one constructor, and the packing
+/// constant as that constructor or as a definition. The reading itself is the release's
+/// ([`profile::release`](super::profile::release)), read from each release's own `Init.Prelude`.
+fn held_by(literals: StringLiterals, ctx: &Context) -> bool {
+    let constructors = ctx.get_constructors(STRING);
+    constructors.len() == 1
+        && constructors[0].0 == literals.string_constructor()
+        && match literals {
+            StringLiterals::ListOfChars => ctx.constructor_inductive(STRING_MK) == Some(STRING),
+            StringLiterals::Utf8Bytes => {
+                !ctx.is_constructor(STRING_OF_LIST)
+                    && !ctx.is_inductive(STRING_OF_LIST)
+                    && ctx.get_definition_body(STRING_OF_LIST).is_some()
             }
-    }
+        }
 }
 
 pub(super) fn layout(row: &Value) -> Result<(usize, usize)> {
@@ -125,14 +89,20 @@ pub(super) fn expand(
     // export must hold exactly that release's `String`. Neither a header nor an environment alone
     // chooses the reading.
     let release = importer.lean_version.as_str();
-    let packing = Packing::of_release(release).ok_or_else(|| {
-        declined(
-            DiagnosticCode::UnsupportedExportVersion,
-            format!("string literal: Lean release {release:?} has no pinned literal reading"),
-        )
-    })?;
+    let packing = profile::release(release)
+        .map(|r| r.string_literals)
+        .ok_or_else(|| {
+            declined(
+                DiagnosticCode::UnsupportedExportVersion,
+                format!("string literal: Lean release {release:?} has no pinned literal reading"),
+            )
+        })?;
     let ctx = context.as_deref().unwrap_or(&importer.ctx);
-    if !packing.held_by(ctx) || !importer.declarations.contains_key(packing.constant()) {
+    if !held_by(packing, ctx)
+        || !importer
+            .declarations
+            .contains_key(packing.packing_constant())
+    {
         let built_by: Vec<&str> = ctx
             .get_constructors(STRING)
             .into_iter()
@@ -140,9 +110,9 @@ pub(super) fn expand(
             .collect();
         return Err(declined(DiagnosticCode::MalformedExport, format!(
             "string literal: Lean {release} reads it through {} over a String built by {}, but the export's String is built by {built_by:?}",
-            packing.constant(), packing.string_constructor())));
+            packing.packing_constant(), packing.string_constructor())));
     }
-    let packed = constant(packing.constant(), 0)?;
+    let packed = constant(packing.packing_constant(), 0)?;
     // Reuse the importer's canonical Nat gate before generating code-point literals.
     importer.term_atom(
         &serde_json::json!({"natVal":"0"}),
@@ -180,7 +150,7 @@ pub(super) fn expand(
                 DiagnosticCode::MalformedExport,
                 format!(
                     "string literal: the export's {} is not Lean {release}'s List Char → String",
-                    packing.constant()
+                    packing.packing_constant()
                 ),
             ),
             decline => decline,

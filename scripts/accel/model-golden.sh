@@ -4,6 +4,9 @@
 #
 #   scripts/accel/model-golden.sh <gguf> <out.json> [n_gen=16] [threads=16] [flash=0] [kv=f16] [prompts=benchmarks/models/prompts.txt] [batch=0] [device=cpu] [top=5]
 #
+# kv is f16 (llama.cpp's default cache), f32, or q8_0 (its 8-bit cache, which takes flash=1): a q8_0 golden is the bar
+# an 8-bit cache of ours is held to.
+#
 # device=cuda runs it instead as llama-bench runs the checkpoint (every layer on the GPU, operations offloaded, its
 # batches of 2048 tokens in micro-batches of 512): llama.cpp's
 # own GPU run, for the scoreboard's quality column; only then is the GPU visible to it.

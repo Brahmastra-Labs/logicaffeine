@@ -15,6 +15,7 @@
 use std::path::Path;
 use std::process::Command;
 
+use logicaffeine_compile::codegen_cpu::kernels::FLAGS_X86_AVX2_VNNI;
 use logicaffeine_compile::codegen_cpu::model::compile_model;
 use logicaffeine_compile::codegen_cpu::shim::{CpuActivations, CpuCache, CpuIsa, CpuShim};
 use logicaffeine_compile::model::gguf::Gguf;
@@ -59,7 +60,9 @@ fn main() {
     std::fs::write(&src, model.source()).expect("write the program");
     std::fs::write(&side, model.sidecar()).expect("write the sidecar");
     let built = Command::new("g++")
-        .args(["-O3", "-std=c++17", "-mavx2", "-mfma", "-mavxvnni", "-mf16c", "-pthread", "-o"])
+        .args(["-O3", "-std=c++17"])
+        .args(FLAGS_X86_AVX2_VNNI)
+        .args(["-pthread", "-o"])
         .arg(&bin)
         .arg(&src)
         .output()

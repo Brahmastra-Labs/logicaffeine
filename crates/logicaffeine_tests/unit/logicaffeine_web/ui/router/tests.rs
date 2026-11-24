@@ -275,10 +275,10 @@ fn contact_section_fragment_survives_roundtrip() {
 
 #[test]
 fn privacy_section_fragment_survives_roundtrip() {
-    // The contact form's privacy note links `/privacy#pricing-requests` (the section keeps its name).
+    // The contact form's privacy note links `/privacy#contact-requests`.
     assert_eq!(
-        roundtrip("/privacy#pricing-requests"),
-        "/privacy#pricing-requests"
+        roundtrip("/privacy#contact-requests"),
+        "/privacy#contact-requests"
     );
     assert_eq!(
         roundtrip("/privacy"),

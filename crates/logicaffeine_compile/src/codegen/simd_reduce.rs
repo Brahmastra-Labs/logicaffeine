@@ -300,7 +300,7 @@ impl<'m, 'a> Lifter<'m, 'a> {
             };
             let v = self.lift_expr(value, &scope)?;
             let ln = format!("l{}", i);
-            lets.push_str(&format!("        let {} = {};\n", ln, v));
+            lets.push_str(&format!("        let {}: __m256d = {};\n", ln, v));
             scope.insert(var, ln);
         }
         let ret = self.lift_chain(chain, &scope)?;
@@ -313,9 +313,13 @@ impl<'m, 'a> Lifter<'m, 'a> {
     }
 }
 
-/// Rust source for an `f64` literal that round-trips to the same bits (`{:?}` is shortest-exact).
+/// Rust source for an `f64` that round-trips to the same bits: a `std::f64::consts` constant by its name, any other
+/// value as its shortest exact literal (`{:?}`).
 pub(crate) fn rust_f64(f: f64) -> String {
-    format!("{:?}", f)
+    match super::expr::named_f64_constant(f) {
+        Some(name) => format!("std::f64::consts::{name}"),
+        None => format!("{:?}", f),
+    }
 }
 
 /// The kernel plan for a recognized transcendental accumulator loop.
@@ -414,10 +418,11 @@ pub(crate) fn emit_block(
         c.set(v + 1);
         v
     });
+    use super::precedence::{operand, standalone, Side, Under};
     let end = if inclusive {
-        format!("(({}) + 1)", limit_rust)
+        format!("{} + 1", operand(limit_rust, Under::Binary("+", Side::Left)))
     } else {
-        format!("({})", limit_rust)
+        standalone(limit_rust).to_string()
     };
     format!(
         "{i}{{\n\
@@ -425,17 +430,17 @@ pub(crate) fn emit_block(
          {i}    unsafe fn __logos_simd_chunks_{id}(lo: i64, hi: i64) -> i64 {{\n\
          {i}        use std::arch::x86_64::*;\n\
          {helpers}\
-         {i}        let mut __acc = _mm256_setzero_si256();\n\
-         {i}        let mut __k = lo;\n\
+         {i}        let mut __acc: __m256i = _mm256_setzero_si256();\n\
+         {i}        let mut __k: i64 = lo;\n\
          {i}        while __k < hi {{\n\
-         {i}            let iv = _mm256_set_pd((__k + 3) as f64, (__k + 2) as f64, (__k + 1) as f64, __k as f64);\n\
-         {i}            let fv = {lane};\n\
-         {i}            let mut __t = [0.0f64; 4];\n\
+         {i}            let iv: __m256d = _mm256_set_pd((__k + 3) as f64, (__k + 2) as f64, (__k + 1) as f64, __k as f64);\n\
+         {i}            let fv: __m256d = {lane};\n\
+         {i}            let mut __t: [f64; 4] = [0.0f64; 4];\n\
          {i}            _mm256_storeu_pd(__t.as_mut_ptr(), fv);\n\
          {i}            __acc = _mm256_add_epi64(__acc, _mm256_set_epi64x(__t[3] as i64, __t[2] as i64, __t[1] as i64, __t[0] as i64));\n\
          {i}            __k += 4;\n\
          {i}        }}\n\
-         {i}        let mut __b = [0i64; 4];\n\
+         {i}        let mut __b: [i64; 4] = [0i64; 4];\n\
          {i}        _mm256_storeu_si256(__b.as_mut_ptr() as *mut __m256i, __acc);\n\
          {i}        __b[0] + __b[1] + __b[2] + __b[3]\n\
          {i}    }}\n\
@@ -444,7 +449,7 @@ pub(crate) fn emit_block(
          {i}    let mut __off: i64 = 0;\n\
          {i}    if std::is_x86_feature_detected!(\"avx2\") {{\n\
          {i}        __off = if __e > __s {{ ((__e - __s) / 4) * 4 }} else {{ 0 }};\n\
-         {i}        if __off > 0 {{ {acc} = {acc} + unsafe {{ __logos_simd_chunks_{id}(__s, __s + __off) }}; }}\n\
+         {i}        if __off > 0 {{ {acc} += unsafe {{ __logos_simd_chunks_{id}(__s, __s + __off) }}; }}\n\
          {i}    }}\n\
          {i}    for {counter} in (__s + __off)..__e {{\n\
          {body}\
@@ -452,13 +457,13 @@ pub(crate) fn emit_block(
          {i}}}\n",
         i = indent,
         id = id,
-        helpers = indent_lines(&plan.helpers, indent),
+        helpers = indent_lines(&plan.helpers, &format!("{indent}    ")),
         lane = plan.lane_expr,
-        start = start_rust,
+        start = standalone(start_rust),
         end = end,
         acc = acc_rust,
         counter = counter_rust,
-        body = body_code,
+        body = super::precedence::indented(body_code, "    "),
     )
 }
 

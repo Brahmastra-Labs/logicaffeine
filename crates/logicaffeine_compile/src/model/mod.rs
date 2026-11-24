@@ -1,5 +1,6 @@
 //! Models as data. A checkpoint's own metadata describes its architecture ([`spec`]); this module reads it — a GGUF
-//! file ([`gguf`]), or a Hugging Face directory of safetensors shards in place ([`hf`], [`safetensors`]) —,
+//! file ([`gguf`]), or a Hugging Face directory of safetensors shards in place ([`hf`], [`safetensors`]) —, reads a
+//! network PyTorch exported (a `torch.export` archive, [`pt2`]) as the graph of ops it computes ([`graph`]),
 //! dequantizes its weights in every format a model ships in ([`quant`]), tokenizes text as the checkpoint's vocabulary
 //! does ([`tokenizer`]), hashes Qwen3.8-Flash-Next's n-gram embedding rows ([`ngram_hash`]), writes what it computes as
 //! a LOGOS program ([`author`]) whose weights it binds to the checkpoint's tensors ([`bind`]) as the layout its arms
@@ -10,10 +11,12 @@
 pub mod author;
 pub mod bind;
 pub mod gguf;
+pub mod graph;
 pub mod hf;
 pub mod layout;
 pub mod ngram_hash;
 pub mod program;
+pub mod pt2;
 pub mod quant;
 pub mod reference;
 pub mod safetensors;

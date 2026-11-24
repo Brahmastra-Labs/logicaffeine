@@ -23,13 +23,22 @@
 //!
 //! A counter-CRDT field (its cell holds a `logos_crdt*` handle) keeps the machine word. A task's argument and a
 //! waiting call's argument or result cross a scalar cell, which carries an `LInt` too (`lint_to_cell`).
+//!
+//! A `Seq of Int` whose element can outgrow a word holds machine words until a value past the word is stored into it,
+//! and then, once, every cell tagged (`lint_to_cell`), its `exact` bit set: words first, promoted once, so a list that
+//! never overflows runs on its words. Only code that asks the bit may read such a list. The handle travels — a binding,
+//! a `copy of`, a `Swap`, an argument, a return — and the bit with it, so the decision is taken per FLOW CLASS of slots
+//! ([`settle_tagged_seqs`]): a class may promote when some store into it may be exact and no member is read anywhere
+//! but where the bit is asked (an item read, a length, `contains`, `Push`, `Set item`, `Repeat`, `Show`) nor filled by
+//! anything but the class (a builtin's result, a pattern, a task, a closure, another body's binding). Any other class
+//! keeps words for good, and an exact value stored in one narrows loudly.
 
 use std::collections::{HashMap, HashSet};
 
 use logicaffeine_language::ast_depth::{walk_nodes, Visited, Walk};
 
 use super::types::{
-    body_returns_exact, collect_bigint_vars, collect_float_vars, exact_decision,
+    body_returns_exact, collect_float_vars, exact_decision,
     expr_carries_exact, expr_is_int_power_form, field_type_to_ctype, int_exceeds_i64,
     resolve_type_expr_with_registry, variant_fields, CType,
 };
@@ -66,12 +75,35 @@ pub(crate) struct ExactSlots {
     pub(crate) fn_values: HashSet<Symbol>,
     /// The program bindings some body makes exact: Main declares them `LInt`, and every function reads them so.
     pub(crate) program: HashSet<Symbol>,
+    /// The program bindings some body DEFINITELY makes exact (see `definite_locals`).
+    pub(crate) definite_program: HashSet<Symbol>,
     /// Each user function, with the words its declared result is ([`crate::analysis::exactness::word_results`]).
     pub(crate) word_results: HashMap<Symbol, Option<crate::analysis::exactness::WordShape>>,
+    /// The sums, differences and products the decision says can outgrow a word, by node address, in every body it
+    /// read ([`crate::analysis::exactness::BodyDecision::exprs`]).
+    pub(crate) exprs: HashSet<usize>,
+    /// Each function's `Seq of Int` LOCALS (its parameters among them) that may promote: the members of a promotable
+    /// flow class ([`settle_tagged_seqs`]), which every access reads through the list's `exact` bit. Scoped per
+    /// function (mirrors `locals`), never matched across one by bare spelling.
+    pub(crate) seq_elem_exact: HashMap<Symbol, HashSet<Symbol>>,
+    /// Main's `Seq of Int` locals that may promote — the container twin of `main_locals`.
+    pub(crate) main_seq_elem_exact: HashSet<Symbol>,
+    /// Functions whose `Seq of Int` RETURN may be promoted — read like `returns`, one level down: what travels back is
+    /// still the handle, and its bit with it.
+    pub(crate) seq_elem_returns: HashSet<Symbol>,
+    /// Each `Seq of Int` list literal built promoted, by node address: one with an item past the word, stored into a
+    /// promotable class or read in place. A literal absent from it holds words.
+    pub(crate) tagged_literals: HashSet<usize>,
+    /// Each body's (`None` is Main) `LInt` locals that DEFINITELY may hold a value past the word: one a constant past
+    /// the word or an exact source reaches, not only arithmetic over words nothing bounds. A store of any other `LInt`
+    /// local narrows, loudly past the word, as a store of a checked machine word does, so a list a word-bounded loop
+    /// fills keeps its words.
+    pub(crate) definite_locals: HashMap<Option<Symbol>, HashSet<Symbol>>,
 }
 
 impl ExactSlots {
-    fn size(&self) -> (usize, usize, usize, usize, usize, usize) {
+    #[allow(clippy::type_complexity)]
+    fn size(&self) -> (usize, usize, usize, usize, usize, usize, usize, usize, usize, usize) {
         let components =
             |m: &HashMap<Symbol, Vec<bool>>| m.values().flatten().filter(|c| **c).count();
         (
@@ -81,6 +113,10 @@ impl ExactSlots {
             components(&self.tuple_returns) + components(&self.tuple_locals),
             self.lent_exact.values().map(HashSet::len).sum(),
             self.program.len(),
+            self.definite_program.len(),
+            self.seq_elem_exact.values().map(HashSet::len).sum(),
+            self.main_seq_elem_exact.len(),
+            self.seq_elem_returns.len(),
         )
     }
 
@@ -128,6 +164,11 @@ impl ExactSlots {
             flags.resize(i + 1, false);
         }
         flags[i] = true;
+    }
+
+    /// Whether the list literal `literal` is built promoted ([`ExactSlots::tagged_literals`]).
+    pub(crate) fn literal_is_tagged(&self, literal: &Expr) -> bool {
+        self.tagged_literals.contains(&(literal as *const Expr as usize))
     }
 
     /// Whether `param` of `function` is `LInt`.
@@ -288,6 +329,13 @@ pub(crate) fn exact_slots(
     super::types::for_each_binding(stmts, |target, _| {
         program_bindings.insert(target);
     });
+    let fn_params: HashMap<Symbol, Vec<Symbol>> =
+        fns.iter().map(|f| (f.name, f.params.iter().map(|(p, _)| *p).collect())).collect();
+    let mut flow = SeqFlow::default();
+    for f in &fns {
+        record_seq_flow(f.body, Some(f.name), &fn_params[&f.name], &fn_params, interner, &mut flow);
+    }
+    record_seq_flow(stmts, None, &[], &fn_params, interner, &mut flow);
     loop {
         let before = slots.size();
         for f in &fns {
@@ -300,8 +348,15 @@ pub(crate) fn exact_slots(
                 &slots,
                 oracle,
                 &seeds,
+                true,
             );
+            let definite = exact_decision(f.body, Some(f.name), &f.no_int, interner, &slots, oracle, &seeds, false).vars;
+            slots
+                .definite_program
+                .extend(definite.iter().filter(|v| program_bindings.contains(v)).copied());
+            slots.definite_locals.insert(Some(f.name), definite);
             let big = decided.vars;
+            slots.exprs.extend(decided.exprs);
             slots
                 .program
                 .extend(big.iter().filter(|v| program_bindings.contains(v)).copied());
@@ -314,7 +369,8 @@ pub(crate) fn exact_slots(
                 }
             }
             if f.returns_int
-                && (decided.returns || body_returns_exact(f.body, &big, &slots, interner))
+                && (decided.returns
+                    || body_returns_exact(f.body, &big, &slots, interner))
             {
                 slots.returns.insert(f.name);
             }
@@ -324,6 +380,7 @@ pub(crate) fn exact_slots(
             record_tuple_locals(f.body, &big, interner, &mut slots);
             record_stores(
                 f.body,
+                Some(f.name),
                 &big,
                 &by_name,
                 counter_fields,
@@ -341,13 +398,30 @@ pub(crate) fn exact_slots(
             registry,
             interner,
         ));
-        let big = collect_bigint_vars(stmts, &no_int, interner, &slots, oracle, &HashSet::new());
+        let decided = exact_decision(
+            stmts,
+            None,
+            &no_int,
+            interner,
+            &slots,
+            oracle,
+            &HashSet::new(),
+            true,
+        );
+        let definite = exact_decision(stmts, None, &no_int, interner, &slots, oracle, &HashSet::new(), false).vars;
+        slots
+            .definite_program
+            .extend(definite.iter().filter(|v| program_bindings.contains(v)).copied());
+        slots.definite_locals.insert(None, definite);
+        let big = decided.vars;
+        slots.exprs.extend(decided.exprs);
         slots
             .program
             .extend(big.iter().filter(|v| program_bindings.contains(v)).copied());
         record_tuple_locals(stmts, &big, interner, &mut slots);
         record_stores(
             stmts,
+            None,
             &big,
             &by_name,
             counter_fields,
@@ -356,10 +430,12 @@ pub(crate) fn exact_slots(
             &mut slots,
         );
         slots.main_locals = big;
+        widen_seq_classes(&mut flow, interner, &mut slots);
         if slots.size() == before {
             break;
         }
     }
+    settle_tagged_seqs(&mut flow, interner, &mut slots);
     slots
 }
 
@@ -369,6 +445,42 @@ fn is_exact(value: &Expr, big: &HashSet<Symbol>, slots: &ExactSlots, interner: &
     int_exceeds_i64(value)
         || expr_carries_exact(value, big, slots)
         || expr_is_int_power_form(value, interner)
+}
+
+/// Whether `value` might be exact at RUN TIME: provably so (`is_exact`), or merely one the shared decision could
+/// not prove stays in a word (`ExactSlots::exprs` — a sum/difference/product over an operand with no known bound,
+/// speculatively checked already). A sink that only asked `is_exact` would narrow-or-abort a value the checked
+/// chain computes correctly the moment that value reaches it un-flagged — a `Seq of Int` element among them
+/// (`Push`, `Set item … of`): this is what a container's store must ask instead.
+fn might_be_exact(
+    value: &Expr,
+    big: &HashSet<Symbol>,
+    slots: &ExactSlots,
+    interner: &Interner,
+) -> bool {
+    is_exact(value, big, slots, interner)
+        || slots.exprs.contains(&(value as *const Expr as usize))
+}
+
+/// Whether a container store (`Push`, `Set item … of`) of `value` must tag its cell — `might_be_exact`, except
+/// a bare call to a function whose OWN scalar return widens to `LInt`: that widening answers "is this function's
+/// C signature ever asked to return past a word," which a parameter it reads with no provable bound (a `Seq of
+/// Int`'s element among them) answers conservatively yes even when its result, in every call the program makes,
+/// narrows straight back — `narrow_i64_sink` already narrows such a result correctly (it never genuinely
+/// overflows, or `is_exact`/the speculative branch would have caught the call's own ARGUMENT expression first,
+/// as `logos_lint_add`'s result does at `next`'s `Push (item 1 of xs) + 1 to out` in `overflow.lg`). Tagging a
+/// container on that guess alone would tag a byte buffer `byteHexDigit`'s result (always 48–102) feeds into —
+/// `bytesToHex`'s `out`, which `text_from_bytes` then reads as a NATIVE raw-byte buffer with no cell to decode.
+fn container_store_is_exact(
+    value: &Expr,
+    big: &HashSet<Symbol>,
+    slots: &ExactSlots,
+    interner: &Interner,
+) -> bool {
+    if matches!(value, Expr::Call { .. }) {
+        return int_exceeds_i64(value) || expr_is_int_power_form(value, interner);
+    }
+    might_be_exact(value, big, slots, interner)
 }
 
 /// Which components of the tuple `value` evaluates to are exact: a tuple literal's exact items, a call's or a
@@ -461,11 +573,15 @@ fn record_tuple_locals(
     }
 }
 
-/// Every slot `body` stores an exact value in: a user function's `Int` parameter at a call, a record's
-/// `Int` field at a construction or a `Set … field`, a variant's `Int` field at a construction.
+/// Every slot `body` (the function `owner` names, or Main for `None`) stores an exact value in: a user
+/// function's `Int` parameter at a call, a record's `Int` field at a construction or a `Set … field`, a
+/// variant's `Int` field at a construction — and a `Seq of Int` local of `owner`'s own body a `Push`/`Set item … of`
+/// stores one into, never another body's local of the same spelling. Where a sequence's cells travel from there is
+/// the flow classes' to say ([`widen_seq_classes`]).
 #[allow(clippy::too_many_arguments)]
 fn record_stores(
     body: &[Stmt],
+    owner: Option<Symbol>,
     big: &HashSet<Symbol>,
     fns: &HashMap<Symbol, &UserFn>,
     counter_fields: &HashSet<(Symbol, Symbol)>,
@@ -474,6 +590,7 @@ fn record_stores(
     slots: &mut ExactSlots,
 ) {
     let mut stores: Vec<Store> = Vec::new();
+    let definite = slots.definite_locals.get(&owner).cloned().unwrap_or_default();
     // A closure's body is walked too: it is lowered on its own, but the records it builds and the functions
     // it calls are the program's. Its parameters are machine words, never in `big`.
     walk_nodes(body, |node| {
@@ -551,6 +668,16 @@ fn record_stores(
                     }
                 }
             }
+            // `Push value to collection` and `Set item K of collection to value`: a store of an exact value into a
+            // `Seq of Int` local, whose cells then hold it tagged (the sequence itself still travels by handle).
+            Visited::Stmt(
+                Stmt::Push { collection: Expr::Identifier(t), value }
+                | Stmt::SetIndex { collection: Expr::Identifier(t), value, .. },
+            ) => {
+                if container_store_is_exact(value, &definite, slots, interner) {
+                    stores.push(Store::SeqElemLocal(owner, *t));
+                }
+            }
             _ => {}
         }
         Walk::Into
@@ -561,6 +688,16 @@ fn record_stores(
                 slots.params.entry(f).or_default().insert(p);
             }
             Store::Field(owner, field) => slots.mark_field(owner, field),
+            // Scoped to the body that owns the local — `None` is Main — never another body's local of the
+            // same spelling; see `ExactSlots::seq_elem_exact`'s doc.
+            Store::SeqElemLocal(owner, name) => match owner {
+                Some(f) => {
+                    slots.seq_elem_exact.entry(f).or_default().insert(name);
+                }
+                None => {
+                    slots.main_seq_elem_exact.insert(name);
+                }
+            },
         }
     }
 }
@@ -568,6 +705,7 @@ fn record_stores(
 enum Store {
     Param(Symbol, Symbol),
     Field(Symbol, Symbol),
+    SeqElemLocal(Option<Symbol>, Symbol),
 }
 
 /// What decides a field's C type beyond its declaration: the fields the program stores an exact value in, and where a
@@ -593,4 +731,92 @@ pub(crate) fn field_ctype(
         declared
     };
     super::absent::field(owner, field.name, declared, facts.absence, registry)
+}
+
+use crate::analysis::seq_flow::{address, record_seq_flow, SeqFlow, SeqSlot};
+
+/// Whether some item of the list literal `literal`, written in the body `owner` names, is exact.
+fn literal_has_exact_item(literal: &Expr, owner: Option<Symbol>, slots: &ExactSlots, interner: &Interner) -> bool {
+    let Expr::List(items) = literal else { return false };
+    let none = HashSet::new();
+    let definite = slots.definite_locals.get(&owner).unwrap_or(&none);
+    items.iter().any(|item| is_exact(item, definite, slots, interner))
+}
+
+/// The roots of the flow classes some store makes exact: a `Push`/`Set item` of an exact value into a member, a
+/// member already holding exact cells, a literal with an exact item stored into a member.
+fn exact_roots(flow: &mut SeqFlow, interner: &Interner, slots: &ExactSlots) -> HashSet<SeqSlot> {
+    let members: Vec<SeqSlot> = slots
+        .seq_elem_exact
+        .iter()
+        .flat_map(|(f, xs)| xs.iter().map(move |x| SeqSlot::Local(Some(*f), *x)))
+        .chain(slots.main_seq_elem_exact.iter().map(|x| SeqSlot::Local(None, *x)))
+        .chain(slots.seq_elem_returns.iter().map(|f| SeqSlot::Return(*f)))
+        .collect();
+    let mut roots: HashSet<SeqSlot> = members.into_iter().map(|slot| flow.find(slot)).collect();
+    for (literal, dst, owner) in flow.stored_literals.clone() {
+        if literal_has_exact_item(literal, owner, slots, interner) {
+            roots.insert(flow.find(dst));
+        }
+    }
+    roots
+}
+
+/// One round of the fixpoint's view of the sequences: every member of a class some store makes exact may promote,
+/// whichever member the store went into.
+fn widen_seq_classes(flow: &mut SeqFlow, interner: &Interner, slots: &mut ExactSlots) {
+    let roots = exact_roots(flow, interner, slots);
+    for slot in flow.slots() {
+        if !roots.contains(&flow.find(slot)) {
+            continue;
+        }
+        match slot {
+            SeqSlot::Local(Some(f), x) => {
+                slots.seq_elem_exact.entry(f).or_default().insert(x);
+            }
+            SeqSlot::Local(None, x) => {
+                slots.main_seq_elem_exact.insert(x);
+            }
+            SeqSlot::Return(f) => {
+                slots.seq_elem_returns.insert(f);
+            }
+            SeqSlot::Field(_) => {}
+        }
+    }
+}
+
+/// The `Seq of Int` slots that may promote, one decision per flow class (see the module docs): the classes the
+/// fixpoint widened, cut to those no raw reader or source reaches; and each list literal with an item past the word,
+/// built promoted when the class it is stored into may promote, or when it is read in place. A class holding a field
+/// keeps words: a record is shown, compared, encoded and copied whole by code that reads its fields' cells raw.
+fn settle_tagged_seqs(flow: &mut SeqFlow, interner: &Interner, slots: &mut ExactSlots) {
+    let mut raw_roots: HashSet<SeqSlot> = HashSet::new();
+    for slot in flow.slots() {
+        if flow.raw.contains(&slot) || matches!(slot, SeqSlot::Field(_)) {
+            raw_roots.insert(flow.find(slot));
+        }
+    }
+    let raw = |flow: &mut SeqFlow, slot: SeqSlot| raw_roots.contains(&flow.find(slot));
+    slots.seq_elem_exact.retain(|f, xs| {
+        xs.retain(|x| !raw(flow, SeqSlot::Local(Some(*f), *x)));
+        !xs.is_empty()
+    });
+    slots.main_seq_elem_exact.retain(|x| !raw(flow, SeqSlot::Local(None, *x)));
+    slots.seq_elem_returns.retain(|f| !raw(flow, SeqSlot::Return(*f)));
+    let tagged = |slots: &ExactSlots, slot: SeqSlot| match slot {
+        SeqSlot::Local(Some(f), x) => slots.seq_elem_exact.get(&f).is_some_and(|xs| xs.contains(&x)),
+        SeqSlot::Local(None, x) => slots.main_seq_elem_exact.contains(&x),
+        SeqSlot::Return(f) => slots.seq_elem_returns.contains(&f),
+        SeqSlot::Field(_) => false,
+    };
+    for (literal, dst, owner) in flow.stored_literals.clone() {
+        if tagged(slots, dst) && literal_has_exact_item(literal, owner, slots, interner) {
+            slots.tagged_literals.insert(address(literal));
+        }
+    }
+    for (literal, owner) in flow.read_literals.clone() {
+        if literal_has_exact_item(literal, owner, slots, interner) {
+            slots.tagged_literals.insert(address(literal));
+        }
+    }
 }

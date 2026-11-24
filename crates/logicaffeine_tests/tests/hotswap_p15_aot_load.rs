@@ -12,6 +12,7 @@ use logicaffeine_compile::compile::{build_native_cdylib, compile_function_to_nat
 use logicaffeine_compile::ui_bridge::with_parsed_program;
 use logicaffeine_compile::vm::aot_tier::load_aot_native;
 use logicaffeine_compile::vm::{Compiler, Vm};
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_jit::ForgeTier;
 use logicaffeine_language::ast::Stmt;
 
@@ -53,9 +54,14 @@ fn aot_native_function_executes_in_the_interpreter() {
     let baseline = with_parsed_program(PROG, |parsed, interner| {
         let (stmts, types, policies) = parsed.expect("parses");
         let program = Compiler::compile_with_types(stmts, interner, Some(types)).expect("compiles");
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
         let forge = ForgeTier::new();
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
         let mut vm = Vm::new(&program)
             .with_native_tier(&forge)
+            .with_policy_ctx(&policies, interner);
+        #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+        let mut vm = Vm::new(&program)
             .with_policy_ctx(&policies, interner);
         vm.run().expect("runs");
         vm.output().to_string()
@@ -66,9 +72,14 @@ fn aot_native_function_executes_in_the_interpreter() {
         let (stmts, types, policies) = parsed.expect("parses");
         let program = Compiler::compile_with_types(stmts, interner, Some(types)).expect("compiles");
         let fi = add_fi(stmts, interner, &program);
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
         let forge = ForgeTier::new();
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
         let mut vm = Vm::new(&program)
             .with_native_tier(&forge)
+            .with_policy_ctx(&policies, interner);
+        #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+        let mut vm = Vm::new(&program)
             .with_policy_ctx(&policies, interner);
         vm.install_aot_native(fi, aot_fn);
         vm.run().expect("runs");

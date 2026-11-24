@@ -9,7 +9,13 @@
 //!     computes it;
 //!   • E11.10 — four sequences after prompts of 1, 5, 3 and 7 tokens decode their next token at once on the SN50 batch
 //!     bundle, each attending its own length: each sequence's logits are the ones it decodes alone, within the bf16
-//!     datapath's bound.
+//!     datapath's bound;
+//!   • E11.5 — a LayerNorm over one row of 16,384 whose mean is large beside its spread, every input exact in bf16,
+//!     accumulated in fp32;
+//!   • E11.6 — a chain of 200 pointwise ops over one row, its results declared as a deployment declares them: one
+//!     section, its intermediates never leaving the site;
+//!   • E11.9 — a gather of rows with repeated indices, and a scatter of rows with repeated indices written as the VM's
+//!     own loop, the last write to a row kept, and the scatter that adds.
 //!
 //! The rows still open are `samba_exam_kernel_reds_lock`'s.
 //!
@@ -37,8 +43,10 @@ use logicaffeine_compile::codegen_sva::fabric_rtl::{eval_decision_fabric_heap, D
 use logicaffeine_compile::compile::vm_outcome;
 use logicaffeine_compile::model::ngram_hash::NgramHash;
 use logicaffeine_compile::spatial::eval::{eval_choreography, eval_choreography_every_tensor, Value};
-use logicaffeine_compile::spatial::pipeline::compile_program_to_spatial;
+use logicaffeine_compile::spatial::pipeline::{compile_program_to_spatial, compile_program_to_spatial_returning};
+use logicaffeine_compile::spatial::ir::SpatialProgram;
 use logicaffeine_compile::spatial::target::SpatialTarget;
+use std::collections::BTreeSet;
 use logicaffeine_compile::spatial::wide_int::{lower, Op64};
 use samba_exam::{decode_batch_on_bundle, fp32_twin};
 use samba_handoff::{decode_on_bundle, prefill_on, Model, BF16_LOGIT_REL, CTX, NEXT};
@@ -209,4 +217,89 @@ fn one_tensor_feeds_64_consumers() {
         src.push_str(&format!("Let Z{k} be Z{} plus Y{}.\n", k - 1, k + 1));
     }
     on_the_sn50_as_the_vm(&format!("## Main\n{src}{}", shows("Z63", 64)), "one tensor read by 64 consumers");
+}
+
+#[test]
+fn layernorm_over_16384_accumulates_in_fp32() {
+    // A row of 16,384 about a mean of 64 with a spread of a quarter: every input a multiple of 1/4 in [63, 65], which bf16
+    // holds exactly, so what is measured is the sums. Over 16,384 terms of about 4,096 the square's sum reaches 2^26,
+    // where bf16 keeps 8 bits and fp32 24: a mean and a variance accumulated in bf16 lose the spread entirely.
+    let n = 16_384;
+    let x = |i: usize| 64.0 + (((i * 7919) % 9) as f64 - 4.0) / 4.0;
+    let src = format!(
+        "## Main\n{}{}{}Let Y be layernorm of X with weight W and bias B.\n{}",
+        filled("X", 1, n, &x),
+        filled("W", 1, n, &|i| 1.0 + seeded("W", i) / 4.0),
+        filled("B", 1, n, &|i| seeded("B", i) / 8.0),
+        shows("Y", 64),
+    );
+    on_the_sn50_as_the_vm(&src, "a layernorm over 16,384");
+}
+
+#[test]
+fn gather_and_scatter_with_repeated_indices() {
+    // A gather: rows I of T, I naming rows 3, 3, 1, 8, 3 and 1 of eight.
+    let index = [3, 3, 1, 8, 3, 1];
+    let table = filled("T", 8, 16, &|i| seeded("T", i));
+    let gather = format!("## Main\n{table}{}Let G be rows I of T.\n{}", ints("I", &index), shows("G", 6 * 16));
+    on_the_sn50_as_the_vm(&gather, "a gather of rows with repeated indices");
+    // A scatter: row k of X written at row I[k] of T in turn, so a row named twice keeps the later; and the scatter that
+    // adds each row of X into its row of T, so a row named twice takes both.
+    let rows_of_x = filled("X", 6, 16, &|i| seeded("X", i));
+    let scatter = |body: &str| {
+        format!(
+            "## Main\n{table}{rows_of_x}{}Repeat for k from 1 to 6:\n    Let at be item k of I.\n{body}{}",
+            ints("I", &index),
+            shows("T", 8 * 16)
+        )
+    };
+    on_the_sn50_as_the_vm(
+        &scatter("    Let r be row k of X.\n    Set row at of T to r.\n"),
+        "a scatter of rows with repeated indices, the last kept",
+    );
+    on_the_sn50_as_the_vm(
+        &scatter("    Let r be row k of X.\n    Let old be row at of T.\n    Let sum be old plus r.\n    Set row at of T to sum.\n"),
+        "a scatter of rows with repeated indices, each added",
+    );
+}
+
+/// [`on_the_sn50_as_the_vm`] for a program whose results are DECLARED, as a deployment declares them: what it shows is
+/// all its host reads, so a tensor only the next statement reads is forwarded rather than stored
+/// (`compile_program_to_spatial_returning`).
+fn on_the_sn50_returning(src: &str, what: &str) -> SpatialProgram {
+    let vm = vm_outcome(src);
+    assert!(vm.error.is_none(), "{what}: the VM: {:?}", vm.error);
+    let want = oracle_ints(&vm.output).expect("the VM shows integers");
+    let pl = compile_program_to_spatial_returning(src, &SpatialTarget::sn50_rdu(), &BTreeSet::new())
+        .unwrap_or_else(|e| panic!("{what}: the walk: {e:?}"));
+    let sp = pl.whole().cloned().unwrap_or_else(|| panic!("{what}: lowered whole for the SN50: {}", pl.refusal()));
+    let out = eval_choreography(&sp, &tensor_probes::inputs_from_fills(&sp).expect("fills")).unwrap_or_else(|e| panic!("{what}: {e:?}"));
+    let got = shown_from_outputs(src, &sp, &out).expect("shown");
+    assert_eq!(got.len(), want.len(), "{what}: one Show a value");
+    let scale = want.iter().fold(1i64, |m, v| m.max(v.abs())) as f64;
+    for (i, (g, v)) in got.iter().zip(&want).enumerate() {
+        assert!(((g - v).abs() as f64) <= 0.02 * scale, "{what}: Show #{} on the SN50 is {g}, the VM's {v}", i + 1);
+    }
+    sp
+}
+
+#[test]
+fn a_chain_of_200_pointwise_ops_is_one_section() {
+    // Two hundred elementwise ops over one row of 64 — sums, products, a sigmoid, a silu and a scale in turn — read one
+    // row and write one: a single section, its intermediates never leaving the site. What it shows is all its host reads
+    // (Tristen, 2026-11-12: the lock lowers with its results declared, as a deployment does).
+    let mut src = format!("## Main\n{}{}Let Y0 be X plus C.\n", filled("X", 1, 64, &|i| seeded("X", i)), filled("C", 1, 64, &|i| seeded("C", i) / 4.0));
+    for k in 1..200 {
+        let p = k - 1;
+        src.push_str(&match k % 5 {
+            0 => format!("Let Y{k} be Y{p} plus C.\n"),
+            1 => format!("Let Y{k} be Y{p} hadamard C.\n"),
+            2 => format!("Let Y{k} be sigmoid of Y{p}.\n"),
+            3 => format!("Let Y{k} be silu of Y{p}.\n"),
+            _ => format!("Let Y{k} be Y{p} scaled by 2.0.\n"),
+        });
+    }
+    src.push_str(&shows("Y199", 64));
+    let sp = on_the_sn50_returning(&src, "a chain of 200 pointwise ops");
+    assert_eq!(sp.sections.len(), 1, "a chain of 200 pointwise ops is one section, not {}", sp.sections.len());
 }

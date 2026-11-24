@@ -126,7 +126,7 @@ logicaffeine/
 ├── editors/                    # VSCode extension
 ├── examples/                   # Example LOGOS projects
 ├── scripts/                    # Entry points at the top (suite runners, release checks); the rest in a folder per area, indexed in scripts/README.md
-├── services/                   # Cloudflare Workers: the package registry, the lead form and the heal worker
+├── services/                   # Cloudflare Workers: the package registry and the lead form
 ├── .config/                    # nextest profiles, repo shape, size budgets, mutation scope, coverage floors
 ├── .githooks/                  # pre-push leak guard (enable with `git config core.hooksPath .githooks`)
 ├── external/                   # Local only, ignored: third-party checkouts (reference kernels, SAT solvers, LAPACK, corpora)

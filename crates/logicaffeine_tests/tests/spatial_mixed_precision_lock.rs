@@ -126,8 +126,12 @@ fn a_cache_is_held_at_the_products_float() {
         (Precision::Fp32, Precision::Bf16, Precision::Bf16, Precision::Fp32),
         "the decode step: the island's key in fp32, the cache it is written into at bf16"
     );
+    // K and V are 8 × 64, two of the SN50's 32 × 32 tiles each: the cache moves four tiles of bf16's two bytes an element,
+    // where fp32's four would move twice the bytes.
+    let cache_tiles: usize = ["K", "V"].iter().map(|n| held(&p, n).tiles.count()).sum();
+    assert_eq!(cache_tiles, 4, "K and V are two tiles each");
     let cache_bytes: usize = ["K", "V"].iter().map(|n| { let t = held(&p, n); t.tiles.count() * sn50.tile_bytes(t.dtype) }).sum();
-    assert_eq!(cache_bytes, 2 * 8 * 64 * 2, "the cache moves bf16's two bytes an element: {cache_bytes}");
+    assert_eq!(cache_bytes, cache_tiles * sn50.tile_bytes(Precision::Bf16), "the cache moves bf16's two bytes an element: {cache_bytes}");
     let out = eval_choreography_every_tensor(&p, &inputs_from_fills(&p)).expect("the step evaluates");
     let vm = vm_outcome(&src);
     assert!(vm.error.is_none(), "the VM runs it: {:?}", vm.error);

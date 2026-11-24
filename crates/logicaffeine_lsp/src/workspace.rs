@@ -153,11 +153,7 @@ impl WorkspaceIndex {
                     }
                     continue;
                 }
-                let is_logos = matches!(
-                    path.extension().and_then(|e| e.to_str()),
-                    Some("lg") | Some("md")
-                );
-                if !is_logos {
+                if !logicaffeine_compile::source_files::is_module_file(&path) {
                     continue;
                 }
                 if entry

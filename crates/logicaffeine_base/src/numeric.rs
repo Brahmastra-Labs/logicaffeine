@@ -995,9 +995,17 @@ impl Rational {
     }
 
     /// Nearest `f64` (for display / interop only — lossy for large terms, exact
-    /// for small ones). The *value* stays exact; this is a view.
+    /// for small ones). The *value* stays exact; this is a view. When a term is past
+    /// `f64::MAX` the two-double quotient would be NaN (`inf / inf`), `0` or `inf` whatever
+    /// the value, so that case rounds once from the exact value instead
+    /// ([`rational_to_f64_nearest`]).
     pub fn to_f64(&self) -> f64 {
-        self.num.to_f64() / self.den.to_f64()
+        let (num, den) = (self.num.to_f64(), self.den.to_f64());
+        if num.is_finite() && den.is_finite() {
+            num / den
+        } else {
+            rational_to_f64_nearest(self)
+        }
     }
 
     /// The greatest integer `≤ self` (round toward −∞). `floor(7/2) == 3`,
@@ -1640,12 +1648,10 @@ impl Complex {
     /// `self` raised to an integer power. Negative exponents take the reciprocal
     /// first; `None` only for zero raised to a negative power. `0^0 == 1`.
     pub fn pow(&self, exp: i32) -> Option<Complex> {
-        if exp < 0 {
-            return self.recip()?.pow(-exp);
-        }
+        // `unsigned_abs`, not `-exp`: negating `i32::MIN` overflows.
+        let mut base = if exp < 0 { self.recip()? } else { self.clone() };
         let mut result = Complex::one();
-        let mut base = self.clone();
-        let mut e = exp as u32;
+        let mut e = exp.unsigned_abs();
         while e > 0 {
             if e & 1 == 1 {
                 result = result.mul(&base);
@@ -1839,12 +1845,10 @@ impl ComplexF {
     /// `self` raised to an integer power (binary exponentiation); `None` only for zero to a
     /// negative power. `0^0 == 1`.
     pub fn pow(&self, exp: i32) -> Option<ComplexF> {
-        if exp < 0 {
-            return self.recip()?.pow(-exp);
-        }
+        // `unsigned_abs`, not `-exp`: negating `i32::MIN` overflows.
+        let mut base = if exp < 0 { self.recip()? } else { *self };
         let mut result = ComplexF::from_f64(1.0);
-        let mut base = *self;
-        let mut e = exp as u32;
+        let mut e = exp.unsigned_abs();
         while e > 0 {
             if e & 1 == 1 {
                 result = result.mul(&base);

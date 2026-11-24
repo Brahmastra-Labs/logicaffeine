@@ -8,19 +8,71 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `largo lean import --project` selects the Lean profile from the project's `lean-toolchain` (4.14.0, 4.28.0, 4.33.1,
+  4.34.0-rc1, 4.34.1), holds the toolchain to the profile's release and commit and the exporter to its pinned sources
+  and executable digest, found by `--exporter`, else in the exporter registry (`$LOGOS_LEAN_EXPORTERS`, default
+  `~/.logos/lean/exporters`; `scripts/lean/install-lean-exporters.py` builds it reproducibly, with receipts).
+- Lake projects (Mathlib): `--module <Module>`; every `lake-manifest.json` dependency verified against its checkout's
+  revision, only the module compiled (`lake --no-build -H lean`, into an isolated overlay of the project's build), the
+  dependencies' identities recorded and the project's configuration carried in the package.
+- `largo lean import --statement`: the proposition a theorem or `Prop` definition states, as a verified statement
+  package; in project mode Lean builds the same artifact and reports its `#print axioms`. `largo lean replay` replays
+  statement packages (`logos-lean-replay/2`).
+- `largo lean check --assumptions lean|any`, `--json` (`logos-lean-check/1`), `--target`, and `--bind <original>`
+  (statement binding by fingerprint); exit `3` for a refused assumption.
+- `largo prove` checks a development's `refute` theorems: a ✓ names the size of the countermodel that re-checked;
+  `--json` gives each theorem `refuted` and a refutation's `countermodel` size, and inventories it as a `refutation`;
+  `--certificate` prints the countermodel's domain and facts. The MCP `logos_prove` tool reports `refuted`
+  (`theory_refute_lock`).
+- `largo points-to <file> [--contexts] [--json]`: each variable's allocation sites, the heap's field edges and the
+  sites (`points_to_lock`).
+- `largo build --threads` and `largo run --threads` compile a program's tasks, pipes, timers and selects onto OS
+  threads (tokio); without the flag they run on the deterministic replay executor, as on every other tier.
+- `largo datalog <file> [--bdd] [--certify] [--contexts] [--json]`: a theory's rules evaluated bottom-up as Datalog,
+  every derived relation printed, over decision diagrams with their sizes, each derived fact kernel-certified, or in
+  every calling context of the theory's `Calls` facts (`largo_datalog_lock`).
+- `largo specialize p1 <file> | p2 | p3 [-o PATH] [--check]`: the three Futamura projections through the offline
+  specializer, each artifact `compile::mix_projection1`/`2`/`3`'s byte for byte. `p1` prints a program's residual and
+  reports its interpretive dispatch on stderr; `p2` prints the compiler; `p3` prints the compiler generator, and
+  `--check` runs it on the self-interpreter and reports whether it regenerated the compiler. A program the specializer
+  refuses is refused with its reason. `largo_specialize_lock`.
+- `largo bringup --target cpu`: the CPU tier's program of the model, its decode step and prefill chunks linked from
+  the one IR for the host's cores (`model.cpp`, `model.side`); `--run` builds it with `g++` and runs it on the host's
+  threads, a host without AVX2, FMA, F16C and AVX-VNNI refused by name.
 - `largo lean check [--dual] <export>`: a whole lean4export stream checked by the kernel's core, the code the Lean
   Kernel Arena runs; exit 0 accepted, 1 rejected, 2 declined, the reason on stderr. `largo lean import`'s independent
   recheck asks that core to decide the export too.
 - `largo emit rdu --cache DIR`: compile through the section cache in DIR, every section an earlier compile there
   passed reused and the bundle byte for byte an uncached one; stderr says how many sections were compiled and reused.
+- `largo emit rdu --graph <pt2> -o DIR`: a network `torch.export` exported, lowered on the RDU from its graph alone —
+  one certified program, the program the author writes of the graph (`program.lg`) and a manifest binding its input
+  and every parameter to the archive; an ATen op it does not map is refused by name.
 
 ### Changed
 
+- `largo build --emit c|c-bytecode` compiles the generated C as `-std=gnu17` in both profiles
+  (`project::build_c::C_DIALECT_FLAGS`), the dialect it is written in.
+- `largo prove --certificate` reports a certificate for every proved `## Theory` theorem, re-checked, where it reported
+  `certificate: null` (`theory_certificate_lock`).
+- `largo opts --jit` lists every loop the JIT specialized on a value (register, value, entries, value-guard misses, and
+  whether the generic region replaced it), under `--json` as `jit_native.value_specializations`; `docs/cli.md` now
+  documents `--jit` (`jit_value_specialization_lock`).
+- `largo opts --jit` lists every function the JIT specialized on the arguments its warm-up passed (the function, its
+  entry pc, the registers and values), under `--json` as `jit_native.function_specializations`
+  (`jit_function_value_specialization_lock`).
+- `largo opts --jit` lists every loop region the JIT compiled with its entries, how they ended, its guard misses, its
+  cold entries and cold exits, and whether it was demoted (`jit_native.regions` under `--json`), and prints the JIT
+  report when no shared pass fired, where it stopped at "No optimizations fired" (`jit_partial_region_lock`).
 - `largo emit rdu --tp` takes every width the author writes, heads in balanced runs where the width divides
   none; the bundle's program directories carry `report.json` and `certificate.whole.json`.
 
 ### Fixed
 
+- `largo run --interpret --seed S` runs a concurrent program at seed `S` on every engine (`LOGOS_SEED` when no `--seed`
+  is given), and `--engine vm`/`jit` runs it on the VM's seeded scheduler (`interpret_seed_lock`).
+- `largo run --interpret` reads and writes the files the compiled program does (`interpret_files_lock`).
+- The browser test tier reports a failed `Mount` entry as the page's failure, as it reports a failed event, and the test
+  runs on (`mount_entry_lock`).
 - The agent pack serves `docs/logic-mode.md` and `docs/imperative-mode.md` as the guides read, as `mcp::resources`
   holds every resource to its source: the logic guide's generic carries its noun's kinds in the restrictor, and the
   imperative guide reads a bare `pi` or `e` as the `Real` nearest it.

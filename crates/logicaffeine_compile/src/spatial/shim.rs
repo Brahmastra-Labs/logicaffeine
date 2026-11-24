@@ -39,7 +39,7 @@ impl Shim for SpatialShim<'_> {
             MergedQkv | MergedGateUp | AffineInputFold | RouterSharedGateMerge | MoeTokenSort | MoeGatherInOperand => Decompose,
             MoeDeferredFinalize | SharedExpertFusion | GdnInputEpilogue | GdnDecodeWhole | GdnPostConvPrep | ConvBiasSilu => Decompose,
             ConvParts | GdnGateProjections | GdnGating | FusedSampling | LastLayerRows | AllreduceNorm | AllreduceSumsqNorm => Decompose,
-            ConvSiluL2norm | GdnOutputQuant | GemvQuant | ElementwiseQuant | DeltaQkNorm => Decompose,
+            ConvSiluL2norm | GdnOutputQuant | GemvQuant | ElementwiseQuant | DeltaQkNorm | HcPost | GemmAct | HcMix | HcPostNorm => Decompose,
             StridedRead | RowWrite | JoinInPlace | StridedValues => Refuse("a section reads and writes each tensor through its own access map"),
             Softcap => Native,
             AttentionVariantsInline => Refuse("the attention sections attend a prefix of the cache, with no window or sink"),

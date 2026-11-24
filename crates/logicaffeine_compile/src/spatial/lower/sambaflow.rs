@@ -119,6 +119,9 @@ pub enum OpKind {
     Gelu {
         x: String,
     },
+    Erf {
+        x: String,
+    },
     Softmax {
         x: String,
     },
@@ -194,6 +197,7 @@ impl OpKind {
             OpKind::Sigmoid { .. } => "sigmoid",
             OpKind::Silu { .. } => "silu",
             OpKind::Gelu { .. } => "gelu",
+            OpKind::Erf { .. } => "erf",
             OpKind::Softmax { .. } => "softmax",
             OpKind::Transpose { .. } => "transpose",
             OpKind::Layernorm { .. } => "layernorm",
@@ -233,6 +237,7 @@ impl OpKind {
             OpKind::Sigmoid { x }
             | OpKind::Silu { x }
             | OpKind::Gelu { x }
+            | OpKind::Erf { x }
             | OpKind::Softmax { x }
             | OpKind::Transpose { x }
             | OpKind::L2norm { x, .. }
@@ -438,6 +443,7 @@ fn read_sentence(line: &str) -> Result<Option<TensorSentence>, String> {
         ("sigmoid", "of") if n == 3 => OpKind::Sigmoid { x: ro(2) },
         ("silu", "of") if n == 3 => OpKind::Silu { x: ro(2) },
         ("gelu", "of") if n == 3 => OpKind::Gelu { x: ro(2) },
+        ("erf", "of") if n == 3 => OpKind::Erf { x: ro(2) },
         ("softmax", "of") if n == 3 => OpKind::Softmax { x: ro(2) },
         ("transpose", "of") if n == 3 => OpKind::Transpose { x: ro(2) },
         ("argmax", "of") if n == 3 => OpKind::Argmax { x: ro(2) },
@@ -559,6 +565,7 @@ pub fn torch_spelling(op: &str) -> Result<&'static str, String> {
         "sigmoid" => "torch.sigmoid(x)",
         "silu" => "F.silu(x)",
         "gelu" => "gelu_tanh(x)",
+        "erf" => "torch.erf(x)",
         "softmax" => "softmax_rows(x)",
         "transpose" => "x.transpose(0, 1)",
         "layernorm" => "layernorm(x, w, b)",
@@ -815,6 +822,7 @@ fn read_program(source: &str) -> Result<Program, String> {
                     | OpKind::Sigmoid { x }
                     | OpKind::Silu { x }
                     | OpKind::Gelu { x }
+                    | OpKind::Erf { x }
                     | OpKind::Softmax { x }
                     | OpKind::Layernorm { x, .. }
                     | OpKind::L2norm { x, .. }
@@ -961,6 +969,7 @@ fn py_call(p: &Program, kind: &OpKind) -> Result<String, String> {
         OpKind::Sigmoid { x } => format!("torch.sigmoid({x})"),
         OpKind::Silu { x } => format!("F.silu({x})"),
         OpKind::Gelu { x } => format!("gelu_tanh({x})"),
+        OpKind::Erf { x } => format!("torch.erf({x})"),
         OpKind::Softmax { x } => format!("softmax_rows({x})"),
         OpKind::Transpose { x } => format!("{x}.transpose(0, 1)"),
         OpKind::Layernorm { x, weight, bias } => format!("layernorm({x}, {weight}, {bias})"),

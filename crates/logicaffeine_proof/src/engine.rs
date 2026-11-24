@@ -1111,7 +1111,7 @@ fn rewrite_const_to_var_expr(e: &ProofExpr, eigen: &str, var: &str) -> ProofExpr
 /// tree — its conclusions, the terms its rules carry (instantiation witnesses,
 /// rewrite endpoints, case formulae), and the recorded substitutions. The
 /// generalization that turns an eigenconstant body proof into a `∀`-abstraction.
-fn rewrite_tree_const_to_var(tree: &DerivationTree, eigen: &str, var: &str) -> DerivationTree {
+pub(crate) fn rewrite_tree_const_to_var(tree: &DerivationTree, eigen: &str, var: &str) -> DerivationTree {
     // Every payload this rule carries, through the ONE exhaustive mapper. Written as its own
     // `match` with an `other => other.clone()` catch-all, this walker covered five rules and
     // `tactic::eigen_to_var_tree` covered one, and NEITHER covered `RewriteAt`,
@@ -1516,44 +1516,42 @@ fn cert_linarith_close(known: &[(ProofExpr, DerivationTree)]) -> Option<Derivati
     None
 }
 
-/// General linear refutation (Farkas). Decide unsatisfiability of the `≤`
-/// hypotheses with Fourier-Motzkin ([`crate::linarith_solve::find_farkas`]), then
-/// RECONSTRUCT a kernel proof from the non-negative multipliers `λᵢ`: each `lᵢ ≤ rᵢ`
-/// becomes `0 ≤ rᵢ - lᵢ` (`le_sub`), scaled by `λᵢ` (`le_mul_nonneg`), summed
-/// (`le_add_mono`) into `le(BigL, BigR)`; the variables cancel, so `BigL` ring-reduces
-/// to `0` and `BigR` to `-d` (`d > 0`), giving the ground-false `le(0, -d)` that the
-/// discriminator turns into `⊥`. Handles arbitrary coefficients (where the chain
-/// `cert_linarith_close` cannot).
-pub(crate) fn cert_farkas(known: &[(ProofExpr, DerivationTree)]) -> Option<DerivationTree> {
-    use crate::linarith_solve::{combine, find_farkas, parse_lin};
-
-    let mut le_hyps: Vec<(ProofTerm, ProofTerm, DerivationTree)> = Vec::new();
+/// The `≤`-facts of `known` that the linearizer can read, as `(l, r, proof)` triples, and their
+/// constraints `l - r ≤ 0` in the same order.
+fn farkas_rows(
+    known: &[(ProofExpr, DerivationTree)],
+) -> (
+    Vec<(ProofTerm, ProofTerm, DerivationTree)>,
+    Vec<crate::linarith_solve::LinExpr>,
+) {
+    use crate::linarith_solve::parse_lin;
+    let mut le_hyps = Vec::new();
     let mut constraints = Vec::new();
     for (prop, tree) in known {
         if let Some((l, r)) = as_le_pair(prop) {
             if let (Some(ll), Some(rl)) = (parse_lin(&l), parse_lin(&r)) {
-                constraints.push(ll.sub(&rl)); // l - r ≤ 0
+                constraints.push(ll.sub(&rl));
                 le_hyps.push((l, r, tree.clone()));
             }
         }
     }
-    if le_hyps.is_empty() {
-        return None;
-    }
-    let multipliers = find_farkas(&constraints)?;
-    let combo = combine(&constraints, &multipliers);
-    if !combo.is_const() || combo.constant <= 0 {
-        return None;
-    }
-    let d = combo.constant; // Σ λᵢ(lᵢ - rᵢ) = d > 0
+    (le_hyps, constraints)
+}
 
+/// The certified non-negative combination `Σ λᵢ · (0 ≤ rᵢ + (-1)·lᵢ)` of the hypotheses with
+/// a positive multiplier: each `lᵢ ≤ rᵢ` becomes `0 ≤ rᵢ - lᵢ` (`le_sub`), is scaled by `λᵢ`
+/// (`le_mul_nonneg`), and the scaled facts are summed (`le_add_mono`) into one `le(BigL, BigR)`
+/// whose `BigL` ring-reduces to `0`. `None` when no multiplier indexing `le_hyps` is positive.
+fn farkas_sum(
+    le_hyps: &[(ProofTerm, ProofTerm, DerivationTree)],
+    multipliers: &std::collections::BTreeMap<usize, i64>,
+) -> Option<DerivationTree> {
     let pc = |n: i64| ProofTerm::Constant(n.to_string());
     let pf = |op: &str, x: ProofTerm, y: ProofTerm| ProofTerm::Function(op.to_string(), vec![x, y]);
 
-    // Per active hypothesis: 0 ≤ rᵢ - lᵢ (le_sub), scaled by λᵢ (le_mul_nonneg).
     let mut scaled: Vec<DerivationTree> = Vec::new();
-    for (&i, &lam) in &multipliers {
-        if lam <= 0 {
+    for (&i, &lam) in multipliers {
+        if lam <= 0 || i >= le_hyps.len() {
             continue;
         }
         let (l, r, hyp_tree) = &le_hyps[i];
@@ -1571,8 +1569,7 @@ pub(crate) fn cert_farkas(known: &[(ProofExpr, DerivationTree)]) -> Option<Deriv
             vec![ground, sub_i],
         ));
     }
-    // Sum them: le(BigL, BigR).
-    let summed = scaled.into_iter().reduce(|acc, s| {
+    scaled.into_iter().reduce(|acc, s| {
         let (al, ar) = as_le_pair(&acc.conclusion).expect("scaled is an le-fact");
         let (sl, sr) = as_le_pair(&s.conclusion).expect("scaled is an le-fact");
         DerivationTree::new(
@@ -1580,7 +1577,176 @@ pub(crate) fn cert_farkas(known: &[(ProofExpr, DerivationTree)]) -> Option<Deriv
             InferenceRule::LeAddMono,
             vec![acc, s],
         )
-    })?;
+    })
+}
+
+/// How many WHOLE occurrences of `target` the pre-order walk of `term` meets, a matched
+/// subterm not descended into, with the two spellings of a ring builtin (`Add`/`add`, …) read as
+/// one symbol. This is the count `RewriteAt`'s motive builder makes over the kernel image of the
+/// same term, so it names the occurrence that comes right after `term` in a binary relation.
+fn whole_occurrences(term: &ProofTerm, target: &ProofTerm) -> usize {
+    fn same(x: &ProofTerm, y: &ProofTerm) -> bool {
+        match (x, y) {
+            (ProofTerm::Function(f, xs), ProofTerm::Function(g, ys)) => {
+                crate::linarith_solve::same_builtin(f, g)
+                    && xs.len() == ys.len()
+                    && xs.iter().zip(ys).all(|(a, b)| same(a, b))
+            }
+            _ => x == y,
+        }
+    }
+    if same(term, target) {
+        return 1;
+    }
+    match term {
+        ProofTerm::Function(_, args) | ProofTerm::Group(args) => {
+            args.iter().map(|a| whole_occurrences(a, target)).sum()
+        }
+        _ => 0,
+    }
+}
+
+/// Prove the goal `a ≤ b` DIRECTLY from the `≤`-facts, by a Farkas certificate rather than a
+/// case split, so a goal with no slack (`0 ≤ s ⊢ w - s ≤ w`, tight at `s = 0`) is reached.
+///
+/// Over ℤ the negation of `a ≤ b` is `b + 1 ≤ a`. When the hypotheses together with it are
+/// refutable with the negation's multiplier exactly `1`, the certificate reads
+/// `Σ λᵢ(lᵢ - rᵢ) + (b + 1 - a) = d` with `d ≥ 1`, that is `b = a + S + (d - 1)` for the
+/// certified combination `0 ≤ S` ([`farkas_sum`]). The proof is then all trusted-base steps:
+/// `a ≤ a` (`le_refl`) and `0 ≤ S` give `a + 0 ≤ a + S`, the ground `0 ≤ d - 1` gives
+/// `(a + 0) + 0 ≤ (a + S) + (d - 1)` (`le_add_mono`), and two ring rewrites (`ArithDecision`)
+/// turn the sides into `a` and `b`. No axiom is added: a certificate whose negation multiplier
+/// is not `1` would need division by it, and is declined.
+pub(crate) fn cert_le_by_farkas(
+    known: &[(ProofExpr, DerivationTree)],
+    a: &ProofTerm,
+    b: &ProofTerm,
+    goal: &ProofExpr,
+) -> Option<DerivationTree> {
+    use crate::linarith_solve::{combine, find_farkas, parse_lin};
+
+    let pc = |n: i64| ProofTerm::Constant(n.to_string());
+    let pf = |op: &str, x: ProofTerm, y: ProofTerm| ProofTerm::Function(op.to_string(), vec![x, y]);
+
+    let (le_hyps, mut constraints) = farkas_rows(known);
+    let negation = parse_lin(&pf("sub", pf("add", b.clone(), pc(1)), a.clone()))?;
+    constraints.push(negation);
+    let negation_index = constraints.len() - 1;
+    let multipliers = find_farkas(&constraints)?;
+    if multipliers.get(&negation_index).copied() != Some(1) {
+        return None;
+    }
+    let combo = combine(&constraints, &multipliers);
+    if !combo.is_const() || combo.constant < 1 {
+        return None;
+    }
+    let slack = combo.constant - 1;
+
+    // 0 ≤ S, with S the certified combination (or the ground 0 ≤ 0 when no hypothesis is used).
+    let (s_zero, s_term, s_tree) = match farkas_sum(&le_hyps, &multipliers) {
+        Some(summed) => {
+            let (big_l, big_r) = as_le_pair(&summed.conclusion)?;
+            // `S` may itself contain the numeral `0` (a hypothesis `0 ≤ s` puts one there), so
+            // the rewrite names the left operand's occurrence rather than every `0`.
+            let zeroed = DerivationTree::new(
+                le_eq(pc(0), big_r.clone()),
+                InferenceRule::RewriteAt {
+                    from: big_l.clone(),
+                    to: pc(0),
+                    occurrence: 0,
+                },
+                vec![
+                    DerivationTree::leaf(
+                        ProofExpr::Identity(big_l, pc(0)),
+                        InferenceRule::ArithDecision,
+                    ),
+                    summed,
+                ],
+            );
+            (pc(0), big_r, zeroed)
+        }
+        None => (
+            pc(0),
+            pc(0),
+            DerivationTree::leaf(le_eq(pc(0), pc(0)), InferenceRule::Reflexivity),
+        ),
+    };
+
+    let refl = DerivationTree::leaf(le_eq(a.clone(), a.clone()), InferenceRule::LeRefl);
+    let shifted = DerivationTree::new(
+        le_eq(pf("add", a.clone(), s_zero), pf("add", a.clone(), s_term)),
+        InferenceRule::LeAddMono,
+        vec![refl, s_tree],
+    );
+    let (shifted_l, shifted_r) = as_le_pair(&shifted.conclusion)?;
+    let ground_slack = DerivationTree::leaf(le_eq(pc(0), pc(slack)), InferenceRule::Reflexivity);
+    let padded_l = pf("add", shifted_l, pc(0));
+    let padded_r = pf("add", shifted_r, pc(slack));
+    let padded = DerivationTree::new(
+        le_eq(padded_l.clone(), padded_r.clone()),
+        InferenceRule::LeAddMono,
+        vec![shifted, ground_slack],
+    );
+    // `b` can occur inside `a` (and so inside `padded_l`), and `a` inside `b` (`n ≤ n + 1`), so
+    // each rewrite abstracts exactly the operand it rewrites: `b` after every whole occurrence of
+    // it in the left operand, `a` as the very first occurrence.
+    let right_is_b = DerivationTree::new(
+        le_eq(padded_l.clone(), b.clone()),
+        InferenceRule::RewriteAt {
+            from: padded_r.clone(),
+            to: b.clone(),
+            occurrence: whole_occurrences(&padded_l, b),
+        },
+        vec![
+            DerivationTree::leaf(
+                ProofExpr::Identity(padded_r, b.clone()),
+                InferenceRule::ArithDecision,
+            ),
+            padded,
+        ],
+    );
+    Some(DerivationTree::new(
+        goal.clone(),
+        InferenceRule::RewriteAt {
+            from: padded_l.clone(),
+            to: a.clone(),
+            occurrence: 0,
+        },
+        vec![
+            DerivationTree::leaf(
+                ProofExpr::Identity(padded_l, a.clone()),
+                InferenceRule::ArithDecision,
+            ),
+            right_is_b,
+        ],
+    ))
+}
+
+/// General linear refutation (Farkas). Decide unsatisfiability of the `≤`
+/// hypotheses with Fourier-Motzkin ([`crate::linarith_solve::find_farkas`]), then
+/// RECONSTRUCT a kernel proof from the non-negative multipliers `λᵢ`: each `lᵢ ≤ rᵢ`
+/// becomes `0 ≤ rᵢ - lᵢ` (`le_sub`), scaled by `λᵢ` (`le_mul_nonneg`), summed
+/// (`le_add_mono`) into `le(BigL, BigR)`; the variables cancel, so `BigL` ring-reduces
+/// to `0` and `BigR` to `-d` (`d > 0`), giving the ground-false `le(0, -d)` that the
+/// discriminator turns into `⊥`. Handles arbitrary coefficients (where the chain
+/// `cert_linarith_close` cannot).
+pub(crate) fn cert_farkas(known: &[(ProofExpr, DerivationTree)]) -> Option<DerivationTree> {
+    use crate::linarith_solve::{combine, find_farkas};
+
+    let (le_hyps, constraints) = farkas_rows(known);
+    if le_hyps.is_empty() {
+        return None;
+    }
+    let multipliers = find_farkas(&constraints)?;
+    let combo = combine(&constraints, &multipliers);
+    if !combo.is_const() || combo.constant <= 0 {
+        return None;
+    }
+    let d = combo.constant; // Σ λᵢ(lᵢ - rᵢ) = d > 0
+
+    let pc = |n: i64| ProofTerm::Constant(n.to_string());
+
+    let summed = farkas_sum(&le_hyps, &multipliers)?;
     let (big_l, big_r) = as_le_pair(&summed.conclusion)?;
 
     // Ring-normalize: rewrite BigR → -d, then BigL → 0, giving the ground `le(0, -d)`.

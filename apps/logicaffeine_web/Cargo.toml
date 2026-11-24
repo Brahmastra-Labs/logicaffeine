@@ -37,7 +37,8 @@ web-sys = { version = "0.3", features = [
     "MediaQueryList", "PointerEvent", "MouseEvent", "CssStyleDeclaration", "DomTokenList", "DomRectList",
     "HtmlTextAreaElement", "HtmlInputElement", "HtmlDocument",
     "ResizeObserver", "ResizeObserverOptions", "ResizeObserverBoxOptions",
-    "MutationObserver", "MutationObserverInit", "VisualViewport"
+    "MutationObserver", "MutationObserverInit", "VisualViewport", "Performance",
+    "Worker", "WorkerOptions", "WorkerType", "MessageEvent", "ErrorEvent", "Url"
 ] }
 wasm-bindgen-futures = "0.4"
 gloo-timers = { version = "0.3", features = ["futures"] }

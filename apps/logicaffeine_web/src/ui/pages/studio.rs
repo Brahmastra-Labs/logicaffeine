@@ -463,7 +463,7 @@ fn theorem_view(result: &TheoremCompileResult) -> TheoremView {
         let hint = if broke.is_empty() {
             format!("Theorem '{name}': a derivation was found, but it is not certified.")
         } else {
-            format!("Theorem '{name}': a derivation was found, but it is not certified. {broke}")
+            format!("Theorem '{name}': a derivation was found, but it is not certified. {}", plain_refusal(&broke))
         };
         (ProofStatus::Uncertified(broke), hint)
     } else {
@@ -473,6 +473,26 @@ fn theorem_view(result: &TheoremCompileResult) -> TheoremView {
         )
     };
     TheoremView { html, tree, status, hint }
+}
+
+/// What the kernel's refusal means to the person reading it: which step it could not check and
+/// what to do about it, in the notation the Logic panel already uses, with the kernel's own words
+/// kept only where no plainer reading exists.
+pub(super) fn plain_refusal(broke: &str) -> String {
+    let inner = broke.strip_prefix("Certification failed: ").unwrap_or(broke);
+    let inner = inner.strip_prefix("Certification error: ").unwrap_or(inner);
+    if let Some(fact) = inner
+        .strip_prefix("Cannot find hypothesis with type matching: ")
+        .or_else(|| inner.strip_prefix("Cannot find hypothesis with type: "))
+    {
+        return format!(
+            "One step leans on a fact the givens do not state: {fact}. If that fact is true, add it as a Given. If it is not, the goal does not follow from these givens."
+        );
+    }
+    if let Some(claim) = inner.strip_prefix("Cannot certify hypothesis: ") {
+        return format!("The kernel could not read one step's claim: {claim}. Restate that given more simply.");
+    }
+    format!("The kernel could not check one of its steps. It said: {inner}")
 }
 
 /// The Auto tactic's reading, through the same door as opening a theorem
@@ -494,7 +514,7 @@ pub(super) fn auto_view(kb: &[ProofExpr], goal: &ProofExpr, goal_text: &str) -> 
             hint: if broke.is_empty() {
                 "A derivation was found, but it is not certified.".to_string()
             } else {
-                format!("A derivation was found, but it is not certified: {broke}")
+                format!("A derivation was found, but it is not certified. {}", plain_refusal(&broke))
             },
             status: ProofStatus::Uncertified(broke),
         },
@@ -673,17 +693,126 @@ pub(super) fn formula_on_screen(
     }
 }
 
-/// Code mode output toggle - interpret output vs generated Rust
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
+/// What the Output column shows for a program: what it printed, or the program as one of the
+/// languages the backend writes it in (Collin, 2026-11-03: every language the backend can emit,
+/// chosen from one dropdown, on the Studio page and the front page's frame alike).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
 pub(super) enum CodeOutputMode {
     #[default]
     Interpret,
     Rust,
+    C,
+    RiscV,
+    Wasm,
+}
+
+impl CodeOutputMode {
+    /// Every choice the dropdown offers, in its order: the program's output first, then each
+    /// language the backend writes in the browser.
+    pub(super) const ALL: [CodeOutputMode; 5] = [Self::Interpret, Self::Rust, Self::C, Self::RiscV, Self::Wasm];
+
+    /// The dropdown's word for the choice.
+    pub(super) fn label(self) -> &'static str {
+        match self {
+            Self::Interpret => "Output",
+            Self::Rust => "Rust",
+            Self::C => "C",
+            Self::RiscV => "RISC-V",
+            Self::Wasm => "WebAssembly",
+        }
+    }
+
+    /// The choice's value in the markup.
+    pub(super) fn value(self) -> &'static str {
+        match self {
+            Self::Interpret => "output",
+            Self::Rust => "rust",
+            Self::C => "c",
+            Self::RiscV => "riscv",
+            Self::Wasm => "wasm",
+        }
+    }
+
+    /// The choice a markup value names.
+    pub(super) fn from_value(value: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|mode| mode.value() == value)
+    }
+
+    /// What the column says before the language has been produced.
+    pub(super) fn empty_note(self) -> &'static str {
+        match self {
+            Self::Interpret => "Run your code to see output",
+            Self::Rust => "Compile your code to see it as Rust",
+            Self::C => "Compile your code to see it as C",
+            Self::RiscV => "Compile your code to see it as RISC-V assembly",
+            Self::Wasm => "Compile your code to see its WebAssembly module",
+        }
+    }
+}
+
+/// The program in `target`'s language, as the backend writes it in the browser, or why it could
+/// not: the same compilers largo emit runs, one call each.
+pub(super) fn emit_target(target: CodeOutputMode, source: &str) -> Result<String, String> {
+    let explain = |e: logicaffeine_language::ParseError| logicaffeine_language::socratic_explanation(&e, &logicaffeine_language::Interner::new());
+    match target {
+        CodeOutputMode::Interpret => Err("the program's output is what Run shows".to_string()),
+        CodeOutputMode::Rust => logicaffeine_compile::generate_rust_code(source).map_err(explain),
+        CodeOutputMode::C => logicaffeine_compile::compile::compile_to_c(source).map_err(explain),
+        CodeOutputMode::RiscV => logicaffeine_compile::compile::compile_to_riscv(source).map_err(explain),
+        CodeOutputMode::Wasm => logicaffeine_compile::compile::compile_to_wasm(source).map(|bytes| wasm_summary(&bytes)).map_err(explain),
+    }
+}
+
+/// A WebAssembly module described for a reader: its size, its sections with their sizes, and the
+/// module itself as a data address a browser downloads. The binary is not text; this is what the
+/// column can show of it.
+pub(super) fn wasm_summary(bytes: &[u8]) -> String {
+    let mut out = format!("WebAssembly module, {} bytes.\n\nSections:\n", bytes.len());
+    let mut at = 8; // past the magic number and the version
+    while at < bytes.len() {
+        let id = bytes[at];
+        at += 1;
+        let mut size: usize = 0;
+        let mut shift = 0;
+        while at < bytes.len() {
+            let byte = bytes[at];
+            at += 1;
+            size |= ((byte & 0x7f) as usize) << shift;
+            shift += 7;
+            if byte & 0x80 == 0 {
+                break;
+            }
+        }
+        let name = match id {
+            0 => "custom", 1 => "type", 2 => "import", 3 => "function", 4 => "table", 5 => "memory",
+            6 => "global", 7 => "export", 8 => "start", 9 => "element", 10 => "code", 11 => "data", 12 => "data count",
+            _ => "unknown",
+        };
+        out.push_str(&format!("  {name}: {size} bytes\n"));
+        at = at.saturating_add(size);
+    }
+    out.push_str("\nDownload: data:application/wasm;base64,");
+    out.push_str(&base64(bytes));
+    out
+}
+
+/// Standard base64 with padding, for a data address.
+pub(super) fn base64(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    for chunk in bytes.chunks(3) {
+        let n = (chunk[0] as u32) << 16 | (*chunk.get(1).unwrap_or(&0) as u32) << 8 | *chunk.get(2).unwrap_or(&0) as u32;
+        out.push(TABLE[(n >> 18) as usize & 63] as char);
+        out.push(TABLE[(n >> 12) as usize & 63] as char);
+        out.push(if chunk.len() > 1 { TABLE[(n >> 6) as usize & 63] as char } else { '=' });
+        out.push(if chunk.len() > 2 { TABLE[n as usize & 63] as char } else { '=' });
+    }
+    out
 }
 
 /// Logic mode output view — FOL interpretation or generated Rust. (SVA synthesis lives in
 /// Hardware mode, where signals/clocks/cycles have meaning; general FOL has none to assert.)
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug)]
 pub(super) enum LogicView {
     #[default]
     Logic,
@@ -1220,6 +1349,33 @@ pub const STUDIO_STYLE: &str = r#"
     color: var(--studio-text);
 }
 
+/* The Output column's dropdown: what it shows, the program's output or the program in a language
+   the backend writes. */
+.output-target {
+    padding: 4px 26px 4px 10px;
+    border: 1px solid var(--studio-border);
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.04) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%239aa3b2' stroke-width='1.5'/%3E%3C/svg%3E") no-repeat right 9px center;
+    color: var(--studio-text);
+    font: 500 12px/1.4 var(--font-sans);
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+}
+
+.output-target:hover { background-color: rgba(255, 255, 255, 0.08); }
+.output-target:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+
+/* A language the column shows as plain text: C, RISC-V assembly, a module's description. */
+.emitted-code {
+    margin: 0;
+    padding: 12px 14px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font: 12.5px/1.55 var(--font-mono);
+    color: var(--studio-text);
+}
+
 /* Interpreter output display */
 /* A panel's own content — a picture, a list — held at the Studio's inset; `wide` scrolls a
    picture wider than its column instead of shrinking it. */
@@ -1251,6 +1407,20 @@ pub const STUDIO_STYLE: &str = r#"
     background: rgba(224, 108, 117, 0.1);
     border-radius: 6px;
     margin-top: 8px;
+}
+
+/* How long the run took, under its last line. The words are drawn from the element's label, so the
+   column's text stays what the program printed. */
+.interpreter-run-time {
+    margin-top: 12px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    color: #7ee2b8;
+    font-size: 12px;
+}
+
+.interpreter-run-time::before {
+    content: attr(data-label);
 }
 
 .interpreter-empty {
@@ -1732,6 +1902,75 @@ pub const STUDIO_STYLE: &str = r#"
     }
 }
 
+/* The proof's two homes: the drawer that rises from the dock, and on a phone a pane of the switch. */
+.proof-home {
+    display: contents;
+}
+
+.mobile-tabs .mobile-tab.phone-proof-tab {
+    display: none;
+}
+
+/* A phone held upright gives each pane the whole screen: the proof is a pane rather than a drawer
+   over the program, a header's toggles share its row and wrap instead of running off the window,
+   and the dock's advice stays a few short lines. */
+@media (max-width: 600px) {
+    .mobile-tabs .mobile-tab.phone-proof-tab {
+        display: flex;
+    }
+
+    .proof-home:not(.phone-proof) > .proof-drawer,
+    .studio-content.phone-on-proof,
+    .studio-guide.phone-quiet,
+    .proof-home .proof-grip,
+    .proof-home .proof-close,
+    .studio-dock-btn.proof-toggle {
+        display: none;
+    }
+
+    .proof-home.phone-proof > .proof-drawer {
+        flex: 1 1 0;
+        height: auto !important;
+        max-height: none !important;
+        min-height: 0;
+    }
+
+    .studio-panel .panel-header {
+        height: auto;
+        min-height: 52px;
+        flex-wrap: wrap;
+        gap: 4px 6px;
+        padding: 4px 12px;
+    }
+
+    .studio-panel .panel-header:has(.output-mode-toggle) > span:first-child {
+        display: none;
+    }
+
+    .studio-panel .panel-header .output-mode-toggle,
+    .studio-panel .panel-header .format-toggle {
+        flex: 1 1 auto;
+        gap: 0;
+    }
+
+    .studio-panel .panel-header .output-target {
+        min-height: 44px;
+    }
+
+    .studio-panel .panel-header .output-mode-btn,
+    .studio-panel .panel-header .format-btn {
+        flex: 1 1 auto;
+        padding: 0 6px;
+    }
+
+    .studio-dock-text {
+        max-height: 4.1em;
+        overflow-y: auto;
+        font-size: 12px;
+        line-height: 1.35;
+    }
+}
+
 /* Under a finger: the bars' grab areas a finger wide around what they draw, the panes' scrolling
    kept to the panes on the Studio page, and the page sized above an on-screen keyboard. */
 @media (pointer: coarse) {
@@ -1792,8 +2031,8 @@ pub const STUDIO_STYLE: &str = r#"
     }
 }
 
-/* LLM Heal (work/LLM_HEAL.md): the blue button with the fairy, the fairy swirling in to the mended
-   line and resting there still, and her card, readable whole with Keep and Undo always in view. */
+/* Heal: the blue button with the fairy, and after a press the fairy at the editor's corner with her
+   card, which says the file is back (Undo, Done) or why nothing was put back (Close). */
 .heal-btn {
     background: linear-gradient(135deg, var(--accent-primary, #00d4ff) 0%, #2563eb 100%);
     display: inline-flex;
@@ -1819,29 +2058,49 @@ pub const STUDIO_STYLE: &str = r#"
     height: 56px;
     object-fit: contain;
     image-rendering: pixelated;
-    left: 8px;
-    top: calc(48px + var(--heal-line, 0) * 1.5em);
-    transform: translateY(-50%);
-    transition: top 0.7s ease;
+    right: 18px;
+    top: 10px;
     filter: drop-shadow(0 0 10px rgba(0, 212, 255, 0.7));
 }
-/* The flight: one swirl from the toolbar's side down into the editor, then still. */
-.heal-fairy.flying { animation: heal-swirl 1.1s cubic-bezier(0.22, 0.8, 0.3, 1) both; }
-@keyframes heal-swirl {
-    0%   { transform: translate(60vw, -60px) rotate(0deg) scale(0.4); opacity: 0; }
-    35%  { transform: translate(28vw, 40px) rotate(-200deg) scale(0.8); opacity: 1; }
-    70%  { transform: translate(8vw, -16px) rotate(-330deg) scale(1.05); }
-    100% { transform: translateY(-50%) rotate(-360deg) scale(1); }
+/* A restore: the reader's text pixelates away over the editor as the file's forms, then the layer
+   fades, leaving the editor with the file. The type matches the editor's, so lines stay put. */
+.heal-swap {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 52px;
+    bottom: 0;
+    overflow: hidden;
+    background: var(--studio-surface, #0f1419);
+    font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+    animation: heal-swap-done 0.3s ease 1s forwards;
 }
-.heal-fairy.failed { left: auto; right: 18px; top: 10px; transform: none; }
+.heal-swap-layer {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    padding: var(--studio-inset, 16px);
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #e6edf3;
+}
+.heal-px { animation-duration: 0.18s; animation-timing-function: steps(3, end); animation-fill-mode: both; }
+.heal-px.out { animation-name: heal-pixel-out; }
+.heal-px.in { animation-name: heal-pixel-in; }
+@keyframes heal-pixel-out { from { opacity: 1; } 50% { opacity: 0.6; text-shadow: 0 0 2px currentColor; } to { opacity: 0; filter: blur(1px); } }
+@keyframes heal-pixel-in { from { opacity: 0; filter: blur(2px); } 50% { opacity: 0.6; text-shadow: 0 0 3px rgba(0, 212, 255, 0.9); } to { opacity: 1; filter: none; } }
+@keyframes heal-swap-done { to { opacity: 0; visibility: hidden; } }
+@media (max-width: 768px), (min-width: 769px) and (max-width: 1024px) and (orientation: portrait) and (pointer: coarse) { .heal-swap { top: 44px; } }
+@media (prefers-reduced-motion: reduce) { .heal-swap { display: none; } }
 .heal-card {
     position: absolute;
     left: 70px;
     right: 12px;
     top: 44px;
-    bottom: 12px;
-    display: flex;
-    flex-direction: column;
+    max-width: 420px;
     pointer-events: auto;
     background: #1b1f27;
     border: 1px solid rgba(0, 212, 255, 0.45);
@@ -1851,34 +2110,12 @@ pub const STUDIO_STYLE: &str = r#"
     color: #e6edf3;
     font-size: 13px;
 }
-.heal-card-cols {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow: auto;
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: 14px;
-}
-.heal-card-col { min-width: 0; }
-.heal-card-col h3 { margin: 0 0 6px; font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: #9aa3b2; }
-.heal-card pre { margin: 0; white-space: pre-wrap; word-break: break-word; font: 13px/1.6 var(--font-mono, ui-monospace, monospace); color: #e6edf3; }
-.heal-before { color: #b7bec9; }
-.heal-line.mended { background: rgba(0, 212, 255, 0.14); box-shadow: -4px 0 0 rgba(0, 212, 255, 0.7); border-radius: 2px; }
-.heal-line.replaced { background: rgba(239, 68, 68, 0.14); box-shadow: -4px 0 0 rgba(239, 68, 68, 0.7); border-radius: 2px; text-decoration: line-through; text-decoration-color: rgba(239, 68, 68, 0.6); }
-.heal-word { background: rgba(0, 212, 255, 0.35); color: #fff; border-radius: 2px; font-weight: 600; }
-.heal-line.replaced .heal-word { background: rgba(239, 68, 68, 0.4); }
-.heal-card-actions { flex: none; display: flex; align-items: center; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
-.heal-card-note { flex: 1 1 auto; color: #9aa3b2; }
+.heal-card p { margin: 0 0 10px; }
+.heal-card-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
 .heal-card .studio-dock-btn { border-color: rgba(0, 212, 255, 0.45); color: var(--accent-primary, #00d4ff); }
 .heal-card .studio-dock-btn.primary { background: rgba(0, 212, 255, 0.16); }
-.heal-card-failed { bottom: auto; max-width: 420px; }
-.heal-card-failed p { margin: 0 0 10px; }
 @media (max-width: 768px) {
     .heal-card { left: 12px; }
-    .heal-card-cols { grid-template-columns: minmax(0, 1fr); }
-}
-@media (prefers-reduced-motion: reduce) {
-    .heal-fairy { transition: none; animation: none; }
 }
 }
 "#;
@@ -3068,7 +3305,7 @@ pub fn Studio(file: Option<String>) -> Element {
                         Ok(vfs) => {
                             match vfs.read_to_string(&path_clone).await {
                                 Ok(content) => {
-                                    active_tab.set(MobileTab::Panel2);
+                                    active_tab.set(crate::ui::pages::studio_layout::first_pane(*state.mode.peek()));
                                     state.open(path_clone, content).await;
                                 }
                                 Err(e) => {

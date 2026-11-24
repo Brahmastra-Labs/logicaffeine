@@ -122,6 +122,7 @@ pub(crate) fn cmd_emit(
     format: Option<RduFormat>,
     bridge: Option<String>,
     model: Option<String>,
+    graph: Option<PathBuf>,
     ctx: Option<usize>,
     batch: Option<String>,
     tp: Option<String>,
@@ -162,14 +163,17 @@ pub(crate) fn cmd_emit(
     }
     if target != EmitTarget::Rdu {
         refuse_rdu_dials(target, &chip, &format, &bridge, &cache)?;
-        if model.is_some() {
+        if model.is_some() || graph.is_some() {
             return Err(ui::CliError::with_hint(
-                "`--model` applies to `emit rdu`".to_string(),
+                format!("`{}` applies to `emit rdu`", if model.is_some() { "--model" } else { "--graph" }),
                 "drop the flag, or emit the rdu target",
             )
             .exit_code(ui::EXIT_USAGE)
             .into());
         }
+    }
+    if let (EmitTarget::Rdu, Some(g)) = (target, graph.as_deref()) {
+        return emit_rdu_graph(g, file, output, chip, format, bridge, cache.as_deref());
     }
     if let (EmitTarget::Rdu, Some(m)) = (target, model.as_deref()) {
         return emit_rdu_model(m, ctx, batch, tp, prefill, file, output, chip, cache.as_deref());
@@ -441,6 +445,60 @@ fn through_cache<R>(dir: Option<&Path>, compile: impl FnOnce() -> R) -> Result<R
         ui::note(line);
     }
     Ok(made)
+}
+
+/// `largo emit rdu --graph NET.pt2 -o DIR`: the exported graph's forward as one certified program, the program the
+/// author writes of the graph, and a manifest binding its input and every parameter to the archive.
+fn emit_rdu_graph(
+    graph: &Path,
+    file: Option<PathBuf>,
+    output: Option<PathBuf>,
+    chip: Option<String>,
+    format: Option<RduFormat>,
+    bridge: Option<String>,
+    cache: Option<&Path>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use logicaffeine_compile::spatial::rdu_chip::RduChip;
+    use std::fs;
+    for (flag, given, why) in [
+        ("FILE", file.is_some(), "`--graph` names the program's source"),
+        ("--format", format.is_some(), "a graph's bundle is the certified program and its manifest"),
+        ("--bridge", bridge.is_some(), "a graph's bundle is handed to no SDK bridge yet"),
+    ] {
+        if given {
+            return Err(ui::CliError::with_hint(format!("`{flag}` with `--graph`: {why}"), format!("drop {flag}, or drop --graph"))
+                .exit_code(ui::EXIT_USAGE)
+                .into());
+        }
+    }
+    let Some(dir) = output else {
+        return Err(ui::CliError::with_hint("`--graph` writes a bundle directory".to_string(), "pass -o DIR").exit_code(ui::EXIT_USAGE).into());
+    };
+    let chip = match chip.as_deref() {
+        Some(s) => RduChip::parse(s).ok_or_else(|| {
+            ui::CliError::with_hint(format!("unknown RDU chip `{s}`"), "expected one of: sn40l, sn50").exit_code(ui::EXIT_USAGE)
+        })?,
+        None => RduChip::Sn50,
+    };
+    let (g, _) = logicaffeine_compile::model::graph::Graph::open(graph).map_err(|e| ui::CliError::new(format!("{}: {e}", graph.display())))?;
+    let name = graph.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "graph".to_string());
+    ui::note(format!(
+        "rdu graph: {name} ({} ops, {} parameters) chip: {} target: {} form: the exported forward",
+        g.ops.len(),
+        g.params.len(),
+        chip.as_str(),
+        chip.target_name()
+    ));
+    let bundle = through_cache(cache, || logicaffeine_compile::compile::compile_graph_to_rdu(&g, &name, chip))?.map_err(ui::CliError::new)?;
+    let sub = dir.join(&bundle.forward.dir);
+    fs::create_dir_all(&sub)?;
+    for (file, text) in bundle.forward.files() {
+        fs::write(sub.join(file), text)?;
+    }
+    fs::write(dir.join("manifest.json"), &bundle.manifest)?;
+    fs::write(dir.join("program.lg"), &bundle.program)?;
+    ui::info(format!("Wrote the {name} RDU bundle to {} (forward/, manifest.json, program.lg; MODELED, SDK-gated)", dir.display()));
+    Ok(())
 }
 
 /// The RDU backend's typed refusal, as the one line it was written as.

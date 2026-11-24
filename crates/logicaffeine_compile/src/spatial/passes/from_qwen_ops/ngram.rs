@@ -67,7 +67,7 @@ pub(super) fn ngram_head_body(places: usize, eos: i64, m: &[i64], modulus: u32, 
 
 /// `I = the ngram ids of T after R by M modulo V from O ending at E` on a chip whose integers are 32 bits (QWEN4-3): the
 /// hash's 64-bit products, exclusive-ors and remainders as KERNEL-6's lane programs, two lanes a value.
-///   · A section a chunk of tokens ([`ngram_rows_section`]), as many as an accumulator page holds the rows of: the
+///   · A section a chunk of tokens (`ngram_rows_section`), as many as an accumulator page holds the rows of: the
 ///     chunk's window of the history and the tokens, the token rows each place back read out of it, one scalar stage a
 ///     head (its order's places, its multipliers, its modulus and its first row written into its cells — the hash's
 ///     constants are the program's own), the heads joined a token's row at a time. Several chunks' rows are joined in a

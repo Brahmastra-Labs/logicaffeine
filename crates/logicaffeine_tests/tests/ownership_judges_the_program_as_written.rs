@@ -797,6 +797,26 @@ fn every_compile_path(source: &str) -> Vec<(&'static str, Result<(), String>)> {
     ]
 }
 
+/// A copy is a value of its own: `copy of` carries what a zone made out of it, the way the escape refusal itself tells
+/// the author to.
+const ZONE_COPY_OUT: &str = "\
+## Main
+Let mutable outer be \"\".
+Inside a zone called \"Scratch\":
+    Let draft be \"Q3\" + \" report\".
+    Set outer to copy of draft.
+Show outer.
+";
+
+#[test]
+fn a_copy_carries_a_value_out_of_a_zone_on_every_compile_path() {
+    for (path, verdict) in every_compile_path(ZONE_COPY_OUT) {
+        if let Err(message) = verdict {
+            panic!("{path} refused a copy out of a zone: {message}\n{ZONE_COPY_OUT}");
+        }
+    }
+}
+
 #[track_caller]
 fn every_compile_path_refuses_the_escape(source: &str) {
     for (path, verdict) in every_compile_path(source) {

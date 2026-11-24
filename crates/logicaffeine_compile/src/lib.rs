@@ -16,6 +16,9 @@ pub use logicaffeine_language::{
 // Re-export kernel for extraction
 pub use logicaffeine_kernel as kernel;
 
+// What a LOGOS source file is called
+pub mod source_files;
+
 // Module loading
 pub mod loader;
 // The stdlib's text and the index the build script derives from it
@@ -231,12 +234,12 @@ pub use ui_bridge::{
     extract_math_rust, extract_math_rust_from_source, grounded_grid_problem, interpret_for_ui,
     interpret_for_ui_baseline, interpret_for_ui_baseline_sync_with_args,
     interpret_for_ui_baseline_with_args, interpret_for_ui_sync, interpret_for_ui_sync_with_args,
-    interpret_for_ui_with_args, interpret_streaming, interpret_streaming_with_vfs,
+    interpret_for_ui_with_args, interpret_for_ui_with_files, interpret_streaming, interpret_streaming_with_vfs,
     interpret_streaming_with_vfs_observer, logic_compile_note, parse_math_statements,
     partition_mixed, prove_theorem_trace, run_treewalker_concurrent_seeded, run_vm_concurrent,
     run_vm_concurrent_seeded, run_vm_concurrent_with_config, run_vm_io_async, run_vm_net_async,
     solve_grid, theorem_certificate, theorem_dependency_graph, theorem_proof_exprs, verify_theorem,
-    AstNode, CompileResult, GridColumn, ObserverCallback, ProofCompileResult, SolvedGrid,
+    AstNode, CompileResult, Files, GridColumn, ObserverCallback, ProofCompileResult, SolvedGrid,
     TheoremCompileResult, TheoremTrace, TokenCategory, TokenInfo,
 };
 

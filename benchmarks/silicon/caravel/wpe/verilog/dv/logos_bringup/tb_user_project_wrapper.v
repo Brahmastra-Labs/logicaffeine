@@ -8,7 +8,7 @@
 // Proves the WHOLE wire -> on-chip synthesize -> run -> wire path ≡ the VM under iverilog.
 `timescale 1ns/1ps
 module tb_wpe_soc_caravel;
-  localparam CLKS = 413;
+  localparam CLKS = 181;
   localparam NVEC = 3;
   localparam MAXB = 2739;
   reg clk=0, rst=1, uart_rx=1;
@@ -34,21 +34,18 @@ module tb_wpe_soc_caravel;
   assign #(10.120) psram_sio_out[2] = io_out[14]; assign #(10.320) psram_sio_oe[2] = ~io_oeb[14];
   assign #(10.120) psram_sio_out[3] = io_out[15]; assign #(10.320) psram_sio_oe[3] = ~io_oeb[15];
   wire wbs_ack_o; wire [31:0] wbs_dat_o; wire [127:0] la_data_out; wire [2:0] user_irq;
-  // The management SoC's clock, at the period Caravel's chip signoff times it at; the engine's is clk.
-  reg wb_clk = 0;
-  always #12.5 wb_clk = ~wb_clk;
   user_project_wrapper dut (
-    .wb_clk_i(wb_clk), .wb_rst_i(rst), .wbs_stb_i(1'b0), .wbs_cyc_i(1'b0), .wbs_we_i(1'b0), .wbs_sel_i(4'd0),
+    .wb_clk_i(clk), .wb_rst_i(rst), .wbs_stb_i(1'b0), .wbs_cyc_i(1'b0), .wbs_we_i(1'b0), .wbs_sel_i(4'd0),
     .wbs_dat_i(32'd0), .wbs_adr_i(32'd0), .wbs_ack_o(wbs_ack_o), .wbs_dat_o(wbs_dat_o),
     .la_data_in(128'd0), .la_data_out(la_data_out), .la_oenb({128{1'b1}}),
-    .io_in(io_in), .io_out(io_out), .io_oeb(io_oeb), .user_clock2(clk), .user_irq(user_irq));
+    .io_in(io_in), .io_out(io_out), .io_oeb(io_oeb), .user_clock2(1'b0), .user_irq(user_irq));
   // After reset every output pin drives and every other non-SIO pin is an input.
   always @(posedge clk) if (!rst && (io_oeb[9] || io_oeb[10] || io_oeb[11] || ~&{io_oeb[0], io_oeb[1], io_oeb[2], io_oeb[3], io_oeb[4], io_oeb[5], io_oeb[6], io_oeb[7], io_oeb[8], io_oeb[16], io_oeb[17], io_oeb[18], io_oeb[19], io_oeb[20], io_oeb[21], io_oeb[22], io_oeb[23], io_oeb[24], io_oeb[25], io_oeb[26], io_oeb[27], io_oeb[28], io_oeb[29], io_oeb[30], io_oeb[31], io_oeb[32], io_oeb[33], io_oeb[34], io_oeb[35], io_oeb[36], io_oeb[37]})) begin
     $display("PIN-DIRECTION io_oeb=%b", io_oeb);
     $display("FAIL: a Caravel pin is driven the wrong way");
     $finish;
   end
-  always #10.5 clk = ~clk;
+  always #24 clk = ~clk;
   // The board: the PSRAM's four SIO pads, driven by whichever side enables them, and the part itself.
   genvar pad;
   generate for (pad = 0; pad < 4; pad = pad + 1) begin : sio_pads

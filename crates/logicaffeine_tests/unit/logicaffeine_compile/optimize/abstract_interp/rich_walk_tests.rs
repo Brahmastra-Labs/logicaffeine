@@ -291,3 +291,45 @@ fn a_loop_left_only_by_its_condition_leaves_its_counter_past_the_bound() {
         },
     );
 }
+
+#[test]
+fn a_guard_that_fails_leaves_what_follows_with_the_guard_false() {
+    let ea: Arena<Expr> = Arena::new();
+    let sa: Arena<Stmt> = Arena::new();
+    let mut it = Interner::new();
+    let (base, d, why) = (it.intern("base"), it.intern("d"), it.intern("refused"));
+    // Let base be <unknown>. If base < 2 or base > 36: Fail. Let d be base.
+    let unknown = ea.alloc(Expr::Call { function: it.intern("parseInt"), args: vec![] });
+    let low = cmp(&ea, BinaryOpKind::Lt, ident(&ea, base), lit_num(&ea, 2));
+    let high = cmp(&ea, BinaryOpKind::Gt, ident(&ea, base), lit_num(&ea, 36));
+    let either = cmp(&ea, BinaryOpKind::Or, low, high);
+    let reason = ea.alloc(Expr::Literal(Literal::Text(why)));
+    let fail = sa.alloc_slice(vec![Stmt::Fail { reason }]);
+    let stmts = vec![
+        let_stmt(base, unknown),
+        Stmt::If { cond: either, then_block: fail, else_block: None },
+        let_stmt(d, ident(&ea, base)),
+    ];
+    let (_out, st) = rich_abstract_interp_stmts(stmts, &ea, &sa);
+    let vd = st.value_of(d).interval;
+    assert_eq!((vd.lo, vd.hi), (Bound::Finite(2), Bound::Finite(36)), "past the guard, base is 2 to 36");
+}
+
+#[test]
+fn a_guard_that_may_fall_through_says_nothing_after_it() {
+    let ea: Arena<Expr> = Arena::new();
+    let sa: Arena<Stmt> = Arena::new();
+    let mut it = Interner::new();
+    let (base, d, s) = (it.intern("base"), it.intern("d"), it.intern("s"));
+    let unknown = ea.alloc(Expr::Call { function: it.intern("parseInt"), args: vec![] });
+    let low = cmp(&ea, BinaryOpKind::Lt, ident(&ea, base), lit_num(&ea, 2));
+    let set = sa.alloc_slice(vec![let_stmt(s, lit_num(&ea, 1))]);
+    let stmts = vec![
+        let_stmt(base, unknown),
+        Stmt::If { cond: low, then_block: set, else_block: None },
+        let_stmt(d, ident(&ea, base)),
+    ];
+    let (_out, st) = rich_abstract_interp_stmts(stmts, &ea, &sa);
+    let vd = st.value_of(d).interval;
+    assert!(!matches!(vd.lo, Bound::Finite(lo) if lo >= 2), "a branch that falls through keeps base below 2 possible: {vd:?}");
+}

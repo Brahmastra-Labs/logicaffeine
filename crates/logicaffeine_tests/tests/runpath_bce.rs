@@ -34,6 +34,7 @@ use logicaffeine_compile::compile::tw_outcome_with_args;
 use logicaffeine_compile::optimize::oracle_analyze_with;
 use logicaffeine_compile::ui_bridge::with_optimized_program;
 use logicaffeine_compile::vm::{Compiler, NativeTier, Op};
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_jit::ForgeTier;
 
 fn norm(s: &str) -> String {
@@ -73,7 +74,12 @@ fn bce_counts(src: &str) -> (usize, usize, usize, usize) {
 /// normalized eliding output for an exact-value assertion.
 fn assert_runpath_parity(src: &str, size: &str) -> String {
     let argv = vec!["bench".to_string(), size.to_string()];
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
     let (out, err) = with_optimized_program(src, |parsed, interner| match parsed {
         Ok((stmts, types, policies)) => logicaffeine_compile::vm::run_to_outcome_with_args(
             stmts,
@@ -81,7 +87,7 @@ fn assert_runpath_parity(src: &str, size: &str) -> String {
             Some(types),
             Some(&policies),
             &argv,
-            Some(&tier as &dyn NativeTier),
+            native,
         ),
         Err(advice) => (String::new(), Some(advice)),
     });
@@ -233,7 +239,12 @@ fn heap_sort_helper_param_reads_stay_checked() {
         (0, 0),
         "siftDown's data-dependent param accesses must NOT be elided ({ru} reads, {su} stores)"
     );
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
     let (out, err) = with_optimized_program(src, |parsed, interner| match parsed {
         Ok((stmts, types, policies)) => logicaffeine_compile::vm::run_to_outcome_with_args(
             stmts,
@@ -241,7 +252,7 @@ fn heap_sort_helper_param_reads_stay_checked() {
             Some(types),
             Some(&policies),
             &[],
-            Some(&tier as &dyn NativeTier),
+            native,
         ),
         Err(advice) => (String::new(), Some(advice)),
     });
@@ -293,7 +304,12 @@ fn user_supplied_oob_index_stays_checked_and_errors_identically() {
 /// agree, and return the (normalized output, error) for the caller's
 /// value/error assertions.
 fn assert_runpath_parity_argv(src: &str, argv: &[String]) -> (String, Option<String>) {
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
     let (out, err) = with_optimized_program(src, |parsed, interner| match parsed {
         Ok((stmts, types, policies)) => logicaffeine_compile::vm::run_to_outcome_with_args(
             stmts,
@@ -301,7 +317,7 @@ fn assert_runpath_parity_argv(src: &str, argv: &[String]) -> (String, Option<Str
             Some(types),
             Some(&policies),
             argv,
-            Some(&tier as &dyn NativeTier),
+            native,
         ),
         Err(advice) => (String::new(), Some(advice)),
     });

@@ -356,3 +356,54 @@ fn wordval_dispatches_by_width_and_rejects_mismatch() {
     // Display is the unsigned decimal value.
     assert_eq!(WordVal::W32(Word32(42)).to_string(), "42");
 }
+
+// ---------------------------------------------------------------------------------------------
+// A per-byte shift right by 8 or more clears every lane, the way a SIMD byte-lane shift does, and
+// gives the same lanes in debug and release builds: the count is never taken modulo 8.
+// ---------------------------------------------------------------------------------------------
+
+fn byte_ramp() -> Lanes16Word8 {
+    let mut lanes = [0u8; 16];
+    for (i, lane) in lanes.iter_mut().enumerate() {
+        *lane = 0x80 | (i as u8 * 7);
+    }
+    Lanes16Word8(lanes)
+}
+
+#[test]
+fn a_byte_shift_below_eight_shifts_every_lane_on_its_own() {
+    let v = byte_ramp();
+    for n in 0..8u32 {
+        let shifted = v.shr_bytes(n);
+        for i in 0..16 {
+            assert_eq!(shifted.0[i], v.0[i] >> n, "lane {i} shifted right by {n}");
+        }
+    }
+}
+
+#[test]
+fn a_byte_shift_of_eight_clears_every_lane() {
+    assert_eq!(byte_ramp().shr_bytes(8), Lanes16Word8([0; 16]));
+}
+
+#[test]
+fn a_byte_shift_past_eight_clears_every_lane_up_to_the_largest_count() {
+    for n in [9u32, 15, 16, 31, 32, 63, 64, 255, u32::MAX] {
+        assert_eq!(byte_ramp().shr_bytes(n), Lanes16Word8([0; 16]), "shift right by {n}");
+    }
+}
+
+#[test]
+fn a_negative_logos_count_cast_to_u32_clears_every_lane_instead_of_panicking() {
+    // The interpreter, the compiled runtime and the wasm host all pass `count as u32`, so a small
+    // negative count arrives as a count near `u32::MAX`.
+    for count in [-1i64, -8, -255] {
+        assert_eq!(byte_ramp().shr_bytes(count as u32), Lanes16Word8([0; 16]), "count {count}");
+    }
+}
+
+#[test]
+fn the_dynamic_lanes_value_shifts_the_same_way() {
+    assert_eq!(LanesVal::L16W8(byte_ramp()).shr_bytes(8), Some(LanesVal::L16W8(Lanes16Word8([0; 16]))));
+    assert_eq!(LanesVal::L16W8(byte_ramp()).shr_bytes(4), Some(LanesVal::L16W8(byte_ramp().shr_bytes(4))));
+}

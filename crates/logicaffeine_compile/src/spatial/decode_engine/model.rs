@@ -419,6 +419,9 @@ pub fn runs(spec: &ModelSpec, numerics: EngineNumerics) -> R<()> {
         if !matches!(layer.ffn, Ffn::Dense { act: crate::model::spec::Act::Silu, .. }) {
             return Err(EngineError::NotYet("a mixture of experts or a non-SiLU FFN"));
         }
+        if !layer.pre_norms {
+            return Err(EngineError::NotYet("sublayers that read the residual unnormed"));
+        }
         if layer.post_mixer_norm || layer.post_ffn_norm {
             return Err(EngineError::NotYet("a sandwich norm"));
         }

@@ -141,11 +141,14 @@ const ROADMAP_STYLE: &str = r#"
 .roadmap-lesson::before {
     content: "";
     position: absolute;
-    left: -30px;
+    /* 14px across with its ring, so its centre sits on the route's line (left 11px, 2px wide,
+       centred at 12px from the module's edge; a lesson is indented 36px) and on the row's middle. */
+    box-sizing: border-box;
+    left: -31px;
     top: 50%;
-    width: 10px;
-    height: 10px;
-    margin-top: -5px;
+    width: 14px;
+    height: 14px;
+    margin-top: -7px;
     border-radius: 50%;
     border: 2px solid var(--route-line);
     background: var(--bg-gradient-start);

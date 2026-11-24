@@ -77,37 +77,34 @@ pub(super) fn requires_async_stmt(stmt: &Stmt) -> bool {
 
 /// Phase 53: Detect if any statements require VFS (Virtual File System).
 /// Returns true if the program uses file operations or persistent storage.
+/// Whether any statement of the program, at any depth — a function's, a closure's, an arm's — touches the file
+/// system: a `Mount`, a `Read … from file`, a `Write … to file`.
 pub(super) fn requires_vfs(stmts: &[Stmt]) -> bool {
-    stmts.iter().any(|s| requires_vfs_stmt(s))
+    use logicaffeine_language::ast_depth::{walk_nodes, Visited, Walk};
+    let mut found = false;
+    walk_nodes(stmts, |node| {
+        if let Visited::Stmt(stmt) = node {
+            if requires_vfs_stmt(stmt) {
+                found = true;
+                return Walk::Past;
+            }
+        }
+        Walk::Into
+    });
+    found
 }
 
-pub(super) fn requires_vfs_stmt(stmt: &Stmt) -> bool {
-    match stmt {
-        // Phase 53: Mount uses VFS for persistent storage
-        Stmt::Mount { .. } => true,
-        // Phase 53: File I/O uses VFS
-        Stmt::ReadFrom {
-            source: ReadSource::File(_),
-            ..
-        } => true,
-        Stmt::WriteFile { .. } => true,
-        // Recursively check nested blocks
-        Stmt::If {
-            then_block,
-            else_block,
-            ..
-        } => {
-            then_block.iter().any(|s| requires_vfs_stmt(s))
-                || else_block.map_or(false, |b| b.iter().any(|s| requires_vfs_stmt(s)))
-        }
-        Stmt::While { body, .. } => body.iter().any(|s| requires_vfs_stmt(s)),
-        Stmt::Repeat { body, .. } => body.iter().any(|s| requires_vfs_stmt(s)),
-        Stmt::Zone { body, .. } => body.iter().any(|s| requires_vfs_stmt(s)),
-        Stmt::Concurrent { tasks } => tasks.iter().any(|s| requires_vfs_stmt(s)),
-        Stmt::Parallel { tasks } => tasks.iter().any(|s| requires_vfs_stmt(s)),
-        Stmt::FunctionDef { body, .. } => body.iter().any(|s| requires_vfs_stmt(s)),
-        _ => false,
-    }
+/// Whether `stmt` itself touches the file system.
+fn requires_vfs_stmt(stmt: &Stmt) -> bool {
+    matches!(
+        stmt,
+        Stmt::Mount { .. }
+            | Stmt::WriteFile { .. }
+            | Stmt::ReadFrom {
+                source: ReadSource::File(_),
+                ..
+            }
+    )
 }
 
 /// Every variable that needs `let mut` in Rust: each name the block reassigns (`Set`, `Swap`) or changes in place
@@ -128,7 +125,7 @@ pub(super) fn collect_mutable_vars_stmt(stmt: &Stmt, targets: &mut HashSet<Symbo
 /// Every binding `stmts` passes to a `mutable` parameter, wherever the call sits
 /// ([`crate::analysis::callgraph::lent_positions`]). The callee writes a lent binding, and a lend
 /// copies the binding on write first, so the binding is written like any `Push` target.
-fn collect_lent_vars(stmts: &[Stmt], targets: &mut HashSet<Symbol>) {
+pub(super) fn collect_lent_vars(stmts: &[Stmt], targets: &mut HashSet<Symbol>) {
     crate::analysis::callgraph::for_each_call_site(stmts, &mut |function, args| {
         for at in crate::analysis::callgraph::lent_positions(function) {
             if let Some(Expr::Identifier(sym)) = args.get(at) {
@@ -655,20 +652,6 @@ pub(super) fn is_hashable_type(ty: &TypeExpr, interner: &Interner) -> bool {
     }
 }
 
-pub(super) fn is_copy_type_expr(ty: &TypeExpr, interner: &Interner) -> bool {
-    match ty {
-        TypeExpr::Primitive(sym) | TypeExpr::Named(sym) => {
-            let name = interner.resolve(*sym);
-            matches!(
-                name,
-                "Int" | "Nat" | "Bool" | "Char" | "Byte" | "i64" | "u64" | "bool" | "char" | "u8"
-            )
-        }
-        TypeExpr::Refinement { base, .. } => is_copy_type_expr(base, interner),
-        _ => false,
-    }
-}
-
 pub(super) fn should_memoize(
     name: Symbol,
     body: &[Stmt],
@@ -1013,6 +996,93 @@ pub(crate) fn symbol_appears_in_stmts(sym: Symbol, stmts: &[&Stmt]) -> bool {
     stmts.iter().any(|s| symbol_appears_in_stmt(sym, s))
 }
 
+/// What a variable's binding still has to be once `block[..at]` has run.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AfterwardsIt {
+    /// Its value is read later: it keeps its value.
+    IsRead,
+    /// Declared by a `Let` in `block[..at]`, assigned again before any later read: it is declared, without a value.
+    IsOnlyAssigned,
+    /// Nothing later speaks of it.
+    IsGone,
+}
+
+/// [`AfterwardsIt`] for `sym` after `block[..at]`, from the program's liveness where the analysis saw the statement
+/// before `at`, else from [`value_read_after`].
+pub(crate) fn afterwards(sym: Symbol, block: &[&Stmt], at: usize) -> AfterwardsIt {
+    let declared_here = block[..at]
+        .iter()
+        .any(|s| matches!(s, Stmt::Let { var, .. } if *var == sym));
+    let read = match at.checked_sub(1).and_then(|last| super::flow::live_after(block[last])) {
+        Some(live) => live.contains(&sym),
+        None => value_read_after(sym, block, at),
+    };
+    if read {
+        AfterwardsIt::IsRead
+    } else if declared_here && symbol_appears_in_stmts(sym, &block[at..]) {
+        AfterwardsIt::IsOnlyAssigned
+    } else {
+        AfterwardsIt::IsGone
+    }
+}
+
+/// How `sym` starts over from `block[at]` on, when the first statement there to speak of it gives it a value without
+/// reading it at this block's own level: the value it held before is then never read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum StartsOver {
+    /// `block[at]` is a `Set` of it.
+    Set { at: usize },
+    /// A `Let` declares it again.
+    Let,
+}
+
+/// [`StartsOver`] for `sym` from `block[at]` on, or `None` when the first statement to speak of it reads it, speaks of
+/// it inside a nested block, or no statement does.
+pub(crate) fn starts_over(sym: Symbol, block: &[&Stmt], at: usize) -> Option<StartsOver> {
+    for (k, stmt) in block.iter().enumerate().skip(at) {
+        match stmt {
+            Stmt::Set { target, value } if *target == sym => {
+                return (!symbol_appears_in_expr(sym, value)).then_some(StartsOver::Set { at: k });
+            }
+            Stmt::Let { var, value, .. } if *var == sym => {
+                return (!symbol_appears_in_expr(sym, value)).then_some(StartsOver::Let);
+            }
+            _ if symbol_appears_in_stmts(sym, std::slice::from_ref(stmt)) => return None,
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Whether any of `stmts` may set `sym`, by a `Set` at any depth or by lending it to a `mutable` parameter.
+pub(crate) fn written_in(sym: Symbol, stmts: &[&Stmt]) -> bool {
+    stmts
+        .iter()
+        .any(|s| crate::optimize::WriteSet::of_stmt(s).may_write(sym))
+}
+
+/// Whether one run through `stmts` may set `sym` twice: two of them set it, a loop does (each pass sets it again),
+/// or a statement that sets it some other way does. A declaration without a value needs `mut` exactly then.
+pub(crate) fn may_set_twice(sym: Symbol, stmts: &[&Stmt]) -> bool {
+    fn sets(sym: Symbol, stmts: &[Stmt]) -> u8 {
+        stmts.iter().map(|s| set_by(sym, s)).fold(0u8, |n, k| n.saturating_add(k).min(2))
+    }
+    fn set_by(sym: Symbol, stmt: &Stmt) -> u8 {
+        match stmt {
+            Stmt::Set { target, .. } if *target == sym => 1,
+            Stmt::If {
+                then_block,
+                else_block,
+                ..
+            } => sets(sym, then_block).max(else_block.map_or(0, |b| sets(sym, b))),
+            Stmt::While { body, .. } | Stmt::Repeat { body, .. } if sets(sym, body) > 0 => 2,
+            other if crate::optimize::WriteSet::of_stmt(other).may_write(sym) => 2,
+            _ => 0,
+        }
+    }
+    stmts.iter().map(|s| set_by(sym, s)).fold(0u8, |n, k| n.saturating_add(k).min(2)) >= 2
+}
+
 /// Whether the value `sym` holds once `block[..at]` has run can still be read. A variable a `Let` in `block[..at]`
 /// declares lives only in the block, so only a later statement of the block reads it; any other variable belongs to
 /// an enclosing scope, whose code past this block (after an enclosing loop, or on its next pass) can read it.
@@ -1190,19 +1260,14 @@ pub(super) fn collect_vec_return_fns(
     }
     // Every non-native function declared to return a Seq/List/Vec, with its
     // body + params. Each is a CANDIDATE to instead return an owned `Vec<T>`.
+    // Every other non-native function's body holds call sites too.
     let mut seq_fns: Vec<(Symbol, &[Stmt], &[(Symbol, &TypeExpr)])> = Vec::new();
+    let mut other_bodies: Vec<&[Stmt]> = Vec::new();
     for s in stmts {
-        if let Stmt::FunctionDef {
-            name,
-            body,
-            params,
-            return_type: Some(rt),
-            is_native: false,
-            ..
-        } = s
-        {
-            if is_vec_type_expr(rt, interner) {
-                seq_fns.push((*name, body, params));
+        if let Stmt::FunctionDef { name, body, params, return_type, is_native: false, .. } = s {
+            match return_type {
+                Some(rt) if is_vec_type_expr(rt, interner) => seq_fns.push((*name, body, params)),
+                _ => other_bodies.push(body),
             }
         }
     }
@@ -1263,6 +1328,11 @@ pub(super) fn collect_vec_return_fns(
             if rv && !all_returns_vec_ownable(body, params, borrow_params.get(name), &de_rc) {
                 remove.insert(*name);
             }
+        }
+        // (b) in a function that returns no list: its call sites bind results as Main's do.
+        for body in &other_bodies {
+            let de_rc = collect_de_rc_seqs(body, interner, borrow_params, mut_borrow_params, &vec_fns, false);
+            collect_unsound_vec_returns(body, &vec_fns, &de_rc, &mut remove);
         }
 
         if remove.is_empty() {
@@ -1608,7 +1678,7 @@ fn is_fresh_seq_value(value: &Expr, interner: &Interner) -> bool {
             init_fields,
             ..
         } if init_fields.is_empty() => {
-            matches!(interner.resolve(*type_name), "Seq" | "List" | "Vec")
+            crate::semantics::collections::builds_list(interner.resolve(*type_name))
         }
         Expr::WithCapacity { value: inner, .. } => is_fresh_seq_value(inner, interner),
         Expr::List(_) => true,
@@ -1897,7 +1967,7 @@ fn fresh_scalar_seq_elem(value: &Expr, interner: &Interner) -> Option<String> {
             type_args,
             init_fields,
         } if init_fields.is_empty() => match interner.resolve(*type_name) {
-            "Seq" | "List" | "Vec" => {
+            name if crate::semantics::collections::builds_list(name) => {
                 let elem = type_args.first()?;
                 let ty = codegen_type_expr(elem, interner);
                 if is_scalar_elem_type(&ty) {
@@ -2185,194 +2255,6 @@ fn scan_give_args_expr(expr: &Expr, result: &mut HashMap<Symbol, HashSet<usize>>
             }
         }
         _ => {}
-    }
-}
-
-// =============================================================================
-// Closed-Form Double Recursion Detection
-// =============================================================================
-
-/// Result of detecting a closed-form double recursion pattern.
-/// For f(0) = base, f(d) = k + f(d-1) + f(d-1), the closed form is:
-/// f(d) = ((base + k) << d) - k
-pub(super) struct ClosedFormInfo {
-    pub base: i64,
-    pub k: i64,
-}
-
-/// Detect "double recursion with constant addend" pattern:
-///   f(0) = base
-///   f(d) = k + f(d-1) + f(d-1)
-/// where base and k are integer constants. Returns the closed-form parameters.
-///
-/// GCC/LLVM recognize this pattern and replace it with bit shifts at -O2.
-/// This detection lets Logos emit the same closed form.
-pub(super) fn detect_double_recursion_closed_form<'a>(
-    func_name: Symbol,
-    params: &[(Symbol, &'a TypeExpr<'a>)],
-    body: &'a [Stmt<'a>],
-    interner: &Interner,
-) -> Option<ClosedFormInfo> {
-    use crate::ast::stmt::BinaryOpKind;
-
-    if params.len() != 1 {
-        return None;
-    }
-    let param_sym = params[0].0;
-
-    // The closed form emits `((base + k) << d) - k`, which requires the parameter
-    // `d` to be an integer (a `<<` on a float operand does not type-check). A bare
-    // `0`/`1` base literal parses as an integer regardless of the declared
-    // parameter type, so a Float-typed double recursion would otherwise still
-    // match and emit `i64 << f64`. Decline anything but an integer parameter.
-    let is_integer_param = matches!(
-        params[0].1,
-        TypeExpr::Primitive(sym) | TypeExpr::Named(sym)
-            if matches!(interner.resolve(*sym), "Int" | "Nat" | "Byte")
-    );
-    if !is_integer_param {
-        return None;
-    }
-
-    // Body must be exactly: If { param == 0 → Return base }, Return(recursive_expr)
-    if body.len() != 2 {
-        return None;
-    }
-
-    // First statement: base case check
-    let base_value = match &body[0] {
-        Stmt::If {
-            cond,
-            then_block,
-            else_block,
-        } => {
-            if else_block.is_some() {
-                return None;
-            }
-            if then_block.len() != 1 {
-                return None;
-            }
-            let base = match &then_block[0] {
-                Stmt::Return { value: Some(expr) } => cf_extract_literal_int(expr)?,
-                _ => return None,
-            };
-            match cond {
-                Expr::BinaryOp {
-                    op: BinaryOpKind::Eq,
-                    left,
-                    right,
-                } => {
-                    let ok = (cf_is_identifier(left, param_sym) && cf_is_literal_int(right, 0))
-                        || (cf_is_literal_int(left, 0) && cf_is_identifier(right, param_sym));
-                    if !ok {
-                        return None;
-                    }
-                }
-                _ => return None,
-            }
-            base
-        }
-        _ => return None,
-    };
-
-    // Second statement: recursive case Return
-    let recursive_expr = match &body[1] {
-        Stmt::Return { value: Some(expr) } => *expr,
-        _ => return None,
-    };
-
-    // Flatten the Add tree and analyze: must have exactly 2 self-calls with
-    // arg (param - 1), and any number of integer literal addends.
-    let mut self_call_count = 0usize;
-    let mut constant_sum = 0i64;
-    if !cf_analyze_add_tree(
-        recursive_expr,
-        func_name,
-        param_sym,
-        &mut self_call_count,
-        &mut constant_sum,
-    ) {
-        return None;
-    }
-
-    if self_call_count != 2 {
-        return None;
-    }
-
-    Some(ClosedFormInfo {
-        base: base_value,
-        k: constant_sum,
-    })
-}
-
-fn cf_extract_literal_int(expr: &Expr) -> Option<i64> {
-    if let Expr::Literal(crate::ast::stmt::Literal::Number(n)) = expr {
-        Some(*n)
-    } else {
-        None
-    }
-}
-
-fn cf_is_identifier(expr: &Expr, sym: Symbol) -> bool {
-    matches!(expr, Expr::Identifier(s) if *s == sym)
-}
-
-fn cf_is_literal_int(expr: &Expr, val: i64) -> bool {
-    matches!(expr, Expr::Literal(crate::ast::stmt::Literal::Number(n)) if *n == val)
-}
-
-fn cf_is_self_call_with_decrement(expr: &Expr, func_name: Symbol, param_sym: Symbol) -> bool {
-    use crate::ast::stmt::BinaryOpKind;
-    if let Expr::Call { function, args } = expr {
-        if *function != func_name || args.len() != 1 {
-            return false;
-        }
-        if let Expr::BinaryOp {
-            op: BinaryOpKind::Subtract,
-            left,
-            right,
-        } = args[0]
-        {
-            cf_is_identifier(left, param_sym) && cf_is_literal_int(right, 1)
-        } else {
-            false
-        }
-    } else {
-        false
-    }
-}
-
-/// Walk an Add-tree, counting self-calls and summing literal constants.
-/// Returns false if any leaf is neither a self-call(param-1) nor an integer literal.
-fn cf_analyze_add_tree(
-    expr: &Expr,
-    func_name: Symbol,
-    param_sym: Symbol,
-    self_calls: &mut usize,
-    constant_sum: &mut i64,
-) -> bool {
-    use crate::ast::stmt::BinaryOpKind;
-    match expr {
-        Expr::BinaryOp {
-            op: BinaryOpKind::Add,
-            left,
-            right,
-        } => {
-            cf_analyze_add_tree(left, func_name, param_sym, self_calls, constant_sum)
-                && cf_analyze_add_tree(right, func_name, param_sym, self_calls, constant_sum)
-        }
-        _ if cf_is_self_call_with_decrement(expr, func_name, param_sym) => {
-            *self_calls += 1;
-            true
-        }
-        _ => {
-            if let Some(n) = cf_extract_literal_int(expr) {
-                *constant_sum += n;
-                true
-            } else {
-                false
-            }
-        }
     }
 }
 

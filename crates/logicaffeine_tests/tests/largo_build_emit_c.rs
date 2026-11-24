@@ -11,7 +11,7 @@
 mod common;
 use common::{largo, require_tool, scaffold, stderr, stdout};
 
-use logicaffeine_cli::project::build_c::{C_DEBUG_FLAGS, C_RELEASE_FLAGS};
+use logicaffeine_cli::project::build_c::{C_DEBUG_FLAGS, C_DIALECT_FLAGS, C_RELEASE_FLAGS};
 use std::path::Path;
 use std::process::{Command, Output};
 use tempfile::TempDir;
@@ -257,6 +257,30 @@ fn verbose_build_shows_the_exact_c_compiler_command() {
         "release C matches the C baseline's flags"
     );
     assert_eq!(C_DEBUG_FLAGS, ["-O0", "-g"]);
+}
+
+/// The compiler command states the dialect the generated C is written in, C17 with the GNU extensions, in both
+/// profiles.
+#[test]
+fn the_c_compiler_command_states_its_dialect() {
+    if !require_tool("cc") {
+        return;
+    }
+    let dir = project("squares");
+    for extra in [&[][..], &["--release"][..]] {
+        let mut argv = vec!["-v", "build"];
+        argv.extend_from_slice(extra);
+        argv.extend_from_slice(&["--emit", "c"]);
+        let out = run_largo(dir.path(), &argv);
+        ok(&out, &argv.join(" "));
+        let err = common::strip_ansi(&stderr(&out));
+        let line = err
+            .lines()
+            .find(|l| l.contains("Running") && l.contains("main.c"))
+            .unwrap_or_else(|| panic!("`largo {}` must print the C compiler command:\n{err}", argv.join(" ")));
+        assert!(line.contains("-std=gnu17"), "the compiler command must state the dialect:\n{line}");
+    }
+    assert_eq!(C_DIALECT_FLAGS, ["-std=gnu17"]);
 }
 
 #[test]

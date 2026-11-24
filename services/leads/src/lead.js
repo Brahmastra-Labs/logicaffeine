@@ -1,4 +1,4 @@
-// The pricing form's field rules. The page's `lead.rs` applies the same rules, and both walk
+// The contact form's field rules. The page's `lead.rs` applies the same rules, and both walk
 // crates/logicaffeine_tests/tests/fixtures/lead_vectors.json, so the two validators cannot drift.
 
 const TRIM_SET = new Set([

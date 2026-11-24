@@ -9,6 +9,7 @@ mod under_test;
 
 use logicaffeine_compile::compile::{tw_outcome, vm_outcome_with_args};
 use logicaffeine_compile::vm::NativeTier;
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_jit::ForgeTier;
 
 const Q: i64 = 3329; // Kyber / ML-KEM modulus (prime; q − 1 = 3328 = 2^8 · 13).
@@ -609,9 +610,14 @@ fn race_logos_jit_ntt_against_handwritten_rust() {
 
     let run_jit = |iters: usize| -> (String, std::time::Duration) {
         let prog = logos_fast_ntt_bench_program(&a0, &powers, iters);
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
         let tier = ForgeTier::new();
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+        let native = Some(&tier as &dyn NativeTier);
+        #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+        let native: Option<&dyn NativeTier> = None;
         let t = std::time::Instant::now();
-        let r = vm_outcome_with_args(&prog, &[], Some(&tier as &dyn NativeTier));
+        let r = vm_outcome_with_args(&prog, &[], native);
         let dt = t.elapsed();
         assert_eq!(r.error, None, "JIT NTT error: {:?}", r.error);
         (r.output.trim().to_string(), dt)

@@ -39,6 +39,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::source_files::{is_module_file, MODULE_EXTENSIONS};
 pub use crate::stdlib_text::defined_names_with_visibility;
 pub(crate) use crate::stdlib_text::{defined_names, function_header, module_code, strip_note_blocks};
 use crate::stdlib_text::{
@@ -47,21 +48,21 @@ use crate::stdlib_text::{
 };
 
 /// Resolve a requested module path to a concrete file: the exact path if it
-/// exists, otherwise `<path>.lg` then `<path>.md` — so `Import Geometry.`
-/// (whose URI is the extension-less `./geometry`) finds `geometry.lg` or
-/// `geometry.md`. Failing that, a DIRECTORY / barrel module: `Import Lexer.`
-/// resolves `lexer/lexer.lg` (self-descriptive), then `lexer/mod.lg`, then their
-/// `.md` variants — so a whole subsystem is one import. Returns the actual file
-/// path, or `None` if none exists.
+/// exists, otherwise the path with each module extension in turn (`.logos`,
+/// `.lg`, `.md`) — so `Import Geometry.` (whose URI is the extension-less
+/// `./geometry`) finds `geometry.logos`, `geometry.lg` or `geometry.md`. Failing
+/// that, a DIRECTORY / barrel module: `Import Lexer.` resolves `lexer/lexer.<ext>`
+/// (self-descriptive), then `lexer/mod.<ext>` — so a whole subsystem is one
+/// import. Returns the actual file path, or `None` if none exists.
 ///
-/// File resolution is tried BEFORE the directory probe, so a real `lexer.lg`
+/// File resolution is tried BEFORE the directory probe, so a real `lexer.logos`
 /// beside a `lexer/` directory always wins (adding a directory never silently
 /// shadows an existing module file).
 fn resolve_module_file(requested: &Path) -> Option<PathBuf> {
     if requested.is_file() {
         return Some(requested.to_path_buf());
     }
-    for ext in ["lg", "md"] {
+    for ext in MODULE_EXTENSIONS {
         let candidate = requested.with_extension(ext);
         if candidate.is_file() {
             return Some(candidate);
@@ -69,17 +70,9 @@ fn resolve_module_file(requested: &Path) -> Option<PathBuf> {
     }
     if requested.is_dir() {
         if let Some(dirname) = requested.file_name().and_then(|s| s.to_str()) {
-            let candidates = [
-                requested.join(format!("{dirname}.lg")),
-                requested.join(format!("{dirname}.md")),
-                requested.join("mod.lg"),
-                requested.join("mod.md"),
-            ];
-            for candidate in candidates {
-                if candidate.is_file() {
-                    return Some(candidate);
-                }
-            }
+            let named = MODULE_EXTENSIONS.iter().map(|ext| requested.join(format!("{dirname}.{ext}")));
+            let barrel = MODULE_EXTENSIONS.iter().map(|ext| requested.join(format!("mod.{ext}")));
+            return named.chain(barrel).find(|candidate| candidate.is_file());
         }
     }
     None
@@ -87,18 +80,14 @@ fn resolve_module_file(requested: &Path) -> Option<PathBuf> {
 
 /// Suggest the closest existing sibling module for a mistyped bare import
 /// (`Import Geometrey.` → "did you mean `Geometry`?"). Compares case-insensitively
-/// (imports are Capitalized, files lowercase) over the `.lg`/`.md` stems beside
-/// the requested path, within a small edit distance.
+/// (imports are Capitalized, files lowercase) over the module stems beside the
+/// requested path, within a small edit distance.
 fn suggest_sibling_module(requested: &Path, name: &str) -> Option<String> {
     let dir = requested.parent()?;
     let mut stems: Vec<String> = Vec::new();
     for entry in std::fs::read_dir(dir).ok()?.flatten() {
         let path = entry.path();
-        let is_module = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .is_some_and(|e| e == "lg" || e == "md");
-        if is_module {
+        if is_module_file(&path) {
             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                 stems.push(stem.to_lowercase());
             }
@@ -259,7 +248,7 @@ impl Loader {
         let requested = base_dir.join(path_str);
 
         // Resolve the concrete file: the exact path, or — for a bare `Import
-        // Name` whose URI carries no extension — `<name>.lg` / `<name>.md`.
+        // Name` whose URI carries no extension — `<name>` with a module extension.
         // Failing that, a bare `Import <Dep>.` may name a DECLARED dependency,
         // whose modules live outside the project (`resolve_in_dep_roots`).
         let resolved_path = resolve_module_file(&requested)
@@ -281,8 +270,12 @@ impl Loader {
                 let hint = suggest_sibling_module(&requested, name)
                     .map(|s| format!(" — did you mean `{s}`?"))
                     .unwrap_or_default();
+                let tried: Vec<String> =
+                    MODULE_EXTENSIONS.iter().map(|ext| format!("`{name}.{ext}`")).collect();
+                let (last, rest) = tried.split_last().expect("there are module extensions");
                 format!(
-                    "could not find a module named `{name}` — looked for `{name}.lg` and `{name}.md` in {dir}{hint}"
+                    "could not find a module named `{name}` — looked for {} and {last} in {dir}{hint}",
+                    rest.join(", ")
                 )
             }
         })?;
@@ -319,8 +312,9 @@ impl Loader {
     /// (the requested path's final component, extension stripped) is matched
     /// case-insensitively against each declared dependency, and within that
     /// dependency's root the module is found the same way the loader finds any
-    /// module: `<root>/<dep>.lg|.md`, the barrel `<root>/<dep>/…`, or the
-    /// dependency's own `src/<dep>.lg|.md` / `src/main.lg|.md` project layout.
+    /// module: `<root>/<dep>.<ext>`, the barrel `<root>/<dep>/…`, or the
+    /// dependency's own `src/<dep>.<ext>` / `src/main.<ext>` project layout, for
+    /// each module extension.
     /// `None` when no dependency matches or the module isn't found in its root.
     /// A bare `Import <Name>.` that named no module beside the importing file: look for it in the
     /// PROJECT's own module directories — `src/` first, then the project root.
@@ -577,9 +571,9 @@ fn local_bindings(source: &str) -> LocalBindings {
                 from = colon + 1;
                 let before = t[..colon].trim_end();
                 let word_start = before
-                    .rfind(|c: char| !(c.is_alphanumeric() || c == '_'))
-                    .map(|i| i + 1)
-                    .unwrap_or(0);
+                    .char_indices()
+                    .rfind(|&(_, c)| !(c.is_alphanumeric() || c == '_'))
+                    .map_or(0, |(i, c)| i + c.len_utf8());
                 let opener = before[..word_start].trim_end();
                 if opener.ends_with('(') || opener.ends_with(',') {
                     if let Some(name) = plain_ident(&before[word_start..]) {
@@ -750,6 +744,29 @@ fn spliced_module(idx: usize) -> String {
     code
 }
 
+/// A module's spliced `code` without its `## To native` declarations of `names`, each with the
+/// `## Note` that documents it: the program declares those natives itself, and a native is one
+/// function under one name on every tier.
+fn without_natives(code: &str, names: &[&str]) -> String {
+    let mut kept: Vec<&str> = Vec::new();
+    for line in code.split_inclusive('\n') {
+        let native = line
+            .trim_start()
+            .strip_prefix("## To native ")
+            .and_then(|rest| rest.split([' ', '(']).next());
+        if native.is_some_and(|n| names.contains(&n)) {
+            if let Some(header) = kept.iter().rposition(|l| l.trim_start().starts_with("## ")) {
+                if kept[header].trim_end() == "## Note" {
+                    kept.truncate(header);
+                }
+            }
+            continue;
+        }
+        kept.push(line);
+    }
+    kept.concat()
+}
+
 /// One run of [`apply_prelude`]'s output tied back to where it came from:
 /// `user_start` is the byte offset of an untouched run of the caller's own
 /// text, `None` marks spliced stdlib text. Downstream span translation
@@ -770,6 +787,12 @@ pub fn apply_prelude(source: &str) -> std::borrow::Cow<'_, str> {
     apply_prelude_mapped(source).0
 }
 
+/// Whether `source` maps the error function over a tensor (`Let Y be erf of X.`), whose desugar calls math.lg's `erf`
+/// though the sentence never writes `erf(`.
+fn maps_erf(source: &str) -> bool {
+    source.lines().any(|l| l.trim_start().starts_with("Let ") && l.contains(" be erf of "))
+}
+
 /// [`apply_prelude`] plus the exact edit it performed, as ordered output runs.
 /// A consumer that parses the expanded text and reports spans against the
 /// USER's buffer must translate through these segments rather than assume the
@@ -784,7 +807,10 @@ pub fn apply_prelude_mapped(source: &str) -> (std::borrow::Cow<'_, str>, Vec<Pre
     // module never costs it the module. A name the program declares (a top-level `## To`/`## A`,
     // or a local closure — a call reaches a function before a local) is its own at every call it
     // writes, and the spliced library copy of that name is renamed out of the way
-    // ([`rename_for_hygiene`]), so library code keeps calling the library's version. A name the
+    // ([`rename_for_hygiene`]), so library code keeps calling the library's version. A native the program
+    // declares is not renamed: a native is bound to its runtime implementation by name on every tier, so the
+    // program's declaration and the module's name one function, and the module is spliced without its own
+    // ([`without_natives`]). A name the
     // program binds as a plain VALUE coexists with the function and only stops counting as a use
     // unless it is called. The rule stays idempotent: a source already carrying a module's
     // definitions declares every name that module could be needed for, so it is left untouched
@@ -894,6 +920,10 @@ pub fn apply_prelude_mapped(source: &str) -> (std::borrow::Cow<'_, str>, Vec<Pre
     }
     if declares_a_convergent_shared_field(source) {
         virtual_refs.push("randomInt");
+    }
+    // `Let Y be erf of X.` maps math.lg's `erf` over a tensor: a call the parser writes from the sentence.
+    if maps_erf(source) {
+        virtual_refs.push("erf");
     }
     // A `## Session` synthesizes a global, a payload encoder and the two functions that move it
     // to and from a signed cookie — none of whose names the author ever types. The header IS the
@@ -1048,13 +1078,12 @@ pub fn apply_prelude_mapped(source: &str) -> (std::borrow::Cow<'_, str>, Vec<Pre
                 continue;
             }
             let names = PRELUDE_NAMES[idx];
-            // The two collisions hygiene cannot rename keep "declarer wins" at module grain: a
-            // builtin-backed type (its declaration is stripped — the engine owns the name) and a
-            // native (bound to its runtime implementation BY NAME on every tier).
-            let natives = PRELUDE_NATIVES[idx];
+            // The one collision hygiene cannot resolve per name keeps "declarer wins" at module
+            // grain: a builtin-backed type, whose declaration is stripped because the engine owns
+            // the name.
             if names
                 .iter()
-                .any(|n| user_defined.contains(*n) && (builtin_backed(n) || natives.contains(n)))
+                .any(|n| user_defined.contains(*n) && builtin_backed(n))
             {
                 continue;
             }
@@ -1076,14 +1105,27 @@ pub fn apply_prelude_mapped(source: &str) -> (std::borrow::Cow<'_, str>, Vec<Pre
     }
     let renames: std::collections::HashMap<String, String> = (0..PRELUDE_MODULES.len())
         .filter(|&idx| selected[idx])
-        .flat_map(|idx| PRELUDE_NAMES[idx].iter())
+        .flat_map(|idx| {
+            PRELUDE_NAMES[idx]
+                .iter()
+                .filter(move |n| !PRELUDE_NATIVES[idx].contains(*n))
+        })
         .filter(|n| user_defined.contains(**n))
         .map(|n| (n.to_string(), hygienic_name(n)))
         .collect();
     let needed: Vec<String> = (0..PRELUDE_MODULES.len())
         .filter(|&idx| selected[idx])
         .map(|idx| {
-            let code = spliced_module(idx);
+            let declared: Vec<&str> = PRELUDE_NATIVES[idx]
+                .iter()
+                .copied()
+                .filter(|n| user_defined.contains(*n))
+                .collect();
+            let code = if declared.is_empty() {
+                spliced_module(idx)
+            } else {
+                without_natives(&spliced_module(idx), &declared)
+            };
             if renames.is_empty() {
                 code
             } else {
@@ -1665,6 +1707,10 @@ fn synthesized_prelude_roots(source: &str) -> Vec<String> {
     }
     if declares_a_convergent_shared_field(source) {
         roots.push("randomInt".to_string());
+    }
+    // The pruner half of the `erf` demand above.
+    if maps_erf(source) {
+        roots.push("erf".to_string());
     }
     // The session's own machinery — see the matching `virtual_refs` block.
     if source.lines().any(|l| l.trim_start() == "## Session") {

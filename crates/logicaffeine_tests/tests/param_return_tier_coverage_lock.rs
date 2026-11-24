@@ -24,6 +24,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
 mod common;
+mod relations_corpus;
 
 use logicaffeine_compile::compile::{
     compile_to_c, compile_to_wasm, tw_outcome, vm_outcome, FIRST_CLASS_VALUE_KINDS,
@@ -59,6 +60,11 @@ const PROBES: &[Probe] = &[
     Probe { name: "destructure", program: "## To dm (n: Int) -> (Int, Int):\n    Return (n / 5, n mod 5).\n## Main\n    Let (q, rem) be dm(17).\n    Show rem.\n" },
     // A Seq of tuples as a param+return type (nested tuple in a collection).
     Probe { name: "seq_tuple", program: "## To rt (x: Seq of (Int, Int)) -> Seq of (Int, Int):\n    Return x.\n## Main\n    Let r be rt([(1, 2), (3, 4)]).\n    Let p be item 1 of r.\n    Show item 2 of p.\n" },
+    // A Set of tuples — a relation: a duplicate add is one member, membership is by value, and a `for`
+    // destructures each member.
+    Probe { name: "set_tuple", program: "## To rt (x: Set of (Text, Text)) -> Set of (Text, Text):\n    Return x.\n## Main\n    Let s be a new Set of (Text, Text).\n    Add (\"a\", \"h1\") to s.\n    Add (\"b\", \"h2\") to s.\n    Add (\"a\", \"h1\") to s.\n    Let r be rt(s).\n    Show the length of r.\n    Show r contains (\"b\", \"h2\").\n    Show r contains (\"b\", \"h1\").\n    Repeat for (v, h) in r:\n        Show v + \" -> \" + h.\n" },
+    // A tuple whose components are Sets, returned and destructured at the call site.
+    Probe { name: "tuple_of_sets", program: "## To split (n: Int) -> (Set of Int, Set of Int):\n    Let evens be a new Set of Int.\n    Let odds be a new Set of Int.\n    Repeat for i from 1 to n:\n        If i is even:\n            Add i to evens.\n        Otherwise:\n            Add i to odds.\n    Return (evens, odds).\n## Main\n    Let (e, o) be split(5).\n    Show e contains 4.\n    Show o contains 4.\n    Show the length of o.\n" },
 ];
 
 /// Probes whose TYPE does not parse yet (the unimplemented first-class-tuple surface). SHRINK-ONLY to
@@ -363,6 +369,60 @@ fn probes_are_exactly_the_shared_canonical_kind_set() {
          probes here not in the canonical set: {extra:?}\n  \
          Fix by adding/removing a Probe or editing the shared const — they must match EXACTLY, so both \
          this ratchet and the compile crate's WASM execution lock move together."
+    );
+}
+
+/// RELATIONS on every tier: a `Set` of tuples is a value whose members compare by value (a duplicate
+/// add is one member; `-0.0` and `0.0` are one key, as IEEE `==` says), a `for` over it destructures
+/// each member in insertion order, sets of triples union and grow while a copy is walked, and a tuple
+/// of sets crosses a function boundary and is destructured. The tree-walker is the oracle; the VM,
+/// AOT-Rust and C execute and must print it byte for byte, and the WASM backend must lower it (its
+/// execution is held by `wasm_aot_lock::relations_as_sets_of_tuples_run_on_wasm`).
+#[test]
+fn relations_as_sets_of_tuples_agree_across_tiers() {
+    let gcc = have_gcc();
+    let programs = relations_corpus::PROGRAMS;
+    let mut violations = Vec::new();
+    for (name, src) in programs {
+        let tw = tw_outcome(src);
+        assert_eq!(
+            tw.error, None,
+            "`{name}` must run cleanly on the tree-walker oracle:\n{src}"
+        );
+        let want = tw.output.trim();
+        let vm = vm_outcome(src);
+        if !(vm.error.is_none() && vm.output.trim() == want) {
+            violations.push(format!(
+                "VM != oracle on `{name}` (got {:?}, want {want:?})",
+                vm.output.trim()
+            ));
+        }
+        let aot = common::run_logos(src);
+        if !(aot.success && aot.stdout.trim() == want) {
+            let errors: Vec<&str> = aot
+                .stderr
+                .lines()
+                .filter(|l| l.starts_with("error") || l.trim_start().starts_with("-->"))
+                .take(12)
+                .collect();
+            violations.push(format!(
+                "AOT-Rust != oracle on `{name}` (got {:?}, want {want:?}; {})",
+                aot.stdout.trim(),
+                errors.join(" | ")
+            ));
+        }
+        if gcc && c_backend_output(src).as_deref() != Some(want) {
+            violations.push(format!("C != oracle on `{name}` (want {want:?})"));
+        }
+        if let Err(e) = compile_to_wasm(src) {
+            violations.push(format!("WASM does not lower `{name}`: {e:?}"));
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "RELATION drift ({} issue(s)) — a Set of tuples diverged across tiers:\n  - {}",
+        violations.len(),
+        violations.join("\n  - ")
     );
 }
 

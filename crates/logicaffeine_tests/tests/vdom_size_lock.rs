@@ -64,13 +64,14 @@ fn shipped(src: &str) -> (usize, usize) {
 /// exactness, when the tape lowering and hydration landed (7.5+7.6): 80,923 / 29,439, 63,181 / 22,931 and
 /// 50,597 / 18,505; before the backend's outlined checked arithmetic and stackified locals: 91,556 /
 /// 35,486 for the counter, 58,402 / 23,172 for the reconciler; before the pruning as well: 103,690 /
-/// 40,385 and 72,423 / 29,106.
+/// 40,385 and 72,423 / 29,106. The display page was 109,652 / 34,915 until 11-18, when the WebAssembly backend began
+/// compiling the program the run-path optimizer makes, as the VM runs it: its specialization clones add the rest.
 const COUNTER_RAW: usize = 137_782;
 const COUNTER_GZIP: usize = 45_211;
 const RECONCILER_RAW: usize = 101_743;
 const RECONCILER_GZIP: usize = 32_047;
-const DISPLAY_RAW: usize = 109_652;
-const DISPLAY_GZIP: usize = 34_915;
+const DISPLAY_RAW: usize = 114_676;
+const DISPLAY_GZIP: usize = 38_647;
 
 /// Room for ordinary growth over a measured number: a tenth.
 fn ceiling(measured: usize) -> usize {

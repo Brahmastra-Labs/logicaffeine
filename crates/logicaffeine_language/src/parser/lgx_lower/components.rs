@@ -1,6 +1,6 @@
 use super::*;
 use crate::ast::component::{ComponentDef, ComponentKind, RouteBody, Trigger};
-use crate::ast::stmt::{Expr, Stmt};
+use crate::ast::stmt::{Expr, Stmt, TypeExpr};
 use crate::ast::view::{bound_input_kind, Attr, BoundInput, ViewNode};
 use logicaffeine_base::{Interner, Symbol};
 
@@ -477,6 +477,36 @@ impl<'a, 'ctx, 'int> super::super::Parser<'a, 'ctx, 'int> {
                          the rest derive from it."
                     )),
                     span: at,
+                });
+            }
+        }
+        // A page's `Paths:` is an ordinary function: `__paths_<Page>() -> Seq of Text`. It runs at
+        // BUILD time, on the reference tier, to answer which URLs a static export pre-renders the
+        // page at — so it is emitted whatever the page's view needs, and a browser never calls it.
+        for def in &defs {
+            if let ComponentKind::Page {
+                paths: Some(body), ..
+            } = &def.kind
+            {
+                let name = self
+                    .interner
+                    .intern(&paths_fn_name(self.interner.resolve(def.name)));
+                let text = TypeExpr::Primitive(self.interner.intern("Text"));
+                let returns: &'a TypeExpr<'a> = self.ctx.alloc_type_expr(TypeExpr::Generic {
+                    base: self.interner.intern("Seq"),
+                    params: self.ctx.alloc_type_exprs(vec![text]),
+                });
+                self.deferred_functions.push(Stmt::FunctionDef {
+                    name,
+                    generics: Vec::new(),
+                    params: Vec::new(),
+                    body: *body,
+                    return_type: Some(returns),
+                    is_native: false,
+                    native_path: None,
+                    is_exported: false,
+                    export_target: None,
+                    opt_flags: crate::optimization::OptimizationConfig::all_on(),
                 });
             }
         }

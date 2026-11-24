@@ -1,0 +1,1436 @@
+{
+  "exports": {
+    "4.14.0/Profile.EveryDoubleIsEven.ndjson": {
+      "command": [
+        "lean",
+        "--run",
+        "<registry>/4.14.0/Main.lean",
+        "--",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.EveryDoubleIsEven"
+      ],
+      "export_bytes": 33848,
+      "export_sha256": "68052fa57f624859aa76492fab79e03a4151c28e3588811d95291421edef44f8",
+      "exporter": {
+        "binary_sha256": null,
+        "form": "interpreted",
+        "revision": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+        "sources": {
+          "Export.lean": "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b",
+          "Export/Parse.lean": "76ce7b55426d48a750b7a478ee16dc599a58ee6bf24964867881ee3f2b174f4b",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "6faf6530819a0bc6d6092a2d9b974ea8e8adfec955d0e51e02e1f82734264d14"
+        },
+        "structural_patch_sha256": null,
+        "upstream_tag": null
+      },
+      "lean_reported": "Lean (version 4.14.0, x86_64-unknown-linux-gnu, commit 410fab728470, Release)",
+      "lean_version": "4.14.0",
+      "print_axioms": [
+        "'Profile.EveryDoubleIsEven' does not depend on any axioms"
+      ],
+      "records": 586,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.14.0/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.EveryDoubleIsEven"
+      ],
+      "toolchain": "leanprover/lean4:v4.14.0"
+    },
+    "4.14.0/Profile.IsEven.ndjson": {
+      "command": [
+        "lean",
+        "--run",
+        "<registry>/4.14.0/Main.lean",
+        "--",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.IsEven"
+      ],
+      "export_bytes": 33232,
+      "export_sha256": "d448ff4125bdb9c525731c1c9c936c0014bc66346ea1a228d4a29ca0aeda36ed",
+      "exporter": {
+        "binary_sha256": null,
+        "form": "interpreted",
+        "revision": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+        "sources": {
+          "Export.lean": "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b",
+          "Export/Parse.lean": "76ce7b55426d48a750b7a478ee16dc599a58ee6bf24964867881ee3f2b174f4b",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "6faf6530819a0bc6d6092a2d9b974ea8e8adfec955d0e51e02e1f82734264d14"
+        },
+        "structural_patch_sha256": null,
+        "upstream_tag": null
+      },
+      "lean_reported": "Lean (version 4.14.0, x86_64-unknown-linux-gnu, commit 410fab728470, Release)",
+      "lean_version": "4.14.0",
+      "print_axioms": [
+        "'Profile.IsEven' does not depend on any axioms"
+      ],
+      "records": 576,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.14.0/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.IsEven"
+      ],
+      "toolchain": "leanprover/lean4:v4.14.0"
+    },
+    "4.14.0/Profile.addZeroViaHave.ndjson": {
+      "command": [
+        "lean",
+        "--run",
+        "<registry>/4.14.0/Main.lean",
+        "--",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.addZeroViaHave"
+      ],
+      "export_bytes": 36661,
+      "export_sha256": "98cad0066a4808c2ac0d4ed17b0eb479dc0890bf55ba12ea6719a27421a06c81",
+      "exporter": {
+        "binary_sha256": null,
+        "form": "interpreted",
+        "revision": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+        "sources": {
+          "Export.lean": "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b",
+          "Export/Parse.lean": "76ce7b55426d48a750b7a478ee16dc599a58ee6bf24964867881ee3f2b174f4b",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "6faf6530819a0bc6d6092a2d9b974ea8e8adfec955d0e51e02e1f82734264d14"
+        },
+        "structural_patch_sha256": null,
+        "upstream_tag": null
+      },
+      "lean_reported": "Lean (version 4.14.0, x86_64-unknown-linux-gnu, commit 410fab728470, Release)",
+      "lean_version": "4.14.0",
+      "print_axioms": [
+        "'Profile.addZeroViaHave' does not depend on any axioms"
+      ],
+      "records": 638,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.14.0/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.addZeroViaHave"
+      ],
+      "toolchain": "leanprover/lean4:v4.14.0"
+    },
+    "4.14.0/Profile.andSwap.ndjson": {
+      "command": [
+        "lean",
+        "--run",
+        "<registry>/4.14.0/Main.lean",
+        "--",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.andSwap"
+      ],
+      "export_bytes": 5427,
+      "export_sha256": "46a893c42959fe3da82cd77c0f1b08699289cd45a7f3e6cf1a7e5f0f28dfb788",
+      "exporter": {
+        "binary_sha256": null,
+        "form": "interpreted",
+        "revision": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+        "sources": {
+          "Export.lean": "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b",
+          "Export/Parse.lean": "76ce7b55426d48a750b7a478ee16dc599a58ee6bf24964867881ee3f2b174f4b",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "6faf6530819a0bc6d6092a2d9b974ea8e8adfec955d0e51e02e1f82734264d14"
+        },
+        "structural_patch_sha256": null,
+        "upstream_tag": null
+      },
+      "lean_reported": "Lean (version 4.14.0, x86_64-unknown-linux-gnu, commit 410fab728470, Release)",
+      "lean_version": "4.14.0",
+      "print_axioms": [
+        "'Profile.andSwap' does not depend on any axioms"
+      ],
+      "records": 97,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.14.0/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.andSwap"
+      ],
+      "toolchain": "leanprover/lean4:v4.14.0"
+    },
+    "4.14.0/Profile.doubleTwo.ndjson": {
+      "command": [
+        "lean",
+        "--run",
+        "<registry>/4.14.0/Main.lean",
+        "--",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.doubleTwo"
+      ],
+      "export_bytes": 35211,
+      "export_sha256": "c0a16177e4b305fcbfd1be8fa470a94395fa560e4fec751a18318b0ddd8df331",
+      "exporter": {
+        "binary_sha256": null,
+        "form": "interpreted",
+        "revision": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+        "sources": {
+          "Export.lean": "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b",
+          "Export/Parse.lean": "76ce7b55426d48a750b7a478ee16dc599a58ee6bf24964867881ee3f2b174f4b",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "6faf6530819a0bc6d6092a2d9b974ea8e8adfec955d0e51e02e1f82734264d14"
+        },
+        "structural_patch_sha256": null,
+        "upstream_tag": null
+      },
+      "lean_reported": "Lean (version 4.14.0, x86_64-unknown-linux-gnu, commit 410fab728470, Release)",
+      "lean_version": "4.14.0",
+      "print_axioms": [
+        "'Profile.doubleTwo' does not depend on any axioms"
+      ],
+      "records": 614,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.14.0/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.doubleTwo"
+      ],
+      "toolchain": "leanprover/lean4:v4.14.0"
+    },
+    "4.14.0/Profile.greetingIsHi.ndjson": {
+      "command": [
+        "lean",
+        "--run",
+        "<registry>/4.14.0/Main.lean",
+        "--",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.greetingIsHi"
+      ],
+      "export_bytes": 301479,
+      "export_sha256": "b8ccb6ffae6ea1123cfb6ce169090c24784e84fbedd056552171a8e7ecff952f",
+      "exporter": {
+        "binary_sha256": null,
+        "form": "interpreted",
+        "revision": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+        "sources": {
+          "Export.lean": "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b",
+          "Export/Parse.lean": "76ce7b55426d48a750b7a478ee16dc599a58ee6bf24964867881ee3f2b174f4b",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "6faf6530819a0bc6d6092a2d9b974ea8e8adfec955d0e51e02e1f82734264d14"
+        },
+        "structural_patch_sha256": null,
+        "upstream_tag": null
+      },
+      "lean_reported": "Lean (version 4.14.0, x86_64-unknown-linux-gnu, commit 410fab728470, Release)",
+      "lean_version": "4.14.0",
+      "print_axioms": [
+        "'Profile.greetingIsHi' does not depend on any axioms"
+      ],
+      "records": 5454,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.14.0/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.greetingIsHi"
+      ],
+      "toolchain": "leanprover/lean4:v4.14.0"
+    },
+    "4.14.0/Profile.statements.ndjson": {
+      "command": [
+        "lean",
+        "--run",
+        "<registry>/4.14.0/Main.lean",
+        "--",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.unbounded",
+        "Profile.answered",
+        "Profile.unfinished",
+        "Profile.RestsOnUnfinished"
+      ],
+      "export_bytes": 52855,
+      "export_sha256": "020e508021160973a8bc3c6d86f36f1354157e258fb8bd2c161dd2748b79191b",
+      "exporter": {
+        "binary_sha256": null,
+        "form": "interpreted",
+        "revision": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+        "sources": {
+          "Export.lean": "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b",
+          "Export/Parse.lean": "76ce7b55426d48a750b7a478ee16dc599a58ee6bf24964867881ee3f2b174f4b",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "6faf6530819a0bc6d6092a2d9b974ea8e8adfec955d0e51e02e1f82734264d14"
+        },
+        "structural_patch_sha256": null,
+        "upstream_tag": null
+      },
+      "lean_reported": "Lean (version 4.14.0, x86_64-unknown-linux-gnu, commit 410fab728470, Release)",
+      "lean_version": "4.14.0",
+      "print_axioms": [
+        "'Profile.unbounded' depends on axioms: [sorryAx]",
+        "'Profile.answered' depends on axioms: [sorryAx]",
+        "'Profile.unfinished' depends on axioms: [sorryAx]",
+        "'Profile.RestsOnUnfinished' depends on axioms: [sorryAx]"
+      ],
+      "records": 888,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.14.0/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.unbounded",
+        "Profile.answered",
+        "Profile.unfinished",
+        "Profile.RestsOnUnfinished"
+      ],
+      "toolchain": "leanprover/lean4:v4.14.0"
+    },
+    "4.28.0/Profile.EveryDoubleIsEven.ndjson": {
+      "command": [
+        "<registry>/4.28.0/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.EveryDoubleIsEven"
+      ],
+      "export_bytes": 35081,
+      "export_sha256": "70892f72dc9d33e8c101f8a228667c149466a0784729dfd60cf4acd021b63b12",
+      "exporter": {
+        "binary_sha256": "1e5347101f199f2b06852fe9231b2092a231e13cfba3ca15d3457c025159f2c6",
+        "form": "executable",
+        "revision": "d065b0009aed0520e9e99752847a33b337661690",
+        "sources": {
+          "Export.lean": "1dee205b41b6cad4f17c1f79c9c1921d69b2d264ab711aeee40ea56a5bb1e2ec",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "db7bb24b756d745bbde83fe92718b51bd3625dae3701ba0f598d0eedcd3f3028"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.28.0"
+      },
+      "lean_reported": "Lean (version 4.28.0, x86_64-unknown-linux-gnu, commit 7e01a1bf5c70fc6167d49c345d3bf80596e9a79b, Release)",
+      "lean_version": "4.28.0",
+      "print_axioms": [
+        "'Profile.EveryDoubleIsEven' does not depend on any axioms"
+      ],
+      "records": 609,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.28.0/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.EveryDoubleIsEven"
+      ],
+      "toolchain": "leanprover/lean4:v4.28.0"
+    },
+    "4.28.0/Profile.IsEven.ndjson": {
+      "command": [
+        "<registry>/4.28.0/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.IsEven"
+      ],
+      "export_bytes": 34463,
+      "export_sha256": "b1b2807bfbc5e8848bb28b94f646665d36ad1f900e484ea8d6e6f54e68d9e766",
+      "exporter": {
+        "binary_sha256": "1e5347101f199f2b06852fe9231b2092a231e13cfba3ca15d3457c025159f2c6",
+        "form": "executable",
+        "revision": "d065b0009aed0520e9e99752847a33b337661690",
+        "sources": {
+          "Export.lean": "1dee205b41b6cad4f17c1f79c9c1921d69b2d264ab711aeee40ea56a5bb1e2ec",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "db7bb24b756d745bbde83fe92718b51bd3625dae3701ba0f598d0eedcd3f3028"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.28.0"
+      },
+      "lean_reported": "Lean (version 4.28.0, x86_64-unknown-linux-gnu, commit 7e01a1bf5c70fc6167d49c345d3bf80596e9a79b, Release)",
+      "lean_version": "4.28.0",
+      "print_axioms": [
+        "'Profile.IsEven' does not depend on any axioms"
+      ],
+      "records": 599,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.28.0/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.IsEven"
+      ],
+      "toolchain": "leanprover/lean4:v4.28.0"
+    },
+    "4.28.0/Profile.addZeroViaHave.ndjson": {
+      "command": [
+        "<registry>/4.28.0/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.addZeroViaHave"
+      ],
+      "export_bytes": 36710,
+      "export_sha256": "eca176ea6ef2c69754c73ab12da6253749319e5a13186a0743e902c08aded6a2",
+      "exporter": {
+        "binary_sha256": "1e5347101f199f2b06852fe9231b2092a231e13cfba3ca15d3457c025159f2c6",
+        "form": "executable",
+        "revision": "d065b0009aed0520e9e99752847a33b337661690",
+        "sources": {
+          "Export.lean": "1dee205b41b6cad4f17c1f79c9c1921d69b2d264ab711aeee40ea56a5bb1e2ec",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "db7bb24b756d745bbde83fe92718b51bd3625dae3701ba0f598d0eedcd3f3028"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.28.0"
+      },
+      "lean_reported": "Lean (version 4.28.0, x86_64-unknown-linux-gnu, commit 7e01a1bf5c70fc6167d49c345d3bf80596e9a79b, Release)",
+      "lean_version": "4.28.0",
+      "print_axioms": [
+        "'Profile.addZeroViaHave' does not depend on any axioms"
+      ],
+      "records": 643,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.28.0/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.addZeroViaHave"
+      ],
+      "toolchain": "leanprover/lean4:v4.28.0"
+    },
+    "4.28.0/Profile.andSwap.ndjson": {
+      "command": [
+        "<registry>/4.28.0/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.andSwap"
+      ],
+      "export_bytes": 5427,
+      "export_sha256": "62970964ec53390ac91243bc07ef0f459f5f0338cff035b13ea89c939b017edb",
+      "exporter": {
+        "binary_sha256": "1e5347101f199f2b06852fe9231b2092a231e13cfba3ca15d3457c025159f2c6",
+        "form": "executable",
+        "revision": "d065b0009aed0520e9e99752847a33b337661690",
+        "sources": {
+          "Export.lean": "1dee205b41b6cad4f17c1f79c9c1921d69b2d264ab711aeee40ea56a5bb1e2ec",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "db7bb24b756d745bbde83fe92718b51bd3625dae3701ba0f598d0eedcd3f3028"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.28.0"
+      },
+      "lean_reported": "Lean (version 4.28.0, x86_64-unknown-linux-gnu, commit 7e01a1bf5c70fc6167d49c345d3bf80596e9a79b, Release)",
+      "lean_version": "4.28.0",
+      "print_axioms": [
+        "'Profile.andSwap' does not depend on any axioms"
+      ],
+      "records": 97,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.28.0/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.andSwap"
+      ],
+      "toolchain": "leanprover/lean4:v4.28.0"
+    },
+    "4.28.0/Profile.doubleTwo.ndjson": {
+      "command": [
+        "<registry>/4.28.0/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.doubleTwo"
+      ],
+      "export_bytes": 36728,
+      "export_sha256": "74a35f5b0d14cf543175a042c394ecb5242d01f3f69926c0f99079be00952006",
+      "exporter": {
+        "binary_sha256": "1e5347101f199f2b06852fe9231b2092a231e13cfba3ca15d3457c025159f2c6",
+        "form": "executable",
+        "revision": "d065b0009aed0520e9e99752847a33b337661690",
+        "sources": {
+          "Export.lean": "1dee205b41b6cad4f17c1f79c9c1921d69b2d264ab711aeee40ea56a5bb1e2ec",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "db7bb24b756d745bbde83fe92718b51bd3625dae3701ba0f598d0eedcd3f3028"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.28.0"
+      },
+      "lean_reported": "Lean (version 4.28.0, x86_64-unknown-linux-gnu, commit 7e01a1bf5c70fc6167d49c345d3bf80596e9a79b, Release)",
+      "lean_version": "4.28.0",
+      "print_axioms": [
+        "'Profile.doubleTwo' does not depend on any axioms"
+      ],
+      "records": 643,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.28.0/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.doubleTwo"
+      ],
+      "toolchain": "leanprover/lean4:v4.28.0"
+    },
+    "4.28.0/Profile.greetingIsHi.ndjson": {
+      "command": [
+        "<registry>/4.28.0/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.greetingIsHi"
+      ],
+      "export_bytes": 609104,
+      "export_sha256": "6e9527761677afa55ab508c12451de9aecbfd9e0114a1034edcdc2fc9e3ad5ec",
+      "exporter": {
+        "binary_sha256": "1e5347101f199f2b06852fe9231b2092a231e13cfba3ca15d3457c025159f2c6",
+        "form": "executable",
+        "revision": "d065b0009aed0520e9e99752847a33b337661690",
+        "sources": {
+          "Export.lean": "1dee205b41b6cad4f17c1f79c9c1921d69b2d264ab711aeee40ea56a5bb1e2ec",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "db7bb24b756d745bbde83fe92718b51bd3625dae3701ba0f598d0eedcd3f3028"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.28.0"
+      },
+      "lean_reported": "Lean (version 4.28.0, x86_64-unknown-linux-gnu, commit 7e01a1bf5c70fc6167d49c345d3bf80596e9a79b, Release)",
+      "lean_version": "4.28.0",
+      "print_axioms": [
+        "'Profile.greetingIsHi' does not depend on any axioms"
+      ],
+      "records": 11030,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.28.0/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.greetingIsHi"
+      ],
+      "toolchain": "leanprover/lean4:v4.28.0"
+    },
+    "4.28.0/Profile.statements.ndjson": {
+      "command": [
+        "<registry>/4.28.0/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.unbounded",
+        "Profile.answered",
+        "Profile.unfinished",
+        "Profile.RestsOnUnfinished"
+      ],
+      "export_bytes": 625701,
+      "export_sha256": "ca92be191ea0bcbb8445cde9ee75ba9e4d4e71e7f6d98dfefa75ed688fb8a77c",
+      "exporter": {
+        "binary_sha256": "1e5347101f199f2b06852fe9231b2092a231e13cfba3ca15d3457c025159f2c6",
+        "form": "executable",
+        "revision": "d065b0009aed0520e9e99752847a33b337661690",
+        "sources": {
+          "Export.lean": "1dee205b41b6cad4f17c1f79c9c1921d69b2d264ab711aeee40ea56a5bb1e2ec",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "db7bb24b756d745bbde83fe92718b51bd3625dae3701ba0f598d0eedcd3f3028"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.28.0"
+      },
+      "lean_reported": "Lean (version 4.28.0, x86_64-unknown-linux-gnu, commit 7e01a1bf5c70fc6167d49c345d3bf80596e9a79b, Release)",
+      "lean_version": "4.28.0",
+      "print_axioms": [
+        "'Profile.unbounded' depends on axioms: [sorryAx]",
+        "'Profile.answered' depends on axioms: [sorryAx]",
+        "'Profile.unfinished' depends on axioms: [sorryAx]",
+        "'Profile.RestsOnUnfinished' depends on axioms: [sorryAx]"
+      ],
+      "records": 11379,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.28.0/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.unbounded",
+        "Profile.answered",
+        "Profile.unfinished",
+        "Profile.RestsOnUnfinished"
+      ],
+      "toolchain": "leanprover/lean4:v4.28.0"
+    },
+    "4.33.1/Profile.EveryDoubleIsEven.ndjson": {
+      "command": [
+        "<registry>/4.33.1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.EveryDoubleIsEven"
+      ],
+      "export_bytes": 35421,
+      "export_sha256": "b4b7fa9194beaf176fe0c9e5926581fae9d611675b2a429e970395960e6e29dc",
+      "exporter": {
+        "binary_sha256": "a38ef42f19a4e5cc33591a37ba9c478472b1528bd4995e9890c5681474baad70",
+        "form": "executable",
+        "revision": "15f6055e299ad5b89345e533cc2192f4cc00f659",
+        "sources": {
+          "Export.lean": "e77e2ab2f85e39eed95779b92b90837edf807e14aadffeb7569ef85015e8805f",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "3aac669c7a910ec2389f4e4f921b605adf6ebf2d1e0c9b9cd0be4d33f3f5db71"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.33.0"
+      },
+      "lean_reported": "Lean (version 4.33.1, x86_64-unknown-linux-gnu, commit 819816b2e0a3bf405af45ae5c7af2491d8f5bee6, Release)",
+      "lean_version": "4.33.1",
+      "print_axioms": [
+        "'Profile.EveryDoubleIsEven' does not depend on any axioms"
+      ],
+      "records": 614,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.33.1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.EveryDoubleIsEven"
+      ],
+      "toolchain": "leanprover/lean4:v4.33.1"
+    },
+    "4.33.1/Profile.IsEven.ndjson": {
+      "command": [
+        "<registry>/4.33.1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.IsEven"
+      ],
+      "export_bytes": 34803,
+      "export_sha256": "649ec15698812f84ad0b157b70b2626dbe5cf5a99107d28524e4b2418c152fa0",
+      "exporter": {
+        "binary_sha256": "a38ef42f19a4e5cc33591a37ba9c478472b1528bd4995e9890c5681474baad70",
+        "form": "executable",
+        "revision": "15f6055e299ad5b89345e533cc2192f4cc00f659",
+        "sources": {
+          "Export.lean": "e77e2ab2f85e39eed95779b92b90837edf807e14aadffeb7569ef85015e8805f",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "3aac669c7a910ec2389f4e4f921b605adf6ebf2d1e0c9b9cd0be4d33f3f5db71"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.33.0"
+      },
+      "lean_reported": "Lean (version 4.33.1, x86_64-unknown-linux-gnu, commit 819816b2e0a3bf405af45ae5c7af2491d8f5bee6, Release)",
+      "lean_version": "4.33.1",
+      "print_axioms": [
+        "'Profile.IsEven' does not depend on any axioms"
+      ],
+      "records": 604,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.33.1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.IsEven"
+      ],
+      "toolchain": "leanprover/lean4:v4.33.1"
+    },
+    "4.33.1/Profile.addZeroViaHave.ndjson": {
+      "command": [
+        "<registry>/4.33.1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.addZeroViaHave"
+      ],
+      "export_bytes": 37049,
+      "export_sha256": "bb6ff260bbbc365954a124caed7f622b5d7ff034ba17ac09ba06dd3cc7097b31",
+      "exporter": {
+        "binary_sha256": "a38ef42f19a4e5cc33591a37ba9c478472b1528bd4995e9890c5681474baad70",
+        "form": "executable",
+        "revision": "15f6055e299ad5b89345e533cc2192f4cc00f659",
+        "sources": {
+          "Export.lean": "e77e2ab2f85e39eed95779b92b90837edf807e14aadffeb7569ef85015e8805f",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "3aac669c7a910ec2389f4e4f921b605adf6ebf2d1e0c9b9cd0be4d33f3f5db71"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.33.0"
+      },
+      "lean_reported": "Lean (version 4.33.1, x86_64-unknown-linux-gnu, commit 819816b2e0a3bf405af45ae5c7af2491d8f5bee6, Release)",
+      "lean_version": "4.33.1",
+      "print_axioms": [
+        "'Profile.addZeroViaHave' does not depend on any axioms"
+      ],
+      "records": 648,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.33.1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.addZeroViaHave"
+      ],
+      "toolchain": "leanprover/lean4:v4.33.1"
+    },
+    "4.33.1/Profile.andSwap.ndjson": {
+      "command": [
+        "<registry>/4.33.1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.andSwap"
+      ],
+      "export_bytes": 5427,
+      "export_sha256": "5ace189eeb704b5e741948c32632a151eff82a89095af733118000b3c9fb1984",
+      "exporter": {
+        "binary_sha256": "a38ef42f19a4e5cc33591a37ba9c478472b1528bd4995e9890c5681474baad70",
+        "form": "executable",
+        "revision": "15f6055e299ad5b89345e533cc2192f4cc00f659",
+        "sources": {
+          "Export.lean": "e77e2ab2f85e39eed95779b92b90837edf807e14aadffeb7569ef85015e8805f",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "3aac669c7a910ec2389f4e4f921b605adf6ebf2d1e0c9b9cd0be4d33f3f5db71"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.33.0"
+      },
+      "lean_reported": "Lean (version 4.33.1, x86_64-unknown-linux-gnu, commit 819816b2e0a3bf405af45ae5c7af2491d8f5bee6, Release)",
+      "lean_version": "4.33.1",
+      "print_axioms": [
+        "'Profile.andSwap' does not depend on any axioms"
+      ],
+      "records": 97,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.33.1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.andSwap"
+      ],
+      "toolchain": "leanprover/lean4:v4.33.1"
+    },
+    "4.33.1/Profile.doubleTwo.ndjson": {
+      "command": [
+        "<registry>/4.33.1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.doubleTwo"
+      ],
+      "export_bytes": 37068,
+      "export_sha256": "6eca24bba235755d5e86de5c80faf2e8e3df2d2f87e8036a3a1962c0849efb9a",
+      "exporter": {
+        "binary_sha256": "a38ef42f19a4e5cc33591a37ba9c478472b1528bd4995e9890c5681474baad70",
+        "form": "executable",
+        "revision": "15f6055e299ad5b89345e533cc2192f4cc00f659",
+        "sources": {
+          "Export.lean": "e77e2ab2f85e39eed95779b92b90837edf807e14aadffeb7569ef85015e8805f",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "3aac669c7a910ec2389f4e4f921b605adf6ebf2d1e0c9b9cd0be4d33f3f5db71"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.33.0"
+      },
+      "lean_reported": "Lean (version 4.33.1, x86_64-unknown-linux-gnu, commit 819816b2e0a3bf405af45ae5c7af2491d8f5bee6, Release)",
+      "lean_version": "4.33.1",
+      "print_axioms": [
+        "'Profile.doubleTwo' does not depend on any axioms"
+      ],
+      "records": 648,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.33.1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.doubleTwo"
+      ],
+      "toolchain": "leanprover/lean4:v4.33.1"
+    },
+    "4.33.1/Profile.greetingIsHi.ndjson": {
+      "command": [
+        "<registry>/4.33.1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.greetingIsHi"
+      ],
+      "export_bytes": 617222,
+      "export_sha256": "f0a15d09fc526bd0d245a3eab4eff6915bf980daba8e3574be3d5deb28f51d7b",
+      "exporter": {
+        "binary_sha256": "a38ef42f19a4e5cc33591a37ba9c478472b1528bd4995e9890c5681474baad70",
+        "form": "executable",
+        "revision": "15f6055e299ad5b89345e533cc2192f4cc00f659",
+        "sources": {
+          "Export.lean": "e77e2ab2f85e39eed95779b92b90837edf807e14aadffeb7569ef85015e8805f",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "3aac669c7a910ec2389f4e4f921b605adf6ebf2d1e0c9b9cd0be4d33f3f5db71"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.33.0"
+      },
+      "lean_reported": "Lean (version 4.33.1, x86_64-unknown-linux-gnu, commit 819816b2e0a3bf405af45ae5c7af2491d8f5bee6, Release)",
+      "lean_version": "4.33.1",
+      "print_axioms": [
+        "'Profile.greetingIsHi' does not depend on any axioms"
+      ],
+      "records": 11131,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.33.1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.greetingIsHi"
+      ],
+      "toolchain": "leanprover/lean4:v4.33.1"
+    },
+    "4.33.1/Profile.statements.ndjson": {
+      "command": [
+        "<registry>/4.33.1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.unbounded",
+        "Profile.answered",
+        "Profile.unfinished",
+        "Profile.RestsOnUnfinished"
+      ],
+      "export_bytes": 633786,
+      "export_sha256": "ea236b93151be1bbcb3346dfccc36575a8ee661d0c95085c4bf3932441d4ed43",
+      "exporter": {
+        "binary_sha256": "a38ef42f19a4e5cc33591a37ba9c478472b1528bd4995e9890c5681474baad70",
+        "form": "executable",
+        "revision": "15f6055e299ad5b89345e533cc2192f4cc00f659",
+        "sources": {
+          "Export.lean": "e77e2ab2f85e39eed95779b92b90837edf807e14aadffeb7569ef85015e8805f",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "3aac669c7a910ec2389f4e4f921b605adf6ebf2d1e0c9b9cd0be4d33f3f5db71"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.33.0"
+      },
+      "lean_reported": "Lean (version 4.33.1, x86_64-unknown-linux-gnu, commit 819816b2e0a3bf405af45ae5c7af2491d8f5bee6, Release)",
+      "lean_version": "4.33.1",
+      "print_axioms": [
+        "'Profile.unbounded' depends on axioms: [sorryAx]",
+        "'Profile.answered' depends on axioms: [sorryAx]",
+        "'Profile.unfinished' depends on axioms: [sorryAx]",
+        "'Profile.RestsOnUnfinished' depends on axioms: [sorryAx]"
+      ],
+      "records": 11480,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.33.1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.unbounded",
+        "Profile.answered",
+        "Profile.unfinished",
+        "Profile.RestsOnUnfinished"
+      ],
+      "toolchain": "leanprover/lean4:v4.33.1"
+    },
+    "4.34.0-rc1/Profile.EveryDoubleIsEven.ndjson": {
+      "command": [
+        "<registry>/4.34.0-rc1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.EveryDoubleIsEven"
+      ],
+      "export_bytes": 35425,
+      "export_sha256": "7dc1c49295d8d5ff6be347f23cd95f832b85adbced5282be779e30e2dd4c9ce9",
+      "exporter": {
+        "binary_sha256": "3bf07d7048ae1b731537dd0324e9eee316ab202fc8ba1c2b5f832186fa7f841d",
+        "form": "executable",
+        "revision": "b18d673bd29b476466a51a3be1012df2ed322b10",
+        "sources": {
+          "Export.lean": "e77e2ab2f85e39eed95779b92b90837edf807e14aadffeb7569ef85015e8805f",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "cdbc6c372a2b37ad94430a6cec69cedfa4d36f255bfd968773fd91bf7a1746bf"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.34.0-rc1"
+      },
+      "lean_reported": "Lean (version 4.34.0-rc1, x86_64-unknown-linux-gnu, commit 3447a668783dbce1a8fdb97101dd067687b2b418, Release)",
+      "lean_version": "4.34.0-rc1",
+      "print_axioms": [
+        "'Profile.EveryDoubleIsEven' does not depend on any axioms"
+      ],
+      "records": 614,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.34.0-rc1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.EveryDoubleIsEven"
+      ],
+      "toolchain": "leanprover/lean4:v4.34.0-rc1"
+    },
+    "4.34.0-rc1/Profile.IsEven.ndjson": {
+      "command": [
+        "<registry>/4.34.0-rc1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.IsEven"
+      ],
+      "export_bytes": 34807,
+      "export_sha256": "6627b58075b9d6b6416a7d1a1f99ea15177374935ec879581eace1c21e5329e9",
+      "exporter": {
+        "binary_sha256": "3bf07d7048ae1b731537dd0324e9eee316ab202fc8ba1c2b5f832186fa7f841d",
+        "form": "executable",
+        "revision": "b18d673bd29b476466a51a3be1012df2ed322b10",
+        "sources": {
+          "Export.lean": "e77e2ab2f85e39eed95779b92b90837edf807e14aadffeb7569ef85015e8805f",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "cdbc6c372a2b37ad94430a6cec69cedfa4d36f255bfd968773fd91bf7a1746bf"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.34.0-rc1"
+      },
+      "lean_reported": "Lean (version 4.34.0-rc1, x86_64-unknown-linux-gnu, commit 3447a668783dbce1a8fdb97101dd067687b2b418, Release)",
+      "lean_version": "4.34.0-rc1",
+      "print_axioms": [
+        "'Profile.IsEven' does not depend on any axioms"
+      ],
+      "records": 604,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.34.0-rc1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.IsEven"
+      ],
+      "toolchain": "leanprover/lean4:v4.34.0-rc1"
+    },
+    "4.34.0-rc1/Profile.addZeroViaHave.ndjson": {
+      "command": [
+        "<registry>/4.34.0-rc1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.addZeroViaHave"
+      ],
+      "export_bytes": 37053,
+      "export_sha256": "8a8b0031994606369a00671f4c7cda841417fa0259e3733e006a6f79ff6c027d",
+      "exporter": {
+        "binary_sha256": "3bf07d7048ae1b731537dd0324e9eee316ab202fc8ba1c2b5f832186fa7f841d",
+        "form": "executable",
+        "revision": "b18d673bd29b476466a51a3be1012df2ed322b10",
+        "sources": {
+          "Export.lean": "e77e2ab2f85e39eed95779b92b90837edf807e14aadffeb7569ef85015e8805f",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "cdbc6c372a2b37ad94430a6cec69cedfa4d36f255bfd968773fd91bf7a1746bf"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.34.0-rc1"
+      },
+      "lean_reported": "Lean (version 4.34.0-rc1, x86_64-unknown-linux-gnu, commit 3447a668783dbce1a8fdb97101dd067687b2b418, Release)",
+      "lean_version": "4.34.0-rc1",
+      "print_axioms": [
+        "'Profile.addZeroViaHave' does not depend on any axioms"
+      ],
+      "records": 648,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.34.0-rc1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.addZeroViaHave"
+      ],
+      "toolchain": "leanprover/lean4:v4.34.0-rc1"
+    },
+    "4.34.0-rc1/Profile.andSwap.ndjson": {
+      "command": [
+        "<registry>/4.34.0-rc1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.andSwap"
+      ],
+      "export_bytes": 5431,
+      "export_sha256": "2c124b60bd9c0ac5605762c0a29eeff417bcfd555e72a6fadddc2c7a18f76bd2",
+      "exporter": {
+        "binary_sha256": "3bf07d7048ae1b731537dd0324e9eee316ab202fc8ba1c2b5f832186fa7f841d",
+        "form": "executable",
+        "revision": "b18d673bd29b476466a51a3be1012df2ed322b10",
+        "sources": {
+          "Export.lean": "e77e2ab2f85e39eed95779b92b90837edf807e14aadffeb7569ef85015e8805f",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "cdbc6c372a2b37ad94430a6cec69cedfa4d36f255bfd968773fd91bf7a1746bf"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.34.0-rc1"
+      },
+      "lean_reported": "Lean (version 4.34.0-rc1, x86_64-unknown-linux-gnu, commit 3447a668783dbce1a8fdb97101dd067687b2b418, Release)",
+      "lean_version": "4.34.0-rc1",
+      "print_axioms": [
+        "'Profile.andSwap' does not depend on any axioms"
+      ],
+      "records": 97,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.34.0-rc1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.andSwap"
+      ],
+      "toolchain": "leanprover/lean4:v4.34.0-rc1"
+    },
+    "4.34.0-rc1/Profile.doubleTwo.ndjson": {
+      "command": [
+        "<registry>/4.34.0-rc1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.doubleTwo"
+      ],
+      "export_bytes": 37072,
+      "export_sha256": "ddc897ef0eeb3b9a6c97406b8573e610d07460b06e63df2a887d74611e961fe0",
+      "exporter": {
+        "binary_sha256": "3bf07d7048ae1b731537dd0324e9eee316ab202fc8ba1c2b5f832186fa7f841d",
+        "form": "executable",
+        "revision": "b18d673bd29b476466a51a3be1012df2ed322b10",
+        "sources": {
+          "Export.lean": "e77e2ab2f85e39eed95779b92b90837edf807e14aadffeb7569ef85015e8805f",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "cdbc6c372a2b37ad94430a6cec69cedfa4d36f255bfd968773fd91bf7a1746bf"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.34.0-rc1"
+      },
+      "lean_reported": "Lean (version 4.34.0-rc1, x86_64-unknown-linux-gnu, commit 3447a668783dbce1a8fdb97101dd067687b2b418, Release)",
+      "lean_version": "4.34.0-rc1",
+      "print_axioms": [
+        "'Profile.doubleTwo' does not depend on any axioms"
+      ],
+      "records": 648,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.34.0-rc1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.doubleTwo"
+      ],
+      "toolchain": "leanprover/lean4:v4.34.0-rc1"
+    },
+    "4.34.0-rc1/Profile.greetingIsHi.ndjson": {
+      "command": [
+        "<registry>/4.34.0-rc1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.greetingIsHi"
+      ],
+      "export_bytes": 617272,
+      "export_sha256": "ab14391ec9ba55015416d483c1720860a4422388fa1f7b8d452d36ce780ca5a6",
+      "exporter": {
+        "binary_sha256": "3bf07d7048ae1b731537dd0324e9eee316ab202fc8ba1c2b5f832186fa7f841d",
+        "form": "executable",
+        "revision": "b18d673bd29b476466a51a3be1012df2ed322b10",
+        "sources": {
+          "Export.lean": "e77e2ab2f85e39eed95779b92b90837edf807e14aadffeb7569ef85015e8805f",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "cdbc6c372a2b37ad94430a6cec69cedfa4d36f255bfd968773fd91bf7a1746bf"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.34.0-rc1"
+      },
+      "lean_reported": "Lean (version 4.34.0-rc1, x86_64-unknown-linux-gnu, commit 3447a668783dbce1a8fdb97101dd067687b2b418, Release)",
+      "lean_version": "4.34.0-rc1",
+      "print_axioms": [
+        "'Profile.greetingIsHi' does not depend on any axioms"
+      ],
+      "records": 11132,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.34.0-rc1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.greetingIsHi"
+      ],
+      "toolchain": "leanprover/lean4:v4.34.0-rc1"
+    },
+    "4.34.0-rc1/Profile.statements.ndjson": {
+      "command": [
+        "<registry>/4.34.0-rc1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.unbounded",
+        "Profile.answered",
+        "Profile.unfinished",
+        "Profile.RestsOnUnfinished"
+      ],
+      "export_bytes": 633835,
+      "export_sha256": "11c660fd147b53507034d188b93f5ba451a747de2f05f97136fce77ecd21b2b8",
+      "exporter": {
+        "binary_sha256": "3bf07d7048ae1b731537dd0324e9eee316ab202fc8ba1c2b5f832186fa7f841d",
+        "form": "executable",
+        "revision": "b18d673bd29b476466a51a3be1012df2ed322b10",
+        "sources": {
+          "Export.lean": "e77e2ab2f85e39eed95779b92b90837edf807e14aadffeb7569ef85015e8805f",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "cdbc6c372a2b37ad94430a6cec69cedfa4d36f255bfd968773fd91bf7a1746bf"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.34.0-rc1"
+      },
+      "lean_reported": "Lean (version 4.34.0-rc1, x86_64-unknown-linux-gnu, commit 3447a668783dbce1a8fdb97101dd067687b2b418, Release)",
+      "lean_version": "4.34.0-rc1",
+      "print_axioms": [
+        "'Profile.unbounded' depends on axioms: [sorryAx]",
+        "'Profile.answered' depends on axioms: [sorryAx]",
+        "'Profile.unfinished' depends on axioms: [sorryAx]",
+        "'Profile.RestsOnUnfinished' depends on axioms: [sorryAx]"
+      ],
+      "records": 11481,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.34.0-rc1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.unbounded",
+        "Profile.answered",
+        "Profile.unfinished",
+        "Profile.RestsOnUnfinished"
+      ],
+      "toolchain": "leanprover/lean4:v4.34.0-rc1"
+    },
+    "4.34.1/Profile.EveryDoubleIsEven.ndjson": {
+      "command": [
+        "<registry>/4.34.1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.EveryDoubleIsEven"
+      ],
+      "export_bytes": 35421,
+      "export_sha256": "5dd8ad475e90655edb3394e32747c7018322484805ee745e5dd134acca6c28a5",
+      "exporter": {
+        "binary_sha256": "34c93120387a834450c6c8c8cfaab19ecb4d7660be66a585f2940e47c6534ea1",
+        "form": "executable",
+        "revision": "076e8e57707e813375e8f9da8bf989799ace9680",
+        "sources": {
+          "Export.lean": "82938dc1c3654f52dbbb92786ae93e4b23822798951a2279b46661f7bfeb176b",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "d5edba4e4b8faad9c1baeadb265716d20d03be4d1a2647dc5e35b0c0325bea7b"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.34.0"
+      },
+      "lean_reported": "Lean (version 4.34.1, x86_64-unknown-linux-gnu, commit 5045d0056413266e57c625dcd7c365b10e377c52, Release)",
+      "lean_version": "4.34.1",
+      "print_axioms": [
+        "'Profile.EveryDoubleIsEven' does not depend on any axioms"
+      ],
+      "records": 614,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.34.1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.EveryDoubleIsEven"
+      ],
+      "toolchain": "leanprover/lean4:v4.34.1"
+    },
+    "4.34.1/Profile.IsEven.ndjson": {
+      "command": [
+        "<registry>/4.34.1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.IsEven"
+      ],
+      "export_bytes": 34803,
+      "export_sha256": "69ab6eee59a0e4d8a5b2dd833862a5d90085941e937a6e74771b84a0fdc0cd8a",
+      "exporter": {
+        "binary_sha256": "34c93120387a834450c6c8c8cfaab19ecb4d7660be66a585f2940e47c6534ea1",
+        "form": "executable",
+        "revision": "076e8e57707e813375e8f9da8bf989799ace9680",
+        "sources": {
+          "Export.lean": "82938dc1c3654f52dbbb92786ae93e4b23822798951a2279b46661f7bfeb176b",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "d5edba4e4b8faad9c1baeadb265716d20d03be4d1a2647dc5e35b0c0325bea7b"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.34.0"
+      },
+      "lean_reported": "Lean (version 4.34.1, x86_64-unknown-linux-gnu, commit 5045d0056413266e57c625dcd7c365b10e377c52, Release)",
+      "lean_version": "4.34.1",
+      "print_axioms": [
+        "'Profile.IsEven' does not depend on any axioms"
+      ],
+      "records": 604,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.34.1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.IsEven"
+      ],
+      "toolchain": "leanprover/lean4:v4.34.1"
+    },
+    "4.34.1/Profile.addZeroViaHave.ndjson": {
+      "command": [
+        "<registry>/4.34.1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.addZeroViaHave"
+      ],
+      "export_bytes": 37049,
+      "export_sha256": "791d38c5ea0b6ed0b54df7f369f5fb798f0b17bafbfe4095eacff74cd2c8732e",
+      "exporter": {
+        "binary_sha256": "34c93120387a834450c6c8c8cfaab19ecb4d7660be66a585f2940e47c6534ea1",
+        "form": "executable",
+        "revision": "076e8e57707e813375e8f9da8bf989799ace9680",
+        "sources": {
+          "Export.lean": "82938dc1c3654f52dbbb92786ae93e4b23822798951a2279b46661f7bfeb176b",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "d5edba4e4b8faad9c1baeadb265716d20d03be4d1a2647dc5e35b0c0325bea7b"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.34.0"
+      },
+      "lean_reported": "Lean (version 4.34.1, x86_64-unknown-linux-gnu, commit 5045d0056413266e57c625dcd7c365b10e377c52, Release)",
+      "lean_version": "4.34.1",
+      "print_axioms": [
+        "'Profile.addZeroViaHave' does not depend on any axioms"
+      ],
+      "records": 648,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.34.1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.addZeroViaHave"
+      ],
+      "toolchain": "leanprover/lean4:v4.34.1"
+    },
+    "4.34.1/Profile.andSwap.ndjson": {
+      "command": [
+        "<registry>/4.34.1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.andSwap"
+      ],
+      "export_bytes": 5427,
+      "export_sha256": "0bae5d36bbc6c31c10ffcb2c663a2a5ffdb08cb5e9a7031ce36ee5dd3e91fed6",
+      "exporter": {
+        "binary_sha256": "34c93120387a834450c6c8c8cfaab19ecb4d7660be66a585f2940e47c6534ea1",
+        "form": "executable",
+        "revision": "076e8e57707e813375e8f9da8bf989799ace9680",
+        "sources": {
+          "Export.lean": "82938dc1c3654f52dbbb92786ae93e4b23822798951a2279b46661f7bfeb176b",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "d5edba4e4b8faad9c1baeadb265716d20d03be4d1a2647dc5e35b0c0325bea7b"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.34.0"
+      },
+      "lean_reported": "Lean (version 4.34.1, x86_64-unknown-linux-gnu, commit 5045d0056413266e57c625dcd7c365b10e377c52, Release)",
+      "lean_version": "4.34.1",
+      "print_axioms": [
+        "'Profile.andSwap' does not depend on any axioms"
+      ],
+      "records": 97,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.34.1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.andSwap"
+      ],
+      "toolchain": "leanprover/lean4:v4.34.1"
+    },
+    "4.34.1/Profile.doubleTwo.ndjson": {
+      "command": [
+        "<registry>/4.34.1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.doubleTwo"
+      ],
+      "export_bytes": 37068,
+      "export_sha256": "b095bd45f20e07b8befed61450c911bce15e04f8635d17c0202dd5b230962e45",
+      "exporter": {
+        "binary_sha256": "34c93120387a834450c6c8c8cfaab19ecb4d7660be66a585f2940e47c6534ea1",
+        "form": "executable",
+        "revision": "076e8e57707e813375e8f9da8bf989799ace9680",
+        "sources": {
+          "Export.lean": "82938dc1c3654f52dbbb92786ae93e4b23822798951a2279b46661f7bfeb176b",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "d5edba4e4b8faad9c1baeadb265716d20d03be4d1a2647dc5e35b0c0325bea7b"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.34.0"
+      },
+      "lean_reported": "Lean (version 4.34.1, x86_64-unknown-linux-gnu, commit 5045d0056413266e57c625dcd7c365b10e377c52, Release)",
+      "lean_version": "4.34.1",
+      "print_axioms": [
+        "'Profile.doubleTwo' does not depend on any axioms"
+      ],
+      "records": 648,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.34.1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.doubleTwo"
+      ],
+      "toolchain": "leanprover/lean4:v4.34.1"
+    },
+    "4.34.1/Profile.greetingIsHi.ndjson": {
+      "command": [
+        "<registry>/4.34.1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.greetingIsHi"
+      ],
+      "export_bytes": 617268,
+      "export_sha256": "5ca76b81042a073c8fbbcc2f209d5effd55e85b9123a65bcef14a49d1aae3621",
+      "exporter": {
+        "binary_sha256": "34c93120387a834450c6c8c8cfaab19ecb4d7660be66a585f2940e47c6534ea1",
+        "form": "executable",
+        "revision": "076e8e57707e813375e8f9da8bf989799ace9680",
+        "sources": {
+          "Export.lean": "82938dc1c3654f52dbbb92786ae93e4b23822798951a2279b46661f7bfeb176b",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "d5edba4e4b8faad9c1baeadb265716d20d03be4d1a2647dc5e35b0c0325bea7b"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.34.0"
+      },
+      "lean_reported": "Lean (version 4.34.1, x86_64-unknown-linux-gnu, commit 5045d0056413266e57c625dcd7c365b10e377c52, Release)",
+      "lean_version": "4.34.1",
+      "print_axioms": [
+        "'Profile.greetingIsHi' does not depend on any axioms"
+      ],
+      "records": 11132,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.34.1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.greetingIsHi"
+      ],
+      "toolchain": "leanprover/lean4:v4.34.1"
+    },
+    "4.34.1/Profile.statements.ndjson": {
+      "command": [
+        "<registry>/4.34.1/.lake/build/bin/lean4export",
+        "--export-mdata",
+        "--export-unsafe",
+        "Profile",
+        "--",
+        "Profile.unbounded",
+        "Profile.answered",
+        "Profile.unfinished",
+        "Profile.RestsOnUnfinished"
+      ],
+      "export_bytes": 633831,
+      "export_sha256": "33380cc7defc992e96f65e260fc6e18a29581b8ad72548885e42483d2220c74c",
+      "exporter": {
+        "binary_sha256": "34c93120387a834450c6c8c8cfaab19ecb4d7660be66a585f2940e47c6534ea1",
+        "form": "executable",
+        "revision": "076e8e57707e813375e8f9da8bf989799ace9680",
+        "sources": {
+          "Export.lean": "82938dc1c3654f52dbbb92786ae93e4b23822798951a2279b46661f7bfeb176b",
+          "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+          "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+          "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+          "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+          "lean-toolchain": "d5edba4e4b8faad9c1baeadb265716d20d03be4d1a2647dc5e35b0c0325bea7b"
+        },
+        "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+        "upstream_tag": "v4.34.0"
+      },
+      "lean_reported": "Lean (version 4.34.1, x86_64-unknown-linux-gnu, commit 5045d0056413266e57c625dcd7c365b10e377c52, Release)",
+      "lean_version": "4.34.1",
+      "print_axioms": [
+        "'Profile.unbounded' depends on axioms: [sorryAx]",
+        "'Profile.answered' depends on axioms: [sorryAx]",
+        "'Profile.unfinished' depends on axioms: [sorryAx]",
+        "'Profile.RestsOnUnfinished' depends on axioms: [sorryAx]"
+      ],
+      "records": 11481,
+      "source": "crates/logicaffeine_tests/tests/fixtures/lean/projects/profile-4.34.1/Profile.lean",
+      "source_sha256": "6cb72f055e80f6edd64af84dfb4bae2940d123cf198d0ba4650a452656f9c698",
+      "targets": [
+        "Profile.unbounded",
+        "Profile.answered",
+        "Profile.unfinished",
+        "Profile.RestsOnUnfinished"
+      ],
+      "toolchain": "leanprover/lean4:v4.34.1"
+    }
+  },
+  "purpose": "one export per registered Lean import profile, produced by that profile's own toolchain and pinned exporter"
+}

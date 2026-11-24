@@ -422,6 +422,216 @@
     "agility_s": 0.029158983
    },
    "won": false
+  },
+  {
+   "boot": {
+    "host": "dcdev-ubuntu",
+    "id": "bc0b1c20-6031-4dd4-9742-32c8abdf60e7",
+    "load_seconds": 0.000805341
+   },
+   "bundle_digest": "da13d402ebc6e55410ace7dfd6db3ad6d1cc5f32fb6a134e118eee7daa54bb33",
+   "cell": "C-SN50-LLAMA-BRINGUP",
+   "conditions": "the llama twin of section 6.1's Tier A row, read cold from its Hugging Face directory: its spec, its SN50 bundle written and run, its first token held to the f64 reference within the bf16 datapath; the slowest of 3, on this host",
+   "date": "2026-11-11",
+   "log": "logs/samba/bringup-e1_11.log",
+   "program": {
+    "cut": "bringup:llama",
+    "source_sha256": "e6f807d6dabfdcae92273c372ffb70fe79f8873b9d07e69f8aa8ea1c7c3c1d74",
+    "spec_digest": "257ca92a0734e2fd79c7163de3b6198ce5bfbc00eb815bcb877d5d93e3a0890a"
+   },
+   "provenance": "measured",
+   "runs": {
+    "bringup_s": [
+     9.849460126,
+     8.383731925,
+     6.6287093630000005
+    ]
+   },
+   "side": "ours",
+   "values": {
+    "bringup_s": 9.849460126
+   },
+   "won": false
+  },
+  {
+   "boot": {
+    "host": "dcdev-ubuntu",
+    "id": "bc0b1c20-6031-4dd4-9742-32c8abdf60e7",
+    "load_seconds": 0.002108587
+   },
+   "bundle_digest": "2b86a19b862de316e46f6548aa3c728ffb17edcb3baf0b39816825fa20d26baf",
+   "cell": "C-SN50-LLAMA4-BRINGUP",
+   "conditions": "the llama4 twin of section 6.1's Tier A row, read cold from its Hugging Face directory: its spec, its SN50 bundle written and run, its first token held to the f64 reference within the bf16 datapath; the slowest of 3, on this host",
+   "date": "2026-11-11",
+   "log": "logs/samba/bringup-e1_11.log",
+   "program": {
+    "cut": "bringup:llama4",
+    "source_sha256": "ef8a02ebc003c9f4ebcfc8fa0091b78b20683d598e8367ca400fe95336b8ebc8",
+    "spec_digest": "93dcd71f7f196da833871d15e44d65575445176271bbd15204a951e549492456"
+   },
+   "provenance": "measured",
+   "runs": {
+    "bringup_s": [
+     10.111013652,
+     12.319612029,
+     14.393335579
+    ]
+   },
+   "side": "ours",
+   "values": {
+    "bringup_s": 14.393335579
+   },
+   "won": false
+  },
+  {
+   "boot": {
+    "host": "dcdev-ubuntu",
+    "id": "bc0b1c20-6031-4dd4-9742-32c8abdf60e7",
+    "load_seconds": 0.000720382
+   },
+   "bundle_digest": "bdf1d5e536019410255d99a97c1784e2e4f7afca27e7e90906885ae14519699a",
+   "cell": "C-SN50-MIXTRAL-BRINGUP",
+   "conditions": "the mixtral twin of section 6.1's Tier A row, read cold from its Hugging Face directory: its spec, its SN50 bundle written and run, its first token held to the f64 reference within the bf16 datapath; the slowest of 3, on this host",
+   "date": "2026-11-11",
+   "log": "logs/samba/bringup-e1_11.log",
+   "program": {
+    "cut": "bringup:mixtral",
+    "source_sha256": "bef484e7fb54bba3f5503e10712c70becbc06a13f65dabc08358cb8ca7b3e87e",
+    "spec_digest": "4d5a1e8224170de79c3ef0362d99fe5e9adfa169e1553deee6bae357ecfec18a"
+   },
+   "provenance": "measured",
+   "runs": {
+    "bringup_s": [
+     1.663769512,
+     1.272957443,
+     1.632783683
+    ]
+   },
+   "side": "ours",
+   "values": {
+    "bringup_s": 1.663769512
+   },
+   "won": false
+  },
+  {
+   "boot": {
+    "host": "dcdev-ubuntu",
+    "id": "bc0b1c20-6031-4dd4-9742-32c8abdf60e7",
+    "load_seconds": 0.00098758
+   },
+   "bundle_digest": "e360c38fdc4bf8af457bb96f296cb639df0dbaf849c36a84d08755fe8eaf8ced",
+   "cell": "C-SN50-QWEN2-BRINGUP",
+   "conditions": "the qwen2 twin of section 6.1's Tier A row, read cold from its Hugging Face directory: its spec, its SN50 bundle written and run, its first token held to the f64 reference within the bf16 datapath; the slowest of 3, on this host",
+   "date": "2026-11-11",
+   "log": "logs/samba/bringup-e1_11.log",
+   "program": {
+    "cut": "bringup:qwen2",
+    "source_sha256": "d63bdbb0c447ac97b138c09b689a6b0c3e9a4e25039ff915a5b891415cbe86a9",
+    "spec_digest": "3ae4b512ab8c2e8459ddfd81207201cfad15009cc41f89120d28eb690b1b7eb6"
+   },
+   "provenance": "measured",
+   "runs": {
+    "bringup_s": [
+     7.225440505,
+     8.033055654,
+     10.685052004
+    ]
+   },
+   "side": "ours",
+   "values": {
+    "bringup_s": 10.685052004
+   },
+   "won": false
+  },
+  {
+   "boot": {
+    "host": "dcdev-ubuntu",
+    "id": "bc0b1c20-6031-4dd4-9742-32c8abdf60e7",
+    "load_seconds": 0.00174503
+   },
+   "bundle_digest": "29179a1ce4649a053edd869a8b86e2becf6774ce46d942c391a1cb1b0035814a",
+   "cell": "C-SN50-GPTOSS-BRINGUP",
+   "conditions": "the gpt-oss twin of section 6.1's Tier A row, read cold from its Hugging Face directory: its spec, its SN50 bundle written and run, its first token held to the f64 reference within the bf16 datapath; the slowest of 3, on this host",
+   "date": "2026-11-11",
+   "log": "logs/samba/bringup-e1_11.log",
+   "program": {
+    "cut": "bringup:gpt-oss",
+    "source_sha256": "85831c74f7c73fadcf7d9433165e3d38ff7a27d701ed55f6ff40ff59800fc4eb",
+    "spec_digest": "ef10ae857eb3fa3e1fb42e1a33da6aaa099f4d812e58c8629c60059fd6e40443"
+   },
+   "provenance": "measured",
+   "runs": {
+    "bringup_s": [
+     10.255217338,
+     25.848486527,
+     43.477663383
+    ]
+   },
+   "side": "ours",
+   "values": {
+    "bringup_s": 43.477663383
+   },
+   "won": false
+  },
+  {
+   "boot": {
+    "host": "dcdev-ubuntu",
+    "id": "bc0b1c20-6031-4dd4-9742-32c8abdf60e7",
+    "load_seconds": 0.001368407
+   },
+   "bundle_digest": "f9a488d65cad5a5d5433d19fb59f02480ac2fe4f97c29fdc269211622b2111b1",
+   "cell": "C-SN50-DEEPSEEKV3-BRINGUP",
+   "conditions": "the deepseek2 twin of section 6.1's Tier A row, read cold from its Hugging Face directory: its spec, its SN50 bundle written and run, its first token held to the f64 reference within the bf16 datapath; the slowest of 3, on this host",
+   "date": "2026-11-11",
+   "log": "logs/samba/bringup-e1_11.log",
+   "program": {
+    "cut": "bringup:deepseek2",
+    "source_sha256": "da575e72cea594fda0bf20686bb016a70c264cf72cdc01b1c15f365a9b3c7530",
+    "spec_digest": "23242126dc9a74b141cadba8111939704ba67a0e626ce46ab3bae36dc6321e39"
+   },
+   "provenance": "measured",
+   "runs": {
+    "bringup_s": [
+     9.48531778,
+     8.255789917,
+     8.198506065
+    ]
+   },
+   "side": "ours",
+   "values": {
+    "bringup_s": 9.48531778
+   },
+   "won": false
+  },
+  {
+   "boot": {
+    "host": "dcdev-ubuntu",
+    "id": "bc0b1c20-6031-4dd4-9742-32c8abdf60e7",
+    "load_seconds": 0.001911315
+   },
+   "bundle_digest": "46ad678d155e8c914d0360a089aefe4a5ca9ee8b4293dab86ca57a66fabebf08",
+   "cell": "C-SN50-MINIMAXM2-BRINGUP",
+   "conditions": "the minimax_m2 twin of section 6.1's Tier A row, read cold from its Hugging Face directory: its spec, its SN50 bundle written and run, its first token held to the f64 reference within the bf16 datapath; the slowest of 3, on this host",
+   "date": "2026-11-11",
+   "log": "logs/samba/bringup-e1_11.log",
+   "program": {
+    "cut": "bringup:minimax_m2",
+    "source_sha256": "c4e478f2848bf71c9f200ae3da32344d5429648322f6e5e7187112207b89e809",
+    "spec_digest": "eb7bb4547aca5c8136b65c590d7497668409288292e1c0607a7c5b9abeafa445"
+   },
+   "provenance": "measured",
+   "runs": {
+    "bringup_s": [
+     11.874535182,
+     10.258391046,
+     9.330244357
+    ]
+   },
+   "side": "ours",
+   "values": {
+    "bringup_s": 11.874535182
+   },
+   "won": false
   }
  ]
 }

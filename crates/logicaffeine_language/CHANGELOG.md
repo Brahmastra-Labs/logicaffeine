@@ -16,11 +16,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   positions); `with rows starting at R` (`R` each row's first attended position, an Int row; packed sequences). Slopes
   or starts of another shape, and a prefix on a single query, are refused by name; at run time a prefix past the keys
   its block writes and a row start outside `1..=n` are refused with one message (`tensor_attention_masks_lock`).
+- **`Let Y be erf of X.`** The library's error function over a declared tensor, element by element; a scalar
+  operand is the call it was.
 
 ### Fixed
 
+- `## Theory More`, `## Axiom every: …` and every other header whose one word English reads as no name (a comparative,
+  a quantifier, a number word) name their block by that word; a `## Theory` with no name is `Anonymous` and keeps its
+  body's first word (`axiom_theory_blocks`).
 - `parser::lgx_lower`: a `Click` on the page's own element lowers as the host's `click` element command alone; the
   host raises the event, as it raises `focus` and `blur`.
+- `OptMeta` for `Opt::ClosedForm` lists `Opt::Memo` among what it preempts: a function the closed form answers is not
+  cached.
+- `parser`: `Check that <condition>.` is a value check (a hard runtime assert) for every condition that is not a
+  one-token security predicate or a capability, so `Check that capped is at most watts.` parses.
+- `parser::math`: the English theorem surface orders terms. `is at most`, `is at least`, `is less than`, `is greater
+  than` (with an optional `or equal to`), `<=`, `>=`, `<` and `>` lower to `le(a, b) = true` and `lt(a, b) = true`.
 - The front end's cost grew with the square of a file's constructs. From every `##` header, the parser scanned for
   a `Newline` token, which LOGOS emits only for a table row, so the scan ran to the end of the file. The lexer tested
   every structural event against every multi-line string, bracket span and escape body. The parser's scan is gone (a

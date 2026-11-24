@@ -6,7 +6,7 @@
 mod common;
 
 #[cfg(not(target_arch = "wasm32"))]
-use common::assert_interpreter_output;
+use common::{assert_all_tiers, assert_interpreter_output};
 
 // === TUPLE CREATION ===
 
@@ -175,5 +175,90 @@ Let person be ("Bob", 30, 5.9).
 Show item 3 of person.
 "#,
         "5.9",
+    );
+}
+
+// === A LOOP OVER TUPLES ===
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_tuple_loop_destructures_the_tuples_of_a_variable() {
+    assert_all_tiers(
+        r#"## Main
+Let pairs be [("left", 1), ("right", 2)].
+Repeat for (side, n) in pairs:
+    Show "{side} {n}".
+"#,
+        "left 1\nright 2",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_tuple_loop_destructures_the_tuples_of_a_list_written_in_place() {
+    assert_all_tiers(
+        r#"## Main
+Repeat for (side, n) in [("left", 1), ("right", 2)]:
+    Show "{side} {n}".
+"#,
+        "left 1\nright 2",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_tuple_loop_destructures_the_tuples_of_an_item_of_a_list() {
+    assert_all_tiers(
+        r#"## Main
+Let groups be [[("left", 1)], [("right", 2), ("mid", 3)]].
+Repeat for (side, n) in item 2 of groups:
+    Show "{side} {n}".
+"#,
+        "right 2\nmid 3",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_tuple_loop_destructures_the_tuples_of_a_slice() {
+    assert_all_tiers(
+        r#"## Main
+Let pairs be [("left", 1), ("right", 2), ("mid", 3)].
+Repeat for (side, n) in items 2 through 3 of pairs:
+    Show "{side} {n}".
+"#,
+        "right 2\nmid 3",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_tuple_loop_destructures_the_tuples_of_a_call() {
+    assert_all_tiers(
+        r#"## To pairs () -> Seq of (Text, Int):
+    Return [("left", 1), ("right", 2)].
+
+## Main
+Repeat for (side, n) in pairs():
+    Show "{side} {n}".
+"#,
+        "left 1\nright 2",
+    );
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn e2e_tuple_loop_destructures_the_tuples_of_a_parameter() {
+    assert_all_tiers(
+        r#"## To total (pairs: Seq of (Text, Int)) -> Int:
+    Let mutable t be 0.
+    Repeat for (side, n) in pairs:
+        Set t to t + n.
+    Return t.
+
+## Main
+Show total([("left", 1), ("right", 2)]).
+"#,
+        "3",
     );
 }

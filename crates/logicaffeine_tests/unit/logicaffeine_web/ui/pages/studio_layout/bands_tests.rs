@@ -3,18 +3,11 @@
 use super::*;
 use crate::ui::state::StudioMode;
 
-/// A phone shows the pane that shows the file: the output for a file that runs or previews as it
-/// opens, the editor for Math, which waits for Execute.
+/// A phone opens every file on its program (Collin, 2026-11-23).
 #[test]
 fn a_phone_opens_on_the_pane_that_shows_the_file() {
-    for (mode, pane) in [
-        (StudioMode::Logic, MobileTab::Panel2),
-        (StudioMode::Code, MobileTab::Panel2),
-        (StudioMode::Hardware, MobileTab::Panel2),
-        (StudioMode::Web, MobileTab::Panel2),
-        (StudioMode::Math, MobileTab::Panel1),
-    ] {
-        assert!(first_pane(mode) == pane, "{mode:?} opens on the wrong pane");
+    for mode in [StudioMode::Logic, StudioMode::Code, StudioMode::Hardware, StudioMode::Web, StudioMode::Math] {
+        assert!(first_pane(mode) == MobileTab::Panel1, "{mode:?} opens on the wrong pane");
     }
 }
 

@@ -38,6 +38,7 @@ pub mod ordinal;
 pub mod poly;
 pub mod puiseux;
 pub mod quantity;
+pub mod reciprocal;
 pub mod sha_ops;
 pub mod si;
 pub mod span;

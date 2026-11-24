@@ -22,14 +22,16 @@ Scheduling decisions come from a `Chooser` driven by a seed (`SchedSeed`) or a r
 - **Work-stealing M:N** (native, `cfg(not(wasm32))`): genuine multicore.
 
 The runtime is used by the interpreter/VM tiers; an AOT-compiled binary is never linked against it.
-A default `largo build` lowers tasks, pipes and select to host primitives through
-[`logicaffeine_system`](../crates/logicaffeine_system/README.md) (`tokio::spawn`, tokio channels,
-`tokio::select!`, rayon or OS threads for `Simultaneously:`, libp2p for the mesh) and runs them
-free. A deterministic build, through the library entry points `compile_to_rust_deterministic` and
-`compile_program_full_deterministic`, instead runs every task, pipe, timer and select on
+A `largo build` runs every task, pipe, timer and select on
 [`logicaffeine_system::replay`](../crates/logicaffeine_system/src/replay.rs). That is the runtime's
 scheduler ported step for step onto Rust futures, drawing each choice from the same seeded chooser,
-so the binary run at `LOGOS_SEED=s` prints what the interpreter prints at seed `s`.
+so the binary run at `LOGOS_SEED=s` prints what the interpreter prints at seed `s`, and a program whose
+every task is blocked fails with the interpreter's `deadlock: every task is blocked waiting`.
+`largo build --threads` (the library entry point `compile_program_full_threaded`) instead lowers
+tasks, pipes and select to host primitives through
+[`logicaffeine_system`](../crates/logicaffeine_system/README.md) (`tokio::spawn`, tokio channels,
+`tokio::select!`) and runs them free. `Simultaneously:` runs on rayon or OS threads and the mesh on
+libp2p either way.
 
 The C family carries a port too. Host C, RISC-V, the bytecode walker and the CUDA tier carry the
 runtime's scheduler with them, ported to C (`codegen_c/sched_core.c`) one operation at a time, so a
@@ -327,11 +329,18 @@ These are the `Listen`, `ConnectTo`, `Sync` and `Mount` statements.
 ## Determinism in practice
 
 Because scheduling is seed/trace driven, a concurrent program runs identically at a given seed on the
-interpreter, the VM, the C-family tiers (host C, RISC-V, the bytecode walker, CUDA) and a
-deterministic AOT build. `c_family_scheduler_conformance_lock` and `e2e_deterministic_replay` assert
-that every tier prints what the tree-walker prints, and that the seed-sensitive programs show more
-than one outcome across seeds, so the seed reaches the binary. A default `largo build` runs free on
-tokio and is outside this guarantee. This is what makes "concurrent" and "reproducible" coexist.
+interpreter, the VM, the C-family tiers (host C, RISC-V, the bytecode walker, CUDA) and the AOT
+build. `c_family_scheduler_conformance_lock` and `e2e_deterministic_replay` assert that every tier
+prints what the tree-walker prints, and that the seed-sensitive programs show more than one outcome
+across seeds, so the seed reaches the binary. A `largo build --threads` runs free on tokio and is
+outside this guarantee. This is what makes "concurrent" and "reproducible" coexist.
+
+`largo run --interpret --seed S`, or `LOGOS_SEED=S`, runs the program at seed `S` on every engine:
+the default, `--engine tree`, `--engine vm` and `--engine jit`. A run that names no seed is scheduled
+at seed 0. The VM and the JIT run on the same scheduler, which serves tasks, pipes, selects and
+`Sleep` (on its logical clock) but not the host. A program that reads or writes files, networks or
+serves needs a reactor the scheduler does not drive, so those two engines refuse it and say why; the
+default engine and `--engine tree` run it.
 
 A failing `largo run --interpret` is recorded as a `.replay` bundle under `target/replays/` (the
 seed, the scheduling trace, the embedded source and the failure), and `largo replay <file>`
@@ -362,7 +371,8 @@ compiled by `doc_examples`, and every output shown is what the tree-walker print
   `phase53_persistence`.
 - Determinism: `replay_executor_port_lock` holds the deterministic build's executor to the
   runtime's scheduler, `e2e_deterministic_replay` holds those binaries to the tree-walker and the VM,
-  and `replay_lock` holds `.replay` capture and `largo replay`.
+  `interpret_seed_lock` holds every `largo run --interpret` engine to them at every seed, and
+  `replay_lock` holds `.replay` capture and `largo replay`.
 
 ---
 [Docs index](README.md) · [Root README](../README.md) · [Changelog](../CHANGELOG.md)

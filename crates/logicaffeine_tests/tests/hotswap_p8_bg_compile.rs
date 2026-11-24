@@ -10,7 +10,8 @@
 //! `compile_function`, just off-thread) and (b) the worker actually engaged (≥1 native
 //! function compiled).
 
-#![cfg(not(target_arch = "wasm32"))]
+// This suite tests the native tier alone, which exists only on x86_64 outside Windows.
+#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 
 use logicaffeine_compile::compile::{tw_outcome_with_args, vm_outcome_bg};
 use logicaffeine_compile::vm::install_native_tier;

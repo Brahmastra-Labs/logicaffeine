@@ -574,8 +574,8 @@ pub(super) fn softmax_row_statistics(
     Ok((out, norm))
 }
 
-/// The softmax of one row past a page, or past a site's memory before the page: [`softmax_row_statistics`] over the row,
-/// then `e^(x − m)·(1/Z)` a tile an item ([`rescale_row`]), so no section holds more of the row than a block of it. Its
+/// The softmax of one row past a page, or past a site's memory before the page: `softmax_row_statistics` over the row,
+/// then `e^(x − m)·(1/Z)` a tile an item (`rescale_row`), so no section holds more of the row than a block of it. Its
 /// input and result are the target's elements, as the whole-row form's are. A softmax over several such rows is refused
 /// by name: its rows' statistics would be read a row a band by items that each own a tile.
 pub fn streamed_softmax(

@@ -12,7 +12,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use super::gguf::Gguf;
-use super::quant::{e4m3_to_f32, f16_to_f32, f32_to_e4m3, f32_to_f16, GgmlType, E4M3_MAX};
+use super::quant::{bf16_to_f32, e4m3_to_f32, f16_to_f32, f32_to_bf16, f32_to_e4m3, f32_to_f16, GgmlType, E4M3_MAX};
 use crate::tensor_graph::numerics::Keep;
 use super::spec::{
     Act, Attention, Dsa, Ffn, GateActivation, GatedDelta, Gating, HyperConnections, Indexer, Layer, LogitScale, Mixer, Mla,
@@ -389,17 +389,10 @@ pub enum StateStorage {
 
 impl StateStorage {
     /// `v` as the memory keeps it.
-    fn keep(self, v: f64) -> f64 {
+    pub fn keep(self, v: f64) -> f64 {
         match self {
             StateStorage::Exact => v,
-            StateStorage::Bf16 => {
-                let x = v as f32;
-                if x.is_nan() {
-                    return f64::from(x);
-                }
-                let bits = x.to_bits();
-                f64::from(f32::from_bits(bits.wrapping_add(0x7FFF + ((bits >> 16) & 1)) & 0xFFFF_0000))
-            }
+            StateStorage::Bf16 => f64::from(bf16_to_f32(f32_to_bf16(v as f32))),
         }
     }
 }
@@ -919,14 +912,46 @@ impl Reference {
     /// `y = W·x` for every row of `xs`: the weight's bytes read once, each output row dequantized as ggml defines
     /// its format and contracted in `f64`, the rows split across threads.
     fn project(&mut self, name: &str, xs: &[Vec<f64>]) -> R<Vec<Vec<f64>>> {
+        let ty = self.g.describe(name)?.0;
+        let xs = self.read_by(ty, xs);
+        self.product(name, xs)
+    }
+
+    /// A projection reading its activation's values under every precision: an expert mixture's router, which ranks the
+    /// experts by the values the mixture reads — as the CUDA lane and the CPU tier route, whatever the router's format.
+    fn project_values(&mut self, name: &str, xs: &[Vec<f64>]) -> R<Vec<Vec<f64>>> {
+        self.product(name, xs.to_vec())
+    }
+
+    /// `xs` by the matrix `name`, each row as read, times the weight's own scale where it has one ([`Self::weight_scale`]).
+    fn product(&mut self, name: &str, xs: Vec<Vec<f64>>) -> R<Vec<Vec<f64>>> {
         let (ty, dims) = self.g.describe(name)?;
         let [in_f, out_f] = dims[..] else {
             return Err(ReferenceError::NotYet("a projection that is not a matrix"));
         };
         let (in_f, out_f) = (in_f as usize, out_f as usize);
         let raw = self.tensor_bytes(name)?;
-        let xs = self.read_by(ty, xs);
-        Ok(products(&[Product { raw, from: 0, ty, in_f, out_f, xs }], self.threads).pop().expect("the product"))
+        let mut ys = products(&[Product { raw, from: 0, ty, in_f, out_f, xs }], self.threads).pop().expect("the product");
+        if let Some(s) = self.weight_scale(name, 1)? {
+            ys.iter_mut().for_each(|y| y.iter_mut().for_each(|v| *v *= s[0]));
+        }
+        Ok(ys)
+    }
+
+    /// The scale llama.cpp's loader reads beside weight `name` (`<stem>.scale`, an NVFP4 checkpoint's own scale of the
+    /// weight) and its graph multiplies the weight's products by: `entries` of them, one a weight or one an expert of a
+    /// stack. A `.scale` of another length is another block's (Gemma 4's router input scale), read where that block is.
+    fn weight_scale(&mut self, name: &str, entries: usize) -> R<Option<Vec<f64>>> {
+        let Some(stem) = name.strip_suffix(".weight") else { return Ok(None) };
+        let scale = format!("{stem}.scale");
+        if !self.g.has(&scale) {
+            return Ok(None);
+        }
+        let (_, dims) = self.g.describe(&scale)?;
+        if dims.iter().product::<u64>() != entries as u64 {
+            return Ok(None);
+        }
+        Ok(Some(self.tensor(&scale)?))
     }
 
     /// The activations a projection by weights of type `ty` reads: as computed by `f32` weights, in the matrix's own words
@@ -2313,15 +2338,15 @@ impl Reference {
     /// into probabilities by the spec's gating, the top `k` chosen, their weights renormalized (the sum clamped as
     /// llama.cpp clamps it) and scaled, each chosen expert's gated FFN (with its biases) summed by its weight.
     fn moe(&mut self, l: usize, m: &Moe, xn: &[Vec<f64>]) -> R<Vec<Vec<f64>>> {
-        let logits = self.project(&format!("blk.{l}.ffn_gate_inp.weight"), xn)?;
-        self.routed_experts(l, m, logits, xn, None)
+        let logits = self.project_values(&format!("blk.{l}.ffn_gate_inp.weight"), xn)?;
+        self.routed_experts(l, m, logits, xn)
     }
 
     /// Gemma 4's mixture block (llama.cpp `models/gemma4.cpp`, transformers `Gemma4TextDecoderLayer`): the dense GELU
     /// FFN on the FFN-normed input `xn`, normed by `post_ffw_norm_1`, beside the mixture on the input normed by
     /// `pre_ffw_norm_2`, normed by `post_ffw_norm_2`; the router reads the unnormed input `x` RMS-normed with no weight,
     /// over `√d` and times `ffn_gate_inp.scale`, its softmax's top-k renormalized, each chosen expert's output scaled by
-    /// its `ffn_down_exps.scale`.
+    /// its `ffn_down_exps.scale` ([`Self::routed_experts`]).
     fn dense_and_moe(&mut self, l: usize, act: &Act, m: &Moe, x: &[Vec<f64>], xn: &[Vec<f64>]) -> R<Vec<Vec<f64>>> {
         let blk = |t: &str| format!("blk.{l}.{t}");
         let g = self.project(&blk("ffn_gate.weight"), xn)?;
@@ -2336,16 +2361,16 @@ impl Reference {
             x.iter().map(|r| rms_norm(r, &ones, self.spec.rms_eps).iter().zip(&scale).map(|(v, s)| v / root * s).collect()).collect();
         let logits = self.project(&blk("ffn_gate_inp.weight"), &routed)?;
         let pre = self.block_norm(x, &blk("pre_ffw_norm_2"))?;
-        let per_expert = self.tensor(&blk("ffn_down_exps.scale"))?;
-        let experts = self.routed_experts(l, m, logits, &pre, Some(&per_expert))?;
+        let experts = self.routed_experts(l, m, logits, &pre)?;
         let experts = self.block_norm(&experts, &blk("post_ffw_norm_2"))?;
         add_rows(&mut out, &experts);
         Ok(out)
     }
 
-    /// The experts of a mixture over the rows of `xn`, routed by `logits`, each chosen expert's weight times its entry of
-    /// `per_expert` where there is one.
-    fn routed_experts(&mut self, l: usize, m: &Moe, mut logits: Vec<Vec<f64>>, xn: &[Vec<f64>], per_expert: Option<&[f64]>) -> R<Vec<Vec<f64>>> {
+    /// The experts of a mixture over the rows of `xn`, routed by `logits`: each chosen expert's gate, up and down products
+    /// times its entry of the stack's own scale where there is one (`ffn_*_exps.scale`, one an expert: an NVFP4
+    /// checkpoint's, and Gemma 4's down scale), before its biases, as llama.cpp's `build_lora_mm_id` multiplies them.
+    fn routed_experts(&mut self, l: usize, m: &Moe, mut logits: Vec<Vec<f64>>, xn: &[Vec<f64>]) -> R<Vec<Vec<f64>>> {
         // A router ranks scores largest first, a NaN below every number and two NaNs alike: the chip's order, so a NaN
         // score is chosen only when no number remains.
         fn descending(a: f64, b: f64) -> std::cmp::Ordering {
@@ -2427,9 +2452,6 @@ impl Reference {
             if m.weights_scale != 0.0 && m.weights_scale != 1.0 {
                 w.iter_mut().for_each(|v| *v *= m.weights_scale);
             }
-            if let Some(s) = per_expert {
-                w.iter_mut().zip(chosen).for_each(|(v, &e)| *v *= s[e]);
-            }
             routes.push(chosen.iter().copied().zip(w).collect());
         }
         // Every expert runs once, on all the rows that chose it: its weights are read once for the block.
@@ -2445,6 +2467,15 @@ impl Reference {
         // Every expert's gate and up in one pass over the threads, then every expert's down in another. A checkpoint may
         // store each expert's gate and up as one projection of `2·f` rows, the gate's first (`ffn_gate_up_exps`).
         let fused = self.g.has(&format!("blk.{l}.ffn_gate_up_exps.weight"));
+        let stack_scale = |me: &mut Self, which: &str| me.weight_scale(&format!("blk.{l}.{which}.weight"), m.experts);
+        let (sg, su) = match fused {
+            true => {
+                let s = stack_scale(self, "ffn_gate_up_exps")?;
+                (s.clone(), s)
+            }
+            false => (stack_scale(self, "ffn_gate_exps")?, stack_scale(self, "ffn_up_exps")?),
+        };
+        let sd = stack_scale(self, "ffn_down_exps")?;
         let mut ups = Vec::new();
         for (&e, rows) in &readers {
             let xs: Vec<Vec<f64>> = rows
@@ -2467,6 +2498,11 @@ impl Reference {
         let mut downs = Vec::new();
         for ((&e, _), (g, u)) in readers.iter().zip(pairs) {
             let (mut g, mut u) = (g, u);
+            for (rows, scale) in [(&mut g, &sg), (&mut u, &su)] {
+                if let Some(s) = scale {
+                    rows.iter_mut().for_each(|r| r.iter_mut().for_each(|v| *v *= s[e]));
+                }
+            }
             if let (Some(bg), Some(bu)) = (&bg, &bu) {
                 g.iter_mut().for_each(|g| g.iter_mut().zip(&bg[e * f..(e + 1) * f]).for_each(|(v, b)| *v += b));
                 u.iter_mut().for_each(|u| u.iter_mut().zip(&bu[e * f..(e + 1) * f]).for_each(|(v, b)| *v += b));
@@ -2477,6 +2513,9 @@ impl Reference {
         let mut ys: HashMap<(usize, usize), Vec<f64>> = HashMap::new();
         for ((&e, rows), y) in readers.iter().zip(products(&downs, self.threads)) {
             for (&t, mut y) in rows.iter().zip(y) {
+                if let Some(s) = &sd {
+                    y.iter_mut().for_each(|v| *v *= s[e]);
+                }
                 if let Some(bd) = &bd {
                     y.iter_mut().zip(&bd[e * d..(e + 1) * d]).for_each(|(v, b)| *v += b);
                 }

@@ -245,3 +245,71 @@ fn differential_against_the_uuid_crate() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------------------------
+// Only the sixteen hex digits, in either case, parse. The SIMD validator case-folds with `| 0x20`,
+// which also maps the control bytes 0x10-0x19 onto '0'-'9', so these sweep every byte that is not a
+// hex digit at every slot, on the SIMD path and the scalar one alike.
+// ---------------------------------------------------------------------------------------------
+
+const CANONICAL: &str = "550e8400-e29b-41d4-a716-446655440000";
+
+fn is_hex_digit(b: u8) -> bool {
+    b.is_ascii_hexdigit()
+}
+
+fn hex_slots() -> impl Iterator<Item = usize> {
+    (0..36).filter(|i| !matches!(i, 8 | 13 | 18 | 23))
+}
+
+#[test]
+fn parse_refuses_every_ascii_byte_that_is_not_hex_at_every_hex_slot() {
+    for slot in hex_slots() {
+        for byte in (0u8..=0x7f).filter(|b| !is_hex_digit(*b)) {
+            let mut bad = CANONICAL.as_bytes().to_vec();
+            bad[slot] = byte;
+            let text = std::str::from_utf8(&bad).expect("ASCII stays UTF-8");
+            assert_eq!(Uuid::parse(text), None, "parse accepted byte {byte:#04x} at slot {slot}");
+        }
+    }
+}
+
+#[test]
+fn parse_refuses_the_control_bytes_that_fold_onto_digits() {
+    // The exact bytes the old fold let through: 0x10..=0x19 OR 0x20 is '0'..='9'.
+    for byte in 0x10u8..=0x19 {
+        let text = format!("{}{}", byte as char, &CANONICAL[1..]);
+        assert_eq!(Uuid::parse(&text), None, "parse read {byte:#04x} as the digit {}", (byte | 0x20) as char);
+    }
+}
+
+#[test]
+fn parse_many_refuses_every_byte_that_is_not_hex_at_every_hex_slot() {
+    let good = Uuid::parse(CANONICAL).expect("the canonical id parses");
+    for slot in hex_slots() {
+        for byte in (0u8..=0xff).filter(|b| !is_hex_digit(*b)) {
+            // Three records, so the bad one sits in the middle of a batch.
+            let mut packed = Vec::with_capacity(36 * 3);
+            for _ in 0..3 {
+                packed.extend_from_slice(CANONICAL.as_bytes());
+            }
+            packed[36 + slot] = byte;
+            assert_eq!(Uuid::parse_many(&packed), None, "parse_many accepted byte {byte:#04x} at slot {slot}");
+        }
+    }
+    assert_eq!(Uuid::parse_many(CANONICAL.repeat(3).as_bytes()), Some(vec![good; 3]));
+}
+
+#[test]
+fn every_hex_digit_still_parses_at_every_hex_slot_in_both_cases() {
+    for slot in hex_slots() {
+        for byte in (0u8..=0x7f).filter(|b| is_hex_digit(*b)) {
+            let mut text = CANONICAL.as_bytes().to_vec();
+            text[slot] = byte;
+            let lower = String::from_utf8(text.iter().map(|b| b.to_ascii_lowercase()).collect()).unwrap();
+            let parsed = Uuid::parse(std::str::from_utf8(&text).unwrap());
+            assert!(parsed.is_some(), "parse refused hex byte {byte:#04x} at slot {slot}");
+            assert_eq!(parsed, Uuid::parse(&lower), "case changed the value at slot {slot}");
+        }
+    }
+}

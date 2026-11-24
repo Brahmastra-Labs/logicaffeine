@@ -17,6 +17,26 @@ __attribute__((unused)) static inline int64_t logos_ck_mul(int64_t a, int64_t b,
     if (__builtin_mul_overflow(a, b, &r)) *over = 1;
     return r;
 }
+/* A quotient of machine words, truncated, that records in `*over` when its exact value leaves the word: only the
+   bottom of the word divided by -1 does. A zero divisor fails in the VM's words, `refusal`. */
+__attribute__((unused)) static inline int64_t logos_ck_div(int64_t a, int64_t b, int *over, const char *refusal) {
+    if (b == 0) logos_fatal(refusal);
+    if (__builtin_expect(b == -1 && a == INT64_MIN, 0)) { *over = 1; return INT64_MIN; }
+    return a / b;
+}
+/* `a // b` over machine words: the truncated quotient, less one where the remainder is nonzero and its sign differs
+   from the divisor's; each operand read once. */
+__attribute__((unused)) static inline int64_t logos_floordiv(int64_t a, int64_t b, const char *refusal) {
+    if (b == 0) logos_fatal(refusal);
+    if (b == -1) return (int64_t)(0 - (uint64_t)a);
+    int64_t q = a / b, r = a % b;
+    return (r != 0 && ((r < 0) != (b < 0))) ? q - 1 : q;
+}
+/* `a // b` over machine words, recording in `*over` when its exact value leaves the word, as `logos_ck_div` does. */
+__attribute__((unused)) static inline int64_t logos_ck_floordiv(int64_t a, int64_t b, int *over, const char *refusal) {
+    if (b != 0 && __builtin_expect(b == -1 && a == INT64_MIN, 0)) { *over = 1; return INT64_MIN; }
+    return logos_floordiv(a, b, refusal);
+}
 
 /* `a & m` for a non-negative `m`, as the VM computes it on an exact integer: a machine word's bits, and a big
    integer's low bits when `m` is a run of low ones and the integer is not negative. The VM refuses any other

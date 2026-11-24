@@ -5,3 +5,4 @@ pub mod kernels;
 pub mod link;
 pub mod model;
 pub mod shim;
+pub mod split;

@@ -381,3 +381,250 @@ Show "" + item 1 of arr + " " + item 3 of arr + " " + item 5 of arr.
          proves them away. Got:\n{qs_body}"
     );
 }
+
+// =============================================================================
+// 6. A chain leaf the Oracle bounds too loosely is guarded, not widened
+// =============================================================================
+
+/// graph_bfs's edge loop. Bound versioning runs it under `n <= 2^60`, where the Oracle knows `i < 2^60`, and
+/// `i * item p of primes + item p of offsets` (elements at most 47 and 29) can still pass a machine word there. A leaf
+/// the Oracle bounds is free in the guarded dual only while the chain fits at its proven magnitude; past that it is
+/// held to the dual's bound like any other leaf, so the arm runs the raw chain under `i <= 2^57`. Widened instead to the
+/// branchless i128 chain, every edge pays a 128-bit multiply and a narrow (graph_bfs ~2% slower end to end).
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_loosely_bounded_chain_leaf_is_guarded_not_widened() {
+    let code = r#"## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable adj be a new Seq of Int.
+Let mutable adjCounts be a new Seq of Int.
+Let mutable i be 0.
+While i is less than n:
+    Push 0 to adjCounts.
+    Push 0 to adj. Push 0 to adj. Push 0 to adj. Push 0 to adj. Push 0 to adj.
+    Set i to i + 1.
+Let mutable primes be a new Seq of Int.
+Push 31 to primes. Push 37 to primes. Push 41 to primes. Push 43 to primes. Push 47 to primes.
+Let mutable offsets be a new Seq of Int.
+Push 7 to offsets. Push 13 to offsets. Push 17 to offsets. Push 23 to offsets. Push 29 to offsets.
+Let mutable p be 1.
+While p is at most 5:
+    Set i to 0.
+    While i is less than n:
+        Let neighbor be (i * item p of primes + item p of offsets) % n.
+        If neighbor is not i:
+            Let start be i * 5.
+            Let cnt be item (i + 1) of adjCounts.
+            Set item (start + cnt + 1) of adj to neighbor.
+            Set item (i + 1) of adjCounts to cnt + 1.
+        Set i to i + 1.
+    Set p to p + 1.
+Let mutable h be 0.
+Set i to 1.
+While i is at most length of adj:
+    Set h to (h * 31 + item i of adj + 1) & 268435455.
+    Set i to i + 1.
+Show h.
+"#;
+    // ---- SHAPE: both arms run the raw chain behind the one leaf guard; nothing is widened to i128. ----
+    let rust = compile_to_rust(code).unwrap();
+    assert!(
+        !rust.contains("logos_narrow_i128"),
+        "a chain leaf the Oracle bounds too loosely must be guarded, not widened to the i128 chain:\n{rust}"
+    );
+    let guarded = rust.matches("if i <= 144115188075855872i64 { (i * __chain_l1) + __chain_l2 }").count();
+    assert_eq!(
+        guarded, 2,
+        "the versioned fast arm and the fallback arm each run the raw chain under `i <= 2^57`:\n{rust}"
+    );
+
+    // ---- BEHAVIOR: the hash of the adjacency the loop builds, against a host oracle of the same loops. ----
+    fn reference(n: i64) -> i64 {
+        let (primes, offsets) = ([31_i64, 37, 41, 43, 47], [7_i64, 13, 17, 23, 29]);
+        let mut adj = vec![0_i64; 5 * n as usize];
+        let mut counts = vec![0_i64; n as usize];
+        for p in 0..5 {
+            for i in 0..n {
+                let neighbor = (i * primes[p] + offsets[p]) % n;
+                if neighbor != i {
+                    let cnt = counts[i as usize];
+                    adj[(i * 5 + cnt) as usize] = neighbor;
+                    counts[i as usize] = cnt + 1;
+                }
+            }
+        }
+        adj.iter().fold(0, |h, x| (h * 31 + x + 1) & 268435455)
+    }
+    for n in [1_i64, 7, 1000] {
+        let run = common::run_logos_with_args(code, &[&n.to_string()]);
+        assert!(run.success, "the edge loop must run at n={n}: {}", run.stderr);
+        assert_eq!(run.stdout.trim(), reference(n).to_string(), "n={n}: the adjacency hash diverged from the host oracle");
+    }
+}
+
+// =============================================================================
+// 7. A shown number is formatted from a copy
+// =============================================================================
+
+/// Formatting borrows what it is given, and a binding something borrows keeps a stack slot the formatter may read: a
+/// loop before the `Show` that calls out (an overflow check's panic, a checked chain's cold path) then stores the
+/// running value to that slot every iteration, as graph_bfs's hash and sums did. A machine-scalar binding is formatted
+/// from a copy, `{ x }`, in a `Show`, a concatenation and an interpolation, and a recipient that takes the value gets
+/// the binding: the binding is never borrowed and the loops keep it in a register.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_shown_number_is_formatted_from_a_copy() {
+    let code = r#"## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## To report (amount: Int):
+    Show amount.
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable total be 0.
+Let mutable ratio be 0.0.
+Let mutable seen be false.
+Let mutable i be 1.
+While i is at most n:
+    Set total to total + i * i.
+    Set ratio to ratio + 0.25.
+    If i equals 500:
+        Set seen to true.
+    Set i to i + 1.
+Show total.
+Show "" + total + " " + ratio + " " + seen.
+Show "total {total}, ratio {ratio}".
+Show total to report.
+"#;
+    // ---- SHAPE: every place the program formats a number formats a copy of its binding. ----
+    let rust = compile_to_rust(code).unwrap();
+    for copied in [
+        "show(&{ total })",
+        "format_args!(\"{} {} {}\", { total }, { ratio }, { seen })",
+        "show_string(&{ total })",
+        "show_string(&{ ratio })",
+        "report(total)",
+        "show(&{ amount })",
+    ] {
+        assert!(rust.contains(copied), "expected `{copied}` in:\n{rust}");
+    }
+    for borrowed in ["show(&total)", ", total,", ", seen)", "show_string(&total)", "report((total).clone())", "show(&amount)"] {
+        assert!(!rust.contains(borrowed), "`{borrowed}` borrows the binding it shows:\n{rust}");
+    }
+
+    // ---- BEHAVIOR: what each form prints, against the closed forms. ----
+    let run = common::run_logos_with_args(code, &["1002"]);
+    assert!(run.success, "the program must run: {}", run.stderr);
+    assert_eq!(
+        run.stdout,
+        "335839505\n335839505 250.5 true\ntotal 335839505, ratio 250.5\n335839505\n",
+        "sum of squares to 1002, a quarter per step, and the flag set at 500"
+    );
+}
+
+// =============================================================================
+// 8. A loop that only lends its items walks them in place
+// =============================================================================
+
+/// `Repeat for s in shapes` whose body only lends `s` — to functions whose parameter borrows it, or to an `Inspect` —
+/// binds a borrow of each item: no deep copy of every record (`.iter().cloned()`), and the borrow passes on as itself.
+/// A body that keeps an item (pushes it) still iterates copies.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_loop_that_only_lends_its_items_walks_them_in_place() {
+    let code = r#"## A Shape is one of:
+    A Circle with radius Int.
+    A Square with side Int.
+
+## To area (s: Shape) -> Int:
+    Inspect s:
+        When Circle (r):
+            Return 3 * r * r.
+        When Square (d):
+            Return d * d.
+
+## To kind (s: Shape) -> Text:
+    Inspect s:
+        When Circle (r):
+            Return "circle".
+        Otherwise:
+            Return "square".
+
+## Main
+Let shapes be [a new Circle with radius 2, a new Square with side 3, a new Circle with radius 1].
+Let mutable total be 0.
+Repeat for s in shapes:
+    Set total to total + area(s).
+    Show kind(s).
+Let mutable kept be a new Seq of Shape.
+Repeat for s in shapes:
+    If area(s) is greater than 5:
+        Push s to kept.
+Show total.
+Show length of kept.
+"#;
+    // ---- SHAPE: the lending loop borrows each item; the keeping loop copies each one. ----
+    let rust = compile_to_rust(code).unwrap();
+    assert!(rust.contains("for s in shapes.borrow().iter() {"), "the lending loop walks the items in place:\n{rust}");
+    assert!(rust.contains("area(s)") && rust.contains("kind(s)"), "a borrow passes on as itself:\n{rust}");
+    assert_eq!(
+        rust.matches(".iter().cloned()").count(),
+        1,
+        "only the loop that keeps an item copies it:\n{rust}"
+    );
+    assert!(!rust.contains("&(s)"), "a lent value is `&s`:\n{rust}");
+
+    // ---- BEHAVIOR: every tier agrees. ----
+    common::assert_all_tiers(code, "circle\nsquare\ncircle\n24\n2");
+}
+
+// =============================================================================
+// 9. A shown concatenation is written as it is formatted
+// =============================================================================
+
+/// `Show "total: " + total + ", half: " + half + "!"` prints the line without building it: the literals are written
+/// into the format string and only the values fill holes, `println(format_args!("total: {}, half: {}!", …))` — no
+/// `String` allocated and copied per line, no empty `""` passed as an argument. A concatenation bound to a name is
+/// `format!` with the same format string.
+#[cfg(not(target_arch = "wasm32"))]
+#[test]
+fn a_shown_concatenation_is_written_as_it_is_formatted() {
+    let code = r#"## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let arguments be args().
+Let n be parseInt(item 2 of arguments).
+Let mutable total be 0.
+Let mutable i be 1.
+While i is at most n:
+    Set total to total + i.
+    Set i to i + 1.
+Let half be total / 2.
+Let label be "sum of " + n + " numbers".
+Show label.
+Show "total: " + total + ", half: " + half + "!".
+Show "" + total.
+"#;
+    // ---- SHAPE ----
+    let rust = compile_to_rust(code).unwrap();
+    for written in [
+        "println(format_args!(\"total: {}, half: {}!\", { total }, { half }))",
+        "println(format_args!(\"{}\", { total }))",
+        "format!(\"sum of {} numbers\", { n })",
+    ] {
+        assert!(rust.contains(written), "expected `{written}` in:\n{rust}");
+    }
+    assert!(!rust.contains("show(&format!("), "no text is built only to be shown:\n{rust}");
+
+    // ---- BEHAVIOR ----
+    let run = common::run_logos_with_args(code, &["10"]);
+    assert!(run.success, "the program must run: {}", run.stderr);
+    assert_eq!(run.stdout, "sum of 10 numbers\ntotal: 55, half: 27!\n55\n");
+}

@@ -1,0 +1,61 @@
+## A Statement is either:
+    Allocate (target: Text, site: Text).
+    Copy (target: Text, source: Text).
+    Store (base: Text, field: Text, source: Text).
+    Load (target: Text, base: Text, field: Text).
+
+## To analyze (program: Seq of Statement) -> (Set of (Text, Text), Set of (Text, Text, Text)):
+    Let vP be a new Set of (Text, Text).
+    Let hP be a new Set of (Text, Text, Text).
+    Let mutable changed be true.
+    While changed:
+        Let before be the count of vP + the count of hP.
+        Repeat for s in program:
+            Inspect s:
+                When Allocate (v, h):
+                    # vP(v, h) :- vP0(v, h).
+                    Add (v, h) to vP.
+                When Copy (v1, v2):
+                    # vP(v1, h) :- assign(v1, v2), vP(v2, h).
+                    Repeat for (v, h) in copy of vP:
+                        If v equals v2:
+                            Add (v1, h) to vP.
+                When Store (v1, f, v2):
+                    # hP(h1, f, h2) :- store(v1, f, v2), vP(v1, h1), vP(v2, h2).
+                    Repeat for (a, h1) in copy of vP:
+                        Repeat for (b, h2) in copy of vP:
+                            If a equals v1 and b equals v2:
+                                Add (h1, f, h2) to hP.
+                When Load (v2, v1, f):
+                    # vP(v2, h2) :- load(v1, f, v2), vP(v1, h1), hP(h1, f, h2).
+                    Repeat for (a, h1) in copy of vP:
+                        Repeat for (g, f2, h2) in copy of hP:
+                            If a equals v1 and g equals h1 and f2 equals f:
+                                Add (v2, h2) to vP.
+        Set changed to the count of vP + the count of hP is greater than before.
+    Return (vP, hP).
+
+## Main
+Let program be a new Seq of Statement.
+Push a new Allocate with target "a" and site "h1" to program.
+Push a new Allocate with target "b" and site "h2" to program.
+Push a new Copy with target "c" and source "a" to program.
+Push a new Store with base "c" and field "next" and source "b" to program.
+Push a new Load with target "d" and base "a" and field "next" to program.
+Push a new Allocate with target "e" and site "h3" to program.
+Push a new Store with base "a" and field "next" and source "e" to program.
+Let (vP, hP) be analyze(program).
+Let sites be ["h1", "h2", "h3"].
+Repeat for v in ["a", "b", "c", "d", "e"]:
+    Let mutable targets be "".
+    Repeat for h in sites:
+        If vP contains (v, h):
+            Set targets to targets + " " + h.
+    Show "{v} points to{targets}".
+Repeat for h1 in sites:
+    Let mutable held be "".
+    Repeat for h2 in sites:
+        If hP contains (h1, "next", h2):
+            Set held to held + " " + h2.
+    If held is not "":
+        Show "{h1}.next holds{held}".

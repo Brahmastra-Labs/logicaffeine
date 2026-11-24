@@ -1,0 +1,22 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## To digitSum (k: Int, x: Int) -> Int:
+    If x is less than 1:
+        Return 0.
+    Let mutable n be x.
+    Let mutable s be 0.
+    While n is greater than 0:
+        Set s to s + n % k.
+        Set n to n / k.
+    Return s.
+
+## Main
+Let k be parseInt(item 2 of args()).
+Let n be parseInt(item 3 of args()).
+Let mutable acc be 0.
+Let mutable i be 0.
+While i is less than n:
+    Set acc to acc + digitSum(k, i * 7919 + 1000003).
+    Set i to i + 1.
+Show acc.

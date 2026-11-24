@@ -26,9 +26,18 @@
 //!      ring fragment, exhaustively checked on the adversarial i64
 //!      boundary grid. The full Z3 bitvector theorem lands with the Forge
 //!      SMT layer (M15); this grid is the standing mechanical check.
+//!
+//!    A `Bitvector` or `LogosProperty` certificate can also carry its
+//!    identity as a kernel theorem over [`super::kernel_semantics`], where
+//!    the LOGOS operations the rule rewrites are defined in the kernel.
+//!    The constant folder evaluates a Rust function, so its check is an
+//!    oracle instead, [`fold_agrees_with_kernel`]: the kernel's verdict on
+//!    every folded value over a grid of literals.
 
-use logicaffeine_kernel::{normalize, ring, Literal as KLiteral, Term};
+use logicaffeine_kernel::int_inductive::canonical_int;
+use logicaffeine_kernel::{normalize, recheck, ring, Literal as KLiteral, Term};
 
+use super::kernel_semantics;
 use super::{CompilerEGraph, CompilerENode, NodeId};
 use crate::optimize::ScalarKind;
 
@@ -76,7 +85,11 @@ pub enum Certificate {
     },
     /// Wrapping-i64 identity checked exhaustively on the boundary grid by
     /// the named check function (upgraded to a Z3 proof in M15).
-    Bitvector { check: fn() -> Result<(), String> },
+    Bitvector {
+        check: fn() -> Result<(), String>,
+        /// The identity as a kernel theorem, once one is proved.
+        theorem: Option<KernelTheorem>,
+    },
     /// An executable LOGOS property program (D11b — the language is its
     /// own test substrate): the program generates a deterministic corpus,
     /// compares the rule's two sides over it, and Shows its failure
@@ -84,8 +97,13 @@ pub enum Certificate {
     LogosProperty {
         program: &'static str,
         expected: &'static str,
+        /// The identity as a kernel theorem, once one is proved.
+        theorem: Option<KernelTheorem>,
     },
 }
+
+/// Builds a rule's identity as a theorem over the LOGOS operations it rewrites, with the kernel's proof of it.
+pub type KernelTheorem = fn() -> Result<KernelCertificate, String>;
 
 // ----- Ring reification ------------------------------------------------
 
@@ -145,6 +163,163 @@ fn check_ring(lhs: &RingExpr, rhs: &RingExpr) -> Result<(), String> {
     } else {
         Err("polynomials differ".to_string())
     }
+}
+
+// ----- Kernel proofs ----------------------------------------------------
+
+/// A rewrite's identity as a theorem with a proof the kernel checks: the identity's variables, each an arbitrary value
+/// of its type declared over the standard library with nothing assumed about it, the definitions of the LOGOS
+/// operations it mentions, the identity over them, and a term of that type. A checker rebuilds the context from
+/// `variables` and `definitions` alone. A definition is declared with its body, so it is never an assumption, and it
+/// may only add a name, so a certificate cannot assume anything else.
+pub struct KernelCertificate {
+    /// Each variable and its type.
+    pub variables: Vec<(String, Term)>,
+    /// Each LOGOS operation the statement mentions, as `(name, type, body)`, each after the ones it uses: the
+    /// definitions of [`kernel_semantics::definitions`], which a checker holds to the runtime.
+    pub definitions: Vec<(String, Term, Term)>,
+    /// The identity: `Eq T lhs rhs` over the variables, or a `Π` over values and hypotheses ending in one.
+    pub statement: Term,
+    /// A proof of `statement`.
+    pub proof: Term,
+}
+
+/// The kernel proof of `rule`'s identity, or why it has none yet.
+pub fn kernel_certificate(rule: &Rewrite) -> Result<KernelCertificate, String> {
+    match &rule.certificate {
+        Certificate::Ring { lhs, rhs } => ring_certificate(lhs, rhs),
+        Certificate::BoolCases { vars, lhs, rhs } => bool_certificate(*vars, lhs, rhs),
+        Certificate::Bitvector { theorem: Some(theorem), .. }
+        | Certificate::LogosProperty { theorem: Some(theorem), .. } => {
+            theorem().map_err(|e| format!("{}: {e}", rule.name))
+        }
+        Certificate::Bitvector { theorem: None, .. } => {
+            Err(format!("{}: a check over a grid of i64 values", rule.name))
+        }
+        Certificate::LogosProperty { theorem: None, .. } => {
+            Err(format!("{}: a property program run on the tree-walker", rule.name))
+        }
+    }
+}
+
+/// The standard library with each of `definitions` declared with its body, in order, then each of `variables`
+/// declared at its type. A definition the kernel refuses, one whose body is left waiting on a name nothing binds, and a
+/// definition or variable whose name is already bound are each an error: a certificate adds names and never rebinds
+/// one.
+pub fn certificate_context(
+    variables: &[(String, Term)],
+    definitions: &[(String, Term, Term)],
+) -> Result<logicaffeine_kernel::Context, String> {
+    let mut ctx = logicaffeine_kernel::prelude::StandardLibrary::context().clone();
+    for (name, ty, body) in definitions {
+        if ctx.get_global(name).is_some() {
+            return Err(format!("`{name}` is already bound, and a certificate's definition may not rebind it"));
+        }
+        ctx.declare(name, ty.clone(), body.clone()).map_err(|e| format!("the kernel refuses `{name}`: {e}"))?;
+    }
+    if let Some((name, missing)) =
+        ctx.pending_obligations().into_iter().find(|(name, _)| definitions.iter().any(|(d, _, _)| d == name))
+    {
+        return Err(format!("`{name}` waits on `{missing}`, which nothing binds"));
+    }
+    for (name, ty) in variables {
+        if ctx.get_global(name).is_some() {
+            return Err(format!("`{name}` is already bound, and a certificate's variable may not rebind it"));
+        }
+        ctx.add_declaration(name, ty.clone());
+    }
+    Ok(ctx)
+}
+
+fn kernel_app(f: &str, args: &[Term]) -> Term {
+    args.iter().fold(Term::Global(f.to_string()), |acc, a| Term::App(Box::new(acc), Box::new(a.clone())))
+}
+
+fn ring_term(e: &RingExpr) -> Term {
+    match e {
+        RingExpr::Var(i) => Term::Global(format!("v{i}")),
+        RingExpr::Const(k) => Term::Lit(KLiteral::Int(*k)),
+        RingExpr::Add(a, b) => kernel_app("add", &[ring_term(a), ring_term(b)]),
+        RingExpr::Sub(a, b) => kernel_app("sub", &[ring_term(a), ring_term(b)]),
+        RingExpr::Mul(a, b) => kernel_app("mul", &[ring_term(a), ring_term(b)]),
+    }
+}
+
+fn ring_vars(e: &RingExpr, out: &mut std::collections::BTreeSet<u8>) {
+    match e {
+        RingExpr::Var(i) => {
+            out.insert(*i);
+        }
+        RingExpr::Const(_) => {}
+        RingExpr::Add(a, b) | RingExpr::Sub(a, b) | RingExpr::Mul(a, b) => {
+            ring_vars(a, out);
+            ring_vars(b, out);
+        }
+    }
+}
+
+/// `lhs = rhs` over `Int`, the runtime's exact integers (an `Int` overflow promotes, it never wraps), proved by the
+/// proof crate's ring procedure from axiom-free integer laws.
+fn ring_certificate(lhs: &RingExpr, rhs: &RingExpr) -> Result<KernelCertificate, String> {
+    let mut vars = std::collections::BTreeSet::new();
+    ring_vars(lhs, &mut vars);
+    ring_vars(rhs, &mut vars);
+    let variables: Vec<(String, Term)> =
+        vars.into_iter().map(|i| (format!("v{i}"), Term::Global("Int".to_string()))).collect();
+    let ctx = certificate_context(&variables, &[])?;
+    let (l, r) = (ring_term(lhs), ring_term(rhs));
+    let proof = logicaffeine_proof::arith::prove_int_eq(&ctx, &l, &r)
+        .ok_or_else(|| format!("no ring proof of {lhs:?} = {rhs:?}"))?;
+    Ok(KernelCertificate {
+        variables,
+        definitions: Vec::new(),
+        statement: kernel_app("Eq", &[Term::Global("Int".to_string()), l, r]),
+        proof,
+    })
+}
+
+/// `e` over the variables `b0, b1, …`, with the connectives of [`bool_to_term`].
+fn bool_open(e: &BoolExpr) -> Term {
+    match e {
+        BoolExpr::Var(i) => Term::Var(format!("b{i}")),
+        BoolExpr::Const(b) => k_bool(*b),
+        BoolExpr::And(a, b) => match_bool(bool_open(a), bool_open(b), k_bool(false)),
+        BoolExpr::Or(a, b) => match_bool(bool_open(a), k_bool(true), bool_open(b)),
+        BoolExpr::Not(a) => match_bool(bool_open(a), k_bool(false), k_bool(true)),
+    }
+}
+
+/// `∀ b0 … : Bool, lhs = rhs`, proved by the kernel's tactics: split a variable until each case closes by `rfl`.
+fn bool_certificate(vars: u8, lhs: &BoolExpr, rhs: &BoolExpr) -> Result<KernelCertificate, String> {
+    use logicaffeine_kernel::tactics::GoalState;
+    let boolean = Term::Global("Bool".to_string());
+    let identity = kernel_app("Eq", &[boolean.clone(), bool_open(lhs), bool_open(rhs)]);
+    let statement = (0..vars).rev().fold(identity, |body, i| Term::Pi {
+        param: format!("b{i}"),
+        param_type: Box::new(boolean.clone()),
+        body_type: Box::new(body),
+    });
+    let ctx = logicaffeine_kernel::prelude::StandardLibrary::context();
+    let mut state = GoalState::new(ctx, &statement).map_err(|e| format!("{e:?}"))?;
+    let names: Vec<String> = (0..vars).map(|i| format!("b{i}")).collect();
+    for name in &names {
+        state.intro(name).map_err(|e| format!("{e:?}"))?;
+    }
+    // Each split doubles a branch and each branch closes once: never more steps than twice the valuations.
+    let mut steps = 2usize << vars;
+    while let Some(goal) = state.goals().first().cloned() {
+        steps = steps.checked_sub(1).ok_or_else(|| "the case split did not terminate".to_string())?;
+        if state.rfl().is_ok() {
+            continue;
+        }
+        let split = names
+            .iter()
+            .find(|n| goal.hyps.iter().any(|(h, _)| h == *n))
+            .ok_or_else(|| format!("a case where the sides differ: {:?}", goal.target))?;
+        state.cases(split, &[&[], &[]]).map_err(|e| format!("{e:?}"))?;
+    }
+    let proof = state.qed().map_err(|e| format!("{e:?}"))?;
+    Ok(KernelCertificate { variables: Vec::new(), definitions: Vec::new(), statement, proof })
 }
 
 // ----- Bool case analysis through kernel normalization ------------------
@@ -240,16 +415,42 @@ const GRID: &[i64] = &[
 
 const POWERS: &[u32] = &[0, 1, 2, 3, 5, 16, 31, 32, 62];
 
+/// `mul-pow2-shl` replaces the EXACT product `x * 2^n` by the wrapping `x << n`, so what it rests on is that the two
+/// agree wherever the product fits an i64, and that [`mul_pow2_fits_i64`] admits exactly those products: every
+/// point interval on the grid for every `n` a rewrite shifts by, and every interval between two grid points, whose
+/// admission must cover each grid value inside it.
 fn bv_mul_pow2_is_shl() -> Result<(), String> {
-    for &x in GRID {
-        for &n in POWERS {
-            let p = 1i64.wrapping_shl(n);
-            let mul = x.wrapping_mul(p);
-            let shl = x.wrapping_shl(n);
-            if mul != shl {
-                return Err(format!("{x} * 2^{n}: mul {mul} ≠ shl {shl}"));
+    let mut refused = 0usize;
+    for n in 0..=62u32 {
+        for &x in GRID {
+            let exact = i128::from(x) << n;
+            let fits = i64::try_from(exact).is_ok();
+            if fits && i128::from(x.wrapping_shl(n)) != exact {
+                return Err(format!("{x} << {n} is {}, not {x} * 2^{n} = {exact}", x.wrapping_shl(n)));
+            }
+            if mul_pow2_fits_i64(Some((x, x)), n) != fits {
+                return Err(format!(
+                    "the gate {} {x} * 2^{n} = {exact}, which {} an i64",
+                    if fits { "refuses" } else { "admits" },
+                    if fits { "fits" } else { "does not fit" },
+                ));
+            }
+            refused += usize::from(!fits);
+        }
+        for &lo in GRID {
+            for &hi in GRID.iter().filter(|&&hi| lo <= hi) {
+                if !mul_pow2_fits_i64(Some((lo, hi)), n) {
+                    continue;
+                }
+                let overflows = |&&x: &&i64| lo <= x && x <= hi && i64::try_from(i128::from(x) << n).is_err();
+                if let Some(&x) = GRID.iter().find(overflows) {
+                    return Err(format!("the gate admits [{lo}, {hi}] * 2^{n}, and {x} * 2^{n} does not fit an i64"));
+                }
             }
         }
+    }
+    if refused == 0 {
+        return Err("no grid product overflows, so the gate's refusal is never exercised".to_string());
     }
     Ok(())
 }
@@ -304,60 +505,77 @@ fn bv_div_one_is_identity() -> Result<(), String> {
     Ok(())
 }
 
-/// The constant-folder's evaluator, differentially checked against an
-/// independent transcription of the kernel's wrapping arithmetic over the
-/// full grid × grid, INCLUDING the error cases (zero divisors must refuse
-/// to fold on both sides).
-fn bv_fold_evaluator_matches_kernel() -> Result<(), String> {
-    for &a in GRID {
-        for &b in GRID {
-            // Exact spec: arithmetic folds ONLY when it fits i64 (overflow → None, so
-            // the promoting runtime computes the BigInt); div/mod also refuse a zero
-            // divisor. Bitwise/shift ops are total.
-            let cases: &[(&str, Option<i64>, Option<i64>)] = &[
-                ("add", fold_binop(FoldOp::Add, a, b), a.checked_add(b)),
-                ("sub", fold_binop(FoldOp::Sub, a, b), a.checked_sub(b)),
-                ("mul", fold_binop(FoldOp::Mul, a, b), a.checked_mul(b)),
-                (
-                    "div",
-                    fold_binop(FoldOp::Div, a, b),
-                    if b == 0 { None } else { a.checked_div(b) },
-                ),
-                (
-                    "mod",
-                    fold_binop(FoldOp::Mod, a, b),
-                    if b == 0 { None } else { a.checked_rem(b) },
-                ),
-                (
-                    "shl",
-                    fold_binop(FoldOp::Shl, a, b),
-                    Some(a.wrapping_shl(b as u32)),
-                ),
-                (
-                    "shr",
-                    fold_binop(FoldOp::Shr, a, b),
-                    Some(a.wrapping_shr(b as u32)),
-                ),
-                ("xor", fold_binop(FoldOp::Xor, a, b), Some(a ^ b)),
-                ("and", fold_binop(FoldOp::And, a, b), Some(a & b)),
-                ("or", fold_binop(FoldOp::Or, a, b), Some(a | b)),
-            ];
-            for (name, got, want) in cases {
-                if got != want {
-                    return Err(format!("fold {name}({a}, {b}): {got:?} ≠ {want:?}"));
-                }
+/// The literal operands [`fold_agrees_with_kernel`] folds every operation on, both ways round: both rims of `i64`
+/// and a neighbour of each, the signs around zero, a zero divisor, and shift amounts that are negative, past 63, and
+/// at the rims of the six bits the runtime keeps.
+pub const FOLD_GRID: &[i64] = &[i64::MIN, i64::MIN + 1, -65, -8, -7, -1, 0, 1, 2, 7, 64, i64::MAX];
+
+/// `fold` held to the kernel on every pair of [`FOLD_GRID`], for every operation. Where `fold` gives a value, the
+/// kernel's definition of the operation computes it: the re-checker accepts `refl v` as a proof of `a op b = v`.
+/// Where `fold` gives none, the runtime raises, on a zero divisor, or the kernel's exact value lies outside `i64`,
+/// which the re-checker decides the same way. The re-checker computes the standard library's arithmetic natively,
+/// `div` and `mod` among it, where the first kernel's conversion unfolds a division one step at a time.
+pub fn fold_agrees_with_kernel(fold: impl Fn(FoldOp, i64, i64) -> Option<i64>) -> Result<(), String> {
+    let ctx = certificate_context(&[], &kernel_semantics::definitions())?;
+    for &a in FOLD_GRID {
+        for &b in FOLD_GRID {
+            for op in FoldOp::ALL {
+                fold_verdict(&ctx, op, a, b, fold(op, a, b)).map_err(|e| format!("{op:?} on ({a}, {b}) {e}"))?;
             }
         }
     }
     Ok(())
 }
 
+/// Whether `folded`, a folder's value for `a op b`, is the kernel's.
+fn fold_verdict(
+    ctx: &logicaffeine_kernel::Context,
+    op: FoldOp,
+    a: i64,
+    b: i64,
+    folded: Option<i64>,
+) -> Result<(), String> {
+    let exact = op.kernel(canonical_int(a), canonical_int(b));
+    match folded {
+        Some(value) if op.raises_on(b) => Err(format!("folds to {value}, where the runtime raises")),
+        Some(value) if computes_to(ctx, Term::Global("Int".to_string()), &exact, canonical_int(value)) => Ok(()),
+        Some(value) => Err(format!("folds to {value}, which the kernel does not compute")),
+        None if op.raises_on(b) || outside_i64(ctx, &exact) => Ok(()),
+        None => Err("does not fold, and the kernel computes an i64".to_string()),
+    }
+}
+
+/// The kernel computes `exact` to an integer outside `i64`: `exact ≤ i64::MAX` or `i64::MIN ≤ exact` is false.
+fn outside_i64(ctx: &logicaffeine_kernel::Context, exact: &Term) -> bool {
+    let global = |name: &str| Term::Global(name.to_string());
+    let false_of = |bound: Term| computes_to(ctx, global("Bool"), &bound, global("false"));
+    false_of(kernel_app("le", &[exact.clone(), canonical_int(i64::MAX)]))
+        || false_of(kernel_app("le", &[canonical_int(i64::MIN), exact.clone()]))
+}
+
+/// The re-checker accepts `refl value` as a proof of `term = value`: the kernel computes `term` to `value`.
+fn computes_to(ctx: &logicaffeine_kernel::Context, ty: Term, term: &Term, value: Term) -> bool {
+    let claim = kernel_app("Eq", &[ty.clone(), term.clone(), value.clone()]);
+    let cited = Term::Lambda {
+        param: "h".to_string(),
+        param_type: Box::new(claim),
+        body: Box::new(Term::Var("h".to_string())),
+    };
+    recheck(ctx, &Term::App(Box::new(cited), Box::new(kernel_app("refl", &[ty, value])))).is_ok()
+}
+
+/// The constant folder's check: [`fold_agrees_with_kernel`] on [`fold_binop`].
+fn fold_is_the_kernels() -> Result<(), String> {
+    fold_agrees_with_kernel(fold_binop)
+}
+
 // =====================================================================
 // The fold evaluator (shared by the const-fold rule and its certificate)
 // =====================================================================
 
-#[derive(Clone, Copy)]
-pub(crate) enum FoldOp {
+/// An integer operation the constant folder evaluates.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FoldOp {
     Add,
     Sub,
     Mul,
@@ -370,12 +588,51 @@ pub(crate) enum FoldOp {
     Or,
 }
 
+impl FoldOp {
+    /// Every operation the constant folder evaluates.
+    pub const ALL: [FoldOp; 10] = [
+        FoldOp::Add,
+        FoldOp::Sub,
+        FoldOp::Mul,
+        FoldOp::Div,
+        FoldOp::Mod,
+        FoldOp::Shl,
+        FoldOp::Shr,
+        FoldOp::Xor,
+        FoldOp::And,
+        FoldOp::Or,
+    ];
+
+    /// `a op b` in the kernel: the standard library's exact `add`, `sub` and `mul`, and the definitions of
+    /// [`kernel_semantics`] for the rest, a shift by the low six bits of `b`, as the runtime's shifts take it.
+    pub fn kernel(self, a: Term, b: Term) -> Term {
+        match self {
+            FoldOp::Add => kernel_app("add", &[a, b]),
+            FoldOp::Sub => kernel_app("sub", &[a, b]),
+            FoldOp::Mul => kernel_app("mul", &[a, b]),
+            FoldOp::Div => kernel_semantics::tdiv(a, b),
+            FoldOp::Mod => kernel_semantics::tmod(a, b),
+            FoldOp::Shl => kernel_semantics::shl(a, kernel_semantics::shift_amount(b)),
+            FoldOp::Shr => kernel_semantics::shr(a, kernel_semantics::shift_amount(b)),
+            FoldOp::Xor => kernel_semantics::bitxor(a, b),
+            FoldOp::And => kernel_semantics::bitand(a, b),
+            FoldOp::Or => kernel_semantics::bitor(a, b),
+        }
+    }
+
+    /// The runtime raises on `a op divisor` for every `a`: `/` and `%` by zero.
+    pub fn raises_on(self, divisor: i64) -> bool {
+        matches!(self, FoldOp::Div | FoldOp::Mod) && divisor == 0
+    }
+}
+
 /// Kernel-exact arithmetic for the constant-folder. `None` = refuses to fold —
 /// either because the operation has no value (a zero divisor, whose runtime error
 /// is the program's meaning) OR because the result OVERFLOWS i64, in which case the
 /// exact (promoting) runtime must compute the BigInt rather than have us bake a
-/// wrapped constant. Bitwise/shift ops are total and always fold.
-pub(crate) fn fold_binop(op: FoldOp, a: i64, b: i64) -> Option<i64> {
+/// wrapped constant. `i64::MIN % -1` is 0, which fits. Bitwise/shift ops are total
+/// and always fold.
+pub fn fold_binop(op: FoldOp, a: i64, b: i64) -> Option<i64> {
     match op {
         FoldOp::Add => a.checked_add(b),
         FoldOp::Sub => a.checked_sub(b),
@@ -390,7 +647,7 @@ pub(crate) fn fold_binop(op: FoldOp, a: i64, b: i64) -> Option<i64> {
             if b == 0 {
                 return None;
             }
-            a.checked_rem(b)
+            Some(a.wrapping_rem(b))
         }
         FoldOp::Shl => Some(a.wrapping_shl(b as u32)),
         FoldOp::Shr => Some(a.wrapping_shr(b as u32)),
@@ -787,9 +1044,11 @@ fn r_copy_copy(eg: &mut CompilerEGraph, id: NodeId) -> Option<NodeId> {
     None
 }
 
-/// `slice(xs, 1, len(xs))` ≡ `copy(xs)` for a PROVEN LIST: the full
-/// slice's clamps are no-ops and both sides are fresh. Gated on listness
-/// because slicing is list-shaped while copy accepts any collection.
+/// `slice(xs, 1, len(xs))` ≡ `copy(xs)` for a PROVEN LIST: the runtime's
+/// slice is every item from offset `start - 1` up to `end` when `end` is at
+/// most the length, and EMPTY otherwise, so items 1 through the length are
+/// the whole list, and both sides are fresh. Gated on listness because
+/// slicing raises on anything but a list while copy accepts any collection.
 fn r_slice_full_copy(eg: &mut CompilerEGraph, id: NodeId) -> Option<NodeId> {
     if let CompilerENode::Slice(xs, a, b) = eg.canonical_node(id) {
         if eg.int_value(a) == Some(1) && eg.proven_list(xs) {
@@ -805,9 +1064,10 @@ fn r_slice_full_copy(eg: &mut CompilerEGraph, id: NodeId) -> Option<NodeId> {
 }
 
 /// `len(slice(xs, a, b))` → `b − a + 1` under PROOFS: constant bounds
-/// with 1 ≤ a, a ≤ b + 1 and b ≤ len(xs) guaranteed — the clamps cannot
-/// engage, so the length is exact and the whole slice (xs included)
-/// disappears. Deleting xs requires its tree total.
+/// with 1 ≤ a, a ≤ b + 1 and b ≤ len(xs) guaranteed — the slice stays inside
+/// the list, where the runtime keeps items a through b (none when a = b + 1)
+/// instead of answering EMPTY, so the length is exact and the whole slice
+/// (xs included) disappears. Deleting xs requires its tree total.
 fn r_len_slice_bounds(eg: &mut CompilerEGraph, id: NodeId) -> Option<NodeId> {
     if let CompilerENode::Len(s) = eg.canonical_node(id) {
         let slice = member_matching(eg, s, |n| matches!(n, CompilerENode::Slice(..)));
@@ -1059,6 +1319,7 @@ pub fn all() -> Vec<Rewrite> {
             apply: r_div_one,
             certificate: Certificate::Bitvector {
                 check: bv_div_one_is_identity,
+                theorem: Some(kernel_semantics::div_one),
             },
         },
         Rewrite {
@@ -1155,6 +1416,7 @@ pub fn all() -> Vec<Rewrite> {
             apply: r_mul_pow2_shl,
             certificate: Certificate::Bitvector {
                 check: bv_mul_pow2_is_shl,
+                theorem: Some(kernel_semantics::mul_pow2_shl),
             },
         },
         Rewrite {
@@ -1162,6 +1424,7 @@ pub fn all() -> Vec<Rewrite> {
             apply: r_div_pow2_shr,
             certificate: Certificate::Bitvector {
                 check: bv_div_pow2_is_shr_nonneg,
+                theorem: Some(kernel_semantics::div_pow2_shr),
             },
         },
         Rewrite {
@@ -1169,6 +1432,7 @@ pub fn all() -> Vec<Rewrite> {
             apply: r_mod_pow2_and,
             certificate: Certificate::Bitvector {
                 check: bv_mod_pow2_is_and_nonneg,
+                theorem: Some(kernel_semantics::mod_pow2_and),
             },
         },
         Rewrite {
@@ -1207,7 +1471,8 @@ pub fn all() -> Vec<Rewrite> {
             name: "const-fold",
             apply: r_const_fold,
             certificate: Certificate::Bitvector {
-                check: bv_fold_evaluator_matches_kernel,
+                check: fold_is_the_kernels,
+                theorem: None,
             },
         },
         Rewrite {
@@ -1216,6 +1481,7 @@ pub fn all() -> Vec<Rewrite> {
             certificate: Certificate::LogosProperty {
                 program: PROP_LEN_COPY,
                 expected: "0",
+                theorem: Some(kernel_semantics::len_copy),
             },
         },
         Rewrite {
@@ -1224,6 +1490,7 @@ pub fn all() -> Vec<Rewrite> {
             certificate: Certificate::LogosProperty {
                 program: PROP_INDEX_COPY,
                 expected: "0",
+                theorem: Some(kernel_semantics::index_copy),
             },
         },
         Rewrite {
@@ -1232,6 +1499,7 @@ pub fn all() -> Vec<Rewrite> {
             certificate: Certificate::LogosProperty {
                 program: PROP_COPY_COPY,
                 expected: "0",
+                theorem: Some(kernel_semantics::copy_copy),
             },
         },
         Rewrite {
@@ -1240,6 +1508,7 @@ pub fn all() -> Vec<Rewrite> {
             certificate: Certificate::LogosProperty {
                 program: PROP_SLICE_FULL_COPY,
                 expected: "0",
+                theorem: Some(kernel_semantics::slice_full_copy),
             },
         },
         Rewrite {
@@ -1248,6 +1517,7 @@ pub fn all() -> Vec<Rewrite> {
             certificate: Certificate::LogosProperty {
                 program: PROP_LEN_SLICE_BOUNDS,
                 expected: "0",
+                theorem: Some(kernel_semantics::len_slice_bounds),
             },
         },
     ]
@@ -1379,8 +1649,8 @@ pub fn verify_all_with_kernel() -> Result<usize, String> {
         let outcome = match &rule.certificate {
             Certificate::Ring { lhs, rhs } => check_ring(lhs, rhs),
             Certificate::BoolCases { vars, lhs, rhs } => check_bool_cases(*vars, lhs, rhs),
-            Certificate::Bitvector { check } => check(),
-            Certificate::LogosProperty { program, expected } => {
+            Certificate::Bitvector { check, .. } => check(),
+            Certificate::LogosProperty { program, expected, .. } => {
                 match crate::compile::interpret_program(program) {
                     Ok(out) if out.trim() == *expected => Ok(()),
                     Ok(out) => Err(format!(

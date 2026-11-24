@@ -31,7 +31,10 @@ use std::path::{Path, PathBuf};
 use std::fmt::Write as _;
 use std::process::Command;
 
-use logicaffeine_compile::codegen_cuda::knobs::CudaKnobs;
+use logicaffeine_compile::codegen_cpu::kernels::FLAGS_X86_AVX2_VNNI;
+use logicaffeine_compile::codegen_cpu::shim::{CpuActivations, CpuCache, CpuIsa, CpuShim};
+use logicaffeine_compile::codegen_cpu::split::{compile_cut, Split};
+use logicaffeine_compile::codegen_cuda::knobs::{CudaKnobs, StatePrecision};
 use logicaffeine_compile::codegen_cuda::lane::plan::{kind, Launch, RULES};
 use logicaffeine_compile::codegen_cuda::lane::residence::place;
 use logicaffeine_compile::codegen_cuda::lane::{
@@ -100,6 +103,21 @@ fn build(lane: &Lane, name: &str) -> Built {
     std::fs::write(&cu, &lane.program.cu).unwrap();
     std::fs::write(&side, &lane.program.sidecar).unwrap();
     let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "{name} builds:\n{}", String::from_utf8_lossy(&built.stderr));
+    Built { bin, side, name: name.to_string() }
+}
+
+/// A cut model's program built: the front's library compiled for the host's cores and linked into the lane's program,
+/// its sidecar the lane's values then the front's.
+fn build_cut(split: &Split, name: &str) -> Built {
+    let (cu, front, obj) = (dir().join(format!("{name}.cu")), dir().join(format!("{name}.front.cpp")), dir().join(format!("{name}.front.o")));
+    let (bin, side) = (dir().join(name), dir().join(format!("{name}.side")));
+    std::fs::write(&cu, &split.lane.program.cu).unwrap();
+    std::fs::write(&side, split.sidecar()).unwrap();
+    std::fs::write(&front, split.front_source()).unwrap();
+    let built = Command::new("g++").args(["-O3", "-std=c++17"]).args(FLAGS_X86_AVX2_VNNI).args(["-pthread", "-c", "-o"]).arg(&obj).arg(&front).output().unwrap();
+    assert!(built.status.success(), "{name}'s front builds:\n{}", String::from_utf8_lossy(&built.stderr));
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).arg(&obj).arg("-lpthread").output().unwrap();
     assert!(built.status.success(), "{name} builds:\n{}", String::from_utf8_lossy(&built.stderr));
     Built { bin, side, name: name.to_string() }
 }
@@ -419,6 +437,74 @@ fn every_tiny_architecture_generates_what_the_reference_computes() {
                 flips += f;
             }
             report.push(format!("{what}: logits within {worst:.3e} of their scale, {flips} near calls decided the other way"));
+        }
+    }
+    eprintln!("{}", report.join("\n"));
+}
+
+/// Qwen3.8-Flash-Next's hyper-connected residual on the card (PARITY-HYPER-CONNECTIONS): every hyper-connected model
+/// (`tiny_models::hyper_connected_models`: dense attention, an expert mixture, Qwen3.8's hybrid gated by sigmoids, Gemma
+/// 3's sandwich of norms, a latent attention, four lanes and three) generates what the reference computes from every
+/// prompt — prefilled in chunks of four and two, then a token a step — under every numerics, held to the reference as
+/// every architecture is.
+#[test]
+fn every_hyper_connected_model_generates_what_the_reference_computes() {
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let prompts = prompts();
+    let jobs: Vec<(Vec<u32>, usize)> = prompts.iter().map(|p| (p.clone(), GENERATE)).collect();
+    let mut report = Vec::new();
+    for (k, (what, spec)) in tiny_models::hyper_connected_models(CTX).into_iter().enumerate() {
+        let ckpt = dir().join(format!("hyper-{k}.gguf"));
+        tiny_models::write_checkpoint(&spec, &ckpt);
+        for numerics in [Q8MatKind::Dequant, Q8MatKind::TwoPassInt8, Q8MatKind::Int8Act] {
+            let at = format!("{what} {numerics:?}");
+            let lane = compile(&spec, &ckpt, &LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 4 })
+                .unwrap_or_else(|e| panic!("{at}: {e}"));
+            let runs = exec_many(&build(&lane, &format!("hyper-{k}-{numerics:?}")), &ckpt, &jobs, spec.vocab, true);
+            let (mut worst, mut flips) = (0f64, 0);
+            for (j, (prompt, r)) in prompts.iter().zip(&runs).enumerate() {
+                let (w, f) = held_to_reference(&spec, &ckpt, prompt, r, numerics, &format!("{at} prompt {j}"));
+                worst = worst.max(w);
+                flips += f;
+            }
+            report.push(format!("{at}: logits within {worst:.3e} of their scale, {flips} near calls decided the other way"));
+        }
+    }
+    eprintln!("{}", report.join("\n"));
+}
+
+/// Qwen3.8-Flash-Next's layers on the card (PARITY-HYPER-CONNECTIONS, PARITY-MODEL-SPECIFIC-LAYERS): its two tiny
+/// models (`tiny_models::flash_next_models`: Qwen3.8's hybrid in four lanes, its delta rules gated by sigmoids, the
+/// n-gram embedding on its second layer; dense attention with the embedding on its first) generate what the reference
+/// computes from every prompt — prompts crossing an end of document, where the hash's history resets, prefilled in
+/// chunks of four and two and then a token a step — under every numerics, held to the reference as every architecture
+/// is.
+#[test]
+fn qwen38_flash_next_layers_generate_what_the_reference_computes() {
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let eos = tiny_models::EOS;
+    let prompts: Vec<Vec<u32>> = vec![vec![5, 17, eos, 2, 30, 9], vec![9], vec![40, eos, 12, 7, 1, eos, 8], vec![eos, eos, 61, 4], vec![88, 2, 50, 19, 7, 33, 21, 60, 12]];
+    let jobs: Vec<(Vec<u32>, usize)> = prompts.iter().map(|p| (p.clone(), GENERATE)).collect();
+    let mut report = Vec::new();
+    for (k, (what, spec)) in tiny_models::flash_next_models(CTX).into_iter().enumerate() {
+        let ckpt = dir().join(format!("flash-next-{k}.gguf"));
+        tiny_models::write_checkpoint(&spec, &ckpt);
+        for numerics in [Q8MatKind::Dequant, Q8MatKind::TwoPassInt8, Q8MatKind::Int8Act] {
+            let at = format!("{what} {numerics:?}");
+            let lane = compile(&spec, &ckpt, &LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 4 })
+                .unwrap_or_else(|e| panic!("{at}: {e}"));
+            let runs = exec_many(&build(&lane, &format!("flash-next-{k}-{numerics:?}")), &ckpt, &jobs, spec.vocab, true);
+            let (mut worst, mut flips) = (0f64, 0);
+            for (j, (prompt, r)) in prompts.iter().zip(&runs).enumerate() {
+                let (w, f) = held_to_reference(&spec, &ckpt, prompt, r, numerics, &format!("{at} prompt {j}"));
+                worst = worst.max(w);
+                flips += f;
+            }
+            report.push(format!("{at}: logits within {worst:.3e} of their scale, {flips} near calls decided the other way"));
         }
     }
     eprintln!("{}", report.join("\n"));
@@ -1272,6 +1358,523 @@ fn a_norm_in_blocks_playing_its_threads_computes_its_bits() {
         for (k, run) in runs.iter().enumerate().skip(1) {
             let first = run.iter().zip(runs[0]).position(|(a, b)| a != b);
             assert_eq!(first, None, "{what}: blocks playing {} of the norm's warps a warp write the norm's own block's bytes, first apart at byte {first:?}", VWS[k]);
+        }
+    }
+    assert_eq!(at, all.len(), "every case's outputs read");
+}
+
+/// A Q8_0 gated pair of one activation row (`lk_gemv_glu`, its outputs quantized a block of 32) sums each output alike
+/// at one, two and four rows a warp (`GLU_ROWS` takes four): 512 hidden values over rows of 1024, 1152 (a last round
+/// of four blocks) and 2048, through the SwiGLU and Gemma's GELU, quantized to one word and to two — every word and
+/// scale the same bytes at every rows a warp.
+#[test]
+fn a_q8_gated_pair_sums_each_output_alike_at_every_rows_a_warp() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{Kernel, PRELUDE};
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    const N: usize = 512;
+    const WS: [usize; 3] = [1, 2, 4];
+    let dir = dir().join("q8-glu-rows");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut calls = String::new();
+    // Each case: what it computes and the bytes one launch's outputs take, written once a `WS` entry.
+    let mut cases: Vec<(String, usize)> = Vec::new();
+    for k in [1024usize, 1152, 2048] {
+        for (act, act_name) in [(-1, "SwiGLU"), (2, "GELU")] {
+            for q in [1usize, 2] {
+                for w in WS {
+                    let _ = write!(
+                        calls,
+                        "  clear(); lk_gemv_glu<8, 8, {q}, 1, {act}, false, {q}, {w}><<<{}, {}>>>(lk_w{{wg, sg, nullptr, 0}}, lk_w{{wu, su, nullptr, 0}}, nullptr, xq, {}, xs, nullptr, nullptr, nullptr, yq, {}, ys, {k}, {N});\n  \
+                         CK(cudaGetLastError()); CK(cudaDeviceSynchronize()); putb(out, yq, {N});{} putf(out, ys, {});\n",
+                        N / 32,
+                        1024 / w,
+                        if q == 2 { "xl" } else { "nullptr" },
+                        if q == 2 { "yl" } else { "nullptr" },
+                        if q == 2 { format!(" putb(out, yl, {N});") } else { String::new() },
+                        N / 32
+                    );
+                }
+                cases.push((format!("{k} wide, {act_name}, {q} words"), N * q + 4 * (N / 32)));
+            }
+        }
+    }
+    let program = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n\
+         {PRELUDE}{}{}\n\
+         #define CK(x) do {{ cudaError_t e_ = (x); if(e_ != cudaSuccess){{ fprintf(stderr, \"cuda %d %s\\n\", __LINE__, cudaGetErrorString(e_)); exit(1); }} }} while(0)\n\
+         // A hash of the index and the salt, in [0, 1).\n\
+         __device__ float unit(long i, unsigned salt){{\n\
+           unsigned long long h = ((unsigned long long)i ^ ((unsigned long long)salt << 40)) * 0x9E3779B97F4A7C15ULL; h ^= h >> 29; h *= 0xBF58476D1CE4E5B9ULL; h ^= h >> 32;\n\
+           return (float)(h >> 40) / 16777216.f; }}\n\
+         __global__ void bytes(signed char* p, long n, unsigned salt){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) p[i] = (signed char)(unit(i, salt) * 254.f - 127.f); }}\n\
+         __global__ void halves(__half* p, long n, unsigned salt){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) p[i] = __float2half(0.002f + 0.02f * unit(i, salt)); }}\n\
+         __global__ void floats(float* p, long n, unsigned salt){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) p[i] = 0.005f + 0.05f * unit(i, salt); }}\n\
+         static signed char* b8(long n, unsigned salt){{ signed char* p; CK(cudaMalloc(&p, n)); bytes<<<(n + 255) / 256, 256>>>(p, n, salt); CK(cudaGetLastError()); return p; }}\n\
+         static __half* h16(long n, unsigned salt){{ __half* p; CK(cudaMalloc(&p, n * 2)); halves<<<(n + 255) / 256, 256>>>(p, n, salt); CK(cudaGetLastError()); return p; }}\n\
+         static float* f32(long n, unsigned salt){{ float* p; CK(cudaMalloc(&p, n * 4)); floats<<<(n + 255) / 256, 256>>>(p, n, salt); CK(cudaGetLastError()); return p; }}\n\
+         static void putf(FILE* out, const float* d, long n){{ std::vector<float> h(n); CK(cudaMemcpy(h.data(), d, n * 4, cudaMemcpyDeviceToHost)); fwrite(h.data(), 4, n, out); }}\n\
+         static void putb(FILE* out, const signed char* d, long n){{ std::vector<signed char> h(n); CK(cudaMemcpy(h.data(), d, n, cudaMemcpyDeviceToHost)); fwrite(h.data(), 1, n, out); }}\n\
+         int main(int argc, char** argv){{\n  FILE* out = fopen(argv[1], \"wb\");\n\
+         \x20 const long K = 2048, W = {N}L * K;\n\
+         \x20 signed char *wg = b8(W, 1), *wu = b8(W, 2), *xq = b8(K, 3), *xl = b8(K, 4);\n\
+         \x20 __half *sg = h16(W / 32, 5), *su = h16(W / 32, 6);\n\
+         \x20 float* xs = f32(K / 32, 7);\n\
+         \x20 signed char *yq, *yl; float* ys;\n\
+         \x20 CK(cudaMalloc(&yq, {N})); CK(cudaMalloc(&yl, {N})); CK(cudaMalloc(&ys, {N} / 32 * 4));\n\
+         \x20 auto clear = [&]{{ CK(cudaMemset(yq, 0x5a, {N})); CK(cudaMemset(yl, 0x5a, {N})); CK(cudaMemset(ys, 0xff, {N} / 32 * 4)); }};\n\
+         {calls}  fclose(out);\n  return 0;\n}}\n",
+        Kernel::Blocks.source(),
+        Kernel::Glu.source()
+    );
+    let (cu, bin, out) = (dir.join("glu.cu"), dir.join("glu"), dir.join("out.bin"));
+    std::fs::write(&cu, program).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the pairs build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).arg(&out).output().unwrap();
+    assert!(ran.status.success(), "they run: {}", String::from_utf8_lossy(&ran.stderr));
+    let all = std::fs::read(&out).unwrap();
+    let mut at = 0;
+    for (what, bytes) in &cases {
+        let runs: Vec<&[u8]> = (0..WS.len()).map(|k| &all[at + k * bytes..at + (k + 1) * bytes]).collect();
+        at += WS.len() * bytes;
+        let scales = &runs[0][bytes - 4 * (N / 32)..];
+        assert!(scales.chunks_exact(4).all(|c| f32::from_le_bytes(c.try_into().unwrap()).is_finite()), "{what}: every scale written, and finite");
+        for (k, run) in runs.iter().enumerate().skip(1) {
+            let first = run.iter().zip(runs[0]).position(|(a, b)| a != b);
+            assert_eq!(first, None, "{what}: {} rows a warp write one row a warp's bytes, first apart at byte {first:?}", WS[k]);
+        }
+    }
+    assert_eq!(at, all.len(), "every case's outputs read");
+}
+
+/// A gated pair of one activation row in every block format (`lk_gemv_glu`, its outputs quantized a block of 32) sums
+/// each output alike at one, two and four rows a warp (`GLU_ROWS` takes four): 512 hidden values over rows of 1024 and
+/// 2048 values, and of 1152 in the formats of 32-value blocks (a last round of four blocks), each row as the lane lays
+/// it out, through the SwiGLU and Gemma's GELU, quantized to one word and to two — every word and scale the same bytes
+/// at every rows a warp.
+#[test]
+fn every_block_formats_gated_pair_sums_each_output_alike_at_every_rows_a_warp() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{row_bytes, Kernel, PRELUDE};
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    const N: usize = 512;
+    const WS: [usize; 3] = [1, 2, 4];
+    let dir = dir().join("glu-rows-blocks");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut calls = String::new();
+    // Each case: what it computes and the bytes one launch's outputs take, written once a `WS` entry.
+    let mut cases: Vec<(String, usize)> = Vec::new();
+    for &ty in &BLOCK_FORMATS {
+        for k in [1024usize, 1152, 2048].into_iter().filter(|k| k % ty.block_len() == 0) {
+            let (g, u) = (format!("g-{}-{k}", ty.name()), format!("u-{}-{k}", ty.name()));
+            for name in [&g, &u] {
+                std::fs::write(dir.join(format!("{name}.bin")), tiny_models::seeded_blocks(name, ty, N * k)).unwrap();
+            }
+            let (f, rb) = (ty.id(), row_bytes(ty, k));
+            let _ = writeln!(calls, "  {{ lk_w wg = load<{f}>(dir + \"/{g}.bin\", {N}L, {k}, {rb}L), wu = load<{f}>(dir + \"/{u}.bin\", {N}L, {k}, {rb}L);");
+            for (act, act_name) in [(-1, "SwiGLU"), (2, "GELU")] {
+                for q in [1usize, 2] {
+                    for w in WS {
+                        let _ = write!(
+                            calls,
+                            "    clear(); lk_gemv_glu<{f}, {f}, {q}, 1, {act}, false, {q}, {w}><<<{}, {}>>>(wg, wu, nullptr, xq, {}, xs, nullptr, nullptr, nullptr, yq, {}, ys, {k}, {N});\n    \
+                             CK(cudaGetLastError()); CK(cudaDeviceSynchronize()); putb(out, yq, {N});{} putf(out, ys, {});\n",
+                            N / 32,
+                            1024 / w,
+                            if q == 2 { "xl" } else { "nullptr" },
+                            if q == 2 { "yl" } else { "nullptr" },
+                            if q == 2 { format!(" putb(out, yl, {N});") } else { String::new() },
+                            N / 32
+                        );
+                    }
+                    cases.push((format!("{} {k} wide, {act_name}, {q} words", ty.name()), N * q + 4 * (N / 32)));
+                }
+            }
+            calls.push_str("  }\n");
+        }
+    }
+    let program = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <string>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n\
+         {PRELUDE}{}{}\n\
+         #define CK(x) do {{ cudaError_t e_ = (x); if(e_ != cudaSuccess){{ fprintf(stderr, \"cuda %d %s\\n\", __LINE__, cudaGetErrorString(e_)); exit(1); }} }} while(0)\n\
+         {BLOCK_LOADER}\
+         // A hash of the index and the salt, in [0, 1).\n\
+         __device__ float unit(long i, unsigned salt){{\n\
+           unsigned long long h = ((unsigned long long)i ^ ((unsigned long long)salt << 40)) * 0x9E3779B97F4A7C15ULL; h ^= h >> 29; h *= 0xBF58476D1CE4E5B9ULL; h ^= h >> 32;\n\
+           return (float)(h >> 40) / 16777216.f; }}\n\
+         __global__ void bytes(signed char* p, long n, unsigned salt){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) p[i] = (signed char)(unit(i, salt) * 254.f - 127.f); }}\n\
+         __global__ void floats(float* p, long n, unsigned salt){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) p[i] = 0.005f + 0.05f * unit(i, salt); }}\n\
+         static signed char* b8(long n, unsigned salt){{ signed char* p; CK(cudaMalloc(&p, n)); bytes<<<(n + 255) / 256, 256>>>(p, n, salt); CK(cudaGetLastError()); return p; }}\n\
+         static float* f32(long n, unsigned salt){{ float* p; CK(cudaMalloc(&p, n * 4)); floats<<<(n + 255) / 256, 256>>>(p, n, salt); CK(cudaGetLastError()); return p; }}\n\
+         static void putf(FILE* out, const float* d, long n){{ std::vector<float> h(n); CK(cudaMemcpy(h.data(), d, n * 4, cudaMemcpyDeviceToHost)); fwrite(h.data(), 4, n, out); }}\n\
+         static void putb(FILE* out, const signed char* d, long n){{ std::vector<signed char> h(n); CK(cudaMemcpy(h.data(), d, n, cudaMemcpyDeviceToHost)); fwrite(h.data(), 1, n, out); }}\n\
+         int main(int argc, char** argv){{\n  std::string dir = argv[1];\n  FILE* out = fopen(argv[2], \"wb\");\n\
+         \x20 const long K = 2048;\n\
+         \x20 signed char *xq = b8(K, 3), *xl = b8(K, 4);\n\
+         \x20 float* xs = f32(K / 32, 7);\n\
+         \x20 signed char *yq, *yl; float* ys;\n\
+         \x20 CK(cudaMalloc(&yq, {N})); CK(cudaMalloc(&yl, {N})); CK(cudaMalloc(&ys, {N} / 32 * 4));\n\
+         \x20 auto clear = [&]{{ CK(cudaMemset(yq, 0x5a, {N})); CK(cudaMemset(yl, 0x5a, {N})); CK(cudaMemset(ys, 0xff, {N} / 32 * 4)); }};\n\
+         {calls}  fclose(out);\n  return 0;\n}}\n",
+        Kernel::Blocks.source(),
+        Kernel::Glu.source()
+    );
+    let (cu, bin, out) = (dir.join("glu.cu"), dir.join("glu"), dir.join("out.bin"));
+    std::fs::write(&cu, program).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the pairs build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).arg(&dir).arg(&out).output().unwrap();
+    assert!(ran.status.success(), "they run: {}", String::from_utf8_lossy(&ran.stderr));
+    let all = std::fs::read(&out).unwrap();
+    let mut at = 0;
+    for (what, bytes) in &cases {
+        let runs: Vec<&[u8]> = (0..WS.len()).map(|k| &all[at + k * bytes..at + (k + 1) * bytes]).collect();
+        at += WS.len() * bytes;
+        let scales = &runs[0][bytes - 4 * (N / 32)..];
+        assert!(scales.chunks_exact(4).all(|c| f32::from_le_bytes(c.try_into().unwrap()).is_finite()), "{what}: every scale written, and finite");
+        for (k, run) in runs.iter().enumerate().skip(1) {
+            let first = run.iter().zip(runs[0]).position(|(a, b)| a != b);
+            assert_eq!(first, None, "{what}: {} rows a warp write one row a warp's bytes, first apart at byte {first:?}", WS[k]);
+        }
+    }
+    assert_eq!(at, all.len(), "every case's outputs read");
+}
+
+/// A decode mixture's gate and up rows in every block format (`lk_moe_up`) sum each hidden value alike at one, two and
+/// four rows a warp (`moe_rows_a_warp` takes two in MXFP4, `rows_a_warp`'s four in the others): two kept experts of four,
+/// 512 rows each, over rows of 1024 and 2048 values, and of 1152 in the formats of 32-value blocks (a last round of four
+/// blocks), each row as the lane lays it out, through the SwiGLU and gpt-oss's clamped one, under one activation word
+/// and two — every hidden value the same bits at every rows a warp.
+#[test]
+fn every_block_formats_mixture_gate_and_up_sum_each_row_alike_at_every_rows_a_warp() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{row_bytes, Kernel, PRELUDE};
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    const N: usize = 512;
+    const E: usize = 4;
+    const KEPT: usize = 2;
+    const WS: [usize; 3] = [1, 2, 4];
+    let dir = dir().join("moe-up-rows-blocks");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut calls = String::new();
+    // Each case: what it computes and the bytes one launch's outputs take, written once a `WS` entry.
+    let mut cases: Vec<(String, usize)> = Vec::new();
+    for &ty in &BLOCK_FORMATS {
+        for k in [1024usize, 1152, 2048].into_iter().filter(|k| k % ty.block_len() == 0) {
+            let (g, u) = (format!("g-{}-{k}", ty.name()), format!("u-{}-{k}", ty.name()));
+            for name in [&g, &u] {
+                std::fs::write(dir.join(format!("{name}.bin")), tiny_models::seeded_blocks(name, ty, E * N * k)).unwrap();
+            }
+            let (f, rb) = (ty.id(), row_bytes(ty, k));
+            let _ = writeln!(calls, "  {{ lk_w wg = load<{f}>(dir + \"/{g}.bin\", {}L, {k}, {rb}L), wu = load<{f}>(dir + \"/{u}.bin\", {}L, {k}, {rb}L);", E * N, E * N);
+            for (act, act_name) in [(0, "SwiGLU"), (1, "clamped SwiGLU")] {
+                for q in [1usize, 2] {
+                    for w in WS {
+                        let _ = write!(
+                            calls,
+                            "    clear(); lk_moe_up<{q}, {act}, {f}, {f}, {f}, {f}, {w}><<<{}, 256>>>(nullptr, xq, {}, xs, wg, wu, lk_w{{}}, lk_w{{}}, nullptr, nullptr, idx, h, {k}, {N}, {KEPT}, 0, 7.0f, 1.702f);\n    \
+                             CK(cudaGetLastError()); CK(cudaDeviceSynchronize()); putf(out, h, {});\n",
+                            (KEPT * N).div_ceil(8 * w),
+                            if q == 2 { "xl" } else { "nullptr" },
+                            KEPT * N
+                        );
+                    }
+                    cases.push((format!("{} {k} wide, {act_name}, {q} words", ty.name()), 4 * KEPT * N));
+                }
+            }
+            calls.push_str("  }\n");
+        }
+    }
+    let program = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <string>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n\
+         {PRELUDE}{}{}\n\
+         #define CK(x) do {{ cudaError_t e_ = (x); if(e_ != cudaSuccess){{ fprintf(stderr, \"cuda %d %s\\n\", __LINE__, cudaGetErrorString(e_)); exit(1); }} }} while(0)\n\
+         {BLOCK_LOADER}\
+         // A hash of the index and the salt, in [0, 1).\n\
+         __device__ float unit(long i, unsigned salt){{\n\
+           unsigned long long h = ((unsigned long long)i ^ ((unsigned long long)salt << 40)) * 0x9E3779B97F4A7C15ULL; h ^= h >> 29; h *= 0xBF58476D1CE4E5B9ULL; h ^= h >> 32;\n\
+           return (float)(h >> 40) / 16777216.f; }}\n\
+         __global__ void bytes(signed char* p, long n, unsigned salt){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) p[i] = (signed char)(unit(i, salt) * 254.f - 127.f); }}\n\
+         __global__ void floats(float* p, long n, unsigned salt){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) p[i] = 0.005f + 0.05f * unit(i, salt); }}\n\
+         static signed char* b8(long n, unsigned salt){{ signed char* p; CK(cudaMalloc(&p, n)); bytes<<<(n + 255) / 256, 256>>>(p, n, salt); CK(cudaGetLastError()); return p; }}\n\
+         static float* f32(long n, unsigned salt){{ float* p; CK(cudaMalloc(&p, n * 4)); floats<<<(n + 255) / 256, 256>>>(p, n, salt); CK(cudaGetLastError()); return p; }}\n\
+         static void putf(FILE* out, const float* d, long n){{ std::vector<float> h(n); CK(cudaMemcpy(h.data(), d, n * 4, cudaMemcpyDeviceToHost)); fwrite(h.data(), 4, n, out); }}\n\
+         static void putb(FILE* out, const signed char* d, long n){{ std::vector<signed char> h(n); CK(cudaMemcpy(h.data(), d, n, cudaMemcpyDeviceToHost)); fwrite(h.data(), 1, n, out); }}\n\
+         int main(int argc, char** argv){{\n  std::string dir = argv[1];\n  FILE* out = fopen(argv[2], \"wb\");\n\
+         \x20 const long K = 2048;\n\
+         \x20 signed char *xq = b8(K, 3), *xl = b8(K, 4);\n\
+         \x20 float* xs = f32(K / 32, 7);\n\
+         \x20 float* h; int* idx; const int kept[{KEPT}] = {{3, 1}};\n\
+         \x20 CK(cudaMalloc(&h, {KEPT} * {N} * 4)); CK(cudaMalloc(&idx, sizeof kept)); CK(cudaMemcpy(idx, kept, sizeof kept, cudaMemcpyHostToDevice));\n\
+         \x20 auto clear = [&]{{ CK(cudaMemset(h, 0xff, {KEPT} * {N} * 4)); }};\n\
+         {calls}  fclose(out);\n  return 0;\n}}\n",
+        Kernel::Blocks.source(),
+        Kernel::Moe.source()
+    );
+    let (cu, bin, out) = (dir.join("moe-up.cu"), dir.join("moe-up"), dir.join("out.bin"));
+    std::fs::write(&cu, program).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the gate and up launches build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).arg(&dir).arg(&out).output().unwrap();
+    assert!(ran.status.success(), "they run: {}", String::from_utf8_lossy(&ran.stderr));
+    let all = std::fs::read(&out).unwrap();
+    let mut at = 0;
+    for (what, bytes) in &cases {
+        let runs: Vec<&[u8]> = (0..WS.len()).map(|k| &all[at + k * bytes..at + (k + 1) * bytes]).collect();
+        at += WS.len() * bytes;
+        assert!(runs[0].chunks_exact(4).all(|c| f32::from_le_bytes(c.try_into().unwrap()).is_finite()), "{what}: every hidden value written, and finite");
+        for (k, run) in runs.iter().enumerate().skip(1) {
+            let first = run.iter().zip(runs[0]).position(|(a, b)| a != b);
+            assert_eq!(first, None, "{what}: {} rows a warp write one row a warp's bytes, first apart at byte {first:?}", WS[k]);
+        }
+    }
+    assert_eq!(at, all.len(), "every case's outputs read");
+}
+
+/// A projection of one activation row in every block format with a plain output (`lk_gemv_blk`) sums each output alike
+/// at one, two and four rows a warp, as the emission launches each (`rows_a_warp`), its blocks eight warps at one row a
+/// warp and four past it: 512 outputs over rows of 1024 and 2048 values, and of 1152 in the formats of 32-value blocks,
+/// each row as the lane lays it out, under one activation word and two — every output the same bits at every rows a
+/// warp.
+#[test]
+fn every_block_formats_projection_sums_each_output_alike_at_every_rows_a_warp() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{row_bytes, Kernel, PRELUDE};
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    const N: usize = 512;
+    const WS: [usize; 3] = [1, 2, 4];
+    let dir = dir().join("gemv-rows-blocks");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut calls = String::new();
+    let mut cases: Vec<String> = Vec::new();
+    for &ty in &BLOCK_FORMATS {
+        for k in [1024usize, 1152, 2048].into_iter().filter(|k| k % ty.block_len() == 0) {
+            let name = format!("w-{}-{k}", ty.name());
+            std::fs::write(dir.join(format!("{name}.bin")), tiny_models::seeded_blocks(&name, ty, N * k)).unwrap();
+            let (f, rb) = (ty.id(), row_bytes(ty, k));
+            let _ = writeln!(calls, "  {{ lk_w w = load<{f}>(dir + \"/{name}.bin\", {N}L, {k}, {rb}L);");
+            for q in [1usize, 2] {
+                for w in WS {
+                    let warps = if w == 1 { 8 } else { 4 };
+                    let _ = writeln!(
+                        calls,
+                        "    clear(); lk_gemv_blk<{f}, {q}, 1, {w}, 0><<<{}, {}>>>(w, nullptr, xq, {}, xs, nullptr, y, nullptr, 0, {k}, {N}, nullptr, nullptr, nullptr);\n    \
+                         CK(cudaGetLastError()); CK(cudaDeviceSynchronize()); putf(out, y, {N});",
+                        N.div_ceil(warps * w),
+                        32 * warps,
+                        if q == 2 { "xl" } else { "nullptr" }
+                    );
+                }
+                cases.push(format!("{} {k} wide, {q} words", ty.name()));
+            }
+            calls.push_str("  }\n");
+        }
+    }
+    let program = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <string>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n\
+         {PRELUDE}{}{}\n\
+         #define CK(x) do {{ cudaError_t e_ = (x); if(e_ != cudaSuccess){{ fprintf(stderr, \"cuda %d %s\\n\", __LINE__, cudaGetErrorString(e_)); exit(1); }} }} while(0)\n\
+         {BLOCK_LOADER}\
+         // A hash of the index and the salt, in [0, 1).\n\
+         __device__ float unit(long i, unsigned salt){{\n\
+           unsigned long long h = ((unsigned long long)i ^ ((unsigned long long)salt << 40)) * 0x9E3779B97F4A7C15ULL; h ^= h >> 29; h *= 0xBF58476D1CE4E5B9ULL; h ^= h >> 32;\n\
+           return (float)(h >> 40) / 16777216.f; }}\n\
+         __global__ void bytes(signed char* p, long n, unsigned salt){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) p[i] = (signed char)(unit(i, salt) * 254.f - 127.f); }}\n\
+         __global__ void floats(float* p, long n, unsigned salt){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) p[i] = 0.005f + 0.05f * unit(i, salt); }}\n\
+         static signed char* b8(long n, unsigned salt){{ signed char* p; CK(cudaMalloc(&p, n)); bytes<<<(n + 255) / 256, 256>>>(p, n, salt); CK(cudaGetLastError()); return p; }}\n\
+         static float* f32(long n, unsigned salt){{ float* p; CK(cudaMalloc(&p, n * 4)); floats<<<(n + 255) / 256, 256>>>(p, n, salt); CK(cudaGetLastError()); return p; }}\n\
+         static void putf(FILE* out, const float* d, long n){{ std::vector<float> h(n); CK(cudaMemcpy(h.data(), d, n * 4, cudaMemcpyDeviceToHost)); fwrite(h.data(), 4, n, out); }}\n\
+         int main(int argc, char** argv){{\n  std::string dir = argv[1];\n  FILE* out = fopen(argv[2], \"wb\");\n\
+         \x20 const long K = 2048;\n\
+         \x20 signed char *xq = b8(K, 3), *xl = b8(K, 4);\n\
+         \x20 float* xs = f32(K / 32, 7);\n\
+         \x20 float* y; CK(cudaMalloc(&y, {N} * 4));\n\
+         \x20 auto clear = [&]{{ CK(cudaMemset(y, 0xff, {N} * 4)); }};\n\
+         {calls}  fclose(out);\n  return 0;\n}}\n",
+        Kernel::Blocks.source(),
+        Kernel::GemvBlk.source()
+    );
+    let (cu, bin, out) = (dir.join("gemv.cu"), dir.join("gemv"), dir.join("out.bin"));
+    std::fs::write(&cu, program).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the projections build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).arg(&dir).arg(&out).output().unwrap();
+    assert!(ran.status.success(), "they run: {}", String::from_utf8_lossy(&ran.stderr));
+    let all = std::fs::read(&out).unwrap();
+    let bytes = 4 * N;
+    let mut at = 0;
+    for what in &cases {
+        let runs: Vec<&[u8]> = (0..WS.len()).map(|k| &all[at + k * bytes..at + (k + 1) * bytes]).collect();
+        at += WS.len() * bytes;
+        assert!(runs[0].chunks_exact(4).all(|c| f32::from_le_bytes(c.try_into().unwrap()).is_finite()), "{what}: every output written, and finite");
+        for (k, run) in runs.iter().enumerate().skip(1) {
+            let first = run.iter().zip(runs[0]).position(|(a, b)| a != b);
+            assert_eq!(first, None, "{what}: {} rows a warp write one row a warp's bytes, first apart at byte {first:?}", WS[k]);
+        }
+    }
+    assert_eq!(at, all.len(), "every case's outputs read");
+}
+
+/// A Q8_0 GEMV in parts of one activation row (`lk_gemv_parts`, three parts side by side, as a step's query, key and
+/// value) sums each output alike at one, two and four rows a warp (`q8_parts_launch_rows` takes four where the parts
+/// allow): parts of 256, 64 and 64 outputs over rows of 1024, 1152 (their last four blocks in one merged round past one
+/// row a warp) and 2048 values, under one activation word and two — every output the same bits.
+#[test]
+fn a_q8_gemv_in_parts_sums_each_output_alike_at_every_rows_a_warp() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{Kernel, PRELUDE};
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    const PARTS: [usize; 3] = [256, 64, 64];
+    const WS: [usize; 3] = [1, 2, 4];
+    let n: usize = PARTS.iter().sum();
+    let dir = dir().join("q8-parts-rows");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut calls = String::new();
+    let mut cases: Vec<String> = Vec::new();
+    for k in [1024usize, 1152, 2048] {
+        for q in [1usize, 2] {
+            for w in WS {
+                let _ = write!(
+                    calls,
+                    "  clear(); lk_gemv_parts<8, {q}, 1, {w}><<<{}, 256>>>(nullptr, xq, {}, xs, {k}, {n}, parts({k}));\n  CK(cudaGetLastError()); CK(cudaDeviceSynchronize()); putf(out, y, {n});\n",
+                    n.div_ceil(8 * w),
+                    if q == 2 { "xl" } else { "nullptr" }
+                );
+            }
+            cases.push(format!("{k} wide, {q} words"));
+        }
+    }
+    let (a, b) = (PARTS[0], PARTS[0] + PARTS[1]);
+    let program = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n\
+         {PRELUDE}{}{}\n\
+         #define CK(x) do {{ cudaError_t e_ = (x); if(e_ != cudaSuccess){{ fprintf(stderr, \"cuda %d %s\\n\", __LINE__, cudaGetErrorString(e_)); exit(1); }} }} while(0)\n\
+         __device__ float unit(long i, unsigned salt){{\n\
+           unsigned long long h = ((unsigned long long)i ^ ((unsigned long long)salt << 40)) * 0x9E3779B97F4A7C15ULL; h ^= h >> 29; h *= 0xBF58476D1CE4E5B9ULL; h ^= h >> 32;\n\
+           return (float)(h >> 40) / 16777216.f; }}\n\
+         __global__ void bytes(signed char* p, long n, unsigned salt){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) p[i] = (signed char)(unit(i, salt) * 254.f - 127.f); }}\n\
+         __global__ void halves(__half* p, long n, unsigned salt){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) p[i] = __float2half(0.002f + 0.02f * unit(i, salt)); }}\n\
+         __global__ void floats(float* p, long n, unsigned salt){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) p[i] = 0.005f + 0.05f * unit(i, salt); }}\n\
+         static signed char* b8(long n, unsigned salt){{ signed char* p; CK(cudaMalloc(&p, n)); bytes<<<(n + 255) / 256, 256>>>(p, n, salt); CK(cudaGetLastError()); return p; }}\n\
+         static __half* h16(long n, unsigned salt){{ __half* p; CK(cudaMalloc(&p, n * 2)); halves<<<(n + 255) / 256, 256>>>(p, n, salt); CK(cudaGetLastError()); return p; }}\n\
+         static float* f32(long n, unsigned salt){{ float* p; CK(cudaMalloc(&p, n * 4)); floats<<<(n + 255) / 256, 256>>>(p, n, salt); CK(cudaGetLastError()); return p; }}\n\
+         static void putf(FILE* out, const float* d, long n){{ std::vector<float> h(n); CK(cudaMemcpy(h.data(), d, n * 4, cudaMemcpyDeviceToHost)); fwrite(h.data(), 4, n, out); }}\n\
+         int main(int argc, char** argv){{\n  FILE* out = fopen(argv[1], \"wb\");\n\
+         \x20 const long K = 2048;\n\
+         \x20 signed char *w = b8({n}L * K, 1), *xq = b8(K, 3), *xl = b8(K, 4);\n\
+         \x20 __half* s = h16({n}L * K / 32, 5);\n\
+         \x20 float* xs = f32(K / 32, 7);\n\
+         \x20 float* y; CK(cudaMalloc(&y, {n} * 4));\n\
+         \x20 auto parts = [&](long k){{ return lk_parts{{{{lk_w{{w, s, nullptr, 0}}, lk_w{{w + {a}L * k, s + {a}L * k / 32, nullptr, 0}}, lk_w{{w + {b}L * k, s + {b}L * k / 32, nullptr, 0}}, lk_w{{}}, lk_w{{}}, lk_w{{}}}}, \
+         {{y, y + {a}, y + {b}, nullptr, nullptr, nullptr}}, {{nullptr, nullptr, nullptr, nullptr, nullptr, nullptr}}, {{{a}, {b}, {n}, {n}, {n}, {n}}}, \
+         {{nullptr, nullptr, nullptr, nullptr, nullptr, nullptr}}, {{0, 0, 0, 0, 0, 0}}}}; }};\n\
+         \x20 auto clear = [&]{{ CK(cudaMemset(y, 0xff, {n} * 4)); }};\n\
+         {calls}  fclose(out);\n  return 0;\n}}\n",
+        Kernel::Blocks.source(),
+        Kernel::GemvParts.source()
+    );
+    let (cu, bin, out) = (dir.join("parts.cu"), dir.join("parts"), dir.join("out.bin"));
+    std::fs::write(&cu, program).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the parts build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).arg(&out).output().unwrap();
+    assert!(ran.status.success(), "they run: {}", String::from_utf8_lossy(&ran.stderr));
+    let all = std::fs::read(&out).unwrap();
+    let bytes = 4 * n;
+    let mut at = 0;
+    for what in &cases {
+        let runs: Vec<&[u8]> = (0..WS.len()).map(|k| &all[at + k * bytes..at + (k + 1) * bytes]).collect();
+        at += WS.len() * bytes;
+        assert!(runs[0].chunks_exact(4).all(|c| f32::from_le_bytes(c.try_into().unwrap()).is_finite()), "{what}: every output written, and finite");
+        for (k, run) in runs.iter().enumerate().skip(1) {
+            let first = run.iter().zip(runs[0]).position(|(x, y)| x != y);
+            assert_eq!(first, None, "{what}: {} rows a warp write one row a warp's bytes, first apart at byte {first:?}", WS[k]);
+        }
+    }
+    assert_eq!(at, all.len(), "every case's outputs read");
+}
+
+/// A gated delta layer's step computes alike at one, two and four of its memory's rows a warp (`lk_delta_step`'s `RW`,
+/// `DELTA_ROWS_A_WARP` taking two): heads 128 wide, 16 of them over 16 key heads (Qwen3.5's) and 48 over 16 (Qwen3.8's),
+/// a step's one row, its query and key heads normed in the step, each head's norm, SiLU gate and quantizer in its last
+/// block, under one activation word, an `f32` and a bf16 memory — every output, word, scale and memory value the same
+/// bytes at every rows a warp, and two steps in a row.
+#[test]
+fn a_gated_delta_step_computes_alike_at_every_rows_a_warp() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{Kernel, PRELUDE};
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    const D: usize = 128;
+    const RWS: [usize; 3] = [1, 2, 4];
+    let dir = dir().join("delta-rows");
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut calls = String::new();
+    // Each case: what it computes and the bytes one run's outputs take, written once a `RWS` entry.
+    let mut cases: Vec<(String, usize)> = Vec::new();
+    for (hv, nk) in [(16usize, 16usize), (48, 16)] {
+        for ss in ["float", "__nv_bfloat16"] {
+            let (words, mem) = (hv * D, hv * D * D);
+            let elem = if ss == "float" { 4 } else { 2 };
+            for rw in RWS {
+                let _ = write!(
+                    calls,
+                    "  {{ {ss}* S = state<{ss}>({mem}); CK(cudaMemset(cnt, 0, {hv} * 4)); clear({words});\n\
+                     \x20   for(int step = 0; step < 2; ++step) lk_delta_step<float, 4, false, 1, 1, {ss}, false, {rw}><<<dim3({hv}, {}, 1), 128>>>(q, k, v, bet, alp, S, o, {D}, {nk}, {hv}, 1, 0, z, gn, nullptr, oq, nullptr, os, 1e-6f, cnt, 1e-6f);\n\
+                     \x20   CK(cudaGetLastError()); CK(cudaDeviceSynchronize()); putf(out, o, {words}); putb(out, oq, {words}); putf(out, os, {words} / 32); putm(out, S, {mem} * {elem}); CK(cudaFree(S)); }}\n",
+                    D.div_ceil(4 * rw)
+                );
+            }
+            cases.push((format!("{hv} heads, memory {ss}"), words * 4 + words + words / 32 * 4 + mem * elem));
+        }
+    }
+    let program = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n#include <cuda_bf16.h>\n\
+         {PRELUDE}{}{}{}\n\
+         #define CK(x) do {{ cudaError_t e_ = (x); if(e_ != cudaSuccess){{ fprintf(stderr, \"cuda %d %s\\n\", __LINE__, cudaGetErrorString(e_)); exit(1); }} }} while(0)\n\
+         __device__ float unit(long i, unsigned salt){{\n\
+           unsigned long long h = ((unsigned long long)i ^ ((unsigned long long)salt << 40)) * 0x9E3779B97F4A7C15ULL; h ^= h >> 29; h *= 0xBF58476D1CE4E5B9ULL; h ^= h >> 32;\n\
+           return (float)(h >> 40) / 16777216.f; }}\n\
+         __global__ void fill(float* p, long n, unsigned salt, float lo, float hi){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) p[i] = lo + (hi - lo) * unit(i, salt); }}\n\
+         template<typename T> __global__ void fills(T* p, long n, unsigned salt){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) p[i] = lk_to<T>(0.2f * unit(i, salt) - 0.1f); }}\n\
+         static float* filled(long n, unsigned salt, float lo, float hi){{ float* p; CK(cudaMalloc(&p, n * 4)); fill<<<(n + 255) / 256, 256>>>(p, n, salt, lo, hi); CK(cudaGetLastError()); return p; }}\n\
+         template<typename T> static T* state(long n){{ T* p; CK(cudaMalloc(&p, n * sizeof(T))); fills<T><<<(n + 255) / 256, 256>>>(p, n, 9); CK(cudaGetLastError()); return p; }}\n\
+         static void putf(FILE* out, const float* d, long n){{ std::vector<float> h(n); CK(cudaMemcpy(h.data(), d, n * 4, cudaMemcpyDeviceToHost)); fwrite(h.data(), 4, n, out); }}\n\
+         static void putb(FILE* out, const signed char* d, long n){{ std::vector<signed char> h(n); CK(cudaMemcpy(h.data(), d, n, cudaMemcpyDeviceToHost)); fwrite(h.data(), 1, n, out); }}\n\
+         template<typename T> static void putm(FILE* out, const T* d, long bytes){{ std::vector<unsigned char> h(bytes); CK(cudaMemcpy(h.data(), d, bytes, cudaMemcpyDeviceToHost)); fwrite(h.data(), 1, bytes, out); }}\n\
+         int main(int argc, char** argv){{\n  FILE* out = fopen(argv[1], \"wb\");\n\
+         \x20 const long W = 48L * {D};\n\
+         \x20 float *q = filled(16L * {D}, 1, -1.f, 1.f), *k = filled(16L * {D}, 2, -1.f, 1.f), *v = filled(W, 3, -1.f, 1.f);\n\
+         \x20 float *bet = filled(48, 4, 0.2f, 0.8f), *alp = filled(48, 5, 0.85f, 0.99f), *z = filled(W, 6, -2.f, 2.f), *gn = filled({D}, 7, 0.5f, 1.5f);\n\
+         \x20 float *o, *os; signed char* oq; int* cnt;\n\
+         \x20 CK(cudaMalloc(&o, W * 4)); CK(cudaMalloc(&os, W / 32 * 4)); CK(cudaMalloc(&oq, W)); CK(cudaMalloc(&cnt, 48 * 4));\n\
+         \x20 auto clear = [&](long n){{ CK(cudaMemset(o, 0xff, n * 4)); CK(cudaMemset(os, 0xff, n / 32 * 4)); CK(cudaMemset(oq, 0x5a, n)); }};\n\
+         {calls}  fclose(out);\n  return 0;\n}}\n",
+        Kernel::DeltaStep.source(),
+        Kernel::DeltaNorm.source(),
+        Kernel::DeltaStepNorm.source()
+    );
+    let (cu, bin, out) = (dir.join("delta.cu"), dir.join("delta"), dir.join("out.bin"));
+    std::fs::write(&cu, program).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the steps build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).arg(&out).output().unwrap();
+    assert!(ran.status.success(), "they run: {}", String::from_utf8_lossy(&ran.stderr));
+    let all = std::fs::read(&out).unwrap();
+    let mut at = 0;
+    for (what, bytes) in &cases {
+        let runs: Vec<&[u8]> = (0..RWS.len()).map(|k| &all[at + k * bytes..at + (k + 1) * bytes]).collect();
+        at += RWS.len() * bytes;
+        assert!(runs[0][..4 * 128].chunks_exact(4).all(|c| f32::from_le_bytes(c.try_into().unwrap()).is_finite()), "{what}: the outputs written, and finite");
+        for (k, run) in runs.iter().enumerate().skip(1) {
+            let first = run.iter().zip(runs[0]).position(|(x, y)| x != y);
+            assert_eq!(first, None, "{what}: {} rows a warp write one row a warp's bytes, first apart at byte {first:?}", RWS[k]);
         }
     }
     assert_eq!(at, all.len(), "every case's outputs read");
@@ -2142,7 +2745,6 @@ fn a_batch_of_32_value_blocks_decodes_each_sequence_as_its_own_step_does() {
 /// distance one bf16 rounding the lane's `f32` arithmetic takes the other way moves them.
 #[test]
 fn a_bf16_recurrent_state_decodes_alike_in_every_form_and_near_its_reference() {
-    use logicaffeine_compile::codegen_cuda::StatePrecision;
     use logicaffeine_compile::model::reference::StateStorage;
     if !(common::require_tool("nvcc") && common::require_gpu()) {
         return;
@@ -2187,6 +2789,87 @@ fn a_bf16_recurrent_state_decodes_alike_in_every_form_and_near_its_reference() {
                     want = reference.step(&[tok]).unwrap();
                 }
             }
+        }
+    }
+}
+
+/// Every gated-delta architecture keeps a bf16 memory near its reference (PARITY-GDN-HALF-STATE): Qwen3.5's hybrid, its
+/// delta rules gated by SiLU; Qwen3.8's in four hyper-connection lanes, gated by sigmoids; and Qwen3.8-Flash-Next's, the
+/// n-gram embedding on its second layer — each with its memories stored in bf16 between steps, a prompt prefilled in
+/// chunks of four then a token a step under the precise numerics, its logits within 1e-2 of their scale of the
+/// reference's whose memory is rounded to bf16 alike, the reference fed the tokens the lane picks.
+#[test]
+fn every_gated_delta_architecture_keeps_a_bf16_memory_near_its_reference() {
+    use logicaffeine_compile::model::reference::StateStorage;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let models = [
+        ("Qwen3.5's hybrid", Tiny::Qwen35.spec(CTX)),
+        ("Qwen3.8's hybrid", tiny_models::hyper_connected(Tiny::Qwen35, CTX, 4, true)),
+        ("Qwen3.8-Flash-Next's hybrid", tiny_models::flash_next_models(CTX).swap_remove(0).1),
+    ];
+    let prompt: Vec<u32> = vec![5, 17, tiny_models::EOS, 30, 41, 8, 63, 12, 77, 3, 90];
+    let knobs = CudaKnobs { activations: Q8MatKind::Dequant, recurrent_state: StatePrecision::Bf16, ..CudaKnobs::default() };
+    let lanes: Vec<(Lane, PathBuf)> = models
+        .iter()
+        .enumerate()
+        .map(|(i, (what, spec))| {
+            let ckpt = dir().join(format!("state-bf16-arch-{i}.gguf"));
+            tiny_models::write_checkpoint(spec, &ckpt);
+            (compile(spec, &ckpt, &LaneOptions { ctx: CTX, knobs, prefill: 4 }).unwrap_or_else(|e| panic!("{what}: {e}")), ckpt)
+        })
+        .collect();
+    let names: Vec<String> = (0..models.len()).map(|i| format!("state-bf16-arch-{i}")).collect();
+    let built = build_all(&lanes.iter().zip(&names).map(|((lane, _), name)| (lane, name.as_str())).collect::<Vec<_>>());
+    for (((what, spec), (_, ckpt)), b) in models.iter().zip(&lanes).zip(&built) {
+        let got = exec(b, ckpt, &prompt, 6, spec.vocab, true);
+        let mut reference = Reference::new(spec.clone(), Gguf::open(ckpt).unwrap())
+            .unwrap()
+            .with_activations(Activations::Exact)
+            .with_state_storage(StateStorage::Bf16);
+        let mut want = reference.step(&prompt).unwrap();
+        for (i, (logits, &tok)) in got.logits.iter().zip(&got.tokens).enumerate() {
+            let scale = want.iter().fold(1f64, |m, v| m.max(v.abs()));
+            let diff = logits.iter().zip(&want).map(|(g, w)| (*g as f64 - w).abs()).fold(0f64, f64::max) / scale;
+            assert!(diff <= 1e-2, "{what} position {i}: the logits are {diff:.3e} of their scale from the bf16-state reference");
+            if i + 1 < got.tokens.len() {
+                want = reference.step(&[tok]).unwrap();
+            }
+        }
+    }
+}
+
+/// A bf16 memory keeps its error bounded over a long run (PARITY-GDN-HALF-STATE): a gated-delta model fed 4096 tokens,
+/// its memories rounded to bf16 after each of the 4096 rows the delta rule walks, continues them with logits within
+/// 1e-2 of their scale of the reference's whose memory is rounded to bf16 alike — the bound a short run holds — under
+/// the precise numerics: the roundings the lane's `f32` arithmetic takes the other way from the reference's do not
+/// accumulate past what one of them moves.
+#[test]
+fn a_bf16_memory_keeps_its_error_bounded_over_a_long_run() {
+    use logicaffeine_compile::model::reference::StateStorage;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    const LONG: usize = 4096;
+    let spec = Tiny::Qwen35.spec(LONG + 8);
+    let ckpt = dir().join("state-bf16-long-qwen35.gguf");
+    tiny_models::write_checkpoint(&spec, &ckpt);
+    let prompt: Vec<u32> = (0..LONG as u64).map(|i| (i.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 40) as u32 % spec.vocab as u32).collect();
+    let knobs = CudaKnobs { activations: Q8MatKind::Dequant, recurrent_state: StatePrecision::Bf16, ..CudaKnobs::default() };
+    let lane = compile(&spec, &ckpt, &LaneOptions { ctx: LONG + 8, knobs, prefill: 64 }).unwrap_or_else(|e| panic!("bf16 state, a long run: {e}"));
+    let got = run(&lane, &ckpt, &prompt, 4, "state-bf16-long", spec.vocab, true);
+    let mut reference = Reference::new(spec.clone(), Gguf::open(&ckpt).unwrap())
+        .unwrap()
+        .with_activations(Activations::Exact)
+        .with_state_storage(StateStorage::Bf16);
+    let mut want = reference.step(&prompt).unwrap();
+    for (i, (logits, &tok)) in got.logits.iter().zip(&got.tokens).enumerate() {
+        let scale = want.iter().fold(1f64, |m, v| m.max(v.abs()));
+        let diff = logits.iter().zip(&want).map(|(g, w)| (*g as f64 - w).abs()).fold(0f64, f64::max) / scale;
+        assert!(diff <= 1e-2, "position {}: the logits are {diff:.3e} of their scale from the bf16-state reference", LONG + i);
+        if i + 1 < got.tokens.len() {
+            want = reference.step(&[tok]).unwrap();
         }
     }
 }
@@ -4225,6 +4908,42 @@ fn every_knob_point_generates_the_same_tokens() {
     }
 }
 
+/// A Q8_0 projection that norms its row in its last block sums each output alike at every rows a warp its launch takes
+/// (`q8_norm_launch_rows`): Qwen3 and Gemma 3 (its sandwich's norms in the fold) at 1024 wide in Q8_0 decode on the 3060
+/// at two rows a warp and, compiled for a chip of 108 multiprocessors, at one — the same tokens and logits bit for bit.
+#[test]
+fn a_q8_projections_norm_fold_sums_alike_at_every_rows_a_warp() {
+    use logicaffeine_compile::codegen_cuda::chip::CudaChip;
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    for t in [Tiny::Qwen3, Tiny::Gemma3] {
+        let mut spec = t.medium(CTX);
+        spec.d = 1024;
+        let ckpt = dir().join(format!("{}-q8-fold-1024.gguf", t.name()));
+        let matrices: Vec<String> =
+            tiny_models::tensors(&spec).into_iter().map(|(n, _)| n).filter(|n| n.ends_with(".weight") && !n.contains("norm")).collect();
+        tiny_models::write_checkpoint_as(&spec, &ckpt, &|n| if matrices.iter().any(|m| m == n) { GgmlType::Q8_0 } else { GgmlType::F32 });
+        let mut runs = Vec::new();
+        for (rows, chip) in [(2, CudaChip::rtx3060()), (1, CudaChip { sms: 108, ..CudaChip::rtx3060() })] {
+            let what = format!("{} at {rows} rows a warp", t.name());
+            let knobs = CudaKnobs { activations: Q8MatKind::Int8Act, chip, ..CudaKnobs::default() };
+            let lane = compile(&spec, &ckpt, &LaneOptions { ctx: CTX, knobs, prefill: 1 }).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let folds: Vec<&str> = lane.program.cu.lines().map(str::trim).filter(|l| l.starts_with("lk_gemv_q8_norm<1, 1, ")).collect();
+            assert_eq!(folds.len(), 2 * spec.layers.len(), "{what}: two folds a layer");
+            assert!(folds.iter().all(|l| l.contains(&format!(", {rows}><<<"))), "{what}: every fold at {rows} rows a warp: {folds:?}");
+            runs.push((what.clone(), run(&lane, &ckpt, PROMPT, GENERATE, &format!("q8-fold-{}-{rows}", t.name()), spec.vocab, true)));
+        }
+        let (two, one) = (&runs[0], &runs[1]);
+        assert_eq!(two.1.tokens, one.1.tokens, "{} generates {}'s tokens", two.0, one.0);
+        for (i, (x, y)) in two.1.logits.iter().zip(&one.1.logits).enumerate() {
+            let parted = x.iter().zip(y).position(|(p, q)| p.to_bits() != q.to_bits());
+            assert!(parted.is_none(), "{}: position {i}'s logit {parted:?} parts from {}'s", two.0, one.0);
+        }
+    }
+}
+
 /// Every fusion computes what its launches compute apart: each architecture's program with every rule held back
 /// (`compile_holding` over `plan::RULES`) and every activation quantized in its own launch (`fuse_quant` off) generates
 /// the fused program's tokens and logits bit for bit, under the quantized and the precise numerics, through a prompt
@@ -4286,6 +5005,58 @@ fn every_fusion_computes_what_its_launches_compute_apart() {
             for (i, (x, y)) in a.logits.iter().zip(&b.logits).enumerate() {
                 let parted = x.iter().zip(y).position(|(p, q)| p.to_bits() != q.to_bits());
                 assert!(parted.is_none(), "{what}: position {i}'s logit {parted:?} parts: {:?} fused, {:?} apart", parted.map(|v| x[v]), parted.map(|v| y[v]));
+            }
+        }
+    }
+}
+
+/// Every fusion of a hyper-connected step computes what its launches compute apart (PARITY-HYPER-CONNECTIONS): each
+/// hyper-connected model and Qwen3.8-Flash-Next's (`tiny_models::hyper_connected_models`, `flash_next_models`) with
+/// every rule held back and every activation quantized in its own launch generates the fused program's tokens and
+/// logits bit for bit, under every numerics, from prompts crossing an end of document — prefilled in chunks of four and
+/// two, then a token a step. Among the fusions: each mix's gate and shares activated in their products' epilogues
+/// (`gemm_act`), its gated lanes averaged in one pass (`hc_mix`) and each sublayer's output spread, added to the residual
+/// and normed in the next norm in lanes' launch (`hc_post_norm`).
+#[test]
+fn every_fusion_of_a_hyper_connected_step_computes_what_its_launches_compute_apart() {
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let eos = tiny_models::EOS;
+    let jobs: Vec<(Vec<u32>, usize)> = [vec![5, 17, eos, 2, 30, 9, 11], vec![88, 2, 50, 19, 7, 33, 21, 60, 12]].into_iter().map(|p| (p, GENERATE)).collect();
+    let models: Vec<(&str, ModelSpec)> = tiny_models::hyper_connected_models(CTX).into_iter().chain(tiny_models::flash_next_models(CTX)).collect();
+    for (k, (name, spec)) in models.iter().enumerate() {
+        let ckpt = dir().join(format!("hyper-apart-{k}.gguf"));
+        tiny_models::write_checkpoint(spec, &ckpt);
+        let built: Vec<(String, Built, Built)> = std::thread::scope(|scope| {
+            let jobs: Vec<_> = [Q8MatKind::Dequant, Q8MatKind::TwoPassInt8, Q8MatKind::Int8Act]
+                .into_iter()
+                .map(|numerics| {
+                    let ckpt = &ckpt;
+                    scope.spawn(move || {
+                        let what = format!("{name} {numerics:?}");
+                        let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 4 };
+                        let fused = compile(spec, ckpt, &opts).unwrap_or_else(|e| panic!("{what}: {e}"));
+                        for rule in ["gemm_act", "hc_mix", "hc_post_norm"] {
+                            assert!(fused.forms.iter().all(|f| f.schedule.fired(rule) > 0), "{what}: `{rule}` fires in every form");
+                        }
+                        let apart_opts = LaneOptions { knobs: CudaKnobs { fuse_quant: false, ..opts.knobs }, ..opts };
+                        let apart = compile_holding(spec, ckpt, &apart_opts, &RULES).unwrap_or_else(|e| panic!("{what} apart: {e}"));
+                        assert!(apart.forms.iter().all(|f| f.schedule.fusions.iter().all(|x| x.rule == "argmax_advance")), "{what}");
+                        (what, build(&fused, &format!("hyper-fused-{k}-{numerics:?}")), build(&apart, &format!("hyper-apart-{k}-{numerics:?}")))
+                    })
+                })
+                .collect();
+            jobs.into_iter().map(|j| j.join().unwrap()).collect()
+        });
+        for (what, fused, apart) in &built {
+            let (a, b) = (exec_many(fused, &ckpt, &jobs, spec.vocab, true), exec_many(apart, &ckpt, &jobs, spec.vocab, true));
+            for (j, (a, b)) in a.iter().zip(&b).enumerate() {
+                assert_eq!(b.tokens, a.tokens, "{what} prompt {j}: the program apart generates the fused one's tokens");
+                for (i, (x, y)) in a.logits.iter().zip(&b.logits).enumerate() {
+                    let parted = x.iter().zip(y).position(|(p, q)| p.to_bits() != q.to_bits());
+                    assert!(parted.is_none(), "{what} prompt {j}: position {i}'s logit {parted:?} parts: {:?} fused, {:?} apart", parted.map(|v| x[v]), parted.map(|v| y[v]));
+                }
             }
         }
     }
@@ -4593,8 +5364,8 @@ fn held_alike(lanes: &[(String, usize, PathBuf, Lane, Lane)], tag: &str) {
 }
 
 /// The heads a projection turns in its epilogue are the heads its launch of rotations turns (PARITY-QKV-HEAD-EPILOGUE):
-/// with the query, key and value projections turning their heads in the blocks that finish them and with
-/// `qkv_head_epilogue` held, generate the same tokens and the same logits bit for bit through a prompt of chunks and
+/// with the query, key and value projections turning their heads in the blocks that finish them (the `head_epilogue`
+/// knob on) and with `qkv_head_epilogue` held, generate the same tokens and the same logits bit for bit through a prompt of chunks and
 /// decode steps, under the quantized and the precise numerics — Llama's unnormed heads; Gemma-3's and Qwen3's normed
 /// heads of 16, several to a block; GPT-OSS's biased projections; Qwen3 at 2048 wide in Q4_K with 32 query heads of 64,
 /// its query projection four rows a warp turning its heads alone and its key's turned beside the values; and Qwen3 with
@@ -4643,7 +5414,7 @@ fn the_head_epilogue_computes_what_the_rope_launches_compute() {
         }
         for numerics in [Q8MatKind::Int8Act, Q8MatKind::TwoPassInt8, Q8MatKind::Dequant] {
             let what = format!("{name} {numerics:?}");
-            let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 4 };
+            let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: numerics, head_epilogue: true, ..CudaKnobs::default() }, prefill: 4 };
             let turned = compile(spec, &ckpt, &opts).unwrap_or_else(|e| panic!("{what}: {e}"));
             assert!(turned.decode().schedule.launches.iter().any(|l| kind(l) == "gemv_rope"), "{what}: the decode step turns its heads in its projections");
             if *q4k {
@@ -4858,6 +5629,27 @@ fn the_real_qwen3_8b_continues_llama_cpps_golden() {
     }
 }
 
+/// A device program's loader of a matrix in format `F` from a file of its checkpoint bytes (`load<F>(path, rows, cols,
+/// row_bytes)`): Q8_0's levels then its scales; Q6_K's and MXFP4's rows regrouped as the lane lays them out
+/// (`lk_q6_regroup`, `lk_mx_regroup`); any other format's as they are, 32 zero bytes past its last row.
+const BLOCK_LOADER: &str = "static std::vector<char> slurp(const std::string& p){ FILE* f = fopen(p.c_str(), \"rb\"); if(!f) exit(2); std::vector<char> b; char c[65536]; size_t n;\n\
+  while((n = fread(c, 1, sizeof c, f)) > 0) b.insert(b.end(), c, c + n); fclose(f); return b; }\n\
+template<int F> static lk_w load(const std::string& p, long rows, int cols, long row_bytes){\n\
+  auto b = slurp(p);\n\
+  if(F == 8){ signed char* q; __half* s; long n = rows * cols; CK(cudaMalloc(&q, n)); CK(cudaMalloc(&s, n / 32 * 2));\n\
+    CK(cudaMemcpy(q, b.data(), n, cudaMemcpyHostToDevice)); CK(cudaMemcpy(s, b.data() + n, n / 32 * 2, cudaMemcpyHostToDevice)); return lk_w{q, s, nullptr, 0}; }\n\
+  if(F == 14){ long nb = cols / 256;\n\
+    if(row_bytes != lk_q6_row_bytes(nb)){ fprintf(stderr, \"a Q6_K row of %ld blocks is %ld bytes, not %ld\\n\", nb, lk_q6_row_bytes(nb), row_bytes); exit(3); }\n\
+    std::vector<unsigned char> h((size_t)rows * row_bytes + 256, 0); lk_q6_regroup((const unsigned char*)b.data(), rows, nb, h.data());\n\
+    unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{nullptr, nullptr, d, row_bytes}; }\n\
+  if(F == 39){ long nb = cols / 32;\n\
+    if(row_bytes != lk_mx_row_bytes(nb)){ fprintf(stderr, \"an MXFP4 row of %ld sub-blocks is %ld bytes, not %ld\\n\", nb, lk_mx_row_bytes(nb), row_bytes); exit(3); }\n\
+    std::vector<unsigned char> h((size_t)rows * row_bytes + 256, 0); lk_mx_regroup((const unsigned char*)b.data(), rows, nb, h.data());\n\
+    unsigned char* d; CK(cudaMalloc(&d, h.size())); CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{nullptr, nullptr, d, row_bytes}; }\n\
+  unsigned char* d; CK(cudaMalloc(&d, b.size() + 32)); CK(cudaMemset(d, 0, b.size() + 32)); CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice));\n\
+  return lk_w{nullptr, nullptr, d, row_bytes};\n\
+}\n";
+
 /// One prompt of a golden: its tokens, its greedy continuation, and the top logits after the prompt.
 struct Prompt {
     tokens: Vec<u32>,
@@ -4900,23 +5692,25 @@ fn mean_and_variance(xs: &[f64]) -> (f64, f64) {
 ///     llama.cpp's `f32` run, summed over the corpus, at least as far as llama.cpp's shipped run does;
 ///   • the int8 lane is llama.cpp's own activation precision, so it is held to llama.cpp's closeness rather than to a
 ///     greedy walk a near-tie decides: over the corpus, its logits after the prompt sit no further from the `f32` run's
-///     top five, on average, than the shipped run's do, beyond two standard errors of the difference of the means.
+///     top five, on average, than the shipped run's do, beyond two standard errors of the difference of the means;
+///   • a lane keeping its gated-delta memories in bf16 between steps (the `recurrent_state` knob) keeps them less
+///     exactly than llama.cpp, which keeps them in `f32`, so at every point it is held to llama.cpp's closeness.
 ///
 /// One test a checkpoint, each within its own time budget.
 fn meets_every_activation_precisions_bar(model: &str) {
-    meets_every_activation_precisions_bar_over(model, "", 16, 128);
+    meets_every_activation_precisions_bar_over(model, "", 16, 128, StatePrecision::F32);
 }
 
 /// The same bars over the long-prompt corpus (`benchmarks/models/prompts-long.txt`, prompts of several hundred tokens),
 /// its prompts prefilled 64 rows a chunk, so a prompt runs on the wide chunks' paths — the projections on the tensor
 /// cores, the attention in tiles.
 fn meets_every_activation_precisions_bar_on_long_prompts(model: &str) {
-    meets_every_activation_precisions_bar_over(model, "long-", 64, 1024);
+    meets_every_activation_precisions_bar_over(model, "long-", 64, 1024, StatePrecision::F32);
 }
 
 /// The bars over the corpus whose goldens are `golden-{corpus}f32.json` and `golden-{corpus}cpu.json`, prompts run in
-/// chunks of up to `prefill` rows within a cache of `ctx`.
-fn meets_every_activation_precisions_bar_over(model: &str, corpus: &str, prefill: usize, ctx: usize) {
+/// chunks of up to `prefill` rows within a cache of `ctx`, the gated-delta memories kept in `state`.
+fn meets_every_activation_precisions_bar_over(model: &str, corpus: &str, prefill: usize, ctx: usize, state: StatePrecision) {
     if !(common::require_tool("nvcc") && common::require_gpu() && common::require_tool(&format!("checkpoint:{model}"))) {
         return;
     }
@@ -4933,10 +5727,10 @@ fn meets_every_activation_precisions_bar_over(model: &str, corpus: &str, prefill
         })
         .collect();
     for numerics in [Q8MatKind::Dequant, Q8MatKind::TwoPassInt8, Q8MatKind::Int8Act] {
-        let what = format!("{model} {corpus}{numerics:?}");
-        let opts = LaneOptions { ctx, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill };
+        let what = format!("{model} {corpus}{numerics:?} {state:?} state");
+        let opts = LaneOptions { ctx, knobs: CudaKnobs { activations: numerics, recurrent_state: state, ..CudaKnobs::default() }, prefill };
         let lane = compile(&spec, &ckpt, &opts).unwrap_or_else(|e| panic!("{what}: {e}"));
-        let built = build(&lane, &format!("{model}-{corpus}{numerics:?}"));
+        let built = build(&lane, &format!("{model}-{corpus}{numerics:?}-{state:?}"));
         let (mut ours, mut gap) = (0, Vec::new());
         let jobs: Vec<(Vec<u32>, usize)> = f32g.iter().map(|f| (f.tokens.clone(), f.continuation.len())).collect();
         for (f, r) in f32g.iter().zip(exec_many(&built, &ckpt, &jobs, spec.vocab, true)) {
@@ -4951,12 +5745,13 @@ fn meets_every_activation_precisions_bar_over(model: &str, corpus: &str, prefill
             lane.residence.host_bytes,
             lane.residence.host
         );
-        match numerics {
-            Q8MatKind::Int8Act => assert!(
+        if numerics == Q8MatKind::Int8Act || state == StatePrecision::Bf16 {
+            assert!(
                 m_ours <= m_theirs + 2.0 * (v_ours + v_theirs).sqrt(),
                 "{what}: the mean top-logit gap {m_ours:.4} is past llama.cpp's {m_theirs:.4} by more than two standard errors"
-            ),
-            _ => assert!(ours >= theirs, "{what}: follows the f32 run {ours} steps, llama.cpp's shipped run {theirs}"),
+            );
+        } else {
+            assert!(ours >= theirs, "{what}: follows the f32 run {ours} steps, llama.cpp's shipped run {theirs}");
         }
     }
 }
@@ -5012,6 +5807,20 @@ fn gpt_oss_20b_meets_every_activation_precisions_bar() {
 #[test]
 fn qwen3_5_0_8b_meets_every_activation_precisions_bar_on_long_prompts() {
     meets_every_activation_precisions_bar_on_long_prompts("qwen3.5-0.8b");
+}
+
+/// Qwen3.5-0.8B with its gated-delta memories kept in bf16 between steps (PARITY-GDN-HALF-STATE): half the bytes its
+/// recurrent layers read and write a step, every activation point held to llama.cpp's closeness.
+#[test]
+fn qwen3_5_0_8b_meets_its_bar_with_a_half_precision_state() {
+    meets_every_activation_precisions_bar_over("qwen3.5-0.8b", "", 16, 128, StatePrecision::Bf16);
+}
+
+/// The same over the long-prompt corpus, each prompt's several hundred rows walked by the delta rule, its memory rounded
+/// to bf16 after every one.
+#[test]
+fn qwen3_5_0_8b_meets_its_bar_with_a_half_precision_state_on_long_prompts() {
+    meets_every_activation_precisions_bar_over("qwen3.5-0.8b", "long-", 64, 1024, StatePrecision::Bf16);
 }
 
 #[test]
@@ -7144,6 +7953,188 @@ fn a_gemm_in_parts_computes_each_parts_gemm() {
             assert!(alone.iter().chain(&merged).chain(&cut).all(|b| f32::from_bits(*b).is_finite()), "{what}: part {p}: every output written, and finite");
             let first = alone.iter().zip(&merged).position(|(a, b)| a != b);
             assert_eq!(first, None, "{what}: part {p}: the GEMM in parts computes the part's GEMM bit for bit, apart first at {first:?}");
+            assert_eq!(again, cut, "{what}: part {p}: the cut GEMM sums its parts in one order whichever arrives last");
+            for r in 0..*m {
+                let (x, y) = (&alone[r * n..(r + 1) * n], &cut[r * n..(r + 1) * n]);
+                let largest = x.iter().fold(0f64, |acc, v| acc.max(f64::from(f32::from_bits(*v).abs())));
+                for (o, (u, v)) in x.iter().zip(y).enumerate() {
+                    let off = f64::from((f32::from_bits(*u) - f32::from_bits(*v)).abs()) / largest;
+                    worst = worst.max(off);
+                    assert!(off <= TOLERANCE, "{what}: part {p} row {r} output {o}: alone {}, cut {} ({off:.2e} of the row's largest)", f32::from_bits(*u), f32::from_bits(*v));
+                }
+            }
+        }
+        assert!(take(*counts).iter().all(|&c| c == 0), "{what}: the counts of parts arrived left at zero");
+        report.push(format!("{what}: cut within {worst:.2e}"));
+    }
+    assert_eq!(at, all.len(), "every result read");
+    eprintln!("{}", report.join("\n"));
+}
+
+/// A GEMM in parts takes a part narrower than its tiles (`lk_gemm_blk`'s `G` 4, each part from a tile of its own — the
+/// parts' ends at whole tiles — and a narrow part's own count of outputs in `lk_parts`'s `n`, the rest of its last tile
+/// unread and unwritten): each part's outputs bit for bit as that part's GEMM alone computes them, whole and with the last
+/// wave cut along `k` as the lane cuts it (each output within `TOLERANCE` of its row's largest, a second cut run the same
+/// bits, its counts left at zero) — in Q8_0 and Q4_K under both quantized numerics, over Qwen3.5's gated delta inputs
+/// with its two gates (2048, 2048, 16 and 16 outputs over 1024, 512 rows) and parts narrow first, between and last (4, a
+/// bias, then 256, 40, 128 and 8 outputs over 512, 100 rows).
+#[test]
+fn a_gemm_in_parts_takes_parts_narrower_than_its_tiles() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::{gemm_blk_rows, gemm_blk_smem_bytes, gemm_blk_tail, gemm_blk_threads, Kernel, GEMM_PARTS, GEMM_TILE_N, PRELUDE};
+    use logicaffeine_compile::model::quant::GgmlType;
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    const TOLERANCE: f64 = 1e-5;
+    let workers = CudaKnobs::default().chip.sms;
+    let unit = |i: usize, salt: u64| {
+        let h = (i as u64 ^ salt).wrapping_mul(0x9E37_79B9_7F4A_7C15).rotate_left(29) ^ 0x2545_F491_4F6C_DD1D;
+        ((h >> 11) as f64 / (1u64 << 53) as f64 * 2.0 - 1.0) as f32
+    };
+    let dir = dir().join("narrow-parts");
+    std::fs::create_dir_all(&dir).unwrap();
+    // (rows, inputs, the parts' (outputs, a bias))
+    let sets: [(usize, usize, &[(usize, bool)]); 2] = [
+        (512, 1024, &[(2048, false), (2048, false), (16, false), (16, false)]),
+        (100, 512, &[(4, true), (256, false), (40, false), (128, true), (8, false)]),
+    ];
+    let floats = |name: String, v: Vec<f32>| std::fs::write(dir.join(name), v.iter().flat_map(|f| f.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+    let mut calls = String::new();
+    let mut cases = Vec::new();
+    for (si, &(m, k, parts)) in sets.iter().enumerate() {
+        assert!(parts.len() <= GEMM_PARTS);
+        floats(format!("x{si}.bin"), (0..m * k).map(|i| unit(i, 1 + si as u64) * 2.0).collect());
+        for (p, &(n, _)) in parts.iter().enumerate() {
+            floats(format!("b{si}-{p}.bin"), (0..n).map(|i| unit(i, 50 + (10 * si + p) as u64) * 0.1).collect());
+        }
+        // The launch's outputs as its tiles lay them: each part from a tile of its own.
+        let cols: usize = parts.iter().map(|&(n, _)| n.next_multiple_of(GEMM_TILE_N)).sum();
+        for ty in [GgmlType::Q8_0, GgmlType::Q4K] {
+            let f = ty.id();
+            for (p, &(n, _)) in parts.iter().enumerate() {
+                let name = format!("w{si}-{p}-{}", ty.name());
+                let matrix = if ty == GgmlType::Q8_0 {
+                    let levels = (0..n * k).map(|i| ((unit(i, 90 + (10 * si + p) as u64) * 127.0) as i8) as u8);
+                    levels.chain((0..n * k / 32).flat_map(|b| (0x2000u16 | ((b * 97) & 0x3FF) as u16).to_le_bytes())).collect()
+                } else {
+                    tiny_models::seeded_blocks(&name, ty, n * k)
+                };
+                std::fs::write(dir.join(format!("{name}.bin")), matrix).unwrap();
+            }
+            for q in [1, 2] {
+                let bm = gemm_blk_rows(f, q == 2);
+                let tiles = cols / GEMM_TILE_N * m.div_ceil(bm);
+                let (full, split) = match gemm_blk_tail(tiles, workers, k.div_ceil(128)) {
+                    (_, 1) => (tiles - tiles.min(workers).min(2), 2),
+                    cut => cut,
+                };
+                let cut = (tiles - full) * split;
+                let (smem, threads) = (gemm_blk_smem_bytes(f, q == 2, bm), gemm_blk_threads(bm));
+                let mut alone = String::new();
+                let (mut ws, mut ys, mut zs, mut cs, mut bs, mut ends, mut widths) = (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
+                let mut end = 0;
+                for (p, &(n, bias)) in parts.iter().enumerate() {
+                    end += n.next_multiple_of(GEMM_TILE_N);
+                    let _ = write!(
+                        alone,
+                        "    lk_w w{p} = {f} == 8 ? load8(dir + \"/w{si}-{p}-{}.bin\", {n}L * {k}) : load(dir + \"/w{si}-{p}-{}.bin\", {f}, {n}L, {k}L, {}L); float* b{p} = {};\n\
+                         \x20   float *ya{p} = nan({m}L * {n}), *yb{p} = nan({m}L * {n}), *yc{p} = nan({m}L * {n}), *yd{p} = nan({m}L * {n});\n\
+                         \x20   lk_gemm_blk<{f}, {q}, 0, {bm}><<<dim3({}, {}), {threads}, {smem}>>>(w{p}, xq, xl, xs, b{p}, ya{p}, nullptr, 0, {k}, {n}, {m}); CK(cudaGetLastError());\n",
+                        ty.name(),
+                        ty.name(),
+                        if ty == GgmlType::Q8_0 { 0 } else { logicaffeine_compile::codegen_cuda::lane::kernels::row_bytes(ty, k) },
+                        if bias { format!("dev(dir + \"/b{si}-{p}.bin\")") } else { "nullptr".into() },
+                        n.div_ceil(GEMM_TILE_N),
+                        m.div_ceil(bm)
+                    );
+                    ws.push(format!("w{p}"));
+                    ys.push(format!("yb{p}"));
+                    zs.push(format!("yc{p}"));
+                    cs.push(format!("yd{p}"));
+                    bs.push(format!("b{p}"));
+                    ends.push(end.to_string());
+                    widths.push(n.to_string());
+                }
+                let pad = |v: &[String], with: &str| (0..GEMM_PARTS).map(|i| v.get(i).cloned().unwrap_or_else(|| with.to_string())).collect::<Vec<_>>().join(", ");
+                let (w6, b6, e6, n6) = (pad(&ws, "lk_w{}"), pad(&bs, "nullptr"), pad(&ends, &cols.to_string()), pad(&widths, "0"));
+                let (r6, p6) = (pad(&[], "nullptr"), pad(&[], "0"));
+                let merged = |grid: String, ys: &[String], line: String| {
+                    format!(
+                        "    lk_gemm_blk<{f}, {q}, 4, {bm}><<<{grid}, {threads}, {smem}>>>(lk_w{{}}, xq, xl, xs, nullptr, nullptr, nullptr, 0, {k}, {cols}, {m}, nullptr, nullptr, nullptr, nullptr,\n\
+                         \x20     {{}}, nullptr, nullptr, nullptr, nullptr, 0.f, 0.f, {line}, lk_parts{{{{{w6}}}, {{{}}}, {{{b6}}}, {{{e6}}}, {{{r6}}}, {{{p6}}}, {{{n6}}}}}); CK(cudaGetLastError());\n",
+                        pad(ys, "nullptr")
+                    )
+                };
+                let _ = write!(
+                    calls,
+                    "  {{ // set {si} {} Q{q}\n\
+                     \x20   float* x = dev(dir + \"/x{si}.bin\"); long nx = {m}L * {k}; signed char* xq = bytes(nx); signed char* xl = {q} == 2 ? bytes(nx) : nullptr; float* xs = nan(nx / 32);\n\
+                     \x20   lk_quant<{q}><<<(nx + 255) / 256, 256>>>(x, xq, xl, xs, nx); CK(cudaGetLastError());\n\
+                     \x20   CK(cudaFuncSetAttribute(lk_gemm_blk<{f}, {q}, 0, {bm}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
+                     \x20   CK(cudaFuncSetAttribute(lk_gemm_blk<{f}, {q}, 4, {bm}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {smem}));\n\
+                     {alone}\
+                     \x20   float* part = nan({}L); int* cnt = zeros({});\n\
+                     {}{}{}\
+                     \x20   CK(cudaDeviceSynchronize());\n",
+                    ty.name(),
+                    (cut * bm * GEMM_TILE_N).max(1),
+                    (tiles - full).max(1),
+                    merged(format!("dim3({}, {})", cols / GEMM_TILE_N, m.div_ceil(bm)), &ys, "0, 1, nullptr, nullptr".into()),
+                    merged(format!("{}", full + cut), &zs, format!("{full}, {split}, part, cnt")),
+                    merged(format!("{}", full + cut), &cs, format!("{full}, {split}, part, cnt"))
+                );
+                for (p, &(n, _)) in parts.iter().enumerate() {
+                    let _ = writeln!(calls, "    put(out, ya{p}, {m}L * {n}); put(out, yb{p}, {m}L * {n}); put(out, yc{p}, {m}L * {n}); put(out, yd{p}, {m}L * {n});");
+                }
+                let _ = writeln!(calls, "    std::vector<int> h({0}); CK(cudaMemcpy(h.data(), cnt, {0} * 4, cudaMemcpyDeviceToHost)); fwrite(h.data(), 4, {0}, out);\n  }}", (tiles - full).max(1));
+                cases.push((format!("{} Q{q}, {m} rows over {k}, parts {:?}, {} tiles past {full} cut in {split}", ty.name(), parts.iter().map(|p| p.0).collect::<Vec<_>>(), tiles - full), m, parts, (tiles - full).max(1)));
+            }
+        }
+    }
+    let program = format!(
+        "#include <cstdio>\n#include <cstdlib>\n#include <string>\n#include <vector>\n#include <cuda_runtime.h>\n#include <cuda_fp16.h>\n\
+         {PRELUDE}{}{}{}{}\n\
+         #define CK(x) do {{ cudaError_t e_ = (x); if(e_ != cudaSuccess){{ fprintf(stderr, \"cuda %d %s\\n\", __LINE__, cudaGetErrorString(e_)); exit(1); }} }} while(0)\n\
+         static std::vector<char> slurp(const std::string& p){{ FILE* f = fopen(p.c_str(), \"rb\"); if(!f) exit(2); std::vector<char> b; char c[65536]; size_t n;\n\
+           while((n = fread(c, 1, sizeof c, f)) > 0) b.insert(b.end(), c, c + n); fclose(f); return b; }}\n\
+         static float* dev(const std::string& p){{ auto b = slurp(p); float* d; CK(cudaMalloc(&d, b.size())); CK(cudaMemcpy(d, b.data(), b.size(), cudaMemcpyHostToDevice)); return d; }}\n\
+         static lk_w load(const std::string& p, int f, long rows, long cols, long row_bytes){{ auto b = slurp(p);\n\
+           std::vector<unsigned char> h(f == 14 ? (size_t)rows * row_bytes : b.size(), 0);\n\
+           if(f == 14) lk_q6_regroup((const unsigned char*)b.data(), rows, cols / 256, h.data()); else for(size_t i = 0; i < b.size(); ++i) h[i] = (unsigned char)b[i];\n\
+           unsigned char* d; CK(cudaMalloc(&d, h.size() + 32)); CK(cudaMemset(d, 0, h.size() + 32));\n\
+           CK(cudaMemcpy(d, h.data(), h.size(), cudaMemcpyHostToDevice)); return lk_w{{nullptr, nullptr, d, row_bytes}}; }}\n\
+         static lk_w load8(const std::string& p, long n){{ auto b = slurp(p); signed char* q; __half* s; CK(cudaMalloc(&q, n)); CK(cudaMalloc(&s, n / 16));\n\
+           CK(cudaMemcpy(q, b.data(), n, cudaMemcpyHostToDevice)); CK(cudaMemcpy(s, b.data() + n, n / 16, cudaMemcpyHostToDevice)); return lk_w{{q, s, nullptr, 0}}; }}\n\
+         static float* nan(long n){{ float* p; CK(cudaMalloc(&p, n * 4)); CK(cudaMemset(p, 0xff, n * 4)); return p; }}\n\
+         static int* zeros(long n){{ int* p; CK(cudaMalloc(&p, n * 4)); CK(cudaMemset(p, 0, n * 4)); return p; }}\n\
+         static signed char* bytes(long n){{ signed char* p; CK(cudaMalloc(&p, n)); return p; }}\n\
+         static void put(FILE* out, const float* d, long n){{ std::vector<float> h(n); CK(cudaMemcpy(h.data(), d, n * 4, cudaMemcpyDeviceToHost)); fwrite(h.data(), 4, n, out); }}\n\
+         int main(int argc, char** argv){{\n  std::string dir = argv[1];\n  FILE* out = fopen(argv[2], \"wb\");\n{calls}  fclose(out);\n  return 0;\n}}\n",
+        Kernel::Blocks.source(),
+        Kernel::Quant.source(),
+        Kernel::Mma.source(),
+        Kernel::GemmBlk.source()
+    );
+    let (cu, bin, outp) = (dir.join("narrow.cu"), dir.join("narrow"), dir.join("out.bin"));
+    std::fs::write(&cu, program).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the GEMMs build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).arg(&dir).arg(&outp).output().unwrap();
+    assert!(ran.status.success(), "they run: {}", String::from_utf8_lossy(&ran.stderr));
+    let all: Vec<u32> = std::fs::read(&outp).unwrap().chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect();
+    let mut at = 0;
+    let mut take = |n: usize| {
+        at += n;
+        all[at - n..at].to_vec()
+    };
+    let mut report = Vec::new();
+    for (what, m, parts, counts) in &cases {
+        let mut worst = 0f64;
+        for (p, &(n, _)) in parts.iter().enumerate() {
+            let (alone, merged, cut, again) = (take(m * n), take(m * n), take(m * n), take(m * n));
+            assert!(alone.iter().chain(&merged).chain(&cut).all(|b| f32::from_bits(*b).is_finite()), "{what}: part {p}: every output written, and finite");
+            let first = alone.iter().zip(&merged).position(|(a, b)| a != b);
+            assert_eq!(first, None, "{what}: part {p} ({n} outputs): the GEMM in parts computes the part's GEMM bit for bit, apart first at {first:?}");
             assert_eq!(again, cut, "{what}: part {p}: the cut GEMM sums its parts in one order whichever arrives last");
             for r in 0..*m {
                 let (x, y) = (&alone[r * n..(r + 1) * n], &cut[r * n..(r + 1) * n]);
@@ -10258,6 +11249,64 @@ fn the_lanes_e4m3_cache_rounds_as_the_model_rounds() {
     }
 }
 
+/// The lane rounds into a bf16 memory as the model rounds (PARITY-GDN-HALF-STATE): the kernels' `lk_to<__nv_bfloat16>`,
+/// the conversion each delta-rule launch stores its memory through, gives `model::quant::f32_to_bf16`'s word for every
+/// 256th `f32` bit pattern — both signs, subnormals, every exponent, infinities and NaNs — and for every half-way point
+/// between two bfloat16 values and its two neighbours; and `lk_from` widens each of the 65536 words to `bf16_to_f32`'s
+/// value.
+#[test]
+fn the_lanes_bf16_memory_rounds_as_the_model_rounds() {
+    use logicaffeine_compile::codegen_cuda::lane::kernels::PRELUDE;
+    use logicaffeine_compile::model::quant::{bf16_to_f32, f32_to_bf16};
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
+        return;
+    }
+    let mut xs: Vec<f32> = (0..1u32 << 24).map(|i| f32::from_bits(i << 8 | (i & 0xff))).collect();
+    for h in 0..=u16::MAX {
+        let mid = u32::from(h) << 16 | 0x8000;
+        xs.extend([f32::from_bits(mid - 1), f32::from_bits(mid), f32::from_bits(mid + 1)]);
+    }
+    let n = xs.len();
+    let dir = dir().join("bf16-memory");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("x.bin"), xs.iter().flat_map(|f| f.to_le_bytes()).collect::<Vec<u8>>()).unwrap();
+    let program = format!(
+        "#include <cstdio>\n#include <vector>\n#include <cuda_runtime.h>\n{PRELUDE}\n\
+         __global__ void to(const float* x, unsigned short* y, long n){{ long i = (long)blockIdx.x * blockDim.x + threadIdx.x; if(i < n) y[i] = __bfloat16_as_ushort(lk_to<__nv_bfloat16>(x[i])); }}\n\
+         __global__ void from(float* y){{ int i = blockIdx.x * blockDim.x + threadIdx.x; y[i] = lk_from(__ushort_as_bfloat16((unsigned short)i)); }}\n\
+         int main(int, char** argv){{\n  long n = {n}; std::vector<float> h(n); FILE* f = fopen(argv[1], \"rb\"); if(fread(h.data(), 4, n, f) != (size_t)n) return 2; fclose(f);\n\
+           float *x, *w; unsigned short* y; cudaMalloc(&x, n * 4); cudaMalloc(&y, n * 2); cudaMalloc(&w, 65536 * 4);\n\
+           cudaMemcpy(x, h.data(), n * 4, cudaMemcpyHostToDevice);\n\
+           to<<<(n + 255) / 256, 256>>>(x, y, n); from<<<256, 256>>>(w);\n\
+           if(cudaDeviceSynchronize() != cudaSuccess) return 3;\n\
+           std::vector<unsigned short> b(n); std::vector<float> v(65536);\n\
+           cudaMemcpy(b.data(), y, n * 2, cudaMemcpyDeviceToHost); cudaMemcpy(v.data(), w, 65536 * 4, cudaMemcpyDeviceToHost);\n\
+           FILE* o = fopen(argv[2], \"wb\"); fwrite(b.data(), 2, n, o); fwrite(v.data(), 4, 65536, o); fclose(o);\n  return 0;\n}}\n"
+    );
+    let (cu, bin, out) = (dir.join("bf16.cu"), dir.join("bf16"), dir.join("out.bin"));
+    std::fs::write(&cu, program).unwrap();
+    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().unwrap();
+    assert!(built.status.success(), "the conversions build:\n{}", String::from_utf8_lossy(&built.stderr));
+    let ran = Command::new(&bin).arg(dir.join("x.bin")).arg(&out).output().unwrap();
+    assert!(ran.status.success(), "they run: {}", String::from_utf8_lossy(&ran.stderr));
+    let all = std::fs::read(&out).unwrap();
+    let (words, widened) = all.split_at(2 * n);
+    let mut parted = Vec::new();
+    for (&x, w) in xs.iter().zip(words.chunks_exact(2)) {
+        let (lane, model) = (u16::from_le_bytes(w.try_into().unwrap()), f32_to_bf16(x));
+        // A NaN's word is any NaN word: the model's keeps the payload's high half, quieted; CUDA's is canonical.
+        let same = if x.is_nan() { bf16_to_f32(lane).is_nan() } else { lane == model };
+        if !same && parted.len() < 8 {
+            parted.push(format!("{x:e} ({:#010x}): the lane's {lane:#06x}, the model's {model:#06x}", x.to_bits()));
+        }
+    }
+    assert!(parted.is_empty(), "the lane rounds to bf16 as the model does:\n{}", parted.join("\n"));
+    for (word, w) in widened.chunks_exact(4).enumerate() {
+        let (lane, model) = (f32::from_le_bytes(w.try_into().unwrap()), bf16_to_f32(word as u16));
+        assert!(lane.to_bits() == model.to_bits() || (lane.is_nan() && model.is_nan()), "word {word:#06x} widens to {model:e}, not {lane:e}");
+    }
+}
+
 /// A decode step split over chips computes what its launches compute apart (PARITY-ALLREDUCE-NORM): Qwen3 and Llama four
 /// times as wide over two and four ranks on the one device, every all-reduce folded into the add and norm its sum feeds
 /// (`allreduce_norm`, one launch reading every rank's partial), against the same program with the rule held back (the
@@ -10457,4 +11506,82 @@ fn a_greedy_step_generates_what_its_capped_logits_pick() {
         assert_eq!(out.status.code(), Some(2), "{what}: the greedy program refuses `--logits`: {err}");
         assert!(err.contains("writes no logits"), "{what}: by name: {err}");
     }
+}
+
+/// How far a cut model's logits may sit from the whole lane's, as a fraction of the whole lane's largest: each half
+/// within `bound` of the reference at its point, the host's `f32` sums against the card's.
+fn cut_bound(numerics: Q8MatKind) -> f64 {
+    2.0 * bound(numerics)
+}
+
+/// A model cut between the host's cores and the card decodes what the lane decodes on the card alone: every tiny
+/// architecture that cuts, cut at each layer past the first (`codegen_cpu::split::compile_cut`) — its token's embedding
+/// and first layers linked for the CPU tier, the rest, the head and the arg-max compiled for the card, the hidden state
+/// at the cut crossing a token at a time — generates from the prompt the tokens the whole lane generates prompted a
+/// token at a time, its logits at every generated position within `cut_bound` of the whole lane's largest: at the
+/// precise point on both halves, and at one word a block on both. So too every hyper-connected model, its residual's
+/// lanes the hidden state crossing, and Qwen3.8-Flash-Next's two tiny models cut past the layer of their n-gram
+/// embedding; cut at or before it, a model is refused by name, its hash reading the token only the host's layers take.
+#[test]
+fn a_model_cut_between_the_cpu_and_the_card_decodes_what_the_lane_decodes() {
+    let points = [(Q8MatKind::Dequant, CpuActivations::Values), (Q8MatKind::Int8Act, CpuActivations::OneWord)];
+    let (mut wholes, mut cuts): (Vec<(String, Lane)>, Vec<(String, Split)>) = (Vec::new(), Vec::new());
+    let mut cases = Vec::new();
+    let models: Vec<(String, ModelSpec)> = ALL
+        .iter()
+        .map(|t| (t.name().to_string(), t.spec(CTX)))
+        .chain(tiny_models::hyper_connected_models(CTX).into_iter().enumerate().map(|(k, (_, s))| (format!("hyper-{k}"), s)))
+        .chain(tiny_models::flash_next_models(CTX).into_iter().enumerate().map(|(k, (_, s))| (format!("flash-next-{k}"), s)))
+        .collect();
+    for (model, spec) in &models {
+        let ckpt = dir().join(format!("{model}-cut.gguf"));
+        tiny_models::write_checkpoint(spec, &ckpt);
+        let first = spec.ple.as_ref().map_or(1, |p| p.layer + 1);
+        for (numerics, activations) in points {
+            let opts = LaneOptions { ctx: CTX, knobs: CudaKnobs { activations: numerics, ..CudaKnobs::default() }, prefill: 1 };
+            let shim = CpuShim { isa: CpuIsa::X86Avx2Vnni, activations, cache: CpuCache::F32, fuse: true };
+            for at in (1..first).filter(|&at| at < spec.layers.len()) {
+                let why = compile_cut(spec, &ckpt, &opts, at, &shim).err().unwrap_or_else(|| panic!("{model} cuts at {at}"));
+                assert!(why.contains("a per-layer embedding on layer"), "{model} at {at}: {why}");
+            }
+            let name = format!("{model}-{numerics:?}");
+            wholes.push((name.clone(), compile(spec, &ckpt, &opts).unwrap_or_else(|e| panic!("{name}: {e}"))));
+            for at in first..spec.layers.len() {
+                let cut = format!("{name}-cut{at}");
+                cuts.push((cut.clone(), compile_cut(spec, &ckpt, &opts, at, &shim).unwrap_or_else(|e| panic!("{cut}: {e}"))));
+                cases.push((wholes.len() - 1, cuts.len() - 1, ckpt.clone(), spec.vocab, numerics));
+            }
+        }
+    }
+    assert!(cuts.len() >= 2 * (models.len() - 2), "every model is cut at each of its layers past the first and its embedding");
+    let jobs: Vec<(&Lane, &str)> = wholes.iter().map(|(n, l)| (l, n.as_str())).collect();
+    let built_wholes = build_all(&jobs);
+    let built_cuts: Vec<Built> = std::thread::scope(|s| {
+        let handles: Vec<_> = cuts.iter().map(|(n, c)| s.spawn(move || build_cut(c, n))).collect();
+        handles.into_iter().map(|h| h.join().unwrap_or_else(|e| std::panic::resume_unwind(e))).collect()
+    });
+    let mut compared = 0usize;
+    let runs = cases.len();
+    for (w, c, ckpt, vocab, numerics) in cases {
+        let want = exec(&built_wholes[w], &ckpt, PROMPT, GENERATE, vocab, true);
+        let got = exec(&built_cuts[c], &ckpt, PROMPT, GENERATE, vocab, true);
+        let name = &cuts[c].0;
+        // Every position at the precise point; under a quantized point, those before the first whose top two logits on
+        // the whole lane lie within the cut's bound of each other — a tie the two tiers' roundings may break either way,
+        // past which their histories part.
+        for (k, (g, l)) in got.logits.iter().zip(&want.logits).enumerate() {
+            let scale = l.iter().fold(0f32, |m, v| m.max(v.abs())).max(1e-30) as f64;
+            let worst = g.iter().zip(l).fold(0f64, |m, (a, b)| m.max(((a - b) as f64).abs() / scale));
+            assert!(worst <= cut_bound(numerics), "{name}: position {k}'s logits {worst:.3e} of their scale from the whole lane's");
+            let mut sorted = l.clone();
+            sorted.sort_by(|a, b| b.total_cmp(a));
+            if numerics != Q8MatKind::Dequant && ((sorted[0] - sorted[1]) as f64) / scale <= cut_bound(numerics) {
+                break;
+            }
+            assert_eq!(got.tokens[k], want.tokens[k], "{name}: position {k}'s token is the whole lane's");
+            compared += 1;
+        }
+        assert_eq!(got.placed.2, 0, "{name}: the device holds every matrix of its layers");
+    }
+    assert!(compared >= runs * GENERATE / 2, "most positions are compared: {compared} of {}", runs * GENERATE);
 }

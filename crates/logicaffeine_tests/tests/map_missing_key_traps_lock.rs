@@ -58,3 +58,35 @@ fn missing_key_of_a_generic_map_traps_on_the_tree_walker() {
 fn missing_key_of_a_generic_map_traps_on_the_c_backend() {
     assert_c_traps(MISSING_KEY_OF_A_SEQ_MAP, "missing map key");
 }
+
+/// Comparing what a map holds under a key is a read of that key: an absent key traps there as any read of it does,
+/// never compares unequal. Each with the map's value on either side, by `equals` and `is not equal to`, for a map a
+/// binding holds and a map a list holds.
+const COMPARED_MISSING_KEYS: [&str; 5] = [
+    "## Main\nLet mutable m be a new Map of Text to Int.\nSet item \"x\" of m to 42.\nIf item \"missing\" of m equals 42:\n    Show \"same\".\nOtherwise:\n    Show \"apart\".\n",
+    "## Main\nLet mutable m be a new Map of Text to Int.\nSet item \"x\" of m to 42.\nIf 42 equals item \"missing\" of m:\n    Show \"same\".\nOtherwise:\n    Show \"apart\".\n",
+    "## Main\nLet mutable m be a new Map of Text to Int.\nSet item \"x\" of m to 42.\nIf item \"missing\" of m is not equal to 42:\n    Show \"apart\".\nOtherwise:\n    Show \"same\".\n",
+    "## Main\nLet mutable m be a new Map of Int to Int.\nSet item 1 of m to 42.\nIf item 999 of m equals 42:\n    Show \"same\".\nOtherwise:\n    Show \"apart\".\n",
+    "## To probe (ends: Seq of Map of Text to Int) -> Int:\n    Let mutable count be 0.\n    Repeat for e in ends:\n        If item \"missing\" of e equals 42:\n            Set count to count + 1.\n    Return count.\n\n## Main\nLet mutable m be a new Map of Text to Int.\nSet item \"x\" of m to 42.\nShow probe([m]).\n",
+];
+
+#[test]
+fn a_missing_key_compared_traps_on_the_tree_walker() {
+    for src in COMPARED_MISSING_KEYS {
+        assert_interpreter_fails(src, "not found in map");
+    }
+}
+
+#[test]
+fn a_missing_key_compared_traps_on_aot_rust() {
+    for src in COMPARED_MISSING_KEYS {
+        assert_panics(src, "not found in map");
+    }
+}
+
+#[test]
+fn a_missing_key_compared_traps_on_the_c_backend() {
+    for src in COMPARED_MISSING_KEYS {
+        assert_c_traps(src, "not found in map");
+    }
+}

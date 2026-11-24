@@ -12,7 +12,8 @@
 //!
 //! Run: `cargo nextest run -p logicaffeine-tests --test jit_enum_lock`
 
-#![cfg(not(target_arch = "wasm32"))]
+// This suite tests the native tier alone, which exists only on x86_64 outside Windows.
+#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;

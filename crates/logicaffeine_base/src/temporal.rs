@@ -783,7 +783,7 @@ pub fn business_days_between(a: i64, b: i64) -> i64 {
 /// the preceding Friday.
 pub fn add_business_days(z: i64, n: i64) -> i64 {
     let step = if n >= 0 { 1 } else { -1 };
-    let mut remaining = n.abs();
+    let mut remaining = business_step_count(n);
     let mut d = z;
     while remaining > 0 {
         d += step;
@@ -792,6 +792,12 @@ pub fn add_business_days(z: i64, n: i64) -> i64 {
         }
     }
     d
+}
+
+/// How many business days `add_business_days` walks for a signed count `n`: its magnitude, taken
+/// without negating `n` (which overflows for `i64::MIN`).
+fn business_step_count(n: i64) -> u64 {
+    n.unsigned_abs()
 }
 
 /// How `Show` writes a physical duration (nanoseconds): the count of its largest whole unit, from hours down to
@@ -950,12 +956,15 @@ pub fn parse_duration(s: &str) -> Option<i64> {
         };
         total = total.checked_add(int_val.checked_mul(unit_nanos)?)?;
         if !frac_str.is_empty() {
-            let frac_val: i128 = frac_str.parse().ok()?;
-            let mut denom: i128 = 1;
-            for _ in 0..frac_str.len() {
-                denom *= 10;
+            // floor(unit · 0.d₁d₂…d_L), folded from the last digit inward:
+            // acc ← ⌊(acc + dᵢ · unit) / 10⌋. Nested floor division by an integer is exact, so this
+            // equals ⌊unit · F / 10^L⌋ for a fraction of any length, and `acc` never exceeds
+            // `unit`, so nothing can overflow however many digits follow the point.
+            let mut frac_nanos: i128 = 0;
+            for digit in frac_str.bytes().rev() {
+                frac_nanos = (frac_nanos + i128::from(digit - b'0') * unit_nanos) / 10;
             }
-            total = total.checked_add(frac_val * unit_nanos / denom)?;
+            total = total.checked_add(frac_nanos)?;
         }
         saw_any = true;
     }

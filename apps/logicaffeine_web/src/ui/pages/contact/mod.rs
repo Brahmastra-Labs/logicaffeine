@@ -501,7 +501,7 @@ fn Hero() -> Element {
                 p { class: "contact-lede", "{OPEN_SOURCE_LINE}" }
                 div { class: "contact-actions",
                     SectionLink { id: "contact", class: "contact-btn primary", "{CONTACT_HEADING}" }
-                    Link { to: Route::Studio { file: None }, class: "contact-btn", "Try it in the browser" }
+                    Link { to: "/studio", class: "contact-btn", "Try it in the browser" }
                 }
             }
             div { id: "install", class: "contact-install",

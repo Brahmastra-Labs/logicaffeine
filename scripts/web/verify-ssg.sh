@@ -8,7 +8,10 @@
 # sitemap::prerender_routes() — one source of truth, no second manifest.
 #
 # Checks per route:
-#   - <dir>/<route>/index.html exists (route "/" -> <dir>/index.html)
+#   - <dir><route>.html exists and <dir><route>/index.html does not (route "/" ->
+#     <dir>/index.html): Pages serves <route>.html at the route itself, the address the
+#     canonical link and the sitemap name, and a directory's index.html at <route>/
+#     after a 308 (DAT-170)
 #   - carries its own canonical link (https://logicaffeine.com<route>)
 #   - carries exactly ONE og:title (shell+SSR duplication regression)
 #   - carries at least one JSON-LD block
@@ -16,6 +19,10 @@
 #   - the document opens in standards mode: <!DOCTYPE html> first, <html lang="en">,
 #     exactly one <title>, inside <head>
 #   - no raw-text element (style, script, title, textarea) holds a hydration marker
+#
+# And once for the site: the root 404.html exists, carries the not-found page with a
+# noindex robots tag, no canonical link and the wasm loader, and no /* rule in
+# _redirects answers before it.
 #
 # Usage: ./scripts/web/verify-ssg.sh [built-public-dir]
 #        (default: target/dx/logicaffeine-web/release/web/public)
@@ -41,7 +48,11 @@ for route in $routes; do
     if [ "$route" = "/" ]; then
         file="$PUBLIC/index.html"
     else
-        file="$PUBLIC${route}/index.html"
+        file="$PUBLIC${route}.html"
+        if [ -e "$PUBLIC${route}/index.html" ]; then
+            echo "FAIL $route: $PUBLIC${route}/index.html exists, so Pages would answer ${route} with a 308 to ${route}/"
+            fail=1
+        fi
     fi
 
     if [ ! -f "$file" ]; then
@@ -149,6 +160,39 @@ PY
         fail=1
     fi
 done
+
+# The root 404.html (DAT-171): Cloudflare Pages serves it with a 404 status for every path no
+# file and no _redirects rule answers. merge-ssg.sh moves the page prerendered at /404 there.
+not_found="$PUBLIC/404.html"
+if [ ! -f "$not_found" ]; then
+    echo "FAIL 404: missing $not_found — Pages would answer every unknown path with the landing page and a 200"
+    fail=1
+else
+    if [ -e "$PUBLIC/404/index.html" ]; then
+        echo "FAIL 404: $PUBLIC/404/index.html is left beside 404.html"
+        fail=1
+    fi
+    if grep -q 'rel="canonical"' "$not_found"; then
+        echo "FAIL 404: the 404 page claims a canonical address"
+        fail=1
+    fi
+    if ! grep -q 'name="robots" content="noindex"' "$not_found" && ! grep -q 'content="noindex" name="robots"' "$not_found"; then
+        echo "FAIL 404: the 404 page is not marked noindex"
+        fail=1
+    fi
+    if ! grep -q 'Page not found' "$not_found"; then
+        echo "FAIL 404: the 404 page does not carry the not-found page"
+        fail=1
+    fi
+    if ! grep -q '<script type="module" async src="[^"]*logicaffeine-web-[^"]*"></script>' "$not_found"; then
+        echo "FAIL 404: no wasm loader script — the 404 page would never boot the app"
+        fail=1
+    fi
+fi
+if grep -qE '^/\*[[:space:]]' "$PUBLIC/_redirects" 2>/dev/null; then
+    echo "FAIL _redirects: a /* rule answers every unknown path before the 404 page can"
+    fail=1
+fi
 
 if [ "$fail" -ne 0 ]; then
     echo "verify-ssg: FAILED (checked $count routes)" >&2

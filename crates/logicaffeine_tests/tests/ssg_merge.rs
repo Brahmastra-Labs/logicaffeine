@@ -90,7 +90,7 @@ fn merge(web: &Path) {
 fn merged_learn(tag: &str) -> String {
     let web = stage(tag);
     merge(&web);
-    let page = std::fs::read_to_string(web.join("public/learn/index.html")).unwrap();
+    let page = std::fs::read_to_string(web.join("public/learn.html")).unwrap();
     let _ = std::fs::remove_dir_all(&web);
     page
 }
@@ -136,10 +136,10 @@ fn a_merged_page_keeps_its_own_title_once_inside_head() {
 fn merging_twice_changes_nothing() {
     let web = stage("idempotent");
     merge(&web);
-    let once = std::fs::read_to_string(web.join("public/learn/index.html")).unwrap();
+    let once = std::fs::read_to_string(web.join("public/learn.html")).unwrap();
     let landing_once = std::fs::read_to_string(web.join("public/index.html")).unwrap();
     merge(&web);
-    let twice = std::fs::read_to_string(web.join("public/learn/index.html")).unwrap();
+    let twice = std::fs::read_to_string(web.join("public/learn.html")).unwrap();
     let landing_twice = std::fs::read_to_string(web.join("public/index.html")).unwrap();
     let _ = std::fs::remove_dir_all(&web);
     assert_eq!(once, twice, "a second merge rewrote /learn");
@@ -209,4 +209,62 @@ fn markers_outside_raw_text_elements_are_left_alone() {
     );
     assert!(page.contains("Every man runs.</textarea>"), "the textarea keeps its text");
     assert!(page.contains("window.demo = 1;</script>"), "the script keeps its code");
+}
+
+/// The not-found page as the prerender server writes it for `/404`: its own title and a `noindex`
+/// robots tag, and no canonical link.
+const NOT_FOUND_PAGE: &str = "<title>Page not found | LOGICAFFEINE</title><!DOCTYPE html>\n        <html>\n            <head> \
+    <meta name=\"robots\" content=\"noindex\"/></head>\n            <body>\n                \
+    <div id=\"main\"><div id=\"app-root\"><h1>404</h1><p>Page not found</p></div></div>\n            </body>\n        </html>";
+
+/// The prerendered not-found page becomes the site's root `404.html`, which Cloudflare Pages serves
+/// with a 404 status for every path no file and no rule answers (DAT-171), and no `/404/` page is
+/// left behind for a crawler to index.
+#[test]
+fn the_not_found_page_becomes_the_root_404_document() {
+    let web = stage("not_found");
+    std::fs::create_dir_all(web.join("prerendered/404")).unwrap();
+    std::fs::write(web.join("prerendered/404/index.html"), NOT_FOUND_PAGE).unwrap();
+    merge(&web);
+    let page = std::fs::read_to_string(web.join("public/404.html"));
+    let leftover = web.join("public/404").exists();
+    let _ = std::fs::remove_dir_all(&web);
+    let page = page.expect("the merge writes public/404.html");
+    assert!(!leftover, "the merge leaves a public/404/ page beside public/404.html");
+    assert!(page.trim_start().starts_with("<!DOCTYPE html>"), "the 404 page opens in quirks mode");
+    assert!(head(&page).contains("<title>Page not found | LOGICAFFEINE</title>"), "the 404 page lost its title");
+    assert!(head(&page).contains("/assets/style.css"), "the 404 page has no stylesheet");
+    assert!(page.contains(&format!("<script type=\"module\" async src=\"{LOADER}\"></script>")), "the 404 page never boots the app");
+    assert!(page.contains("<meta name=\"robots\" content=\"noindex\"/>"), "the 404 page is not marked noindex");
+    assert!(!page.contains("rel=\"canonical\""), "the 404 page claims a canonical address");
+}
+
+/// Each page is written as its address with `.html` (`/learn` to `learn.html`, `/news/<slug>` to
+/// `news/<slug>.html`), never as a directory's `index.html`. Cloudflare Pages serves `learn.html` at
+/// `/learn` itself and redirects `/learn/` there, so the address the page is served at is the one
+/// its canonical link and the sitemap name. A directory's `index.html` is served at `/learn/`
+/// instead, after a 308 from `/learn`, the disagreement DAT-170 removed.
+#[test]
+fn a_page_is_written_as_its_address_never_as_a_directory_index() {
+    let web = stage("flat");
+    std::fs::create_dir_all(web.join("prerendered/news/a-first-article")).unwrap();
+    std::fs::write(
+        web.join("prerendered/news/index.html"),
+        prerendered("News | LOGICAFFEINE", "/news", "<h1>News</h1>"),
+    )
+    .unwrap();
+    std::fs::write(
+        web.join("prerendered/news/a-first-article/index.html"),
+        prerendered("A first article | LOGICAFFEINE", "/news/a-first-article", "<h1>A first article</h1>"),
+    )
+    .unwrap();
+    merge(&web);
+    let exists = |rel: &str| web.join("public").join(rel).exists();
+    let written = [exists("index.html"), exists("learn.html"), exists("news.html"), exists("news/a-first-article.html")];
+    let directory_indexes = [exists("learn/index.html"), exists("news/index.html"), exists("news/a-first-article/index.html")];
+    let empty_directories = [exists("learn"), exists("news/a-first-article")];
+    let _ = std::fs::remove_dir_all(&web);
+    assert_eq!(written, [true; 4], "the landing page, /learn, /news and /news/a-first-article are index.html, learn.html, news.html and news/a-first-article.html");
+    assert_eq!(directory_indexes, [false; 3], "a page is written as a directory's index.html");
+    assert_eq!(empty_directories, [false; 2], "a page leaves an empty directory behind");
 }

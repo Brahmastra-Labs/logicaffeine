@@ -30,6 +30,7 @@ Report that the site is up before changing anything.
 
 4. Learn the language before you write it
 Read https://logicaffeine.com/llms-full.txt, every LOGOS guide in one file.
+It also covers features newer than the release you installed.
 largo new also wrote AGENTS.md in the project, the language taught to an agent. Read it.
 Use a command only if largo --help lists it, and say so when one is missing.
 Four rules to start with:

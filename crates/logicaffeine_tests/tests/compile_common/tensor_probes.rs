@@ -230,6 +230,24 @@ pub const GELU: OpProbe = OpProbe {
     needs: &[],
     expect: None,
 };
+// Y = erf(X) — the error function, exact GELU's `0.5·x·(1 + erf(x/√2))`: at −1.5, 0.25, 1 and 2.25, one point in each
+// of the library's three rational approximations but its tail, −0.966105, 0.276326, 0.842701 and 0.998537.
+pub const ERF: OpProbe = OpProbe {
+    op: "erf",
+    family: "erf",
+    kind: "Erf",
+    program: concat!(
+        "## Main\n",
+        "Let X be a 1 by 4 tensor of Real.\n",
+        "Set item 1 of X to -1.5.\nSet item 2 of X to 0.25.\nSet item 3 of X to 1.0.\nSet item 4 of X to 2.25.\n",
+        "Let Y be erf of X.\n",
+        "Show round(item 1 of Y * 1000000).\nShow round(item 2 of Y * 1000000).\n",
+        "Show round(item 3 of Y * 1000000).\nShow round(item 4 of Y * 1000000).\n",
+    ),
+    shows: 4,
+    needs: &[],
+    expect: Some(&["-966105", "276326", "842701", "998537"]),
+};
 // Y = X·1.5 — a tensor scaled by a constant (Gemma's embedding scale): [3, 6, 9, 12], exact.
 pub const SCALE: OpProbe = OpProbe {
     op: "scale",
@@ -769,6 +787,7 @@ pub const OP_PROBES: &[OpProbe] = &[
     SWIGLU,
     SIGMOID,
     GELU,
+    ERF,
     L2NORM,
     ROPE_PARTIAL,
     CAUSAL_CONV,
@@ -814,6 +833,7 @@ pub const IMPLEMENTED_PROBES: &[OpProbe] = &[
     SWIGLU,
     SIGMOID,
     GELU,
+    ERF,
     L2NORM,
     ROPE_PARTIAL,
     CAUSAL_CONV,
@@ -862,6 +882,7 @@ pub const BACKEND_MATRIX_PROBES: &[OpProbe] = &[
     SWIGLU,
     SIGMOID,
     GELU,
+    ERF,
     L2NORM,
     ROPE_PARTIAL,
     CAUSAL_CONV,
@@ -915,6 +936,7 @@ pub const SUGAR_TO_PROBE: &[(&str, &str)] = &[
     ("silu", "silu"),
     ("sigmoid", "sigmoid"),
     ("gelu", "gelu"),
+    ("erf", "erf"),
     ("decay", "decay"),
     ("l2norm", "l2norm"),
     ("l2norm", "l2norm_heads"),

@@ -22,10 +22,15 @@
 use logicaffeine_compile::compile::tw_outcome_with_args;
 use logicaffeine_compile::ui_bridge::with_optimized_program;
 use logicaffeine_compile::vm::{Compiler, NativeTier, Op};
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_forge::jit::{reference_eval, ChainOutcome, MicroOp};
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_forge::regalloc::compile_region_regalloc;
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_jit::ForgeTier;
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use std::sync::atomic::AtomicI64;
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use std::sync::Arc;
 
 fn norm(s: &str) -> String {
@@ -44,13 +49,16 @@ fn norm(s: &str) -> String {
 // proves the generator the compiler ships produces exact constants.
 // ---------------------------------------------------------------------------
 
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_compile::vm::compiler::magic_u64_gen;
 
 /// `n / c` and `n % c` via the kernel's locked wrapping-i64 spec (for the
 /// non-negative `n` this lever targets these equal mathematical floor/rem).
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn kernel_div(n: i64, c: i64) -> i64 {
     n.wrapping_div(c)
 }
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn kernel_mod(n: i64, c: i64) -> i64 {
     n.wrapping_rem(c)
 }
@@ -58,6 +66,7 @@ fn kernel_mod(n: i64, c: i64) -> i64 {
 /// Run a single `MagicDivU` op on the contiguous regalloc backend and return
 /// its result, asserting it agrees with `reference_eval` (the differential
 /// ground truth the whole JIT is gated against).
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn run_magic_op(n: i64, magic: u64, more: u8, mul_back: i64) -> i64 {
     let ops = vec![
         MicroOp::MagicDivU {
@@ -91,6 +100,7 @@ fn run_magic_op(n: i64, magic: u64, more: u8, mul_back: i64) -> i64 {
 /// Exhaustively grid `n / c` and `n % c` for one non-pow2 divisor across every
 /// boundary that could expose an off-by-one in the magic constants, plus a
 /// dense band around many multiples of `c` and a large pseudo-random sweep.
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn assert_magic_exact_for(c: i64) {
     assert!(
         c > 0 && (c & (c - 1)) != 0,
@@ -144,22 +154,27 @@ fn assert_magic_exact_for(c: i64) {
 }
 
 #[test]
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn magic_op_exact_div_1000000007() {
     assert_magic_exact_for(1_000_000_007);
 }
 #[test]
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn magic_op_exact_div_1000() {
     assert_magic_exact_for(1000);
 }
 #[test]
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn magic_op_exact_div_7() {
     assert_magic_exact_for(7);
 }
 #[test]
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn magic_op_exact_div_100() {
     assert_magic_exact_for(100);
 }
 #[test]
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn magic_op_exact_div_3_and_11_and_65521() {
     assert_magic_exact_for(3);
     assert_magic_exact_for(11);
@@ -172,7 +187,12 @@ fn magic_op_exact_div_3_and_11_and_65521() {
 
 /// Optimized program → tiered VM (private tier), plus the structural op tally.
 fn runpath_vm_outcome(src: &str, argv: &[String]) -> (String, Option<String>) {
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
     with_optimized_program(src, |parsed, interner| match parsed {
         Ok((stmts, types, policies)) => logicaffeine_compile::vm::run_to_outcome_with_args(
             stmts,
@@ -180,7 +200,7 @@ fn runpath_vm_outcome(src: &str, argv: &[String]) -> (String, Option<String>) {
             Some(types),
             Some(&policies),
             argv,
-            Some(&tier as &dyn NativeTier),
+            native,
         ),
         Err(advice) => (String::new(), Some(advice)),
     })

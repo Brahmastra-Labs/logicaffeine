@@ -1052,6 +1052,15 @@ pub fn directive_fn_name(directive: &str) -> String {
     format!("__dir_{directive}")
 }
 
+/// `__paths_<Page>` — the function a page's `Paths:` section lowers to, answering the URLs a
+/// static export builds the page at.
+pub fn paths_fn_name(page: &str) -> String {
+    format!("{PATHS_FN_PREFIX}{page}")
+}
+
+/// What every [`paths_fn_name`] begins with, so a build can find the one a page carries.
+pub const PATHS_FN_PREFIX: &str = "__paths_";
+
 /// `__dir_<name>__removed` — a directive's `When removed:` block, run with the element and value
 /// its occurrence was last attached with, once that occurrence is no longer drawn.
 pub fn directive_removed_fn_name(directive: &str) -> String {

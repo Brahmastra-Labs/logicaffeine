@@ -80,9 +80,33 @@ impl LinExpr {
     }
 }
 
+/// The ring operation a function symbol names, in either spelling the proof IR carries:
+/// the canonical `Add`/`Sub`/`Mul` that `proof_convert` lowers English and formal
+/// arithmetic to, and the kernel's `add`/`sub`/`mul` that the tactics build internally.
+/// Both spellings denote the same builtin (`certifier::kernel_arith_name` is the boundary
+/// that unifies them for the kernel), so the linearizer must read both or it silently
+/// drops every user-written term.
+fn ring_op(name: &str) -> Option<&'static str> {
+    match name {
+        "add" | "Add" => Some("add"),
+        "sub" | "Sub" => Some("sub"),
+        "mul" | "Mul" => Some("mul"),
+        _ => None,
+    }
+}
+
+/// Do two function symbols name the same builtin? A ring operation in either spelling, or
+/// literally the same name.
+pub(crate) fn same_builtin(f: &str, g: &str) -> bool {
+    match (ring_op(f), ring_op(g)) {
+        (Some(x), Some(y)) => x == y,
+        _ => f == g,
+    }
+}
+
 /// Parse a [`ProofTerm`] into a linear expression, or `None` if it is non-linear
 /// (e.g. `mul` of two non-constants). Numeric constants are literals; other names
-/// are variables; `add`/`sub`/`mul` build the form.
+/// are variables; `add`/`sub`/`mul` (in either spelling, see [`ring_op`]) build the form.
 pub fn parse_lin(t: &ProofTerm) -> Option<LinExpr> {
     match t {
         ProofTerm::Constant(s) => Some(match s.parse::<i64>() {
@@ -90,10 +114,10 @@ pub fn parse_lin(t: &ProofTerm) -> Option<LinExpr> {
             Err(_) => LinExpr::var(s),
         }),
         ProofTerm::Variable(s) | ProofTerm::BoundVarRef(s) => Some(LinExpr::var(s)),
-        ProofTerm::Function(name, args) => match (name.as_str(), args.as_slice()) {
-            ("add", [a, b]) => Some(parse_lin(a)?.add(&parse_lin(b)?)),
-            ("sub", [a, b]) => Some(parse_lin(a)?.sub(&parse_lin(b)?)),
-            ("mul", [a, b]) => {
+        ProofTerm::Function(name, args) => match (ring_op(name), args.as_slice()) {
+            (Some("add"), [a, b]) => Some(parse_lin(a)?.add(&parse_lin(b)?)),
+            (Some("sub"), [a, b]) => Some(parse_lin(a)?.sub(&parse_lin(b)?)),
+            (Some("mul"), [a, b]) => {
                 let (la, lb) = (parse_lin(a)?, parse_lin(b)?);
                 if la.is_constant() {
                     Some(lb.scale(la.constant))

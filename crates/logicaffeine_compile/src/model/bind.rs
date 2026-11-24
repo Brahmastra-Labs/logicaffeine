@@ -337,12 +337,44 @@ pub fn neox_order(v: &[f64], head_dim: usize, dims: usize) -> Vec<f64> {
         .collect()
 }
 
-/// A declared weight's values, in the layout the program declares it (`rows × cols` row-major, [`View::declared`]).
+/// A declared weight's values, in the layout the program declares it (`rows × cols` row-major, [`View::declared`]),
+/// times the weight's own scale where it has one ([`own_scale`]).
 pub fn values(b: &Binding, source: &mut dyn WeightSource) -> std::io::Result<Vec<f64>> {
     let (ty, inner, rows, raw) = stored(b, source)?;
     let mut flat = Vec::with_capacity(inner * rows);
     ty.dequantize(&raw, &mut flat);
-    Ok(b.view.apply(flat.into_iter().map(f64::from).collect(), inner, rows))
+    let mut flat: Vec<f64> = flat.into_iter().map(f64::from).collect();
+    if let Some(scale) = own_scale(&b.tensor, source)? {
+        let per = flat.len() / scale.len();
+        flat.chunks_mut(per).zip(&scale).for_each(|(rows, s)| rows.iter_mut().for_each(|v| *v *= s));
+    }
+    Ok(b.view.apply(flat, inner, rows))
+}
+
+/// The scale llama.cpp's loader reads beside weight `tensor` (`<stem>.scale`, an NVFP4 checkpoint's own scale of the
+/// weight) and its graph multiplies the weight's products by, folded here into the weight: one value for a weight,
+/// one an expert for a stack of experts (`[in, out, experts]`, each expert's rows contiguous). A `.scale` of another
+/// length is another block's (Gemma 4's router input scale), not the weight's own.
+pub fn own_scale(tensor: &str, source: &mut dyn WeightSource) -> std::io::Result<Option<Vec<f64>>> {
+    let Some(name) = own_scale_name(tensor, source)? else { return Ok(None) };
+    let (ty, dims) = source.describe(&name)?;
+    let raw = source.row_bytes(&name, 0, dims.iter().skip(1).product::<u64>().max(1) as usize)?;
+    let mut values = Vec::with_capacity(dims.iter().product::<u64>() as usize);
+    ty.dequantize(&raw, &mut values);
+    Ok(Some(values.into_iter().map(f64::from).collect()))
+}
+
+/// The name of weight `tensor`'s own scale ([`own_scale`]), read from the checkpoint's descriptions alone.
+fn own_scale_name(tensor: &str, source: &dyn WeightSource) -> std::io::Result<Option<String>> {
+    let Some(stem) = tensor.strip_suffix(".weight") else { return Ok(None) };
+    let name = format!("{stem}.scale");
+    if !source.has(&name) {
+        return Ok(None);
+    }
+    let (_, weight) = source.describe(tensor)?;
+    let entries = source.describe(&name)?.1.iter().product::<u64>();
+    let stack = if weight.len() == 3 { weight[2] } else { 1 };
+    Ok((entries == 1 || entries == stack).then_some(name))
 }
 
 /// The tensor `b` binds as it is stored: its format, its row length, its row count and its bytes.
@@ -466,7 +498,9 @@ impl View {
 /// Whether the weight `b` binds is stored as the two planes [`q8_planes`] repacks — Q8_0, its blocks down its declared
 /// rows — read from the checkpoint's description of the tensor alone, never its bytes.
 pub fn stored_as_q8_planes(b: &Binding, source: &dyn WeightSource) -> std::io::Result<bool> {
-    Ok(source.describe(&b.tensor)?.0 == GgmlType::Q8_0 && b.view.keeps_blocks_down_rows())
+    Ok(source.describe(&b.tensor)?.0 == GgmlType::Q8_0
+        && b.view.keeps_blocks_down_rows()
+        && own_scale_name(&b.tensor, source)?.is_none())
 }
 
 /// A Q8_0 weight as a spatial program reads it (`spatial::passes::from_q8`): the int8 values in the layout the program

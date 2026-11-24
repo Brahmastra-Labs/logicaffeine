@@ -4,13 +4,13 @@
 //!
 //! Each layer's cells have a coupled input and forget gate (what a cell takes in, it forgets of its old content), a
 //! candidate and an output gate; a layer sees the last byte (through a row of weights per byte value), its own last
-//! output and the layer below's. The next byte is predicted a bit at a time, as the coder codes it: each of the 255
-//! nodes of the byte's bit tree (a partial byte) has a logistic unit over every layer's output, so a byte's
-//! probability is the product of the eight its bits pass through. The network learns online: every `horizon` bytes it
-//! backpropagates the window's loss through time and takes an Adam step. The training runs on a worker thread while
-//! the next window's bytes are read (or in place, where there are no threads), and its result is taken at the end of
-//! that window either way: a window's bytes are read with the weights trained up to the window before last, so the
-//! network is the same wherever it trains.
+//! output and the layer below's. The next byte's distribution is a softmax over every layer's output, one row of
+//! weights per byte value, so every row learns from every byte; each bit's probability, as the coder codes it, is the
+//! share of the bytes under its partial byte that continue with a one. The network learns online: every `horizon` bytes
+//! it backpropagates the window's loss through time and takes an Adam step, the output rows at twice the rate of the
+//! rest. The training runs on a worker thread while the next window's bytes are read (or in place, where there are no
+//! threads), and its result is taken at the end of that window either way: a window's bytes are read with the weights
+//! trained up to the window before last, so the network is the same wherever it trains.
 //!
 //! All arithmetic is `f32` in a fixed order — every sum over a vector runs in eight fixed lanes, the exponential is
 //! built from additions and multiplications — so the predictions are the same bits on every machine. The window's
@@ -32,10 +32,7 @@ const BETA2: f32 = 0.999;
 const EPSILON: f32 = 1e-6;
 const FLUSH: f32 = 1e-30;
 
-/// The nodes of a byte's bit tree: partial bytes `1..=255` (1 then the bits so far).
-const NODES: usize = 255;
-
-/// How sure a bit's unit may be: its probability stays in `[P_MIN, 1 − P_MIN]`.
+/// How sure a bit may be: its probability stays in `[P_MIN, 1 − P_MIN]`.
 const P_MIN: f32 = 1.0 / 65536.0;
 
 /// The learning rate of the first Adam step, the steps over which it falls by a factor of `sqrt(2)`, and its floor.
@@ -47,6 +44,9 @@ const RATE_FLOOR: f32 = 0.0005;
 fn learning_rate(t: u32) -> f32 {
     (LEARNING_RATE / (1.0 + t as f32 / RATE_STEPS).sqrt()).max(RATE_FLOOR)
 }
+
+/// The output rows' Adam rate against the rest's.
+const OUTPUT_RATE: f32 = 2.0;
 
 /// The input gates' initial bias: a fresh cell keeps most of its content.
 const INPUT_BIAS: f32 = -1.0;
@@ -111,8 +111,8 @@ struct Layer {
     inputs: usize,
 }
 
-/// The network's parameters: its layers and the bit units' weights (per node of the bit tree a row over every
-/// layer's output and a bias).
+/// The network's parameters: its layers and the output rows (per byte value a row over every layer's output and a
+/// bias).
 #[derive(Clone)]
 struct Params {
     cells: usize,
@@ -122,7 +122,8 @@ struct Params {
 
 /// What one step of the network computed, kept for backpropagation: the byte it read, per layer its input vector,
 /// gate activations, cell content before and after (and after its `tanh`) and output, every layer's output with a
-/// bias (what the bit units read), and the byte that came.
+/// bias (what the output rows read), the next byte's distribution as the probabilities under each partial byte, and
+/// the byte that came.
 #[derive(Clone)]
 struct Step {
     symbol: u8,
@@ -133,6 +134,9 @@ struct Step {
     tanh_c: Vec<Vec<f32>>,
     h: Vec<Vec<f32>>,
     features: Vec<f32>,
+    /// `under[c0]` for a partial byte `c0` in `1..=255`: the probability that the next byte begins with its bits;
+    /// `under[256 + b]` is byte `b`'s own.
+    under: Vec<f32>,
     target: u8,
 }
 
@@ -150,6 +154,7 @@ impl Step {
             tanh_c: per(n),
             h: per(n),
             features: vec![0.0; params.layers.len() * n + 1],
+            under: vec![0.0; 2 * SYMBOLS],
             target: 0,
         }
     }
@@ -189,17 +194,30 @@ impl Params {
         }
         let last = out.features.len() - 1;
         out.features[last] = 1.0;
+        let width = out.features.len();
+        let bytes = &mut out.under[SYMBOLS..];
+        for (b, z) in bytes.iter_mut().enumerate() {
+            *z = dot(&self.output[b * width..(b + 1) * width], &out.features);
+        }
+        let top = bytes.iter().copied().fold(f32::MIN, f32::max);
+        let mut total = 0.0f32;
+        for z in bytes.iter_mut() {
+            *z = exp(*z - top);
+            total += *z;
+        }
+        for p in bytes.iter_mut() {
+            *p /= total;
+        }
+        for c0 in (1..SYMBOLS).rev() {
+            out.under[c0] = out.under[2 * c0] + out.under[2 * c0 + 1];
+        }
     }
 
-    /// Node `node`'s logit for `step`'s next bit.
-    fn logit(&self, step: &Step, node: usize) -> f32 {
-        let width = step.features.len();
-        dot(&self.output[(node - 1) * width..node * width], &step.features)
-    }
-
-    /// Node `node`'s probability that `step`'s next bit is 1.
-    fn unit(&self, step: &Step, node: usize) -> f32 {
-        sigmoid(self.logit(step, node)).clamp(P_MIN, 1.0 - P_MIN)
+    /// The probability that `step`'s next bit is 1, after the partial byte `c0`.
+    fn unit(&self, step: &Step, c0: usize) -> f32 {
+        let all = step.under[c0];
+        let p = if all > 0.0 { step.under[2 * c0 + 1] / all } else { 0.5 };
+        p.clamp(P_MIN, 1.0 - P_MIN)
     }
 }
 
@@ -277,8 +295,7 @@ impl Gradient {
         self.output.fill(0.0);
     }
 
-    /// Add the gradient of `steps`' loss (the sum over their bytes' bits of `−ln p(bit)`) by backpropagation through
-    /// them.
+    /// Add the gradient of `steps`' loss (the sum over their bytes of `−ln p(byte)`) by backpropagation through them.
     fn backward(&mut self, params: &Params, steps: &[Step]) {
         let n = params.cells;
         let h3 = 3 * n;
@@ -289,14 +306,10 @@ impl Gradient {
         }
         for step in steps.iter().rev() {
             self.dfeatures.fill(0.0);
-            let mut node = 1usize;
-            for i in (0..8).rev() {
-                let bit = (step.target >> i) & 1 == 1;
-                let p1 = sigmoid(params.logit(step, node));
-                let dz = p1 - if bit { 1.0 } else { 0.0 };
-                axpy(&mut self.output[(node - 1) * width..node * width], dz, &step.features);
-                axpy(&mut self.dfeatures, dz, &params.output[(node - 1) * width..node * width]);
-                node = node << 1 | usize::from(bit);
+            for b in 0..SYMBOLS {
+                let dz = step.under[SYMBOLS + b] - if b == usize::from(step.target) { 1.0 } else { 0.0 };
+                axpy(&mut self.output[b * width..(b + 1) * width], dz, &step.features);
+                axpy(&mut self.dfeatures, dz, &params.output[b * width..(b + 1) * width]);
             }
             self.from_above.fill(0.0);
             for l in (0..depth).rev() {
@@ -369,7 +382,7 @@ impl Trainer {
             self.weight_moments[l].step(&mut self.master.layers[l].weights, &grad.weights[l], all, rate, c1, c2);
         }
         let all = 0..self.master.output.len();
-        self.output_moments.step(&mut self.master.output, &grad.output, all, rate, c1, c2);
+        self.output_moments.step(&mut self.master.output, &grad.output, all, rate * OUTPUT_RATE, c1, c2);
         self.grad.clear(self.master.cells);
     }
 }
@@ -484,7 +497,7 @@ impl Lstm {
             })
             .collect();
         let width = layers.len() * cells + 1;
-        let params = Params { cells, layers, output: vec![0.0; NODES * width] };
+        let params = Params { cells, layers, output: vec![0.0; SYMBOLS * width] };
         let zero = Step::new(&params);
         let mut current = Step::new(&params);
         params.forward(0, &zero.h, &zero.c, &mut current);

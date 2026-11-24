@@ -224,27 +224,15 @@ impl<
     }
 
     fn apply_delta(&mut self, delta: &Self::Delta) {
-        // Merge values
-        for (key, other_value) in &delta.values {
-            let my_value = self.values.entry(key.clone()).or_default();
-            my_value.merge(other_value);
-        }
-
-        // Merge keys
-        for (key, other_dots) in &delta.keys {
-            let my_dots = self.keys.entry(key.clone()).or_default();
-            for &dot in other_dots {
-                if !self.context.has_seen(&dot) {
-                    my_dots.insert(dot);
-                }
-            }
-        }
-
-        // Merge context
-        self.context.merge(&delta.context);
-
-        // Clean up empty entries
-        self.keys.retain(|_, dots| !dots.is_empty());
+        // The delta carries the sender's whole state, so applying it is merging that state,
+        // removals included.
+        let sender = ORMap {
+            keys: delta.keys.clone(),
+            values: delta.values.clone(),
+            context: delta.context.clone(),
+            replica_id: self.replica_id,
+        };
+        self.merge(&sender);
     }
 
     fn version(&self) -> VClock {

@@ -73,8 +73,14 @@ fn values(source: &mut dyn WeightSource, name: &str) -> Vec<f32> {
 /// key the GGUF holds, tensor directory, dims and values.
 fn layout_reads_as_its_converted_gguf(family: &str) {
     let Some((dir, gguf)) = twin(family) else { return };
-    let mut hf = HfCheckpoint::open(&dir).unwrap_or_else(|e| panic!("{family}: {e}"));
-    let mut g = Gguf::open(&gguf).unwrap();
+    layout_reads_as(family, &dir, &gguf);
+}
+
+/// The directory `dir` reads as the GGUF `gguf` (`family` names the pair in a failure): the layout of
+/// [`layout_reads_as_its_converted_gguf`].
+fn layout_reads_as(family: &str, dir: &Path, gguf: &Path) {
+    let mut hf = HfCheckpoint::open(dir).unwrap_or_else(|e| panic!("{family}: {e}"));
+    let mut g = Gguf::open(gguf).unwrap();
 
     assert_eq!(SpecSource::arch(&hf), SpecSource::arch(&g), "{family}: the architecture");
     let prefix = format!("{}.", g.arch.arch);
@@ -255,11 +261,520 @@ fn an_fp8_block_scaled_directory_reads_as_its_converted_gguf() {
 }
 
 #[test]
+fn an_mxfp4_directory_reads_as_its_converted_gguf() {
+    // gpt-oss as OpenAI's release stores it: each expert's projections in MXFP4, E2M1 codes two to a byte beside an E8M0
+    // scale per block of 32 inputs, the gate and up rows interleaved in one tensor. Read in place, each expert table is
+    // the converter's repacked MXFP4 blocks, so every value is what the converter's GGUF holds, to the bit; the scales
+    // are read, not left over; and the spec is the GGUF's.
+    reads_as_its_converted_gguf("gpt-oss-mxfp4");
+    let Some((dir, _)) = twin("gpt-oss-mxfp4") else { return };
+    let hf = HfCheckpoint::open(&dir).unwrap();
+    let packed = safetensors::shard_paths(&dir)
+        .unwrap()
+        .iter()
+        .map(|p| Shard::open(p).unwrap().tensors.keys().filter(|n| n.ends_with("_blocks") || n.ends_with("_scales")).count())
+        .sum::<usize>();
+    assert!(packed > 0, "the twin stores its experts packed");
+    for part in ["ffn_gate_exps", "ffn_up_exps", "ffn_down_exps"] {
+        let (ty, _) = WeightSource::describe(&hf, &format!("blk.0.{part}.weight")).unwrap();
+        assert_eq!(ty, logicaffeine_compile::model::quant::GgmlType::Mxfp4, "{part} is presented in MXFP4, as the converter writes it");
+    }
+}
+
+#[test]
+fn an_mxfp4_weight_is_read_only_beside_its_scales() {
+    // An MXFP4 projection is its codes, u8 `[experts, rows, blocks, 16]`, beside an E8M0 exponent a block, u8
+    // `[experts, rows, blocks]`. Codes without their scales, scales that do not tile them block for block, and codes
+    // stored as another dtype are each refused naming the tensors, never read as weights.
+    let Some((dir, _)) = twin("gpt-oss-mxfp4") else { return };
+    let (blocks, scales) = ("model.layers.0.mlp.experts.gate_up_proj_blocks", "model.layers.0.mlp.experts.gate_up_proj_scales");
+    let cases: [(&str, &str, fn(serde_json::Value) -> Option<serde_json::Value>, &[&str]); 3] = [
+        ("unscaled", scales, |_| None, &[scales]),
+        (
+            "retiled",
+            scales,
+            |mut e| {
+                let s: Vec<u64> = e["shape"].as_array().unwrap().iter().map(|d| d.as_u64().unwrap()).collect();
+                e["shape"] = serde_json::json!([s[0], s[1] * s[2], 1]);
+                Some(e)
+            },
+            &[blocks, scales],
+        ),
+        (
+            "signed",
+            blocks,
+            |mut e| {
+                e["dtype"] = "I8".into();
+                Some(e)
+            },
+            &[blocks, scales],
+        ),
+    ];
+    for (what, tensor, edit, named) in cases {
+        let copy = scratch_copy(&format!("gpt-oss-mxfp4-{what}"), &dir);
+        edit_header(&copy, tensor, edit);
+        let refused = HfCheckpoint::open(&copy).err().map(|e| e.to_string());
+        let _ = std::fs::remove_dir_all(&copy);
+        let refused = refused.unwrap_or_else(|| panic!("{what}: the checkpoint is refused"));
+        for n in named {
+            assert!(refused.contains(n), "{what}: the refusal names {n}; got {refused}");
+        }
+    }
+}
+
+#[test]
+fn a_pack_quantized_directory_reads_as_its_converted_gguf() {
+    // compressed-tensors' `pack-quantized` format: as Kimi K2 Thinking's release stores its routed experts (4-bit codes
+    // eight to an int32 word, a bf16 scale a group of 32 inputs, symmetric about code 8), and as an asymmetric release
+    // stores every projection (a zero point a group, packed eight to a word along the output axis). Read in place, each
+    // weight is the converter's `dequant_packed` of its parts, to the bit; the parts are read, not left over; and the
+    // spec is the GGUF's.
+    for family in ["kimi_k2-int4", "qwen3-int4"] {
+        reads_as_its_converted_gguf(family);
+        let Some((dir, _)) = twin(family) else { return };
+        let stored: BTreeSet<String> = safetensors::shard_paths(&dir)
+            .unwrap()
+            .iter()
+            .flat_map(|p| Shard::open(p).unwrap().tensors.into_keys())
+            .collect();
+        assert!(stored.iter().any(|n| n.ends_with(".weight_packed")), "{family}: the twin stores packed codes");
+        let zero = stored.iter().any(|n| n.ends_with(".weight_zero_point"));
+        assert_eq!(zero, family == "qwen3-int4", "{family}: zero points exactly where the twin is asymmetric");
+    }
+}
+
+#[test]
+fn a_pack_quantized_weight_is_read_only_as_its_scheme_says() {
+    // A pack-quantized weight's parts and the scheme its configuration states agree, or the checkpoint is refused naming
+    // what disagrees: codes without their scales, codes stored as another dtype, a group size that does not divide a
+    // row, a format other than `pack-quantized`, more than one config group, and groups ordered by activation.
+    let Some((dir, _)) = twin("kimi_k2-int4") else { return };
+    let (packed, scale) =
+        ("model.layers.1.mlp.experts.0.gate_proj.weight_packed", "model.layers.1.mlp.experts.0.gate_proj.weight_scale");
+    let refusal = |what: &str, edit: &dyn Fn(&Path)| {
+        let copy = scratch_copy(&format!("kimi_k2-int4-{what}"), &dir);
+        edit(&copy);
+        let refused = HfCheckpoint::open(&copy).err().map(|e| e.to_string());
+        let _ = std::fs::remove_dir_all(&copy);
+        refused.unwrap_or_else(|| panic!("{what}: the checkpoint is refused"))
+    };
+    let headers: [(&str, &str, fn(serde_json::Value) -> Option<serde_json::Value>); 2] = [
+        ("unscaled", scale, |_| None),
+        (
+            "float",
+            packed,
+            |mut e| {
+                e["dtype"] = "F32".into();
+                Some(e)
+            },
+        ),
+    ];
+    for (what, tensor, edit) in headers {
+        let refused = refusal(what, &|copy| edit_header(copy, tensor, edit));
+        assert!(refused.contains(tensor), "{what}: the refusal names {tensor}; got {refused}");
+    }
+    let schemes: [(&str, fn(&mut serde_json::Value), &str); 4] = [
+        ("regrouped", |q| q["config_groups"]["group_0"]["weights"]["group_size"] = 24.into(), "group_size"),
+        ("marlin", |q| q["format"] = "marlin-24".into(), "marlin-24"),
+        (
+            "two-groups",
+            |q| {
+                let group = q["config_groups"]["group_0"].clone();
+                q["config_groups"]["group_1"] = group;
+            },
+            "config groups",
+        ),
+        ("act-ordered", |q| q["config_groups"]["group_0"]["weights"]["actorder"] = "group".into(), "actorder"),
+    ];
+    for (what, edit, named) in schemes {
+        let refused = refusal(what, &|copy| {
+            let path = copy.join("config.json");
+            let mut c: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            edit(&mut c["quantization_config"]);
+            std::fs::write(&path, c.to_string()).unwrap();
+        });
+        assert!(refused.contains(named), "{what}: the refusal names {named}; got {refused}");
+    }
+}
+
+#[test]
+fn a_gptq_directory_reads_as_its_converted_gguf() {
+    // GPTQ as AutoGPTQ and GPTQModel store it (packed by vLLM's own `gptq_pack` and `pack_cols`): Qwen3 in 4-bit codes,
+    // symmetric, in the `gptq` format whose zero points are stored less one; and Llama in 8-bit codes, asymmetric, in
+    // `gptq_v2`, its inputs quantized in an order of their own (`desc_act`), so each input's group is read through
+    // `g_idx` and Llama's query and key rows are permuted over computed weights. Read in place, each weight is the
+    // converter's `dequant_gptq` of its parts, to the bit; the parts are read, not left over; and the spec is the GGUF's.
+    for (family, act_order) in [("qwen3-gptq", false), ("llama-gptq", true)] {
+        reads_as_its_converted_gguf(family);
+        let Some((dir, _)) = twin(family) else { return };
+        let name = "model.layers.0.mlp.down_proj.g_idx";
+        let shard = safetensors::shard_paths(&dir).unwrap().into_iter().map(|p| Shard::open(&p).unwrap()).find(|s| s.tensors.contains_key(name));
+        let shard = shard.unwrap_or_else(|| panic!("{family}: the twin stores {name}"));
+        let groups: Vec<i32> = shard.read(name, 0, (shard.tensors[name].end - shard.tensors[name].begin) as usize).unwrap()
+            .chunks_exact(4)
+            .map(|c| i32::from_le_bytes(c.try_into().unwrap()))
+            .collect();
+        assert_eq!(groups.windows(2).any(|w| w[1] < w[0]), act_order, "{family}: groups interleave exactly where the inputs were reordered");
+    }
+}
+
+#[test]
+fn a_gptq_weight_is_read_only_as_its_scheme_says() {
+    // A GPTQ weight's parts and the scheme its configuration states agree, or the checkpoint is refused naming what
+    // disagrees: codes of 3 bits (which the converter does not unpack), a checkpoint format other than `gptq` and
+    // `gptq_v2` (Marlin's repacked codes), codes without their zero points, codes stored as floats, and an input whose
+    // group the scales do not hold.
+    let Some((dir, _)) = twin("qwen3-gptq") else { return };
+    let base = "model.layers.0.mlp.down_proj";
+    let refusal = |what: &str, edit: &dyn Fn(&Path)| {
+        let copy = scratch_copy(&format!("qwen3-gptq-{what}"), &dir);
+        edit(&copy);
+        let refused = HfCheckpoint::open(&copy).err().map(|e| e.to_string());
+        let _ = std::fs::remove_dir_all(&copy);
+        refused.unwrap_or_else(|| panic!("{what}: the checkpoint is refused"))
+    };
+    let schemes: [(&str, fn(&mut serde_json::Value), &str); 2] =
+        [("three-bits", |q| q["bits"] = 3.into(), "bits"), ("marlin", |q| q["checkpoint_format"] = "marlin".into(), "marlin")];
+    for (what, edit, named) in schemes {
+        let refused = refusal(what, &|copy| {
+            let path = copy.join("config.json");
+            let mut c: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            edit(&mut c["quantization_config"]);
+            std::fs::write(&path, c.to_string()).unwrap();
+        });
+        assert!(refused.contains(named), "{what}: the refusal names {named}; got {refused}");
+    }
+    let (zeros, codes) = (format!("{base}.qzeros"), format!("{base}.qweight"));
+    let headers: [(&str, &str, fn(serde_json::Value) -> Option<serde_json::Value>); 2] = [
+        ("zeroless", &zeros, |_| None),
+        (
+            "float",
+            &codes,
+            |mut e| {
+                e["dtype"] = "F32".into();
+                Some(e)
+            },
+        ),
+    ];
+    for (what, tensor, edit) in headers {
+        let refused = refusal(what, &|copy| edit_header(copy, tensor, edit));
+        assert!(refused.contains(tensor), "{what}: the refusal names {tensor}; got {refused}");
+    }
+    let g_idx = format!("{base}.g_idx");
+    let refused = refusal("ungrouped", &|copy| {
+        let groups = (stored_dims(copy, &format!("{base}.scales"))[0]) as i32;
+        edit_bytes(copy, &g_idx, |bytes| bytes[..4].copy_from_slice(&groups.to_le_bytes()));
+    });
+    assert!(refused.contains(&g_idx), "ungrouped: the refusal names {g_idx}; got {refused}");
+}
+
+/// The stored shape of tensor `name` in the checkpoint at `dir`.
+fn stored_dims(dir: &Path, name: &str) -> Vec<u64> {
+    safetensors::shard_paths(dir)
+        .unwrap()
+        .iter()
+        .find_map(|p| Shard::open(p).unwrap().tensors.get(name).map(|e| e.shape.clone()))
+        .unwrap_or_else(|| panic!("{}: no tensor {name}", dir.display()))
+}
+
+/// The stored bytes of tensor `name` in the shard of `dir` that holds it, rewritten in place by `edit`.
+fn edit_bytes(dir: &Path, name: &str, edit: impl Fn(&mut [u8])) {
+    for p in safetensors::shard_paths(dir).unwrap() {
+        let Some(e) = Shard::open(&p).unwrap().tensors.get(name).cloned() else { continue };
+        let mut bytes = std::fs::read(&p).unwrap();
+        let start = 8 + u64::from_le_bytes(bytes[..8].try_into().unwrap()) as usize;
+        edit(&mut bytes[start + e.begin as usize..start + e.end as usize]);
+        std::fs::write(&p, bytes).unwrap();
+        return;
+    }
+    panic!("{}: no tensor {name}", dir.display());
+}
+
+#[test]
+fn a_scaled_compressed_tensors_directory_reads_as_its_converted_gguf() {
+    // compressed-tensors' scaled formats, as llm-compressor's FP8 and INT8 releases store every projection: the weight's
+    // own 8-bit codes (e4m3, int8) beside a scale an output channel (bf16) or a block (16 × 24 in float32, cropped where a
+    // block overruns an axis). Read in place, each weight is the converter's `dequant_simple` of its codes and its
+    // scale, to the bit; the scales are read; and the spec is the GGUF's.
+    for family in ["qwen3-fp8-channel", "qwen3-fp8-block", "qwen3-int8-channel"] {
+        reads_as_its_converted_gguf(family);
+    }
+}
+
+#[test]
+fn a_modelopt_fp8_directory_reads_as_its_converted_gguf() {
+    // NVIDIA ModelOpt's FP8 export: e4m3 codes beside one scale a weight, the activations' scales and the cache's key and
+    // value scales beside them, the method stated only in `hf_quant_config.json`. Read in place as the converter reads
+    // it, the method taken from the file's producer: each weight its codes times its scale, the activation and cache
+    // scales dropped. Stated in `config.json` instead, the directory reads the same.
+    reads_as_its_converted_gguf("llama-modelopt-fp8");
+    let Some((dir, gguf)) = twin("llama-modelopt-fp8") else { return };
+    let path = dir.join("config.json");
+    let config: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(config.get("quantization_config").is_none(), "the twin states its method only in hf_quant_config.json");
+    let copy = scratch_copy("llama-modelopt-fp8-stated", &dir);
+    let file: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(copy.join("hf_quant_config.json")).unwrap()).unwrap();
+    let mut config = config;
+    config["quantization_config"] =
+        serde_json::json!({"quant_method": "modelopt", "quant_algo": file["quantization"]["quant_algo"].clone()});
+    std::fs::write(copy.join("config.json"), config.to_string()).unwrap();
+    std::fs::remove_file(copy.join("hf_quant_config.json")).unwrap();
+    let stated = std::panic::catch_unwind(|| layout_reads_as("llama-modelopt-fp8 stated in config.json", &copy, &gguf));
+    let _ = std::fs::remove_dir_all(&copy);
+    if let Err(e) = stated {
+        std::panic::resume_unwind(e);
+    }
+}
+
+#[test]
+fn a_scaled_weight_is_read_only_as_its_scheme_says() {
+    // A scaled checkpoint's parts and the scheme it states agree, or it is refused naming what disagrees: compressed-
+    // tensors weights quantized about zero points (which the converter does not read) or by groups, a scale whose
+    // weight the checkpoint does not hold, and a ModelOpt algorithm the reader does not read (int4 AWQ).
+    let Some((dir, _)) = twin("qwen3-fp8-channel") else { return };
+    let refusal = |from: &Path, what: &str, edit: &dyn Fn(&Path)| {
+        let copy = scratch_copy(&format!("scaled-{what}"), from);
+        edit(&copy);
+        let refused = HfCheckpoint::open(&copy).err().map(|e| e.to_string());
+        let _ = std::fs::remove_dir_all(&copy);
+        refused.unwrap_or_else(|| panic!("{what}: the checkpoint is refused"))
+    };
+    let rewrite = |copy: &Path, file: &str, edit: &dyn Fn(&mut serde_json::Value)| {
+        let path = copy.join(file);
+        let mut c: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        edit(&mut c);
+        std::fs::write(&path, c.to_string()).unwrap();
+    };
+    let schemes: [(&str, fn(&mut serde_json::Value), &str); 2] = [
+        ("asymmetric", |c| c["quantization_config"]["config_groups"]["group_0"]["weights"]["symmetric"] = false.into(), "zero points"),
+        (
+            "grouped",
+            |c| {
+                let w = &mut c["quantization_config"]["config_groups"]["group_0"]["weights"];
+                w["strategy"] = "group".into();
+                w["group_size"] = 32.into();
+            },
+            "group_size",
+        ),
+    ];
+    for (what, edit, named) in schemes {
+        let refused = refusal(&dir, what, &|copy| rewrite(copy, "config.json", &edit));
+        assert!(refused.contains(named), "{what}: the refusal names {named}; got {refused}");
+    }
+    let scale = "model.layers.0.mlp.down_proj.weight_scale";
+    let refused = refusal(&dir, "unweighted", &|copy| edit_header(copy, "model.layers.0.mlp.down_proj.weight", |_| None));
+    assert!(refused.contains(scale), "unweighted: the refusal names {scale}; got {refused}");
+    let Some((modelopt, _)) = twin("llama-modelopt-fp8") else { return };
+    let refused = refusal(&modelopt, "int4-awq", &|copy| {
+        rewrite(copy, "hf_quant_config.json", &|c| c["quantization"]["quant_algo"] = "INT4_AWQ".into())
+    });
+    assert!(refused.contains("INT4_AWQ"), "int4-awq: the refusal names the algorithm; got {refused}");
+}
+
+#[test]
+fn an_awq_directory_reads_as_its_converted_gguf() {
+    // AutoAWQ's GEMM layout (packed by vLLM's own `awq_pack`): 4-bit codes of the transposed weight eight to an int32 word
+    // along each input's row in AWQ's interleaved order, beside fp16 scales a group of 32 inputs, about zero points packed
+    // the same way (Qwen3) or about 8 (Llama, whose query and key rows are permuted over the computed weights). llama.cpp's
+    // converter does not read AWQ: each twin's GGUF is the converter's of the directory compressed-tensors' own
+    // `AutoAWQConverter` converts it into without loss. Read in place, each weight is that GGUF's, to the bit; the parts
+    // are read, not left over; and the spec is the GGUF's.
+    for (family, zero_point) in [("qwen3-awq", true), ("llama-awq", false)] {
+        reads_as_its_converted_gguf(family);
+        let Some((dir, _)) = twin(family) else { return };
+        let stored: BTreeSet<String> = safetensors::shard_paths(&dir)
+            .unwrap()
+            .iter()
+            .flat_map(|p| Shard::open(p).unwrap().tensors.into_keys())
+            .collect();
+        assert!(stored.iter().any(|n| n.ends_with(".qweight")), "{family}: the twin stores AWQ's packed codes");
+        assert_eq!(stored.iter().any(|n| n.ends_with(".qzeros")), zero_point, "{family}: zero points exactly where stated");
+    }
+}
+
+#[test]
+fn an_awq_weight_is_read_only_as_its_scheme_says() {
+    // An AutoAWQ weight's parts and the scheme its configuration states agree, or the checkpoint is refused naming what
+    // disagrees: the `gemv` layout (codes ordered for another kernel), codes of 8 bits (which `AutoAWQConverter` does not
+    // read), a group size that does not divide the inputs, and codes about zero points stored without them.
+    let Some((dir, _)) = twin("qwen3-awq") else { return };
+    let refusal = |what: &str, edit: &dyn Fn(&Path)| {
+        let copy = scratch_copy(&format!("qwen3-awq-{what}"), &dir);
+        edit(&copy);
+        let refused = HfCheckpoint::open(&copy).err().map(|e| e.to_string());
+        let _ = std::fs::remove_dir_all(&copy);
+        refused.unwrap_or_else(|| panic!("{what}: the checkpoint is refused"))
+    };
+    let schemes: [(&str, fn(&mut serde_json::Value), &str); 3] = [
+        ("gemv", |q| q["version"] = "gemv".into(), "gemv"),
+        ("eight-bits", |q| q["bits"] = 8.into(), "bits"),
+        ("regrouped", |q| q["group_size"] = 24.into(), "groups of 24"),
+    ];
+    for (what, edit, named) in schemes {
+        let refused = refusal(what, &|copy| {
+            let path = copy.join("config.json");
+            let mut c: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            edit(&mut c["quantization_config"]);
+            std::fs::write(&path, c.to_string()).unwrap();
+        });
+        assert!(refused.contains(named), "{what}: the refusal names {named}; got {refused}");
+    }
+    let zeros = "model.layers.0.mlp.down_proj.qzeros";
+    let refused = refusal("zeroless", &|copy| edit_header(copy, zeros, |_| None));
+    assert!(refused.contains(zeros), "zeroless: the refusal names {zeros}; got {refused}");
+}
+
+#[test]
+fn an_nvfp4_directory_reads_as_its_converted_gguf() {
+    // NVFP4 as NVIDIA's releases store it: E2M1 codes two to a byte beside an E4M3 scale a block of 16 inputs and a float32
+    // scale a weight, under ModelOpt's names with the method stated only in `hf_quant_config.json` (Qwen3-MoE, every
+    // expert's projections too) and under compressed-tensors' `nvfp4-pack-quantized` (Llama, whose query and key rows the
+    // converter permutes, codes and block scales alike). Read in place, each weight is the NVFP4 blocks the converter
+    // repacks, bit for bit, beside the scales it writes (`<weight>.scale`, `<weight>.input_scale`; a stack of experts' one
+    // an expert); and the spec is the GGUF's.
+    for family in ["qwen3moe-nvfp4", "llama-nvfp4"] {
+        reads_as_its_converted_gguf(family);
+        let Some((dir, gguf)) = twin(family) else { return };
+        let hf = HfCheckpoint::open(&dir).unwrap();
+        let g = Gguf::open(&gguf).unwrap();
+        for name in ["blk.0.attn_q.weight", "blk.0.attn_output.weight"] {
+            let (ty, _) = WeightSource::describe(&hf, name).unwrap();
+            assert_eq!(ty, logicaffeine_compile::model::quant::GgmlType::Nvfp4, "{family}: {name} is presented in NVFP4");
+        }
+        let written: BTreeSet<&str> = g.tensors().iter().map(|t| t.name.as_str()).filter(|n| n.ends_with("scale")).collect();
+        assert!(written.contains("blk.0.attn_q.scale"), "{family}: the converter writes a weight's own scale");
+        for unit in ["blk.0.attn_output.scale", "blk.0.attn_output.input_scale"] {
+            assert!(!written.contains(unit), "{family}: a scale of exactly 1 is written as no tensor, so {unit} is none");
+        }
+    }
+}
+
+#[test]
+fn an_nvfp4_directory_computes_what_transformers_computes() {
+    // The f64 reference over each NVFP4 twin, against transformers' forward at f64 over the same weights dequantized as the
+    // format defines them (`hf-oracle.py logits-nvfp4`: compressed-tensors' own unpacker, times each block's scale and
+    // the weight's own): the last position's logits within a millionth of the largest. A weight's own scale left out,
+    // an expert's taken for another's, or a block scale misplaced moves them far past that.
+    let prompt = [1u32, 17, 400, 2024, 9];
+    for family in ["qwen3moe-nvfp4", "llama-nvfp4"] {
+        let Some((dir, _)) = twin(family) else { return };
+        let opened = open_checkpoint(&dir).unwrap_or_else(|e| panic!("{family}: {e}"));
+        let spec = ModelSpec::from_source(&*opened).unwrap_or_else(|e| panic!("{family}: {e}"));
+        let mut reference = Reference::new(spec, Opened(opened)).unwrap_or_else(|e| panic!("{family}: {e:?}"));
+        let ours = reference.step(&prompt).unwrap();
+        let theirs: Vec<f64> = oracle("logits-nvfp4", Some(&dir), &serde_json::json!(prompt))
+            .as_array()
+            .expect("the logits")
+            .iter()
+            .map(|v| v.as_f64().unwrap())
+            .collect();
+        assert_eq!(ours.len(), theirs.len(), "{family}: the vocabulary");
+        let scale = theirs.iter().fold(0.0f64, |m, v| m.max(v.abs()));
+        let worst = ours.iter().zip(&theirs).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+        assert!(worst <= scale * 1e-6, "{family}: a logit is {worst:e} from transformers', past a millionth of {scale}");
+    }
+}
+
+#[test]
+fn an_nvfp4_weight_is_read_only_as_its_scheme_says() {
+    // An NVFP4 weight the converter cannot repack is refused naming it: one whose inputs are not a whole number of the
+    // 64-input blocks GGUF's NVFP4 packs, and one stored beside an AWQ-style pre-quantization scale (ModelOpt's
+    // `pre_quant_scale`), which the converter does not read.
+    let Some((dir, _)) = twin("llama-nvfp4") else { return };
+    let stem = "model.layers.0.mlp.down_proj";
+    let refusal = |what: &str, edit: &dyn Fn(&Path)| {
+        let copy = scratch_copy(&format!("llama-nvfp4-{what}"), &dir);
+        edit(&copy);
+        let refused = HfCheckpoint::open(&copy).err().map(|e| e.to_string());
+        let _ = std::fs::remove_dir_all(&copy);
+        refused.unwrap_or_else(|| panic!("{what}: the checkpoint is refused"))
+    };
+    let narrow: [(&str, fn(serde_json::Value) -> Option<serde_json::Value>); 2] = [
+        (".weight_packed", |mut e| {
+            let n = e["shape"].as_array().unwrap().iter().map(|d| d.as_u64().unwrap()).product::<u64>();
+            e["shape"] = serde_json::json!([n / 16, 16]);
+            Some(e)
+        }),
+        (".weight_scale", |mut e| {
+            let n = e["shape"].as_array().unwrap().iter().map(|d| d.as_u64().unwrap()).product::<u64>();
+            e["shape"] = serde_json::json!([n / 2, 2]);
+            Some(e)
+        }),
+    ];
+    let refused = refusal("narrow", &|copy| {
+        for (part, edit) in narrow {
+            edit_header(copy, &format!("{stem}{part}"), edit);
+        }
+    });
+    assert!(refused.contains(stem) && refused.contains("64"), "narrow: the refusal names the weight and its blocks; got {refused}");
+    let refused = refusal("pre-quantized", &|copy| {
+        rename_tensor(copy, &format!("{stem}.input_global_scale"), &format!("{stem}.pre_quant_scale"))
+    });
+    assert!(refused.contains("pre_quant_scale"), "pre-quantized: the refusal names the scale; got {refused}");
+}
+
+/// Tensor `from` of the checkpoint at `dir` renamed `to`, in its shard's header and in the shard index.
+fn rename_tensor(dir: &Path, from: &str, to: &str) {
+    for p in safetensors::shard_paths(dir).unwrap() {
+        let bytes = std::fs::read(&p).unwrap();
+        let n = u64::from_le_bytes(bytes[..8].try_into().unwrap()) as usize;
+        let mut header: serde_json::Map<String, serde_json::Value> = serde_json::from_slice(&bytes[8..8 + n]).unwrap();
+        let Some(entry) = header.remove(from) else { continue };
+        header.insert(to.to_string(), entry);
+        let text = serde_json::to_vec(&header).unwrap();
+        let mut out = (text.len() as u64).to_le_bytes().to_vec();
+        out.extend(text);
+        out.extend_from_slice(&bytes[8 + n..]);
+        std::fs::write(&p, out).unwrap();
+        let index = dir.join("model.safetensors.index.json");
+        if index.is_file() {
+            let mut json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&index).unwrap()).unwrap();
+            let map = json["weight_map"].as_object_mut().unwrap();
+            if let Some(shard) = map.remove(from) {
+                map.insert(to.to_string(), shard);
+            }
+            std::fs::write(&index, json.to_string()).unwrap();
+        }
+        return;
+    }
+    panic!("{}: no tensor {from}", dir.display());
+}
+
+/// The header entry of tensor `name` in the shard of `dir` that holds it, replaced by what `edit` makes of it or, for
+/// `None`, removed (with its line in the shard index).
+fn edit_header(dir: &Path, name: &str, edit: fn(serde_json::Value) -> Option<serde_json::Value>) {
+    for p in safetensors::shard_paths(dir).unwrap() {
+        let bytes = std::fs::read(&p).unwrap();
+        let n = u64::from_le_bytes(bytes[..8].try_into().unwrap()) as usize;
+        let mut header: serde_json::Map<String, serde_json::Value> = serde_json::from_slice(&bytes[8..8 + n]).unwrap();
+        let Some(entry) = header.remove(name) else { continue };
+        let kept = edit(entry);
+        if let Some(entry) = kept.clone() {
+            header.insert(name.to_string(), entry);
+        }
+        let text = serde_json::to_vec(&header).unwrap();
+        let mut out = (text.len() as u64).to_le_bytes().to_vec();
+        out.extend(text);
+        out.extend_from_slice(&bytes[8 + n..]);
+        std::fs::write(&p, out).unwrap();
+        let index = dir.join("model.safetensors.index.json");
+        if kept.is_none() && index.is_file() {
+            let mut json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&index).unwrap()).unwrap();
+            json["weight_map"].as_object_mut().unwrap().remove(name);
+            std::fs::write(&index, json.to_string()).unwrap();
+        }
+        return;
+    }
+    panic!("{}: no tensor {name}", dir.display());
+}
+
+#[test]
 fn a_quantization_the_reader_does_not_read_is_refused_by_name() {
-    // A configuration naming a quantized format other than FP8 (GPTQ, AWQ, NVFP4, compressed tensors) is refused
-    // naming the format, not read as if its packed integers were weights.
+    // A configuration naming a quantized format whose parts the directory does not hold (an FP8 release relabeled GPTQ,
+    // AWQ, compressed tensors or ModelOpt), or MXFP4 outside gpt-oss, whose experts alone the converter repacks, is
+    // refused naming the format, not read as if its stored codes were weights.
     let Some((dir, _)) = twin("deepseek2-fp8") else { return };
-    for method in ["gptq", "awq", "compressed-tensors", "modelopt"] {
+    for method in ["gptq", "awq", "compressed-tensors", "modelopt", "mxfp4"] {
         let copy = scratch_copy(&format!("deepseek2-{method}"), &dir);
         let path = copy.join("config.json");
         let mut c: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -3186,8 +3701,8 @@ fn kimi_k2s_vocabulary_is_its_published_ggufs() {
 }
 
 /// The published configurations of the releases the Samba book deploys (`scripts/accel/fetch-hf-configs.sh`), each read
-/// without its weights as the architecture its family's GGUF names, its width and stack as stated. The configurations a
-/// ticket still owes are handed REDs (`model_hf_config_reds_lock`).
+/// without its weights as the architecture its family's GGUF names, its width and stack as stated. A configuration a
+/// ticket still owes is that ticket's handed RED, listed in `OWED_CONFIGURATIONS`.
 const PUBLISHED_CONFIGURATIONS: &[(&str, &str)] = &[
     ("unsloth/Llama-3.2-1B-Instruct", "llama"),
     ("unsloth/Llama-3.2-3B-Instruct", "llama"),
@@ -3223,6 +3738,9 @@ const PUBLISHED_CONFIGURATIONS: &[(&str, &str)] = &[
     ("moonshotai/Kimi-K2-Instruct", "deepseek2"),
     ("unsloth/Kimi-K2-Instruct", "deepseek2"),
     ("moonshotai/Kimi-K2-Instruct-0905", "deepseek2"),
+    ("moonshotai/Kimi-K2-Thinking", "deepseek2"),
+    ("openai/gpt-oss-20b", "gpt-oss"),
+    ("openai/gpt-oss-120b", "gpt-oss"),
     ("Qwen/Qwen3-8B", "qwen3"),
     ("Qwen/Qwen3-30B-A3B", "qwen3moe"),
     ("Qwen/Qwen3-235B-A22B", "qwen3moe"),
@@ -3293,14 +3811,26 @@ const PUBLISHED_CONFIGURATIONS: &[(&str, &str)] = &[
     ("google/gemma-4-E4B-it", "gemma4"),
     ("google/gemma-4-26B-A4B-it", "gemma4"),
     ("google/gemma-4-31B-it", "gemma4"),
+    ("Qwen/Qwen2.5-7B-Instruct-AWQ", "qwen2"),
+    ("Qwen/Qwen2.5-72B-Instruct-AWQ", "qwen2"),
+    ("Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4", "qwen2"),
+    ("Qwen/Qwen2.5-7B-Instruct-GPTQ-Int8", "qwen2"),
+    ("Qwen/Qwen3-8B-AWQ", "qwen3"),
+    ("Qwen/Qwen3-32B-AWQ", "qwen3"),
+    ("Qwen/Qwen3-8B-FP8", "qwen3"),
+    ("RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic", "llama"),
+    ("RedHatAI/Meta-Llama-3.1-8B-Instruct-quantized.w4a16", "llama"),
+    ("RedHatAI/Meta-Llama-3.1-8B-Instruct-quantized.w8a8", "llama"),
+    ("RedHatAI/Qwen2.5-7B-Instruct-quantized.w8a8", "qwen2"),
+    ("nvidia/Llama-3.1-8B-Instruct-FP8", "llama"),
+    ("nvidia/Llama-3.3-70B-Instruct-FP8", "llama"),
+    ("nvidia/Llama-3.3-70B-Instruct-FP4", "llama"),
+    ("nvidia/DeepSeek-R1-0528-FP4", "deepseek2"),
+    ("nvidia/Qwen3-235B-A22B-FP4", "qwen3moe"),
 ];
 
-/// The published configurations a ticket still owes, each a handed RED of `model_hf_config_reds_lock`.
-const OWED_CONFIGURATIONS: &[&str] = &[
-    "openai/gpt-oss-20b",
-    "openai/gpt-oss-120b",
-    "moonshotai/Kimi-K2-Thinking",
-];
+/// The published configurations a ticket still owes, each that ticket's handed RED: none today.
+const OWED_CONFIGURATIONS: &[&str] = &[];
 
 #[test]
 fn every_published_configuration_reads() {
@@ -3704,7 +4234,8 @@ fn every_section_6_architecture_has_an_arm() {
     // Each architecture reaches an arm of `ModelSpec::from_source` (`model::triage::ARCHITECTURES` lists them, and
     // `model_triage_lock` holds that list to the arms), its twin is a family of the twin script and its tokenizer one
     // the fetch script fetches; and the twin's directory reads as its class's GGUF architecture, its configuration and
-    // its converted GGUF alike.
+    // its converted GGUF alike, opened as every reader opens a checkpoint (`model::open_checkpoint`, which presents a
+    // layout its converter groups — Qwen3-Next's — in the one the arms read).
     let unread: Vec<String> = SECTION_6
         .iter()
         .filter(|(_, _, arch, _)| !ARCHITECTURES.contains(arch))
@@ -3726,7 +4257,7 @@ fn every_section_6_architecture_has_an_arm() {
         assert_eq!(config["architectures"][0].as_str(), Some(*class), "{model_type}: the twin's class");
         let (read, _) = HfCheckpoint::read_configuration(&dir).unwrap_or_else(|e| panic!("{model_type}: {e}"));
         assert_eq!(read, *arch, "{model_type}: the architecture its configuration reads as");
-        let spec = ModelSpec::from_gguf(&Gguf::open(&gguf).unwrap()).unwrap_or_else(|e| panic!("{model_type}: its converted GGUF: {e}"));
+        let spec = ModelSpec::from_source(&*open_checkpoint(&gguf).unwrap()).unwrap_or_else(|e| panic!("{model_type}: its converted GGUF: {e}"));
         assert_eq!(spec.arch, *arch, "{model_type}: the converted GGUF's architecture");
     }
 }

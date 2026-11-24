@@ -5,6 +5,12 @@
 mod common;
 use common::compile_to_rust;
 
+/// The `--threads` build, whose concurrency is tokio's: the replay executor is the default, and tokio's shape, which
+/// these rows read, is the opt-in.
+fn compile_threaded(source: &str) -> Result<String, logicaffeine_compile::ParseError> {
+    logicaffeine_compile::compile::compile_program_full_threaded(source).map(|out| out.rust_code)
+}
+
 // =============================================================================
 // Lexer Token Tests
 // =============================================================================
@@ -45,7 +51,7 @@ fn test_launch_basic() {
 ## Main
     Launch a task to worker.
 "#;
-    let rust = compile_to_rust(source).expect("Should compile");
+    let rust = compile_threaded(source).expect("Should compile");
     assert!(
         rust.contains("tokio::spawn"),
         "Should generate tokio::spawn"
@@ -61,7 +67,7 @@ fn test_launch_with_args() {
 ## Main
     Launch a task to process with 42.
 "#;
-    let rust = compile_to_rust(source).expect("Should compile");
+    let rust = compile_threaded(source).expect("Should compile");
     assert!(
         rust.contains("tokio::spawn"),
         "Should generate tokio::spawn"
@@ -94,7 +100,7 @@ fn test_receive_from_pipe() {
     Let ch be a Pipe of Int.
     Receive x from ch.
 "#;
-    let result = compile_to_rust(source);
+    let result = compile_threaded(source);
     if let Ok(rust) = result {
         assert!(rust.contains("_rx.recv()"), "Should generate rx.recv()");
     }
@@ -168,7 +174,7 @@ fn test_select_basic() {
         After 5 seconds:
             Show "timeout".
 "#;
-    let result = compile_to_rust(source);
+    let result = compile_threaded(source);
     if let Ok(rust) = result {
         assert!(
             rust.contains("tokio::select!"),
@@ -186,7 +192,7 @@ fn test_select_with_timeout() {
         After 1 seconds:
             Show "one second passed".
 "#;
-    let result = compile_to_rust(source);
+    let result = compile_threaded(source);
     if let Ok(rust) = result {
         assert!(
             rust.contains("tokio::time::sleep"),
@@ -210,7 +216,7 @@ fn test_producer_consumer_pattern() {
     Let jobs be a Pipe of Int.
     Launch a task to producer with jobs.
 "#;
-    let result = compile_to_rust(source);
+    let result = compile_threaded(source);
     if let Ok(rust) = result {
         assert!(rust.contains("tokio::spawn"), "Should spawn producer");
         assert!(rust.contains("mpsc::channel"), "Should create channel");

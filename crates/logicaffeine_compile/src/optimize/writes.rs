@@ -916,6 +916,8 @@ fn stmts_declared(stmts: &[Stmt]) -> HashSet<Symbol> {
 pub(crate) struct CalleeGlobals {
     pub(crate) symbols: HashSet<Symbol>,
     pub(crate) opaque: bool,
+    /// Every name a callee body reads without declaring it: a global a call may read.
+    pub(crate) reads: HashSet<Symbol>,
 }
 
 impl CalleeGlobals {
@@ -964,7 +966,7 @@ impl EffectSink for CalleeFinder {
 }
 
 /// Scope-tracking receiver for one callee body: an assignment or mutation of a name no enclosing scope
-/// of the body declares is a write to a GLOBAL.
+/// of the body declares is a write to a GLOBAL, and a read of one is a read of a global.
 struct ScopedWrites<'o> {
     scopes: Vec<HashSet<Symbol>>,
     out: &'o mut CalleeGlobals,
@@ -1002,6 +1004,11 @@ impl EffectSink for ScopedWrites<'_> {
     }
     fn mutate(&mut self, root: Symbol) {
         self.write(root);
+    }
+    fn read(&mut self, sym: Symbol) {
+        if !self.in_scope(sym) {
+            self.out.reads.insert(sym);
+        }
     }
     // A call from inside a callee reaches its own callee's globals, which are collected when THAT
     // definition is walked — the union over all definitions is already transitive.

@@ -1,0 +1,15 @@
+## To graph (n: Int) -> (Set of (Text, Text), Set of Text):
+    Let edges be a new Set of (Text, Text).
+    Let nodes be a new Set of Text.
+    Repeat for i from 1 to n:
+        Add ("n{i}", "n{i + 1}") to edges.
+        Add "n{i}" to nodes.
+    Return (edges, nodes).
+
+## Main
+Let (es, ns) be graph(3).
+Show es contains ("n2", "n3").
+Show es contains ("n3", "n2").
+Show the count of ns.
+Repeat for (a, b) in es:
+    Show a + " to " + b.

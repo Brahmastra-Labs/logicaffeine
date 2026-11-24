@@ -87,7 +87,7 @@ fn relocatable_links_and_matches_standalone_over_a_corpus() {
         ),
         (
             "recursion",
-            "## To fib (n: Int) -> Int:\n    If n is less than 2:\n        Return n.\n    Return fib(n - 1) + fib(n - 2).\n## Main\n    Show fib(10).\n",
+            "## No memo\n## To fib (n: Int) -> Int:\n    If n is less than 2:\n        Return n.\n    Return fib(n - 1) + fib(n - 2).\n## Main\n    Show fib(10).\n",
         ),
         (
             "recursion_control_flow",
@@ -220,4 +220,159 @@ fn an_exported_function_is_named_by_its_export_in_the_object() {
     assert!(has("logos_program_defines"), "the exported reader keeps its name");
     assert!(has("fn1"), "an unexported function is fnN");
     assert!(!has("fn2"), "the exported function is not also fnN");
+}
+
+/// What a module `Show`ed, every line, through the shared display sinks.
+#[derive(Default)]
+struct Lines(RefCell<Vec<String>>);
+
+impl wasm_host::ShowSink for Rc<Lines> {
+    fn show(&self, line: String) {
+        self.0.borrow_mut().push(line);
+    }
+}
+
+/// Instantiate a module, run `main`, and answer every line it showed and the instance with its store, so a test can
+/// read the memory the run left behind.
+fn run_lines(bytes: &[u8]) -> (Vec<String>, wasmi::Store<Rc<Lines>>, wasmi::Instance) {
+    let engine = wasmi::Engine::default();
+    let module = wasmi::Module::new(&engine, bytes).expect("valid wasm module");
+    let out: Rc<Lines> = Rc::default();
+    let mut store = wasmi::Store::new(&engine, out.clone());
+    let mut linker = wasmi::Linker::new(&engine);
+    linker
+        .func_wrap("env", "logos_rt_fail", |_c: wasmi::Caller<'_, Rc<Lines>>, _h: i32| {})
+        .unwrap();
+    linker
+        .func_wrap("env", "logos_rt_fail_at", |_c: wasmi::Caller<'_, Rc<Lines>>, _code: i32, _v: i64| {})
+        .unwrap();
+    wasm_host::link_value_imports(&mut linker);
+    wasm_host::link_show_sinks(&mut linker);
+    wasm_host::link_unmodelled_imports(&mut linker);
+    let instance = linker.instantiate(&mut store, &module).unwrap().start(&mut store).unwrap();
+    instance.get_typed_func::<(), ()>(&store, "main").unwrap().call(&mut store, ()).unwrap();
+    let lines = out.0.borrow().clone();
+    (lines, store, instance)
+}
+
+/// Programs whose modules own memory: Text literals in a data segment, lists and maps on the bump heap, and a
+/// memoized recursion whose cache is a module-level map. Each converts to a relocatable object, links, and shows
+/// exactly what its standalone module shows.
+#[test]
+fn programs_with_static_text_a_heap_and_a_memo_link_and_match_standalone() {
+    if !link::toolchain_available() {
+        eprintln!("SKIP programs_with_static_text_a_heap_and_a_memo_link_and_match_standalone: toolchain unavailable");
+        return;
+    }
+    let corpus: &[(&str, &str)] = &[
+        ("literals", "## Main\n    Show \"hello\".\n    Let t be \"ab\" + \"cd\".\n    Show t.\n    Show length of t.\n"),
+        (
+            "lists",
+            "## Main\n    Let mutable xs be a new Seq of Int.\n    Repeat for i from 1 to 500:\n        Push i * i to xs.\n    Show item 500 of xs.\n    Show length of xs.\n",
+        ),
+        (
+            "texts_in_a_list",
+            "## Main\n    Let mutable ws be a new Seq of Text.\n    Push \"alpha\" to ws.\n    Push \"beta\" to ws.\n    Push \"gamma\" + \"!\" to ws.\n    Show ws.\n",
+        ),
+        (
+            "memoized",
+            "## To collatz (n: Int) -> Int:\n    If n is equal to 1:\n        Return 0.\n    If n % 2 is equal to 0:\n        Return 1 + collatz(n / 2).\n    Return 1 + collatz(3 * n + 1).\n## Main\n    Show collatz(27).\n    Show collatz(97).\n",
+        ),
+        (
+            "map",
+            "## Main\n    Let mutable m be a new Map of Text to Int.\n    Set item \"a\" of m to 1.\n    Set item \"b\" of m to 2.\n    Show item \"b\" of m.\n",
+        ),
+    ];
+    let dir = std::env::temp_dir().join("logos_reloc_heap_corpus");
+    for (name, src) in corpus {
+        let standalone =
+            crate::compile::compile_to_wasm(src).unwrap_or_else(|e| panic!("compile {name}: {e:?}"));
+        let obj = module_to_relocatable(&standalone).unwrap_or_else(|e| panic!("relocatable {name}: {e:?}"));
+        let linked = link::link_objects(&[&obj], &dir).unwrap_or_else(|e| panic!("link {name}: {e:?}"));
+        let (standalone_out, _, _) = run_lines(&standalone);
+        let (linked_out, _, _) = run_lines(&linked);
+        assert!(!standalone_out.is_empty(), "{name} shows something");
+        assert_eq!(linked_out, standalone_out, "relocatable-linked output must equal standalone for {name}");
+    }
+}
+
+/// `rust-lld --stack-first` puts the shadow stack at the bottom of memory, where a standalone module keeps its free
+/// lists and Text pool. A linked program whose static addresses were relocated leaves that stack untouched; one whose
+/// addresses kept their standalone values would write its heap over it.
+#[test]
+fn a_linked_program_leaves_the_shadow_stack_untouched() {
+    if !link::toolchain_available() {
+        eprintln!("SKIP a_linked_program_leaves_the_shadow_stack_untouched: toolchain unavailable");
+        return;
+    }
+    let src = "## Main\n    Let mutable xs be a new Seq of Text.\n    Repeat for i from 1 to 200:\n        Push \"item\" to xs.\n    Show length of xs.\n    Show \"done\".\n";
+    let standalone = crate::compile::compile_to_wasm(src).expect("compiles");
+    let obj = module_to_relocatable(&standalone).expect("relocatable");
+    let linked = link::link_objects(&[&obj], &std::env::temp_dir().join("logos_reloc_stack")).expect("links");
+    let (lines, store, instance) = run_lines(&linked);
+    assert_eq!(lines, ["200", "done"]);
+    let memory = instance.get_memory(&store, "memory").expect("the link exports its memory");
+    let stack = &memory.data(&store)[..1 << 20];
+    let written: Vec<usize> = stack.iter().enumerate().filter(|(_, b)| **b != 0).map(|(i, _)| i).take(8).collect();
+    assert!(written.is_empty(), "the program wrote inside the 1 MiB shadow stack at {written:?}");
+}
+
+/// Another allocator in the same memory (the Rust runtime's, once one is linked) owns the pages its `memory.grow`
+/// returned. Here the host plays that allocator: every `Show` grows memory by a page and fills it with a sentinel. The
+/// program keeps allocating after each one, and must never hand out a byte of a page it did not grow itself.
+#[test]
+fn a_linked_programs_heap_never_takes_memory_another_allocator_grew() {
+    if !link::toolchain_available() {
+        eprintln!("SKIP a_linked_programs_heap_never_takes_memory_another_allocator_grew: toolchain unavailable");
+        return;
+    }
+    const SENTINEL: u8 = 0xA5;
+    type Host = Rc<RefCell<(Vec<i64>, Vec<u32>)>>;
+    let src = "## Main\n    Let mutable total be 0.\n    Repeat for round from 1 to 6:\n        Let mutable xs be a new Seq of Int.\n        Repeat for i from 1 to 3000:\n            Push i * round to xs.\n        Set total to total + item 3000 of xs.\n        Show total.\n";
+    let standalone = crate::compile::compile_to_wasm(src).expect("compiles");
+    let obj = module_to_relocatable(&standalone).expect("relocatable");
+    let linked = link::link_objects(&[&obj], &std::env::temp_dir().join("logos_reloc_foreign")).expect("links");
+    let engine = wasmi::Engine::default();
+    let module = wasmi::Module::new(&engine, &linked[..]).expect("valid wasm module");
+    let host: Host = Rc::default();
+    let mut store = wasmi::Store::new(&engine, host.clone());
+    let mut linker = wasmi::Linker::new(&engine);
+    linker
+        .func_wrap("env", "print_i64", |mut c: wasmi::Caller<'_, Host>, v: i64| {
+            let memory = c.get_export("memory").and_then(|e| e.into_memory()).expect("memory");
+            let one = wasmi::core::Pages::new(1).expect("one page");
+            let page = u32::from(memory.grow(&mut c, one).expect("the host grows a page"));
+            let start = page as usize * 65536;
+            memory.data_mut(&mut c)[start..start + 65536].fill(SENTINEL);
+            let mut h = c.data().borrow_mut();
+            h.0.push(v);
+            h.1.push(page);
+        })
+        .unwrap();
+    linker
+        .func_wrap("env", "logos_rt_fail", |_c: wasmi::Caller<'_, Host>, _h: i32| {})
+        .unwrap();
+    linker
+        .func_wrap("env", "logos_rt_fail_at", |_c: wasmi::Caller<'_, Host>, _code: i32, _v: i64| {})
+        .unwrap();
+    wasm_host::link_value_imports(&mut linker);
+    wasm_host::link_exact_show(&mut linker, |h, value| {
+        h.borrow_mut().0.push(value.parse().expect("an i64 total"));
+    });
+    wasm_host::link_unmodelled_imports(&mut linker);
+    let instance = linker.instantiate(&mut store, &module).unwrap().start(&mut store).unwrap();
+    instance.get_typed_func::<(), ()>(&store, "main").unwrap().call(&mut store, ()).unwrap();
+    let (shown, pages) = host.borrow().clone();
+    let expected: Vec<i64> = (1..=6).scan(0i64, |t, r| {
+        *t += 3000 * r;
+        Some(*t)
+    }).collect();
+    assert_eq!(shown, expected, "the totals");
+    let memory = instance.get_memory(&store, "memory").expect("memory");
+    for page in pages {
+        let start = page as usize * 65536;
+        let bytes = &memory.data(&store)[start..start + 65536];
+        let taken = bytes.iter().position(|b| *b != SENTINEL);
+        assert!(taken.is_none(), "the program wrote into page {page}, grown by another allocator, at +{taken:?}");
+    }
 }

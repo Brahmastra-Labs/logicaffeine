@@ -832,3 +832,33 @@ fn temporal_arithmetic_types_exactly_the_sums_and_differences_the_tree_walker_co
     assert_eq!(computed, 10, "the language computes ten temporal sums and differences");
     assert_eq!(LogosType::temporal_arithmetic(BinaryOpKind::Multiply, &LogosType::Duration, &LogosType::Int), None);
 }
+
+#[test]
+fn a_construction_builds_what_its_name_builds() {
+    use crate::semantics::collections::{built_by, builds_list, Built};
+    let mut interner = Interner::new();
+    let (x, three) = (interner.intern("x"), Expr::Literal(Literal::Number(3)));
+    let env = TypeEnv::new();
+    for (name, built) in [
+        ("Seq", Some(Built::List)),
+        ("List", Some(Built::List)),
+        ("Set", Some(Built::Set)),
+        ("HashSet", Some(Built::Set)),
+        ("Map", Some(Built::Map)),
+        ("HashMap", Some(Built::Map)),
+        ("Vec", None),
+        ("Point", None),
+    ] {
+        assert_eq!(built_by(name), built, "`a new {name}`");
+        assert_eq!(builds_list(name), built == Some(Built::List), "`a new {name}` builds a list");
+        let new = Expr::New { type_name: interner.intern(name), type_args: vec![], init_fields: vec![(x, &three)] };
+        let inferred = env.infer_expr(&new, &interner);
+        let as_built = match inferred {
+            LogosType::Seq(_) => Some(Built::List),
+            LogosType::Set(_) => Some(Built::Set),
+            LogosType::Map(..) => Some(Built::Map),
+            _ => None,
+        };
+        assert_eq!(as_built, built, "the type environment reads `a new {name}` as the tree-walker builds it");
+    }
+}

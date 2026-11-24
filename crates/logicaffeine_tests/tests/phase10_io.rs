@@ -115,7 +115,7 @@ Show data."#;
     // Phase 53: File operations now use VFS abstraction
     assert!(
         rust.contains("read_to_string"),
-        "Should call vfs.read_to_string.\nGot:\n{}",
+        "Should call logos_vfs().read_to_string.\nGot:\n{}",
         rust
     );
     assert!(
@@ -136,7 +136,7 @@ Show content."#;
     // Phase 53: File operations now use VFS abstraction
     assert!(
         rust.contains("read_to_string"),
-        "Should call vfs.read_to_string.\nGot:\n{}",
+        "Should call logos_vfs().read_to_string.\nGot:\n{}",
         rust
     );
     assert!(
@@ -158,8 +158,8 @@ Write "hello world" to file "output.txt"."#;
 
     // Phase 53: File operations now use VFS abstraction
     assert!(
-        rust.contains("vfs.write"),
-        "Should call vfs.write.\nGot:\n{}",
+        rust.contains("logos_vfs().write"),
+        "Should call logos_vfs().write.\nGot:\n{}",
         rust
     );
     assert!(
@@ -178,8 +178,8 @@ Write message to file "greeting.txt"."#;
 
     // Phase 53: File operations now use VFS abstraction
     assert!(
-        rust.contains("vfs.write"),
-        "Should call vfs.write.\nGot:\n{}",
+        rust.contains("logos_vfs().write"),
+        "Should call logos_vfs().write.\nGot:\n{}",
         rust
     );
 }
@@ -194,12 +194,12 @@ Write original to file "output.txt"."#;
     // Phase 53: File operations now use VFS abstraction
     assert!(
         rust.contains("read_to_string"),
-        "Should have vfs.read_to_string.\nGot:\n{}",
+        "Should have logos_vfs().read_to_string.\nGot:\n{}",
         rust
     );
     assert!(
-        rust.contains("vfs.write"),
-        "Should have vfs.write.\nGot:\n{}",
+        rust.contains("logos_vfs().write"),
+        "Should have logos_vfs().write.\nGot:\n{}",
         rust
     );
 }
@@ -269,7 +269,7 @@ Call greet."#;
     );
     // Phase 53: File operations now use VFS abstraction
     assert!(
-        rust.contains("vfs.write"),
+        rust.contains("logos_vfs().write"),
         "Should have vfs.write in function.\nGot:\n{}",
         rust
     );
@@ -294,7 +294,7 @@ Otherwise:
     );
     // Phase 53: File operations now use VFS abstraction
     assert!(
-        rust.contains("vfs.write"),
+        rust.contains("logos_vfs().write"),
         "Should have vfs.write in else branch.\nGot:\n{}",
         rust
     );

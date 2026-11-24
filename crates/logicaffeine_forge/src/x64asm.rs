@@ -460,6 +460,14 @@ impl Asm {
         self.buf.push(0b1100_0000 | (4 << 3) | src.lo3());
     }
 
+    /// `imul src` (REX.W F7 /5): SIGNED rdx:rax = rax * src — the high 64 bits of the 128-bit signed product land
+    /// in rdx. The signed magic-reciprocal high-multiply primitive.
+    pub fn imul_r(&mut self, src: Reg) {
+        self.rex(true, 0, 0, src.hi());
+        self.buf.push(0xF7);
+        self.buf.push(0b1100_0000 | (5 << 3) | src.lo3());
+    }
+
     /// `shr dst, imm` (REX.W C1 /5 ib) — LOGICAL (zero-filling) shift right by a
     /// constant. Distinct from `sar` (`/7`, arithmetic/sign-filling): the
     /// unsigned magic reciprocal shifts unsigned high-product bits, so it must

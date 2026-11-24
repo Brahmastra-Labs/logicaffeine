@@ -406,6 +406,125 @@ fn codegen_while_loop() {
     assert!(result.contains("}"), "Expected '}}' but got: {}", result);
 }
 
+/// A call of a function declared to return `Bool` is a condition, a negation and an `and` operand as itself: the
+/// truthiness wrap is for a value that is not a Bool (`If xs:` tests a list for emptiness).
+#[test]
+fn a_call_of_a_bool_function_is_a_condition_as_itself() {
+    let code = "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To ok (n: Int) -> Bool:\n    Return n is greater than 2.\n\n## Main\nLet n be parseInt(item 2 of args()).\nIf ok(n):\n    Show \"yes\".\nIf not ok(n):\n    Show \"no\".\nIf ok(n) and ok(n + 1):\n    Show \"both\".\nLet mutable k be n.\nWhile ok(k):\n    Set k to k - 1.\nShow k.\n";
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile should succeed");
+    let main = &rust[rust.find("fn _logos_main(").expect("a main")..];
+    assert!(!main.contains("logos_truthy"), "a Bool call is tested for truthiness:\n{main}");
+    assert!(main.contains("if ok(n)"), "the condition is not the call itself:\n{main}");
+    assert!(main.contains("!ok(n)"), "the negation is not of the call itself:\n{main}");
+}
+
+/// A Text compared with a Text literal is compared with the literal as a `str`, either way round and for `is not
+/// equal to`: the comparison makes no `String` for the literal.
+#[test]
+fn a_text_compared_with_a_literal_makes_no_string_for_it() {
+    let code = "## To native args () -> Seq of Text\n\n## To kind (t: Text) -> Int:\n    If t equals \"select\":\n        Return 1.\n    If \"option\" equals t:\n        Return 2.\n    If t is not equal to \"input\":\n        Return 3.\n    Return 4.\n\n## Main\nLet t be item 2 of args().\nShow kind(t).\n";
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile should succeed");
+    let kind = &rust[rust.find("fn kind(").expect("a kind")..];
+    let kind = &kind[..kind.find("\n}\n").map_or(kind.len(), |e| e + 3)];
+    for literal in ["select", "option", "input"] {
+        assert!(
+            !kind.contains(&format!("String::from(\"{literal}\")")),
+            "a comparison makes a `String` of \"{literal}\":\n{kind}"
+        );
+        assert!(kind.contains(&format!("\"{literal}\"")), "\"{literal}\" is not compared:\n{kind}");
+    }
+}
+
+/// `Show` of a Text literal shows the literal as a `str`: it makes no `String` to show.
+#[test]
+fn showing_a_text_literal_makes_no_string_for_it() {
+    let rust = logicaffeine_compile::compile_to_rust("## Main\nShow \"hello, \\\"world\\\"\".\n").expect("compile should succeed");
+    let main = &rust[rust.find("fn _logos_main(").expect("a main")..];
+    assert!(!main.contains("String::from("), "showing a literal makes a `String`:\n{main}");
+    assert!(main.contains("show(&\"hello, \\\"world\\\"\");"), "the literal is not shown as itself:\n{main}");
+}
+
+/// A loop over a collection the iterable computes walks that collection itself: a call's result, a list written in
+/// place, an item already copied out of its list. Only a collection the program names is copied first, so it is still
+/// there after the loop.
+#[test]
+fn a_loop_over_a_computed_collection_walks_it_without_a_copy() {
+    let code = "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n## To squares (n: Int) -> Seq of Int:\n    Let mutable out be a new Seq of Int.\n    Repeat for i from 1 to n:\n        Push i * i to out.\n    Return out.\n\n## Main\nLet n be parseInt(item 2 of args()).\nRepeat for x in squares(n):\n    Show x.\nLet groups be [[1, 2], [3, n]].\nRepeat for g in item 2 of groups:\n    Show g.\nRepeat for v in [n, n + 1]:\n    Show v.\n";
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile should succeed");
+    let main = &rust[rust.find("fn _logos_main(").expect("a main")..];
+    assert!(main.contains("for x in squares(n) {"), "a call's result is copied before the loop:\n{main}");
+    assert!(!main.contains(".clone().clone()"), "an item is copied twice for the loop:\n{main}");
+    assert!(
+        main.lines().any(|l| l.trim_start().starts_with("for v in LogosSeq::from_vec(") && !l.contains(".clone() {")),
+        "a list written in place is copied before the loop:\n{main}"
+    );
+}
+
+/// A Text compared with the empty text is asked whether it is empty, and a Bool compared with `true` or `false` is the
+/// Bool itself or its negation.
+#[test]
+fn a_comparison_with_the_empty_text_or_a_truth_value_reads_as_the_test_it_is() {
+    let code = "## To native args () -> Seq of Text\n\n## To ok (t: Text) -> Bool:\n    Return t equals \"yes\".\n\n## Main\nLet t be item 2 of args().\nIf t equals \"\":\n    Show \"empty\".\nIf t is not equal to \"\":\n    Show \"full\".\nIf ok(t) equals false:\n    Show \"no\".\nIf ok(t) equals true:\n    Show \"yes\".\n";
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile should succeed");
+    let main = &rust[rust.find("fn _logos_main(").expect("a main")..];
+    assert!(main.contains("if t.is_empty() {"), "the empty text is compared:\n{main}");
+    assert!(main.contains("if !t.is_empty() {"), "the empty text is compared:\n{main}");
+    assert!(main.contains("if !ok(t) {") || main.contains("if !ok(t.clone()) {"), "a Bool is compared with `false`:\n{main}");
+    assert!(!main.contains("== false") && !main.contains("== true"), "a Bool is compared with a truth value:\n{main}");
+}
+
+/// An index into a list whose type the emitter does not track is an argument of `LogosIndex::logos_get`, written with no
+/// parentheses it does not need.
+#[test]
+fn an_untyped_index_is_an_argument_without_parentheses() {
+    let code = "## To pick (i: Int) -> Text:\n    Return item (i + 1) of names.\n\n## Main\nLet names be [\"a\", \"b\", \"c\"].\nShow pick(1).\n";
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile should succeed");
+    let pick = &rust[rust.find("fn pick(").expect("a pick")..];
+    assert!(pick.contains("logos_get(&__program.names, i + 1)"), "the index is not written bare:\n{pick}");
+}
+
+/// Whether `code` is wrapped whole in one pair of parentheses: its first `(` closes at its last character.
+fn wrapped_whole(code: &str) -> bool {
+    let mut depth = 0usize;
+    for (at, c) in code.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return code.starts_with('(') && at == code.len() - 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// An assertion negates its condition once: what it asserts stands inside the one pair of parentheses its `!` needs,
+/// a comparison and a conjunction alike, with a reason or without one.
+#[test]
+fn an_assertion_negates_its_condition_inside_one_pair_of_parentheses() {
+    let code = "## To safe_ratio (a: Int) and (b: Int) -> Int:\n    Assert that b is not 0.\n    Return a / b.\n\n\
+                ## To in_unit (p: Real) -> Real:\n    Assert that p is at least -0.5 and p is at most 0.5.\n    Return p * 2.0.\n\n\
+                ## To withdraw (balance: Int, amount: Int) -> Int:\n    \
+                Require that amount is at most balance, otherwise \"too much\".\n    Return balance - amount.\n\n\
+                ## Main\nShow safe_ratio(9, 3).\nShow in_unit(0.25).\nShow withdraw(10, 3).\n";
+    let rust = logicaffeine_compile::compile_to_rust(code).expect("compile should succeed");
+    let asserted: Vec<&str> = rust
+        .lines()
+        .filter_map(|line| {
+            let rest = line.trim().strip_prefix("if !(")?;
+            rest.find(") { panic!(").map(|end| &rest[..end])
+        })
+        .collect();
+    assert_eq!(asserted.len(), 3, "three assertions, each one `if !(…) {{ panic!(…); }}`:\n{rust}");
+    assert!(asserted[0].contains("b != 0"), "the first assertion is not the comparison:\n{rust}");
+    for condition in asserted {
+        assert!(!wrapped_whole(condition), "`{condition}` stands in a second pair of parentheses:\n{rust}");
+    }
+}
+
 #[test]
 fn codegen_indentation() {
     let mut interner = Interner::new();

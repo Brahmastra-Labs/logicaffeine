@@ -260,7 +260,7 @@ impl<'a, 'ctx, 'int> ModalParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
         }
 
         let verb = if self.check_verb() {
-            self.consume_verb()
+            self.consume_verb()?
         } else if self.check_content_word() {
             self.consume_content_word()?
         } else {

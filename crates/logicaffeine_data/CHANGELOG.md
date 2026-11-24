@@ -8,6 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `int_vec::IntVec`, a list of `Int` held as machine words until a value past 64 bits is stored, then, once, as exact
+  `LogosInt`s. It has word, 128-bit and exact stores (`push_word`/`push_i128`/`push_int` and their `set_item_*`
+  forms); a word read that stops in the overflow sentence past the word (`item_word`) and an exact one (`item_int`);
+  `contains_word`/`contains_int`; `iter_word`/`iter_int`; and value equality across both forms. AOT-Rust holds a `Seq
+  of Int` that may outgrow the word in it.
+- `LogosInt::from_i128`: the integer a 128-bit word holds, every digit kept.
+- `LogosInt::to_f64` (the nearest binary64, ties to even), `cmp_real` (the exact order against a real, `None` against
+  NaN), `integer_at` (the word a place takes, or the place's refusal) and `abs` (exact: `abs(i64::MIN)` is `2^63`);
+  `Truthy for LogosInt`.
+- `logos_exact_range`: the integers from one `LogosInt` through another, what a counted loop walks when a bound is past
+  the word. `logos_abs_i64`: a word's magnitude, checked, stopping with the overflow sentence at `i64::MIN`.
+- `ops::raise_overflow`, `overflow_raised` and `take_overflow`: the overflow sentence raised where a speculative word
+  form can catch it (`logicaffeine_system::failure::speculate`).
+- `LogosSeq::into_vec`: the items, taken whole from a list's only handle and copied from a shared one.
+- `LogosMap::merge_entries(&mut self, other, fold)`: the language's join of two maps (`Merge`, `Converge`). A key only
+  `other` holds joins after the held keys; a key both hold has its value folded by `fold(&mut held, &theirs)`. The map
+  is copied on write first, so no other holder of it sees the fold.
+- `Value::Tuple` and `Value::Set`, with equality, hashing and display, and `Value::logos_tuple`/`Value::logos_set`: a
+  tuple and a set ride a `Value`, so a set of tuples and a tuple of sets cross a generic boundary as themselves.
 - `temporal::LogosDuration`: a physical duration in signed nanoseconds, with the language's sum and difference, its
   display (`base::temporal::shown_duration`), `to_std` (the wait it stands for, none at or below zero) and its
   `OtherValue`. A `LogosMoment` moves by one either side of `+`.
@@ -21,8 +40,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- `LogosMap::get` takes the key by any form its type borrows as (`K: Borrow<Q>`): a `LogosMap<String, V>` is read by a
+  `&str`. Every `get(&key)` it took before it takes as it did.
 - A moment moves by a `LogosDuration`, not a `std::time::Duration` (which cannot be negative), and `FillClone` covers
   `LogosDuration` in its place. Migration: `LogosDuration(d.as_nanos() as i64)`.
+
+### Fixed
+- A string's 1-based index is the character at that place after a multi-byte character too (`"éab"` at 3 is
+  `"b"`), as the interpreter has it.
+- `logos_approx_eq`: infinity is approximately only itself, as Python's `isclose` has it.
+- `logos_i64_key_of_f64`: the float 2^63 matches no Int key.
+- `DeltaBuffer::deltas_since` gives `None` to a peer that never saw the evicted deltas, so it falls back to full state.
+- `DotContext::merge` drops cloud dots the merged clock covers.
+- `ORMap::apply_delta` merges the delta's state, so a key the sender removed is removed on the receiver.
 
 ## [0.11.0] - 2026-11-02
 

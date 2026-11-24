@@ -34,6 +34,18 @@ pub(crate) struct Purity {
 impl Purity {
     /// The pure functions of `stmts` (see the module doc).
     pub(crate) fn of_program(stmts: &[Stmt], interner: &Interner) -> Self {
+        Self::of_program_with(stmts, interner, false)
+    }
+
+    /// The functions of `stmts` with no effect beyond their answer, where a body may also make fresh values (a new list,
+    /// a list literal, a range to iterate) of its own: running such a call twice and keeping the second answer is that call. A word twin
+    /// runs first and its function again where it gives up (`codegen::word_twin`); a fresh value is no effect, though a
+    /// memo table, which hands one answer to every caller, could not hand out the same fresh list twice.
+    pub(crate) fn of_program_making_fresh_values(stmts: &[Stmt], interner: &Interner) -> Self {
+        Self::of_program_with(stmts, interner, true)
+    }
+
+    fn of_program_with(stmts: &[Stmt], interner: &Interner, fresh: bool) -> Self {
         let defined: HashSet<Symbol> = stmts
             .iter()
             .filter_map(|s| match s {
@@ -85,6 +97,7 @@ impl Purity {
                         pure: &pure,
                         defined: &defined,
                         interner,
+                        fresh,
                     };
                     if !rules.block(body) {
                         pure.remove(name);
@@ -115,6 +128,8 @@ struct Rules<'r> {
     pure: &'r HashSet<Symbol>,
     defined: &'r HashSet<Symbol>,
     interner: &'r Interner,
+    /// Whether a fresh value of the body's own (a new list, a list literal, a range to iterate) is admitted.
+    fresh: bool,
 }
 
 impl Rules<'_> {
@@ -185,6 +200,9 @@ impl Rules<'_> {
             Expr::Length { collection } => self.expr(collection),
             Expr::FieldAccess { object, .. } => self.expr(object),
             Expr::Index { collection, index } => self.expr(collection) && self.expr(index),
+            Expr::New { init_fields, .. } if self.fresh => init_fields.iter().all(|(_, v)| self.expr(v)),
+            Expr::List(items) if self.fresh => items.iter().all(|i| self.expr(i)),
+            Expr::Range { start, end } if self.fresh => self.expr(start) && self.expr(end),
             _ => false,
         }
     }

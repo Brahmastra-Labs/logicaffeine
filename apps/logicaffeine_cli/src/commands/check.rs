@@ -147,12 +147,12 @@ pub(crate) fn check_pages(project: &Project, dep_roots: &[DepRoot], json: bool) 
             return found;
         }
     };
-    for (stem, path) in pages {
+    for (_stem, path) in pages {
         let closure = match crate::closure::assemble_closure_with_deps(&path, dep_roots.to_vec()) {
             Ok(closure) => closure,
             Err(message) => {
                 found.error(
-                    format!("pages/{stem}.lg: {message}"),
+                    format!("{}: {message}", crate::commands::web_bundle::page_file(&path)),
                     diagnostics::file_failure(&path, "assembly-failure", &message),
                 );
                 continue;

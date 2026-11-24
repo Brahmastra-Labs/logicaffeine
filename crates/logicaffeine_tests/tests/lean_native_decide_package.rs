@@ -310,6 +310,7 @@ fn pipeline_result_discloses_exactly_the_native_changes_its_package_carries() {
         sources: Default::default(),
         toolchain: "leanprover/lean4:v4.14.0".into(),
         exporter: "lean4export 20c4a64aa1b76f7c79a6db15d089084359f8c3dc".into(),
+        dependencies: Vec::new(),
     };
     // Accepted evidence is the fixture's recorded oracle, not a claim this test reran Lean.
     let checked = pipeline::check_export(&original(), TARGET, &evidence, &Limits::default());

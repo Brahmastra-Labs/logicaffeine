@@ -4,7 +4,8 @@
 //! an `Int` list is that an indexed load yields a `Kind::Word32` (so the Word ops downstream accept it),
 //! never an `Int`. Correctness = forge == the tree-walker; tiering (x86_64) = the hot read loop went native.
 
-#![cfg(not(target_arch = "wasm32"))]
+// This suite tests the native tier alone, which exists only on x86_64 outside Windows.
+#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 
 use logicaffeine_compile::compile::{tw_outcome_with_args, vm_outcome_with_args};
 use logicaffeine_compile::vm::NativeTier;

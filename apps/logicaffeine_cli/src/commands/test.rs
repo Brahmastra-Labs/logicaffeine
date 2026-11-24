@@ -153,7 +153,7 @@ pub(crate) fn cmd_test(
     for (stem, path) in crate::commands::web_bundle::page_files(&project.pages_dir())
         .map_err(|e| CliError::new(e.to_string()))?
     {
-        let file = format!("pages/{stem}.lg");
+        let file = crate::commands::web_bundle::page_file(&path);
         let closure = crate::closure::assemble_closure_with_deps(&path, dep_roots.clone())
             .map_err(|e| CliError::new(format!("{file}: {e}")))?;
         let page = crate::commands::web_bundle::PageClosure {

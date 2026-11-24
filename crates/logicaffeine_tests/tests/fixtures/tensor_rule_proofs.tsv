@@ -199,6 +199,24 @@ conv_silu_l2norm exemplar (rows true)	conv_silu_l2	2	2	54d4a5d367ed988ae720338f0
 conv_silu_l2norm exemplar (rows false)	(unheld)	4	4	d82fe0d12423fda80419f4205844dd99360acb57eb862342aa2db1216f3a1a02
 conv_silu_l2norm exemplar (rows false)	conv_silu	3	3	2f37291a19ab8fd42efee9238faf6e59c08ed2b6fece1d4d338fa4cbc66b31e7
 conv_silu_l2norm exemplar (rows false)	conv_silu_l2	2	2	54d4a5d367ed988ae720338f0568470a3406b453fed4404d65e8eecde075964e
+gemm_act exemplar (rows true)	(unheld)	3	3	1d221ea534139580020f3990521e36064fca5b584731525f514e736872027214
+gemm_act exemplar (rows true)	gemm_act	1	1	f60f00636027f49bd2824f4e9dc632d73c65d8ac18a655f6e696d52d859e5f46
+gemm_act exemplar (rows false)	(unheld)	3	3	1d221ea534139580020f3990521e36064fca5b584731525f514e736872027214
+gemm_act exemplar (rows false)	gemm_act	1	1	f60f00636027f49bd2824f4e9dc632d73c65d8ac18a655f6e696d52d859e5f46
+hc_mix exemplar (rows true)	(unheld)	3	3	8c34d3ac3e1d4ba63f3c5f4dd43653dd757df000ce19d3e6ce13b07d8693d95d
+hc_mix exemplar (rows true)	act_gate	2	2	32dd64748d7abfe7455623fc47f2dc50eaa6a7d2856ee7919d212e071f5a94dd
+hc_mix exemplar (rows true)	hc_mix	1	1	f60f00636027f49bd2824f4e9dc632d73c65d8ac18a655f6e696d52d859e5f46
+hc_mix exemplar (rows false)	(unheld)	3	3	8c34d3ac3e1d4ba63f3c5f4dd43653dd757df000ce19d3e6ce13b07d8693d95d
+hc_mix exemplar (rows false)	act_gate	2	2	32dd64748d7abfe7455623fc47f2dc50eaa6a7d2856ee7919d212e071f5a94dd
+hc_mix exemplar (rows false)	hc_mix	1	1	f60f00636027f49bd2824f4e9dc632d73c65d8ac18a655f6e696d52d859e5f46
+hc_post exemplar (rows true)	(unheld)	2	2	9ff20837a97a762e2deac2a84d9173072962448feabf07253a83badd47a32737
+hc_post exemplar (rows true)	hc_post	1	1	f60f00636027f49bd2824f4e9dc632d73c65d8ac18a655f6e696d52d859e5f46
+hc_post exemplar (rows false)	(unheld)	2	2	9ff20837a97a762e2deac2a84d9173072962448feabf07253a83badd47a32737
+hc_post exemplar (rows false)	hc_post	1	1	f60f00636027f49bd2824f4e9dc632d73c65d8ac18a655f6e696d52d859e5f46
+hc_post_norm exemplar (rows true)	(unheld)	3	3	4e792a0096a46acfb2982a5b9a8dc899bc4abe7ebd4d3c991a5b7e2941731e04
+hc_post_norm exemplar (rows true)	hc_post_norm	1	1	8622f52307598212f5ab2ee0107fb9195daf64a75a872b5f342ed36ed10de3e8
+hc_post_norm exemplar (rows false)	(unheld)	3	3	4e792a0096a46acfb2982a5b9a8dc899bc4abe7ebd4d3c991a5b7e2941731e04
+hc_post_norm exemplar (rows false)	hc_post_norm	1	1	8622f52307598212f5ab2ee0107fb9195daf64a75a872b5f342ed36ed10de3e8
 qwen3 Decode { ctx: 24 } (rows true)	(unheld)	61	61	ccbd81ca479dc769aa5a0eb9447ef8f3a56de842ae30c75aed5b3b88afeb1ede
 qwen3 Decode { ctx: 24 } (rows true)	add_norm	60	60	8e093b55e0a766bc7785291cb1ef4ce217d8fc298bddd396f4cb01cc31611b44
 qwen3 Decode { ctx: 24 } (rows true)	gemv_norm_epilogue	54	54	c543ebc6abed9c1c03398f00f4af9e494d2ab496e490c858c10eec0956d1e945
@@ -828,6 +846,7 @@ deepseek2-split Batch { rows: 2, ctx: 24 } (rows true)	embed_norm	91	91	7114d067
 deepseek2-split Batch { rows: 2, ctx: 24 } (rows true)	strided_values	85	85	cff9050978b28a6f110130d2f5201a4ab5ea33ff995c8776b7b852b9f63b7c69
 deepseek2-split Batch { rows: 2, ctx: 24 } (rows true)	rope_parts	85	85	cff9050978b28a6f110130d2f5201a4ab5ea33ff995c8776b7b852b9f63b7c69
 deepseek2-split Batch { rows: 2, ctx: 24 } (rows true)	merged_projections	85	85	cff9050978b28a6f110130d2f5201a4ab5ea33ff995c8776b7b852b9f63b7c69
+deepseek2-split Batch { rows: 2, ctx: 24 } (rows true)	dual_norm	85	85	cff9050978b28a6f110130d2f5201a4ab5ea33ff995c8776b7b852b9f63b7c69
 deepseek2-split Batch { rows: 2, ctx: 24 } (rows false)	(unheld)	148	148	438a10113c2a7143cdc15cd303a3db7f031ae1e128fef48d4bd331ed4fc199d9
 deepseek2-split Batch { rows: 2, ctx: 24 } (rows false)	add_norm	147	147	b98283f31cf88041e54d31f29e746b7033684b48a6c046b21abe581d26bff343
 deepseek2-split Batch { rows: 2, ctx: 24 } (rows false)	prefill_norm_epilogues	143	143	bdc922d8b4e6396f850beef57e85e64c0a0cfd266a669162605f51365ec621f5
@@ -841,6 +860,7 @@ deepseek2-split Batch { rows: 2, ctx: 24 } (rows false)	embed_norm	91	91	7114d06
 deepseek2-split Batch { rows: 2, ctx: 24 } (rows false)	strided_values	85	85	cff9050978b28a6f110130d2f5201a4ab5ea33ff995c8776b7b852b9f63b7c69
 deepseek2-split Batch { rows: 2, ctx: 24 } (rows false)	rope_parts	85	85	cff9050978b28a6f110130d2f5201a4ab5ea33ff995c8776b7b852b9f63b7c69
 deepseek2-split Batch { rows: 2, ctx: 24 } (rows false)	merged_projections	85	85	cff9050978b28a6f110130d2f5201a4ab5ea33ff995c8776b7b852b9f63b7c69
+deepseek2-split Batch { rows: 2, ctx: 24 } (rows false)	dual_norm	85	85	cff9050978b28a6f110130d2f5201a4ab5ea33ff995c8776b7b852b9f63b7c69
 minicpm Decode { ctx: 24 } (rows true)	(unheld)	63	63	1f3beb331b85ee2d386b11a20c0868935711a5e8f3a39f87be18e955ee86e0a1
 minicpm Decode { ctx: 24 } (rows true)	add_norm	62	62	16a1e1f38041cd5f2f1a53ec7957c9eb5a5e0aa30ffae8b711997eec10cc92bd
 minicpm Decode { ctx: 24 } (rows true)	gemm_scale	56	56	0bb99815f6af0228ba5c6daff3d3ccf764ada79355efc6c95fe1af72125ceae6
@@ -1195,6 +1215,36 @@ dual_norm: twin of a second norm of the first one's result (rows true)	dual_norm
 dual_norm: a second norm of the first one's result (rows false)	(unheld)	2	2	8667637b94298f57131a1b9aa39993360d572f6468fcbf806d7b4043955e75b1
 dual_norm: twin of a second norm of the first one's result (rows false)	(unheld)	2	2	8667637b94298f57131a1b9aa39993360d572f6468fcbf806d7b4043955e75b1
 dual_norm: twin of a second norm of the first one's result (rows false)	dual_norm	1	1	f60f00636027f49bd2824f4e9dc632d73c65d8ac18a655f6e696d52d859e5f46
+gemm_act: a product read by a second op besides its activation (rows true)	(unheld)	4	4	cacc0abf9dbcdc6909c9a0cb449004381e6fec6db7f6154f793b79bd4897f309
+gemm_act: twin of a product read by a second op besides its activation (rows true)	(unheld)	3	3	1d221ea534139580020f3990521e36064fca5b584731525f514e736872027214
+gemm_act: twin of a product read by a second op besides its activation (rows true)	gemm_act	1	1	f60f00636027f49bd2824f4e9dc632d73c65d8ac18a655f6e696d52d859e5f46
+gemm_act: a product read by a second op besides its activation (rows false)	(unheld)	4	4	cacc0abf9dbcdc6909c9a0cb449004381e6fec6db7f6154f793b79bd4897f309
+gemm_act: twin of a product read by a second op besides its activation (rows false)	(unheld)	3	3	1d221ea534139580020f3990521e36064fca5b584731525f514e736872027214
+gemm_act: twin of a product read by a second op besides its activation (rows false)	gemm_act	1	1	f60f00636027f49bd2824f4e9dc632d73c65d8ac18a655f6e696d52d859e5f46
+hc_mix: a gated product read by a second op besides the lane mean (rows true)	(unheld)	4	4	daa6216b989fcf54ca0e98b69ce10aff15a4bd154749bdf3cbd8ba3937ba4382
+hc_mix: a gated product read by a second op besides the lane mean (rows true)	act_gate	3	3	3e606920346650ba1a8694c9f67329e50f2802b23ca4ee9b74c48a76a1159b0e
+hc_mix: twin of a gated product read by a second op besides the lane mean (rows true)	(unheld)	3	3	8c34d3ac3e1d4ba63f3c5f4dd43653dd757df000ce19d3e6ce13b07d8693d95d
+hc_mix: twin of a gated product read by a second op besides the lane mean (rows true)	act_gate	2	2	32dd64748d7abfe7455623fc47f2dc50eaa6a7d2856ee7919d212e071f5a94dd
+hc_mix: twin of a gated product read by a second op besides the lane mean (rows true)	hc_mix	1	1	f60f00636027f49bd2824f4e9dc632d73c65d8ac18a655f6e696d52d859e5f46
+hc_mix: a gated product read by a second op besides the lane mean (rows false)	(unheld)	4	4	daa6216b989fcf54ca0e98b69ce10aff15a4bd154749bdf3cbd8ba3937ba4382
+hc_mix: a gated product read by a second op besides the lane mean (rows false)	act_gate	3	3	3e606920346650ba1a8694c9f67329e50f2802b23ca4ee9b74c48a76a1159b0e
+hc_mix: twin of a gated product read by a second op besides the lane mean (rows false)	(unheld)	3	3	8c34d3ac3e1d4ba63f3c5f4dd43653dd757df000ce19d3e6ce13b07d8693d95d
+hc_mix: twin of a gated product read by a second op besides the lane mean (rows false)	act_gate	2	2	32dd64748d7abfe7455623fc47f2dc50eaa6a7d2856ee7919d212e071f5a94dd
+hc_mix: twin of a gated product read by a second op besides the lane mean (rows false)	hc_mix	1	1	f60f00636027f49bd2824f4e9dc632d73c65d8ac18a655f6e696d52d859e5f46
+hc_post: a spread read by a second op besides the residual's add (rows true)	(unheld)	3	3	c8f511370afb23591a166e3ce6118bd2d31f4866d9acc6e317123b46360a80be
+hc_post: twin of a spread read by a second op besides the residual's add (rows true)	(unheld)	2	2	9ff20837a97a762e2deac2a84d9173072962448feabf07253a83badd47a32737
+hc_post: twin of a spread read by a second op besides the residual's add (rows true)	hc_post	1	1	f60f00636027f49bd2824f4e9dc632d73c65d8ac18a655f6e696d52d859e5f46
+hc_post: a spread read by a second op besides the residual's add (rows false)	(unheld)	3	3	c8f511370afb23591a166e3ce6118bd2d31f4866d9acc6e317123b46360a80be
+hc_post: twin of a spread read by a second op besides the residual's add (rows false)	(unheld)	2	2	9ff20837a97a762e2deac2a84d9173072962448feabf07253a83badd47a32737
+hc_post: twin of a spread read by a second op besides the residual's add (rows false)	hc_post	1	1	f60f00636027f49bd2824f4e9dc632d73c65d8ac18a655f6e696d52d859e5f46
+hc_post_norm: a post's sum read first by something other than the norm (rows true)	(unheld)	4	4	a17445810198dbf78cc9b2d6b123e8154eb7176b0a3b4a99f25799a7807f505e
+hc_post_norm: a post's sum read first by something other than the norm (rows true)	hc_post	3	3	b5be57597930d25f5de09a3b9ef70190b62112fc1acc3b528855d9fb42527f6f
+hc_post_norm: twin of a post's sum read first by something other than the norm (rows true)	(unheld)	3	3	4e792a0096a46acfb2982a5b9a8dc899bc4abe7ebd4d3c991a5b7e2941731e04
+hc_post_norm: twin of a post's sum read first by something other than the norm (rows true)	hc_post_norm	1	1	8622f52307598212f5ab2ee0107fb9195daf64a75a872b5f342ed36ed10de3e8
+hc_post_norm: a post's sum read first by something other than the norm (rows false)	(unheld)	4	4	a17445810198dbf78cc9b2d6b123e8154eb7176b0a3b4a99f25799a7807f505e
+hc_post_norm: a post's sum read first by something other than the norm (rows false)	hc_post	3	3	b5be57597930d25f5de09a3b9ef70190b62112fc1acc3b528855d9fb42527f6f
+hc_post_norm: twin of a post's sum read first by something other than the norm (rows false)	(unheld)	3	3	4e792a0096a46acfb2982a5b9a8dc899bc4abe7ebd4d3c991a5b7e2941731e04
+hc_post_norm: twin of a post's sum read first by something other than the norm (rows false)	hc_post_norm	1	1	8622f52307598212f5ab2ee0107fb9195daf64a75a872b5f342ed36ed10de3e8
 embed_norm: a gathered row read first by something other than the norm (rows true)	(unheld)	3	3	3e606920346650ba1a8694c9f67329e50f2802b23ca4ee9b74c48a76a1159b0e
 embed_norm: twin of a gathered row read first by something other than the norm (rows true)	(unheld)	2	2	6a6917d7312b466471b9ed86889ba53454b51d2ee5aeed1c1c0d55a805ca958f
 embed_norm: twin of a gathered row read first by something other than the norm (rows true)	embed_norm	1	1	768b14758723b6b438a0e5e0e6a66661603fccb14689724c5b06dd8716e64907
@@ -1506,10 +1556,10 @@ lane qwen3 Dequant 1	add_norm	60	60	8e093b55e0a766bc7785291cb1ef4ce217d8fc298bdd
 lane qwen3 Dequant 1	gemv_norm_epilogue	54	54	c543ebc6abed9c1c03398f00f4af9e494d2ab496e490c858c10eec0956d1e945
 lane qwen3 Dequant 1	head_norm_rope	48	48	a833f95cb664c8f7bf200e008d7987d77448047494458df9ac039bd8ab0ff0d9
 lane qwen3 Dequant 1	row_write	42	42	533c3cad285c3cc7791b8d44f866879c94f5404814cf2a46c3d45dead54c6468
-lane qwen3 Dequant 1	qkv_head_epilogue	36	36	f36471e1390dfff4a051a0a5b4afd728c2a617e58a7fe4c8fd07ae95d62d3b8e
-lane qwen3 Dequant 1	glu_pair	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane qwen3 Dequant 1	embed_norm	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane qwen3 Dequant 1	gemv_parts	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
+lane qwen3 Dequant 1	glu_pair	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane qwen3 Dequant 1	embed_norm	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane qwen3 Dequant 1	rope_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane qwen3 Dequant 1	gemv_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
 lane qwen3 Dequant 4	(unheld)	62	62	ccb8af8d70789111beab7559832876069fabf1d1ab400e5134f85a8788a43e50
 lane qwen3 Dequant 4	add_norm	62	62	ccb8af8d70789111beab7559832876069fabf1d1ab400e5134f85a8788a43e50
 lane qwen3 Dequant 4	head_norm_rope	56	56	0541b3ce2e82181b97b6d7ea78720cba64237815efa215e8d38d0d172650344d
@@ -1537,11 +1587,11 @@ lane qwen3 Int8Act 1	add_norm	60	60	8e093b55e0a766bc7785291cb1ef4ce217d8fc298bdd
 lane qwen3 Int8Act 1	gemv_norm_epilogue	54	54	c543ebc6abed9c1c03398f00f4af9e494d2ab496e490c858c10eec0956d1e945
 lane qwen3 Int8Act 1	head_norm_rope	48	48	a833f95cb664c8f7bf200e008d7987d77448047494458df9ac039bd8ab0ff0d9
 lane qwen3 Int8Act 1	row_write	42	42	533c3cad285c3cc7791b8d44f866879c94f5404814cf2a46c3d45dead54c6468
-lane qwen3 Int8Act 1	qkv_head_epilogue	36	36	f36471e1390dfff4a051a0a5b4afd728c2a617e58a7fe4c8fd07ae95d62d3b8e
-lane qwen3 Int8Act 1	glu_pair	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane qwen3 Int8Act 1	embed_norm	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane qwen3 Int8Act 1	fused_quant	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane qwen3 Int8Act 1	gemv_parts	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
+lane qwen3 Int8Act 1	glu_pair	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane qwen3 Int8Act 1	embed_norm	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane qwen3 Int8Act 1	rope_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane qwen3 Int8Act 1	fused_quant	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane qwen3 Int8Act 1	gemv_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
 lane qwen3 Int8Act 4	(unheld)	62	62	ccb8af8d70789111beab7559832876069fabf1d1ab400e5134f85a8788a43e50
 lane qwen3 Int8Act 4	add_norm	62	62	ccb8af8d70789111beab7559832876069fabf1d1ab400e5134f85a8788a43e50
 lane qwen3 Int8Act 4	head_norm_rope	56	56	0541b3ce2e82181b97b6d7ea78720cba64237815efa215e8d38d0d172650344d
@@ -1572,11 +1622,11 @@ lane qwen3 TwoPassInt8 1	add_norm	60	60	8e093b55e0a766bc7785291cb1ef4ce217d8fc29
 lane qwen3 TwoPassInt8 1	gemv_norm_epilogue	54	54	c543ebc6abed9c1c03398f00f4af9e494d2ab496e490c858c10eec0956d1e945
 lane qwen3 TwoPassInt8 1	head_norm_rope	48	48	a833f95cb664c8f7bf200e008d7987d77448047494458df9ac039bd8ab0ff0d9
 lane qwen3 TwoPassInt8 1	row_write	42	42	533c3cad285c3cc7791b8d44f866879c94f5404814cf2a46c3d45dead54c6468
-lane qwen3 TwoPassInt8 1	qkv_head_epilogue	36	36	f36471e1390dfff4a051a0a5b4afd728c2a617e58a7fe4c8fd07ae95d62d3b8e
-lane qwen3 TwoPassInt8 1	glu_pair	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane qwen3 TwoPassInt8 1	embed_norm	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane qwen3 TwoPassInt8 1	fused_quant	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane qwen3 TwoPassInt8 1	gemv_parts	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
+lane qwen3 TwoPassInt8 1	glu_pair	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane qwen3 TwoPassInt8 1	embed_norm	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane qwen3 TwoPassInt8 1	rope_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane qwen3 TwoPassInt8 1	fused_quant	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane qwen3 TwoPassInt8 1	gemv_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
 lane qwen3 TwoPassInt8 4	(unheld)	62	62	ccb8af8d70789111beab7559832876069fabf1d1ab400e5134f85a8788a43e50
 lane qwen3 TwoPassInt8 4	add_norm	62	62	ccb8af8d70789111beab7559832876069fabf1d1ab400e5134f85a8788a43e50
 lane qwen3 TwoPassInt8 4	head_norm_rope	56	56	0541b3ce2e82181b97b6d7ea78720cba64237815efa215e8d38d0d172650344d
@@ -1606,10 +1656,10 @@ lane llama Dequant 1	(unheld)	55	55	f869c9947cf25a7d20bf06d1bd4883c2e03449a34dca
 lane llama Dequant 1	add_norm	54	54	9b789f85e5a08b72f307907e371b07262af3b15ea4b5dbf48c9fb2473ea915cc
 lane llama Dequant 1	gemv_norm_epilogue	48	48	a833f95cb664c8f7bf200e008d7987d77448047494458df9ac039bd8ab0ff0d9
 lane llama Dequant 1	row_write	42	42	533c3cad285c3cc7791b8d44f866879c94f5404814cf2a46c3d45dead54c6468
-lane llama Dequant 1	qkv_head_epilogue	36	36	f36471e1390dfff4a051a0a5b4afd728c2a617e58a7fe4c8fd07ae95d62d3b8e
-lane llama Dequant 1	glu_pair	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane llama Dequant 1	embed_norm	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane llama Dequant 1	gemv_parts	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
+lane llama Dequant 1	glu_pair	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama Dequant 1	embed_norm	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama Dequant 1	rope_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama Dequant 1	gemv_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
 lane llama Dequant 4	(unheld)	56	56	0541b3ce2e82181b97b6d7ea78720cba64237815efa215e8d38d0d172650344d
 lane llama Dequant 4	add_norm	56	56	0541b3ce2e82181b97b6d7ea78720cba64237815efa215e8d38d0d172650344d
 lane llama Dequant 4	row_write	50	50	e492c5fce00dfcfd5c6226f26ac7a6c6193b34eca5bbba4a46225e088f3e0501
@@ -1633,11 +1683,11 @@ lane llama Int8Act 1	(unheld)	55	55	f869c9947cf25a7d20bf06d1bd4883c2e03449a34dca
 lane llama Int8Act 1	add_norm	54	54	9b789f85e5a08b72f307907e371b07262af3b15ea4b5dbf48c9fb2473ea915cc
 lane llama Int8Act 1	gemv_norm_epilogue	48	48	a833f95cb664c8f7bf200e008d7987d77448047494458df9ac039bd8ab0ff0d9
 lane llama Int8Act 1	row_write	42	42	533c3cad285c3cc7791b8d44f866879c94f5404814cf2a46c3d45dead54c6468
-lane llama Int8Act 1	qkv_head_epilogue	36	36	f36471e1390dfff4a051a0a5b4afd728c2a617e58a7fe4c8fd07ae95d62d3b8e
-lane llama Int8Act 1	glu_pair	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane llama Int8Act 1	embed_norm	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane llama Int8Act 1	fused_quant	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane llama Int8Act 1	gemv_parts	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
+lane llama Int8Act 1	glu_pair	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama Int8Act 1	embed_norm	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama Int8Act 1	rope_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama Int8Act 1	fused_quant	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama Int8Act 1	gemv_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
 lane llama Int8Act 4	(unheld)	56	56	0541b3ce2e82181b97b6d7ea78720cba64237815efa215e8d38d0d172650344d
 lane llama Int8Act 4	add_norm	56	56	0541b3ce2e82181b97b6d7ea78720cba64237815efa215e8d38d0d172650344d
 lane llama Int8Act 4	row_write	50	50	e492c5fce00dfcfd5c6226f26ac7a6c6193b34eca5bbba4a46225e088f3e0501
@@ -1664,11 +1714,11 @@ lane llama TwoPassInt8 1	(unheld)	55	55	f869c9947cf25a7d20bf06d1bd4883c2e03449a3
 lane llama TwoPassInt8 1	add_norm	54	54	9b789f85e5a08b72f307907e371b07262af3b15ea4b5dbf48c9fb2473ea915cc
 lane llama TwoPassInt8 1	gemv_norm_epilogue	48	48	a833f95cb664c8f7bf200e008d7987d77448047494458df9ac039bd8ab0ff0d9
 lane llama TwoPassInt8 1	row_write	42	42	533c3cad285c3cc7791b8d44f866879c94f5404814cf2a46c3d45dead54c6468
-lane llama TwoPassInt8 1	qkv_head_epilogue	36	36	f36471e1390dfff4a051a0a5b4afd728c2a617e58a7fe4c8fd07ae95d62d3b8e
-lane llama TwoPassInt8 1	glu_pair	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane llama TwoPassInt8 1	embed_norm	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane llama TwoPassInt8 1	fused_quant	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane llama TwoPassInt8 1	gemv_parts	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
+lane llama TwoPassInt8 1	glu_pair	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama TwoPassInt8 1	embed_norm	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama TwoPassInt8 1	rope_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama TwoPassInt8 1	fused_quant	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama TwoPassInt8 1	gemv_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
 lane llama TwoPassInt8 4	(unheld)	56	56	0541b3ce2e82181b97b6d7ea78720cba64237815efa215e8d38d0d172650344d
 lane llama TwoPassInt8 4	add_norm	56	56	0541b3ce2e82181b97b6d7ea78720cba64237815efa215e8d38d0d172650344d
 lane llama TwoPassInt8 4	row_write	50	50	e492c5fce00dfcfd5c6226f26ac7a6c6193b34eca5bbba4a46225e088f3e0501
@@ -1695,10 +1745,10 @@ lane llama-tied Dequant 1	(unheld)	55	55	f869c9947cf25a7d20bf06d1bd4883c2e03449a
 lane llama-tied Dequant 1	add_norm	54	54	9b789f85e5a08b72f307907e371b07262af3b15ea4b5dbf48c9fb2473ea915cc
 lane llama-tied Dequant 1	gemv_norm_epilogue	48	48	a833f95cb664c8f7bf200e008d7987d77448047494458df9ac039bd8ab0ff0d9
 lane llama-tied Dequant 1	row_write	42	42	533c3cad285c3cc7791b8d44f866879c94f5404814cf2a46c3d45dead54c6468
-lane llama-tied Dequant 1	qkv_head_epilogue	36	36	f36471e1390dfff4a051a0a5b4afd728c2a617e58a7fe4c8fd07ae95d62d3b8e
-lane llama-tied Dequant 1	glu_pair	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane llama-tied Dequant 1	embed_norm	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane llama-tied Dequant 1	gemv_parts	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
+lane llama-tied Dequant 1	glu_pair	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama-tied Dequant 1	embed_norm	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama-tied Dequant 1	rope_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama-tied Dequant 1	gemv_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
 lane llama-tied Dequant 4	(unheld)	56	56	0541b3ce2e82181b97b6d7ea78720cba64237815efa215e8d38d0d172650344d
 lane llama-tied Dequant 4	add_norm	56	56	0541b3ce2e82181b97b6d7ea78720cba64237815efa215e8d38d0d172650344d
 lane llama-tied Dequant 4	row_write	50	50	e492c5fce00dfcfd5c6226f26ac7a6c6193b34eca5bbba4a46225e088f3e0501
@@ -1722,11 +1772,11 @@ lane llama-tied Int8Act 1	(unheld)	55	55	f869c9947cf25a7d20bf06d1bd4883c2e03449a
 lane llama-tied Int8Act 1	add_norm	54	54	9b789f85e5a08b72f307907e371b07262af3b15ea4b5dbf48c9fb2473ea915cc
 lane llama-tied Int8Act 1	gemv_norm_epilogue	48	48	a833f95cb664c8f7bf200e008d7987d77448047494458df9ac039bd8ab0ff0d9
 lane llama-tied Int8Act 1	row_write	42	42	533c3cad285c3cc7791b8d44f866879c94f5404814cf2a46c3d45dead54c6468
-lane llama-tied Int8Act 1	qkv_head_epilogue	36	36	f36471e1390dfff4a051a0a5b4afd728c2a617e58a7fe4c8fd07ae95d62d3b8e
-lane llama-tied Int8Act 1	glu_pair	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane llama-tied Int8Act 1	embed_norm	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane llama-tied Int8Act 1	fused_quant	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane llama-tied Int8Act 1	gemv_parts	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
+lane llama-tied Int8Act 1	glu_pair	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama-tied Int8Act 1	embed_norm	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama-tied Int8Act 1	rope_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama-tied Int8Act 1	fused_quant	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama-tied Int8Act 1	gemv_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
 lane llama-tied Int8Act 4	(unheld)	56	56	0541b3ce2e82181b97b6d7ea78720cba64237815efa215e8d38d0d172650344d
 lane llama-tied Int8Act 4	add_norm	56	56	0541b3ce2e82181b97b6d7ea78720cba64237815efa215e8d38d0d172650344d
 lane llama-tied Int8Act 4	row_write	50	50	e492c5fce00dfcfd5c6226f26ac7a6c6193b34eca5bbba4a46225e088f3e0501
@@ -1753,11 +1803,11 @@ lane llama-tied TwoPassInt8 1	(unheld)	55	55	f869c9947cf25a7d20bf06d1bd4883c2e03
 lane llama-tied TwoPassInt8 1	add_norm	54	54	9b789f85e5a08b72f307907e371b07262af3b15ea4b5dbf48c9fb2473ea915cc
 lane llama-tied TwoPassInt8 1	gemv_norm_epilogue	48	48	a833f95cb664c8f7bf200e008d7987d77448047494458df9ac039bd8ab0ff0d9
 lane llama-tied TwoPassInt8 1	row_write	42	42	533c3cad285c3cc7791b8d44f866879c94f5404814cf2a46c3d45dead54c6468
-lane llama-tied TwoPassInt8 1	qkv_head_epilogue	36	36	f36471e1390dfff4a051a0a5b4afd728c2a617e58a7fe4c8fd07ae95d62d3b8e
-lane llama-tied TwoPassInt8 1	glu_pair	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane llama-tied TwoPassInt8 1	embed_norm	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane llama-tied TwoPassInt8 1	fused_quant	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane llama-tied TwoPassInt8 1	gemv_parts	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
+lane llama-tied TwoPassInt8 1	glu_pair	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama-tied TwoPassInt8 1	embed_norm	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama-tied TwoPassInt8 1	rope_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama-tied TwoPassInt8 1	fused_quant	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane llama-tied TwoPassInt8 1	gemv_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
 lane llama-tied TwoPassInt8 4	(unheld)	56	56	0541b3ce2e82181b97b6d7ea78720cba64237815efa215e8d38d0d172650344d
 lane llama-tied TwoPassInt8 4	add_norm	56	56	0541b3ce2e82181b97b6d7ea78720cba64237815efa215e8d38d0d172650344d
 lane llama-tied TwoPassInt8 4	row_write	50	50	e492c5fce00dfcfd5c6226f26ac7a6c6193b34eca5bbba4a46225e088f3e0501
@@ -1785,10 +1835,10 @@ lane qwen3moe Dequant 1	add_norm	51	51	a3456e9ab87cadecc3b0d04aa6f84d424ed925555
 lane qwen3moe Dequant 1	gemv_norm_epilogue	48	48	be1895c6ee5003d024884b981308340c11c5909f356e9f63280ed21e29ecf847
 lane qwen3moe Dequant 1	head_norm_rope	42	42	17df3b581f58a74abfdd7d9c4d38461b9a9de2813a5f27b99f468a832452d0f0
 lane qwen3moe Dequant 1	row_write	36	36	b1c801685055cb7cb7fc66ff04d21d303945cd3b9e72c69790d3934da142606c
-lane qwen3moe Dequant 1	qkv_head_epilogue	30	30	3808e0b3b0fc41b040da4b1f4e819823e1d68c7cd182cf57203fa126eee29920
-lane qwen3moe Dequant 1	moe_deferred_finalize	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
-lane qwen3moe Dequant 1	embed_norm	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
-lane qwen3moe Dequant 1	gemv_parts	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
+lane qwen3moe Dequant 1	moe_deferred_finalize	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane qwen3moe Dequant 1	embed_norm	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane qwen3moe Dequant 1	rope_parts	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane qwen3moe Dequant 1	gemv_parts	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
 lane qwen3moe Dequant 4	(unheld)	77	77	3406eda46a76b6d0cc04811fea746413c1fe108bff42c9bb57bbeeb15460e011
 lane qwen3moe Dequant 4	add_norm	77	77	3406eda46a76b6d0cc04811fea746413c1fe108bff42c9bb57bbeeb15460e011
 lane qwen3moe Dequant 4	head_norm_rope	71	71	4e10f219d9ad0d13bd0b6fb31f12750c9e213341145aed24171f517355c68c7b
@@ -1819,11 +1869,11 @@ lane qwen3moe Int8Act 1	add_norm	51	51	a3456e9ab87cadecc3b0d04aa6f84d424ed925555
 lane qwen3moe Int8Act 1	gemv_norm_epilogue	48	48	be1895c6ee5003d024884b981308340c11c5909f356e9f63280ed21e29ecf847
 lane qwen3moe Int8Act 1	head_norm_rope	42	42	17df3b581f58a74abfdd7d9c4d38461b9a9de2813a5f27b99f468a832452d0f0
 lane qwen3moe Int8Act 1	row_write	36	36	b1c801685055cb7cb7fc66ff04d21d303945cd3b9e72c69790d3934da142606c
-lane qwen3moe Int8Act 1	qkv_head_epilogue	30	30	3808e0b3b0fc41b040da4b1f4e819823e1d68c7cd182cf57203fa126eee29920
-lane qwen3moe Int8Act 1	moe_deferred_finalize	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
-lane qwen3moe Int8Act 1	embed_norm	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
-lane qwen3moe Int8Act 1	fused_quant	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
-lane qwen3moe Int8Act 1	gemv_parts	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
+lane qwen3moe Int8Act 1	moe_deferred_finalize	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane qwen3moe Int8Act 1	embed_norm	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane qwen3moe Int8Act 1	rope_parts	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane qwen3moe Int8Act 1	fused_quant	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane qwen3moe Int8Act 1	gemv_parts	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
 lane qwen3moe Int8Act 4	(unheld)	77	77	3406eda46a76b6d0cc04811fea746413c1fe108bff42c9bb57bbeeb15460e011
 lane qwen3moe Int8Act 4	add_norm	77	77	3406eda46a76b6d0cc04811fea746413c1fe108bff42c9bb57bbeeb15460e011
 lane qwen3moe Int8Act 4	head_norm_rope	71	71	4e10f219d9ad0d13bd0b6fb31f12750c9e213341145aed24171f517355c68c7b
@@ -1857,11 +1907,11 @@ lane qwen3moe TwoPassInt8 1	add_norm	51	51	a3456e9ab87cadecc3b0d04aa6f84d424ed92
 lane qwen3moe TwoPassInt8 1	gemv_norm_epilogue	48	48	be1895c6ee5003d024884b981308340c11c5909f356e9f63280ed21e29ecf847
 lane qwen3moe TwoPassInt8 1	head_norm_rope	42	42	17df3b581f58a74abfdd7d9c4d38461b9a9de2813a5f27b99f468a832452d0f0
 lane qwen3moe TwoPassInt8 1	row_write	36	36	b1c801685055cb7cb7fc66ff04d21d303945cd3b9e72c69790d3934da142606c
-lane qwen3moe TwoPassInt8 1	qkv_head_epilogue	30	30	3808e0b3b0fc41b040da4b1f4e819823e1d68c7cd182cf57203fa126eee29920
-lane qwen3moe TwoPassInt8 1	moe_deferred_finalize	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
-lane qwen3moe TwoPassInt8 1	embed_norm	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
-lane qwen3moe TwoPassInt8 1	fused_quant	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
-lane qwen3moe TwoPassInt8 1	gemv_parts	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
+lane qwen3moe TwoPassInt8 1	moe_deferred_finalize	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane qwen3moe TwoPassInt8 1	embed_norm	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane qwen3moe TwoPassInt8 1	rope_parts	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane qwen3moe TwoPassInt8 1	fused_quant	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane qwen3moe TwoPassInt8 1	gemv_parts	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
 lane qwen3moe TwoPassInt8 4	(unheld)	77	77	3406eda46a76b6d0cc04811fea746413c1fe108bff42c9bb57bbeeb15460e011
 lane qwen3moe TwoPassInt8 4	add_norm	77	77	3406eda46a76b6d0cc04811fea746413c1fe108bff42c9bb57bbeeb15460e011
 lane qwen3moe TwoPassInt8 4	head_norm_rope	71	71	4e10f219d9ad0d13bd0b6fb31f12750c9e213341145aed24171f517355c68c7b
@@ -1895,19 +1945,19 @@ lane qwen35 Dequant 1	add_norm	85	85	897c2d38157ab11f2afd7bc17b7af625c9bdd93f634
 lane qwen35 Dequant 1	gemv_norm_epilogue	79	79	f851b37b9665e085fd8f82ad954033a0266fb4df289603469f4309f9963a757b
 lane qwen35 Dequant 1	head_norm_rope	77	77	6e80e528975618c02ba00005c35a67875413f21555903bfe5b7b1b3a2b18e245
 lane qwen35 Dequant 1	row_write	75	75	f363d39f11f26002a0d04194e07c0b739b784cce4311d9d71fcd561a647c6dc0
-lane qwen35 Dequant 1	qkv_head_epilogue	73	73	8590dbb8d6ba3471613c23ae1d91ce6c334cbc20edfd8193c020a9899afbfe7e
-lane qwen35 Dequant 1	conv_silu	67	67	4841a684468ecaa7eea9a5930353c421dc331cac3f158d85c7744eec0e60ea03
-lane qwen35 Dequant 1	conv_silu_l2	63	63	7a9889061030a11a94cc7544af8675ae3e06b4effd9c82f485ff931eb994af29
-lane qwen35 Dequant 1	conv_parts	63	63	7a9889061030a11a94cc7544af8675ae3e06b4effd9c82f485ff931eb994af29
-lane qwen35 Dequant 1	gates	63	63	7a9889061030a11a94cc7544af8675ae3e06b4effd9c82f485ff931eb994af29
-lane qwen35 Dequant 1	gate_projections	59	59	148e74404b2fc2cbcbdb52c6f3e8b72343f11ebfaa2656e9a3096fe262530240
-lane qwen35 Dequant 1	gdn_input_epilogue	53	53	c9d13a34a63e91f8cb5f50f13c05d023a7676077a5833d8117cf7b03f10985e6
-lane qwen35 Dequant 1	delta_qk_norm	49	49	f297bdb6b874f702607e60c38b09831aa2be41c3c9e60f1f0ce86e831a198669
-lane qwen35 Dequant 1	act_gate	52	52	5096187eccf4e0dc74136005f472478ac8c826a31252053b3fed278bff8e571d
-lane qwen35 Dequant 1	attn_output_gate	51	51	4f2eb543cfa402a200b755bbb74e738c1f99adf8a9b66b0c5445f13693806f2b
-lane qwen35 Dequant 1	glu_pair	45	45	8834d687b460a3a5374443147ed1b2b72f7b8c6bb6056e55e28db5e51f546303
-lane qwen35 Dequant 1	embed_norm	45	45	8834d687b460a3a5374443147ed1b2b72f7b8c6bb6056e55e28db5e51f546303
-lane qwen35 Dequant 1	gemv_parts	45	45	8834d687b460a3a5374443147ed1b2b72f7b8c6bb6056e55e28db5e51f546303
+lane qwen35 Dequant 1	conv_silu	69	69	3381544397b520884725e9ae0b9e65c4e7d32bc2fd0b011043cc01efc4411315
+lane qwen35 Dequant 1	conv_silu_l2	65	65	b3212dfa0072f3eee890fd80698df4b2aadc7ae4f5c6a0e0f66a587c51ba174c
+lane qwen35 Dequant 1	conv_parts	65	65	b3212dfa0072f3eee890fd80698df4b2aadc7ae4f5c6a0e0f66a587c51ba174c
+lane qwen35 Dequant 1	gates	65	65	b3212dfa0072f3eee890fd80698df4b2aadc7ae4f5c6a0e0f66a587c51ba174c
+lane qwen35 Dequant 1	gate_projections	61	61	d577db148f9d1a30db97db5bb888685a5c38b2ddab0b0202619c1533a0467012
+lane qwen35 Dequant 1	gdn_input_epilogue	55	55	7ba5a23a0da62e3be1e2a9d0f7b949f098e3bc5065e42b1fba923129bb60656e
+lane qwen35 Dequant 1	delta_qk_norm	51	51	d6b9b6ac786f4ac56fca24f3c8e372554354485147c7a0c0f1bba5af96d5d5f5
+lane qwen35 Dequant 1	act_gate	54	54	2413b6b69c48975a29e1e99e4d9d39f48ed7819a883c922d859103cfdf517bd7
+lane qwen35 Dequant 1	attn_output_gate	53	53	3bd2d08d72827a4d9693424766c27227c037b71b0e32a7cea492b99c03d4de53
+lane qwen35 Dequant 1	glu_pair	47	47	2e9ef86ee852f285e3881c6715b8ef7d379929d862314111f0262d7c07981dda
+lane qwen35 Dequant 1	embed_norm	47	47	2e9ef86ee852f285e3881c6715b8ef7d379929d862314111f0262d7c07981dda
+lane qwen35 Dequant 1	rope_parts	47	47	2e9ef86ee852f285e3881c6715b8ef7d379929d862314111f0262d7c07981dda
+lane qwen35 Dequant 1	gemv_parts	47	47	2e9ef86ee852f285e3881c6715b8ef7d379929d862314111f0262d7c07981dda
 lane qwen35 Dequant 4	(unheld)	87	87	2f5d38c5162c7a5d42474c128f0549dd795999fad15b2c659a4794b9d66eec05
 lane qwen35 Dequant 4	add_norm	87	87	2f5d38c5162c7a5d42474c128f0549dd795999fad15b2c659a4794b9d66eec05
 lane qwen35 Dequant 4	head_norm_rope	85	85	39c3644347d9c8af5d029d40b663a851012e79cc738eeb8e61d2b01463485e18
@@ -1951,20 +2001,20 @@ lane qwen35 Int8Act 1	add_norm	85	85	897c2d38157ab11f2afd7bc17b7af625c9bdd93f634
 lane qwen35 Int8Act 1	gemv_norm_epilogue	79	79	f851b37b9665e085fd8f82ad954033a0266fb4df289603469f4309f9963a757b
 lane qwen35 Int8Act 1	head_norm_rope	77	77	6e80e528975618c02ba00005c35a67875413f21555903bfe5b7b1b3a2b18e245
 lane qwen35 Int8Act 1	row_write	75	75	f363d39f11f26002a0d04194e07c0b739b784cce4311d9d71fcd561a647c6dc0
-lane qwen35 Int8Act 1	qkv_head_epilogue	73	73	8590dbb8d6ba3471613c23ae1d91ce6c334cbc20edfd8193c020a9899afbfe7e
-lane qwen35 Int8Act 1	conv_silu	67	67	4841a684468ecaa7eea9a5930353c421dc331cac3f158d85c7744eec0e60ea03
-lane qwen35 Int8Act 1	conv_silu_l2	63	63	7a9889061030a11a94cc7544af8675ae3e06b4effd9c82f485ff931eb994af29
-lane qwen35 Int8Act 1	conv_parts	63	63	7a9889061030a11a94cc7544af8675ae3e06b4effd9c82f485ff931eb994af29
-lane qwen35 Int8Act 1	gates	63	63	7a9889061030a11a94cc7544af8675ae3e06b4effd9c82f485ff931eb994af29
-lane qwen35 Int8Act 1	gate_projections	59	59	148e74404b2fc2cbcbdb52c6f3e8b72343f11ebfaa2656e9a3096fe262530240
-lane qwen35 Int8Act 1	gdn_input_epilogue	53	53	c9d13a34a63e91f8cb5f50f13c05d023a7676077a5833d8117cf7b03f10985e6
-lane qwen35 Int8Act 1	delta_qk_norm	49	49	f297bdb6b874f702607e60c38b09831aa2be41c3c9e60f1f0ce86e831a198669
-lane qwen35 Int8Act 1	act_gate	52	52	5096187eccf4e0dc74136005f472478ac8c826a31252053b3fed278bff8e571d
-lane qwen35 Int8Act 1	attn_output_gate	51	51	4f2eb543cfa402a200b755bbb74e738c1f99adf8a9b66b0c5445f13693806f2b
-lane qwen35 Int8Act 1	glu_pair	45	45	8834d687b460a3a5374443147ed1b2b72f7b8c6bb6056e55e28db5e51f546303
-lane qwen35 Int8Act 1	embed_norm	45	45	8834d687b460a3a5374443147ed1b2b72f7b8c6bb6056e55e28db5e51f546303
-lane qwen35 Int8Act 1	fused_quant	45	45	8834d687b460a3a5374443147ed1b2b72f7b8c6bb6056e55e28db5e51f546303
-lane qwen35 Int8Act 1	gemv_parts	45	45	8834d687b460a3a5374443147ed1b2b72f7b8c6bb6056e55e28db5e51f546303
+lane qwen35 Int8Act 1	conv_silu	69	69	3381544397b520884725e9ae0b9e65c4e7d32bc2fd0b011043cc01efc4411315
+lane qwen35 Int8Act 1	conv_silu_l2	65	65	b3212dfa0072f3eee890fd80698df4b2aadc7ae4f5c6a0e0f66a587c51ba174c
+lane qwen35 Int8Act 1	conv_parts	65	65	b3212dfa0072f3eee890fd80698df4b2aadc7ae4f5c6a0e0f66a587c51ba174c
+lane qwen35 Int8Act 1	gates	65	65	b3212dfa0072f3eee890fd80698df4b2aadc7ae4f5c6a0e0f66a587c51ba174c
+lane qwen35 Int8Act 1	gate_projections	61	61	d577db148f9d1a30db97db5bb888685a5c38b2ddab0b0202619c1533a0467012
+lane qwen35 Int8Act 1	gdn_input_epilogue	55	55	7ba5a23a0da62e3be1e2a9d0f7b949f098e3bc5065e42b1fba923129bb60656e
+lane qwen35 Int8Act 1	delta_qk_norm	51	51	d6b9b6ac786f4ac56fca24f3c8e372554354485147c7a0c0f1bba5af96d5d5f5
+lane qwen35 Int8Act 1	act_gate	54	54	2413b6b69c48975a29e1e99e4d9d39f48ed7819a883c922d859103cfdf517bd7
+lane qwen35 Int8Act 1	attn_output_gate	53	53	3bd2d08d72827a4d9693424766c27227c037b71b0e32a7cea492b99c03d4de53
+lane qwen35 Int8Act 1	glu_pair	47	47	2e9ef86ee852f285e3881c6715b8ef7d379929d862314111f0262d7c07981dda
+lane qwen35 Int8Act 1	embed_norm	47	47	2e9ef86ee852f285e3881c6715b8ef7d379929d862314111f0262d7c07981dda
+lane qwen35 Int8Act 1	rope_parts	47	47	2e9ef86ee852f285e3881c6715b8ef7d379929d862314111f0262d7c07981dda
+lane qwen35 Int8Act 1	fused_quant	47	47	2e9ef86ee852f285e3881c6715b8ef7d379929d862314111f0262d7c07981dda
+lane qwen35 Int8Act 1	gemv_parts	47	47	2e9ef86ee852f285e3881c6715b8ef7d379929d862314111f0262d7c07981dda
 lane qwen35 Int8Act 4	(unheld)	87	87	2f5d38c5162c7a5d42474c128f0549dd795999fad15b2c659a4794b9d66eec05
 lane qwen35 Int8Act 4	add_norm	87	87	2f5d38c5162c7a5d42474c128f0549dd795999fad15b2c659a4794b9d66eec05
 lane qwen35 Int8Act 4	head_norm_rope	85	85	39c3644347d9c8af5d029d40b663a851012e79cc738eeb8e61d2b01463485e18
@@ -2011,20 +2061,20 @@ lane qwen35 TwoPassInt8 1	add_norm	85	85	897c2d38157ab11f2afd7bc17b7af625c9bdd93
 lane qwen35 TwoPassInt8 1	gemv_norm_epilogue	79	79	f851b37b9665e085fd8f82ad954033a0266fb4df289603469f4309f9963a757b
 lane qwen35 TwoPassInt8 1	head_norm_rope	77	77	6e80e528975618c02ba00005c35a67875413f21555903bfe5b7b1b3a2b18e245
 lane qwen35 TwoPassInt8 1	row_write	75	75	f363d39f11f26002a0d04194e07c0b739b784cce4311d9d71fcd561a647c6dc0
-lane qwen35 TwoPassInt8 1	qkv_head_epilogue	73	73	8590dbb8d6ba3471613c23ae1d91ce6c334cbc20edfd8193c020a9899afbfe7e
-lane qwen35 TwoPassInt8 1	conv_silu	67	67	4841a684468ecaa7eea9a5930353c421dc331cac3f158d85c7744eec0e60ea03
-lane qwen35 TwoPassInt8 1	conv_silu_l2	63	63	7a9889061030a11a94cc7544af8675ae3e06b4effd9c82f485ff931eb994af29
-lane qwen35 TwoPassInt8 1	conv_parts	63	63	7a9889061030a11a94cc7544af8675ae3e06b4effd9c82f485ff931eb994af29
-lane qwen35 TwoPassInt8 1	gates	63	63	7a9889061030a11a94cc7544af8675ae3e06b4effd9c82f485ff931eb994af29
-lane qwen35 TwoPassInt8 1	gate_projections	59	59	148e74404b2fc2cbcbdb52c6f3e8b72343f11ebfaa2656e9a3096fe262530240
-lane qwen35 TwoPassInt8 1	gdn_input_epilogue	53	53	c9d13a34a63e91f8cb5f50f13c05d023a7676077a5833d8117cf7b03f10985e6
-lane qwen35 TwoPassInt8 1	delta_qk_norm	49	49	f297bdb6b874f702607e60c38b09831aa2be41c3c9e60f1f0ce86e831a198669
-lane qwen35 TwoPassInt8 1	act_gate	52	52	5096187eccf4e0dc74136005f472478ac8c826a31252053b3fed278bff8e571d
-lane qwen35 TwoPassInt8 1	attn_output_gate	51	51	4f2eb543cfa402a200b755bbb74e738c1f99adf8a9b66b0c5445f13693806f2b
-lane qwen35 TwoPassInt8 1	glu_pair	45	45	8834d687b460a3a5374443147ed1b2b72f7b8c6bb6056e55e28db5e51f546303
-lane qwen35 TwoPassInt8 1	embed_norm	45	45	8834d687b460a3a5374443147ed1b2b72f7b8c6bb6056e55e28db5e51f546303
-lane qwen35 TwoPassInt8 1	fused_quant	45	45	8834d687b460a3a5374443147ed1b2b72f7b8c6bb6056e55e28db5e51f546303
-lane qwen35 TwoPassInt8 1	gemv_parts	45	45	8834d687b460a3a5374443147ed1b2b72f7b8c6bb6056e55e28db5e51f546303
+lane qwen35 TwoPassInt8 1	conv_silu	69	69	3381544397b520884725e9ae0b9e65c4e7d32bc2fd0b011043cc01efc4411315
+lane qwen35 TwoPassInt8 1	conv_silu_l2	65	65	b3212dfa0072f3eee890fd80698df4b2aadc7ae4f5c6a0e0f66a587c51ba174c
+lane qwen35 TwoPassInt8 1	conv_parts	65	65	b3212dfa0072f3eee890fd80698df4b2aadc7ae4f5c6a0e0f66a587c51ba174c
+lane qwen35 TwoPassInt8 1	gates	65	65	b3212dfa0072f3eee890fd80698df4b2aadc7ae4f5c6a0e0f66a587c51ba174c
+lane qwen35 TwoPassInt8 1	gate_projections	61	61	d577db148f9d1a30db97db5bb888685a5c38b2ddab0b0202619c1533a0467012
+lane qwen35 TwoPassInt8 1	gdn_input_epilogue	55	55	7ba5a23a0da62e3be1e2a9d0f7b949f098e3bc5065e42b1fba923129bb60656e
+lane qwen35 TwoPassInt8 1	delta_qk_norm	51	51	d6b9b6ac786f4ac56fca24f3c8e372554354485147c7a0c0f1bba5af96d5d5f5
+lane qwen35 TwoPassInt8 1	act_gate	54	54	2413b6b69c48975a29e1e99e4d9d39f48ed7819a883c922d859103cfdf517bd7
+lane qwen35 TwoPassInt8 1	attn_output_gate	53	53	3bd2d08d72827a4d9693424766c27227c037b71b0e32a7cea492b99c03d4de53
+lane qwen35 TwoPassInt8 1	glu_pair	47	47	2e9ef86ee852f285e3881c6715b8ef7d379929d862314111f0262d7c07981dda
+lane qwen35 TwoPassInt8 1	embed_norm	47	47	2e9ef86ee852f285e3881c6715b8ef7d379929d862314111f0262d7c07981dda
+lane qwen35 TwoPassInt8 1	rope_parts	47	47	2e9ef86ee852f285e3881c6715b8ef7d379929d862314111f0262d7c07981dda
+lane qwen35 TwoPassInt8 1	fused_quant	47	47	2e9ef86ee852f285e3881c6715b8ef7d379929d862314111f0262d7c07981dda
+lane qwen35 TwoPassInt8 1	gemv_parts	47	47	2e9ef86ee852f285e3881c6715b8ef7d379929d862314111f0262d7c07981dda
 lane qwen35 TwoPassInt8 4	(unheld)	87	87	2f5d38c5162c7a5d42474c128f0549dd795999fad15b2c659a4794b9d66eec05
 lane qwen35 TwoPassInt8 4	add_norm	87	87	2f5d38c5162c7a5d42474c128f0549dd795999fad15b2c659a4794b9d66eec05
 lane qwen35 TwoPassInt8 4	head_norm_rope	85	85	39c3644347d9c8af5d029d40b663a851012e79cc738eeb8e61d2b01463485e18
@@ -2072,12 +2122,12 @@ lane gemma3 Dequant 1	sandwich_norm	64	64	a41a0dd221f34611259db9674fc1abb3788d0b
 lane gemma3 Dequant 1	gemv_norm_epilogue	58	58	3f42410e73cdc1f0849b585fef4e1ea02795dfe682c863e2abf3d9df6544122c
 lane gemma3 Dequant 1	head_norm_rope	52	52	167d1733517bbb2b34ccc2686046a895a1e7bf40030af140e79b33ccf505a0ec
 lane gemma3 Dequant 1	row_write	46	46	6dce0f787426585f19fb79c22c6a5424269ae92dfca98eb45445c83905d756fa
-lane gemma3 Dequant 1	qkv_head_epilogue	40	40	b4196ae8339204e8d1ce5cc82ca10f5a1a587ad379f833ba766157b78552549f
-lane gemma3 Dequant 1	act_gate	37	37	3a7cb2547ef074aca1e87defeae779e5c89497083c2911cd750edce5aa9c99a1
-lane gemma3 Dequant 1	glu_pair	31	31	0836c34e9fa3b1cfd39e9116177e7cfd9309e2ff65c99f652f0f82e99647b26b
-lane gemma3 Dequant 1	gather_scale	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane gemma3 Dequant 1	embed_norm	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane gemma3 Dequant 1	gemv_parts	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
+lane gemma3 Dequant 1	act_gate	43	43	643423e809848ba6ed58d51e2c9ef27c2056c6591e6633625caf0c9b3c44afbd
+lane gemma3 Dequant 1	glu_pair	37	37	6a4006fbbe4db30c9a75c3e8e5ecb5db8a427cc86c6671de9844130955f7ad26
+lane gemma3 Dequant 1	gather_scale	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane gemma3 Dequant 1	embed_norm	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane gemma3 Dequant 1	rope_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane gemma3 Dequant 1	gemv_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
 lane gemma3 Dequant 4	(unheld)	72	72	2d532d8dcd07ff794a8be167b58cc4f33d6503b9e2f696f050661dc75c7d9faa
 lane gemma3 Dequant 4	add_norm	72	72	2d532d8dcd07ff794a8be167b58cc4f33d6503b9e2f696f050661dc75c7d9faa
 lane gemma3 Dequant 4	sandwich_norm	67	67	75e9d6a967e32bcf4509bf2030d75a09d83717ba7d093616c65e5b3fd78d252f
@@ -2115,13 +2165,13 @@ lane gemma3 Int8Act 1	sandwich_norm	64	64	a41a0dd221f34611259db9674fc1abb3788d0b
 lane gemma3 Int8Act 1	gemv_norm_epilogue	58	58	3f42410e73cdc1f0849b585fef4e1ea02795dfe682c863e2abf3d9df6544122c
 lane gemma3 Int8Act 1	head_norm_rope	52	52	167d1733517bbb2b34ccc2686046a895a1e7bf40030af140e79b33ccf505a0ec
 lane gemma3 Int8Act 1	row_write	46	46	6dce0f787426585f19fb79c22c6a5424269ae92dfca98eb45445c83905d756fa
-lane gemma3 Int8Act 1	qkv_head_epilogue	40	40	b4196ae8339204e8d1ce5cc82ca10f5a1a587ad379f833ba766157b78552549f
-lane gemma3 Int8Act 1	act_gate	37	37	3a7cb2547ef074aca1e87defeae779e5c89497083c2911cd750edce5aa9c99a1
-lane gemma3 Int8Act 1	glu_pair	31	31	0836c34e9fa3b1cfd39e9116177e7cfd9309e2ff65c99f652f0f82e99647b26b
-lane gemma3 Int8Act 1	gather_scale	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane gemma3 Int8Act 1	embed_norm	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane gemma3 Int8Act 1	fused_quant	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane gemma3 Int8Act 1	gemv_parts	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
+lane gemma3 Int8Act 1	act_gate	43	43	643423e809848ba6ed58d51e2c9ef27c2056c6591e6633625caf0c9b3c44afbd
+lane gemma3 Int8Act 1	glu_pair	37	37	6a4006fbbe4db30c9a75c3e8e5ecb5db8a427cc86c6671de9844130955f7ad26
+lane gemma3 Int8Act 1	gather_scale	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane gemma3 Int8Act 1	embed_norm	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane gemma3 Int8Act 1	rope_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane gemma3 Int8Act 1	fused_quant	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane gemma3 Int8Act 1	gemv_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
 lane gemma3 Int8Act 4	(unheld)	72	72	2d532d8dcd07ff794a8be167b58cc4f33d6503b9e2f696f050661dc75c7d9faa
 lane gemma3 Int8Act 4	add_norm	72	72	2d532d8dcd07ff794a8be167b58cc4f33d6503b9e2f696f050661dc75c7d9faa
 lane gemma3 Int8Act 4	sandwich_norm	67	67	75e9d6a967e32bcf4509bf2030d75a09d83717ba7d093616c65e5b3fd78d252f
@@ -2162,13 +2212,13 @@ lane gemma3 TwoPassInt8 1	sandwich_norm	64	64	a41a0dd221f34611259db9674fc1abb378
 lane gemma3 TwoPassInt8 1	gemv_norm_epilogue	58	58	3f42410e73cdc1f0849b585fef4e1ea02795dfe682c863e2abf3d9df6544122c
 lane gemma3 TwoPassInt8 1	head_norm_rope	52	52	167d1733517bbb2b34ccc2686046a895a1e7bf40030af140e79b33ccf505a0ec
 lane gemma3 TwoPassInt8 1	row_write	46	46	6dce0f787426585f19fb79c22c6a5424269ae92dfca98eb45445c83905d756fa
-lane gemma3 TwoPassInt8 1	qkv_head_epilogue	40	40	b4196ae8339204e8d1ce5cc82ca10f5a1a587ad379f833ba766157b78552549f
-lane gemma3 TwoPassInt8 1	act_gate	37	37	3a7cb2547ef074aca1e87defeae779e5c89497083c2911cd750edce5aa9c99a1
-lane gemma3 TwoPassInt8 1	glu_pair	31	31	0836c34e9fa3b1cfd39e9116177e7cfd9309e2ff65c99f652f0f82e99647b26b
-lane gemma3 TwoPassInt8 1	gather_scale	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane gemma3 TwoPassInt8 1	embed_norm	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane gemma3 TwoPassInt8 1	fused_quant	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane gemma3 TwoPassInt8 1	gemv_parts	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
+lane gemma3 TwoPassInt8 1	act_gate	43	43	643423e809848ba6ed58d51e2c9ef27c2056c6591e6633625caf0c9b3c44afbd
+lane gemma3 TwoPassInt8 1	glu_pair	37	37	6a4006fbbe4db30c9a75c3e8e5ecb5db8a427cc86c6671de9844130955f7ad26
+lane gemma3 TwoPassInt8 1	gather_scale	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane gemma3 TwoPassInt8 1	embed_norm	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane gemma3 TwoPassInt8 1	rope_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane gemma3 TwoPassInt8 1	fused_quant	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane gemma3 TwoPassInt8 1	gemv_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
 lane gemma3 TwoPassInt8 4	(unheld)	72	72	2d532d8dcd07ff794a8be167b58cc4f33d6503b9e2f696f050661dc75c7d9faa
 lane gemma3 TwoPassInt8 4	add_norm	72	72	2d532d8dcd07ff794a8be167b58cc4f33d6503b9e2f696f050661dc75c7d9faa
 lane gemma3 TwoPassInt8 4	sandwich_norm	67	67	75e9d6a967e32bcf4509bf2030d75a09d83717ba7d093616c65e5b3fd78d252f
@@ -2208,10 +2258,10 @@ lane gpt-oss Dequant 1	add_norm	57	57	a0ab10821649578a355e9678106824999e52cbdaf3
 lane gpt-oss Dequant 1	gemv_bias	45	45	9e0a43b7496ccb72aac7a3da3716d9d48210ab0e2c78eb1527a559d1d6466049
 lane gpt-oss Dequant 1	gemv_norm_epilogue	42	42	17df3b581f58a74abfdd7d9c4d38461b9a9de2813a5f27b99f468a832452d0f0
 lane gpt-oss Dequant 1	row_write	36	36	b1c801685055cb7cb7fc66ff04d21d303945cd3b9e72c69790d3934da142606c
-lane gpt-oss Dequant 1	qkv_head_epilogue	30	30	3808e0b3b0fc41b040da4b1f4e819823e1d68c7cd182cf57203fa126eee29920
-lane gpt-oss Dequant 1	moe_deferred_finalize	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
-lane gpt-oss Dequant 1	embed_norm	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
-lane gpt-oss Dequant 1	gemv_parts	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
+lane gpt-oss Dequant 1	moe_deferred_finalize	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane gpt-oss Dequant 1	embed_norm	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane gpt-oss Dequant 1	rope_parts	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane gpt-oss Dequant 1	gemv_parts	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
 lane gpt-oss Dequant 4	(unheld)	83	83	c52f569ff79fc436ea9f06c0b4877b58e8e079ed26e24ff6a8f4ef32b007a63d
 lane gpt-oss Dequant 4	add_norm	83	83	c52f569ff79fc436ea9f06c0b4877b58e8e079ed26e24ff6a8f4ef32b007a63d
 lane gpt-oss Dequant 4	gemv_bias	71	71	4e10f219d9ad0d13bd0b6fb31f12750c9e213341145aed24171f517355c68c7b
@@ -2242,11 +2292,11 @@ lane gpt-oss Int8Act 1	add_norm	57	57	a0ab10821649578a355e9678106824999e52cbdaf3
 lane gpt-oss Int8Act 1	gemv_bias	45	45	9e0a43b7496ccb72aac7a3da3716d9d48210ab0e2c78eb1527a559d1d6466049
 lane gpt-oss Int8Act 1	gemv_norm_epilogue	42	42	17df3b581f58a74abfdd7d9c4d38461b9a9de2813a5f27b99f468a832452d0f0
 lane gpt-oss Int8Act 1	row_write	36	36	b1c801685055cb7cb7fc66ff04d21d303945cd3b9e72c69790d3934da142606c
-lane gpt-oss Int8Act 1	qkv_head_epilogue	30	30	3808e0b3b0fc41b040da4b1f4e819823e1d68c7cd182cf57203fa126eee29920
-lane gpt-oss Int8Act 1	moe_deferred_finalize	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
-lane gpt-oss Int8Act 1	embed_norm	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
-lane gpt-oss Int8Act 1	fused_quant	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
-lane gpt-oss Int8Act 1	gemv_parts	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
+lane gpt-oss Int8Act 1	moe_deferred_finalize	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane gpt-oss Int8Act 1	embed_norm	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane gpt-oss Int8Act 1	rope_parts	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane gpt-oss Int8Act 1	fused_quant	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane gpt-oss Int8Act 1	gemv_parts	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
 lane gpt-oss Int8Act 4	(unheld)	83	83	c52f569ff79fc436ea9f06c0b4877b58e8e079ed26e24ff6a8f4ef32b007a63d
 lane gpt-oss Int8Act 4	add_norm	83	83	c52f569ff79fc436ea9f06c0b4877b58e8e079ed26e24ff6a8f4ef32b007a63d
 lane gpt-oss Int8Act 4	gemv_bias	71	71	4e10f219d9ad0d13bd0b6fb31f12750c9e213341145aed24171f517355c68c7b
@@ -2280,11 +2330,11 @@ lane gpt-oss TwoPassInt8 1	add_norm	57	57	a0ab10821649578a355e9678106824999e52cb
 lane gpt-oss TwoPassInt8 1	gemv_bias	45	45	9e0a43b7496ccb72aac7a3da3716d9d48210ab0e2c78eb1527a559d1d6466049
 lane gpt-oss TwoPassInt8 1	gemv_norm_epilogue	42	42	17df3b581f58a74abfdd7d9c4d38461b9a9de2813a5f27b99f468a832452d0f0
 lane gpt-oss TwoPassInt8 1	row_write	36	36	b1c801685055cb7cb7fc66ff04d21d303945cd3b9e72c69790d3934da142606c
-lane gpt-oss TwoPassInt8 1	qkv_head_epilogue	30	30	3808e0b3b0fc41b040da4b1f4e819823e1d68c7cd182cf57203fa126eee29920
-lane gpt-oss TwoPassInt8 1	moe_deferred_finalize	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
-lane gpt-oss TwoPassInt8 1	embed_norm	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
-lane gpt-oss TwoPassInt8 1	fused_quant	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
-lane gpt-oss TwoPassInt8 1	gemv_parts	27	27	78e0acd84df5072ac8073e5da3c262e127d29a9bddc9fa249ddf326bf60bb476
+lane gpt-oss TwoPassInt8 1	moe_deferred_finalize	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane gpt-oss TwoPassInt8 1	embed_norm	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane gpt-oss TwoPassInt8 1	rope_parts	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane gpt-oss TwoPassInt8 1	fused_quant	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
+lane gpt-oss TwoPassInt8 1	gemv_parts	33	33	3ccb8b39e0ff9916f8b7099667eeba148921c40c0f1831b1902c2c7c3d14c050
 lane gpt-oss TwoPassInt8 4	(unheld)	83	83	c52f569ff79fc436ea9f06c0b4877b58e8e079ed26e24ff6a8f4ef32b007a63d
 lane gpt-oss TwoPassInt8 4	add_norm	83	83	c52f569ff79fc436ea9f06c0b4877b58e8e079ed26e24ff6a8f4ef32b007a63d
 lane gpt-oss TwoPassInt8 4	gemv_bias	71	71	4e10f219d9ad0d13bd0b6fb31f12750c9e213341145aed24171f517355c68c7b
@@ -2472,6 +2522,7 @@ lane deepseek2-split Dequant 1	embed_norm	46	46	6db1ab49681275266191ee098f2033c7
 lane deepseek2-split Dequant 1	strided_values	43	43	f60a711b2741bffb59a7a8f38e15dda3f9cacca5f0a686d5e39345b2671218c4
 lane deepseek2-split Dequant 1	rope_parts	43	43	f60a711b2741bffb59a7a8f38e15dda3f9cacca5f0a686d5e39345b2671218c4
 lane deepseek2-split Dequant 1	gemv_parts	43	43	f60a711b2741bffb59a7a8f38e15dda3f9cacca5f0a686d5e39345b2671218c4
+lane deepseek2-split Dequant 1	dual_norm	43	43	f60a711b2741bffb59a7a8f38e15dda3f9cacca5f0a686d5e39345b2671218c4
 lane deepseek2-split Dequant 4	(unheld)	106	106	4cdf3559849a9ae35f97116e93c5a3c5d29e71713d4e33e9b3092d800c96dd1a
 lane deepseek2-split Dequant 4	add_norm	106	106	4cdf3559849a9ae35f97116e93c5a3c5d29e71713d4e33e9b3092d800c96dd1a
 lane deepseek2-split Dequant 4	slice_read	97	97	3081be7596a4bbe1717b4e4bace5f097e7fb8459a27f302d797dcb008cd9d5db
@@ -2483,6 +2534,7 @@ lane deepseek2-split Dequant 4	moe_deferred_finalize	59	59	39438de4d3187fcba2b6e
 lane deepseek2-split Dequant 4	embed_norm	59	59	39438de4d3187fcba2b6eb7cf492bf50faa6b9dd23e252b2a2e7048a17d1e1ac
 lane deepseek2-split Dequant 4	strided_values	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
 lane deepseek2-split Dequant 4	gemv_parts	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
+lane deepseek2-split Dequant 4	dual_norm	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
 lane deepseek2-split Dequant 2	(unheld)	98	98	47215f025497412cd5d6cb661feba4135b9835ff869ab7b1c0dac6f17710c9c4
 lane deepseek2-split Dequant 2	add_norm	98	98	47215f025497412cd5d6cb661feba4135b9835ff869ab7b1c0dac6f17710c9c4
 lane deepseek2-split Dequant 2	slice_read	89	89	7cdad4b82566c94ad70319c3eccebb2e04115bb8baa176c654fd28e73b0021d2
@@ -2494,6 +2546,7 @@ lane deepseek2-split Dequant 2	moe_deferred_finalize	59	59	39438de4d3187fcba2b6e
 lane deepseek2-split Dequant 2	embed_norm	59	59	39438de4d3187fcba2b6eb7cf492bf50faa6b9dd23e252b2a2e7048a17d1e1ac
 lane deepseek2-split Dequant 2	strided_values	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
 lane deepseek2-split Dequant 2	gemv_parts	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
+lane deepseek2-split Dequant 2	dual_norm	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
 lane deepseek2-split Dequant b2	(unheld)	148	148	438a10113c2a7143cdc15cd303a3db7f031ae1e128fef48d4bd331ed4fc199d9
 lane deepseek2-split Dequant b2	add_norm	147	147	b98283f31cf88041e54d31f29e746b7033684b48a6c046b21abe581d26bff343
 lane deepseek2-split Dequant b2	slice_read	144	144	91f9b5f08835aea68e243df730bdc867dfe727b597706e1d553a0f25d96df942
@@ -2505,6 +2558,7 @@ lane deepseek2-split Dequant b2	embed_norm	122	122	26f9325c8ee9aeef18a0edc7f340f
 lane deepseek2-split Dequant b2	strided_values	116	116	2eb3b54617b8d9578cb0353cadb1304d938402a3f1a1f4ca62259cfb3c51732d
 lane deepseek2-split Dequant b2	rope_parts	116	116	2eb3b54617b8d9578cb0353cadb1304d938402a3f1a1f4ca62259cfb3c51732d
 lane deepseek2-split Dequant b2	gemv_parts	116	116	2eb3b54617b8d9578cb0353cadb1304d938402a3f1a1f4ca62259cfb3c51732d
+lane deepseek2-split Dequant b2	dual_norm	116	116	2eb3b54617b8d9578cb0353cadb1304d938402a3f1a1f4ca62259cfb3c51732d
 lane deepseek2-split Int8Act 1	(unheld)	89	89	2e851e746d050d5b3f96f60ac52ed1082653eb11032fed8946c3ad7271530e28
 lane deepseek2-split Int8Act 1	add_norm	88	88	4ce8f191e83a15003f1053d9dd51143fccf92f6f80d16bc4419faf0b3435cc8b
 lane deepseek2-split Int8Act 1	gemv_norm_epilogue	84	84	d37e1343b38da6ec11a9f4c1e9576c65cf022641a5968bc457d70d9046cb1258
@@ -2519,6 +2573,7 @@ lane deepseek2-split Int8Act 1	strided_values	43	43	f60a711b2741bffb59a7a8f38e15
 lane deepseek2-split Int8Act 1	rope_parts	43	43	f60a711b2741bffb59a7a8f38e15dda3f9cacca5f0a686d5e39345b2671218c4
 lane deepseek2-split Int8Act 1	fused_quant	43	43	f60a711b2741bffb59a7a8f38e15dda3f9cacca5f0a686d5e39345b2671218c4
 lane deepseek2-split Int8Act 1	gemv_parts	43	43	f60a711b2741bffb59a7a8f38e15dda3f9cacca5f0a686d5e39345b2671218c4
+lane deepseek2-split Int8Act 1	dual_norm	43	43	f60a711b2741bffb59a7a8f38e15dda3f9cacca5f0a686d5e39345b2671218c4
 lane deepseek2-split Int8Act 4	(unheld)	106	106	4cdf3559849a9ae35f97116e93c5a3c5d29e71713d4e33e9b3092d800c96dd1a
 lane deepseek2-split Int8Act 4	add_norm	106	106	4cdf3559849a9ae35f97116e93c5a3c5d29e71713d4e33e9b3092d800c96dd1a
 lane deepseek2-split Int8Act 4	slice_read	97	97	3081be7596a4bbe1717b4e4bace5f097e7fb8459a27f302d797dcb008cd9d5db
@@ -2531,6 +2586,7 @@ lane deepseek2-split Int8Act 4	embed_norm	59	59	39438de4d3187fcba2b6eb7cf492bf50
 lane deepseek2-split Int8Act 4	strided_values	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
 lane deepseek2-split Int8Act 4	fused_quant	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
 lane deepseek2-split Int8Act 4	gemv_parts	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
+lane deepseek2-split Int8Act 4	dual_norm	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
 lane deepseek2-split Int8Act 2	(unheld)	98	98	47215f025497412cd5d6cb661feba4135b9835ff869ab7b1c0dac6f17710c9c4
 lane deepseek2-split Int8Act 2	add_norm	98	98	47215f025497412cd5d6cb661feba4135b9835ff869ab7b1c0dac6f17710c9c4
 lane deepseek2-split Int8Act 2	slice_read	89	89	7cdad4b82566c94ad70319c3eccebb2e04115bb8baa176c654fd28e73b0021d2
@@ -2543,6 +2599,7 @@ lane deepseek2-split Int8Act 2	embed_norm	59	59	39438de4d3187fcba2b6eb7cf492bf50
 lane deepseek2-split Int8Act 2	strided_values	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
 lane deepseek2-split Int8Act 2	fused_quant	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
 lane deepseek2-split Int8Act 2	gemv_parts	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
+lane deepseek2-split Int8Act 2	dual_norm	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
 lane deepseek2-split Int8Act b2	(unheld)	148	148	438a10113c2a7143cdc15cd303a3db7f031ae1e128fef48d4bd331ed4fc199d9
 lane deepseek2-split Int8Act b2	add_norm	147	147	b98283f31cf88041e54d31f29e746b7033684b48a6c046b21abe581d26bff343
 lane deepseek2-split Int8Act b2	slice_read	144	144	91f9b5f08835aea68e243df730bdc867dfe727b597706e1d553a0f25d96df942
@@ -2555,6 +2612,7 @@ lane deepseek2-split Int8Act b2	strided_values	116	116	2eb3b54617b8d9578cb0353ca
 lane deepseek2-split Int8Act b2	rope_parts	116	116	2eb3b54617b8d9578cb0353cadb1304d938402a3f1a1f4ca62259cfb3c51732d
 lane deepseek2-split Int8Act b2	fused_quant	116	116	2eb3b54617b8d9578cb0353cadb1304d938402a3f1a1f4ca62259cfb3c51732d
 lane deepseek2-split Int8Act b2	gemv_parts	116	116	2eb3b54617b8d9578cb0353cadb1304d938402a3f1a1f4ca62259cfb3c51732d
+lane deepseek2-split Int8Act b2	dual_norm	116	116	2eb3b54617b8d9578cb0353cadb1304d938402a3f1a1f4ca62259cfb3c51732d
 lane deepseek2-split TwoPassInt8 1	(unheld)	89	89	2e851e746d050d5b3f96f60ac52ed1082653eb11032fed8946c3ad7271530e28
 lane deepseek2-split TwoPassInt8 1	add_norm	88	88	4ce8f191e83a15003f1053d9dd51143fccf92f6f80d16bc4419faf0b3435cc8b
 lane deepseek2-split TwoPassInt8 1	gemv_norm_epilogue	84	84	d37e1343b38da6ec11a9f4c1e9576c65cf022641a5968bc457d70d9046cb1258
@@ -2569,6 +2627,7 @@ lane deepseek2-split TwoPassInt8 1	strided_values	43	43	f60a711b2741bffb59a7a8f3
 lane deepseek2-split TwoPassInt8 1	rope_parts	43	43	f60a711b2741bffb59a7a8f38e15dda3f9cacca5f0a686d5e39345b2671218c4
 lane deepseek2-split TwoPassInt8 1	fused_quant	43	43	f60a711b2741bffb59a7a8f38e15dda3f9cacca5f0a686d5e39345b2671218c4
 lane deepseek2-split TwoPassInt8 1	gemv_parts	43	43	f60a711b2741bffb59a7a8f38e15dda3f9cacca5f0a686d5e39345b2671218c4
+lane deepseek2-split TwoPassInt8 1	dual_norm	43	43	f60a711b2741bffb59a7a8f38e15dda3f9cacca5f0a686d5e39345b2671218c4
 lane deepseek2-split TwoPassInt8 4	(unheld)	106	106	4cdf3559849a9ae35f97116e93c5a3c5d29e71713d4e33e9b3092d800c96dd1a
 lane deepseek2-split TwoPassInt8 4	add_norm	106	106	4cdf3559849a9ae35f97116e93c5a3c5d29e71713d4e33e9b3092d800c96dd1a
 lane deepseek2-split TwoPassInt8 4	slice_read	97	97	3081be7596a4bbe1717b4e4bace5f097e7fb8459a27f302d797dcb008cd9d5db
@@ -2581,6 +2640,7 @@ lane deepseek2-split TwoPassInt8 4	embed_norm	59	59	39438de4d3187fcba2b6eb7cf492
 lane deepseek2-split TwoPassInt8 4	strided_values	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
 lane deepseek2-split TwoPassInt8 4	fused_quant	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
 lane deepseek2-split TwoPassInt8 4	gemv_parts	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
+lane deepseek2-split TwoPassInt8 4	dual_norm	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
 lane deepseek2-split TwoPassInt8 2	(unheld)	98	98	47215f025497412cd5d6cb661feba4135b9835ff869ab7b1c0dac6f17710c9c4
 lane deepseek2-split TwoPassInt8 2	add_norm	98	98	47215f025497412cd5d6cb661feba4135b9835ff869ab7b1c0dac6f17710c9c4
 lane deepseek2-split TwoPassInt8 2	slice_read	89	89	7cdad4b82566c94ad70319c3eccebb2e04115bb8baa176c654fd28e73b0021d2
@@ -2593,6 +2653,7 @@ lane deepseek2-split TwoPassInt8 2	embed_norm	59	59	39438de4d3187fcba2b6eb7cf492
 lane deepseek2-split TwoPassInt8 2	strided_values	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
 lane deepseek2-split TwoPassInt8 2	fused_quant	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
 lane deepseek2-split TwoPassInt8 2	gemv_parts	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
+lane deepseek2-split TwoPassInt8 2	dual_norm	56	56	216a707ced1a407ab901ddca81b3a2e0efa46d06f2d335e374264486fe49722a
 lane deepseek2-split TwoPassInt8 b2	(unheld)	148	148	438a10113c2a7143cdc15cd303a3db7f031ae1e128fef48d4bd331ed4fc199d9
 lane deepseek2-split TwoPassInt8 b2	add_norm	147	147	b98283f31cf88041e54d31f29e746b7033684b48a6c046b21abe581d26bff343
 lane deepseek2-split TwoPassInt8 b2	slice_read	144	144	91f9b5f08835aea68e243df730bdc867dfe727b597706e1d553a0f25d96df942
@@ -2605,16 +2666,17 @@ lane deepseek2-split TwoPassInt8 b2	strided_values	116	116	2eb3b54617b8d9578cb03
 lane deepseek2-split TwoPassInt8 b2	rope_parts	116	116	2eb3b54617b8d9578cb0353cadb1304d938402a3f1a1f4ca62259cfb3c51732d
 lane deepseek2-split TwoPassInt8 b2	fused_quant	116	116	2eb3b54617b8d9578cb0353cadb1304d938402a3f1a1f4ca62259cfb3c51732d
 lane deepseek2-split TwoPassInt8 b2	gemv_parts	116	116	2eb3b54617b8d9578cb0353cadb1304d938402a3f1a1f4ca62259cfb3c51732d
+lane deepseek2-split TwoPassInt8 b2	dual_norm	116	116	2eb3b54617b8d9578cb0353cadb1304d938402a3f1a1f4ca62259cfb3c51732d
 lane minicpm Dequant 1	(unheld)	63	63	1f3beb331b85ee2d386b11a20c0868935711a5e8f3a39f87be18e955ee86e0a1
 lane minicpm Dequant 1	add_norm	62	62	16a1e1f38041cd5f2f1a53ec7957c9eb5a5e0aa30ffae8b711997eec10cc92bd
 lane minicpm Dequant 1	gemm_scale	56	56	0bb99815f6af0228ba5c6daff3d3ccf764ada79355efc6c95fe1af72125ceae6
 lane minicpm Dequant 1	norm_scale	55	55	c9901a3fea88c36e99faa948f9dc37ad1925f531612a02ba3914a94359dffe21
 lane minicpm Dequant 1	row_write	49	49	5b2b34074a471b1649942c1772325b35cb7e99d1742b3f2997231ba8b0c840de
-lane minicpm Dequant 1	qkv_head_epilogue	43	43	da73baeff32244600717f496e2cdbd173fa1f2c8d2fe2f8658f267a64676ebb8
-lane minicpm Dequant 1	glu_pair	37	37	346ebbd02868cea5fed5ca79f4f40cd2b3625d293109839fa061885f9b05a1c2
-lane minicpm Dequant 1	gather_scale	36	36	0a937c5d4a8b717d451eb54be0359e87922654647bb5af6bbbb60997348dbd29
-lane minicpm Dequant 1	embed_norm	36	36	0a937c5d4a8b717d451eb54be0359e87922654647bb5af6bbbb60997348dbd29
-lane minicpm Dequant 1	gemv_parts	36	36	0a937c5d4a8b717d451eb54be0359e87922654647bb5af6bbbb60997348dbd29
+lane minicpm Dequant 1	glu_pair	43	43	9bab63dfb724e61fcb6999fab53f0a4686c825a595696f558679e1f45f6bbcd9
+lane minicpm Dequant 1	gather_scale	42	42	0e2f7c7752aec9fa331f9e52c6606e654354474a0c358e6c3c478bce90808b7d
+lane minicpm Dequant 1	embed_norm	42	42	0e2f7c7752aec9fa331f9e52c6606e654354474a0c358e6c3c478bce90808b7d
+lane minicpm Dequant 1	rope_parts	42	42	0e2f7c7752aec9fa331f9e52c6606e654354474a0c358e6c3c478bce90808b7d
+lane minicpm Dequant 1	gemv_parts	42	42	0e2f7c7752aec9fa331f9e52c6606e654354474a0c358e6c3c478bce90808b7d
 lane minicpm Dequant 4	(unheld)	64	64	90c824e36793659f75212d8e9e0eb40cb35d349e7e74314fb2deda7fc8096e2f
 lane minicpm Dequant 4	add_norm	64	64	90c824e36793659f75212d8e9e0eb40cb35d349e7e74314fb2deda7fc8096e2f
 lane minicpm Dequant 4	gemm_scale	58	58	170a10e04abd3e38a78d7bb8ff2b1258e46a179c50421f035999bff0abc89d2c
@@ -2648,12 +2710,12 @@ lane minicpm Int8Act 1	add_norm	62	62	16a1e1f38041cd5f2f1a53ec7957c9eb5a5e0aa30f
 lane minicpm Int8Act 1	gemm_scale	56	56	0bb99815f6af0228ba5c6daff3d3ccf764ada79355efc6c95fe1af72125ceae6
 lane minicpm Int8Act 1	norm_scale	55	55	c9901a3fea88c36e99faa948f9dc37ad1925f531612a02ba3914a94359dffe21
 lane minicpm Int8Act 1	row_write	49	49	5b2b34074a471b1649942c1772325b35cb7e99d1742b3f2997231ba8b0c840de
-lane minicpm Int8Act 1	qkv_head_epilogue	43	43	da73baeff32244600717f496e2cdbd173fa1f2c8d2fe2f8658f267a64676ebb8
-lane minicpm Int8Act 1	glu_pair	37	37	346ebbd02868cea5fed5ca79f4f40cd2b3625d293109839fa061885f9b05a1c2
-lane minicpm Int8Act 1	gather_scale	36	36	0a937c5d4a8b717d451eb54be0359e87922654647bb5af6bbbb60997348dbd29
-lane minicpm Int8Act 1	embed_norm	36	36	0a937c5d4a8b717d451eb54be0359e87922654647bb5af6bbbb60997348dbd29
-lane minicpm Int8Act 1	fused_quant	36	36	0a937c5d4a8b717d451eb54be0359e87922654647bb5af6bbbb60997348dbd29
-lane minicpm Int8Act 1	gemv_parts	36	36	0a937c5d4a8b717d451eb54be0359e87922654647bb5af6bbbb60997348dbd29
+lane minicpm Int8Act 1	glu_pair	43	43	9bab63dfb724e61fcb6999fab53f0a4686c825a595696f558679e1f45f6bbcd9
+lane minicpm Int8Act 1	gather_scale	42	42	0e2f7c7752aec9fa331f9e52c6606e654354474a0c358e6c3c478bce90808b7d
+lane minicpm Int8Act 1	embed_norm	42	42	0e2f7c7752aec9fa331f9e52c6606e654354474a0c358e6c3c478bce90808b7d
+lane minicpm Int8Act 1	rope_parts	42	42	0e2f7c7752aec9fa331f9e52c6606e654354474a0c358e6c3c478bce90808b7d
+lane minicpm Int8Act 1	fused_quant	42	42	0e2f7c7752aec9fa331f9e52c6606e654354474a0c358e6c3c478bce90808b7d
+lane minicpm Int8Act 1	gemv_parts	42	42	0e2f7c7752aec9fa331f9e52c6606e654354474a0c358e6c3c478bce90808b7d
 lane minicpm Int8Act 4	(unheld)	64	64	90c824e36793659f75212d8e9e0eb40cb35d349e7e74314fb2deda7fc8096e2f
 lane minicpm Int8Act 4	add_norm	64	64	90c824e36793659f75212d8e9e0eb40cb35d349e7e74314fb2deda7fc8096e2f
 lane minicpm Int8Act 4	gemm_scale	58	58	170a10e04abd3e38a78d7bb8ff2b1258e46a179c50421f035999bff0abc89d2c
@@ -2690,12 +2752,12 @@ lane minicpm TwoPassInt8 1	add_norm	62	62	16a1e1f38041cd5f2f1a53ec7957c9eb5a5e0a
 lane minicpm TwoPassInt8 1	gemm_scale	56	56	0bb99815f6af0228ba5c6daff3d3ccf764ada79355efc6c95fe1af72125ceae6
 lane minicpm TwoPassInt8 1	norm_scale	55	55	c9901a3fea88c36e99faa948f9dc37ad1925f531612a02ba3914a94359dffe21
 lane minicpm TwoPassInt8 1	row_write	49	49	5b2b34074a471b1649942c1772325b35cb7e99d1742b3f2997231ba8b0c840de
-lane minicpm TwoPassInt8 1	qkv_head_epilogue	43	43	da73baeff32244600717f496e2cdbd173fa1f2c8d2fe2f8658f267a64676ebb8
-lane minicpm TwoPassInt8 1	glu_pair	37	37	346ebbd02868cea5fed5ca79f4f40cd2b3625d293109839fa061885f9b05a1c2
-lane minicpm TwoPassInt8 1	gather_scale	36	36	0a937c5d4a8b717d451eb54be0359e87922654647bb5af6bbbb60997348dbd29
-lane minicpm TwoPassInt8 1	embed_norm	36	36	0a937c5d4a8b717d451eb54be0359e87922654647bb5af6bbbb60997348dbd29
-lane minicpm TwoPassInt8 1	fused_quant	36	36	0a937c5d4a8b717d451eb54be0359e87922654647bb5af6bbbb60997348dbd29
-lane minicpm TwoPassInt8 1	gemv_parts	36	36	0a937c5d4a8b717d451eb54be0359e87922654647bb5af6bbbb60997348dbd29
+lane minicpm TwoPassInt8 1	glu_pair	43	43	9bab63dfb724e61fcb6999fab53f0a4686c825a595696f558679e1f45f6bbcd9
+lane minicpm TwoPassInt8 1	gather_scale	42	42	0e2f7c7752aec9fa331f9e52c6606e654354474a0c358e6c3c478bce90808b7d
+lane minicpm TwoPassInt8 1	embed_norm	42	42	0e2f7c7752aec9fa331f9e52c6606e654354474a0c358e6c3c478bce90808b7d
+lane minicpm TwoPassInt8 1	rope_parts	42	42	0e2f7c7752aec9fa331f9e52c6606e654354474a0c358e6c3c478bce90808b7d
+lane minicpm TwoPassInt8 1	fused_quant	42	42	0e2f7c7752aec9fa331f9e52c6606e654354474a0c358e6c3c478bce90808b7d
+lane minicpm TwoPassInt8 1	gemv_parts	42	42	0e2f7c7752aec9fa331f9e52c6606e654354474a0c358e6c3c478bce90808b7d
 lane minicpm TwoPassInt8 4	(unheld)	64	64	90c824e36793659f75212d8e9e0eb40cb35d349e7e74314fb2deda7fc8096e2f
 lane minicpm TwoPassInt8 4	add_norm	64	64	90c824e36793659f75212d8e9e0eb40cb35d349e7e74314fb2deda7fc8096e2f
 lane minicpm TwoPassInt8 4	gemm_scale	58	58	170a10e04abd3e38a78d7bb8ff2b1258e46a179c50421f035999bff0abc89d2c
@@ -2731,10 +2793,10 @@ lane arcee Dequant 1	(unheld)	55	55	99b168435b17ade6bff2e450f3bd470c8739b74927a2
 lane arcee Dequant 1	add_norm	54	54	dfc64ce50d3197ebf6f43442b1efc18ac81a96503524b208dc5995fc099435d3
 lane arcee Dequant 1	gemv_norm_epilogue	48	48	bf8dc59dbb482d2cb801f48b216bdfa310eb7efc6ac68c31a9f6ec932a3f6173
 lane arcee Dequant 1	row_write	42	42	5ae430110ec6a3336623a6d8460cfdc4c16f6f62996ca6d1413965df43fcc595
-lane arcee Dequant 1	qkv_head_epilogue	36	36	5002ff3ff855e15c49aa134d30ea785c5f4b358ea352f9733b4e14f9f7bf421b
-lane arcee Dequant 1	relu_sqr	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane arcee Dequant 1	embed_norm	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
-lane arcee Dequant 1	gemv_parts	30	30	38e107777b6002f8c3ff0546593c5d027c679578c5e47ad7430fe46b24323a89
+lane arcee Dequant 1	relu_sqr	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane arcee Dequant 1	embed_norm	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane arcee Dequant 1	rope_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
+lane arcee Dequant 1	gemv_parts	36	36	86e49d4144f2a0d6a33b4ffe73c8ca839568b19bbcd160120a8bb70c83275d31
 lane arcee Dequant 4	(unheld)	56	56	fffa3aa3178e8b71aa0065585a34479e98c4c02735a6eac7bd46a095dca5edb6
 lane arcee Dequant 4	add_norm	56	56	fffa3aa3178e8b71aa0065585a34479e98c4c02735a6eac7bd46a095dca5edb6
 lane arcee Dequant 4	row_write	50	50	82a27d0c231c2bc9d7e700165f89d238f8b63f5e32a0845c1b96eb1289f2b423
@@ -2758,11 +2820,11 @@ lane arcee Int8Act 1	(unheld)	55	55	99b168435b17ade6bff2e450f3bd470c8739b74927a2
 lane arcee Int8Act 1	add_norm	54	54	dfc64ce50d3197ebf6f43442b1efc18ac81a96503524b208dc5995fc099435d3
 lane arcee Int8Act 1	gemv_norm_epilogue	48	48	bf8dc59dbb482d2cb801f48b216bdfa310eb7efc6ac68c31a9f6ec932a3f6173
 lane arcee Int8Act 1	row_write	42	42	5ae430110ec6a3336623a6d8460cfdc4c16f6f62996ca6d1413965df43fcc595
-lane arcee Int8Act 1	qkv_head_epilogue	36	36	5002ff3ff855e15c49aa134d30ea785c5f4b358ea352f9733b4e14f9f7bf421b
-lane arcee Int8Act 1	relu_sqr	33	33	5f5c06d82b71b796720f387b07e2785764276cb8468b8927496b5ebff07641aa
-lane arcee Int8Act 1	embed_norm	33	33	5f5c06d82b71b796720f387b07e2785764276cb8468b8927496b5ebff07641aa
-lane arcee Int8Act 1	fused_quant	33	33	5f5c06d82b71b796720f387b07e2785764276cb8468b8927496b5ebff07641aa
-lane arcee Int8Act 1	gemv_parts	33	33	5f5c06d82b71b796720f387b07e2785764276cb8468b8927496b5ebff07641aa
+lane arcee Int8Act 1	relu_sqr	39	39	ca4376d78486f543049d69a12f105528e58b6a0d9adb983c6c2d38050e6da9e8
+lane arcee Int8Act 1	embed_norm	39	39	ca4376d78486f543049d69a12f105528e58b6a0d9adb983c6c2d38050e6da9e8
+lane arcee Int8Act 1	rope_parts	39	39	ca4376d78486f543049d69a12f105528e58b6a0d9adb983c6c2d38050e6da9e8
+lane arcee Int8Act 1	fused_quant	39	39	ca4376d78486f543049d69a12f105528e58b6a0d9adb983c6c2d38050e6da9e8
+lane arcee Int8Act 1	gemv_parts	39	39	ca4376d78486f543049d69a12f105528e58b6a0d9adb983c6c2d38050e6da9e8
 lane arcee Int8Act 4	(unheld)	56	56	fffa3aa3178e8b71aa0065585a34479e98c4c02735a6eac7bd46a095dca5edb6
 lane arcee Int8Act 4	add_norm	56	56	fffa3aa3178e8b71aa0065585a34479e98c4c02735a6eac7bd46a095dca5edb6
 lane arcee Int8Act 4	row_write	50	50	82a27d0c231c2bc9d7e700165f89d238f8b63f5e32a0845c1b96eb1289f2b423
@@ -2789,11 +2851,11 @@ lane arcee TwoPassInt8 1	(unheld)	55	55	99b168435b17ade6bff2e450f3bd470c8739b749
 lane arcee TwoPassInt8 1	add_norm	54	54	dfc64ce50d3197ebf6f43442b1efc18ac81a96503524b208dc5995fc099435d3
 lane arcee TwoPassInt8 1	gemv_norm_epilogue	48	48	bf8dc59dbb482d2cb801f48b216bdfa310eb7efc6ac68c31a9f6ec932a3f6173
 lane arcee TwoPassInt8 1	row_write	42	42	5ae430110ec6a3336623a6d8460cfdc4c16f6f62996ca6d1413965df43fcc595
-lane arcee TwoPassInt8 1	qkv_head_epilogue	36	36	5002ff3ff855e15c49aa134d30ea785c5f4b358ea352f9733b4e14f9f7bf421b
-lane arcee TwoPassInt8 1	relu_sqr	33	33	5f5c06d82b71b796720f387b07e2785764276cb8468b8927496b5ebff07641aa
-lane arcee TwoPassInt8 1	embed_norm	33	33	5f5c06d82b71b796720f387b07e2785764276cb8468b8927496b5ebff07641aa
-lane arcee TwoPassInt8 1	fused_quant	33	33	5f5c06d82b71b796720f387b07e2785764276cb8468b8927496b5ebff07641aa
-lane arcee TwoPassInt8 1	gemv_parts	33	33	5f5c06d82b71b796720f387b07e2785764276cb8468b8927496b5ebff07641aa
+lane arcee TwoPassInt8 1	relu_sqr	39	39	ca4376d78486f543049d69a12f105528e58b6a0d9adb983c6c2d38050e6da9e8
+lane arcee TwoPassInt8 1	embed_norm	39	39	ca4376d78486f543049d69a12f105528e58b6a0d9adb983c6c2d38050e6da9e8
+lane arcee TwoPassInt8 1	rope_parts	39	39	ca4376d78486f543049d69a12f105528e58b6a0d9adb983c6c2d38050e6da9e8
+lane arcee TwoPassInt8 1	fused_quant	39	39	ca4376d78486f543049d69a12f105528e58b6a0d9adb983c6c2d38050e6da9e8
+lane arcee TwoPassInt8 1	gemv_parts	39	39	ca4376d78486f543049d69a12f105528e58b6a0d9adb983c6c2d38050e6da9e8
 lane arcee TwoPassInt8 4	(unheld)	56	56	fffa3aa3178e8b71aa0065585a34479e98c4c02735a6eac7bd46a095dca5edb6
 lane arcee TwoPassInt8 4	add_norm	56	56	fffa3aa3178e8b71aa0065585a34479e98c4c02735a6eac7bd46a095dca5edb6
 lane arcee TwoPassInt8 4	row_write	50	50	82a27d0c231c2bc9d7e700165f89d238f8b63f5e32a0845c1b96eb1289f2b423
@@ -2820,11 +2882,11 @@ lane granite Dequant 1	(unheld)	63	63	130eafb421137454e25c34d981b8b13f5f8edf8243
 lane granite Dequant 1	add_norm	62	62	19ae32b85b3a6e5e7d25f044b7340638c04396d7ff559142226fdd9666591367
 lane granite Dequant 1	gemm_scale	55	55	2b9432b7ffbed4df1ed2b40b765f6211f17e24234488fa962b07a6f097e38952
 lane granite Dequant 1	row_write	49	49	21966a83f135c31ac2faaa6811caeac7cf5d5d2b3ef3ea228cbd01578f3f59b4
-lane granite Dequant 1	qkv_head_epilogue	43	43	630d09057504d114cefbfe4aaefe5c38f4cd33891c42f054a599865abe6fb34d
-lane granite Dequant 1	glu_pair	37	37	7095d04d5d9fee2d8b5c7899992a8d3a5811e3e86e205247c4067871cbfc3bda
-lane granite Dequant 1	gather_scale	36	36	bae455d1b3066c0e3bc09ab08340bd2b3ccf3196b33b53929bea6c644ffd1d5f
-lane granite Dequant 1	embed_norm	36	36	bae455d1b3066c0e3bc09ab08340bd2b3ccf3196b33b53929bea6c644ffd1d5f
-lane granite Dequant 1	gemv_parts	36	36	bae455d1b3066c0e3bc09ab08340bd2b3ccf3196b33b53929bea6c644ffd1d5f
+lane granite Dequant 1	glu_pair	43	43	cd13d1aead923365eba90fa546295be101f3be65e2f33ddbe5d6156d1e8a3c6a
+lane granite Dequant 1	gather_scale	42	42	8f56e9d9972d347b9abbd497436363e537348a0abeea32207a4cc3ebb3eeac94
+lane granite Dequant 1	embed_norm	42	42	8f56e9d9972d347b9abbd497436363e537348a0abeea32207a4cc3ebb3eeac94
+lane granite Dequant 1	rope_parts	42	42	8f56e9d9972d347b9abbd497436363e537348a0abeea32207a4cc3ebb3eeac94
+lane granite Dequant 1	gemv_parts	42	42	8f56e9d9972d347b9abbd497436363e537348a0abeea32207a4cc3ebb3eeac94
 lane granite Dequant 4	(unheld)	64	64	302580d8d4582d6842f9b04143f5a3bfe67a86efd09f318cfcdcd1f36eee0de7
 lane granite Dequant 4	add_norm	64	64	302580d8d4582d6842f9b04143f5a3bfe67a86efd09f318cfcdcd1f36eee0de7
 lane granite Dequant 4	gemm_scale	57	57	bd2141d49c8bcc09e605d9bfcba57a712edf14f442d06a4577f14832cf5c3970
@@ -2854,12 +2916,12 @@ lane granite Int8Act 1	(unheld)	63	63	130eafb421137454e25c34d981b8b13f5f8edf8243
 lane granite Int8Act 1	add_norm	62	62	19ae32b85b3a6e5e7d25f044b7340638c04396d7ff559142226fdd9666591367
 lane granite Int8Act 1	gemm_scale	55	55	2b9432b7ffbed4df1ed2b40b765f6211f17e24234488fa962b07a6f097e38952
 lane granite Int8Act 1	row_write	49	49	21966a83f135c31ac2faaa6811caeac7cf5d5d2b3ef3ea228cbd01578f3f59b4
-lane granite Int8Act 1	qkv_head_epilogue	43	43	630d09057504d114cefbfe4aaefe5c38f4cd33891c42f054a599865abe6fb34d
-lane granite Int8Act 1	glu_pair	37	37	7095d04d5d9fee2d8b5c7899992a8d3a5811e3e86e205247c4067871cbfc3bda
-lane granite Int8Act 1	gather_scale	36	36	bae455d1b3066c0e3bc09ab08340bd2b3ccf3196b33b53929bea6c644ffd1d5f
-lane granite Int8Act 1	embed_norm	36	36	bae455d1b3066c0e3bc09ab08340bd2b3ccf3196b33b53929bea6c644ffd1d5f
-lane granite Int8Act 1	fused_quant	36	36	bae455d1b3066c0e3bc09ab08340bd2b3ccf3196b33b53929bea6c644ffd1d5f
-lane granite Int8Act 1	gemv_parts	36	36	bae455d1b3066c0e3bc09ab08340bd2b3ccf3196b33b53929bea6c644ffd1d5f
+lane granite Int8Act 1	glu_pair	43	43	cd13d1aead923365eba90fa546295be101f3be65e2f33ddbe5d6156d1e8a3c6a
+lane granite Int8Act 1	gather_scale	42	42	8f56e9d9972d347b9abbd497436363e537348a0abeea32207a4cc3ebb3eeac94
+lane granite Int8Act 1	embed_norm	42	42	8f56e9d9972d347b9abbd497436363e537348a0abeea32207a4cc3ebb3eeac94
+lane granite Int8Act 1	rope_parts	42	42	8f56e9d9972d347b9abbd497436363e537348a0abeea32207a4cc3ebb3eeac94
+lane granite Int8Act 1	fused_quant	42	42	8f56e9d9972d347b9abbd497436363e537348a0abeea32207a4cc3ebb3eeac94
+lane granite Int8Act 1	gemv_parts	42	42	8f56e9d9972d347b9abbd497436363e537348a0abeea32207a4cc3ebb3eeac94
 lane granite Int8Act 4	(unheld)	64	64	302580d8d4582d6842f9b04143f5a3bfe67a86efd09f318cfcdcd1f36eee0de7
 lane granite Int8Act 4	add_norm	64	64	302580d8d4582d6842f9b04143f5a3bfe67a86efd09f318cfcdcd1f36eee0de7
 lane granite Int8Act 4	gemm_scale	57	57	bd2141d49c8bcc09e605d9bfcba57a712edf14f442d06a4577f14832cf5c3970
@@ -2892,12 +2954,12 @@ lane granite TwoPassInt8 1	(unheld)	63	63	130eafb421137454e25c34d981b8b13f5f8edf
 lane granite TwoPassInt8 1	add_norm	62	62	19ae32b85b3a6e5e7d25f044b7340638c04396d7ff559142226fdd9666591367
 lane granite TwoPassInt8 1	gemm_scale	55	55	2b9432b7ffbed4df1ed2b40b765f6211f17e24234488fa962b07a6f097e38952
 lane granite TwoPassInt8 1	row_write	49	49	21966a83f135c31ac2faaa6811caeac7cf5d5d2b3ef3ea228cbd01578f3f59b4
-lane granite TwoPassInt8 1	qkv_head_epilogue	43	43	630d09057504d114cefbfe4aaefe5c38f4cd33891c42f054a599865abe6fb34d
-lane granite TwoPassInt8 1	glu_pair	37	37	7095d04d5d9fee2d8b5c7899992a8d3a5811e3e86e205247c4067871cbfc3bda
-lane granite TwoPassInt8 1	gather_scale	36	36	bae455d1b3066c0e3bc09ab08340bd2b3ccf3196b33b53929bea6c644ffd1d5f
-lane granite TwoPassInt8 1	embed_norm	36	36	bae455d1b3066c0e3bc09ab08340bd2b3ccf3196b33b53929bea6c644ffd1d5f
-lane granite TwoPassInt8 1	fused_quant	36	36	bae455d1b3066c0e3bc09ab08340bd2b3ccf3196b33b53929bea6c644ffd1d5f
-lane granite TwoPassInt8 1	gemv_parts	36	36	bae455d1b3066c0e3bc09ab08340bd2b3ccf3196b33b53929bea6c644ffd1d5f
+lane granite TwoPassInt8 1	glu_pair	43	43	cd13d1aead923365eba90fa546295be101f3be65e2f33ddbe5d6156d1e8a3c6a
+lane granite TwoPassInt8 1	gather_scale	42	42	8f56e9d9972d347b9abbd497436363e537348a0abeea32207a4cc3ebb3eeac94
+lane granite TwoPassInt8 1	embed_norm	42	42	8f56e9d9972d347b9abbd497436363e537348a0abeea32207a4cc3ebb3eeac94
+lane granite TwoPassInt8 1	rope_parts	42	42	8f56e9d9972d347b9abbd497436363e537348a0abeea32207a4cc3ebb3eeac94
+lane granite TwoPassInt8 1	fused_quant	42	42	8f56e9d9972d347b9abbd497436363e537348a0abeea32207a4cc3ebb3eeac94
+lane granite TwoPassInt8 1	gemv_parts	42	42	8f56e9d9972d347b9abbd497436363e537348a0abeea32207a4cc3ebb3eeac94
 lane granite TwoPassInt8 4	(unheld)	64	64	302580d8d4582d6842f9b04143f5a3bfe67a86efd09f318cfcdcd1f36eee0de7
 lane granite TwoPassInt8 4	add_norm	64	64	302580d8d4582d6842f9b04143f5a3bfe67a86efd09f318cfcdcd1f36eee0de7
 lane granite TwoPassInt8 4	gemm_scale	57	57	bd2141d49c8bcc09e605d9bfcba57a712edf14f442d06a4577f14832cf5c3970
@@ -2931,13 +2993,13 @@ lane gemma2 Dequant 1	add_norm	65	65	70bb54651ce3b8a71e70e015380ad56af95d4278fcc
 lane gemma2 Dequant 1	sandwich_norm	59	59	7bb4b1abf544ecbca3aed47ab2b80e5290c812f5ea8d09af9cf1f8043ceb9c8a
 lane gemma2 Dequant 1	gemv_norm_epilogue	53	53	58109e0ca5593d43ef7073998b46b1bdbe3f37354e68c47c1eca2a2393eafb52
 lane gemma2 Dequant 1	row_write	47	47	f6b1bfbef31c64f46f011342306753d7e607a1a69d4d0a2cda0337ae1a493215
-lane gemma2 Dequant 1	qkv_head_epilogue	41	41	1a517264b5d26682aad41d690ed113afa92e0bd1333b3d09e4a68d932eac32da
-lane gemma2 Dequant 1	act_gate	38	38	a761ee143149abec41064a296b0931f9f4282fc681c884a6fae7ee0d50d63356
-lane gemma2 Dequant 1	glu_pair	32	32	a537aefb336efe6b13b1c022f6241043764b9d63d59a01bca3895c67fbd0a4b6
-lane gemma2 Dequant 1	cap_argmax	32	32	a537aefb336efe6b13b1c022f6241043764b9d63d59a01bca3895c67fbd0a4b6
-lane gemma2 Dequant 1	gather_scale	31	31	20eaf3ecd8858c20165500be765f0a6cbe66b8e4099bfce57b45d35ded97a590
-lane gemma2 Dequant 1	embed_norm	31	31	20eaf3ecd8858c20165500be765f0a6cbe66b8e4099bfce57b45d35ded97a590
-lane gemma2 Dequant 1	gemv_parts	31	31	20eaf3ecd8858c20165500be765f0a6cbe66b8e4099bfce57b45d35ded97a590
+lane gemma2 Dequant 1	act_gate	44	44	576842a42c9af6d3f6d86c53a0f4736d3f3d82a3d8df45d085104d2817f17ffb
+lane gemma2 Dequant 1	glu_pair	38	38	a2bcaec2fecb08a717f9d0d8ac17bd396ead5b629bbee8563c1a39961303f629
+lane gemma2 Dequant 1	cap_argmax	38	38	a2bcaec2fecb08a717f9d0d8ac17bd396ead5b629bbee8563c1a39961303f629
+lane gemma2 Dequant 1	gather_scale	37	37	43169fc368c5d948d8b04b4efb310c6aefa9f317c7022ec0f615402481c0259a
+lane gemma2 Dequant 1	embed_norm	37	37	43169fc368c5d948d8b04b4efb310c6aefa9f317c7022ec0f615402481c0259a
+lane gemma2 Dequant 1	rope_parts	37	37	43169fc368c5d948d8b04b4efb310c6aefa9f317c7022ec0f615402481c0259a
+lane gemma2 Dequant 1	gemv_parts	37	37	43169fc368c5d948d8b04b4efb310c6aefa9f317c7022ec0f615402481c0259a
 lane gemma2 Dequant 4	(unheld)	67	67	93c986eed603231156aa3b4931859b271633d60c0fcb91499aae70ce3864018f
 lane gemma2 Dequant 4	add_norm	67	67	93c986eed603231156aa3b4931859b271633d60c0fcb91499aae70ce3864018f
 lane gemma2 Dequant 4	sandwich_norm	62	62	d0ed68b8535d9ea0805cd384ac6db1087f2fa91b337b2667125cc361abc72ea7
@@ -2974,14 +3036,14 @@ lane gemma2 Int8Act 1	add_norm	65	65	70bb54651ce3b8a71e70e015380ad56af95d4278fcc
 lane gemma2 Int8Act 1	sandwich_norm	59	59	7bb4b1abf544ecbca3aed47ab2b80e5290c812f5ea8d09af9cf1f8043ceb9c8a
 lane gemma2 Int8Act 1	gemv_norm_epilogue	53	53	58109e0ca5593d43ef7073998b46b1bdbe3f37354e68c47c1eca2a2393eafb52
 lane gemma2 Int8Act 1	row_write	47	47	f6b1bfbef31c64f46f011342306753d7e607a1a69d4d0a2cda0337ae1a493215
-lane gemma2 Int8Act 1	qkv_head_epilogue	41	41	1a517264b5d26682aad41d690ed113afa92e0bd1333b3d09e4a68d932eac32da
-lane gemma2 Int8Act 1	act_gate	38	38	a761ee143149abec41064a296b0931f9f4282fc681c884a6fae7ee0d50d63356
-lane gemma2 Int8Act 1	glu_pair	32	32	a537aefb336efe6b13b1c022f6241043764b9d63d59a01bca3895c67fbd0a4b6
-lane gemma2 Int8Act 1	cap_argmax	32	32	a537aefb336efe6b13b1c022f6241043764b9d63d59a01bca3895c67fbd0a4b6
-lane gemma2 Int8Act 1	gather_scale	31	31	20eaf3ecd8858c20165500be765f0a6cbe66b8e4099bfce57b45d35ded97a590
-lane gemma2 Int8Act 1	embed_norm	31	31	20eaf3ecd8858c20165500be765f0a6cbe66b8e4099bfce57b45d35ded97a590
-lane gemma2 Int8Act 1	fused_quant	31	31	20eaf3ecd8858c20165500be765f0a6cbe66b8e4099bfce57b45d35ded97a590
-lane gemma2 Int8Act 1	gemv_parts	31	31	20eaf3ecd8858c20165500be765f0a6cbe66b8e4099bfce57b45d35ded97a590
+lane gemma2 Int8Act 1	act_gate	44	44	576842a42c9af6d3f6d86c53a0f4736d3f3d82a3d8df45d085104d2817f17ffb
+lane gemma2 Int8Act 1	glu_pair	38	38	a2bcaec2fecb08a717f9d0d8ac17bd396ead5b629bbee8563c1a39961303f629
+lane gemma2 Int8Act 1	cap_argmax	38	38	a2bcaec2fecb08a717f9d0d8ac17bd396ead5b629bbee8563c1a39961303f629
+lane gemma2 Int8Act 1	gather_scale	37	37	43169fc368c5d948d8b04b4efb310c6aefa9f317c7022ec0f615402481c0259a
+lane gemma2 Int8Act 1	embed_norm	37	37	43169fc368c5d948d8b04b4efb310c6aefa9f317c7022ec0f615402481c0259a
+lane gemma2 Int8Act 1	rope_parts	37	37	43169fc368c5d948d8b04b4efb310c6aefa9f317c7022ec0f615402481c0259a
+lane gemma2 Int8Act 1	fused_quant	37	37	43169fc368c5d948d8b04b4efb310c6aefa9f317c7022ec0f615402481c0259a
+lane gemma2 Int8Act 1	gemv_parts	37	37	43169fc368c5d948d8b04b4efb310c6aefa9f317c7022ec0f615402481c0259a
 lane gemma2 Int8Act 4	(unheld)	67	67	93c986eed603231156aa3b4931859b271633d60c0fcb91499aae70ce3864018f
 lane gemma2 Int8Act 4	add_norm	67	67	93c986eed603231156aa3b4931859b271633d60c0fcb91499aae70ce3864018f
 lane gemma2 Int8Act 4	sandwich_norm	62	62	d0ed68b8535d9ea0805cd384ac6db1087f2fa91b337b2667125cc361abc72ea7
@@ -3021,14 +3083,14 @@ lane gemma2 TwoPassInt8 1	add_norm	65	65	70bb54651ce3b8a71e70e015380ad56af95d427
 lane gemma2 TwoPassInt8 1	sandwich_norm	59	59	7bb4b1abf544ecbca3aed47ab2b80e5290c812f5ea8d09af9cf1f8043ceb9c8a
 lane gemma2 TwoPassInt8 1	gemv_norm_epilogue	53	53	58109e0ca5593d43ef7073998b46b1bdbe3f37354e68c47c1eca2a2393eafb52
 lane gemma2 TwoPassInt8 1	row_write	47	47	f6b1bfbef31c64f46f011342306753d7e607a1a69d4d0a2cda0337ae1a493215
-lane gemma2 TwoPassInt8 1	qkv_head_epilogue	41	41	1a517264b5d26682aad41d690ed113afa92e0bd1333b3d09e4a68d932eac32da
-lane gemma2 TwoPassInt8 1	act_gate	38	38	a761ee143149abec41064a296b0931f9f4282fc681c884a6fae7ee0d50d63356
-lane gemma2 TwoPassInt8 1	glu_pair	32	32	a537aefb336efe6b13b1c022f6241043764b9d63d59a01bca3895c67fbd0a4b6
-lane gemma2 TwoPassInt8 1	cap_argmax	32	32	a537aefb336efe6b13b1c022f6241043764b9d63d59a01bca3895c67fbd0a4b6
-lane gemma2 TwoPassInt8 1	gather_scale	31	31	20eaf3ecd8858c20165500be765f0a6cbe66b8e4099bfce57b45d35ded97a590
-lane gemma2 TwoPassInt8 1	embed_norm	31	31	20eaf3ecd8858c20165500be765f0a6cbe66b8e4099bfce57b45d35ded97a590
-lane gemma2 TwoPassInt8 1	fused_quant	31	31	20eaf3ecd8858c20165500be765f0a6cbe66b8e4099bfce57b45d35ded97a590
-lane gemma2 TwoPassInt8 1	gemv_parts	31	31	20eaf3ecd8858c20165500be765f0a6cbe66b8e4099bfce57b45d35ded97a590
+lane gemma2 TwoPassInt8 1	act_gate	44	44	576842a42c9af6d3f6d86c53a0f4736d3f3d82a3d8df45d085104d2817f17ffb
+lane gemma2 TwoPassInt8 1	glu_pair	38	38	a2bcaec2fecb08a717f9d0d8ac17bd396ead5b629bbee8563c1a39961303f629
+lane gemma2 TwoPassInt8 1	cap_argmax	38	38	a2bcaec2fecb08a717f9d0d8ac17bd396ead5b629bbee8563c1a39961303f629
+lane gemma2 TwoPassInt8 1	gather_scale	37	37	43169fc368c5d948d8b04b4efb310c6aefa9f317c7022ec0f615402481c0259a
+lane gemma2 TwoPassInt8 1	embed_norm	37	37	43169fc368c5d948d8b04b4efb310c6aefa9f317c7022ec0f615402481c0259a
+lane gemma2 TwoPassInt8 1	rope_parts	37	37	43169fc368c5d948d8b04b4efb310c6aefa9f317c7022ec0f615402481c0259a
+lane gemma2 TwoPassInt8 1	fused_quant	37	37	43169fc368c5d948d8b04b4efb310c6aefa9f317c7022ec0f615402481c0259a
+lane gemma2 TwoPassInt8 1	gemv_parts	37	37	43169fc368c5d948d8b04b4efb310c6aefa9f317c7022ec0f615402481c0259a
 lane gemma2 TwoPassInt8 4	(unheld)	67	67	93c986eed603231156aa3b4931859b271633d60c0fcb91499aae70ce3864018f
 lane gemma2 TwoPassInt8 4	add_norm	67	67	93c986eed603231156aa3b4931859b271633d60c0fcb91499aae70ce3864018f
 lane gemma2 TwoPassInt8 4	sandwich_norm	62	62	d0ed68b8535d9ea0805cd384ac6db1087f2fa91b337b2667125cc361abc72ea7
@@ -3266,6 +3328,7 @@ lane deepseek2-split-wide Int8Act 1	strided_values	42	42	aaf25ed930af5d11231a13e
 lane deepseek2-split-wide Int8Act 1	rope_parts	42	42	aaf25ed930af5d11231a13ea8af132158b0cfe20538fe7f41fb18a02d23387a9
 lane deepseek2-split-wide Int8Act 1	fused_quant	42	42	aaf25ed930af5d11231a13ea8af132158b0cfe20538fe7f41fb18a02d23387a9
 lane deepseek2-split-wide Int8Act 1	gemv_parts	42	42	aaf25ed930af5d11231a13ea8af132158b0cfe20538fe7f41fb18a02d23387a9
+lane deepseek2-split-wide Int8Act 1	dual_norm	42	42	aaf25ed930af5d11231a13ea8af132158b0cfe20538fe7f41fb18a02d23387a9
 lane deepseek2-split-wide Int8Act 64	(unheld)	346	346	eceb3b27da824f27047224fef5b4e56100bad6457b2448987e5f85405cefff7a
 lane deepseek2-split-wide Int8Act 64	latent_expanded	331	331	8f23249eb2ba51e801c829e86a715f91b6df3f22c9a0ef7731a788a6e8d060c2
 lane deepseek2-split-wide Int8Act 64	add_norm	331	331	8f23249eb2ba51e801c829e86a715f91b6df3f22c9a0ef7731a788a6e8d060c2
@@ -3300,6 +3363,7 @@ lane deepseek2-split-wide Int8Act 16	embed_norm	56	56	4cb702d4602942c8c781589965
 lane deepseek2-split-wide Int8Act 16	strided_values	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide Int8Act 16	fused_quant	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide Int8Act 16	gemv_parts	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
+lane deepseek2-split-wide Int8Act 16	dual_norm	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide Int8Act 8	(unheld)	122	122	a90e4d1e808d0fe1762590435fe7dc156ca33ca7656dbf1ac97ab7369c4c5033
 lane deepseek2-split-wide Int8Act 8	add_norm	122	122	a90e4d1e808d0fe1762590435fe7dc156ca33ca7656dbf1ac97ab7369c4c5033
 lane deepseek2-split-wide Int8Act 8	slice_read	110	110	562436bb0012be31303a4274d341cbb97bb8f614ed44d0861eea4c5e59bb8241
@@ -3312,6 +3376,7 @@ lane deepseek2-split-wide Int8Act 8	embed_norm	56	56	4cb702d4602942c8c781589965a
 lane deepseek2-split-wide Int8Act 8	strided_values	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide Int8Act 8	fused_quant	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide Int8Act 8	gemv_parts	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
+lane deepseek2-split-wide Int8Act 8	dual_norm	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide Int8Act 4	(unheld)	106	106	4cdf3559849a9ae35f97116e93c5a3c5d29e71713d4e33e9b3092d800c96dd1a
 lane deepseek2-split-wide Int8Act 4	add_norm	106	106	4cdf3559849a9ae35f97116e93c5a3c5d29e71713d4e33e9b3092d800c96dd1a
 lane deepseek2-split-wide Int8Act 4	slice_read	94	94	402aad3c59e80d19f598bbf52191492b3541d32f5dcb8919c22f780f99454857
@@ -3324,6 +3389,7 @@ lane deepseek2-split-wide Int8Act 4	embed_norm	56	56	4cb702d4602942c8c781589965a
 lane deepseek2-split-wide Int8Act 4	strided_values	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide Int8Act 4	fused_quant	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide Int8Act 4	gemv_parts	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
+lane deepseek2-split-wide Int8Act 4	dual_norm	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide Int8Act 2	(unheld)	98	98	47215f025497412cd5d6cb661feba4135b9835ff869ab7b1c0dac6f17710c9c4
 lane deepseek2-split-wide Int8Act 2	add_norm	98	98	47215f025497412cd5d6cb661feba4135b9835ff869ab7b1c0dac6f17710c9c4
 lane deepseek2-split-wide Int8Act 2	slice_read	86	86	f2c65c064b911bc0c2b6a39f98beefdca06f196d922000c7b93d123a91673c12
@@ -3336,6 +3402,7 @@ lane deepseek2-split-wide Int8Act 2	embed_norm	56	56	4cb702d4602942c8c781589965a
 lane deepseek2-split-wide Int8Act 2	strided_values	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide Int8Act 2	fused_quant	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide Int8Act 2	gemv_parts	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
+lane deepseek2-split-wide Int8Act 2	dual_norm	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide Int8Act b2	(unheld)	148	148	438a10113c2a7143cdc15cd303a3db7f031ae1e128fef48d4bd331ed4fc199d9
 lane deepseek2-split-wide Int8Act b2	add_norm	147	147	b98283f31cf88041e54d31f29e746b7033684b48a6c046b21abe581d26bff343
 lane deepseek2-split-wide Int8Act b2	slice_read	141	141	550f1fda2374caac4d6c150fefc0157c689681e745e1d626f2aced943df0c143
@@ -3348,6 +3415,7 @@ lane deepseek2-split-wide Int8Act b2	strided_values	113	113	94b08ad962f53a6c7828
 lane deepseek2-split-wide Int8Act b2	rope_parts	113	113	94b08ad962f53a6c7828efba7eb7496c959d6349783079dfc4b5c0efea66f8a4
 lane deepseek2-split-wide Int8Act b2	fused_quant	113	113	94b08ad962f53a6c7828efba7eb7496c959d6349783079dfc4b5c0efea66f8a4
 lane deepseek2-split-wide Int8Act b2	gemv_parts	113	113	94b08ad962f53a6c7828efba7eb7496c959d6349783079dfc4b5c0efea66f8a4
+lane deepseek2-split-wide Int8Act b2	dual_norm	113	113	94b08ad962f53a6c7828efba7eb7496c959d6349783079dfc4b5c0efea66f8a4
 lane deepseek2-split-wide TwoPassInt8 1	(unheld)	89	89	2e851e746d050d5b3f96f60ac52ed1082653eb11032fed8946c3ad7271530e28
 lane deepseek2-split-wide TwoPassInt8 1	add_norm	88	88	4ce8f191e83a15003f1053d9dd51143fccf92f6f80d16bc4419faf0b3435cc8b
 lane deepseek2-split-wide TwoPassInt8 1	gemv_norm_epilogue	84	84	d37e1343b38da6ec11a9f4c1e9576c65cf022641a5968bc457d70d9046cb1258
@@ -3361,6 +3429,7 @@ lane deepseek2-split-wide TwoPassInt8 1	strided_values	42	42	aaf25ed930af5d11231
 lane deepseek2-split-wide TwoPassInt8 1	rope_parts	42	42	aaf25ed930af5d11231a13ea8af132158b0cfe20538fe7f41fb18a02d23387a9
 lane deepseek2-split-wide TwoPassInt8 1	fused_quant	42	42	aaf25ed930af5d11231a13ea8af132158b0cfe20538fe7f41fb18a02d23387a9
 lane deepseek2-split-wide TwoPassInt8 1	gemv_parts	42	42	aaf25ed930af5d11231a13ea8af132158b0cfe20538fe7f41fb18a02d23387a9
+lane deepseek2-split-wide TwoPassInt8 1	dual_norm	42	42	aaf25ed930af5d11231a13ea8af132158b0cfe20538fe7f41fb18a02d23387a9
 lane deepseek2-split-wide TwoPassInt8 64	(unheld)	346	346	eceb3b27da824f27047224fef5b4e56100bad6457b2448987e5f85405cefff7a
 lane deepseek2-split-wide TwoPassInt8 64	latent_expanded	331	331	8f23249eb2ba51e801c829e86a715f91b6df3f22c9a0ef7731a788a6e8d060c2
 lane deepseek2-split-wide TwoPassInt8 64	add_norm	331	331	8f23249eb2ba51e801c829e86a715f91b6df3f22c9a0ef7731a788a6e8d060c2
@@ -3395,6 +3464,7 @@ lane deepseek2-split-wide TwoPassInt8 16	embed_norm	56	56	4cb702d4602942c8c78158
 lane deepseek2-split-wide TwoPassInt8 16	strided_values	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide TwoPassInt8 16	fused_quant	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide TwoPassInt8 16	gemv_parts	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
+lane deepseek2-split-wide TwoPassInt8 16	dual_norm	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide TwoPassInt8 8	(unheld)	122	122	a90e4d1e808d0fe1762590435fe7dc156ca33ca7656dbf1ac97ab7369c4c5033
 lane deepseek2-split-wide TwoPassInt8 8	add_norm	122	122	a90e4d1e808d0fe1762590435fe7dc156ca33ca7656dbf1ac97ab7369c4c5033
 lane deepseek2-split-wide TwoPassInt8 8	slice_read	110	110	562436bb0012be31303a4274d341cbb97bb8f614ed44d0861eea4c5e59bb8241
@@ -3407,6 +3477,7 @@ lane deepseek2-split-wide TwoPassInt8 8	embed_norm	56	56	4cb702d4602942c8c781589
 lane deepseek2-split-wide TwoPassInt8 8	strided_values	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide TwoPassInt8 8	fused_quant	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide TwoPassInt8 8	gemv_parts	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
+lane deepseek2-split-wide TwoPassInt8 8	dual_norm	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide TwoPassInt8 4	(unheld)	106	106	4cdf3559849a9ae35f97116e93c5a3c5d29e71713d4e33e9b3092d800c96dd1a
 lane deepseek2-split-wide TwoPassInt8 4	add_norm	106	106	4cdf3559849a9ae35f97116e93c5a3c5d29e71713d4e33e9b3092d800c96dd1a
 lane deepseek2-split-wide TwoPassInt8 4	slice_read	94	94	402aad3c59e80d19f598bbf52191492b3541d32f5dcb8919c22f780f99454857
@@ -3419,6 +3490,7 @@ lane deepseek2-split-wide TwoPassInt8 4	embed_norm	56	56	4cb702d4602942c8c781589
 lane deepseek2-split-wide TwoPassInt8 4	strided_values	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide TwoPassInt8 4	fused_quant	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide TwoPassInt8 4	gemv_parts	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
+lane deepseek2-split-wide TwoPassInt8 4	dual_norm	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide TwoPassInt8 2	(unheld)	98	98	47215f025497412cd5d6cb661feba4135b9835ff869ab7b1c0dac6f17710c9c4
 lane deepseek2-split-wide TwoPassInt8 2	add_norm	98	98	47215f025497412cd5d6cb661feba4135b9835ff869ab7b1c0dac6f17710c9c4
 lane deepseek2-split-wide TwoPassInt8 2	slice_read	86	86	f2c65c064b911bc0c2b6a39f98beefdca06f196d922000c7b93d123a91673c12
@@ -3431,6 +3503,7 @@ lane deepseek2-split-wide TwoPassInt8 2	embed_norm	56	56	4cb702d4602942c8c781589
 lane deepseek2-split-wide TwoPassInt8 2	strided_values	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide TwoPassInt8 2	fused_quant	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide TwoPassInt8 2	gemv_parts	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
+lane deepseek2-split-wide TwoPassInt8 2	dual_norm	53	53	d3bc65a09b4dd23dffb6606cedd39f2d16e43bb24e3b66c52578ca121facb05f
 lane deepseek2-split-wide TwoPassInt8 b2	(unheld)	148	148	438a10113c2a7143cdc15cd303a3db7f031ae1e128fef48d4bd331ed4fc199d9
 lane deepseek2-split-wide TwoPassInt8 b2	add_norm	147	147	b98283f31cf88041e54d31f29e746b7033684b48a6c046b21abe581d26bff343
 lane deepseek2-split-wide TwoPassInt8 b2	slice_read	141	141	550f1fda2374caac4d6c150fefc0157c689681e745e1d626f2aced943df0c143
@@ -3443,3 +3516,4 @@ lane deepseek2-split-wide TwoPassInt8 b2	strided_values	113	113	94b08ad962f53a6c
 lane deepseek2-split-wide TwoPassInt8 b2	rope_parts	113	113	94b08ad962f53a6c7828efba7eb7496c959d6349783079dfc4b5c0efea66f8a4
 lane deepseek2-split-wide TwoPassInt8 b2	fused_quant	113	113	94b08ad962f53a6c7828efba7eb7496c959d6349783079dfc4b5c0efea66f8a4
 lane deepseek2-split-wide TwoPassInt8 b2	gemv_parts	113	113	94b08ad962f53a6c7828efba7eb7496c959d6349783079dfc4b5c0efea66f8a4
+lane deepseek2-split-wide TwoPassInt8 b2	dual_norm	113	113	94b08ad962f53a6c7828efba7eb7496c959d6349783079dfc4b5c0efea66f8a4

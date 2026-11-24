@@ -128,6 +128,8 @@ FusedRow out=Y x=X reduce=layernorm rows=1 cols=4 weight=W residual=- bias=B
 ## probe:gelu (1 stages)
 Silu out=Y x=X n=5
 
+## probe:erf (0 stages)
+
 ## probe:l2norm (0 stages)
 
 ## probe:rope_partial (1 stages)
@@ -169,6 +171,16 @@ Silu out=Y x=X n=5
 ## probe:scale (0 stages)
 
 ## probe:softcap (0 stages)
+
+## probe:lane_mean (0 stages)
+
+## probe:lane_spread (0 stages)
+
+## probe:lane_sums (0 stages)
+
+## probe:signed_root (0 stages)
+
+## probe:ngram_ids (0 stages)
 
 ## probe:head_slice (0 stages)
 

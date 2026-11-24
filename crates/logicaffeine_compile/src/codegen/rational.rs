@@ -410,6 +410,17 @@ pub(super) fn read_as_exact(expr: &Expr, t: Typing) -> bool {
 /// the exact extension, as the integer it equals, refused in the interpreter's words for the place when it is none.
 /// `None` for an expression that is neither.
 pub(super) fn integer_operand(expr: &Expr, place: IntegerPlace, ecx: &ExprCtx) -> Option<String> {
+    if super::expr::emits_logos_int(expr, ecx) {
+        let (past_word, _) = integer_place_refusals(place);
+        let code = codegen_expr_ctx(expr, ecx);
+        let held = match expr {
+            Expr::Identifier(_) => code.strip_suffix(".clone()").map(str::to_string).unwrap_or(code),
+            _ => code,
+        };
+        return Some(format!(
+            "logicaffeine_data::failure::answered(({held}).integer_at({past_word:?}))"
+        ));
+    }
     if exact_value(expr, ecx) {
         let (past_word, fraction) = integer_place_refusals(place);
         return Some(format!(

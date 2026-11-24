@@ -84,6 +84,19 @@ pub enum DriveError {
     Refused(String),
 }
 
+/// Whose statements a page's host carries out, which decides what a `Mount` among them is.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DrivenBy {
+    /// A host driving a page that has loaded — a `## Test`'s script. Its `Mount` is an entry the host
+    /// makes into the page, as `runtime.js`'s `__logosMount` makes one: what fails in it, a
+    /// `When the page loads:` or the paint, is the page's failure, and the host goes on.
+    #[default]
+    Host,
+    /// The program's own `## Main`. Its `Mount` is a call the program's main makes, as the bytecode VM
+    /// and a browser's page main make it: what fails in it is the program's, and the program ends there.
+    Program,
+}
+
 /// One interval the page armed, and when it next comes due on the page's clock.
 struct Armed {
     period_ms: i64,
@@ -115,6 +128,8 @@ pub struct LoweredHost {
     /// The `## Page` component the program mounts by itself, if any — what loading the page
     /// mounts, so a reload mounts it again.
     page: Option<String>,
+    /// Whose statements this host carries out.
+    driven_by: DrivenBy,
 }
 
 impl LoweredHost {
@@ -132,6 +147,12 @@ impl LoweredHost {
             page,
             ..LoweredHost::default()
         }
+    }
+
+    /// This host, carrying out the statements of `by`.
+    pub fn driven_by(mut self, by: DrivenBy) -> Self {
+        self.driven_by = by;
+        self
     }
 
     /// The first action failure no handler absorbed, if any.
@@ -211,6 +232,12 @@ impl<L: LoweredCalls> LoweredPage<L> {
             calls,
             host: LoweredHost::new(),
         }
+    }
+
+    /// This page, its host carrying out the statements of `by`.
+    pub fn driven_by(mut self, by: DrivenBy) -> Self {
+        self.host.driven_by = by;
+        self
     }
 
     /// The engine the page runs on.
@@ -391,7 +418,8 @@ impl<L: LoweredCalls + ?Sized> Driver<'_, L> {
     }
 
     /// `Mount C [at S]` — what the page's main does for a mount: find the parent, call
-    /// `__mount_C(parent)`.
+    /// `__mount_C(parent)` — as the program's own call or as a host's entry into the page
+    /// ([`DrivenBy`]).
     fn mount(&mut self, component: &str, at: Option<&str>) -> Result<(), DriveError> {
         let entry = lgx_lower::mount_fn_name(component);
         if !self.calls.has(&entry) {
@@ -411,13 +439,18 @@ impl<L: LoweredCalls + ?Sized> Driver<'_, L> {
             }
             None => dom::body(),
         };
-        // `When the page loads:` runs as the page mounts, not as a turn the page is handed, so its
-        // failure is the program's: a browser's page main ends where its mount traps.
-        let mounted = self
-            .calls
-            .call(&entry, vec![RuntimeValue::Int(parent)])
-            .map_err(|message| DriveError::Failed(in_failure_context(&mut *self.calls, message)))?;
-        self.after_call(Ok(mounted));
+        let args = vec![RuntimeValue::Int(parent)];
+        match self.host.driven_by {
+            DrivenBy::Host => {
+                self.guarded(|c| c.call(&entry, args));
+            }
+            DrivenBy::Program => {
+                let mounted = self.calls.call(&entry, args).map_err(|message| {
+                    DriveError::Failed(in_failure_context(&mut *self.calls, message))
+                })?;
+                self.after_call(Ok(mounted));
+            }
+        }
         self.host.mounted_component = Some(component.to_string());
         Ok(())
     }

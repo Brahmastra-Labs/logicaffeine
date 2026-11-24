@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+- **`stencil_proof`: the 13 frame-form integer stencils proved for every input.** The witness harness ran about 150 inputs per op through the machine code; `prove_stencil` now decodes each stencil's bytes (`x86`, a closed x86-64 subset that rejects anything outside it) and executes every path symbolically over BV64. The frame is a Z3 array and the slot holes are free words, so aliasing is covered. It proves the paths cover every input, that the side exit is taken exactly when the spec's precondition fails and leaves the frame untouched, that continuation 0 stores the spec's result, that no divide can fault, and that the 13 registers the stencil ABI pins keep their values. `mul`'s overflow flag is built as the spec's precondition builds it, so its 128-bit product is never bit-blasted. The 32-bit fast path of `div`/`mod` is proved by narrowing the operands its path condition confines to 32 bits, which is sound. All 13 prove in about 3 s. `check_lowering` confirms the JIT lowers each spec to the proved stencil with the bindings the proof assumes. Fifteen patched stencils are each refuted with a counterexample (`stencil_proof_lock`).
+
 ## [0.11.0] - 2026-10-04
 
 ### Added

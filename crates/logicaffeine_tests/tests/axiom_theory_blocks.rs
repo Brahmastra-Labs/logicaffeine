@@ -188,3 +188,31 @@ Theorem symmetry cites reflexivity: prove for all a b c d, if Cong(a, b, c, d) t
     );
     assert_eq!(dev.theorems[1].cites, vec!["reflexivity".to_string()]);
 }
+
+/// The name a block's header gives it: the first word after `## Theory`/`## Axiom`, whatever part of speech English
+/// would read it as, when it is the header's one word (the line ends, or a `:` follows).
+fn block_name(src: &str) -> (String, String) {
+    parse_program(src)
+        .into_iter()
+        .find_map(|s| match s {
+            Stmt::Theory(t) => Some((t.name, t.body)),
+            Stmt::Axiom(a) => Some((a.name, a.formula)),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no block in {src:?}"))
+}
+
+#[test]
+fn a_block_is_named_by_any_word_that_ends_its_header_line() {
+    for word in ["More", "Less", "Better", "Some", "Every", "All", "If", "Not", "Never", "Two"] {
+        let (name, body) = block_name(&format!("## Theory {word}\n\nAxiom p_a: P(A).\n"));
+        assert_eq!(name, word, "`## Theory {word}` names the theory {word}");
+        assert_eq!(body.split_whitespace().next(), Some("Axiom"), "the name is not left in the body: {body:?}");
+        let (name, formula) = block_name(&format!("## Axiom {word}: P(A).\n"));
+        assert_eq!(name, word, "`## Axiom {word}:` names the axiom {word}");
+        assert_eq!(parse_formula(&formula).ok(), parse_formula("P(A)").ok(), "{formula:?}");
+    }
+    let (name, body) = block_name("## Theory\n\nAxiom p_a: P(A).\n");
+    assert_eq!(name, "Anonymous", "a header with no word names nothing");
+    assert_eq!(body.split_whitespace().next(), Some("Axiom"), "{body:?}");
+}

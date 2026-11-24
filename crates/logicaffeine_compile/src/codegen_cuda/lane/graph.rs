@@ -16,7 +16,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::spatial::passes::recognize_stages::{RecognizedProgram, TensorOpSpec};
-use crate::tensor_graph::graph::{Storage, TensorGraph};
+use crate::tensor_graph::graph::{StepIo, Storage, TensorGraph};
 
 pub use crate::tensor_graph::graph::{GraphError, Role};
 
@@ -55,7 +55,13 @@ pub struct StepGraph {
 impl StepGraph {
     /// Build the graph of a walked program.
     pub fn build(rp: &RecognizedProgram) -> Result<StepGraph, GraphError> {
-        let lifted = TensorGraph::lift(rp, None, None, &|_| Storage::Values)?;
+        StepGraph::build_io(rp, None)
+    }
+
+    /// Build the graph of a walked program whose names across steps are `io`: a span's incoming hidden state a state
+    /// its host writes ([`StepIo::hidden_in`]).
+    pub fn build_io(rp: &RecognizedProgram, io: Option<&StepIo>) -> Result<StepGraph, GraphError> {
+        let lifted = TensorGraph::lift(rp, None, io.cloned(), &|_| Storage::Values)?;
         let tensors = lifted
             .tensors
             .values()

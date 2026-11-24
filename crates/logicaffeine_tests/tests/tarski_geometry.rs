@@ -100,12 +100,17 @@ fn tarski_inner_transitivity_chain_and_citation() {
         cites: vec![],
     };
 
-    // cong_b (cites cong_RSTU): Cong(R,S,V,W) ⊢ Cong(T,U,V,W)
-    //   — A2 at (R,S,T,U,V,W), where the first antecedent Cong(R,S,T,U) is the
-    //   conclusion of cong_RSTU, supplied by citation.
+    // cong_b (cites cong_RSTU): Cong(P,Q,R,S), Cong(P,Q,T,U), Cong(R,S,V,W) ⊢ Cong(T,U,V,W)
+    //   — A2 at (R,S,T,U,V,W), where the first antecedent Cong(R,S,T,U) comes from
+    //   cong_RSTU's statement, supplied by citation and applied to the two hypotheses
+    //   cong_b shares with it.
     let cong_b = LibraryTheorem {
         name: "cong_TUVW".to_string(),
-        premises: vec![cong(k("R"), k("S"), k("V"), k("W"))],
+        premises: vec![
+            cong(k("P"), k("Q"), k("R"), k("S")),
+            cong(k("P"), k("Q"), k("T"), k("U")),
+            cong(k("R"), k("S"), k("V"), k("W")),
+        ],
         goal: cong(k("T"), k("U"), k("V"), k("W")),
         cites: vec!["cong_RSTU".to_string()],
     };

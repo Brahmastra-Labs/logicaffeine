@@ -117,6 +117,9 @@ rmp-serde = "1.3"
 # system's wire suites pin the 0.0.4 API (KeyGen/key_gen_internal); the bench suites use 0.1.
 ml-dsa-004 = { package = "ml-dsa", version = "0.0.4" }
 tempfile = "3"
+# Reading the package `largo publish` writes, as a registry would.
+flate2 = "1.0"
+tar = "0.4"
 # A self-signed certificate for the in-process TLS server the socket tests stand up, so TLS is
 # proven hermetically rather than against the internet.
 rcgen = "0.11"
@@ -139,8 +142,8 @@ csv = "1"
 # Dev-only oracle for ML-KEM bit-exactness (FIPS 203). NEVER in the shipped graph — the
 # Logos-native crypto is validated *against* this, then ships on its own.
 ml-kem = { version = "0.2", features = ["deterministic"] }
-libcrux-ml-kem = { version = "0.0.9", features = ["simd256", "mlkem768"] }
-libcrux-ml-dsa = { version = "0.0.9", features = ["simd256"] }
+# libcrux-ml-kem and libcrux-ml-dsa (the formally verified SIMD bars) are per-architecture: see the
+# target tables at the end of this file.
 ml-dsa = "0.1.1"
 # Dev-only oracles for the pure-LOGOS postgres.lg client. postgres-protocol is the
 # reference ENCODER (three-way startup/Query byte agreement with our locks), pgwire
@@ -154,6 +157,25 @@ bytes = "1"
 pgwire = "0.40"
 async-trait = "0.1"
 postgresql_embedded = "0.21"
+
+# Dev-only bars for ML-KEM and ML-DSA: Cryspen's formally verified libcrux. Its SIMD backends are per
+# architecture, so each target enables the one it has and the suite builds on x86 and Apple Silicon
+# alike. libcrux picks the fastest compiled-in backend at run time (`mlkem768`, `ml_dsa_65`):
+#   x86_64  -> AVX2 (`simd256`), the bar the mlkem768 and mldsa65 benches were written against
+#   aarch64 -> NEON (`simd128`), so an Apple Silicon run is checked against NEON, not AVX2
+#   other   -> the portable backend
+# Never in the shipped graph.
+[target.'cfg(target_arch = "x86_64")'.dev-dependencies]
+libcrux-ml-kem = { version = "0.0.9", features = ["simd256", "mlkem768"] }
+libcrux-ml-dsa = { version = "0.0.9", features = ["simd256"] }
+
+[target.'cfg(target_arch = "aarch64")'.dev-dependencies]
+libcrux-ml-kem = { version = "0.0.9", features = ["simd128", "mlkem768"] }
+libcrux-ml-dsa = { version = "0.0.9", features = ["simd128"] }
+
+[target.'cfg(not(any(target_arch = "x86_64", target_arch = "aarch64", target_arch = "wasm32")))'.dev-dependencies]
+libcrux-ml-kem = { version = "0.0.9", features = ["mlkem768"] }
+libcrux-ml-dsa = { version = "0.0.9" }
 
 [lints.rust]
 unexpected_cfgs = "deny"

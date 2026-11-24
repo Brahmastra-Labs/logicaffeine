@@ -17,6 +17,7 @@ pub(super) fn c_runtime() -> String {
             &super::words::real_division_by_zero(),
         )
         .replace("@MODULO_BY_ZERO@", &super::words::modulo_by_zero())
+        .replace("@NOT_AN_INT@", &super::words::not_an_int())
 }
 
 /// [`C_GC_COLLECTOR`]'s source, as a literal a runtime written as one `concat!` can embed (the RISC-V shim's).
@@ -87,13 +88,13 @@ __attribute__((noreturn)) static void lc_gc_exhausted(void) {
 }
 
 /* The C library's allocator, for the collector's own tables and pages, which it never scans as objects. */
-static void *lc_gc_table(void *p, size_t n) {
+__attribute__((unused)) static void *lc_gc_table(void *p, size_t n) {
     void *q = realloc(p, n);
     if (!q) lc_gc_exhausted();
     return q;
 }
 
-static void lc_gc_push(uintptr_t lo, uintptr_t hi) {
+__attribute__((unused)) static void lc_gc_push(uintptr_t lo, uintptr_t hi) {
     if (lc_gc_pending_n == lc_gc_pending_cap) {
         lc_gc_pending_cap = lc_gc_pending_cap ? lc_gc_pending_cap * 2 : 1024;
         lc_gc_pending = (lc_gc_range *)lc_gc_table(lc_gc_pending, lc_gc_pending_cap * sizeof *lc_gc_pending);
@@ -144,7 +145,7 @@ static struct {
 } lc_gc_own = {.heap_lo = UINTPTR_MAX};
 
 /* A block's memory: a spare, else the next block of the chunk, mapping a fresh chunk when that one is used up. */
-static uintptr_t lc_gc_block_take(void) {
+__attribute__((unused)) static uintptr_t lc_gc_block_take(void) {
     if (lc_gc_own.spare_n) return lc_gc_own.spare[--lc_gc_own.spare_n];
     if (lc_gc_own.chunk_next == lc_gc_own.chunk_end) {
         size_t want = (size_t)LC_GC_BLOCK * LC_GC_CHUNK, span = want + LC_GC_BLOCK;
@@ -162,12 +163,12 @@ static uintptr_t lc_gc_block_take(void) {
 }
 
 /* A block's memory no block holds any more. */
-static void lc_gc_block_give(uintptr_t b) {
+__attribute__((unused)) static void lc_gc_block_give(uintptr_t b) {
     if (lc_gc_own.spare_n < LC_GC_CHUNK) lc_gc_own.spare[lc_gc_own.spare_n++] = b;
     else munmap((void *)b, LC_GC_BLOCK);
 }
 
-static void lc_gc_heap_init(void) {
+__attribute__((unused)) static void lc_gc_heap_init(void) {
     int c = 0;
     for (size_t k = 0; k <= LC_GC_SMALL / 16; k++) {
         while (lc_gc_class_size[c] < k * 16) c++;
@@ -175,7 +176,7 @@ static void lc_gc_heap_init(void) {
     }
 }
 
-static void lc_gc_map_set(uintptr_t at, uintptr_t end, lc_gc_blk *b) {
+__attribute__((unused)) static void lc_gc_map_set(uintptr_t at, uintptr_t end, lc_gc_blk *b) {
     for (uintptr_t a = at & ~(LC_GC_BLOCK - 1); a < end; a += LC_GC_BLOCK) {
         size_t top = (a >> 32) & 0xFFFF;
         if (!lc_gc_own.map[top]) {
@@ -188,13 +189,13 @@ static void lc_gc_map_set(uintptr_t at, uintptr_t end, lc_gc_blk *b) {
     if (end > lc_gc_own.heap_hi) lc_gc_own.heap_hi = end;
 }
 
-static inline lc_gc_blk *lc_gc_owner(uintptr_t w) {
+__attribute__((unused)) static inline lc_gc_blk *lc_gc_owner(uintptr_t w) {
     lc_gc_blk **second = lc_gc_own.map[(w >> 32) & 0xFFFF];
     return second ? second[(w >> 16) & 0xFFFF] : 0;
 }
 
 /* A fresh block of class `c`, its slots on the free list. */
-static void lc_gc_new_block(int atomic, int c) {
+__attribute__((unused)) static void lc_gc_new_block(int atomic, int c) {
     lc_gc_blk *b = (lc_gc_blk *)calloc(1, sizeof *b);
     if (!b) lc_gc_exhausted();
     b->start = lc_gc_block_take();
@@ -218,12 +219,12 @@ static void lc_gc_new_block(int atomic, int c) {
 }
 
 /* The bytes an object of `n` takes in the heap: its slot, or a large object's header and payload. */
-static inline size_t lc_gc_takes(size_t n) {
+__attribute__((unused)) static inline size_t lc_gc_takes(size_t n) {
     size_t need = n + LC_GC_PAD + 1;
     return need <= LC_GC_SMALL ? lc_gc_class_size[lc_gc_class_of_16[(need + 15) / 16]] : sizeof(lc_gc_hdr) + n;
 }
 
-static void *lc_gc_heap_alloc(size_t n, int atomic) {
+__attribute__((unused)) static void *lc_gc_heap_alloc(size_t n, int atomic) {
     size_t need = n + LC_GC_PAD + 1;
     if (need <= LC_GC_SMALL) {
         int c = lc_gc_class_of_16[(need + 15) / 16];
@@ -261,19 +262,19 @@ static void *lc_gc_heap_alloc(size_t n, int atomic) {
 }
 
 /* Whether object `p` is a small one, in a block of slots. */
-static inline int lc_gc_is_small(void *p) { return lc_gc_owner((uintptr_t)p) != 0; }
+__attribute__((unused)) static inline int lc_gc_is_small(void *p) { return lc_gc_owner((uintptr_t)p) != 0; }
 
 /* The bytes object `p` can hold. */
-static size_t lc_gc_capacity(void *p) {
+__attribute__((unused)) static size_t lc_gc_capacity(void *p) {
     lc_gc_blk *b = lc_gc_owner((uintptr_t)p);
     return b ? b->size - LC_GC_PAD - 1 : ((lc_gc_hdr *)p - 1)->size;
 }
 
-static void lc_gc_unmap(uintptr_t at, uintptr_t end) {
+__attribute__((unused)) static void lc_gc_unmap(uintptr_t at, uintptr_t end) {
     for (uintptr_t a = at & ~(LC_GC_BLOCK - 1); a < end; a += LC_GC_BLOCK) lc_gc_own.map[(a >> 32) & 0xFFFF][(a >> 16) & 0xFFFF] = 0;
 }
 
-static void lc_gc_heap_free(void *p) {
+__attribute__((unused)) static void lc_gc_heap_free(void *p) {
     lc_gc_blk *b = lc_gc_owner((uintptr_t)p);
     if (!b) {
         lc_gc_hdr *h = (lc_gc_hdr *)p - 1;
@@ -295,7 +296,7 @@ static void lc_gc_heap_free(void *p) {
 }
 
 /* A large object resized by the C library, in place where it can be. */
-static void *lc_gc_large_resize(void *p, size_t n) {
+__attribute__((unused)) static void *lc_gc_large_resize(void *p, size_t n) {
     lc_gc_hdr *h = (lc_gc_hdr *)p - 1;
     size_t i = h->index, was = h->size;
     lc_gc_hdr *g = (lc_gc_hdr *)realloc(h, sizeof *g + n + 1);
@@ -308,12 +309,12 @@ static void *lc_gc_large_resize(void *p, size_t n) {
     return g + 1;
 }
 
-static int lc_gc_by_address(const void *a, const void *b) {
+__attribute__((unused)) static int lc_gc_by_address(const void *a, const void *b) {
     uintptr_t x = (uintptr_t)*(lc_gc_hdr *const *)a, y = (uintptr_t)*(lc_gc_hdr *const *)b;
     return x < y ? -1 : x > y;
 }
 
-static void lc_gc_prepare(void) {
+__attribute__((unused)) static void lc_gc_prepare(void) {
     for (int a = 0; a < 2; a++)
         for (int c = 0; c < LC_GC_CLASSES; c++)
             for (lc_gc_blk *b = lc_gc_classes[a][c]; b; b = b->next) memset(b->marks, 0, ((b->nslots + 63) / 64) * sizeof(uint64_t));
@@ -327,7 +328,7 @@ static void lc_gc_prepare(void) {
 }
 
 /* A word into a large object: mark it and queue it to be scanned. */
-static void lc_gc_consider_large(uintptr_t w) {
+__attribute__((unused)) static void lc_gc_consider_large(uintptr_t w) {
     size_t lo = 0, hi = lc_gc_large_n;
     while (hi - lo > 1) {
         size_t mid = lo + (hi - lo) / 2;
@@ -340,7 +341,7 @@ static void lc_gc_consider_large(uintptr_t w) {
 }
 
 /* The word `w`, if it points into an object not yet marked: mark it and queue it to be scanned. */
-static inline void lc_gc_consider(uintptr_t w) {
+__attribute__((unused)) static inline void lc_gc_consider(uintptr_t w) {
     w &= ~(uintptr_t)1;
     if (lc_gc_large_n && w >= lc_gc_own.large_lo && w <= lc_gc_own.large_hi && !lc_gc_owner(w)) {
         lc_gc_consider_large(w);
@@ -361,7 +362,7 @@ static inline void lc_gc_consider(uintptr_t w) {
 }
 
 /* Whether the marking reached object `p`. */
-static int lc_gc_reached(void *p) {
+__attribute__((unused)) static int lc_gc_reached(void *p) {
     lc_gc_blk *b = lc_gc_owner((uintptr_t)p);
     if (!b) return ((lc_gc_hdr *)p - 1)->marked;
     uint32_t i = (uint32_t)(((uintptr_t)p - b->start) / b->size);
@@ -370,7 +371,7 @@ static int lc_gc_reached(void *p) {
 
 /* Rebuild every free list from the unmarked slots; free every unmarked large object and every block left empty.
    Answers the bytes left live and adds the bytes freed to `*freed`. */
-static size_t lc_gc_sweep(size_t *freed) {
+__attribute__((unused)) static size_t lc_gc_sweep(size_t *freed) {
     size_t live = 0;
     for (int a = 0; a < 2; a++) {
         for (int c = 0; c < LC_GC_CLASSES; c++) {
@@ -421,7 +422,7 @@ static size_t lc_gc_sweep(size_t *freed) {
     return live;
 }
 
-static void lc_gc_heap_teardown(void) {
+__attribute__((unused)) static void lc_gc_heap_teardown(void) {
     for (int a = 0; a < 2; a++) {
         for (int c = 0; c < LC_GC_CLASSES; c++) {
             lc_gc_blk *b = lc_gc_classes[a][c];
@@ -463,11 +464,11 @@ static lc_gc_hdr **lc_gc_sorting; static size_t lc_gc_sorting_cap;
    globals scan skips it. */
 static struct { uintptr_t heap_lo, heap_hi; size_t counts[1 << 16]; } lc_gc_own;
 
-static void lc_gc_heap_init(void) {}
+__attribute__((unused)) static void lc_gc_heap_init(void) {}
 
-static inline size_t lc_gc_takes(size_t n) { return sizeof(lc_gc_hdr) + n; }
+__attribute__((unused)) static inline size_t lc_gc_takes(size_t n) { return sizeof(lc_gc_hdr) + n; }
 
-static void *lc_gc_heap_alloc(size_t n, int atomic) {
+__attribute__((unused)) static void *lc_gc_heap_alloc(size_t n, int atomic) {
     if (lc_gc_count == (size_t)UINT32_MAX) lc_gc_exhausted();
     lc_gc_hdr *h = (lc_gc_hdr *)malloc(sizeof *h + n + 1);
     if (!h) lc_gc_exhausted();
@@ -485,9 +486,9 @@ static void *lc_gc_heap_alloc(size_t n, int atomic) {
     return h + 1;
 }
 
-static size_t lc_gc_capacity(void *p) { return ((lc_gc_hdr *)p - 1)->size; }
+__attribute__((unused)) static size_t lc_gc_capacity(void *p) { return ((lc_gc_hdr *)p - 1)->size; }
 
-static void lc_gc_heap_free(void *p) {
+__attribute__((unused)) static void lc_gc_heap_free(void *p) {
     lc_gc_hdr *h = (lc_gc_hdr *)p - 1;
     size_t i = h->index;
     lc_gc_live -= sizeof *h + h->size;
@@ -498,7 +499,7 @@ static void lc_gc_heap_free(void *p) {
 }
 
 /* The table in address order: a radix sort over the addresses' low 48 bits, sixteen at a time. */
-static void lc_gc_prepare(void) {
+__attribute__((unused)) static void lc_gc_prepare(void) {
     if (lc_gc_sorting_cap < lc_gc_count) {
         lc_gc_sorting_cap = lc_gc_cap;
         lc_gc_sorting = (lc_gc_hdr **)lc_gc_table(lc_gc_sorting, lc_gc_sorting_cap * sizeof *lc_gc_sorting);
@@ -524,7 +525,7 @@ static void lc_gc_prepare(void) {
     if (lc_gc_count) memset(lc_gc_marks, 0, lc_gc_count);
 }
 
-static inline void lc_gc_consider(uintptr_t w) {
+__attribute__((unused)) static inline void lc_gc_consider(uintptr_t w) {
     w &= ~(uintptr_t)1;
     if (!lc_gc_count || w < lc_gc_own.heap_lo || w > lc_gc_own.heap_hi) return;
     size_t lo = 0, hi = lc_gc_count;
@@ -538,9 +539,9 @@ static inline void lc_gc_consider(uintptr_t w) {
     if (!h->atomic) lc_gc_push((uintptr_t)(h + 1), (uintptr_t)(h + 1) + h->size);
 }
 
-static int lc_gc_reached(void *p) { return lc_gc_marks[((lc_gc_hdr *)p - 1)->index]; }
+__attribute__((unused)) static int lc_gc_reached(void *p) { return lc_gc_marks[((lc_gc_hdr *)p - 1)->index]; }
 
-static size_t lc_gc_sweep(size_t *freed) {
+__attribute__((unused)) static size_t lc_gc_sweep(size_t *freed) {
     size_t kept = 0, live = 0;
     for (size_t i = 0; i < lc_gc_count; i++) {
         lc_gc_hdr *h = lc_gc_blocks[i];
@@ -557,7 +558,7 @@ static size_t lc_gc_sweep(size_t *freed) {
     return live;
 }
 
-static void lc_gc_heap_teardown(void) {
+__attribute__((unused)) static void lc_gc_heap_teardown(void) {
     for (size_t i = 0; i < lc_gc_count; i++) free(lc_gc_blocks[i]);
     free(lc_gc_blocks);
     free(lc_gc_marks);
@@ -567,10 +568,10 @@ static void lc_gc_heap_teardown(void) {
 }
 #endif
 
-static void lc_gc_teardown(void);
+__attribute__((unused)) static void lc_gc_teardown(void);
 
 /* The base of the stack the program starts on. */
-static uintptr_t lc_gc_main_stack_base(void) {
+__attribute__((unused)) static uintptr_t lc_gc_main_stack_base(void) {
 #if defined(__APPLE__)
     return (uintptr_t)pthread_get_stackaddr_np(pthread_self());
 #elif defined(__GLIBC__)
@@ -581,7 +582,7 @@ static uintptr_t lc_gc_main_stack_base(void) {
 
 /* The collector starts at the program's first allocation, its marking stack reserved then: a collection, which runs
    when memory is short, allocates nothing until marking outgrows it. */
-static void lc_gc_start(void) {
+__attribute__((unused)) static void lc_gc_start(void) {
     lc_gc_started = 1;
     const char *s = getenv("LOGOS_GC_STRESS");
     lc_gc_stress = s && s[0] == '1' && s[1] == 0;
@@ -599,7 +600,7 @@ __attribute__((no_sanitize_address, noinline)) static void lc_gc_scan(uintptr_t 
 }
 
 /* The program's data and bss segments: its globals and this runtime's statics. */
-static void lc_gc_scan_globals(void) {
+__attribute__((unused)) static void lc_gc_scan_globals(void) {
 #if defined(__APPLE__)
     const struct mach_header_64 *mh = (const struct mach_header_64 *)_dyld_get_image_header(0);
     const char *segments[] = {"__DATA", "__DATA_DIRTY"};
@@ -628,7 +629,7 @@ __attribute__((noinline)) static void lc_gc_scan_stack(void) {
     lc_gc_scan((uintptr_t)&top, lc_gc_stack_hi);
 }
 
-static void lc_gc_collect(void) {
+__attribute__((unused)) static void lc_gc_collect(void) {
     if (lc_gc_collecting) return;
     lc_gc_collecting = 1;
     lc_gc_prepare();
@@ -668,7 +669,7 @@ static void lc_gc_collect(void) {
     lc_gc_collecting = 0;
 }
 
-static void lc_gc_teardown(void) {
+__attribute__((unused)) static void lc_gc_teardown(void) {
     const char *report = getenv("LOGOS_HEAP_REPORT");
     if (report && report[0]) {
         fprintf(stderr, "logos heap: live=%zu high=%zu collections=%zu allocated=%zu freed=%zu",
@@ -688,7 +689,7 @@ static void lc_gc_teardown(void) {
 /* A report asked for is printed whether or not the program allocated: one that never did started no collector, so
    no teardown prints it. Registered before main, this runs after every handler registered later, the teardown of a
    collector that started among them. */
-static void lc_gc_report_unstarted(void) {
+__attribute__((unused)) static void lc_gc_report_unstarted(void) {
     const char *report = getenv("LOGOS_HEAP_REPORT");
     if (!lc_gc_started && report && report[0])
         fprintf(stderr, "logos heap: live=0 high=0 collections=0 allocated=0 freed=0\n");
@@ -696,7 +697,7 @@ static void lc_gc_report_unstarted(void) {
 __attribute__((constructor)) static void lc_gc_arm_report(void) { atexit(lc_gc_report_unstarted); }
 
 /* Before allocating `n` bytes: collect when due. */
-static inline void lc_gc_due(size_t n) {
+__attribute__((unused)) static inline void lc_gc_due(size_t n) {
     if (__builtin_expect(!lc_gc_started, 0)) lc_gc_start();
     lc_gc_since += n;
     if (__builtin_expect(lc_gc_stress || lc_gc_since >= lc_gc_trigger, 0)) lc_gc_collect();
@@ -704,11 +705,11 @@ static inline void lc_gc_due(size_t n) {
 
 /* Both heap layouts reserve a header and a trailing byte. Check before
    size-class arithmetic, ledger updates, collection, or libc allocation. */
-static inline void lc_gc_check_size(size_t n) {
+__attribute__((unused)) static inline void lc_gc_check_size(size_t n) {
     if (n > SIZE_MAX - sizeof(lc_gc_hdr) - LC_GC_PAD - 1) lc_gc_exhausted();
 }
 
-static inline void *lc_gc_block(size_t n, int atomic) {
+__attribute__((unused)) static inline void *lc_gc_block(size_t n, int atomic) {
     lc_gc_check_size(n);
     if (__builtin_expect(!lc_gc_started, 0)) lc_gc_start();
     size_t takes = lc_gc_takes(n);
@@ -740,7 +741,7 @@ __attribute__((unused)) static void lc_gc_free(void *p) {
 
 /* A resize keeps a small object in its slot when it fits and lets the C library resize a large one in place where
    it can; otherwise the object moves into a new one of the same kind. It counts only the bytes it adds. */
-static void *lc_gc_resize(void *p, size_t n, int atomic) {
+__attribute__((unused)) static void *lc_gc_resize(void *p, size_t n, int atomic) {
     lc_gc_check_size(n);
     if (!p) return lc_gc_block(n, atomic);
     size_t have = lc_gc_capacity(p);
@@ -947,42 +948,42 @@ extern const char logos_says_big_exponent[], logos_says_bitand_fraction[], logos
 
 typedef struct { int sign; uint32_t *limb; size_t len; } LBig; /* sign in {-1,0,1}; zero => len==0 */
 
-static LBig lbig_make(size_t cap) {
+__attribute__((unused)) static LBig lbig_make(size_t cap) {
     LBig b; b.sign = 0; b.len = 0;
     b.limb = (uint32_t *)lc_gc_calloc_atomic(cap ? cap : 1, sizeof(uint32_t));
     return b;
 }
-static void lbig_free(LBig *b) { if (b->limb) lc_gc_free(b->limb); b->limb = NULL; b->len = 0; b->sign = 0; }
-static void lbig_trim(LBig *b) {
+__attribute__((unused)) static void lbig_free(LBig *b) { if (b->limb) lc_gc_free(b->limb); b->limb = NULL; b->len = 0; b->sign = 0; }
+__attribute__((unused)) static void lbig_trim(LBig *b) {
     while (b->len > 0 && b->limb[b->len - 1] == 0) b->len--;
     if (b->len == 0) b->sign = 0;
 }
-static LBig lbig_copy(const LBig *a) {
+__attribute__((unused)) static LBig lbig_copy(const LBig *a) {
     LBig r = lbig_make(a->len ? a->len : 1);
     for (size_t i = 0; i < a->len; i++) r.limb[i] = a->limb[i];
     r.len = a->len; r.sign = a->sign; return r;
 }
-static LBig lbig_from_u64(uint64_t v) {
+__attribute__((unused)) static LBig lbig_from_u64(uint64_t v) {
     LBig b = lbig_make(3);
     size_t i = 0;
     while (v > 0) { b.limb[i++] = (uint32_t)(v % LBIG_BASE); v /= LBIG_BASE; }
     b.len = i; b.sign = (i > 0) ? 1 : 0;
     return b;
 }
-static LBig lbig_from_i64(int64_t v) {
+__attribute__((unused)) static LBig lbig_from_i64(int64_t v) {
     int neg = v < 0;
     uint64_t u = neg ? (uint64_t)(-(v + 1)) + 1u : (uint64_t)v; /* safe for INT64_MIN */
     LBig b = lbig_from_u64(u);
     if (neg && b.len > 0) b.sign = -1;
     return b;
 }
-static int lbig_cmp_mag(const LBig *a, const LBig *b) {
+__attribute__((unused)) static int lbig_cmp_mag(const LBig *a, const LBig *b) {
     if (a->len != b->len) return a->len < b->len ? -1 : 1;
     for (size_t i = a->len; i-- > 0; )
         if (a->limb[i] != b->limb[i]) return a->limb[i] < b->limb[i] ? -1 : 1;
     return 0;
 }
-static LBig lbig_add_mag(const LBig *a, const LBig *b) {
+__attribute__((unused)) static LBig lbig_add_mag(const LBig *a, const LBig *b) {
     size_t n = (a->len > b->len ? a->len : b->len) + 1;
     LBig r = lbig_make(n);
     uint64_t carry = 0;
@@ -996,7 +997,7 @@ static LBig lbig_add_mag(const LBig *a, const LBig *b) {
     r.len = n; r.sign = 1; lbig_trim(&r);
     return r;
 }
-static LBig lbig_sub_mag(const LBig *a, const LBig *b) { /* requires |a| >= |b| */
+__attribute__((unused)) static LBig lbig_sub_mag(const LBig *a, const LBig *b) { /* requires |a| >= |b| */
     LBig r = lbig_make(a->len);
     int64_t borrow = 0;
     for (size_t i = 0; i < a->len; i++) {
@@ -1007,7 +1008,7 @@ static LBig lbig_sub_mag(const LBig *a, const LBig *b) { /* requires |a| >= |b| 
     r.len = a->len; r.sign = 1; lbig_trim(&r);
     return r;
 }
-static LBig lbig_add(const LBig *a, const LBig *b) {
+__attribute__((unused)) static LBig lbig_add(const LBig *a, const LBig *b) {
     if (a->sign == 0) return lbig_copy(b);
     if (b->sign == 0) return lbig_copy(a);
     if (a->sign == b->sign) { LBig r = lbig_add_mag(a, b); if (r.len) r.sign = a->sign; return r; }
@@ -1016,9 +1017,9 @@ static LBig lbig_add(const LBig *a, const LBig *b) {
     if (c > 0) { LBig r = lbig_sub_mag(a, b); if (r.len) r.sign = a->sign; return r; }
     LBig r = lbig_sub_mag(b, a); if (r.len) r.sign = b->sign; return r;
 }
-static LBig lbig_neg(const LBig *a) { LBig r = lbig_copy(a); if (r.len) r.sign = -a->sign; return r; }
-static LBig lbig_sub(const LBig *a, const LBig *b) { LBig nb = lbig_neg(b); LBig r = lbig_add(a, &nb); lbig_free(&nb); return r; }
-static LBig lbig_mul(const LBig *a, const LBig *b) {
+__attribute__((unused)) static LBig lbig_neg(const LBig *a) { LBig r = lbig_copy(a); if (r.len) r.sign = -a->sign; return r; }
+__attribute__((unused)) static LBig lbig_sub(const LBig *a, const LBig *b) { LBig nb = lbig_neg(b); LBig r = lbig_add(a, &nb); lbig_free(&nb); return r; }
+__attribute__((unused)) static LBig lbig_mul(const LBig *a, const LBig *b) {
     if (a->sign == 0 || b->sign == 0) return lbig_make(1);
     LBig r = lbig_make(a->len + b->len);
     for (size_t i = 0; i < a->len; i++) {
@@ -1033,7 +1034,7 @@ static LBig lbig_mul(const LBig *a, const LBig *b) {
     r.len = a->len + b->len; r.sign = a->sign * b->sign; lbig_trim(&r);
     return r;
 }
-static LBig lbig_pow(const LBig *base, uint64_t exp) {
+__attribute__((unused)) static LBig lbig_pow(const LBig *base, uint64_t exp) {
     LBig result = lbig_from_i64(1);
     LBig b = lbig_copy(base);
     while (exp > 0) {
@@ -1044,12 +1045,12 @@ static LBig lbig_pow(const LBig *base, uint64_t exp) {
     lbig_free(&b);
     return result;
 }
-static int lbig_cmp(const LBig *a, const LBig *b) {
+__attribute__((unused)) static int lbig_cmp(const LBig *a, const LBig *b) {
     if (a->sign != b->sign) return a->sign < b->sign ? -1 : 1;
     int m = lbig_cmp_mag(a, b);
     return a->sign < 0 ? -m : m; /* for negatives, larger magnitude = smaller value */
 }
-static char *lbig_to_string(const LBig *a) {
+__attribute__((unused)) static char *lbig_to_string(const LBig *a) {
     if (a->len == 0) { char *z = (char *)lc_gc_alloc_atomic(2); z[0] = '0'; z[1] = '\0'; return z; }
     char *buf = (char *)lc_gc_alloc_atomic(a->len * 9 + 2);
     char *p = buf;
@@ -1059,7 +1060,7 @@ static char *lbig_to_string(const LBig *a) {
     *p = '\0';
     return buf;
 }
-static void show_bignum(LBig a) { char *s = lbig_to_string(&a); printf("%s\n", s); lc_gc_free(s); }
+__attribute__((unused)) static void show_bignum(LBig a) { char *s = lbig_to_string(&a); printf("%s\n", s); lc_gc_free(s); }
 
 /* ================= Exact rational + complex tower over LBig ==================
    The AOT-Rust backend keeps exact LogosRational / LogosComplex; the C backend now
@@ -1246,7 +1247,10 @@ __attribute__((unused)) static char *ldec_to_string(const LDec *d) {
     int mlen = (int) strlen(mag);
     if (d->scale == 0) {
         char *out = (char *) lc_gc_alloc_atomic(mlen + 2); int p = 0;
-        if (neg) out[p++] = '-'; strcpy(out + p, mag); lc_gc_free(mag); return out;
+        if (neg) out[p++] = '-';
+        strcpy(out + p, mag);
+        lc_gc_free(mag);
+        return out;
     }
     int total = mlen > d->scale ? mlen : d->scale + 1;   /* ensure >= 1 integer digit */
     int intlen = total - d->scale, pad = total - mlen;
@@ -1326,18 +1330,29 @@ __attribute__((unused)) static LInt lint_big(LBig b) { LInt r; r.small = 0; r.bi
 __attribute__((unused)) static LBig lint_as_big(LInt a) { return a.big ? lbig_copy(a.big) : lbig_from_i64(a.small); }
 /* An exact integer as the `LDec` it is, for exact arithmetic with a fraction. */
 __attribute__((unused)) static LDec ldec_from_lint(LInt v) { LDec d; d.is_rat = 0; d.a = lint_as_big(v); d.b = lbig_from_i64(0); d.scale = 0; return d; }
+/* The machine word `b` is, when it is one. The magnitude is accumulated unsigned (three base-1e9 limbs stay below
+   2^90, so a fourth limb, or a magnitude past 2^63, is no word), and -2^63, whose magnitude no signed word holds,
+   comes out whole. */
+__attribute__((unused)) static int lbig_word(const LBig *b, int64_t *v) {
+    if (b->len > 3) return 0;
+    uint64_t m = 0;
+    for (size_t i = b->len; i-- > 0; ) {
+        if (m > (UINT64_MAX - b->limb[i]) / LBIG_BASE) return 0;
+        m = m * LBIG_BASE + b->limb[i];
+    }
+    if (b->sign < 0) {
+        if (m > (uint64_t)INT64_MAX + 1) return 0;
+        *v = (int64_t)(0 - m);
+    } else {
+        if (m > (uint64_t)INT64_MAX) return 0;
+        *v = (int64_t)m;
+    }
+    return 1;
+}
 /* normalize an LBig result back to a small when it fits i64 (keeps the fast path sticky). */
 __attribute__((unused)) static LInt lint_norm(LBig b) {
-    if (b.len <= 2) { /* < 10^18 in magnitude → surely fits i64 */
-        int64_t v = 0; for (size_t i = b.len; i-- > 0; ) v = v * (int64_t)LBIG_BASE + (int64_t)b.limb[i];
-        if (b.sign < 0) v = -v; lbig_free(&b); return lint_small(v);
-    }
-    if (b.len == 3) { /* 10^18..10^27: may or may not fit — compare against i64 bounds via f64 guard then exact */
-        double approx = lbig_to_f64(&b);
-        if (approx >= -9.2e18 && approx <= 9.2e18) {
-            /* borderline — rebuild and range-check exactly is overkill; fall through to big form when unsure */
-        }
-    }
+    int64_t v;
+    if (lbig_word(&b, &v)) { lbig_free(&b); return lint_small(v); }
     return lint_big(b);
 }
 __attribute__((unused)) static LInt lint_add(LInt a, LInt b) {
@@ -1410,12 +1425,8 @@ __attribute__((unused)) static inline int64_t lint_expect_i64(LInt a) {
     return lint_expect_i64_big(a);
 }
 __attribute__((unused, noinline)) static int64_t lint_expect_i64_big(LInt a) {
-    if (a.big->len <= 2) { int64_t v = 0; for (size_t i = a.big->len; i-- > 0; ) v = v * (int64_t)LBIG_BASE + (int64_t)a.big->limb[i]; return a.big->sign < 0 ? -v : v; }
-    if (a.big->len == 3) { /* 10^18..10^27 — range-check exactly against i64 bounds */
-        LBig lo = lbig_from_i64(INT64_MIN), hi = lbig_from_i64(INT64_MAX);
-        int in = lbig_cmp(a.big, &lo) >= 0 && lbig_cmp(a.big, &hi) <= 0; lbig_free(&lo); lbig_free(&hi);
-        if (in) { int64_t v = 0; for (size_t i = a.big->len; i-- > 0; ) v = v * (int64_t)LBIG_BASE + (int64_t)a.big->limb[i]; return a.big->sign < 0 ? -v : v; }
-    }
+    int64_t v;
+    if (lbig_word(a.big, &v)) return v;
     logos_fatal("LOGOS runtime error: integer value out of range for this int64 context");
 }
 /* An exact integer as a collection's index: the machine word it fits, or the reference tier's refusal of an index past
@@ -1426,25 +1437,31 @@ __attribute__((unused)) static inline int64_t lint_index_i64(LInt a, const char 
     return lint_index_i64_big(a, refusal);
 }
 __attribute__((unused, noinline)) static int64_t lint_index_i64_big(LInt a, const char *refusal) {
-    LBig lo = lbig_from_i64(INT64_MIN), hi = lbig_from_i64(INT64_MAX);
-    int in = lbig_cmp(a.big, &lo) >= 0 && lbig_cmp(a.big, &hi) <= 0; lbig_free(&lo); lbig_free(&hi);
-    if (!in) logos_fatal(refusal);
-    return lint_expect_i64(a);
+    int64_t v;
+    if (!lbig_word(a.big, &v)) logos_fatal(refusal);
+    return v;
 }
 /* promote any int64 value into an LInt for mixed BigInt arithmetic. */
 __attribute__((unused)) static LInt lint_of(int64_t v) { return lint_small(v); }
+/* `abs` of an Int: exact for every Int but INT64_MIN, whose absolute value (2^63) is no int64_t and fails as an Int held
+   as a word fails past it. */
+__attribute__((unused)) static inline int64_t logos_iabs(int64_t n) {
+    if (__builtin_expect(n == INT64_MIN, 0)) return lint_expect_i64(lint_sub(lint_of(0), lint_of(n)));
+    return n < 0 ? -n : n;
+}
+/* `abs` of an exact integer: the exact integer. */
+__attribute__((unused)) static inline LInt logos_lint_abs(LInt a) {
+    return lint_cmp(a, lint_of(0)) < 0 ? lint_sub(lint_of(0), a) : a;
+}
 __attribute__((unused)) static inline int lint_is_zero(LInt a) { return !a.big && a.small == 0; }
 /* Whether the exact integer is within i64 — what the VM holds as an `Int` — and its value when it is. */
 __attribute__((unused)) static int lint_i64(LInt a, int64_t *v) {
     if (!a.big) { *v = a.small; return 1; }
-    LBig lo = lbig_from_i64(INT64_MIN), hi = lbig_from_i64(INT64_MAX);
-    int in = lbig_cmp(a.big, &lo) >= 0 && lbig_cmp(a.big, &hi) <= 0; lbig_free(&lo); lbig_free(&hi);
-    if (in) *v = lint_expect_i64(a);
-    return in;
+    return lbig_word(a.big, v);
 }
 /* The bitwise operations over exact integers: within i64 they are the machine's; past it the VM refuses them —
    save a low-bit mask `2^k - 1` over a non-negative integer, which is its remainder by `2^k`. */
-__attribute__((unused)) static int64_t lint_bitand(LInt a, LInt b) {
+__attribute__((unused, noinline)) static int64_t lint_bitand_big(LInt a, LInt b) {
     int64_t x, y; int fx = lint_i64(a, &x), fy = lint_i64(b, &y);
     if (fx && fy) return x & y;
     if (fx != fy) {
@@ -1454,10 +1471,16 @@ __attribute__((unused)) static int64_t lint_bitand(LInt a, LInt b) {
     }
     logos_fatal(logos_says_bitand_refused);
 }
-__attribute__((unused)) static int64_t lint_bitor(LInt a, LInt b) { int64_t x, y; if (lint_i64(a, &x) && lint_i64(b, &y)) return x | y; logos_fatal(logos_says_bitor_refused); }
-__attribute__((unused)) static int64_t lint_bitxor(LInt a, LInt b) { int64_t x, y; if (lint_i64(a, &x) && lint_i64(b, &y)) return x ^ y; logos_fatal(logos_says_bitxor_refused); }
-__attribute__((unused)) static int64_t lint_shl(LInt a, LInt b) { int64_t x, y; if (lint_i64(a, &x) && lint_i64(b, &y)) return (int64_t)((uint64_t)x << ((uint32_t)y & 63u)); logos_fatal(logos_says_shl_refused); }
-__attribute__((unused)) static int64_t lint_shr(LInt a, LInt b) { int64_t x, y; if (lint_i64(a, &x) && lint_i64(b, &y)) return x >> ((uint32_t)y & 63u); logos_fatal(logos_says_shr_refused); }
+__attribute__((unused, noinline)) static int64_t lint_bitor_big(LInt a, LInt b) { int64_t x, y; if (lint_i64(a, &x) && lint_i64(b, &y)) return x | y; logos_fatal(logos_says_bitor_refused); }
+__attribute__((unused, noinline)) static int64_t lint_bitxor_big(LInt a, LInt b) { int64_t x, y; if (lint_i64(a, &x) && lint_i64(b, &y)) return x ^ y; logos_fatal(logos_says_bitxor_refused); }
+__attribute__((unused, noinline)) static int64_t lint_shl_big(LInt a, LInt b) { int64_t x, y; if (lint_i64(a, &x) && lint_i64(b, &y)) return (int64_t)((uint64_t)x << ((uint32_t)y & 63u)); logos_fatal(logos_says_shl_refused); }
+__attribute__((unused, noinline)) static int64_t lint_shr_big(LInt a, LInt b) { int64_t x, y; if (lint_i64(a, &x) && lint_i64(b, &y)) return x >> ((uint32_t)y & 63u); logos_fatal(logos_says_shr_refused); }
+/* Each inline while both operands are machine words, out of line when either holds a big integer. */
+__attribute__((unused)) static inline int64_t lint_bitand(LInt a, LInt b) { if (__builtin_expect(!a.big && !b.big, 1)) return a.small & b.small; return lint_bitand_big(a, b); }
+__attribute__((unused)) static inline int64_t lint_bitor(LInt a, LInt b) { if (__builtin_expect(!a.big && !b.big, 1)) return a.small | b.small; return lint_bitor_big(a, b); }
+__attribute__((unused)) static inline int64_t lint_bitxor(LInt a, LInt b) { if (__builtin_expect(!a.big && !b.big, 1)) return a.small ^ b.small; return lint_bitxor_big(a, b); }
+__attribute__((unused)) static inline int64_t lint_shl(LInt a, LInt b) { if (__builtin_expect(!a.big && !b.big, 1)) return (int64_t)((uint64_t)a.small << ((uint32_t)b.small & 63u)); return lint_shl_big(a, b); }
+__attribute__((unused)) static inline int64_t lint_shr(LInt a, LInt b) { if (__builtin_expect(!a.big && !b.big, 1)) return a.small >> ((uint32_t)b.small & 63u); return lint_shr_big(a, b); }
 
 /* ===== An exact number as the VM holds it. The VM keeps a whole rational as the integer it equals
    (`RuntimeValue::from_rational`), so a rational here answers `/`, `//`, `%`, `**`, the bitwise operators, an index
@@ -1701,7 +1724,7 @@ __attribute__((unused)) static char *logos_trim(const char *s) {
 
 /* ========== String Formatting Helpers ========== */
 
-static char *logos_center_str(const char *s, int width) {
+__attribute__((unused)) static char *logos_center_str(const char *s, int width) {
     int len = (int)strlen(s);
     if (len >= width) return lc_gc_strdup(s);
     int total_pad = width - len;
@@ -1715,13 +1738,13 @@ static char *logos_center_str(const char *s, int width) {
     return result;
 }
 
-static char *logos_center_i64(int64_t val, int width) {
+__attribute__((unused)) static char *logos_center_i64(int64_t val, int width) {
     char tmp[64];
     snprintf(tmp, 64, "%" PRId64, val);
     return logos_center_str(tmp, width);
 }
 
-static char *logos_dyn_sprintf(const char *fmt, ...) {
+__attribute__((unused)) static char *logos_dyn_sprintf(const char *fmt, ...) {
     va_list args, args2;
     va_start(args, fmt);
     va_copy(args2, args);
@@ -1735,15 +1758,17 @@ static char *logos_dyn_sprintf(const char *fmt, ...) {
 
 /* Forward decl: `str_concat` is defined further down but is used by the map/set `*_to_string`
  * builders above that point (insertion-ordered `Show`). */
-static char *str_concat(const char *a, const char *b);
+__attribute__((unused)) static char *str_concat(const char *a, const char *b);
 
 /* ========== Dynamic Array: Seq_i64 ========== */
 
-typedef struct { int64_t *data; size_t len; size_t cap; } Seq_i64;
+/* `exact` is set once, when a value past the word is first stored into a list that may hold one: from then on every
+   cell is tagged (`lint_to_cell`). Until then the cells are the machine words themselves. */
+typedef struct { int64_t *data; size_t len; size_t cap; int exact; } Seq_i64;
 
-static Seq_i64 seq_i64_new(void) { return (Seq_i64){NULL, 0, 0}; }
+__attribute__((unused)) static Seq_i64 seq_i64_new(void) { return (Seq_i64){NULL, 0, 0, 0}; }
 
-static void seq_i64_push(Seq_i64 *s, int64_t val) {
+__attribute__((unused)) static void seq_i64_push(Seq_i64 *s, int64_t val) {
     if (s->len == s->cap) {
         s->cap = s->cap ? s->cap * 2 : 8;
         s->data = (int64_t *)lc_gc_realloc(s->data, s->cap * sizeof(int64_t));
@@ -1755,19 +1780,19 @@ static void seq_i64_push(Seq_i64 *s, int64_t val) {
    (k<0 -> len+k, so -1 is the last element) — matching the VM/tree-walker's Python-style negative index.
    An index naming no element (incl. `item 0`) fails the run with the VM's sentence, which names the index
    asked for (flush first so any already-printed output matches the VM's partial stream). */
-static inline size_t logos_idx0(int64_t idx, size_t len) {
+__attribute__((unused)) static inline size_t logos_idx0(int64_t idx, size_t len) {
     if (idx >= 1) { if ((uint64_t)(idx - 1) < (uint64_t)len) return (size_t)(idx - 1); }
     else if (idx <= -1) { uint64_t back = (uint64_t)0 - (uint64_t)idx; if (back <= (uint64_t)len) return (size_t)((uint64_t)len - back); }
     logos_fatalf(@INDEX_OUT_OF_BOUNDS@, idx);
 }
-static int64_t seq_i64_get(Seq_i64 *s, int64_t idx) { return s->data[logos_idx0(idx, s->len)]; }
-static void seq_i64_set(Seq_i64 *s, int64_t idx, int64_t val) { s->data[logos_idx0(idx, s->len)] = val; }
-static int64_t seq_i64_len(Seq_i64 *s) { return (int64_t)s->len; }
+__attribute__((unused)) static int64_t seq_i64_get(Seq_i64 *s, int64_t idx) { return s->data[logos_idx0(idx, s->len)]; }
+__attribute__((unused)) static void seq_i64_set(Seq_i64 *s, int64_t idx, int64_t val) { s->data[logos_idx0(idx, s->len)] = val; }
+__attribute__((unused)) static int64_t seq_i64_len(Seq_i64 *s) { return (int64_t)s->len; }
 
 /* text <-> byte sequence — the foundation the whole `strings.lg` stdlib builds on.
    `text_bytes` yields the raw bytes (0..255) as a Seq of Int; `text_from_bytes` reassembles them.
    Matches the interpreter/Rust builtins (Text is UTF-8, bytes are the encoding's octets). */
-static Seq_i64 logos_text_bytes(const char *s) {
+__attribute__((unused)) static Seq_i64 logos_text_bytes(const char *s) {
     Seq_i64 r = seq_i64_new();
     if (s) {
         for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
@@ -1776,7 +1801,7 @@ static Seq_i64 logos_text_bytes(const char *s) {
     }
     return r;
 }
-static char *logos_text_from_bytes(Seq_i64 s) {
+__attribute__((unused)) static char *logos_text_from_bytes(Seq_i64 s) {
     char *buf = (char *)lc_gc_alloc_atomic(s.len + 1);
     for (size_t i = 0; i < s.len; i++) {
         buf[i] = (char)(unsigned char)s.data[i];
@@ -1787,7 +1812,7 @@ static char *logos_text_from_bytes(Seq_i64 s) {
 
 /* `chr(code)` = the single character with the given Unicode scalar value, UTF-8 encoded —
    byte-identical to the interpreter's `char::from_u32(code).to_string()`. */
-static char *logos_chr(int64_t code) {
+__attribute__((unused)) static char *logos_chr(int64_t code) {
     uint32_t c = (uint32_t)code;
     unsigned char buf[4];
     int n = 0;
@@ -1816,9 +1841,9 @@ static char *logos_chr(int64_t code) {
 
 typedef struct { bool *data; size_t len; size_t cap; } Seq_bool;
 
-static Seq_bool seq_bool_new(void) { return (Seq_bool){NULL, 0, 0}; }
+__attribute__((unused)) static Seq_bool seq_bool_new(void) { return (Seq_bool){NULL, 0, 0}; }
 
-static void seq_bool_push(Seq_bool *s, bool val) {
+__attribute__((unused)) static void seq_bool_push(Seq_bool *s, bool val) {
     if (s->len == s->cap) {
         s->cap = s->cap ? s->cap * 2 : 8;
         s->data = (bool *)lc_gc_realloc_atomic(s->data, s->cap * sizeof(bool));
@@ -1826,17 +1851,17 @@ static void seq_bool_push(Seq_bool *s, bool val) {
     s->data[s->len++] = val;
 }
 
-static bool seq_bool_get(Seq_bool *s, int64_t idx) { return s->data[logos_idx0(idx, s->len)]; }
-static void seq_bool_set(Seq_bool *s, int64_t idx, bool val) { s->data[logos_idx0(idx, s->len)] = val; }
-static int64_t seq_bool_len(Seq_bool *s) { return (int64_t)s->len; }
+__attribute__((unused)) static bool seq_bool_get(Seq_bool *s, int64_t idx) { return s->data[logos_idx0(idx, s->len)]; }
+__attribute__((unused)) static void seq_bool_set(Seq_bool *s, int64_t idx, bool val) { s->data[logos_idx0(idx, s->len)] = val; }
+__attribute__((unused)) static int64_t seq_bool_len(Seq_bool *s) { return (int64_t)s->len; }
 
 /* ========== Dynamic Array: Seq_str ========== */
 
 typedef struct { char **data; size_t len; size_t cap; } Seq_str;
 
-static Seq_str seq_str_new(void) { return (Seq_str){NULL, 0, 0}; }
+__attribute__((unused)) static Seq_str seq_str_new(void) { return (Seq_str){NULL, 0, 0}; }
 
-static void seq_str_push(Seq_str *s, char *val) {
+__attribute__((unused)) static void seq_str_push(Seq_str *s, char *val) {
     if (s->len == s->cap) {
         s->cap = s->cap ? s->cap * 2 : 8;
         s->data = (char **)lc_gc_realloc(s->data, s->cap * sizeof(char *));
@@ -1844,9 +1869,9 @@ static void seq_str_push(Seq_str *s, char *val) {
     s->data[s->len++] = val;
 }
 
-static char *seq_str_get(Seq_str *s, int64_t idx) { return s->data[logos_idx0(idx, s->len)]; }
-static void seq_str_set(Seq_str *s, int64_t idx, char *val) { s->data[logos_idx0(idx, s->len)] = val; }
-static int64_t seq_str_len(Seq_str *s) { return (int64_t)s->len; }
+__attribute__((unused)) static char *seq_str_get(Seq_str *s, int64_t idx) { return s->data[logos_idx0(idx, s->len)]; }
+__attribute__((unused)) static void seq_str_set(Seq_str *s, int64_t idx, char *val) { s->data[logos_idx0(idx, s->len)] = val; }
+__attribute__((unused)) static int64_t seq_str_len(Seq_str *s) { return (int64_t)s->len; }
 
 /* ========== Hash Map: Map_i64_i64 (open addressing) ========== */
 
@@ -1890,7 +1915,7 @@ typedef struct {
     size_t ord_len;
 } Map_i64_i64;
 
-static size_t _map_hash(int64_t key, size_t cap) {
+__attribute__((unused)) static size_t _map_hash(int64_t key, size_t cap) {
     uint64_t h = (uint64_t)key;
     h = (h ^ (h >> 30)) * 0xbf58476d1ce4e5b9ULL;
     h = (h ^ (h >> 27)) * 0x94d049bb133111ebULL;
@@ -1898,7 +1923,7 @@ static size_t _map_hash(int64_t key, size_t cap) {
     return (size_t)(h & (cap - 1));
 }
 
-static size_t logos_map_capacity(int64_t cap_hint) {
+__attribute__((unused)) static size_t logos_map_capacity(int64_t cap_hint) {
     if (cap_hint <= 0) return 16;
     uint64_t need = (uint64_t)cap_hint;
     if (need > (uint64_t)SIZE_MAX / 2) logos_fatal("map capacity overflow");
@@ -1911,7 +1936,7 @@ static size_t logos_map_capacity(int64_t cap_hint) {
     return cap;
 }
 
-static Map_i64_i64 map_i64_i64_new(void) {
+__attribute__((unused)) static Map_i64_i64 map_i64_i64_new(void) {
     size_t cap = 16;
     Map_i64_i64 m;
     m.keys = (int64_t *)lc_gc_calloc(cap, sizeof(int64_t));
@@ -1924,7 +1949,7 @@ static Map_i64_i64 map_i64_i64_new(void) {
     return m;
 }
 
-static Map_i64_i64 map_i64_i64_with_capacity(int64_t cap_hint) {
+__attribute__((unused)) static Map_i64_i64 map_i64_i64_with_capacity(int64_t cap_hint) {
     size_t cap = logos_map_capacity(cap_hint);
     Map_i64_i64 m;
     m.keys = (int64_t *)lc_gc_calloc(cap, sizeof(int64_t));
@@ -1937,7 +1962,7 @@ static Map_i64_i64 map_i64_i64_with_capacity(int64_t cap_hint) {
     return m;
 }
 
-static void _map_resize(Map_i64_i64 *m) {
+__attribute__((unused)) static void _map_resize(Map_i64_i64 *m) {
     int64_t *ok = m->keys; int64_t *ov = m->vals; uint8_t *os = m->state; size_t *oo = m->order; size_t ool = m->ord_len;
     size_t nc = m->cap * 2;
     m->keys = (int64_t *)lc_gc_calloc(nc, sizeof(int64_t));
@@ -1959,7 +1984,7 @@ static void _map_resize(Map_i64_i64 *m) {
 /* Reserve for a proven counted insertion loop. The ordered-map representation
    remains unchanged; this only pays its allocations and rehashing once before
    the hot loop instead of repeatedly inside it. */
-static void map_i64_i64_reserve(Map_i64_i64 *m, int64_t additional) {
+__attribute__((unused)) static void map_i64_i64_reserve(Map_i64_i64 *m, int64_t additional) {
     if (additional <= 0) return;
     size_t add = (size_t)additional;
     if (add > SIZE_MAX - m->ord_len) logos_fatal("map capacity overflow");
@@ -1970,7 +1995,7 @@ static void map_i64_i64_reserve(Map_i64_i64 *m, int64_t additional) {
     }
 }
 
-static void map_i64_i64_set(Map_i64_i64 *m, int64_t key, int64_t val) {
+__attribute__((unused)) static void map_i64_i64_set(Map_i64_i64 *m, int64_t key, int64_t val) {
     if (m->ord_len * 4 >= m->cap * 3) _map_resize(m);
     size_t idx = _map_hash(key, m->cap);
     while (m->state[idx]) {
@@ -1985,10 +2010,10 @@ static void map_i64_i64_set(Map_i64_i64 *m, int64_t key, int64_t val) {
 }
 
 /* The text of an integer a collection holds: an Int signed, a machine word (`word`) by its unsigned value. */
-static char *logos_date_to_string(int64_t days);
-static char *logos_moment_to_string(int64_t nanos);
-static char *logos_format_time_of_day(int64_t nanos_from_midnight);
-static char *logos_duration_to_string(int64_t nanos);
+__attribute__((unused)) static char *logos_date_to_string(int64_t days);
+__attribute__((unused)) static char *logos_moment_to_string(int64_t nanos);
+__attribute__((unused)) static char *logos_format_time_of_day(int64_t nanos_from_midnight);
+__attribute__((unused)) static char *logos_duration_to_string(int64_t nanos);
 /* One integer of a collection, shown as the collection reads it (`Ints::shown`): an Int, a word by its unsigned value,
    a date, an instant, a time of day or a duration. */
 __attribute__((unused)) static char *logos_int_text(int64_t v, int shown) {
@@ -2022,22 +2047,22 @@ __attribute__((unused)) static char *map_i64_i64_to_string_as(Map_i64_i64 *m, in
     char *nw = str_concat(out, "}"); lc_gc_free(out); return nw;
 }
 
-/* Reading an absent key is a TRAP on the VM (`item k of m` requires k present), so abort ≡ VM rather than
-   returning a silent default. */
-static void logos_map_miss(void) { logos_fatal("missing map key"); }
-static int64_t map_i64_i64_get(Map_i64_i64 *m, int64_t key) {
+/* Reading a key a map does not hold stops the program as it does on the VM, naming the key as `Show` prints it. */
+__attribute__((unused, noreturn)) static void logos_map_miss_str(const char *key) { logos_fatal(logos_dyn_sprintf("Key '%s' not found in map", key)); }
+__attribute__((unused, noreturn)) static void logos_map_miss_i64(int64_t key) { logos_fatal(logos_dyn_sprintf("Key '%" PRId64 "' not found in map", key)); }
+__attribute__((unused)) static int64_t map_i64_i64_get(Map_i64_i64 *m, int64_t key) {
     size_t idx = _map_hash(key, m->cap);
     while (m->state[idx]) {
         if (m->keys[idx] == key) return m->vals[idx];
         idx = (idx + 1) & (m->cap - 1);
     }
-    logos_map_miss();
+    logos_map_miss_i64(key);
     return 0;
 }
 
 /* ========== String Hash Function ========== */
 
-static size_t _map_hash_str(const char *key, size_t cap) {
+__attribute__((unused)) static size_t _map_hash_str(const char *key, size_t cap) {
     uint64_t h = 5381;
     while (*key) { h = ((h << 5) + h) + (uint8_t)*key; key++; }
     return (size_t)(h & (cap - 1));
@@ -2052,7 +2077,7 @@ typedef struct {
     char **keys; int64_t *vals; uint8_t *state; size_t cap; size_t len; size_t *order; size_t ord_len;
 } Map_str_i64;
 
-static Map_str_i64 map_str_i64_new(void) {
+__attribute__((unused)) static Map_str_i64 map_str_i64_new(void) {
     size_t cap = 16;
     Map_str_i64 m = {(char **)lc_gc_calloc(cap, sizeof(char *)),
         (int64_t *)lc_gc_calloc(cap, sizeof(int64_t)),
@@ -2061,7 +2086,7 @@ static Map_str_i64 map_str_i64_new(void) {
     return m;
 }
 
-static Map_str_i64 map_str_i64_with_capacity(int64_t cap_hint) {
+__attribute__((unused)) static Map_str_i64 map_str_i64_with_capacity(int64_t cap_hint) {
     size_t cap = logos_map_capacity(cap_hint);
     Map_str_i64 m = {(char **)lc_gc_calloc(cap, sizeof(char *)),
         (int64_t *)lc_gc_calloc(cap, sizeof(int64_t)),
@@ -2070,7 +2095,7 @@ static Map_str_i64 map_str_i64_with_capacity(int64_t cap_hint) {
     return m;
 }
 
-static void _map_str_i64_resize(Map_str_i64 *m) {
+__attribute__((unused)) static void _map_str_i64_resize(Map_str_i64 *m) {
     char **ok = m->keys; int64_t *ov = m->vals; uint8_t *os = m->state; size_t *oo = m->order; size_t ool = m->ord_len;
     size_t nc = m->cap * 2;
     m->keys = (char **)lc_gc_calloc(nc, sizeof(char *));
@@ -2089,7 +2114,7 @@ static void _map_str_i64_resize(Map_str_i64 *m) {
     lc_gc_free(ok); lc_gc_free(ov); lc_gc_free(os); lc_gc_free(oo);
 }
 
-static void map_str_i64_set(Map_str_i64 *m, const char *key, int64_t val) {
+__attribute__((unused)) static void map_str_i64_set(Map_str_i64 *m, const char *key, int64_t val) {
     if (m->ord_len * 4 >= m->cap * 3) _map_str_i64_resize(m);
     size_t idx = _map_hash_str(key, m->cap);
     while (m->state[idx]) {
@@ -2121,17 +2146,17 @@ __attribute__((unused)) static char *map_str_i64_to_string_as(Map_str_i64 *m, in
     char *nw = str_concat(out, "}"); lc_gc_free(out); return nw;
 }
 
-static int64_t map_str_i64_get(Map_str_i64 *m, const char *key) {
+__attribute__((unused)) static int64_t map_str_i64_get(Map_str_i64 *m, const char *key) {
     size_t idx = _map_hash_str(key, m->cap);
     while (m->state[idx]) {
         if (strcmp(m->keys[idx], key) == 0) return m->vals[idx];
         idx = (idx + 1) & (m->cap - 1);
     }
-    logos_map_miss();
+    logos_map_miss_str(key);
     return 0;
 }
 
-static bool map_str_i64_contains(Map_str_i64 *m, const char *key) {
+__attribute__((unused)) static bool map_str_i64_contains(Map_str_i64 *m, const char *key) {
     size_t idx = _map_hash_str(key, m->cap);
     while (m->state[idx]) {
         if (strcmp(m->keys[idx], key) == 0) return true;
@@ -2146,7 +2171,7 @@ typedef struct {
     char **keys; char **vals; uint8_t *state; size_t cap; size_t len; size_t *order; size_t ord_len;
 } Map_str_str;
 
-static Map_str_str map_str_str_new(void) {
+__attribute__((unused)) static Map_str_str map_str_str_new(void) {
     size_t cap = 16;
     Map_str_str m = {(char **)lc_gc_calloc(cap, sizeof(char *)),
         (char **)lc_gc_calloc(cap, sizeof(char *)),
@@ -2155,7 +2180,7 @@ static Map_str_str map_str_str_new(void) {
     return m;
 }
 
-static Map_str_str map_str_str_with_capacity(int64_t cap_hint) {
+__attribute__((unused)) static Map_str_str map_str_str_with_capacity(int64_t cap_hint) {
     size_t cap = logos_map_capacity(cap_hint);
     Map_str_str m = {(char **)lc_gc_calloc(cap, sizeof(char *)),
         (char **)lc_gc_calloc(cap, sizeof(char *)),
@@ -2164,7 +2189,7 @@ static Map_str_str map_str_str_with_capacity(int64_t cap_hint) {
     return m;
 }
 
-static void _map_str_str_resize(Map_str_str *m) {
+__attribute__((unused)) static void _map_str_str_resize(Map_str_str *m) {
     char **ok = m->keys; char **ov = m->vals; uint8_t *os = m->state; size_t *oo = m->order; size_t ool = m->ord_len;
     size_t nc = m->cap * 2;
     m->keys = (char **)lc_gc_calloc(nc, sizeof(char *));
@@ -2183,7 +2208,7 @@ static void _map_str_str_resize(Map_str_str *m) {
     lc_gc_free(ok); lc_gc_free(ov); lc_gc_free(os); lc_gc_free(oo);
 }
 
-static void map_str_str_set(Map_str_str *m, const char *key, char *val) {
+__attribute__((unused)) static void map_str_str_set(Map_str_str *m, const char *key, char *val) {
     if (m->ord_len * 4 >= m->cap * 3) _map_str_str_resize(m);
     size_t idx = _map_hash_str(key, m->cap);
     while (m->state[idx]) {
@@ -2205,17 +2230,17 @@ __attribute__((unused)) static char *map_str_str_to_string(Map_str_str *m) {
 }
 __attribute__((unused)) static void show_map_str_str(Map_str_str *m) { char *t = map_str_str_to_string(m); printf("%s\n", t); lc_gc_free(t); }
 
-static char *map_str_str_get(Map_str_str *m, const char *key) {
+__attribute__((unused)) static char *map_str_str_get(Map_str_str *m, const char *key) {
     size_t idx = _map_hash_str(key, m->cap);
     while (m->state[idx]) {
         if (strcmp(m->keys[idx], key) == 0) return m->vals[idx];
         idx = (idx + 1) & (m->cap - 1);
     }
-    logos_map_miss();
+    logos_map_miss_str(key);
     return "";
 }
 
-static bool map_str_str_contains(Map_str_str *m, const char *key) {
+__attribute__((unused)) static bool map_str_str_contains(Map_str_str *m, const char *key) {
     size_t idx = _map_hash_str(key, m->cap);
     while (m->state[idx]) {
         if (strcmp(m->keys[idx], key) == 0) return true;
@@ -2230,7 +2255,7 @@ typedef struct {
     int64_t *keys; char **vals; uint8_t *state; size_t cap; size_t len; size_t *order; size_t ord_len;
 } Map_i64_str;
 
-static Map_i64_str map_i64_str_new(void) {
+__attribute__((unused)) static Map_i64_str map_i64_str_new(void) {
     size_t cap = 16;
     Map_i64_str m = {(int64_t *)lc_gc_calloc(cap, sizeof(int64_t)),
         (char **)lc_gc_calloc(cap, sizeof(char *)),
@@ -2239,7 +2264,7 @@ static Map_i64_str map_i64_str_new(void) {
     return m;
 }
 
-static Map_i64_str map_i64_str_with_capacity(int64_t cap_hint) {
+__attribute__((unused)) static Map_i64_str map_i64_str_with_capacity(int64_t cap_hint) {
     size_t cap = logos_map_capacity(cap_hint);
     Map_i64_str m = {(int64_t *)lc_gc_calloc(cap, sizeof(int64_t)),
         (char **)lc_gc_calloc(cap, sizeof(char *)),
@@ -2248,7 +2273,7 @@ static Map_i64_str map_i64_str_with_capacity(int64_t cap_hint) {
     return m;
 }
 
-static void _map_i64_str_resize(Map_i64_str *m) {
+__attribute__((unused)) static void _map_i64_str_resize(Map_i64_str *m) {
     int64_t *ok = m->keys; char **ov = m->vals; uint8_t *os = m->state; size_t *oo = m->order; size_t ool = m->ord_len;
     size_t nc = m->cap * 2;
     m->keys = (int64_t *)lc_gc_calloc(nc, sizeof(int64_t));
@@ -2267,7 +2292,7 @@ static void _map_i64_str_resize(Map_i64_str *m) {
     lc_gc_free(ok); lc_gc_free(ov); lc_gc_free(os); lc_gc_free(oo);
 }
 
-static void map_i64_str_set(Map_i64_str *m, int64_t key, char *val) {
+__attribute__((unused)) static void map_i64_str_set(Map_i64_str *m, int64_t key, char *val) {
     if (m->ord_len * 4 >= m->cap * 3) _map_i64_str_resize(m);
     size_t idx = _map_hash(key, m->cap);
     while (m->state[idx]) {
@@ -2299,17 +2324,17 @@ __attribute__((unused)) static char *map_i64_str_to_string_as(Map_i64_str *m, in
     char *nw = str_concat(out, "}"); lc_gc_free(out); return nw;
 }
 
-static char *map_i64_str_get(Map_i64_str *m, int64_t key) {
+__attribute__((unused)) static char *map_i64_str_get(Map_i64_str *m, int64_t key) {
     size_t idx = _map_hash(key, m->cap);
     while (m->state[idx]) {
         if (m->keys[idx] == key) return m->vals[idx];
         idx = (idx + 1) & (m->cap - 1);
     }
-    logos_map_miss();
+    logos_map_miss_i64(key);
     return "";
 }
 
-static bool map_i64_str_contains(Map_i64_str *m, int64_t key) {
+__attribute__((unused)) static bool map_i64_str_contains(Map_i64_str *m, int64_t key) {
     size_t idx = _map_hash(key, m->cap);
     while (m->state[idx]) {
         if (m->keys[idx] == key) return true;
@@ -2320,7 +2345,7 @@ static bool map_i64_str_contains(Map_i64_str *m, int64_t key) {
 
 /* ========== String Helpers ========== */
 
-static char *str_concat(const char *a, const char *b) {
+__attribute__((unused)) static char *str_concat(const char *a, const char *b) {
     size_t la = strlen(a), lb = strlen(b);
     char *r = (char *)lc_gc_alloc_atomic(la + lb + 1);
     memcpy(r, a, la);
@@ -2328,7 +2353,7 @@ static char *str_concat(const char *a, const char *b) {
     return r;
 }
 
-static char *str_append(char *s, const char *suffix) {
+__attribute__((unused)) static char *str_append(char *s, const char *suffix) {
     size_t slen = strlen(s);
     size_t suffix_len = strlen(suffix);
     s = (char *)lc_gc_realloc_atomic(s, slen + suffix_len + 1);
@@ -2336,7 +2361,7 @@ static char *str_append(char *s, const char *suffix) {
     return s;
 }
 
-static char *i64_to_str(int64_t n) {
+__attribute__((unused)) static char *i64_to_str(int64_t n) {
     char buf[32];
     snprintf(buf, sizeof(buf), "%" PRId64, n);
     return lc_gc_strdup(buf);
@@ -2346,9 +2371,9 @@ static char *i64_to_str(int64_t n) {
 
 typedef struct { double *data; size_t len; size_t cap; } Seq_f64;
 
-static Seq_f64 seq_f64_new(void) { return (Seq_f64){NULL, 0, 0}; }
+__attribute__((unused)) static Seq_f64 seq_f64_new(void) { return (Seq_f64){NULL, 0, 0}; }
 
-static void seq_f64_push(Seq_f64 *s, double val) {
+__attribute__((unused)) static void seq_f64_push(Seq_f64 *s, double val) {
     if (s->len == s->cap) {
         s->cap = s->cap ? s->cap * 2 : 8;
         s->data = (double *)lc_gc_realloc_atomic(s->data, s->cap * sizeof(double));
@@ -2356,36 +2381,36 @@ static void seq_f64_push(Seq_f64 *s, double val) {
     s->data[s->len++] = val;
 }
 
-static double seq_f64_get(Seq_f64 *s, int64_t idx) { return s->data[logos_idx0(idx, s->len)]; }
-static void seq_f64_set(Seq_f64 *s, int64_t idx, double val) { s->data[logos_idx0(idx, s->len)] = val; }
-static int64_t seq_f64_len(Seq_f64 *s) { return (int64_t)s->len; }
+__attribute__((unused)) static double seq_f64_get(Seq_f64 *s, int64_t idx) { return s->data[logos_idx0(idx, s->len)]; }
+__attribute__((unused)) static void seq_f64_set(Seq_f64 *s, int64_t idx, double val) { s->data[logos_idx0(idx, s->len)] = val; }
+__attribute__((unused)) static int64_t seq_f64_len(Seq_f64 *s) { return (int64_t)s->len; }
 
 /* ========== Pop Operations ========== */
 
-static int64_t seq_i64_pop(Seq_i64 *s) { int64_t value = s->data[--s->len]; s->data[s->len] = 0; return value; }
-static bool seq_bool_pop(Seq_bool *s) { return s->data[--s->len]; }
-static char *seq_str_pop(Seq_str *s) { char *value = s->data[--s->len]; s->data[s->len] = 0; return value; }
-static double seq_f64_pop(Seq_f64 *s) { return s->data[--s->len]; }
+__attribute__((unused)) static int64_t seq_i64_pop(Seq_i64 *s) { int64_t value = s->data[--s->len]; s->data[s->len] = 0; return value; }
+__attribute__((unused)) static bool seq_bool_pop(Seq_bool *s) { return s->data[--s->len]; }
+__attribute__((unused)) static char *seq_str_pop(Seq_str *s) { char *value = s->data[--s->len]; s->data[s->len] = 0; return value; }
+__attribute__((unused)) static double seq_f64_pop(Seq_f64 *s) { return s->data[--s->len]; }
 
 /* ========== Contains Operations ========== */
 
-static bool seq_i64_contains(Seq_i64 *s, int64_t val) {
+__attribute__((unused)) static bool seq_i64_contains(Seq_i64 *s, int64_t val) {
     for (size_t i = 0; i < s->len; i++) if (s->data[i] == val) return true;
     return false;
 }
-static bool seq_bool_contains(Seq_bool *s, bool val) {
+__attribute__((unused)) static bool seq_bool_contains(Seq_bool *s, bool val) {
     for (size_t i = 0; i < s->len; i++) if (s->data[i] == val) return true;
     return false;
 }
-static bool seq_str_contains(Seq_str *s, const char *val) {
+__attribute__((unused)) static bool seq_str_contains(Seq_str *s, const char *val) {
     for (size_t i = 0; i < s->len; i++) if (strcmp(s->data[i], val) == 0) return true;
     return false;
 }
-static bool seq_f64_contains(Seq_f64 *s, double val) {
+__attribute__((unused)) static bool seq_f64_contains(Seq_f64 *s, double val) {
     for (size_t i = 0; i < s->len; i++) if (s->data[i] == val) return true;
     return false;
 }
-static bool map_i64_i64_contains(Map_i64_i64 *m, int64_t key) {
+__attribute__((unused)) static bool map_i64_i64_contains(Map_i64_i64 *m, int64_t key) {
     size_t idx = _map_hash(key, m->cap);
     while (m->state[idx]) {
         if (m->keys[idx] == key) return true;
@@ -2395,7 +2420,7 @@ static bool map_i64_i64_contains(Map_i64_i64 *m, int64_t key) {
 }
 
 /* `Remove key from m`: see the removal note at `_logos_order_drop`. */
-static void map_i64_i64_remove(Map_i64_i64 *t, int64_t key) {
+__attribute__((unused)) static void map_i64_i64_remove(Map_i64_i64 *t, int64_t key) {
     size_t mask = t->cap - 1, i = _map_hash(key, t->cap);
     while (t->state[i] && !(t->keys[i] == key)) i = (i + 1) & mask;
     if (!t->state[i]) return;
@@ -2413,7 +2438,7 @@ static void map_i64_i64_remove(Map_i64_i64 *t, int64_t key) {
     t->vals[i] = 0;
     t->state[i] = 0;
 }
-static void map_str_i64_remove(Map_str_i64 *t, const char * key) {
+__attribute__((unused)) static void map_str_i64_remove(Map_str_i64 *t, const char * key) {
     size_t mask = t->cap - 1, i = _map_hash_str(key, t->cap);
     while (t->state[i] && !(strcmp(t->keys[i], key) == 0)) i = (i + 1) & mask;
     if (!t->state[i]) return;
@@ -2431,7 +2456,7 @@ static void map_str_i64_remove(Map_str_i64 *t, const char * key) {
     t->vals[i] = 0;
     t->state[i] = 0;
 }
-static void map_str_str_remove(Map_str_str *t, const char * key) {
+__attribute__((unused)) static void map_str_str_remove(Map_str_str *t, const char * key) {
     size_t mask = t->cap - 1, i = _map_hash_str(key, t->cap);
     while (t->state[i] && !(strcmp(t->keys[i], key) == 0)) i = (i + 1) & mask;
     if (!t->state[i]) return;
@@ -2449,7 +2474,7 @@ static void map_str_str_remove(Map_str_str *t, const char * key) {
     t->vals[i] = 0;
     t->state[i] = 0;
 }
-static void map_i64_str_remove(Map_i64_str *t, int64_t key) {
+__attribute__((unused)) static void map_i64_str_remove(Map_i64_str *t, int64_t key) {
     size_t mask = t->cap - 1, i = _map_hash(key, t->cap);
     while (t->state[i] && !(t->keys[i] == key)) i = (i + 1) & mask;
     if (!t->state[i]) return;
@@ -2470,34 +2495,34 @@ static void map_i64_str_remove(Map_i64_str *t, int64_t key) {
 
 /* ========== Copy Operations ========== */
 
-static Seq_i64 seq_i64_copy(Seq_i64 *s) {
-    Seq_i64 r = {(int64_t *)lc_gc_alloc(s->len * sizeof(int64_t)), s->len, s->len};
-    memcpy(r.data, s->data, s->len * sizeof(int64_t));
+__attribute__((unused)) static Seq_i64 seq_i64_copy(Seq_i64 *s) {
+    Seq_i64 r = {(int64_t *)lc_gc_alloc(s->len * sizeof(int64_t)), s->len, s->len, s->exact};
+    if (s->len) memcpy(r.data, s->data, s->len * sizeof(int64_t));
     return r;
 }
-static Seq_bool seq_bool_copy(Seq_bool *s) {
+__attribute__((unused)) static Seq_bool seq_bool_copy(Seq_bool *s) {
     Seq_bool r = {(bool *)lc_gc_alloc_atomic(s->len * sizeof(bool)), s->len, s->len};
-    memcpy(r.data, s->data, s->len * sizeof(bool));
+    if (s->len) memcpy(r.data, s->data, s->len * sizeof(bool));
     return r;
 }
-static Seq_str seq_str_copy(Seq_str *s) {
+__attribute__((unused)) static Seq_str seq_str_copy(Seq_str *s) {
     Seq_str r = {(char **)lc_gc_alloc(s->len * sizeof(char *)), s->len, s->len};
     for (size_t i = 0; i < s->len; i++) r.data[i] = lc_gc_strdup(s->data[i]);
     return r;
 }
-static Seq_f64 seq_f64_copy(Seq_f64 *s) {
+__attribute__((unused)) static Seq_f64 seq_f64_copy(Seq_f64 *s) {
     Seq_f64 r = {(double *)lc_gc_alloc_atomic(s->len * sizeof(double)), s->len, s->len};
-    memcpy(r.data, s->data, s->len * sizeof(double));
+    if (s->len) memcpy(r.data, s->data, s->len * sizeof(double));
     return r;
 }
 
 /* ========== String Operations ========== */
 
-static bool str_equals(const char *a, const char *b) { return strcmp(a, b) == 0; }
-static int64_t str_len(const char *s) { return (int64_t)strlen(s); }
+__attribute__((unused)) static bool str_equals(const char *a, const char *b) { return strcmp(a, b) == 0; }
+__attribute__((unused)) static int64_t str_len(const char *s) { return (int64_t)strlen(s); }
 /* `item k of <Text>` (1-based) → the k-th character as a fresh 1-char string, matching the VM's Show
  * and Text equality. Byte-indexed (correct for ASCII; a multi-byte codepoint is a documented limit). */
-static char *logos_str_char_at(const char *s, int64_t k) {
+__attribute__((unused)) static char *logos_str_char_at(const char *s, int64_t k) {
     char *r = (char *)lc_gc_alloc_atomic(2);
     r[0] = (k >= 1 && (size_t)k <= strlen(s)) ? s[k - 1] : '\0';
     r[1] = '\0';
@@ -2510,7 +2535,7 @@ static char *logos_str_char_at(const char *s, int64_t k) {
  * shortest decimal that round-trips, NEVER scientific notation, bare integral floats, NaN/inf/-inf).
  * Finds the shortest significant-digit count whose `%e` form round-trips via strtod, then reformats to
  * fixed decimal so any magnitude prints without an exponent — matching the VM for every finite value. */
-static char *logos_fmt_f64(double x) {
+__attribute__((unused)) static char *logos_fmt_f64(double x) {
     if (isnan(x)) return lc_gc_strdup("NaN");
     if (isinf(x)) return lc_gc_strdup(x < 0 ? "-inf" : "inf");
     char sci[64];
@@ -2546,10 +2571,10 @@ static char *logos_fmt_f64(double x) {
     return out;
 }
 
-static void show_i64(int64_t x) { printf("%" PRId64 "\n", x); }
-static void show_f64(double x) { char *s = logos_fmt_f64(x); printf("%s\n", s); lc_gc_free(s); }
-static void show_bool(bool x) { printf("%s\n", x ? "true" : "false"); }
-static void show_str(const char *s) { printf("%s\n", s); }
+__attribute__((unused)) static void show_i64(int64_t x) { printf("%" PRId64 "\n", x); }
+__attribute__((unused)) static void show_f64(double x) { char *s = logos_fmt_f64(x); printf("%s\n", s); lc_gc_free(s); }
+__attribute__((unused)) static void show_bool(bool x) { printf("%s\n", x ? "true" : "false"); }
+__attribute__((unused)) static void show_str(const char *s) { printf("%s\n", s); }
 
 /* Each scalar Seq has a `*_to_string` that returns the `[a, b, c]` display string (no newline) so it
  * can be embedded inside a struct's `<Name>_to_string`; `show_seq_*` is the thin print+newline wrapper. */
@@ -2561,7 +2586,7 @@ __attribute__((unused)) static char *seq_i64_to_string(Seq_i64 *s) {
     }
     char *nw = str_concat(out, "]"); lc_gc_free(out); return nw;
 }
-static void show_seq_i64(Seq_i64 *s) { char *t = seq_i64_to_string(s); printf("%s\n", t); lc_gc_free(t); }
+__attribute__((unused)) static void show_seq_i64(Seq_i64 *s) { char *t = seq_i64_to_string(s); printf("%s\n", t); lc_gc_free(t); }
 __attribute__((unused)) static char *seq_i64_to_string_as(Seq_i64 *s, int words) {
     char *out = lc_gc_strdup("[");
     for (size_t i = 0; i < s->len; i++) {
@@ -2580,7 +2605,7 @@ __attribute__((unused)) static char *seq_bool_to_string(Seq_bool *s) {
     }
     char *nw = str_concat(out, "]"); lc_gc_free(out); return nw;
 }
-static void show_seq_bool(Seq_bool *s) { char *t = seq_bool_to_string(s); printf("%s\n", t); lc_gc_free(t); }
+__attribute__((unused)) static void show_seq_bool(Seq_bool *s) { char *t = seq_bool_to_string(s); printf("%s\n", t); lc_gc_free(t); }
 
 __attribute__((unused)) static char *seq_str_to_string(Seq_str *s) {
     char *out = lc_gc_strdup("[");
@@ -2590,7 +2615,7 @@ __attribute__((unused)) static char *seq_str_to_string(Seq_str *s) {
     }
     char *nw = str_concat(out, "]"); lc_gc_free(out); return nw;
 }
-static void show_seq_str(Seq_str *s) { char *t = seq_str_to_string(s); printf("%s\n", t); lc_gc_free(t); }
+__attribute__((unused)) static void show_seq_str(Seq_str *s) { char *t = seq_str_to_string(s); printf("%s\n", t); lc_gc_free(t); }
 
 __attribute__((unused)) static char *seq_f64_to_string(Seq_f64 *s) {
     char *out = lc_gc_strdup("[");
@@ -2601,26 +2626,26 @@ __attribute__((unused)) static char *seq_f64_to_string(Seq_f64 *s) {
     }
     char *nw = str_concat(out, "]"); lc_gc_free(out); return nw;
 }
-static void show_seq_f64(Seq_f64 *s) { char *t = seq_f64_to_string(s); printf("%s\n", t); lc_gc_free(t); }
+__attribute__((unused)) static void show_seq_f64(Seq_f64 *s) { char *t = seq_f64_to_string(s); printf("%s\n", t); lc_gc_free(t); }
 
 /* ========== WithCapacity ========== */
 
-static Seq_i64 seq_i64_with_capacity(int64_t cap) {
+__attribute__((unused)) static Seq_i64 seq_i64_with_capacity(int64_t cap) {
     size_t n = cap > 0 ? (size_t)cap : 0;
-    Seq_i64 s = {(int64_t *)lc_gc_alloc(n * sizeof(int64_t)), 0, n};
+    Seq_i64 s = {(int64_t *)lc_gc_alloc(n * sizeof(int64_t)), 0, n, 0};
     return s;
 }
-static Seq_bool seq_bool_with_capacity(int64_t cap) {
+__attribute__((unused)) static Seq_bool seq_bool_with_capacity(int64_t cap) {
     size_t n = cap > 0 ? (size_t)cap : 0;
     Seq_bool s = {(bool *)lc_gc_alloc_atomic(n * sizeof(bool)), 0, n};
     return s;
 }
-static Seq_str seq_str_with_capacity(int64_t cap) {
+__attribute__((unused)) static Seq_str seq_str_with_capacity(int64_t cap) {
     size_t n = cap > 0 ? (size_t)cap : 0;
     Seq_str s = {(char **)lc_gc_alloc(n * sizeof(char *)), 0, n};
     return s;
 }
-static Seq_f64 seq_f64_with_capacity(int64_t cap) {
+__attribute__((unused)) static Seq_f64 seq_f64_with_capacity(int64_t cap) {
     size_t n = cap > 0 ? (size_t)cap : 0;
     Seq_f64 s = {(double *)lc_gc_alloc_atomic(n * sizeof(double)), 0, n};
     return s;
@@ -2628,7 +2653,7 @@ static Seq_f64 seq_f64_with_capacity(int64_t cap) {
 
 /* ========== Slice Operations ========== */
 
-static Seq_i64 seq_i64_slice(Seq_i64 *s, int64_t start, int64_t end) {
+__attribute__((unused)) static Seq_i64 seq_i64_slice(Seq_i64 *s, int64_t start, int64_t end) {
     Seq_i64 r = seq_i64_new();
     for (int64_t i = start; i <= end && i <= (int64_t)s->len; i++) {
         seq_i64_push(&r, s->data[i - 1]);
@@ -2636,7 +2661,7 @@ static Seq_i64 seq_i64_slice(Seq_i64 *s, int64_t start, int64_t end) {
     return r;
 }
 
-static Seq_bool seq_bool_slice(Seq_bool *s, int64_t start, int64_t end) {
+__attribute__((unused)) static Seq_bool seq_bool_slice(Seq_bool *s, int64_t start, int64_t end) {
     Seq_bool r = seq_bool_new();
     for (int64_t i = start; i <= end && i <= (int64_t)s->len; i++) {
         seq_bool_push(&r, s->data[i - 1]);
@@ -2644,7 +2669,7 @@ static Seq_bool seq_bool_slice(Seq_bool *s, int64_t start, int64_t end) {
     return r;
 }
 
-static Seq_str seq_str_slice(Seq_str *s, int64_t start, int64_t end) {
+__attribute__((unused)) static Seq_str seq_str_slice(Seq_str *s, int64_t start, int64_t end) {
     Seq_str r = seq_str_new();
     for (int64_t i = start; i <= end && i <= (int64_t)s->len; i++) {
         seq_str_push(&r, s->data[i - 1]);
@@ -2652,7 +2677,7 @@ static Seq_str seq_str_slice(Seq_str *s, int64_t start, int64_t end) {
     return r;
 }
 
-static Seq_f64 seq_f64_slice(Seq_f64 *s, int64_t start, int64_t end) {
+__attribute__((unused)) static Seq_f64 seq_f64_slice(Seq_f64 *s, int64_t start, int64_t end) {
     Seq_f64 r = seq_f64_new();
     for (int64_t i = start; i <= end && i <= (int64_t)s->len; i++) {
         seq_f64_push(&r, s->data[i - 1]);
@@ -2666,7 +2691,7 @@ typedef struct {
     int64_t *keys; uint8_t *state; size_t cap; size_t len; size_t *order; size_t ord_len;
 } Set_i64;
 
-static Set_i64 set_i64_new(void) {
+__attribute__((unused)) static Set_i64 set_i64_new(void) {
     size_t cap = 16;
     Set_i64 s = {(int64_t *)lc_gc_calloc(cap, sizeof(int64_t)),
         (uint8_t *)lc_gc_calloc_atomic(cap, 1), cap, 0,
@@ -2674,7 +2699,7 @@ static Set_i64 set_i64_new(void) {
     return s;
 }
 
-static void _set_i64_resize(Set_i64 *s) {
+__attribute__((unused)) static void _set_i64_resize(Set_i64 *s) {
     int64_t *ok = s->keys; uint8_t *os = s->state; size_t *oo = s->order; size_t ool = s->ord_len;
     size_t nc = s->cap * 2;
     s->keys = (int64_t *)lc_gc_calloc(nc, sizeof(int64_t));
@@ -2692,7 +2717,7 @@ static void _set_i64_resize(Set_i64 *s) {
     lc_gc_free(ok); lc_gc_free(os); lc_gc_free(oo);
 }
 
-static void set_i64_add(Set_i64 *s, int64_t val) {
+__attribute__((unused)) static void set_i64_add(Set_i64 *s, int64_t val) {
     if (s->ord_len * 4 >= s->cap * 3) _set_i64_resize(s);
     size_t idx = _map_hash(val, s->cap);
     while (s->state[idx]) {
@@ -2724,7 +2749,7 @@ __attribute__((unused)) static char *set_i64_to_string_as(Set_i64 *s, int words)
     char *nw = str_concat(out, "}"); lc_gc_free(out); return nw;
 }
 
-static bool set_i64_contains(Set_i64 *s, int64_t val) {
+__attribute__((unused)) static bool set_i64_contains(Set_i64 *s, int64_t val) {
     size_t idx = _map_hash(val, s->cap);
     while (s->state[idx]) {
         if (s->keys[idx] == val) return true;
@@ -2733,7 +2758,7 @@ static bool set_i64_contains(Set_i64 *s, int64_t val) {
     return false;
 }
 
-static void set_i64_remove(Set_i64 *t, int64_t key) {
+__attribute__((unused)) static void set_i64_remove(Set_i64 *t, int64_t key) {
     size_t mask = t->cap - 1, i = _map_hash(key, t->cap);
     while (t->state[i] && !(t->keys[i] == key)) i = (i + 1) & mask;
     if (!t->state[i]) return;
@@ -2750,7 +2775,7 @@ static void set_i64_remove(Set_i64 *t, int64_t key) {
     t->state[i] = 0;
 }
 
-static int64_t set_i64_len(Set_i64 *s) { return (int64_t)s->len; }
+__attribute__((unused)) static int64_t set_i64_len(Set_i64 *s) { return (int64_t)s->len; }
 
 /* ========== Set: Set_str (open addressing) ========== */
 
@@ -2758,7 +2783,7 @@ typedef struct {
     char **keys; uint8_t *state; size_t cap; size_t len; size_t *order; size_t ord_len;
 } Set_str;
 
-static Set_str set_str_new(void) {
+__attribute__((unused)) static Set_str set_str_new(void) {
     size_t cap = 16;
     Set_str s = {(char **)lc_gc_calloc(cap, sizeof(char *)),
         (uint8_t *)lc_gc_calloc_atomic(cap, 1), cap, 0,
@@ -2766,7 +2791,7 @@ static Set_str set_str_new(void) {
     return s;
 }
 
-static void _set_str_resize(Set_str *s) {
+__attribute__((unused)) static void _set_str_resize(Set_str *s) {
     char **ok = s->keys; uint8_t *os = s->state; size_t *oo = s->order; size_t ool = s->ord_len;
     size_t nc = s->cap * 2;
     s->keys = (char **)lc_gc_calloc(nc, sizeof(char *));
@@ -2784,7 +2809,7 @@ static void _set_str_resize(Set_str *s) {
     lc_gc_free(ok); lc_gc_free(os); lc_gc_free(oo);
 }
 
-static void set_str_add(Set_str *s, const char *val) {
+__attribute__((unused)) static void set_str_add(Set_str *s, const char *val) {
     if (s->ord_len * 4 >= s->cap * 3) _set_str_resize(s);
     size_t idx = _map_hash_str(val, s->cap);
     while (s->state[idx]) {
@@ -2806,7 +2831,7 @@ __attribute__((unused)) static char *set_str_to_string(Set_str *s) {
 }
 __attribute__((unused)) static void show_set_str(Set_str *s) { char *t = set_str_to_string(s); printf("%s\n", t); lc_gc_free(t); }
 
-static bool set_str_contains(Set_str *s, const char *val) {
+__attribute__((unused)) static bool set_str_contains(Set_str *s, const char *val) {
     size_t idx = _map_hash_str(val, s->cap);
     while (s->state[idx]) {
         if (strcmp(s->keys[idx], val) == 0) return true;
@@ -2815,7 +2840,7 @@ static bool set_str_contains(Set_str *s, const char *val) {
     return false;
 }
 
-static void set_str_remove(Set_str *t, const char * key) {
+__attribute__((unused)) static void set_str_remove(Set_str *t, const char * key) {
     size_t mask = t->cap - 1, i = _map_hash_str(key, t->cap);
     while (t->state[i] && !(strcmp(t->keys[i], key) == 0)) i = (i + 1) & mask;
     if (!t->state[i]) return;
@@ -2832,28 +2857,49 @@ static void set_str_remove(Set_str *t, const char * key) {
     t->state[i] = 0;
 }
 
-static int64_t set_str_len(Set_str *s) { return (int64_t)s->len; }
+__attribute__((unused)) static int64_t set_str_len(Set_str *s) { return (int64_t)s->len; }
+
+/* A tuple-keyed set (`Set_<LTuple>`, generated beside the tuple's struct) hashes a key field by field. A real
+   hashes by its bits with -0.0 taken as 0.0, since `==` takes them as one value; a text by its bytes (FNV-1a);
+   an integer, a word or a truth value as itself. The fields fold into one hash, mixed before its low bits pick a
+   slot so every field reaches them. */
+__attribute__((unused)) static uint64_t __logos_hash_f64(double v) {
+    if (v == 0.0) return 0;
+    uint64_t bits; memcpy(&bits, &v, sizeof bits); return bits;
+}
+__attribute__((unused)) static uint64_t __logos_hash_text(const char *s) {
+    uint64_t h = 1469598103934665603ULL;
+    for (; *s; s++) { h ^= (unsigned char)*s; h *= 1099511628211ULL; }
+    return h;
+}
+__attribute__((unused)) static uint64_t __logos_hash_fold(uint64_t h, uint64_t v) {
+    return h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2));
+}
+__attribute__((unused)) static size_t __logos_hash_slot(uint64_t h, size_t cap) {
+    h ^= h >> 33; h *= 0xff51afd7ed558ccdULL; h ^= h >> 33; h *= 0xc4ceb9fe1a85ec53ULL; h ^= h >> 33;
+    return (size_t)(h & (cap - 1));
+}
 
 /* Set union / intersection — insertion-order-preserving (`add` dedups): union keeps the left set's order then
    the right set's new elements; intersection keeps the left set's order of elements also in the right. ≡ VM. */
-static Set_i64 set_i64_union(Set_i64 *a, Set_i64 *b) {
+__attribute__((unused)) static Set_i64 set_i64_union(Set_i64 *a, Set_i64 *b) {
     Set_i64 r = set_i64_new();
     for (size_t oi = 0; oi < a->ord_len; oi++) { size_t si = a->order[oi]; if (a->state[si]) set_i64_add(&r, a->keys[si]); }
     for (size_t oi = 0; oi < b->ord_len; oi++) { size_t si = b->order[oi]; if (b->state[si]) set_i64_add(&r, b->keys[si]); }
     return r;
 }
-static Set_i64 set_i64_intersect(Set_i64 *a, Set_i64 *b) {
+__attribute__((unused)) static Set_i64 set_i64_intersect(Set_i64 *a, Set_i64 *b) {
     Set_i64 r = set_i64_new();
     for (size_t oi = 0; oi < a->ord_len; oi++) { size_t si = a->order[oi]; if (a->state[si] && set_i64_contains(b, a->keys[si])) set_i64_add(&r, a->keys[si]); }
     return r;
 }
-static Set_str set_str_union(Set_str *a, Set_str *b) {
+__attribute__((unused)) static Set_str set_str_union(Set_str *a, Set_str *b) {
     Set_str r = set_str_new();
     for (size_t oi = 0; oi < a->ord_len; oi++) { size_t si = a->order[oi]; if (a->state[si]) set_str_add(&r, a->keys[si]); }
     for (size_t oi = 0; oi < b->ord_len; oi++) { size_t si = b->order[oi]; if (b->state[si]) set_str_add(&r, b->keys[si]); }
     return r;
 }
-static Set_str set_str_intersect(Set_str *a, Set_str *b) {
+__attribute__((unused)) static Set_str set_str_intersect(Set_str *a, Set_str *b) {
     Set_str r = set_str_new();
     for (size_t oi = 0; oi < a->ord_len; oi++) { size_t si = a->order[oi]; if (a->state[si] && set_str_contains(b, a->keys[si])) set_str_add(&r, a->keys[si]); }
     return r;
@@ -2861,12 +2907,26 @@ static Set_str set_str_intersect(Set_str *a, Set_str *b) {
 
 /* ========== Native Function Support ========== */
 
-static int64_t logos_parseInt(const char *s) { return atoll(s); }
+/* `parseInt(text)`: the text trimmed as Rust trims it, read as Rust reads an i64 — an optional sign, then only
+   digits, within range — or the VM's failure naming the text as given. */
+__attribute__((unused)) static int64_t logos_parseInt(const char *s) {
+    char *t = logos_trim(s); const char *p = t; int neg = 0;
+    if (*p == '+' || *p == '-') { neg = (*p == '-'); p++; }
+    if (!*p) logos_fatalf(@NOT_AN_INT@, s);
+    uint64_t v = 0, limit = neg ? (uint64_t)INT64_MAX + 1u : (uint64_t)INT64_MAX;
+    for (; *p; p++) {
+        if (*p < '0' || *p > '9') logos_fatalf(@NOT_AN_INT@, s);
+        uint64_t d = (uint64_t)(*p - '0');
+        if (v > (limit - d) / 10) logos_fatalf(@NOT_AN_INT@, s);
+        v = v * 10 + d;
+    }
+    return neg ? (int64_t)(0 - v) : (int64_t)v;
+}
 
 static int _logos_argc;
 static char **_logos_argv;
 
-static Seq_str logos_args(void) {
+__attribute__((unused)) static Seq_str logos_args(void) {
     Seq_str s = seq_str_new();
     for (int i = 0; i < _logos_argc; i++) {
         seq_str_push(&s, _logos_argv[i]);
@@ -2914,21 +2974,21 @@ __attribute__((unused)) static Seq_f64 logos_read_reals(const char *path) {
 
 /* Floored (Euclidean) division/modulo — match Rust div_euclid/rem_euclid so pre-epoch (negative)
    Moments yield the correct date and a 0..86399 time-of-day, not a negative clock. */
-static int64_t logos_div_euclid(int64_t a, int64_t b) {
+__attribute__((unused)) static int64_t logos_div_euclid(int64_t a, int64_t b) {
     int64_t q = a / b;
     if (a % b != 0 && ((a % b < 0) != (b < 0))) q -= 1;
     return q;
 }
-static int64_t logos_rem_euclid(int64_t a, int64_t b) {
+__attribute__((unused)) static int64_t logos_rem_euclid(int64_t a, int64_t b) {
     int64_t m = a % b;
     if (m < 0) m += (b < 0 ? -b : b);
     return m;
 }
 
-static bool logos_is_greg_leap(int64_t y) {
+__attribute__((unused)) static bool logos_is_greg_leap(int64_t y) {
     return (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0);
 }
-static int64_t logos_last_day_of_month(int64_t y, int64_t mo) {
+__attribute__((unused)) static int64_t logos_last_day_of_month(int64_t y, int64_t mo) {
     switch (mo) {
         case 1: case 3: case 5: case 7: case 8: case 10: case 12: return 31;
         case 4: case 6: case 9: case 11: return 30;
@@ -2936,7 +2996,7 @@ static int64_t logos_last_day_of_month(int64_t y, int64_t mo) {
         default: return 0;
     }
 }
-static int64_t logos_days_from_civil(int64_t year, int64_t month, int64_t day) {
+__attribute__((unused)) static int64_t logos_days_from_civil(int64_t year, int64_t month, int64_t day) {
     int64_t y = (month <= 2) ? year - 1 : year;
     int64_t era = (y >= 0 ? y : y - 399) / 400;
     int64_t yoe = y - era * 400;
@@ -2944,7 +3004,7 @@ static int64_t logos_days_from_civil(int64_t year, int64_t month, int64_t day) {
     int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
     return era * 146097 + doe - 719468;
 }
-static void logos_civil_from_days(int64_t z, int64_t *year, int64_t *month, int64_t *day) {
+__attribute__((unused)) static void logos_civil_from_days(int64_t z, int64_t *year, int64_t *month, int64_t *day) {
     z += 719468;
     int64_t era = (z >= 0 ? z : z - 146096) / 146097;
     int64_t doe = z - era * 146097;
@@ -2958,8 +3018,8 @@ static void logos_civil_from_days(int64_t z, int64_t *year, int64_t *month, int6
     *month = mo;
     *day = d;
 }
-static int64_t logos_iso_weekday_from_days(int64_t z) { return logos_rem_euclid(z + 3, 7) + 1; }
-static int64_t logos_iso_week_from_days(int64_t z) {
+__attribute__((unused)) static int64_t logos_iso_weekday_from_days(int64_t z) { return logos_rem_euclid(z + 3, 7) + 1; }
+__attribute__((unused)) static int64_t logos_iso_week_from_days(int64_t z) {
     int64_t iso_dow = logos_iso_weekday_from_days(z);
     int64_t thursday = z + (4 - iso_dow);
     int64_t iy, im, id; logos_civil_from_days(thursday, &iy, &im, &id);
@@ -2969,7 +3029,7 @@ static int64_t logos_iso_week_from_days(int64_t z) {
 }
 
 /* civil components (UTC) of a Moment (Unix ns). */
-static void logos_civil_from_nanos(int64_t nanos, int64_t *y, int64_t *mo, int64_t *d,
+__attribute__((unused)) static void logos_civil_from_nanos(int64_t nanos, int64_t *y, int64_t *mo, int64_t *d,
                                    int64_t *h, int64_t *mi, int64_t *se, int64_t *ns) {
     int64_t total_secs = logos_div_euclid(nanos, LOGOS_NANOS_PER_SEC);
     int64_t days = logos_div_euclid(total_secs, LOGOS_SECS_PER_DAY);
@@ -2982,7 +3042,7 @@ static void logos_civil_from_nanos(int64_t nanos, int64_t *y, int64_t *mo, int64
 }
 
 /* parse_rfc3339: "YYYY-MM-DDTHH:MM:SS[.frac][Z|+-HH:MM]" -> Unix ns. Returns 1 on success. */
-static int logos_parse_rfc3339(const char *s0, int64_t *out) {
+__attribute__((unused)) static int logos_parse_rfc3339(const char *s0, int64_t *out) {
     const char *s = s0;
     while (*s == ' ' || *s == '\t' || *s == '\n' || *s == '\r') s++;
     size_t n = strlen(s);
@@ -3023,7 +3083,7 @@ static int logos_parse_rfc3339(const char *s0, int64_t *out) {
     #undef LP_DIG
     return 1;
 }
-static int64_t logos_parse_timestamp(const char *s) {
+__attribute__((unused)) static int64_t logos_parse_timestamp(const char *s) {
     int64_t out;
     if (!logos_parse_rfc3339(s, &out)) {
         logos_fatalf("Cannot parse '%s' as an RFC 3339 timestamp", s);
@@ -3032,27 +3092,27 @@ static int64_t logos_parse_timestamp(const char *s) {
 }
 
 /* Moment component extractors. */
-static int64_t logos_year_of(int64_t m)   { int64_t y,mo,d,h,mi,s,n; logos_civil_from_nanos(m,&y,&mo,&d,&h,&mi,&s,&n); return y; }
-static int64_t logos_month_of(int64_t m)  { int64_t y,mo,d,h,mi,s,n; logos_civil_from_nanos(m,&y,&mo,&d,&h,&mi,&s,&n); return mo; }
-static int64_t logos_day_of(int64_t m)    { int64_t y,mo,d,h,mi,s,n; logos_civil_from_nanos(m,&y,&mo,&d,&h,&mi,&s,&n); return d; }
-static int64_t logos_hour_of(int64_t m)   { int64_t y,mo,d,h,mi,s,n; logos_civil_from_nanos(m,&y,&mo,&d,&h,&mi,&s,&n); return h; }
-static int64_t logos_minute_of(int64_t m) { int64_t y,mo,d,h,mi,s,n; logos_civil_from_nanos(m,&y,&mo,&d,&h,&mi,&s,&n); return mi; }
-static int64_t logos_second_of(int64_t m) { int64_t y,mo,d,h,mi,s,n; logos_civil_from_nanos(m,&y,&mo,&d,&h,&mi,&s,&n); return s; }
-static int64_t logos_weekday_of(int64_t m){ return logos_iso_weekday_from_days(logos_div_euclid(m, LOGOS_NANOS_PER_DAY)); }
-static int64_t logos_week_of(int64_t m)   { return logos_iso_week_from_days(logos_div_euclid(m, LOGOS_NANOS_PER_DAY)); }
-static int64_t logos_quarter_of(int64_t m){ return (logos_month_of(m) - 1) / 3 + 1; }
-static int64_t logos_date_of(int64_t m)   { return logos_div_euclid(m, LOGOS_NANOS_PER_DAY); }
-static int64_t logos_time_of(int64_t m)   { return logos_rem_euclid(m, LOGOS_NANOS_PER_DAY); }
-static int64_t logos_seconds_between(int64_t a, int64_t b) { return (b - a) / LOGOS_NANOS_PER_SEC; }
-static int64_t logos_add_seconds(int64_t m, int64_t s)     { return m + s * LOGOS_NANOS_PER_SEC; }
+__attribute__((unused)) static int64_t logos_year_of(int64_t m)   { int64_t y,mo,d,h,mi,s,n; logos_civil_from_nanos(m,&y,&mo,&d,&h,&mi,&s,&n); return y; }
+__attribute__((unused)) static int64_t logos_month_of(int64_t m)  { int64_t y,mo,d,h,mi,s,n; logos_civil_from_nanos(m,&y,&mo,&d,&h,&mi,&s,&n); return mo; }
+__attribute__((unused)) static int64_t logos_day_of(int64_t m)    { int64_t y,mo,d,h,mi,s,n; logos_civil_from_nanos(m,&y,&mo,&d,&h,&mi,&s,&n); return d; }
+__attribute__((unused)) static int64_t logos_hour_of(int64_t m)   { int64_t y,mo,d,h,mi,s,n; logos_civil_from_nanos(m,&y,&mo,&d,&h,&mi,&s,&n); return h; }
+__attribute__((unused)) static int64_t logos_minute_of(int64_t m) { int64_t y,mo,d,h,mi,s,n; logos_civil_from_nanos(m,&y,&mo,&d,&h,&mi,&s,&n); return mi; }
+__attribute__((unused)) static int64_t logos_second_of(int64_t m) { int64_t y,mo,d,h,mi,s,n; logos_civil_from_nanos(m,&y,&mo,&d,&h,&mi,&s,&n); return s; }
+__attribute__((unused)) static int64_t logos_weekday_of(int64_t m){ return logos_iso_weekday_from_days(logos_div_euclid(m, LOGOS_NANOS_PER_DAY)); }
+__attribute__((unused)) static int64_t logos_week_of(int64_t m)   { return logos_iso_week_from_days(logos_div_euclid(m, LOGOS_NANOS_PER_DAY)); }
+__attribute__((unused)) static int64_t logos_quarter_of(int64_t m){ return (logos_month_of(m) - 1) / 3 + 1; }
+__attribute__((unused)) static int64_t logos_date_of(int64_t m)   { return logos_div_euclid(m, LOGOS_NANOS_PER_DAY); }
+__attribute__((unused)) static int64_t logos_time_of(int64_t m)   { return logos_rem_euclid(m, LOGOS_NANOS_PER_DAY); }
+__attribute__((unused)) static int64_t logos_seconds_between(int64_t a, int64_t b) { return (b - a) / LOGOS_NANOS_PER_SEC; }
+__attribute__((unused)) static int64_t logos_add_seconds(int64_t m, int64_t s)     { return m + s * LOGOS_NANOS_PER_SEC; }
 /* Civil-component constructors — the C mirrors of makeDate/makeMoment (same days_from_civil core as timegm). */
-static int64_t logos_make_date(int64_t y, int64_t mo, int64_t d) { return logos_days_from_civil(y, mo, d); }
-static int64_t logos_make_moment(int64_t y, int64_t mo, int64_t d, int64_t h, int64_t mi, int64_t s) {
+__attribute__((unused)) static int64_t logos_make_date(int64_t y, int64_t mo, int64_t d) { return logos_days_from_civil(y, mo, d); }
+__attribute__((unused)) static int64_t logos_make_moment(int64_t y, int64_t mo, int64_t d, int64_t h, int64_t mi, int64_t s) {
     return logos_days_from_civil(y, mo, d) * LOGOS_NANOS_PER_DAY + (h * 3600 + mi * 60 + s) * LOGOS_NANOS_PER_SEC;
 }
 
 /* RFC-3339 string of a Moment (for format_timestamp). */
-static char *logos_format_rfc3339(int64_t nanos) {
+__attribute__((unused)) static char *logos_format_rfc3339(int64_t nanos) {
     int64_t y,mo,d,h,mi,s,ns; logos_civil_from_nanos(nanos,&y,&mo,&d,&h,&mi,&s,&ns);
     char base[48];
     snprintf(base, 48, "%04" PRId64 "-%02" PRId64 "-%02" PRId64 "T%02" PRId64 ":%02" PRId64 ":%02" PRId64, y,mo,d,h,mi,s);
@@ -3063,7 +3123,7 @@ static char *logos_format_rfc3339(int64_t nanos) {
     }
     return logos_dyn_sprintf("%sZ", base);
 }
-static char *logos_format_time_of_day(int64_t nanos_from_midnight) {
+__attribute__((unused)) static char *logos_format_time_of_day(int64_t nanos_from_midnight) {
     int64_t rem = logos_rem_euclid(nanos_from_midnight, LOGOS_NANOS_PER_DAY);
     int64_t secs = rem / LOGOS_NANOS_PER_SEC;
     char base[16]; snprintf(base, 16, "%02" PRId64 ":%02" PRId64 ":%02" PRId64, secs/3600, (secs%3600)/60, secs%60);
@@ -3080,17 +3140,17 @@ static char *logos_format_time_of_day(int64_t nanos_from_midnight) {
    `Date + Span` and `Moment + Span` apply the months first, clamped to the end of the month, then the days
    — base::temporal::{date_add_span, add_span}, the arithmetic every tier shares. ========== */
 typedef struct { int32_t months; int32_t days; } LogosSpan;
-static LogosSpan logos_span(int32_t months, int32_t days) { LogosSpan s; s.months = months; s.days = days; return s; }
+__attribute__((unused)) static LogosSpan logos_span(int32_t months, int32_t days) { LogosSpan s; s.months = months; s.days = days; return s; }
 
 /* Two's-complement wrapping, as Int span and Duration arithmetic wrap on every tier. */
-static int32_t logos_wrap_add32(int32_t a, int32_t b) { return (int32_t)((uint32_t)a + (uint32_t)b); }
-static int32_t logos_wrap_mul32(int32_t a, int32_t b) { return (int32_t)((uint32_t)a * (uint32_t)b); }
-static int32_t logos_wrap_neg32(int32_t a) { return (int32_t)(0u - (uint32_t)a); }
-static int64_t logos_wrap_add64(int64_t a, int64_t b) { return (int64_t)((uint64_t)a + (uint64_t)b); }
-static int64_t logos_wrap_sub64(int64_t a, int64_t b) { return (int64_t)((uint64_t)a - (uint64_t)b); }
+__attribute__((unused)) static int32_t logos_wrap_add32(int32_t a, int32_t b) { return (int32_t)((uint32_t)a + (uint32_t)b); }
+__attribute__((unused)) static int32_t logos_wrap_mul32(int32_t a, int32_t b) { return (int32_t)((uint32_t)a * (uint32_t)b); }
+__attribute__((unused)) static int32_t logos_wrap_neg32(int32_t a) { return (int32_t)(0u - (uint32_t)a); }
+__attribute__((unused)) static int64_t logos_wrap_add64(int64_t a, int64_t b) { return (int64_t)((uint64_t)a + (uint64_t)b); }
+__attribute__((unused)) static int64_t logos_wrap_sub64(int64_t a, int64_t b) { return (int64_t)((uint64_t)a - (uint64_t)b); }
 
 /* base::temporal::date_add_span, step for step (a Date is days since 1970-01-01). */
-static int64_t logos_date_add_span(int64_t date, int32_t months, int32_t days) {
+__attribute__((unused)) static int64_t logos_date_add_span(int64_t date, int32_t months, int32_t days) {
     int32_t z = (int32_t)date + 719468;
     int32_t era = z >= 0 ? z / 146097 : (z - 146096) / 146097;
     uint32_t doe = (uint32_t)(z - era * 146097);
@@ -3120,7 +3180,7 @@ static int64_t logos_date_add_span(int64_t date, int32_t months, int32_t days) {
 }
 
 /* base::temporal::add_span on the Moment's civil UTC date-time: the time of day rides along. */
-static int64_t logos_moment_add_span(int64_t nanos, int32_t months, int32_t days) {
+__attribute__((unused)) static int64_t logos_moment_add_span(int64_t nanos, int32_t months, int32_t days) {
     int64_t y, mo, d, h, mi, s, ns;
     logos_civil_from_nanos(nanos, &y, &mo, &d, &h, &mi, &s, &ns);
     int64_t total = y * 12 + (mo - 1) + (int64_t)months;
@@ -3148,11 +3208,11 @@ __attribute__((unused)) static int64_t logos_years_between(int64_t a, int64_t b)
 /* Text of each temporal value, byte-identical to the interpreter's display: Date "YYYY-MM-DD", Moment
    "YYYY-MM-DD HH:MM", Time "HH:MM:SS[.frac]", Duration in its largest whole unit (`90s` is `1min`),
    Span "N years and N months and N days" (zero parts omitted, `0 days` when all are zero). */
-static char *logos_date_to_string(int64_t days) {
+__attribute__((unused)) static char *logos_date_to_string(int64_t days) {
     int64_t y,mo,d; logos_civil_from_days(days,&y,&mo,&d);
     return logos_dyn_sprintf("%04" PRId64 "-%02" PRId64 "-%02" PRId64, y, mo, d);
 }
-static char *logos_moment_to_string(int64_t nanos) {
+__attribute__((unused)) static char *logos_moment_to_string(int64_t nanos) {
     int64_t total_secs = logos_div_euclid(nanos, LOGOS_NANOS_PER_SEC);
     int64_t days = logos_div_euclid(total_secs, LOGOS_SECS_PER_DAY);
     int64_t day_secs = logos_rem_euclid(total_secs, LOGOS_SECS_PER_DAY);
@@ -3160,7 +3220,7 @@ static char *logos_moment_to_string(int64_t nanos) {
     return logos_dyn_sprintf("%04" PRId64 "-%02" PRId64 "-%02" PRId64 " %02" PRId64 ":%02" PRId64,
                              y, mo, d, day_secs / 3600, (day_secs % 3600) / 60);
 }
-static char *logos_duration_to_string(int64_t nanos) {
+__attribute__((unused)) static char *logos_duration_to_string(int64_t nanos) {
     uint64_t a = nanos < 0 ? (uint64_t)0 - (uint64_t)nanos : (uint64_t)nanos;
     const char *sign = nanos < 0 ? "-" : "";
     if (a >= 3600000000000ULL) return logos_dyn_sprintf("%s%" PRIu64 "h", sign, a / 3600000000000ULL);
@@ -3170,7 +3230,7 @@ static char *logos_duration_to_string(int64_t nanos) {
     if (a >= 1000ULL) return logos_dyn_sprintf("%s%" PRIu64 "\xce\xbcs", sign, a / 1000ULL);
     return logos_dyn_sprintf("%s%" PRIu64 "ns", sign, a);
 }
-static char *logos_span_to_string(LogosSpan sp) {
+__attribute__((unused)) static char *logos_span_to_string(LogosSpan sp) {
     char *parts[3];
     int n = 0;
     int32_t years = sp.months / 12, months = sp.months % 12;
@@ -3188,24 +3248,24 @@ static char *logos_span_to_string(LogosSpan sp) {
     }
     return out;
 }
-static bool logos_span_equals(LogosSpan a, LogosSpan b) { return a.months == b.months && a.days == b.days; }
+__attribute__((unused)) static bool logos_span_equals(LogosSpan a, LogosSpan b) { return a.months == b.months && a.days == b.days; }
 
-static void logos_show_text(char *s) { printf("%s\n", s); lc_gc_free(s); }
-static void show_moment(int64_t nanos) { logos_show_text(logos_moment_to_string(nanos)); }
-static void show_date(int64_t days) { logos_show_text(logos_date_to_string(days)); }
-static void show_time(int64_t nanos_of_day) { logos_show_text(logos_format_time_of_day(nanos_of_day)); }
-static void show_duration(int64_t nanos) { logos_show_text(logos_duration_to_string(nanos)); }
-static void show_span(LogosSpan sp) { logos_show_text(logos_span_to_string(sp)); }
+__attribute__((unused)) static void logos_show_text(char *s) { printf("%s\n", s); lc_gc_free(s); }
+__attribute__((unused)) static void show_moment(int64_t nanos) { logos_show_text(logos_moment_to_string(nanos)); }
+__attribute__((unused)) static void show_date(int64_t days) { logos_show_text(logos_date_to_string(days)); }
+__attribute__((unused)) static void show_time(int64_t nanos_of_day) { logos_show_text(logos_format_time_of_day(nanos_of_day)); }
+__attribute__((unused)) static void show_duration(int64_t nanos) { logos_show_text(logos_duration_to_string(nanos)); }
+__attribute__((unused)) static void show_span(LogosSpan sp) { logos_show_text(logos_span_to_string(sp)); }
 
 /* `today` / `now` — the injected fixed clock (env `LOGOS_FIXED_DAYS`/`LOGOS_FIXED_NANOS`, set by the
    differential harness so the AOT binary and the VM oracle read the SAME instant) else the real clock.
    Byte-for-byte the RISC-V shim (`codegen_riscv/runtime.rs`), so the two AOT tiers cannot diverge. */
-static int64_t logos_today(void) {
+__attribute__((unused)) static int64_t logos_today(void) {
     const char *e = getenv("LOGOS_FIXED_DAYS");
     if (e) return (int64_t)atoll(e);
     return (int64_t)(time(NULL) / 86400);
 }
-static int64_t logos_now(void) {
+__attribute__((unused)) static int64_t logos_now(void) {
     const char *e = getenv("LOGOS_FIXED_NANOS");
     if (e) return (int64_t)atoll(e);
     struct timespec ts;
@@ -3417,7 +3477,9 @@ __attribute__((unused)) static LRat quant_in_unit(const LQuant *q) {
     LRat d = rat_sub(&q->mag, &q->uoffset), r = rat_div(&d, &q->uscale); lbig_free(&d.num); lbig_free(&d.den); return r;
 }
 __attribute__((unused)) static int quant_same_dim(const LQuant *a, const int *dnum, const int *dden) {
-    for (int i = 0; i < 10; i++) if (a->dnum[i] != dnum[i] || a->dden[i] != dden[i]) return 0; return 1;
+    for (int i = 0; i < 10; i++)
+        if (a->dnum[i] != dnum[i] || a->dden[i] != dden[i]) return 0;
+    return 1;
 }
 __attribute__((unused)) static LQuant quant_add(LQuant a, LQuant b) {
     if (!quant_same_dim(&a, b.dnum, b.dden)) logos_fatal("cannot add quantities of different dimensions");
@@ -3447,7 +3509,7 @@ __attribute__((unused)) static LQuant quant_convert(LQuant q, LRat scale, LRat o
     if (!quant_same_dim(&q, dnum, dden)) logos_fatal("cannot convert between different dimensions");
     LQuant r = q; r.uscale = scale; r.uoffset = offset; strncpy(r.usym, sym, 23); r.usym[23] = 0; return r;
 }
-static void quant_dim_string(const LQuant *q, char *out) {
+__attribute__((unused)) static void quant_dim_string(const LQuant *q, char *out) {
     out[0] = 0; int any = 0;
     for (int i = 0; i < 10; i++) {
         if (q->dnum[i] == 0) continue;
@@ -3597,6 +3659,72 @@ __attribute__((unused)) static LUuid uuid_from_bytes(Seq_i64 s) {
     LUuid u; for (int i = 0; i < 16; i++) u.b[i] = (unsigned char)(seq_i64_get(&s, i + 1) & 0xFF); return u;
 }
 
+/* A promoted `Seq of Int`'s cells as text, each decoded (`lint_of_cell`) before it is rendered: the container twin of
+   `show_lint`. Placed after `LInt`/`lint_of_cell`/`lint_to_string` (`exact_numbers_source!`, concatenated just above):
+   this piece of the runtime is assembled last among `C_RUNTIME`'s segments, not in the order its text appears here. */
+__attribute__((unused)) static char *seq_i64_exact_to_string(Seq_i64 *s) {
+    char *out = lc_gc_strdup("[");
+    for (size_t i = 0; i < s->len; i++) {
+        char *v = lint_to_string(lint_of_cell(s->data[i]));
+        char *e = logos_dyn_sprintf("%s%s", i ? ", " : "", v);
+        char *nw = str_concat(out, e); lc_gc_free(out); lc_gc_free(e); out = nw;
+    }
+    char *nw = str_concat(out, "]"); lc_gc_free(out); return nw;
+}
+/* A list that may promote (`Seq_i64.exact`): machine words until a value past the word is stored, then every cell tagged,
+   once. Each access asks the one bit; a list that never promotes runs on its words. */
+__attribute__((unused, noinline)) static void seq_i64_promote(Seq_i64 *s) {
+    if (s->exact) return;
+    for (size_t i = 0; i < s->len; i++) s->data[i] = lint_to_cell(lint_small(s->data[i]));
+    s->exact = 1;
+}
+/* `item k` where a machine word holds it: a promoted cell narrowed, loudly past the word. */
+__attribute__((unused)) static inline int64_t seq_i64_get_word(Seq_i64 *s, int64_t idx) {
+    int64_t c = seq_i64_get(s, idx);
+    return __builtin_expect(s->exact, 0) ? lint_expect_i64(lint_of_cell(c)) : c;
+}
+/* `item k` as a leaf of a checked chain: its word while the list holds words; once promoted, the chain's overflow flag
+   set (its exact form reads the element with `seq_i64_get_lint`). The index is checked here either way. */
+__attribute__((unused)) static inline int64_t seq_i64_get_ck(Seq_i64 *s, int64_t idx, int *over) {
+    int64_t c = seq_i64_get(s, idx);
+    if (__builtin_expect(s->exact, 0)) { *over = 1; return 0; }
+    return c;
+}
+/* `item k` as the exact integer it is. */
+__attribute__((unused)) static inline LInt seq_i64_get_lint(Seq_i64 *s, int64_t idx) {
+    int64_t c = seq_i64_get(s, idx);
+    return __builtin_expect(s->exact, 0) ? lint_of_cell(c) : lint_small(c);
+}
+__attribute__((unused)) static inline void seq_i64_push_word(Seq_i64 *s, int64_t v) {
+    seq_i64_push(s, __builtin_expect(s->exact, 0) ? lint_to_cell(lint_small(v)) : v);
+}
+__attribute__((unused)) static inline void seq_i64_push_lint(Seq_i64 *s, LInt v) {
+    if (__builtin_expect(!s->exact && !v.big, 1)) { seq_i64_push(s, v.small); return; }
+    seq_i64_promote(s);
+    seq_i64_push(s, lint_to_cell(v));
+}
+__attribute__((unused)) static inline void seq_i64_set_word(Seq_i64 *s, int64_t idx, int64_t v) {
+    seq_i64_set(s, idx, __builtin_expect(s->exact, 0) ? lint_to_cell(lint_small(v)) : v);
+}
+__attribute__((unused)) static inline void seq_i64_set_lint(Seq_i64 *s, int64_t idx, LInt v) {
+    if (__builtin_expect(!s->exact && !v.big, 1)) { seq_i64_set(s, idx, v.small); return; }
+    seq_i64_promote(s);
+    seq_i64_set(s, idx, lint_to_cell(v));
+}
+__attribute__((unused)) static char *seq_i64_any_to_string(Seq_i64 *s) {
+    return s->exact ? seq_i64_exact_to_string(s) : seq_i64_to_string(s);
+}
+__attribute__((unused)) static void show_seq_i64_any(Seq_i64 *s) { char *t = seq_i64_any_to_string(s); printf("%s\n", t); lc_gc_free(t); }
+/* Whether the list holds the exact integer `v`, compared by value: two cells holding the same big integer point at two
+   different objects. */
+__attribute__((unused)) static bool seq_i64_contains_lint(Seq_i64 *s, LInt v) {
+    if (!s->exact) return !v.big && seq_i64_contains(s, v.small);
+    for (size_t i = 0; i < s->len; i++) {
+        if (lint_cmp(lint_of_cell(s->data[i]), v) == 0) return true;
+    }
+    return false;
+}
+
 "#
 );
 
@@ -3710,7 +3838,7 @@ __attribute__((unused)) static long long logos_crdt_sum(const logos_crdt *c) {
     return s;
 }
 
-static void logos_crdt_put_max(logos_crdt *d, long long rid, long long cnt) {
+__attribute__((unused)) static void logos_crdt_put_max(logos_crdt *d, long long rid, long long cnt) {
     for (long long i = 0; i < d->len; i++) {
         if (d->rids[i] == rid) { if (cnt > d->cnts[i]) d->cnts[i] = cnt; return; }
     }

@@ -307,18 +307,21 @@ fn script_simplify_prose_works() {
 
 #[test]
 fn scripted_library_simp_pool_reaches_untagged_citations() {
-    // A proved `[simp]`-tagged theorem joins the pool: a LATER theorem's simp
-    // uses it WITHOUT citing it.
+    // A proved `[simp]`-tagged theorem joins the pool as what it states: a LATER
+    // theorem's simp uses it WITHOUT citing it. Proved from the shared axioms alone,
+    // `f_collapses` states its rule outright; proved under the rule as a premise of its
+    // own, it states only that the rule implies itself, and no rewrite rule joins the pool.
     use logicaffeine_proof::tactic_script::{prove_scripted_library, ScriptedTheorem};
     let rule = forall("x", eq(f("f", vec![v("x")]), k("C")));
     let lemma = ScriptedTheorem {
         name: "f_collapses".to_string(),
-        premises: vec![rule.clone()],
-        goal: rule,
+        premises: vec![],
+        goal: rule.clone(),
         script: "assumption".to_string(),
         cites: vec![],
         simp: true,
     };
+    let conditional = ScriptedTheorem { premises: vec![rule.clone()], ..lemma.clone() };
     let user = ScriptedTheorem {
         name: "uses_pool".to_string(),
         premises: vec![p("P", vec![k("C")])],
@@ -327,7 +330,7 @@ fn scripted_library_simp_pool_reaches_untagged_citations() {
         cites: vec![], // deliberately NOT citing f_collapses
         simp: false,
     };
-    let results = prove_scripted_library(&[], &[lemma, user]);
+    let results = prove_scripted_library(&[rule.clone()], &[lemma, user.clone()]);
     assert!(
         results[0].verified,
         "lemma: {:?}",
@@ -337,6 +340,12 @@ fn scripted_library_simp_pool_reaches_untagged_citations() {
         results[1].verified,
         "pool user: {:?}",
         results[1].verification_error
+    );
+    let results = prove_scripted_library(&[], &[conditional, user]);
+    assert!(results[0].verified, "conditional lemma: {:?}", results[0].verification_error);
+    assert!(
+        !results[1].verified,
+        "a lemma proved under its rule as a premise must not put the bare rule in the pool"
     );
 }
 

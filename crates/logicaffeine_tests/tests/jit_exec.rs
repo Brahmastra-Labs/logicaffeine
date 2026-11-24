@@ -3,6 +3,9 @@
 //! end — `rustc --emit=obj` → extraction → layout → relocation patching →
 //! native execution.
 
+// This suite tests the native tier alone, which exists only on x86_64 outside Windows.
+#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+
 use logicaffeine_forge::buffer::{HoleValue, JitBuffer};
 use logicaffeine_forge::{ST_ADDI, ST_BRANCH_IF, ST_CONST, ST_LTI, ST_MULI, ST_RETURN, ST_SUBI};
 

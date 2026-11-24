@@ -1010,6 +1010,33 @@ fn try_simplify_algebraic<'a>(
             }
             None
         }
+        // x & -1 = x, x | 0 = x, x ^ 0 = x, x << 0 = x, x >> 0 = x (either side where the operator commutes): the
+        // identities of two's complement, exact on every integer; x & 0 = 0 where x is total.
+        BinaryOpKind::BitAnd | BinaryOpKind::BitOr | BinaryOpKind::BitXor | BinaryOpKind::Shl | BinaryOpKind::Shr => {
+            if [left, right].iter().any(|e| bools.is_string_operand(e) || bools.may_be_tower(e)) {
+                return None;
+            }
+            let identity = |e: &Expr| match op {
+                BinaryOpKind::BitAnd => matches!(e, Expr::Literal(Literal::Number(-1))),
+                _ => is_int_zero(e),
+            };
+            let commutes = matches!(op, BinaryOpKind::BitAnd | BinaryOpKind::BitOr | BinaryOpKind::BitXor);
+            if identity(right) {
+                return Some(left);
+            }
+            if commutes && identity(left) {
+                return Some(right);
+            }
+            if op == BinaryOpKind::BitAnd {
+                if is_int_zero(right) && expr_is_total(left) {
+                    return Some(right);
+                }
+                if is_int_zero(left) && expr_is_total(right) {
+                    return Some(left);
+                }
+            }
+            None
+        }
         // x / 1 = x (int and float)
         BinaryOpKind::Divide => {
             if is_int_one(right) || is_float_one(right) {
@@ -1224,3 +1251,7 @@ mod float_safety_tests;
 #[cfg(test)]
 #[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/fold/tower_guard_tests.rs"]
 mod tower_guard_tests;
+
+#[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/fold/bit_identity_tests.rs"]
+mod bit_identity_tests;

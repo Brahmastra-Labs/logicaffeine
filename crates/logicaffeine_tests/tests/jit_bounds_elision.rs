@@ -17,6 +17,7 @@ use logicaffeine_compile::compile::{tw_outcome_with_args, vm_outcome_with_args};
 use logicaffeine_compile::optimize::oracle_analyze_with;
 use logicaffeine_compile::ui_bridge::with_parsed_program;
 use logicaffeine_compile::vm::{Compiler, NativeTier, Op};
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_jit::ForgeTier;
 
 /// Run a program with `argv = ["bench", size]` (mirrors `bench_corpus`), so
@@ -24,8 +25,13 @@ use logicaffeine_jit::ForgeTier;
 /// exactly how the real benchmarks make their size symbolic.
 fn assert_parity_args(src: &str, size: &str, expect: &str) {
     let argv = vec!["bench".to_string(), size.to_string()];
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
-    let vm = vm_outcome_with_args(src, &argv, Some(&tier as &dyn NativeTier));
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
+    let vm = vm_outcome_with_args(src, &argv, native);
     let tw = tw_outcome_with_args(src, &argv);
     assert_eq!(
         (norm(&vm.output), &vm.error),
@@ -85,8 +91,13 @@ fn store_op_counts(src: &str) -> (usize, usize) {
 }
 
 fn assert_parity(src: &str, expect: &str) {
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
-    let vm = vm_outcome_with_args(src, &[], Some(&tier as &dyn NativeTier));
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
+    let vm = vm_outcome_with_args(src, &[], native);
     let tw = tw_outcome_with_args(src, &[]);
     assert_eq!(
         (norm(&vm.output), &vm.error),
@@ -145,8 +156,13 @@ fn off_by_one_is_not_elided_and_errors_exactly() {
         unchecked, 0,
         "an off-by-one index must NOT be proven in-bounds — {unchecked} unsound elisions"
     );
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
-    let vm = vm_outcome_with_args(src, &[], Some(&tier as &dyn NativeTier));
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
+    let vm = vm_outcome_with_args(src, &[], native);
     let tw = tw_outcome_with_args(src, &[]);
     assert_eq!((norm(&vm.output), &vm.error), (norm(&tw.output), &tw.error));
     assert!(
@@ -277,8 +293,13 @@ fn built_array_affine_plus_one_overflow_not_elided() {
     );
     // It errors (index n+1 of an n-element list); both engines agree.
     let argv = vec!["bench".to_string(), "50".to_string()];
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
-    let vm = vm_outcome_with_args(src, &argv, Some(&tier as &dyn NativeTier));
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
+    let vm = vm_outcome_with_args(src, &argv, native);
     let tw = tw_outcome_with_args(src, &argv);
     assert_eq!((norm(&vm.output), &vm.error), (norm(&tw.output), &tw.error));
     assert!(vm.error.is_some());
@@ -312,8 +333,13 @@ fn built_array_bound_reassigned_not_elided() {
         "n was grown after the build — the length fact is stale"
     );
     let argv = vec!["bench".to_string(), "50".to_string()];
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
-    let vm = vm_outcome_with_args(src, &argv, Some(&tier as &dyn NativeTier));
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
+    let vm = vm_outcome_with_args(src, &argv, native);
     let tw = tw_outcome_with_args(src, &argv);
     assert_eq!((norm(&vm.output), &vm.error), (norm(&tw.output), &tw.error));
     assert!(vm.error.is_some());
@@ -346,8 +372,13 @@ fn built_array_conditional_push_not_elided() {
         "conditional push → length < n possible → must stay checked"
     );
     let argv = vec!["bench".to_string(), "50".to_string()];
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
-    let vm = vm_outcome_with_args(src, &argv, Some(&tier as &dyn NativeTier));
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
+    let vm = vm_outcome_with_args(src, &argv, native);
     let tw = tw_outcome_with_args(src, &argv);
     assert_eq!((norm(&vm.output), &vm.error), (norm(&tw.output), &tw.error));
     assert!(vm.error.is_some());
@@ -587,8 +618,13 @@ fn passed_array_too_short_is_exact_and_errors() {
 /// VM (with BCE) must behave EXACTLY like the independent tree-walker.
 fn vm_tw_agree(src: &str, size: &str) -> bool {
     let argv = vec!["bench".to_string(), size.to_string()];
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
-    let vm = vm_outcome_with_args(src, &argv, Some(&tier as &dyn NativeTier));
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
+    let vm = vm_outcome_with_args(src, &argv, native);
     let tw = tw_outcome_with_args(src, &argv);
     assert_eq!(
         (norm(&vm.output), &vm.error),
@@ -638,11 +674,16 @@ fn pop_through_value_copy_leaves_original_intact() {
         !vm_tw_agree(&src, "50"),
         "reading all n elements of the untouched original must succeed"
     );
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
     let out = vm_outcome_with_args(
         &src,
         &["bench".to_string(), "50".to_string()],
-        Some(&tier as &dyn NativeTier),
+        native,
     );
     assert_eq!(
         norm(&out.output),
@@ -1033,8 +1074,13 @@ fn modulo_index_into_exact_length_elides() {
         "`seed % 1000` ∈ [0,999] into a 1000-element array is provable"
     );
     // The elision must be CORRECT: VM (eliding) ≡ tree-walker (checked).
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
-    let vm = vm_outcome_with_args(src, &[], Some(&tier as &dyn NativeTier));
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
+    let vm = vm_outcome_with_args(src, &[], native);
     let tw = tw_outcome_with_args(src, &[]);
     assert_eq!((norm(&vm.output), &vm.error), (norm(&tw.output), &tw.error));
     assert_eq!(vm.error, None);
@@ -1072,8 +1118,13 @@ fn variable_divisor_index_stays_checked() {
         "a modulo by a VARIABLE divisor must not be elided"
     );
     let argv = vec!["bench".to_string(), "1000".to_string()];
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
-    let vm = vm_outcome_with_args(src, &argv, Some(&tier as &dyn NativeTier));
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
+    let vm = vm_outcome_with_args(src, &argv, native);
     let tw = tw_outcome_with_args(src, &argv);
     assert_eq!((norm(&vm.output), &vm.error), (norm(&tw.output), &tw.error));
     assert_eq!(vm.error, None);

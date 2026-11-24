@@ -384,6 +384,12 @@ fn sigmoid_silu_and_gelu_differentiate_pointwise() {
 }
 
 #[test]
+fn erf_differentiates_pointwise() {
+    // d erf(x)/dx = (2/√π)·e^(−x²), each element's own.
+    check("erf", vec![real("X", 2, 3, 120)], "Y", (2, 3), "Let Y be erf of X.\n", &["X"]);
+}
+
+#[test]
 fn swiglu_differentiates_in_gate_and_up() {
     check("swiglu", vec![real("Gt", 2, 3, 19), real("Up", 2, 3, 20)], "Y", (2, 3), "Let Y be swiglu of Gt and Up.\n", &["Gt", "Up"]);
 }

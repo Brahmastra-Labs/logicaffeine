@@ -1,0 +1,45 @@
+{
+  "arena": "sat",
+  "timeout_s": 40,
+  "clock": "cpu",
+  "cap_per_category": 6,
+  "solvers": ["ours", "kissat"],
+  "summary": {
+    "ours": {"solved": 12, "sat": 8, "unsat": 4, "timeout": 12, "error": 0, "par2": 1097.870, "verified": 8, "verify_fail": 0},
+    "kissat": {"solved": 13, "sat": 9, "unsat": 4, "timeout": 11, "error": 0, "par2": 1057.580, "verified": 0, "verify_fail": 0}
+  },
+  "categories": {
+    "rand3_n300": {"count": 6, "ours": 6, "kissat": 6},
+    "rand3_n400": {"count": 6, "ours": 2, "kissat": 2},
+    "rand3_n500": {"count": 6, "ours": 2, "kissat": 3},
+    "rand3_n600": {"count": 6, "ours": 2, "kissat": 2}
+  },
+  "conflicts": [],
+  "skipped": [],
+  "instances": [
+    {"name": "rand3_n300_00", "category": "rand3_n300", "vars": 300, "clauses": 1280, "ours": {"verdict": "SAT", "seconds": 0.0400, "verified": true}, "kissat": {"verdict": "SAT", "seconds": 0.0700, "verified": null}},
+    {"name": "rand3_n300_01", "category": "rand3_n300", "vars": 300, "clauses": 1280, "ours": {"verdict": "UNSAT", "seconds": 5.0100, "verified": null}, "kissat": {"verdict": "UNSAT", "seconds": 4.3500, "verified": null}},
+    {"name": "rand3_n300_02", "category": "rand3_n300", "vars": 300, "clauses": 1280, "ours": {"verdict": "SAT", "seconds": 0.0400, "verified": true}, "kissat": {"verdict": "SAT", "seconds": 0.1200, "verified": null}},
+    {"name": "rand3_n300_03", "category": "rand3_n300", "vars": 300, "clauses": 1280, "ours": {"verdict": "UNSAT", "seconds": 28.7800, "verified": null}, "kissat": {"verdict": "UNSAT", "seconds": 18.1000, "verified": null}},
+    {"name": "rand3_n300_04", "category": "rand3_n300", "vars": 300, "clauses": 1280, "ours": {"verdict": "UNSAT", "seconds": 27.9600, "verified": null}, "kissat": {"verdict": "UNSAT", "seconds": 20.8300, "verified": null}},
+    {"name": "rand3_n300_05", "category": "rand3_n300", "vars": 300, "clauses": 1280, "ours": {"verdict": "UNSAT", "seconds": 31.1100, "verified": null}, "kissat": {"verdict": "UNSAT", "seconds": 22.7900, "verified": null}},
+    {"name": "rand3_n400_00", "category": "rand3_n400", "vars": 400, "clauses": 1707, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n400_01", "category": "rand3_n400", "vars": 400, "clauses": 1707, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n400_02", "category": "rand3_n400", "vars": 400, "clauses": 1707, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n400_03", "category": "rand3_n400", "vars": 400, "clauses": 1707, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n400_04", "category": "rand3_n400", "vars": 400, "clauses": 1707, "ours": {"verdict": "SAT", "seconds": 4.0300, "verified": true}, "kissat": {"verdict": "SAT", "seconds": 8.8000, "verified": null}},
+    {"name": "rand3_n400_05", "category": "rand3_n400", "vars": 400, "clauses": 1707, "ours": {"verdict": "SAT", "seconds": 15.3800, "verified": true}, "kissat": {"verdict": "SAT", "seconds": 0.2900, "verified": null}},
+    {"name": "rand3_n500_00", "category": "rand3_n500", "vars": 500, "clauses": 2134, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "SAT", "seconds": 34.3400, "verified": null}},
+    {"name": "rand3_n500_01", "category": "rand3_n500", "vars": 500, "clauses": 2134, "ours": {"verdict": "SAT", "seconds": 4.0300, "verified": true}, "kissat": {"verdict": "SAT", "seconds": 0.8400, "verified": null}},
+    {"name": "rand3_n500_02", "category": "rand3_n500", "vars": 500, "clauses": 2134, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n500_03", "category": "rand3_n500", "vars": 500, "clauses": 2134, "ours": {"verdict": "SAT", "seconds": 13.5300, "verified": true}, "kissat": {"verdict": "SAT", "seconds": 19.1000, "verified": null}},
+    {"name": "rand3_n500_04", "category": "rand3_n500", "vars": 500, "clauses": 2134, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n500_05", "category": "rand3_n500", "vars": 500, "clauses": 2134, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n600_00", "category": "rand3_n600", "vars": 600, "clauses": 2560, "ours": {"verdict": "SAT", "seconds": 3.7000, "verified": true}, "kissat": {"verdict": "SAT", "seconds": 10.8600, "verified": null}},
+    {"name": "rand3_n600_01", "category": "rand3_n600", "vars": 600, "clauses": 2560, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n600_02", "category": "rand3_n600", "vars": 600, "clauses": 2560, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n600_03", "category": "rand3_n600", "vars": 600, "clauses": 2560, "ours": {"verdict": "SAT", "seconds": 4.2600, "verified": true}, "kissat": {"verdict": "SAT", "seconds": 37.0900, "verified": null}},
+    {"name": "rand3_n600_04", "category": "rand3_n600", "vars": 600, "clauses": 2560, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}},
+    {"name": "rand3_n600_05", "category": "rand3_n600", "vars": 600, "clauses": 2560, "ours": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}, "kissat": {"verdict": "TIMEOUT", "seconds": 40.0000, "verified": null}}
+  ]
+}

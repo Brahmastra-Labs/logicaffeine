@@ -13,12 +13,15 @@
 //!
 //! The emitted function is BIT-IDENTICAL to [`crate::jit::reference_eval`] and
 //! thus to the tree-walker:
-//! - i64 wrapping arithmetic (x86 `add`/`sub`/`imul` wrap natively);
+//! - exact integer arithmetic: `add`/`sub`/`imul` side-EXIT on signed overflow
+//!   (`jo`) BEFORE the store, so the exact tier recomputes the op and promotes
+//!   to BigInt, as `reference_eval` returns `None` on the same overflow;
 //! - the kernel's exact shift spec (count truncates to the low 6 bits via `cl`);
 //! - `Div`/`Mod` side-EXIT on a zero divisor BEFORE any effect (a
 //!   `ChainOutcome::Deopt` through the shared status cell, replayed on
-//!   bytecode where the kernel raises the precise error), and reproduce
-//!   `MIN / -1 = MIN` / `MIN % -1 = 0` without the `#DE` overflow trap.
+//!   bytecode where the kernel raises the precise error); `MIN / -1`, whose
+//!   quotient overflows, side-exits the same way; `x % -1 = 0` without the
+//!   `#DE` trap.
 //!
 //! On exit (every `Return`) ALL reg-resident slots are flushed back to the
 //! frame, so the frame the caller observes is consistent with the tree-walker's
@@ -332,6 +335,7 @@ fn supported(op: &MicroOp) -> bool {
             | MicroOp::Mod { .. }
             | MicroOp::DivPow2 { .. }
             | MicroOp::MagicDivU { .. }
+            | MicroOp::MagicDivS { .. }
             | MicroOp::Branch { .. }
             | MicroOp::Jump { .. }
             | MicroOp::JumpIfFalse { .. }
@@ -521,7 +525,7 @@ fn slots_of(op: &MicroOp, out: &mut Vec<Slot>) {
         | MicroOp::CeilToInt { dst, src }
         | MicroOp::RoundToInt { dst, src } => out.extend([dst, src]),
         MicroOp::DivPow2 { dst, lhs, .. } => out.extend([dst, lhs]),
-        MicroOp::MagicDivU { dst, lhs, .. } => out.extend([dst, lhs]),
+        MicroOp::MagicDivU { dst, lhs, .. } | MicroOp::MagicDivS { dst, lhs, .. } => out.extend([dst, lhs]),
         MicroOp::Branch { lhs, rhs, .. } | MicroOp::BranchF { lhs, rhs, .. } => {
             out.extend([lhs, rhs])
         }
@@ -1195,7 +1199,7 @@ fn read_slots_of(op: &MicroOp, out: &mut Vec<Slot>) {
         | MicroOp::CeilToInt { src, .. }
         | MicroOp::RoundToInt { src, .. } => out.push(src),
         MicroOp::DivPow2 { lhs, .. } => out.push(lhs),
-        MicroOp::MagicDivU { lhs, .. } => out.push(lhs),
+        MicroOp::MagicDivU { lhs, .. } | MicroOp::MagicDivS { lhs, .. } => out.push(lhs),
         MicroOp::Branch { lhs, rhs, .. } | MicroOp::BranchF { lhs, rhs, .. } => {
             out.extend([lhs, rhs])
         }
@@ -1462,7 +1466,9 @@ fn tally_roles(op: &MicroOp, roles: &mut [Roles]) {
             mark_int!(lhs);
             mark_int!(rhs);
         }
-        MicroOp::DivPow2 { dst, lhs, .. } | MicroOp::MagicDivU { dst, lhs, .. } => {
+        MicroOp::DivPow2 { dst, lhs, .. }
+        | MicroOp::MagicDivU { dst, lhs, .. }
+        | MicroOp::MagicDivS { dst, lhs, .. } => {
             mark_int!(dst);
             mark_int!(lhs);
         }
@@ -2221,7 +2227,7 @@ pub fn compile_region_regalloc(
     shared_status: Option<std::sync::Arc<AtomicI64>>,
     live_out: &[Slot],
 ) -> Option<CompiledChain> {
-    compile_impl(ops, shared_status, false, 0, None, live_out)
+    compile_impl(ops, shared_status, false, 0, None, live_out, None)
 }
 
 /// Compile a PRECISE REGION — the in-place-array-mutation shape that ALSO does a
@@ -2275,7 +2281,7 @@ pub fn compile_region_regalloc_precise(
     if shared_status.is_none() {
         return None;
     }
-    compile_impl(ops, shared_status, false, depth_addr, Some(deopt_codes), live_out)
+    compile_impl(ops, shared_status, false, depth_addr, Some(deopt_codes), live_out, None)
 }
 
 /// Compile a recursive FUNCTION's micro-op stream into ONE contiguous
@@ -2306,13 +2312,13 @@ pub fn compile_function_regalloc(
         .iter()
         .any(|op| matches!(op, MicroOp::CallSelf { .. } | MicroOp::CallSelfCopy { .. }));
     if !has_self_call {
-        return compile_impl(ops, shared_status, true, depth_addr, None, &[]);
+        return compile_impl(ops, shared_status, true, depth_addr, None, &[], None);
     }
     // A self-call always needs the status channel (its guards write it).
     if shared_status.is_none() {
         return None;
     }
-    compile_impl(ops, shared_status, true, depth_addr, None, &[])
+    compile_impl(ops, shared_status, true, depth_addr, None, &[], None)
 }
 
 /// Compile a LIST-PARAMETER recursive FUNCTION — one that mutates a
@@ -2343,11 +2349,27 @@ pub fn compile_function_regalloc(
 /// every resident-written VM register to its frame slot at every precise side
 /// exit (so `materialize` reads the correct value). All slots at or above the
 /// function's register count `rc` are precise-path machinery and stay frame-resident.
+///
+/// The register count is read from the stream's prologue ([`infer_mode_b_rc`]); a stream that does not open with
+/// the adapter's prologue declines. [`compile_function_regalloc_precise_framed`] takes it from the caller.
 pub fn compile_function_regalloc_precise(
     ops: &[MicroOp],
     shared_status: Option<std::sync::Arc<AtomicI64>>,
     depth_addr: i64,
     deopt_codes: &[i64],
+) -> Option<CompiledChain> {
+    compile_function_regalloc_precise_framed(ops, shared_status, depth_addr, deopt_codes, infer_mode_b_rc(ops)?)
+}
+
+/// [`compile_function_regalloc_precise`] for a function whose VM register count `register_count` the caller knows:
+/// every slot at or above it is precise-path machinery. A stream that opens with anything but the adapter's
+/// prologue (a function versioned at its entry opens with its value checks) compiles through this entry.
+pub fn compile_function_regalloc_precise_framed(
+    ops: &[MicroOp],
+    shared_status: Option<std::sync::Arc<AtomicI64>>,
+    depth_addr: i64,
+    deopt_codes: &[i64],
+    register_count: u16,
 ) -> Option<CompiledChain> {
     if deopt_codes.len() != ops.len() {
         return None;
@@ -2357,7 +2379,7 @@ pub fn compile_function_regalloc_precise(
     if shared_status.is_none() {
         return None;
     }
-    compile_impl(ops, shared_status, true, depth_addr, Some(deopt_codes), &[])
+    compile_impl(ops, shared_status, true, depth_addr, Some(deopt_codes), &[], Some(register_count))
 }
 
 /// The VM register count `rc` of a precise function, INFERRED from the
@@ -2378,7 +2400,14 @@ fn infer_mode_b_rc(ops: &[MicroOp]) -> Option<u16> {
 /// `is_function` selects the op-support gate ([`supported_function`] adds the
 /// self-call ops); `depth_addr` is the live-depth cell (function backend only).
 /// `live_out` is the region's caller-read frame slots; a function's frame dies
-/// with its return, so the function entries pass none.
+/// with its return, so the function entries pass none. `mode_b_rc` is a precise
+/// function's VM register count: every slot at or above it is machinery (the
+/// plant window/resume/dst, pin triples, the disjoint callee window). A precise
+/// REGION has NO mode-B machinery (no self-call plant window — its in-place
+/// mutation + reallocating push flow through the enclosing frame's pinned
+/// arrays, and the precise epilogue flushes every resident-written scalar back
+/// to the frame for materialization), so it passes `None` and its scalars are
+/// register-allocated freely, as the classic paths do.
 fn compile_impl(
     ops: &[MicroOp],
     shared_status: Option<std::sync::Arc<AtomicI64>>,
@@ -2386,6 +2415,7 @@ fn compile_impl(
     depth_addr: i64,
     precise: Option<&[i64]>,
     live_out: &[Slot],
+    mode_b_rc: Option<u16>,
 ) -> Option<CompiledChain> {
     if ops.is_empty() {
         return None;
@@ -2407,21 +2437,6 @@ fn compile_impl(
             }
         }
     }
-    // The PRECISE mode-B FUNCTION path needs the function's VM register count
-    // `rc` to know which slots are machinery (the plant window/resume/dst, pin
-    // triples, the disjoint callee window — every slot `>= rc`). Infer it from
-    // the adapter's prologue micro; decline (fall back) if the stream does not
-    // open with it. A precise REGION has NO mode-B machinery (no self-call plant
-    // window — its in-place mutation + reallocating push flow through the
-    // enclosing frame's pinned arrays, and the precise epilogue flushes every
-    // resident-written scalar back to the frame for materialization), so it
-    // leaves `mode_b_rc = None` and its scalars are register-allocated freely.
-    // The classic paths also leave `mode_b_rc = None`.
-    let mode_b_rc: Option<u16> = if precise.is_some() && is_function {
-        Some(infer_mode_b_rc(ops)?)
-    } else {
-        None
-    };
     let gate: fn(&MicroOp) -> bool = match (is_function, precise.is_some()) {
         (true, true) => supported_function_precise,
         (true, false) => supported_function,
@@ -3498,6 +3513,7 @@ fn dest_of(op: &MicroOp) -> Option<Slot> {
         | MicroOp::ArrLoad { dst, .. }
         | MicroOp::DivPow2 { dst, .. }
         | MicroOp::MagicDivU { dst, .. }
+        | MicroOp::MagicDivS { dst, .. }
         | MicroOp::AddF { dst, .. }
         | MicroOp::SubF { dst, .. }
         | MicroOp::MulF { dst, .. }
@@ -3962,6 +3978,14 @@ fn emit_op(
             more,
             mul_back,
         } => emit_magic_div(g, dst, lhs, magic, more, mul_back),
+        MicroOp::MagicDivS {
+            dst,
+            lhs,
+            magic,
+            shift,
+            add,
+            mul_back,
+        } => emit_magic_div_signed(g, dst, lhs, magic, shift, add, mul_back),
         MicroOp::Div { dst, lhs, rhs } => {
             let dl = g.checked_exit(idx).expect("Div without a deopt label");
             emit_div_mod(g, dst, lhs, rhs, true, dl);
@@ -5111,6 +5135,30 @@ fn emit_magic_div(g: &mut Gen, dst: Slot, lhs: Slot, magic: u64, more: u8, mul_b
     finish_magic(g, dst, lhs, mul_back);
 }
 
+/// `dst = lhs / c` (`mul_back == 0`) or `dst = lhs % c` (`mul_back == c`) via the SIGNED magic reciprocal —
+/// bit-exact with `reference_eval`'s `MagicDivS` (and `logicaffeine_base::reciprocal::SignedReciprocal`) for every
+/// dividend, so it needs no sign proof. Register choreography as [`emit_magic_div`]: `q_hi = mulhi_s(magic, x)` by
+/// the one-operand `imul` (RDX:RAX), `+ x` when `add`, arithmetic `>> shift`, `+ (x >>> 63)`; the quotient lands in
+/// S0 for [`finish_magic`].
+fn emit_magic_div_signed(g: &mut Gen, dst: Slot, lhs: Slot, magic: i64, shift: u8, add: bool, mul_back: i64) {
+    g.asm.mov_ri(SC, magic); // RCX = magic
+    g.load(S0, lhs); // RAX = x
+    g.asm.imul_r(SC); // RDX:RAX = x * magic (signed); RDX = q_hi
+    if add {
+        g.load(SC, lhs); // RCX = x
+        g.asm.add_rr(S1, SC); // RDX = q_hi + x
+    }
+    if shift != 0 {
+        g.asm.mov_ri(SC, i64::from(shift));
+        g.asm.sar_cl(S1); // RDX >>= shift (arithmetic)
+    }
+    g.load(SC, lhs); // RCX = x
+    g.asm.shr_ri(SC, 63); // RCX = 1 when x < 0
+    g.asm.add_rr(S1, SC); // RDX = q
+    g.asm.mov_rr(S0, S1); // RAX = q
+    finish_magic(g, dst, lhs, mul_back);
+}
+
 /// Common tail: the quotient is in S0 (RAX). For division store it; for modulo
 /// compute `r = x - q*c` (`mul_back == c`) and store that.
 fn finish_magic(g: &mut Gen, dst: Slot, lhs: Slot, mul_back: i64) {
@@ -5127,9 +5175,9 @@ fn finish_magic(g: &mut Gen, dst: Slot, lhs: Slot, mul_back: i64) {
 }
 
 /// `dst = lhs / rhs` (quotient) or `lhs % rhs` (remainder), with a zero-divisor
-/// SIDE-EXIT before any effect and the kernel's `MIN op -1` overflow handling
-/// (no `#DE` trap): if `rhs == -1` then quotient = `0 - lhs` (== MIN for MIN)
-/// and remainder = 0.
+/// SIDE-EXIT before any effect and no `#DE` trap on a `-1` divisor: the
+/// quotient is `-lhs`, except `i64::MIN / -1`, which side-exits so the exact
+/// tier promotes to BigInt; the remainder is 0.
 fn emit_div_mod(g: &mut Gen, dst: Slot, lhs: Slot, rhs: Slot, is_div: bool, dl: LabelId) {
     // Load divisor into S1 (rdx is overwritten by cqo, so keep divisor in a
     // register that survives; use SC=rcx for the divisor instead).

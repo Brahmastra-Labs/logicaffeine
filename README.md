@@ -33,10 +33,10 @@ called **LOGOS**, and it has two modes that share one parser:
 ```rust
 #[inline]
 fn classify(n: i64) -> String {
-    if (n < 0) {
+    if n < 0 {
         return ::std::string::String::from("negative");
     }
-    return ::std::string::String::from("non-negative");
+    ::std::string::String::from("non-negative")
 }
 ```
 

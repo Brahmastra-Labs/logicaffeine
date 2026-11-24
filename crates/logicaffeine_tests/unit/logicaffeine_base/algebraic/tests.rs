@@ -502,3 +502,13 @@ fn a_thousand_products_in_a_quadratic_field_are_cheap() {
     assert_eq!(power, in_field(pa, pb, 2));
     assert!(elapsed < std::time::Duration::from_secs(5), "took {elapsed:?}");
 }
+
+// Every `i32` is an exponent `pow` takes, `i32::MIN` included, whose magnitude does not fit an
+// `i32`. Bases ±1 keep the exact result small.
+#[test]
+fn the_most_negative_i32_power_is_taken_without_negating_it() {
+    assert_eq!(Algebraic::from_i64(1).pow(i32::MIN), Some(Algebraic::from_i64(1)));
+    assert_eq!(Algebraic::from_i64(-1).pow(i32::MIN), Some(Algebraic::from_i64(1)));
+    assert_eq!(Algebraic::from_i64(-1).pow(i32::MIN + 1), Some(Algebraic::from_i64(-1)));
+    assert_eq!(Algebraic::from_i64(0).pow(i32::MIN), None);
+}

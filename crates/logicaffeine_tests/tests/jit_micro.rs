@@ -1,6 +1,9 @@
 //! J1 differentials: the micro-op compiler vs the reference evaluator,
 //! and the frame-slot machinery in isolation.
 
+// This suite tests the native tier alone, which exists only on x86_64 outside Windows.
+#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+
 use logicaffeine_forge::jit::{compile_straightline, reference_eval, JitCompileError, MicroOp};
 
 fn run_both(ops: &[MicroOp], inputs: &[i64]) -> (i64, i64) {

@@ -11,7 +11,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
-use logicaffeine_kernel::interface::lean::package::{self, PackageFiles, PACKAGE_SCHEMAS};
+use logicaffeine_kernel::interface::lean::package::{self, PackageFiles, ALL_SCHEMAS};
 use logicaffeine_kernel::interface::lean::pipeline::{Diagnostic, LeanResult, PackageRef};
 use logicaffeine_kernel::interface::lean::receipt::{Receipt, StageStatus};
 use logicaffeine_kernel::interface::lean::{DiagnosticCode, Outcome};
@@ -31,7 +31,7 @@ fn is_package(dir: &Path) -> bool {
         .is_some_and(|manifest| {
             manifest["schema"]
                 .as_str()
-                .is_some_and(|schema| PACKAGE_SCHEMAS.contains(&schema))
+                .is_some_and(|schema| ALL_SCHEMAS.contains(&schema))
         })
 }
 
@@ -361,14 +361,14 @@ fn replay_fresh(result: &mut LeanResult, staging: &Path, deadline: Instant) {
     }
 }
 
-/// `largo lean replay <dir>`: the `logos-lean-replay/1` receipt and the exit code — 0 replayed ·
-/// 1 a stage failed · 2 a stage could not run · 5 the directory could not be read within the package
-/// limits (nothing was replayed).
+/// `largo lean replay <dir>`: the receipt (`logos-lean-replay/1` for a proof package,
+/// `logos-lean-replay/2` for a statement package) and the exit code — 0 replayed · 1 a stage failed
+/// · 2 a stage could not run · 5 the directory could not be read within the package limits (nothing
+/// was replayed).
 pub(super) fn replay_directory(dir: &Path) -> (Value, i32) {
     match package::read_directory(dir, &package::PackageLimits::default()) {
         Ok(files) => {
             let receipt = package::replay(&files);
-            let manifest = files.get(package::MANIFEST).map(|m| package::sha256_hex(m));
             let code = if receipt.replayed() {
                 0
             } else if receipt.first_failure().is_some() {
@@ -376,10 +376,7 @@ pub(super) fn replay_directory(dir: &Path) -> (Value, i32) {
             } else {
                 2
             };
-            (
-                package::receipt_document(&receipt, manifest.as_deref()),
-                code,
-            )
+            (package::replay_document(&files, &receipt), code)
         }
         Err(detail) => {
             let mut receipt = Receipt::unstarted();

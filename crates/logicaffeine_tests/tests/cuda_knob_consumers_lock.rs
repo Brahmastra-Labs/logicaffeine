@@ -32,7 +32,7 @@ use logicaffeine_compile::tensor_recognize::{
     Epsilon, FusedRowSpec, MatmulSpec, RowReduceKind, SwiGluSpec,
 };
 
-const HONORED: &[&str] = &["precision", "chip", "cuda_graphs", "fuse_quant", "activations", "recurrent_state", "cache_precision", "logits"];
+const HONORED: &[&str] = &["precision", "chip", "cuda_graphs", "fuse_quant", "head_epilogue", "activations", "recurrent_state", "cache_precision", "logits"];
 const NOT_YET_READ: &[&str] = &["gemv_load", "kv_cache"];
 
 /// Every tiny architecture with its checkpoint, written once per process.
@@ -123,6 +123,7 @@ fn flipped(knob: &str) -> CudaKnobs {
         "kv_cache" => k.kv_cache = !k.kv_cache,
         "cuda_graphs" => k.cuda_graphs = !k.cuda_graphs,
         "fuse_quant" => k.fuse_quant = !k.fuse_quant,
+        "head_epilogue" => k.head_epilogue = !k.head_epilogue,
         "activations" => k.activations = Q8MatKind::Int8Act,
         "recurrent_state" => k.recurrent_state = StatePrecision::Bf16,
         "cache_precision" => k.cache_precision = CachePrecision::F16,

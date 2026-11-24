@@ -167,47 +167,48 @@ impl<'a, 'k> Memoizer<'a, 'k> {
         let n = self.tables;
         self.tables += 1;
         let mut fresh = |name: &str| it.intern(&format!("__tracememo{n}_{name}"));
-        let (table, lo, base, entry, sum) = (
+        let (table, lo, base, entry, sum, added) = (
             fresh("table"),
             fresh("lo"),
             fresh("base"),
             fresh("entry"),
             fresh("sum"),
+            fresh("added"),
         );
         let (seq, int) = (it.intern("Seq"), it.intern("Int"));
 
         // The step, then: a trace standing on a finished start whose sum is known adds it and stops.
         let finished = b.if_(
-            b.bin(BinaryOpKind::GtEq, b.id(k), b.id(lo)),
-            vec![b.if_(
+            b.bin(
+                BinaryOpKind::And,
+                b.bin(BinaryOpKind::GtEq, b.id(k), b.id(lo)),
                 b.bin(BinaryOpKind::Lt, b.id(k), b.id(i)),
-                vec![
-                    b.let_(
-                        entry,
-                        b.item(
-                            table,
-                            b.bin(
-                                BinaryOpKind::Add,
-                                b.bin(BinaryOpKind::Subtract, b.id(k), b.id(lo)),
-                                b.num(1),
-                            ),
+            ),
+            vec![
+                b.let_(
+                    entry,
+                    b.item(
+                        table,
+                        b.bin(
+                            BinaryOpKind::Add,
+                            b.bin(BinaryOpKind::Subtract, b.id(k), b.id(lo)),
+                            b.num(1),
                         ),
-                        false,
                     ),
-                    b.if_(
-                        b.bin(BinaryOpKind::Lt, b.id(entry), b.num(UNKNOWN)),
-                        vec![
-                            b.set(
-                                trace.acc,
-                                b.bin(BinaryOpKind::Add, b.id(trace.acc), b.id(entry)),
-                            ),
-                            Stmt::Break,
-                        ],
-                        None,
-                    ),
-                ],
-                None,
-            )],
+                    false,
+                ),
+                b.if_(
+                    b.bin(BinaryOpKind::Lt, b.id(entry), b.num(UNKNOWN)),
+                    vec![
+                        b.set(
+                            trace.acc,
+                            b.bin(BinaryOpKind::Add, b.id(trace.acc), b.id(entry)),
+                        ),
+                        Stmt::Break,
+                    ],
+                    None,
+                ),
+            ],
             None,
         );
         let mut cut_body: Vec<Stmt<'a>> = inner_body.to_vec();
@@ -222,15 +223,15 @@ impl<'a, 'k> Memoizer<'a, 'k> {
             out.push(b.let_(base, b.id(trace.acc), false));
             out.push(cut_loop.clone());
             // What this start added, or unknown past the entries' range.
+            out.push(b.let_(added, b.bin(BinaryOpKind::Subtract, b.id(trace.acc), b.id(base)), false));
             out.push(b.let_(sum, b.num(UNKNOWN), true));
-            let added = || b.bin(BinaryOpKind::Subtract, b.id(trace.acc), b.id(base));
             out.push(b.if_(
-                b.bin(BinaryOpKind::GtEq, added(), b.num(0)),
-                vec![b.if_(
-                    b.bin(BinaryOpKind::Lt, added(), b.num(UNKNOWN)),
-                    vec![b.set(sum, added())],
-                    None,
-                )],
+                b.bin(
+                    BinaryOpKind::And,
+                    b.bin(BinaryOpKind::GtEq, b.id(added), b.num(0)),
+                    b.bin(BinaryOpKind::Lt, b.id(added), b.num(UNKNOWN)),
+                ),
+                vec![b.set(sum, b.id(added))],
                 None,
             ));
             out.push(b.push(b.id(sum), table));

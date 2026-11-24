@@ -11,6 +11,7 @@ use logicaffeine_compile::compile::{build_native_cdylib_cached, compile_function
 use logicaffeine_compile::ui_bridge::with_parsed_program;
 use logicaffeine_compile::vm::aot_tier::load_aot_native;
 use logicaffeine_compile::vm::{Compiler, Vm};
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_jit::ForgeTier;
 use logicaffeine_language::ast::Stmt;
 use std::sync::atomic::Ordering;
@@ -35,9 +36,14 @@ fn run_with_aot(source: &str, fn_name: &str, cache: &std::path::Path) -> (String
         let so = build_native_cdylib_cached(&module.rust, fn_name, cache).expect("cdylib builds");
         let (nf, calls) = load_aot_native(&so, &module.symbol, module.arity).expect("cdylib loads");
 
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
         let forge = ForgeTier::new();
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
         let mut vm = Vm::new(&program)
             .with_native_tier(&forge)
+            .with_policy_ctx(&policies, interner);
+        #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+        let mut vm = Vm::new(&program)
             .with_policy_ctx(&policies, interner);
         vm.install_aot_native(fi, nf);
         vm.run().expect("runs");
@@ -50,9 +56,14 @@ fn baseline(source: &str) -> String {
     with_parsed_program(source, |parsed, interner| {
         let (stmts, types, policies) = parsed.expect("parses");
         let program = Compiler::compile_with_types(stmts, interner, Some(types)).expect("compiles");
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
         let forge = ForgeTier::new();
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
         let mut vm = Vm::new(&program)
             .with_native_tier(&forge)
+            .with_policy_ctx(&policies, interner);
+        #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+        let mut vm = Vm::new(&program)
             .with_policy_ctx(&policies, interner);
         vm.run().expect("runs");
         vm.output().to_string()
@@ -149,9 +160,14 @@ fn run_with_aot_outcome(
             .expect("function is in the scalar AOT subset");
         let so = build_native_cdylib_cached(&module.rust, fn_name, cache).expect("cdylib builds");
         let (nf, calls) = load_aot_native(&so, &module.symbol, module.arity).expect("cdylib loads");
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
         let forge = ForgeTier::new();
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
         let mut vm = Vm::new(&program)
             .with_native_tier(&forge)
+            .with_policy_ctx(&policies, interner);
+        #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+        let mut vm = Vm::new(&program)
             .with_policy_ctx(&policies, interner);
         vm.install_aot_native(fi, nf);
         let error = vm.run().err().map(|e| e.to_string());

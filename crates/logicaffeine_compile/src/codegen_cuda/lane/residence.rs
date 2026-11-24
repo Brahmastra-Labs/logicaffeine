@@ -168,6 +168,7 @@ pub fn plan(forms: &[Form], ctx: usize, nodes: usize) -> Plan {
                     }
                 },
                 Fill::Constant(Placement::Values(v)) => out.fixed += pooled(v.len() * 4),
+                Fill::Constant(Placement::Ints(v)) => out.fixed += pooled(v.len() * 8),
                 Fill::Alias { offset, .. } if buf.quantized && quant_in_place(*offset) => continue,
                 Fill::Alias { .. } => {}
                 Fill::Param | Fill::Zero | Fill::Computed => {

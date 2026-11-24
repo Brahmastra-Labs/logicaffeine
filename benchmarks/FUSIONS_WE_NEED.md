@@ -565,7 +565,10 @@ K-31, SERVE-SPEC-DECODE (MTP).
   19–34; 0.28 reading them mapped, window91); llama.cpp at -ngl 32 (its last layers and the output head on the card,
   the first on its CPU) 1.30, fastest 1.67, in the same window, one of its five runs beside a two-minute build of mine
   (0.285 at load 62–131, window90) — behind: a token moves the matrices past the card over PCIe x4, where llama.cpp's
-  CPU reads its layers from DDR5; the layers past the card belong on the CPU tier (PARITY-HOST-LAYERS-ON-CPU).
+  CPU reads its layers from DDR5; the layers past the card belong on the CPU tier (PARITY-HOST-LAYERS-ON-CPU). Cut
+  between the CPU tier and the card (`codegen_cpu::split`, its first layers on eight P-cores): 4.20 tok/s cut at layer
+  16, slowest run 3.50; 3.89 at 20, 3.33 at 24; llama.cpp at -ngl 32 2.42, fastest 2.71, in the same window (2026-11-11,
+  logs/fusion-k09/window93/, load 20–26) — its 128 tokens the whole lane's of window92; ahead, the quiet-box run owed.
 - [ ] C-3060-QWEN38-27B-P512-Q4: ours 225.9 tok/s, slowest run 206.6, the same matrices streamed, each read once a
   chunk (window92; 23.8 reading them mapped, once a 128-row tile, window91); llama.cpp at -ngl 32 101.9, fastest
   115.4, in the same window — won.
@@ -962,7 +965,7 @@ One entry per fused symbol: the ledger's classes, the classes the catalog adds, 
   - [ ] Spatial chips (CUDA persistent, Tensix, RDU, fabric): native: one row section (MIGRATE-3); today: not applicable: the SN50 path reads stored Q8 weights.
   - [ ] D5005: native where a command has it, else parts (MIGRATE-4); today: not applicable: its numerics live in the engine's units.
 - [ ] **`dual_norm`**: two independent norms in one kernel.
-  - [ ] CUDA: native (PARITY-DUAL-NORM); today: gap.
+  - [x] CUDA: native (receipt: `lane_compile_lock::a_latent_layers_two_norms_are_one_launch` / `cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart`).
   - [ ] CPU: native (PARITY-CPU-SHIM).
   - [ ] AMD, Intel: native (TRITON-AMD-SHIM, PARITY-XPU-SHIM).
   - [ ] Spatial chips (CUDA persistent, Tensix, RDU, fabric): native: one row section (MIGRATE-3).
@@ -1015,6 +1018,24 @@ One entry per fused symbol: the ledger's classes, the classes the catalog adds, 
   - [ ] AMD, Intel: native (TRITON-AMD-SHIM, PARITY-XPU-SHIM).
   - [ ] Spatial chips (CUDA persistent, Tensix, RDU, fabric): native: one row section (MIGRATE-3).
   - [ ] D5005: native where a command has it, else parts (MIGRATE-4).
+- [ ] **`hc_mix`**: a hyper-connected residual's mix, its lanes gated by their sigmoid and averaged in one pass, the mean quantized where a product reads it (vLLM `qwen4_exp/nvidia/ops/hc.py` · `_hc_gate_mix_kernel`).
+  - [x] CUDA: native (receipt: `lane_compile_lock::a_hyper_connected_mix_runs_its_gate_shares_and_mean_in_its_products` / `cuda_lane_lock::every_fusion_of_a_hyper_connected_step_computes_what_its_launches_compute_apart`).
+  - [ ] CPU: native (PARITY-CPU-SHIM); today: linked whole, unreceipted.
+  - [ ] AMD, Intel: native (TRITON-AMD-SHIM, PARITY-XPU-SHIM).
+  - [ ] Spatial chips (CUDA persistent, Tensix, RDU, fabric): native: one row section (MIGRATE-3); today: runs apart.
+  - [ ] D5005: native where a command has it, else parts (MIGRATE-4); today: runs apart.
+- [ ] **`hc_post`**: a sublayer's output spread over the lanes by its shares and added to the residual in one pass (vLLM `qwen4_exp/nvidia/ops/hc.py` · `_hc_combine_kernel`).
+  - [x] CUDA: native where no norm in lanes reads the sum first — a chunk's last post, whose last row the head reads (receipt: `lane_compile_lock::a_hyper_connected_mix_runs_its_gate_shares_and_mean_in_its_products` / `cuda_lane_lock::every_fusion_of_a_hyper_connected_step_computes_what_its_launches_compute_apart`).
+  - [ ] CPU: native (PARITY-CPU-SHIM); today: linked whole, unreceipted.
+  - [ ] AMD, Intel: native (TRITON-AMD-SHIM, PARITY-XPU-SHIM).
+  - [ ] Spatial chips (CUDA persistent, Tensix, RDU, fabric): native: one row section (MIGRATE-3); today: runs apart.
+  - [ ] D5005: native where a command has it, else parts (MIGRATE-4); today: runs apart.
+- [ ] **`hc_post_norm`**: the post and the next norm in lanes in one pass, the sum written on for its later readers (vLLM `qwen4_exp/nvidia/ops/hc.py` · `_hc_combine_norm_kernel`).
+  - [x] CUDA: native: `lk_rmsnorm_lanes` adding the spread row in its load (receipt: `lane_compile_lock::a_hyper_connected_mix_runs_its_gate_shares_and_mean_in_its_products` / `cuda_lane_lock::every_fusion_of_a_hyper_connected_step_computes_what_its_launches_compute_apart`).
+  - [ ] CPU: native (PARITY-CPU-SHIM); today: linked whole, unreceipted.
+  - [ ] AMD, Intel: native (TRITON-AMD-SHIM, PARITY-XPU-SHIM).
+  - [ ] Spatial chips (CUDA persistent, Tensix, RDU, fabric): native: one row section (MIGRATE-3); today: runs apart.
+  - [ ] D5005: native where a command has it, else parts (MIGRATE-4); today: runs apart.
 
 #### Rotations, heads and caches
 
@@ -1049,7 +1070,7 @@ One entry per fused symbol: the ledger's classes, the classes the catalog adds, 
   - [ ] Spatial chips (CUDA persistent, Tensix, RDU, fabric): native: one row section (MIGRATE-3).
   - [ ] D5005: native where a command has it, else parts (MIGRATE-4); today: q and gate halves merged into one matvec and a split.
 - [ ] **`qkv_head_epilogue`**: one q/k/v projection with the per-head norm, rotation and append in its epilogue (K-03).
-  - [x] CUDA: native for a step's one row (receipt: `lane_compile_lock::a_decode_layers_query_key_and_value_are_one_launch_with_their_head_epilogue` / `cuda_lane_lock::the_head_epilogue_computes_what_the_rope_launches_compute`).
+  - [ ] CUDA: native for a step's one row under the `head_epilogue` knob (receipt: `lane_compile_lock::a_decode_layers_query_key_and_value_are_one_launch_with_their_head_epilogue` / `cuda_lane_lock::the_head_epilogue_computes_what_the_rope_launches_compute`); by default parts — the projections in one launch, the rotations in one more, overlapping in the step's graph, faster on the 3060 (K-03, K-08).
   - [ ] CPU: native (PARITY-CPU-SHIM).
   - [ ] AMD, Intel: native (TRITON-AMD-SHIM, PARITY-XPU-SHIM).
   - [ ] Spatial chips (CUDA persistent, Tensix, RDU, fabric): native: the epilogue rides the product's section (MIGRATE-3).
@@ -1240,6 +1261,12 @@ One entry per fused symbol: the ledger's classes, the classes the catalog adds, 
   - [ ] AMD, Intel: native (TRITON-AMD-SHIM, PARITY-XPU-SHIM).
   - [ ] Spatial chips (CUDA persistent, Tensix, RDU, fabric): native: the epilogue rides the product's section (MIGRATE-3).
   - [ ] D5005: native in its matrix command's epilogue, else parts (MIGRATE-4).
+- [ ] **`gemm_act`**: an activation, and a scale of it, in the GEMM epilogue (a hyper-connected mix's gate `silu(D·x̂ / L)` and shares `2σ(J·x̂ / L)`; vLLM `qwen4_exp/nvidia/ops/cute_dsl/hc_down_silu.py`).
+  - [x] CUDA: native (receipt: `lane_compile_lock::a_hyper_connected_mix_runs_its_gate_shares_and_mean_in_its_products` / `cuda_lane_lock::every_fusion_of_a_hyper_connected_step_computes_what_its_launches_compute_apart`).
+  - [ ] CPU: native (PARITY-CPU-SHIM); today: linked whole, unreceipted.
+  - [ ] AMD, Intel: native (TRITON-AMD-SHIM, PARITY-XPU-SHIM).
+  - [ ] Spatial chips (CUDA persistent, Tensix, RDU, fabric): native: the epilogue rides the product's section (MIGRATE-3); today: runs apart.
+  - [ ] D5005: native in its matrix command's epilogue, else parts (MIGRATE-4); today: runs apart.
 - [ ] **`merged_qkv`**: q, k and v as one matrix product.
   - [x] CUDA: native (receipt: `lane_compile_lock::a_wide_chunk_in_a_block_format_runs_on_the_tensor_cores` / `cuda_lane_lock::a_gemm_in_parts_computes_each_parts_gemm`).
   - [ ] CPU: native (PARITY-CPU-SHIM).
@@ -1649,7 +1676,27 @@ the same rules without the sandwich norms (about 11 a layer); K-01 records their
       `cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart`, logs/one-ir/live-gpu-1030.log).
   - [x] Beyond: in prefill, all chunk rows in one launch, a block per row (receipt: `lane_compile_lock::the_embedding_gather_norms_its_row_in_the_same_launch`).
   - [x] Bar: one launch fewer per token on every model (receipt: `tests/fixtures/lane_census/`).
-  - [ ] Bar: profile shows the gather-and-norm ≤ one norm's time.
+  - [ ] Bar: profile shows the gather-and-norm ≤ one norm's time. Measured 11-13 from the census checkpoints' 11-12 decode
+    traces (nsys, the 3060, `/mnt/build/fusion-k09/k08/six/*/trace.txt`, medians): the gather-and-norm takes 3.49 µs
+    (Qwen3.5-0.8B), 4.37 (Gemma-3-1B), 5.06 (Llama-3.2-1B), 6.45 (DeepSeek-V2-Lite), 7.44 (gpt-oss-20b) and 8.10
+    (Qwen3-8B); where a norm launches alone in the same step it takes 3.29 (DeepSeek-V2-Lite, 512 threads) and 4.35
+    (gpt-oss-20b) — so not yet. The launch reads its token, then the token's row from DRAM, writes the row and reads it
+    back through L2 for the norm; the norm alone reads a row the launch before it left in L2. The gathered values handed
+    to the norm in registers where the gather's stride is the norm's (`lk_rmsnorm_row` taking them in place of its
+    load; a Q8_0 table; landed 11-13): 3.84 → 3.57 µs at 2048 wide, 4.61 → 4.29 at 2880, 5.55 → 5.20 at 4096 in
+    `logs/fusion-k09/k02/` — a harness whose 64 tokens came back every pass, so after the first its rows were in L2.
+    Measured again 11-14 with 4096 different tokens a pass, 8 to 16 MB of rows past the 3 MB L2
+    (`logs/fusion-k09/norm-loads/`, the 3060, the row, words and scales the same bits): the gather in registers 3.39,
+    4.24 and 5.13 µs, a norm alone 2.84, 3.59 and 4.17. Its SASS took each value's loads behind the previous value's
+    branch and store, a round trip a value in series; a thread's every load at a column in range first, the row written
+    after the norm (`lk_gather_norm`, landed 11-14; receipt:
+    `lane_compile_lock::every_norm_issues_its_loads_of_the_row_before_it_writes_any`): 3.09, 3.80 and 4.46 — 0.25, 0.21
+    and 0.29 from the bar, a row from DRAM against one in L2. The step before prefetching the next token's row into L2
+    from its arg-max's last block takes the gather to 2.90, 3.63 and 4.24 and costs the arg-max 0.12, so a step gains
+    0.05 to 0.1 µs: not landed.
+    Every norm's loads first (`lk_rmsnorm_row`, the folds' last blocks among them) and the gather's: Llama-3.2-1B decodes
+    at 228.9 tok/s from 227.9, Qwen3-8B at 40.13 from 39.95, gpt-oss-20b at 110.0 from 109.6, each one's 32 golden
+    prompts' tokens and first logits the same (two interleaved rounds, `logs/fusion-k09/norm-loads/ab/`).
 
 - [ ] **K-03 · One q/k/v GEMV with the per-head epilogue** (PARITY-QKV-HEAD-EPILOGUE).
   Today Gemma takes five launches (Wq 128 blocks, Wk 32, Wv 32, rope q 4, rope k 1); Llama and Qwen3 take five
@@ -1674,8 +1721,19 @@ the same rules without the sandwich norms (about 11 a layer); K-01 records their
     is bit-identical (`cuda_lane_lock::the_head_epilogue_computes_what_the_rope_launches_compute`,
     `cuda_lane_lock::every_fusion_computes_what_its_launches_compute_apart`; receipt: logs/one-ir/live-gpu-1030.log).
   - [x] Beyond: Flint needs sm_100 clusters, while this is one launch on sm_86 with no cluster.
-  - [x] Bar: 5 → 1 launches a layer (receipt: `tests/fixtures/lane_census/`).
-  - [ ] Bar: the merged GEMV at ≥ 85% of bandwidth (receipt: profile).
+  - [x] Bar: 5 → 1 launches a layer under the `head_epilogue` knob, 5 → 2 by default (receipt:
+    `tests/fixtures/lane_census/`).
+  - [ ] Bar: the merged GEMV at ≥ 85% of bandwidth (receipt: profile). Measured 11-12 on the 3060 at Q4_K_M (nsys,
+    Qwen3-8B): the folded query projection reads at 259 GB/s (77%), the key's at 182; the head's blocks count in and the
+    block finishing it turns it, where apart the projections and the rotations overlap in the step's graph (Llama-3.2-1B:
+    2907 µs of wall against 3127 µs of kernels apart, 3003 against 3009 folded). Apart decodes faster on every model
+    measured — Llama-3.2-1B 341.3 tok/s against 328.0, Gemma-3-1B 250.0 against 245.0, Qwen3-8B 65.6 against 64.2 — so
+    the fold is the `head_epilogue` knob, off by default (Tristen's ruling, 11-12). One fence a block and a launch bound
+    at the block's threads give the fold back 1.2%; the rest is the overlap. On the census checkpoints (Q8_0, gpt-oss's
+    MXFP4, DeepSeek's Q4_K_M; two rounds of five runs each, interleaved, `logs/fusion-k09/k08/head-epilogue-ab-q8.log`)
+    the knob is within 0.75% either way: off, Gemma-3-1B 228.4 tok/s against 226.7, Qwen3.5-0.8B 314.7 against 313.8,
+    gpt-oss-20b 108.4 against 107.7; on, Llama-3.2-1B 227.2 against 225.9, Qwen3-8B 40.03 against 39.89; DeepSeek-V2-Lite
+    153.5 either way.
 
 - [ ] **K-04 · Decode attention on the tensor cores, its output quantized in its fold** (PARITY-ATTN-GQA-ROW-PACKING
   and PARITY-ATTN-QUANT-IN-FOLD).
@@ -1702,6 +1760,27 @@ the same rules without the sandwich norms (about 11 a layer); K-01 records their
     width (`lane_compile_lock::an_attention_launch_compiles_only_the_path_it_takes`), no spill under two blocks a
     multiprocessor and the held path 8 bytes under three, where the four paths together spilled 240 and 888. Decode
     0.6–2.9% faster, the batches of 64 2.7–3.6% (`logs/one-ir/ab-paths-1101.log`).
+  - Measured 11-14 (`logs/fusion-k09/k04/`, nsys over each model's decode step after a prompt of 8, 256 and 1000
+    tokens): the attention takes 13.0, 17.9 and 27.5 µs a layer on Llama-3.2-1B, 16.1, 20.5 and 22.1 on Gemma-3-1B,
+    13.6, 25.3 and 43.8 on Qwen3-8B — 4.7 to 13.3% of the step — each key past the first at its bytes' rate (Llama 14.5
+    ns a key of 4 KB) over a fixed 13 µs a launch. The same launch alone takes 6.0 µs at 8 tokens; after a kernel of
+    256 KB of other code and a pass of 32 MB through L2, 12.9 — the step's 13.0. The fixed cost is the kernel's own
+    instructions from DRAM: `lk_attention` on the split path is 201 KB of SASS, every other kernel of the step 17 to
+    50 (`h/`; Nsight Compute's counters need root on this box). From those cold caches the harness's variants
+    (`h/out*.txt`): the one-chunk path compiled alone 6.2 µs at 8 tokens where beside the split path it took 13.1; the
+    split kernel with its tile chunk compiled out 12.6, 12.8, 15.6 and 25.0 at 8, 64, 256 and 1000 tokens against 13.1,
+    16.5, 18.5 and 27.7; the split path out of line (`__noinline__`) 6.2 at 8 tokens but 22.1 at 64.
+  - Refuted 11-14: the rows of one chunk in a launch of their own (`lk_attention_lone`, compiled with that path alone
+    and the warp-local chunk alone, each row it took marked in the split launch's fold count; every bit the split launch
+    alone writes, at every position — the locks kept in `logs/fusion-k09/k04/lone/locks/`). In the step at a prompt of 8
+    it took Llama's attention from 185.8 µs to 125.5 and Gemma's from 455.2 to 335.9, but past one chunk the split
+    launch, its code moved by the mark's check, took 4 to 6.5 µs longer a layer (Llama 16.2 → 20.2, Gemma 20.2 → 26.8)
+    and the lone launch 1.2 to leave: Llama-3.2-1B decoded at 227.3 tok/s against 228.0, Gemma-3-1B 237.1 against
+    241.6, Qwen3.5-0.8B 326.1 against 328.2, Qwen3-8B 40.05 against 40.10 (`lone/ab/`, `abtrace/`). Reverted.
+  - [ ] The split kernel's tile chunk compiled out where the plan knows its caches' rows take the warp-local one (the
+    harness's 16.5 → 12.8 µs at 64 tokens, 27.7 → 25.0 at 1000, every row's bits the same): a tenth template argument of
+    `lk_attention`, whose nine `lane_compile_lock::an_attention_launch_compiles_only_the_path_it_takes` pins — Tristen's
+    call. Beyond it, the kernel at a few KB of code: what the step pays for each launch's instructions is the lever.
 
 - [ ] **K-05 · The output projection with the residual and both norms in its epilogue** (PARITY-GEMV-NORM-EPILOGUE).
   Today Gemma runs Wo (144 blocks), the post-attention norm (1 block), then add and pre-FFN norm with quantize
@@ -1720,14 +1799,25 @@ the same rules without the sandwich norms (about 11 a layer); K-01 records their
   - [x] Beyond: vLLM cannot put a full-row norm into a GEMM epilogue. The last-arriver fold removes the launch, and the
     fold's work overlaps the GEMV's tail instead of starting a new kernel.
   - [x] Bar: Gemma 3 → 1, Llama 2 → 1 launches (receipt: `tests/fixtures/lane_census/`).
+  - Block formats, measured 11-13 (`logs/fusion-k09/k05blk/norm-fold-harness.txt`, Q4_K on cold weights, the same
+    bytes as apart at every shape): the fold loses to the projection and the norm apart at every block shape — Llama's
+    output 16.67 µs at best against 12.28, its down 39.38 against 33.62, Qwen3-8B's output 38.49 against 35.16, its down
+    101.76 against 91.52 — the plan's own shape (128 threads, four rows a warp) slowest of all. The apart projection
+    runs four rows a warp with no fence or count, and the fold's tail, one block norming the row, outlasts the norm's
+    own launch. So a block-format projection keeps its norm a launch of its own (`block_holds_its_norm` refuses it), as
+    DeepSeek-V2-Lite measured; the Q4_K_M steps' 32 to 72 norm launches (3.2–4.8 µs each) wait on another shape.
 
-- [ ] **K-06 · Gate, up and the activation in one GEMV, quantized out** (have: `glu_pair`, `lk_gemv_glu`).
-  Today Gemma's `lk_gemv_glu` runs 216 blocks of 1024 threads and reads 16.9 MB; floor 50 µs a layer.
-  - [ ] Copy:
+- [x] **K-06 · Gate, up and the activation in one GEMV, quantized out** (have: `glu_pair`, `lk_gemv_glu`).
+  Gemma's `lk_gemv_glu` reads 16.9 MB a layer, a floor of 49.4 µs at 342.2 GB/s; it ran 216 blocks of 1024 threads in
+  59.3 µs and runs 216 of 256, four rows a warp, in 52.8 (11-13).
+  - [x] Copy (the fusion is ours, one launch where vLLM takes two):
     - vLLM's `act_and_mul_kernel` follows a merged gate/up GEMM: two launches.
     - Triton's MoE matmul fuses the activation into the GEMM epilogue.
-  - [ ] Bar: ≥ 92% of bandwidth on Gemma, Llama and Qwen3 shapes (receipt: profile). The bar is the bandwidth; the
-    fusion is already ours.
+  - [x] Bar: ≥ 92% of bandwidth on Gemma, Llama and Qwen3 shapes (receipt:
+    `cuda_lane_lock::a_q8_gated_pair_sums_each_output_alike_at_every_rows_a_warp`, `logs/fusion-k09/k08/q8-glu-merged-harness.txt`;
+    Q8_0, cold weights, of the 3060's 342.2 GB/s, K-08). Four rows a warp, the rows' last blocks past whole rounds of
+    sixteen in one round (`lk_q8_round_merged`): Gemma-3-1B 317.8 GB/s (92.9%), Llama-3.2-1B 333.7 (97.5%), Qwen3-8B
+    337.5 (98.6%); Qwen3.5-0.8B 308.8 (90.2%), its rows of 1024 values two whole rounds.
 
 - [x] **K-07 · The down projection with the residual and the next layer's norm** (PARITY-GEMV-NORM-EPILOGUE).
   The same fold as K-05, for the FFN side. Gemma: post-FFN norm, add, and the next layer's pre-attention norm with
@@ -1738,10 +1828,131 @@ the same rules without the sandwich norms (about 11 a layer); K-01 records their
     `tests/fixtures/lane_census/llama3.2-1b.txt`).
 
 - [ ] **K-08 · Projections at ≥ 90% of bandwidth** (OPT-7, TECH-ALIGNMENT-AWARE-VECTORIZATION, TECH-L2-WEIGHT-PREFETCH).
-  - [ ] Every `lk_gemv_q8` / `lk_gemv_blk` launch in the six censuses at ≥ 90% of measured bandwidth. Rows a warp and
-    blocks per SM come from the tuning database (OPT-7), not constants.
+  The 3060 reads at 342.2 GB/s at most (a streaming `int4` read of 1 GiB, every block and thread count tried;
+  `logs/fusion-k09/k08/bandwidth.cu`), so 90% is 308 GB/s. Measured 11-12, each census checkpoint's default decode step
+  under nsys (graph nodes; launches whose spans overlap counted as one group over its wall; `logs/fusion-k09/k08/step-*.txt`,
+  `analyze.py`):
+
+  | Step | Weights over the step's wall | Below 90% (a group's GB/s) |
+  |---|---|---|
+  | Qwen3-8B Q8_0 | 320.9 GB/s (93.8%) | the output projection's fold 290.0 |
+  | Qwen3-8B Q4_K_M | 309.0 (90.3%) | q, k and v with the rotations 290–299 |
+  | Llama-3.2-1B Q8_0 | 294.4 (86.0%) | the down fold 300.3, q/k/v 274.2, the output fold 228.9 |
+  | Qwen3.5-0.8B Q8_0 | 250.4 (73.2%) | the gate/up pair 289.9, the gated-delta inputs 282.3, the down fold 220.6, the output fold 177.2 |
+  | Gemma-3-1B Q8_0 | 245.5 (71.7%) | the gate/up pair 285.1, the down fold 258.0, q/k/v 219.3, the output fold 115.2 |
+  | Llama-3.2-1B Q4_K_M (11-13) | 275.6 (80.5%) | q/k/v with the rotations and the attention 129.0–242.4, the output 271.6 |
+  | Gemma-3-1B Q4_K_M (11-13) | 199.3 (58.2%) | the Q5_0 gate/up pair 202.2, the down 249.8, the output 169.9, q/k/v 128.3–156.7 |
+
+  The Q4_K_M rows of 11-13 (`logs/fusion-k09/k08/q4/`): Qwen3-8B decodes at 66.07 tok/s (llama.cpp 61.0), 309.1 GB/s
+  over its step, every launch of 8 MB or more at ≥ 90%; Llama-3.2-1B at 345.32, its pair at 316.2 GB/s, its down at
+  310.3 and its head at 338.6; Gemma-3-1B at 245.59. Gemma's 1152-wide rows are no whole number of K-quant super-blocks,
+  so its gate and up are Q5_0: a pair of 10.95 MB read at 59% of the peak, one row a warp, 483 µs of its 4,010 µs step
+  lost to the 90% bar.
+
+  Every head reads at 338–341 GB/s and every gate/up pair from 2048 wide at 330–339. A launch of 1–18 MB pays a floor
+  of latency no shape removes — its two or three load rounds, its count, its last block's norm — measured as the best
+  of every block size and rows a warp for the Q8_0 projection that norms its row (`logs/fusion-k09/k08/q8-norm-harness.txt`,
+  cold weights):
+
+  | Projection (Q8_0, its norm in its last block) | MB | Best µs | At 342.2 GB/s | Floor µs |
+  |---|---|---|---|---|
+  | Gemma-3-1B output, 1024 → 1152 | 1.25 | 7.80 | 3.66 | 4.1 |
+  | Qwen3.5-0.8B output, 2048 → 1024 | 2.23 | 10.60 | 6.52 | 4.1 |
+  | Qwen3.5-0.8B down, 3584 → 1024 | 3.90 | 15.45 | 11.40 | 4.1 |
+  | Llama-3.2-1B output, 2048 → 2048 | 4.46 | 18.56 | 13.03 | 5.5 |
+  | Gemma-3-1B down, 6912 → 1152 | 8.46 | 29.95 | 24.72 | 5.2 |
+  | Llama-3.2-1B down, 8192 → 2048 | 17.83 | 58.54 | 52.10 | 6.4 |
+  | Qwen3-8B output, 4096 → 4096 | 17.83 | 60.25 | 52.10 | 8.1 |
+  | Qwen3-8B down, 12288 → 4096 | 53.48 | 165.29 | 156.28 | 9.0 |
+
+  So the bar is per launch where a launch reads at least 8 MB, and per step below that (Tristen's ruling, 11-12). The
+  norm moved into the next projection's prologue measured slower (K-18).
+  - [x] A Q8_0 projection that norms its row in its last block takes two rows a warp where one row a warp takes more of
+    the norm's 1024-thread blocks than the chip holds at once and two fit them in one wave (`q8_norm_launch_rows`; receipt:
+    `lane_compile_lock::a_q8_projections_norm_fold_takes_the_rows_a_warp_that_fit_one_wave` /
+    `cuda_lane_lock::a_q8_projections_norm_fold_sums_alike_at_every_rows_a_warp`): Qwen3.5-0.8B decodes at 321.89 tok/s,
+    from 315.03, Gemma-3-1B at 230.48, from 228.58, Llama-3.2-1B unchanged at 225.8 (two rounds of five runs,
+    interleaved, `logs/fusion-k09/k08/q8-norm-rows-ab.log`).
+  - [x] A Q8_0 gated pair of a step's one row under one activation word takes four rows a warp (`GLU_ROWS`), the rows'
+    last blocks past whole rounds of sixteen in one round (`lk_q8_round_merged`; receipt:
+    `lane_compile_lock::a_q8_gated_pair_of_one_row_takes_four_rows_a_warp` /
+    `cuda_lane_lock::a_q8_gated_pair_sums_each_output_alike_at_every_rows_a_warp`): Gemma-3-1B's pair from 59.48 µs a
+    layer at one row a warp to 52.82, Qwen3.5-0.8B's from 25.71 to 25.02, Llama-3.2-1B's from 107.69 to 106.67,
+    Qwen3-8B's held at 316 (`logs/fusion-k09/k08/q8-glu-merged-harness.txt`). Gemma-3-1B decodes at 236.48 tok/s at two
+    rows a warp, from 230.38 (`logs/fusion-k09/k08/q8-glu-rows-ab.log`), and at 238.57 at four with the merged round —
+    its down fold's last blocks merged too — Qwen3-8B at 39.93, from 39.88, Qwen3.5-0.8B and Llama-3.2-1B unchanged
+    (`logs/fusion-k09/k08/q8-glu-four-merged-ab.log`).
+  - [x] A gated pair of a step's one row in every block format under one activation word takes four rows a warp, as
+    Q8_0's does (`GLU_ROWS`; receipt: `lane_compile_lock::a_block_format_gated_pair_of_one_row_takes_four_rows_a_warp` /
+    `cuda_lane_lock::every_block_formats_gated_pair_sums_each_output_alike_at_every_rows_a_warp`): at one row a warp its
+    quantized output took blocks of 32 warps, one a multiprocessor. Four beat one in all twelve formats at 1024, 1152 and
+    2048 wide (`logs/fusion-k09/k08/glu-rows-sweep.txt`); Gemma-3-1B Q4_K_M's Q5_0 pair from 60.71 µs to 42.88, and the
+    model at 266.8 tok/s, from 249.9, its golden prompts' tokens and first logits the same
+    (`logs/fusion-k09/k08/glu-green/`). Eight or two was faster again in every format but Q3_K and Q6_K at one width or
+    another (MXFP4 and IQ4_XS at eight throughout) — a table per format and width is the tuning database's (OPT-7).
+  - [x] A block-format dot of several rows a warp takes their last sub-blocks past whole rounds of 32 in one round of the
+    warp (`lk_blk_round_merged`), as Q8_0's rounds of sixteen do: lane `r·n + j` decodes and dots row `r`'s sub-block,
+    and lane `j` takes the step by `shfl`, its own over the row alone, so every output keeps its bits (receipt:
+    `cuda_lane_lock::every_block_formats_gated_pair_sums_each_output_alike_at_every_rows_a_warp` and
+    `…::every_block_formats_projection_sums_each_output_alike_at_every_rows_a_warp`, whose 1152-wide rows at two and four
+    rows a warp take it, `logs/fusion-k09/k08/merged/ab/gpu-tests.log`; a mutant taking each step from the wrong lane
+    differs at every rows a warp past one). Measured 11-13 on cold weights (`logs/fusion-k09/k08/merged/`): Gemma-3-1B
+    Q4_K_M's Q5_0 pair (1152 → 6912) from 41.78 µs to 37.22 at four rows a warp (294 GB/s, 86%), and every format of
+    32-value blocks 1152 wide 1.4–12% faster at two and four; 1024 and 2048 wide unchanged, their rows whole rounds.
+    Gemma-3-1B Q4_K_M decodes at 276.8 tok/s, from 267.7, its 32 golden prompts' tokens and first logits the same
+    (two interleaved rounds of five runs, `logs/fusion-k09/k08/merged/ab/`). Two variants measured and not taken: Q4_0, Q5_0 and
+    IQ4_NL blocks read by aligned 32-bit words (one row a warp 2–11% faster, two to eight mixed: Q4_0's pair at four
+    29.78 → 30.25 µs), and the merged round's words fetched before the whole rounds (Q5_0's pair at four 37.22 → 36.97,
+    Q5_1's, IQ4_NL's and MXFP4's 3–4% slower).
+  - [x] A Q8_0 GEMV in parts of a step's one row under one activation word takes four rows a warp where every part's
+    outputs are whole fours, two where whole twos (`q8_parts_launch_rows`; receipt:
+    `lane_compile_lock::a_q8_gemv_in_parts_of_one_row_takes_the_rows_a_warp_its_parts_divide` /
+    `cuda_lane_lock::a_q8_gemv_in_parts_sums_each_output_alike_at_every_rows_a_warp`): Llama-3.2-1B's query, key and value
+    from 24.81 µs to 22.04, Qwen3-8B's from 83.11 to 80.81, Gemma-3-1B's from 8.65 to 7.93, Qwen3.5-0.8B's gated ones
+    18.39 to 18.69 in its six attention layers (`logs/fusion-k09/k08/q8-parts-harness.txt`).
+  - [ ] Every `lk_gemv_q8` / `lk_gemv_blk` launch reading at least 8 MB in the six censuses at ≥ 90% of 342.2 GB/s: open
+    at the down folds of Gemma-3-1B (282 GB/s at its best shape) and Llama-3.2-1B (304.5), Qwen3-8B's output fold
+    (296) and gpt-oss-20b's (4096 → 2880, 12.53 MB, 45.7 µs in its 11-12 step: 274 GB/s; 44.16 at its best shape, two rows
+    a warp in blocks of 1024, 284 GB/s, `logs/fusion-k09/k08/gptoss-fold/`); and among the Q4_K_M steps,
+    Gemma-3-1B's Q5_0 gated pair (202.2 GB/s at one row a warp, 255 at four, 294 with the merged round). Rows a warp and blocks per SM come from the tuning database (OPT-7), not constants. Bounding the fold's
+    registers so more of its warps fit a multiprocessor loses at every width (blocks of 512 three a multiprocessor,
+    of 256 six: Gemma-3-1B's down fold 30.69 and 32.33 µs against 29.93 at two rows a warp, Llama-3.2-1B's 59.56 and
+    62.68 against 58.37, Qwen3-8B's output 65.45 and 70.06 against 60.37; `logs/fusion-k09/k08/q8-norm-launch-bounds.txt`):
+    the dot needs its registers.
+  - [ ] Each decode step's weight-reading wall within 90% of its bytes at 342.2 GB/s plus the floor of each launch below
+    8 MB (the table above, extended to every shape the censuses launch).
+  - Measured 11-13, a block-format GEMV of one row with a plain output (`lk_gemv_blk`; `logs/fusion-k09/k08/gemv-rows-sweep.txt`,
+    cold weights, every output the same bits at every shape): two rows a warp never lost to one, Q4_K and Q6_K, 512 to
+    2048 rows; Q6_K at four from 1024 rows of long rows — Qwen3.5-0.8B's down (3584 → 1024) 15.22 → 11.23 µs, Gemma-3-1B's
+    (6912 → 1152) 25.09 → 21.92 — and Gemma's Q4_K down 18.35 → 16.06 at two or four; four lost below 1024 rows (768:
+    6.17 against 5.86 at one). Every format at 1024 and 2048 rows of 1024, 1152 and 2048 values
+    (`logs/fusion-k09/k08/gemv-rows-every-format.txt`): Q6_K fastest at four throughout (15–20%); Q2_K, Q3_K, Q5_K,
+    IQ4_NL, IQ4_XS and Q4_0 at two (5–20%); Q4_K at two but for one shape; Q4_1, Q5_0, Q5_1 and MXFP4 within 3% either
+    way. `kernels::rows_a_warp` gives four only from 2048 rows of 64 sub-blocks, one below, and two locks state it
+    (`lane_compile_lock::the_wide_shapes_take_four_rows_a_warp`: "a narrower shape … keep[s] one row a warp";
+    `…::every_block_format_is_read_in_place_through_its_decoder`: the one-row launch `lk_gemv_blk<F, 1, 1>`). The
+    per-format rule these measure turned both red, so it waits on Tristen's ruling; the kernels are held to the same
+    bits at every rows a warp (`cuda_lane_lock::every_block_formats_projection_sums_each_output_alike_at_every_rows_a_warp`).
+    Built and benched before the revert (`logs/fusion-k09/k08/rows/`, golden tokens and first logits the same): Gemma-3-1B
+    Q4_K_M 265.9 → 274.5 tok/s, Llama-3.2-1B Q4_K_M 342.0 → 340.5 (its Q6_K values of 512 rows, a shape not swept),
+    Qwen3-8B Q4_K_M 65.58 either way. Gemma-3-1B Q4_K_M's query and key in one Q5_0 launch
+    (1152 → 1024 + 256, 1.01 MB) stay at one row a warp: 6.63 µs, against 6.92 at two and 7.07 at four
+    (`logs/fusion-k09/k08/parts-q50-harness.txt`).
   - [ ] L2 prefetch of the next projection's first tiles during attention (TECH-L2-WEIGHT-PREFETCH), measured on the
-    smallest models first.
+    smallest models first. Measured 11-13 at a fold's tail instead (`logs/fusion-k09/k08/l2-prefetch/`, the 3060, cold
+    weights): Llama-3.2-1B's output projection with its norm in its last block, then the gated pair it feeds, in 126.1 µs;
+    the fold pulling the pair's first 256 KB to 2 MB of gate and up into L2 (`prefetch.global.L2::evict_last`) — by its
+    last block before the norm, or by every block once its rows are written — 125.9 at best and 133.0 at worst, the
+    outputs the same bits. The fold's tail leaves no DRAM time a prefetch recovers. Beside an idle span instead
+    (`h2.cu`, `out2-*.txt`: every multiprocessor held 4, 8 or 16 µs, the stand-in for a short context's decode attention,
+    then the output projection with its norm in its last block): a prefetch kernel of four blocks on a second stream
+    pulling the projection's first 2–3 MB into L2 takes the pair from 33.84 µs to 30.87 at 16 µs, 26.56 to 23.79 at 8,
+    22.91 to 20.83 at 4 — about 3 µs of the projection's ~18.6, the same bits; the span's own blocks issuing the
+    prefetches as they start, about 1.2. In the real program it does not carry over: Llama-3.2-1B's Q8_0 decode step
+    (its 11-12 program) with a four-block prefetch of each layer's output projection's first 2 MB forked beside the
+    layer's attention and joined before the projection decodes at 222.1 tok/s against 223.0 without, four interleaved
+    rounds of 512 tokens, the same tokens (`logs/fusion-k09/k08/l2-prefetch/prog/`): at this context the attention is
+    shorter than the stand-in's spans, and the fork, its launch and its 16 graph nodes cost more than the L2 saves.
 
 ### 4.4 Decode, the gated-delta layer (Qwen3.5: 18 of 24 layers; Qwen3.8: 48 of 64)
 
@@ -1776,7 +1987,15 @@ Its state is 16 value heads × 128 × 128 f32 = 1 MiB, read and written every to
     - **z rows.** Stored for K-10.
   - [ ] Beyond: vLLM needs a conv launch, then its fused decode. Here the conv and the gates disappear into the
     projection's epilogue: 5 launches become 1.
-  - [ ] Bar: bit-identical to today's launches; one launch; ≥ 85% of bandwidth.
+  - [x] Two rows a warp over Q8_0 rows under one activation word, where every part's outputs are whole twos
+    (`q8_gdn_launch_rows`; receipt: `lane_compile_lock::a_gated_delta_layers_q8_inputs_take_two_rows_a_warp` /
+    `cuda_lane_lock::the_gdn_input_epilogue_computes_what_its_launches_compute_apart`): Qwen3.5-0.8B's decode step from
+    3.194 ms to 3.178, the logits the same bytes; four rows a warp, 3.186 (`logs/fusion-k09/k09-gdn-rows-probe.txt`).
+    Qwen3.5-0.8B decodes at 326.0 tok/s, from 324.3 (`logs/fusion-k09/k09-gdn-rows-ab.log`).
+  - [ ] Bar: bit-identical to today's launches; one launch; ≥ 85% of bandwidth. Measured 11-12 (nsys, Qwen3.5-0.8B
+    Q8_0, one row a warp): 282.3 GB/s, 82.5% of the 3060's 342.2. Measured 11-13 at two rows a warp (nsys over the
+    step's graph, `lk_gemv_gdn<8, 1, 2, float>` 514 blocks, median of 108 launches,
+    `logs/fusion-k09/k09prof/`): 31.33 µs for its 8.95 MB, 285.6 GB/s, 83.5% — the bar is 30.76 µs.
 
 - [ ] **K-10 · The delta update, the gated norm and the quantize in one kernel** (PARITY-GDN-DECODE-WHOLE).
   Today: `lk_delta_step`, then `lk_delta_norm` (gated RMSNorm × SiLU(z), quantized).
@@ -1793,22 +2012,62 @@ Its state is 16 value heads × 128 × 128 f32 = 1 MiB, read and written every to
     norm's operands, one kernel where two ran, bit for bit the step and then the norm (receipt:
     `lane_compile_lock::a_stepped_delta_rule_norms_each_head_in_its_last_block` /
     `cuda_lane_lock::the_stepped_delta_rules_last_block_norms_as_the_norm_kernel_does`, logs/one-ir/live-gpu-k18-1030.log).
-  - [ ] Floor: 2 MiB of state traffic a layer = 6.2 µs at 336 GB/s (Qwen3.5); 6 MiB = 18.7 µs (Qwen3.8).
-  - [ ] Bar: ≤ 1.25× the state floor. 2 launches become 1. Bit-identical to the apart launches.
+  - [x] Two of the memory's rows a warp (`DELTA_ROWS_A_WARP`, `lk_delta_step`'s `RW`; receipt:
+    `lane_compile_lock::a_gated_delta_step_takes_two_of_its_memorys_rows_a_warp` /
+    `cuda_lane_lock::a_gated_delta_step_computes_alike_at_every_rows_a_warp`): the key and query loaded, normed and dotted
+    once for both rows, a head's rows 16 blocks, every sum its own — Qwen3.5's step from 10.98 µs to 9.91 with its head
+    norm and 8.50 to 7.53 alone, Qwen3.8's from 26.21 to 23.68 and 22.30 to 20.77 alone; four rows a warp lost
+    (`logs/fusion-k09/k10-delta-rows-harness.txt`, cold memories). Qwen3.5-0.8B decodes at 324.6 tok/s, from 322.1
+    (`logs/fusion-k09/k10-delta-rows-ab.log`).
+  - [x] The norm's tail reads each value's gate and norm weight with the value, their loads in flight over the head's
+    sum (`lk_delta_norm_row`): Qwen3.5's step with its head norm from 9.92 µs to 9.64, Qwen3.8's from 23.78 to 23.36,
+    every output, word and memory value the same bytes (`logs/fusion-k09/k10/tail-hoist*.txt`, cold memories).
+  - [ ] Floor: 2 MiB of state traffic a layer = 6.13 µs at the 3060's 342.2 GB/s (Qwen3.5); 6 MiB = 18.39 µs (Qwen3.8,
+    48 heads).
+  - [ ] Bar: ≤ 1.25× the state floor. 2 launches become 1. Bit-identical to the apart launches. The step alone is at
+    1.23× (Qwen3.5) and 1.13× (Qwen3.8); with its head's norm, SiLU gate and quantizer in its last block, 1.62× and
+    1.29× — the norm's tail, 2.4 and 2.9 µs, is what the bar has left; with the tail's loads hoisted, 1.57× and 1.27×.
+    Measured again 11-13 (`logs/fusion-k09/k10/order/`, cold memories, two runs): Qwen3.8's step with its head norm in
+    23.33 and 22.91 µs (1.27× and 1.246×, the bar 22.99), Qwen3.5's in 9.62 and 9.23 — on the bar's edge from run to run.
+    The blocks taken a head at a time (the head the grid's slow index, so a head's last block arrives early and its norm
+    runs beside the other heads' rows) is slower, the same bits: Qwen3.8 24.10 and 23.23 µs, Qwen3.5 10.42 and 9.77.
 
 - [x] **K-11 · The GDN out projection with the residual and the next norm** (PARITY-GEMV-NORM-EPILOGUE).
   - [x] K-05's fold on the out projection (receipt: `tests/fixtures/lane_census/qwen3.5-0.8b.txt`). GDN layer total: today about 11 launches (four projections, conv, gates,
     delta, norm, out, add-norm, GLU, down); target 4 (K-09, K-10, K-11 with K-06, K-07).
 
-- [ ] **K-12 · Half-precision recurrent state** (PARITY-GDN-HALF-STATE).
-  - [ ] Copy: vLLM keeps the GDN state in bf16. Our lane keeps f32.
-  - [ ] Design:
-    - The state stored in bf16 or f16, updated in f32 registers.
-    - Written back with round-to-nearest-even, or stochastic rounding (`cvt.rs`, TECH-STOCHASTIC-ROUNDING-STATE) when
-      the shim's numerics allow it.
-    - Declared as a numerics contract with its bound (OPT-6).
-  - [ ] Bar: state traffic halved (Qwen3.8: 302 → 151 MB a token). Each model's precision bar met at this knob point,
-    or the knob is refused for it by name.
+- [x] **K-12 · Half-precision recurrent state** (PARITY-GDN-HALF-STATE).
+  - [x] Copy: vLLM keeps the GDN state in bf16; the lane keeps it in bf16 at `recurrent_state: StatePrecision::Bf16`
+    (receipt: `lane_compile_lock::a_bf16_recurrent_state_is_carried_in_bf16`).
+  - [x] Design:
+    - The state stored in bf16, updated in f32 registers.
+    - Written back rounded to the nearest, ties to even (`lk_to<__nv_bfloat16>`, CUDA's `__float2bfloat16_rn`), which
+      reproduces by construction; stochastic rounding not taken.
+    - Declared as a numerics contract with its bound (OPT-6): `Keep::Bf16`, half an ulp of an 8-bit significand, one
+      rounding the lane, its contract and its reference share (`quant::f32_to_bf16`; receipt:
+      `numerics_contract_lock::a_half_precision_state_declares_and_meets_its_bound`, which names the device suites
+      below and checks that they run on the card).
+  - [x] Bar: state traffic halved — the pool shrinks by exactly what the bf16 memories save (receipt above), Qwen3.5's 18
+    MiB of memories 9 on the device. Qwen3.5-0.8B meets llama.cpp's closeness at every activation point over the short
+    corpus and the long (receipt: `cuda_lane_lock::qwen3_5_0_8b_meets_its_bar_with_a_half_precision_state` and
+    `…_on_long_prompts`, `logs/fusion-k09/k12/gpu/`): mean top-logit gaps 0.0109, 0.0111 and 0.0827 against shipped's
+    0.0853, and 0.0687, 0.0093 and 0.0845 against 0.0783 — the precise points following the `f32` run as far as llama.cpp's
+    own run besides (487, 475; 128, 113 against 464 and 113). Qwen3.8's and Flash-Next's layers are held to the
+    bf16-state reference on the tiny models (`cuda_lane_lock::every_gated_delta_architecture_keeps_a_bf16_memory_near_its_reference`),
+    a 4096-row run within the bound a short one holds (`…::a_bf16_memory_keeps_its_error_bounded_over_a_long_run`) and the
+    kernels' rounding the model's bit for bit (`…::the_lanes_bf16_memory_rounds_as_the_model_rounds`). Qwen3.8's own
+    checkpoint is K-31: it does not fit the 3060.
+  - Measured 11-13, Qwen3.5-0.8B Q8_0 on the 3060, int8 activations, `--state=bf16` against `f32` (model_lane against
+    llama.cpp's goldens, `logs/fusion-k09/k12/`):
+    - The memories on the device 18 → 9 MiB, each read and written a step: 36 → 18 MiB of a token's traffic. Decode
+      325.1 → 328.7 tok/s (+1.1%, two rounds of five, interleaved).
+    - The 32 short prompts' 499 steps: the greedy walk follows the `f32` run 443 → 444 steps (llama.cpp's shipped run
+      464); the mean top-logit gap after the prompt 0.0777 → 0.0827 (shipped 0.0853, the closeness bar's limit 0.1048).
+    - The 8 long prompts' 128 steps (prefilled 16 rows a chunk): 101 → 115 steps (shipped 113); the mean gap
+      0.0715 → 0.1344 (shipped 0.0783, limit 0.1388). One prompt carries the gap: 0.287 on the prompt whose `f32` run
+      llama.cpp's own run leaves after one step.
+    - Against the bar the int8 point is held to (`meets_every_activation_precisions_bar`: the mean gap within two
+      standard errors of the shipped run's), bf16 meets it on both corpora, the long one narrowly.
 
 ### 4.5 Decode, the gated-attention layer (Qwen3.5 and Qwen3.8)
 
@@ -1916,8 +2175,22 @@ The lane's 10-20 decode profile (`--profile`, 6.75 ms a step then):
     only where its down block is at least the norm's width (`every_folded_norm_runs_on_a_block_of_its_width`), as does a
     block-format projection (K-05, K-07); DeepSeek-V2-Lite decodes at 152.9 and gpt-oss-20b at 110.9 with them apart.
     Next: a fold whose norm runs at the norm's width, so the Bar's 3 launches hold: the down projection's blocks
-    regrouped to a block of the norm's threads, or the add and norm in the next projection's prologue (each of its blocks
-    norming the row from L2, no count and no one-block tail).
+    regrouped to a block of the norm's threads. The add and norm in the next projection's prologue (each of its blocks
+    norming the row from L2, no count and no one-block tail) measured slower on 11-12, bit for bit the same: the output
+    projection and the gate/up pair after it took 77.91 µs against 69.27 at Gemma-3-1B's widths, 40.91 against 38.05 at
+    Qwen3.5-0.8B's, 137.60 against 127.23 at Llama-3.2-1B's and 405.63 against 376.58 at Qwen3-8B's (Q8_0, cold weights,
+    `logs/fusion-k09/k08/prologue-harness.txt`): every block of every wave of the next projection pays the norm's L2 reads and
+    reduction before its first weight load, where the fold pays them once.
+  - [x] A decode mixture's down block gives every warp the same values to read (`moe_down_rows`; receipt:
+    `lane_compile_lock::a_mixtures_down_block_gives_every_warp_the_same_values_to_read` /
+    `cuda_lane_lock::the_expert_down_takes_several_outputs_a_block_as_a_block_of_one_does`): where the shared expert is a
+    whole number of experts wide (DeepSeek-V2's two), as many outputs a block as that and a warp a shared row, so a kept
+    expert's warp reads two rows of 1408 and a shared warp one of 2816; at four outputs a kept expert's warp read 5632 to
+    the shared warps' 2816. Measured 11-13 (`logs/fusion-k09/k20/sw-2.txt`, the 3060, cold weights, every output the
+    same bits): Q8_0 beside the shared Q6_K 73.8 µs against four outputs and four warps' 79.3 (−6.9%), Q5_0 beside
+    Q4_K 51.6 against 52.8, and two and two the fastest in every 32-value format; Qwen3-30B-A3B's shape, no shared
+    expert, keeps four. DeepSeek-V2-Lite decodes at 155.6 tok/s, from 153.6, its 32 golden prompts' tokens and first
+    logits the same (two interleaved rounds, `logs/fusion-k09/k20/ab/`).
 
 ### 4.7 Decode, gpt-oss (sinks, alternating windows, MXFP4 experts, biases)
 
@@ -1957,7 +2230,28 @@ On 10-21 the experts ran at 187 µs a layer (285 GB/s, 85% of bandwidth) and the
     - An E8M0 scale is a power of two, so the fold can be two FMAs, `fma(fma(T, d, −1.5·2²³·d), s, acc)`, rounding as
       `fma(s·d, dot, acc)` does: measured 179.7 → 175.3 ms on gpt-oss's 512-row prefill, but `1.5·2²³·d` overflows
       past `d = 2¹⁰⁴`, so it waits on a form that holds over E8M0's whole range.
-  - [ ] Bar: ≥ 92% of bandwidth (today 85%).
+  - [ ] Bar: ≥ 92% of bandwidth (today 85%). Measured 11-13 on the 3060 (`logs/fusion-k09/k20/`, cold weights, every
+    output the same bits at every shape): the gate/up pair at the plan's four rows a warp, blocks of 8 warps, in 116.0 µs
+    a layer (305 GB/s, 89%; 115.3 in the 11-12 step's trace), at two rows a warp in 110.4 (320.6 GB/s, 93.7%); the down
+    at the plan's four outputs a block in 57.8 µs (306 GB/s), at eight in 56.3 (314 GB/s, 91.9%), at two 56.6. Both
+    within the bar at a rows a warp the planner does not choose: `rows_a_warp` gives every block-format mixture four
+    and `moe_down_rows` four outputs a block. Over every format at gpt-oss-20b's, DeepSeek-V2-Lite's and Qwen3-30B-A3B's
+    mixtures the best rows differ by format and shape — the gate/up mostly at one or two rows (DeepSeek's Q4_K 82.2 µs
+    at four, 79.0 at one; Q5_K 105.8 at four, 100.3 at two; Qwen3-30B-A3B's Q5_0 54.4 at four, 56.8 at two), the down
+    at two outputs a block on DeepSeek's shape and at four on Qwen3-30B-A3B's (its Q6_K 42.2 µs at four, 64.4 at two)
+    — a table the tuning database holds (OPT-7), waiting on where it lives.
+  - [x] An MXFP4 mixture's gate and up take two rows a warp (`moe_rows_a_warp`; receipt:
+    `lane_compile_lock::an_mxfp4_mixtures_gate_and_up_take_two_rows_a_warp` /
+    `cuda_lane_lock::every_block_formats_mixture_gate_and_up_sum_each_row_alike_at_every_rows_a_warp`): two was MXFP4's
+    fastest at all three mixture shapes. gpt-oss-20b decodes at 109.6 tok/s, from 108.3, its 32 golden prompts' tokens
+    and first logits the same (`logs/fusion-k09/k20/ab2/`). In its step's trace (nsys, 11-13, `logs/fusion-k09/k20/prof/`,
+    medians of 144): the gate and up 111.57 µs, 317.2 GB/s (92.7%); the down at four outputs a block 58.49 µs,
+    302.5 GB/s (88.4%); the experts together 91.2% — the bar's last 0.8% is the down's. The block dot's sub-block loop
+    unrolled four deep (`logs/fusion-k09/k20/unroll/`, the same bits) takes gpt-oss's gate and up at two rows a warp from
+    111.6 µs to 109.4 and its down at four outputs from 57.1 to 56.6 — about 92.8% together — but over every block
+    format it loses: the gated pairs 2.1% slower on the geometric mean (90 of 240 shapes past 2%, Q2_K, IQ4_XS and MXFP4
+    pairs up to 35%), the plain projections 1.0%, the mixtures 0.7% (Q6_K's up to 44%). A per-format choice, the tuning
+    database's (OPT-7).
 
 ### 4.8 Decode, the head and the token
 
@@ -1995,10 +2289,27 @@ On 10-21 the experts ran at 187 µs a layer (285 GB/s, 85% of bandwidth) and the
     - vLLM's AMD "mono" decode: a DeepSeek-V4 layer as two persistent launches with an in-kernel all-reduce.
     - Kimi-K3's specialized decode, with an L2 weight prefetch.
     - Both are hand-written for one model.
-  - [ ] Step 1: measure each remaining launch's gap in the graph (`nsys` with `--cuda-graph-trace=node`; the recipe
-    is in the 10-17 lane notes).
+  - [x] Step 1: measure each remaining launch's gap in the graph (`nsys` with `--cuda-graph-trace=node`; the recipe
+    is in the 10-17 lane notes). Measured 11-13 over the six census checkpoints' decode steps (their 11-12 traces;
+    `logs/fusion-k09/k22/gaps.py`, `gaps-1112.txt`): the graph leaves 1.0 to 7.7 µs idle between launches a step —
+    0.0–0.1% of a 3.2 to 25.1 ms step, no gap past 0.42 µs (Llama-3.2-1B 4.8 µs of 4,459.9, Gemma-3-1B 4.0 of
+    4,327.1, Qwen3.5-0.8B 2.1 of 3,190.4, Qwen3-8B 2.7 of 25,060.8, DeepSeek-V2-Lite 7.7 of 5,146.7, gpt-oss-20b 1.0
+    of 6,745.3). What the step loses is inside its launches — each one's ramp to a full chip and its tail, and the
+    one-block tails of the folds — not between them; steps 2 and 3 are measured against that.
+  - [x] A fold's one-block tail issues its norm's loads at once (receipt:
+    `lane_compile_lock::every_norm_issues_its_loads_of_the_row_before_it_writes_any`): the last block's norm loaded a
+    value's operands, stored its sum and only then loaded the next value's, the weights each behind the previous value's
+    stores — on Qwen3-8B's 4096, four round trips through L2 in series a fold, 72 folds a step. Every norm
+    (`lk_rmsnorm_row`) now loads the row, the added operand and the weight at columns in range first: Llama-3.2-1B
+    228.9 tok/s from 227.9, Qwen3-8B 40.13 from 39.95, gpt-oss-20b 110.0 from 109.6, every token and first logit the
+    same (`logs/fusion-k09/norm-loads/ab/`).
   - [ ] Step 2: PDL is not available on sm_86. Overlap independent launches on the branched streams instead (the
-    router beside the shared expert, the next layer's weight prefetch beside attention).
+    router beside the shared expert, the next layer's weight prefetch beside attention). Measured 11-14
+    (`logs/fusion-k09/k22/shared/`, two interleaved rounds): DeepSeek-V2-Lite with its shared expert held out of the
+    mixture's launches (`--hold=shared_expert`), its gate, up and down launches free of the router's result, decodes at
+    152.2 tok/s against 156.2 with it folded — the fold's reads beside the routed experts' worth more than the router's
+    7.4 µs a layer it would hide. The weight prefetch beside attention, measured 11-13 in Llama-3.2-1B's step: 222.1
+    tok/s against 223.0 without (K-08).
   - [ ] Step 3, a persistent layer kernel:
     - one cooperative launch per layer, with grid-wide syncs between the five stages;
     - the next stage's first weight tiles prefetched before each sync;
@@ -2093,6 +2404,23 @@ On 10-21 the experts ran at 187 µs a layer (285 GB/s, 85% of bandwidth) and the
     - The output quantized in the epilogue for the output projection.
   - [ ] Bar: ≥ 15 TFLOPS f16 at Qwen3-8B, Llama and Gemma shapes (spec peak about 25.5 with f32 accumulation); ≥ 1.1×
     vLLM's FlashAttention-2 at the same shapes.
+  - Measured 11-13 on the 3060 (`logs/fusion-k09/k26/`, the kernel as `kernels.rs` holds it, causal, the products a
+    causal attention computes): since the stream-K schedule and the binary16 cache the kernel is past the bar on a long
+    prompt's later chunks and short of it on a prompt's first. 512 rows after 3,584 keys over the binary16 cache:
+    Llama-3.2-1B 21.2 TFLOPS, Qwen3-8B 22.0, Gemma-3-1B (four heads over one group, 256 wide) 11.1; the first 512 rows:
+    12.8, 12.2 and 4.8. One block an item beats the stream-K schedule on the first chunk (Qwen3-8B 164.4 µs against
+    174.8, Gemma-3-1B 100.0 against 111.6) and loses on the later ones (Gemma-3-1B 883.7 against 723.4); the chunk form
+    is one launch for every position, so the choice is the kernel's at run time. Gemma's shape is the gap: 32 items fill
+    56 stream-K blocks, and 256-wide values take tiles of 32 keys. The 1.1× vLLM half waits on SETUP-4.
+  - [ ] The stream-K lock (`cuda_lane_lock::the_stream_k_attention_computes_what_one_block_an_item_computes`) is red:
+    run whole for the first time on 11-14 (on 11-08 and 11-10 its program did not build, a `half` of its own beside the
+    prelude's), its first case — Llama-3.2-1B's heads, 512 rows after 3,584 positions — splits an item 1.10e-4 of the
+    head's largest from one block an item (0.0049345 against 0.0049379; the same each run, `logs/fusion-k09/k26/
+    streamk/`), past its `TOLERANCE` of 1e-4. The kernel is the 11-08 one. Each form rounds its softmax weights to f16
+    under its own running maximum, about 2^-12 of each weight; over 3,584 keys of values ±1 that sums to about 3.8e-6 at
+    random, the 3.4e-6 seen, where a key lost or counted twice would be about 8e-3. The tolerance is the test's to
+    restate — a bound from the span and the f16 rounding against the `f64` attention, or 3e-4 — and the test is red:
+    Tristen's call.
 
 ### 4.12 Prefill, gated-delta chunks
 
@@ -2112,6 +2440,34 @@ On 10-21 the experts ran at 187 µs a layer (285 GB/s, 85% of bandwidth) and the
     - Prep and state fused per chunk: the triangular solve stays in shared memory and feeds the state update directly.
   - [ ] Bar: ≤ 0.6× llama.cpp's time on Qwen3.5 pp512 (≤ 3.5 ms for prep and state together); within each knob
     point's bound.
+  - Measured 11-13 (Qwen3.5-0.8B Q8_0, one 512-token chunk and two tokens after it, nsys kernel sums,
+    `logs/fusion-k09/pp512/`): prep 2.36 ms and state 4.63 ms, 7.00 of the run's 36.06 ms of kernels — the most of the
+    three items here (K-28's norms 1.10 + 0.78 ms, K-29's last layer about 0.8 ms of the GEMMs' 19.03 on this model).
+    The conv over the chunk's rows (`lk_conv_rows`) took 2.31 ms, 18 layers of 12.6 MB in and out at 58% of the read
+    peak.
+  - Probed 11-13 on the 3060 (`logs/fusion-k09/k27/`, Qwen3.5's shape, the lane's prep and state against variants, every
+    variant's outputs within 6.2e-7 of their largest of the lane's):
+    - The 3060's tensor cores are no faster than its `f32` FMA at an `f32`-faithful product: bf16 with `f32` sums runs
+      at twice the FMA rate, so three products a term at two thirds of it; tf32 at the FMA rate, so three at a third.
+      Only a single bf16 or f16 product (vLLM's operands, a knob point of its own) would double the rate.
+    - The state kernel is neither FLOP- nor bandwidth-bound: 537 M FMA a layer, a floor of 84 µs, takes 305. Its
+      blocks' cycles (`clock64`, a block's 8 chunks): K·S and Q·S 174k, the memory update 93k, T·R 61k, P·Δ 52k. Each of a
+      head's 8 blocks reads the chunk's decayed keys and queries, T, P and keys again (96 KB a block a chunk) through an
+      L2 of 3 MB, about nine warps a multiprocessor hiding its latency. Its loops unrolled whole: 274 µs, the same bits.
+    - FLA's split (W = T·Kg and U = T·V in the prep, the walk only Δ = U − W·S₀ᵀ and the update, the outputs a parallel
+      pass): 157 + 447 + 128 µs as first written. The walk with every block resident in one wave: 389–480 µs; its key
+      reads held in L1 instead, 214 — the reads are the walk. A block of 32 or 64 memory rows with the keys' decay
+      applied after each dot (no decayed copies): 992 and 1,306 µs, its critical path a chunk longer than the traffic
+      it saves.
+    - The lane's own walk at other shapes, the same bits: 32 memory rows a block over 128 threads (a head's operands
+      read by 4 blocks) 287 µs; 8 rows a block (256 blocks, twice the warps) 371; each reduction split four ways in the
+      block 876 (its shared reads no longer one word a warp). Its loops over the chunk's rows and the width unrolled
+      further: 275 µs, from 306 — landed in `lk_delta_state`. At about 10.6k instructions a thread a chunk and nine
+      warps a multiprocessor it issues at about half rate: the f32-faithful bar needs a walk of another shape (a head's
+      chunk in one block with the outputs on the other multiprocessors as they come, or the bf16 knob point).
+    - A head's walk in one block of 1024 threads, its memory in registers, W and the keys staged in shared memory
+      (`v5.inc`, `v6.inc`): 1,173 µs, its operands four-way bank-conflicted; each lane's values interleaved 128 bytes
+      apart, 362 µs — the walk alone, on 16 multiprocessors, about 3,000 instructions a thread a chunk issued at 30%.
 
 ### 4.13 Prefill, row work and the last layer
 
@@ -2125,6 +2481,8 @@ On 10-21 the experts ran at 187 µs a layer (285 GB/s, 85% of bandwidth) and the
       next GEMM's activation format.
     - The same fold handles Gemma's sandwich pairs.
   - [ ] Bar: no standalone norm launch in a wide chunk; pp512 up on every model (receipt: scoreboard).
+  - Measured 11-13 (`logs/fusion-k09/pp512/`): Llama-3.2-1B's norms 1.58 ms and quantizes 0.38 of 36.70 ms of kernels
+    (the GEMMs 26.91); Qwen3.5-0.8B's 1.10 and its gated norms 0.78 of 36.06.
 
 - [ ] **K-29 · The last layer computes only what the head and the caches need** (PARITY-LAST-LAYER-ROWS).
   The prefill head already reads the last row only. But the last layer still runs attention output, the output
@@ -2147,6 +2505,33 @@ On 10-21 the experts ran at 187 µs a layer (285 GB/s, 85% of bandwidth) and the
     the P4K cells over the `f32` cache (window73 → window83) and the binary16 one (window83): Qwen3-8B Q4_K_M 2,376 →
     2,174 and 2,063 ms, Gemma-3-1B BF16 427.7 → 392.6 and 390.4, Qwen3.5-0.8B BF16 414.9 → 392.4 and 381.3, Gemma-2-2B
     Q8_0 751.4 → 694.7 and 640.2. Open: the final chunk's last layer on its output row (an attention row offset).
+  - Design of the open part (11-13). The shared optimizer already groups the tail (`last_layer_rows`: from the head's
+    last-row view back through the row-wise ops of the chunk's rows that write nothing carried, through the attention);
+    the lane runs the group as its parts. Lowered natively, each member runs on row T − 1 alone through the decode
+    step's kernels (its inputs read through views of that row, as the head's view already is), the attention's queries
+    at a row offset: `*pos + row0 + r` where the kernels take `*pos + r`, `row0` a trailing argument that is 0 for every
+    launch today. The chunk's GEMMs split their last tiles along k (stream-K), so the one row's logits are its own
+    rounding of the chunk's; what the next decode steps read — the caches, written whole as before, and the token — is
+    the chunk's, which is the ticket's bar. In Llama's 512-row chunk the tail is the attention (336 blocks), its
+    quantize, the output projection, the add and norm, the gated pair, the down and the residual add.
+  - Built 11-13 as row-level liveness (`tensor_graph::last_row::last_row_tail`, run by the lane before the shared rules,
+    held as `last_layer_rows`): from the head's read of the last row, back through the step, what each tensor of the
+    chunk's rows is read at — no row, the last, or every row. A row-wise op passes its result's need to its operands, an
+    attention its queries' (its caches every row), a gather a row's, a row write its row's; anything else needs all.
+    What nothing reads goes — a mixture's rows before the last, which its prefill computes a row at a time — and what
+    only the last row is read of runs on that row through views of its operands' row `T − 1`, the attention at
+    `row0 = T − 1`; a table only its last row of is read, filled there by one row write, is that write's row. Run by the
+    lane, every tiny architecture's prefill forms took it, the latent attention's included, and part 1's liveness lock
+    held of the pruned programs — but 16 locks of `lane_compile_lock` pin the prefill forms as they were (a wide
+    chunk's every attention in tiles, its launch counts, its products on the tensor cores, the attention's arguments
+    ending at the cap), so the lane does not run it until Tristen rules on porting them (each holding
+    `last_layer_rows`, or counting the pruned last layer). The two RED locks wait beside it. Run on the card with the
+    lane taking it (`logs/fusion-k09/k29/`): part 1's lean chunks, every tiny architecture and the medium widths against
+    the reference, and Llama-3.2-1B's and Qwen3.5-0.8B's bars over both corpora all held; the pruned chunks of 8 continued
+    bit for bit; in chunks of 32 the same tokens, the prompt's last row's logits 2.10e-4 of their scale from the
+    unpruned's (Llama, one word: the chunk's attention on the f16 tensor cores, the pruned row's in `f32` — the staged
+    lock's 1e-4 was too tight). pp512 on the 3060: Llama-3.2-1B Q8_0 16,628 → 17,453 tok/s (+5.0%), Qwen3.5-0.8B
+    15,527 → 15,854 (+2.1%).
 
 ### 4.14 Numerics knobs that move bytes
 
@@ -2165,7 +2550,8 @@ On 10-21 the experts ran at 187 µs a layer (285 GB/s, 85% of bandwidth) and the
   - [ ] Bar: decode attention at context 8192 ≤ 0.55× its f32-cache time; every model's long-prompt bar met per scheme.
 
 - [ ] **K-31 · Half-precision GDN state** (PARITY-GDN-HALF-STATE). K-12's knob, measured on Qwen3.8's 302 MB of state
-  traffic a token.
+  traffic a token. Open on a card that holds the 27B's 16.7 GB: on the 3060 its weights stream over PCIe (0.91 tok/s),
+  so the state's bytes do not show, and its goldens need llama.cpp's `f32` run of a 108 GB twin.
 
 - [ ] **K-32 · The per-channel W8A8 knob point** (PARITY-INT8-GEMM-PEAK). K-23's second design, with its own bar and
   its own row on the scoreboard.
@@ -2263,8 +2649,10 @@ against measured ledgers (`benchmarks/silicon/tenstorrent_gemm.json`) or modeled
 
 - [ ] **K-45 · Decode at the memory floor** (PARITY-CPU-SHIM).
   DDR4-2133 dual channel is 34.1 GB/s peak, so Llama-3.2-1B at Q8_0 (1.313 GB a token) has a 38.5 ms floor (26 tok/s).
-  - [ ] Copy: llama.cpp's int8 dot products and repacked GEMV (PARITY-CPU-SHIM's anchors). Bar: ≥ llama.cpp's CPU
-    backend on one boot.
+  - [x] Copy: llama.cpp's int8 dot products and repacked GEMV (PARITY-CPU-SHIM's anchors). Bar: ≥ llama.cpp's CPU
+    backend on one boot (receipt: logs/fusion-k09/cpuwin6/, 2026-11-10, alternating run by run on the eight
+    performance cores: Llama-3.2-1B decode 5.29 tok/s in Q8_0 against llama.cpp's 2.91, 5.81 in Q4_K_M against 2.83;
+    Qwen3-8B Q4_K_M 1.36 against 0.63).
   - [ ] Beyond: the norm, the quantize and the GEMV in one pass over each row; ≥ 90% of measured bandwidth.
 - [ ] **K-46 · Prefill on the VNNI units** (PARITY-CPU-SHIM, BEYOND-SUPEROPTIMIZER).
   - [ ] Design: int8 GEMM tiles sized to the performance cores' caches, on both core types with recorded placement.
@@ -7503,7 +7891,7 @@ output. Today they are two.
 | Labels | `fusion` `cuda` `area:recurrent` `model:qwen35` |
 | Depends on | OPT-1, MIGRATE-1 |
 | Touches | `tensor_graph::fuse`; the lane's GEMVs, `lk_conv`, `lk_gates` and `lk_l2norm` |
-| Status | linked on the CUDA lane for a step's one row, its gates in Q8_0 or projected in `f32` (`lk_gemv_gdn`); slower than its launches apart on the card (Qwen3.5-0.8B 294 tok/s fused, 321 held, 11-06): its epilogue being repaired |
+| Status | linked on the CUDA lane for a step's one row, its gates in Q8_0 or projected in `f32` (`lk_gemv_gdn`); still slower than its launches apart on the card: Qwen3.5-0.8B Q8_0 294 tok/s fused against 321 held (11-06), 313.5 against 317.8 after the operands read in flight, the normed heads' fence and `delta_qk_norm` (11-11, logs/fusion-k09/gdn-ab/) |
 
 **Goal.**
 - K-09. One GEMV over the rows [qkv | z | alpha | beta] (8224 rows for Qwen3.5).
@@ -7520,6 +7908,14 @@ query and key blocks norm. The repair reads a row's operands into shared memory 
 lanes while its dot streams, and lets only a normed head's blocks fence (held by
 `cuda_lane_lock::the_gdn_input_epilogue_decodes_faster_than_its_launches_apart`, RED at 2,596 tok/s against 2,796 on a
 Qwen3.5 at 2048 wide with the real heads).
+
+**Measured 11-11 (logs/fusion-k09/gdn-ab/).** Launch by launch the fold now costs less than its parts: 631 µs of a
+token's 18 layers against the GEMV in parts', the convolutions' and the gates' 577 + 125 + 83. But the step that norms
+its heads itself (`delta_qk_norm`) takes 259 µs against 185, and in the graph the launches apart run their convolutions
+and gates side by side on branched streams: the fused step decodes 313.5 tok/s, its launches apart 317.8, their logits
+the same bits. Blocks that hold whole heads (16 rows a warp, a block a head of 128) norm them in the launch and leave
+the step its 185, but decode 313.9, and their GEMV's dots sum in another order: the fold's cost is its own launch, about
+3 µs a layer over the GEMV in parts alone, against the convolutions and gates the launches apart overlap.
 
 **RED tests.**
 - [x] `fusion_class_lock::a_projection_feeding_a_causal_conv_and_gates_folds_them_per_row`: every input projection of
@@ -7566,7 +7962,7 @@ Qwen3.5 at 2048 wide with the real heads).
 | Depends on | OPT-6, PARITY-GDN-DECODE-WHOLE |
 | Touches | the GDN state tensors' storage; `lk_delta_step` / the whole-decode kernel; the numerics contracts |
 | Owner notes | a numerics knob: Tristen rules on each model's bar |
-| Status | open |
+| Status | K-12 done on the CUDA lane (11-13: Qwen3.5-0.8B at llama.cpp's closeness at every activation point); K-31, Qwen3.8's checkpoint, owed on a card that holds it |
 
 **Goal.** K-12 and K-31.
 - The state is stored in bf16 or f16, updated in f32, written back with round-to-nearest-even or stochastic rounding.
@@ -7574,16 +7970,17 @@ Qwen3.5 at 2048 wide with the real heads).
 - vLLM keeps this state in bf16.
 
 **RED tests.**
-- [ ] `numerics_contract_lock::a_half_precision_state_declares_and_meets_its_bound`
-- [ ] `cuda_lane_lock::qwen3_5_0_8b_meets_its_bar_with_a_half_precision_state`
+- [x] `numerics_contract_lock::a_half_precision_state_declares_and_meets_its_bound`
+- [x] `cuda_lane_lock::qwen3_5_0_8b_meets_its_bar_with_a_half_precision_state` (and `…_on_long_prompts`)
 
 **Edge cases.**
-- [ ] Long runs (error accumulation over 4096 steps).
-- [ ] Stochastic rounding seeded by (layer, position) so runs reproduce.
+- [x] Long runs (error accumulation over 4096 steps): `cuda_lane_lock::a_bf16_memory_keeps_its_error_bounded_over_a_long_run`.
+- [x] Stochastic rounding seeded by (layer, position) so runs reproduce: not taken — the memory rounds to the nearest,
+  ties to even, which reproduces by construction.
 
 **Success.**
-- [ ] RED green.
-- [ ] The bar met, or the knob refused for the model by name (receipt).
+- [x] RED green (`logs/fusion-k09/k12/gpu/`).
+- [x] The bar met: Qwen3.5-0.8B at every activation point; Qwen3.8's checkpoint open as K-31.
 
 **Done when.** Recurrent state traffic is a knob with a proven bound.
 
@@ -7660,7 +8057,7 @@ quantized 2048-wide output row.
 
 **RED tests.**
 - [x] `fusion_class_lock::a_row_that_feeds_no_output_and_no_state_is_removed` (shared side; receipt: logs/one-ir/live-green4-1030.log)
-- [ ] `lane_compile_lock::a_prefill_chunks_last_layer_runs_its_output_rows_only`
+- [ ] `lane_compile_lock::a_prefill_chunks_last_layer_runs_its_output_rows_only` (written; held with the transform, above)
 - [ ] `cuda_lane_lock::a_pruned_chunk_continues_as_the_unpruned_chunk_does`: bit for bit on the next decode steps.
 
 **Edge cases.**
@@ -8205,7 +8602,9 @@ token decodes 0.93 tok/s against llama.cpp's 1.30 at -ngl 32 (logs/fusion-k09/wi
   the CPU backend (`i_gpu_start = n_layer + 1 − n_gpu_layers`, `src/llama-model.cpp`).
 
 **RED tests.**
-- [ ] `cpu_shim_lock::a_step_split_between_the_card_and_the_cpu_computes_what_the_evaluator_computes`
+- [ ] `cpu_shim_lock::a_decode_step_cut_between_two_cpu_programs_computes_the_whole_steps_bits`
+- [ ] `cuda_lane_lock::a_model_cut_between_the_cpu_and_the_card_decodes_what_the_lane_decodes`
+- [ ] `one_program_lock::a_decode_step_cut_at_any_layer_is_its_spans_op_for_op`
 
 **Edge cases.**
 - [ ] The split chosen by the residence planner's budget, the CPU tier's caches and states in host memory.
@@ -8933,6 +9332,18 @@ span with its reduction.
 
 **Goal.** Hyper-connection pre-mix, post and collapse, with their norms, expressible and fused (DeepSeek V4, HunYuan
 V4).
+
+**Today.** On the CUDA lane a mix and the post before it are four launches, as vLLM's Qwen4Exp runs them: the post and
+the next norm in lanes (`hc_post_norm`), the down and inject products as one launch in parts with their activations in
+their epilogues (`gemm_act`), the up product, and the gated mean of the lanes (`hc_mix`) — a fifth, the gate's quantize,
+where the up product reads it in int8 words and the down product cannot quantize in its epilogue. Flash-Next's
+mixes at medium width (rank 320) decode a token in 0.347 ms on the 3060, from 0.400 apart, every value the same bits.
+The up product inside the gated mean was measured in three shapes (a block of 32 warps a 32 columns, its lanes' rows in
+turn or together, and the product's own shape with the last block of each 32 columns quantizing): 4–16% slower than the
+two launches, the mean's 3.4 µs too little to pay for its blocks' occupancy or their cross-block count, so it is not
+taken. The down and inject products' launch reads its 1.5 MB at 182 GB/s, a warp a row of 8192 values: each row cut along
+`k` in two runs measured 0.6% faster for the step, in four 1.6% slower — its bits the cut's own, not worth a second path
+through the GEMV in parts, so it is not taken either; what is left there is the block GEMV's own rate at this width.
 
 **Copy.** Bar: the row maximum in SETUP-4 (section 2.5).
 - vLLM (`external/competitors/vllm/vllm/model_executor/kernels/mhc/triton.py`).

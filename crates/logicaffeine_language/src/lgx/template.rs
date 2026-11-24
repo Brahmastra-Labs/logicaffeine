@@ -52,6 +52,9 @@ pub enum TAttr {
     Dynamic {
         name: String,
         parts: Vec<AttrPart>,
+        /// Written in quotes (`n="{count}"`): text interpolating its holes, never the bare value
+        /// of a lone hole (`n={count}`). See [`html::HtmlAttr::quoted`].
+        quoted: bool,
         span: Span,
     },
     /// `on-<event>[.<qualifier>…]={…}`, its qualifiers classified by the event-modifier catalogue.
@@ -718,6 +721,7 @@ fn convert_attrs(attrs: &[HtmlAttr]) -> Result<Vec<TAttr>, TemplateError> {
                 Some(AttrValue::Parts(parts)) => out.push(TAttr::Dynamic {
                     name: a.name.clone(),
                     parts: parts.clone(),
+                    quoted: a.quoted,
                     span: a.span,
                 }),
             }
@@ -1440,10 +1444,15 @@ fn print_attrs(attrs: &[TAttr], out: &mut String) {
                 escape_attr(v, out);
                 out.push('"');
             }
-            TAttr::Dynamic { name, parts, .. } => {
+            TAttr::Dynamic {
+                name,
+                parts,
+                quoted,
+                ..
+            } => {
                 out.push_str(name);
                 out.push('=');
-                if let [AttrPart::Brace { inner, .. }] = parts.as_slice() {
+                if let (false, [AttrPart::Brace { inner, .. }]) = (*quoted, parts.as_slice()) {
                     out.push('{');
                     out.push_str(inner.trim());
                     out.push('}');

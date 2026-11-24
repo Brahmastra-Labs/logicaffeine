@@ -344,6 +344,11 @@ impl Mixer {
         self.x[i] = logit.clamp(-2047, 2047);
     }
 
+    /// The logit at input `i`, as last set.
+    pub fn input(&self, i: usize) -> i32 {
+        self.x[i]
+    }
+
     /// Mix the current inputs under weight vector `ctx`, returning a 12-bit probability.
     #[inline]
     pub fn mix(&mut self, ctx: usize) -> u16 {

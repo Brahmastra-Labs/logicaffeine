@@ -1,11 +1,14 @@
 //! ════════════════════════════════════════════════════════════════════════════════════════════════
 //! EVERY WEIGHT FORMAT A MODEL SHIPS IN, DEQUANTIZED EXACTLY AS GGML DEFINES IT.
 //!
-//! `model::quant` reads F32, F16, BF16, Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q2_K, Q3_K, Q4_K, Q5_K, Q6_K, IQ4_NL, IQ4_XS and
-//! MXFP4 — the formats Llama, Qwen, Gemma, gpt-oss and DeepSeek checkpoints are distributed in. A dequantizer that is
-//! off by a scale, a nibble order or a sign still produces plausible numbers, so this lock holds them three ways:
+//! `model::quant` reads every weight format ggml defines: F32, F16, BF16; Q4_0, Q4_1, Q5_0, Q5_1, Q8_0, Q1_0 and Q2_0;
+//! the K-quants Q2_K to Q6_K; the lattice formats IQ1_S, IQ1_M, IQ2_XXS, IQ2_XS, IQ2_S, IQ3_XXS and IQ3_S; IQ4_NL and
+//! IQ4_XS; the ternary TQ1_0 and TQ2_0; and the 4-bit floats MXFP4 and NVFP4 — the formats checkpoints are distributed
+//! in. A dequantizer that is off by a scale, a nibble order or a sign still produces plausible numbers, so this lock
+//! holds them four ways:
 //!
 //!   • every format's block is the size ggml's `static_assert`s say it is;
+//!   • the lattice tables the IQ formats decode through are ggml's, value for value (`every_grid_is_ggmls`);
 //!   • hand-built blocks with known contents decode to the values worked out by hand;
 //!   • random blocks decode to ggml's own `dequantize_row_*` — the reference compiled from the pinned llama.cpp
 //!     source and compared bit for bit. The reference is compiled with `-ffp-contract=off`: GCC otherwise fuses
@@ -46,6 +49,18 @@ const FORMATS: &[GgmlType] = &[
     GgmlType::Iq4Nl,
     GgmlType::Iq4Xs,
     GgmlType::Mxfp4,
+    GgmlType::Nvfp4,
+    GgmlType::Q1_0,
+    GgmlType::Q2_0,
+    GgmlType::Tq1_0,
+    GgmlType::Tq2_0,
+    GgmlType::Iq2Xxs,
+    GgmlType::Iq2Xs,
+    GgmlType::Iq2S,
+    GgmlType::Iq3Xxs,
+    GgmlType::Iq3S,
+    GgmlType::Iq1S,
+    GgmlType::Iq1M,
 ];
 
 fn decode(ty: GgmlType, bytes: &[u8]) -> Vec<f32> {
@@ -73,13 +88,76 @@ fn every_format_has_ggmls_block_size() {
         (GgmlType::Iq4Nl, 32, 18),
         (GgmlType::Iq4Xs, 256, 136),
         (GgmlType::Mxfp4, 32, 17),
+        (GgmlType::Nvfp4, 64, 36),
+        (GgmlType::Q1_0, 128, 18),
+        (GgmlType::Q2_0, 64, 18),
+        (GgmlType::Tq1_0, 256, 54),
+        (GgmlType::Tq2_0, 256, 66),
+        (GgmlType::Iq2Xxs, 256, 66),
+        (GgmlType::Iq2Xs, 256, 74),
+        (GgmlType::Iq2S, 256, 82),
+        (GgmlType::Iq3Xxs, 256, 98),
+        (GgmlType::Iq3S, 256, 110),
+        (GgmlType::Iq1S, 256, 50),
+        (GgmlType::Iq1M, 256, 56),
     ];
     assert_eq!(want.len(), FORMATS.len(), "every format is sized");
     for (ty, len, bytes) in want {
         assert_eq!((ty.block_len(), ty.block_bytes()), (len, bytes), "{}", ty.name());
         assert_eq!(GgmlType::from_id(ty.id()), Ok(ty), "{} round-trips its id", ty.name());
     }
-    assert_eq!(GgmlType::from_id(16), Err(16), "an unread format is refused by its id");
+    for retired in [4, 5, 31, 32, 33, 36, 37, 38] {
+        assert_eq!(GgmlType::from_id(retired), Err(retired), "a format ggml retired is refused by its id");
+    }
+    for activations in [9, 15] {
+        assert_eq!(GgmlType::from_id(activations), Err(activations), "an activation-only format is refused as a weight");
+    }
+}
+
+/// `GGML_TABLE_BEGIN(type, name, size) … GGML_TABLE_END()` of the pinned `ggml-common.h`: its values in order.
+fn ggml_table(header: &str, name: &str) -> Vec<u64> {
+    let begin = header
+        .match_indices("GGML_TABLE_BEGIN(")
+        .map(|(i, _)| i)
+        .find(|&i| header[i..].split(')').next().unwrap().split(',').nth(1).map(str::trim) == Some(name))
+        .unwrap_or_else(|| panic!("{name}: no table in ggml-common.h"));
+    let body = &header[begin..];
+    let body = &body[body.find(')').unwrap() + 1..body.find("GGML_TABLE_END()").unwrap()];
+    body.lines()
+        .map(|l| l.split("//").next().unwrap())
+        .flat_map(|l| l.split(',').map(str::trim).filter(|t| !t.is_empty()).collect::<Vec<_>>())
+        .map(|t| match t.strip_prefix("0x") {
+            Some(hex) => u64::from_str_radix(hex, 16).unwrap(),
+            None => t.parse().unwrap(),
+        })
+        .collect()
+}
+
+#[test]
+fn every_grid_is_ggmls() {
+    // The IQ formats decode a block's indices through lattices of points; one wrong byte in a table decodes plausible
+    // values everywhere it is reached. Each table is the pinned header's, value for value, and as long.
+    if !common::require_tool("competitor-sources") {
+        return;
+    }
+    use logicaffeine_compile::model::quant::grids;
+    let header = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../external/competitors/llama.cpp/ggml/src/ggml-common.h"),
+    )
+    .unwrap();
+    let ours: [(&str, Vec<u64>); 8] = [
+        ("kmask_iq2xs", grids::KMASK_IQ2XS.iter().map(|&v| v as u64).collect()),
+        ("ksigns_iq2xs", grids::KSIGNS_IQ2XS.iter().map(|&v| v as u64).collect()),
+        ("iq2xxs_grid", grids::IQ2XXS_GRID.to_vec()),
+        ("iq2xs_grid", grids::IQ2XS_GRID.to_vec()),
+        ("iq2s_grid", grids::IQ2S_GRID.to_vec()),
+        ("iq3xxs_grid", grids::IQ3XXS_GRID.iter().map(|&v| v as u64).collect()),
+        ("iq3s_grid", grids::IQ3S_GRID.iter().map(|&v| v as u64).collect()),
+        ("iq1s_grid", grids::IQ1S_GRID.to_vec()),
+    ];
+    for (name, values) in ours {
+        assert_eq!(values, ggml_table(&header, name), "{name}");
+    }
 }
 
 #[test]
@@ -124,6 +202,32 @@ fn known_blocks_decode_to_their_values() {
         want,
         "mxfp4: the E2M1 values at scale 2^0"
     );
+
+    // nvfp4: four sub-blocks of 16, each its own UE4M3 scale (0x38 = 1, 0x40 = 2, 0x01 = 2^-9, 0x7f = E4M3's NaN, read as
+    // 0), low nibbles first within each.
+    let mut nv = vec![0x38u8, 0x40, 0x01, 0x7f];
+    for _ in 0..4 {
+        nv.extend((0..8u8).map(|j| j | ((j + 8) << 4)));
+    }
+    let mut want = Vec::new();
+    for scale in [1.0f32, 2.0, 2f32.powi(-9), 0.0] {
+        want.extend(table[..8].iter().map(|v| v * scale));
+        want.extend(table[8..].iter().map(|v| v * scale));
+    }
+    assert_eq!(decode(GgmlType::Nvfp4, &nv), want, "nvfp4: E2M1 values at each sub-block's scale");
+
+    // q1_0: one bit a weight, set +d, clear −d. q2_0: two bits a weight, 0 → −d … 3 → 2d. tq2_0: the same codes four to a
+    // byte, each 32-byte run spread over four sub-blocks; d stored last.
+    let mut q1 = vec![0x00, 0x40];
+    q1.extend([0xaau8; 16]);
+    assert_eq!(decode(GgmlType::Q1_0, &q1), (0..128).map(|j| if j % 2 == 1 { 2.0 } else { -2.0 }).collect::<Vec<f32>>(), "q1_0");
+    let mut q2 = vec![0x00, 0x3c];
+    q2.extend([0xe4u8; 16]);
+    assert_eq!(decode(GgmlType::Q2_0, &q2), (0..64).map(|j| (j % 4) as f32 - 1.0).collect::<Vec<f32>>(), "q2_0");
+    let mut tq2 = vec![0xe4u8; 64];
+    tq2.extend([0x00, 0x3c]);
+    let want: Vec<f32> = (0..256).map(|i| ((i / 32) % 4) as f32 - 1.0).collect();
+    assert_eq!(decode(GgmlType::Tq2_0, &tq2), want, "tq2_0: code l of every byte in its l-th sub-block");
 
     assert_eq!(decode(GgmlType::F16, &[0x00, 0x3c, 0x01, 0x00]), vec![1.0, 2f32.powi(-24)], "f16 incl. a subnormal");
     assert_eq!(decode(GgmlType::Bf16, &[0x80, 0x3f]), vec![1.0], "bf16 is the high half of an f32");
@@ -178,7 +282,21 @@ fn random_blocks(ty: GgmlType, blocks: usize, seed: u64) -> Vec<u8> {
     let mut r = Bytes(seed);
     let mut out = Vec::new();
     let half_fields: &[usize] = match ty {
-        GgmlType::Q4_0 | GgmlType::Q5_0 | GgmlType::Q8_0 | GgmlType::Iq4Nl | GgmlType::Iq4Xs => &[0],
+        GgmlType::Q4_0
+        | GgmlType::Q5_0
+        | GgmlType::Q8_0
+        | GgmlType::Iq4Nl
+        | GgmlType::Iq4Xs
+        | GgmlType::Q1_0
+        | GgmlType::Q2_0
+        | GgmlType::Iq2Xxs
+        | GgmlType::Iq2Xs
+        | GgmlType::Iq2S
+        | GgmlType::Iq3Xxs
+        | GgmlType::Iq3S
+        | GgmlType::Iq1S => &[0],
+        GgmlType::Tq1_0 => &[52],
+        GgmlType::Tq2_0 => &[64],
         GgmlType::Q4_1 | GgmlType::Q5_1 | GgmlType::Q4K | GgmlType::Q5K => &[0, 2],
         GgmlType::Q2K => &[80, 82],
         GgmlType::Q3K => &[108],
@@ -199,6 +317,9 @@ fn random_blocks(ty: GgmlType, blocks: usize, seed: u64) -> Vec<u8> {
                 let bits = (r.next() as u16 & 0x807f) | (exp << 7);
                 b.copy_from_slice(&bits.to_le_bytes());
             }
+            // IQ1_M's scale is an f16 spread over the top nibbles of its four scale words: its exponent's top bit (bit 14
+            // of the last word) cleared keeps it finite.
+            GgmlType::Iq1M => b[55] &= !0x40,
             _ => {
                 for &at in half_fields {
                     let h = r.finite_f16();
@@ -245,6 +366,18 @@ int main(void) {
         case 20: dequantize_row_iq4_nl((const void *) x, y, n); break;
         case 23: dequantize_row_iq4_xs((const void *) x, y, n); break;
         case 39: dequantize_row_mxfp4((const void *) x, y, n); break;
+        case 40: dequantize_row_nvfp4((const void *) x, y, n); break;
+        case 41: dequantize_row_q1_0((const void *) x, y, n); break;
+        case 42: dequantize_row_q2_0((const void *) x, y, n); break;
+        case 34: dequantize_row_tq1_0((const void *) x, y, n); break;
+        case 35: dequantize_row_tq2_0((const void *) x, y, n); break;
+        case 16: dequantize_row_iq2_xxs((const void *) x, y, n); break;
+        case 17: dequantize_row_iq2_xs((const void *) x, y, n); break;
+        case 22: dequantize_row_iq2_s((const void *) x, y, n); break;
+        case 18: dequantize_row_iq3_xxs((const void *) x, y, n); break;
+        case 21: dequantize_row_iq3_s((const void *) x, y, n); break;
+        case 19: dequantize_row_iq1_s((const void *) x, y, n); break;
+        case 29: dequantize_row_iq1_m((const void *) x, y, n); break;
         default: return 4;
     }
     fwrite(y, sizeof(float), n, stdout);
@@ -409,7 +542,8 @@ fn every_format_matches_ggmls_reference_bit_for_bit() {
         String::from_utf8_lossy(&built.stderr)
     );
     for (k, &ty) in FORMATS.iter().enumerate() {
-        let blocks = if ty.block_len() == 1 { 4096 } else { 64 };
+        // Enough blocks that every point of the largest lattice (IQ1_S's 2048) is all but surely reached.
+        let blocks = if ty.block_len() == 1 { 4096 } else { 1024 };
         let bytes = random_blocks(ty, blocks, 0x9e37_79b9_7f4a_7c15 ^ (k as u64 + 1));
         let n = blocks * ty.block_len();
         let mut child = Command::new(&bin)

@@ -64,3 +64,39 @@ fn push_i64_appends_display_at_every_length_with_and_without_room() {
         }
     }
 }
+
+// `is approximately` is Python's `math.isclose`: infinity is close only to itself.
+#[test]
+fn infinity_is_approximately_only_itself() {
+    use crate::ops::logos_approx_eq;
+    assert!(logos_approx_eq(f64::INFINITY, f64::INFINITY));
+    assert!(logos_approx_eq(f64::NEG_INFINITY, f64::NEG_INFINITY));
+    for finite in [0.0, 1.0, -1.0, 1e300, f64::MAX, f64::MIN] {
+        assert!(!logos_approx_eq(f64::INFINITY, finite), "inf ≈ {finite}");
+        assert!(!logos_approx_eq(finite, f64::INFINITY), "{finite} ≈ inf");
+        assert!(!logos_approx_eq(f64::NEG_INFINITY, finite), "-inf ≈ {finite}");
+    }
+    assert!(!logos_approx_eq(f64::INFINITY, f64::NEG_INFINITY));
+    assert!(!logos_approx_eq(f64::NAN, f64::NAN));
+}
+
+#[test]
+fn finite_values_keep_their_tolerance() {
+    use crate::ops::logos_approx_eq;
+    assert!(logos_approx_eq(1.0, 1.0 + 1e-10));
+    assert!(!logos_approx_eq(1.0, 1.0 + 1e-8));
+    assert!(logos_approx_eq(0.0, 1e-13));
+    assert!(logos_approx_eq(1e300, 1e300 * (1.0 + 1e-10)));
+}
+
+// A float matches an Int key only when it is exactly that integer: 2^63 is past i64::MAX.
+#[test]
+fn two_to_the_63_matches_no_int_key() {
+    use crate::ops::logos_i64_key_of_f64;
+    assert_eq!(logos_i64_key_of_f64(9_223_372_036_854_775_808.0), None);
+    assert_eq!(logos_i64_key_of_f64(1.8e19), None);
+    assert_eq!(logos_i64_key_of_f64(-9_223_372_036_854_775_808.0), Some(i64::MIN));
+    assert_eq!(logos_i64_key_of_f64(9_223_372_036_854_774_784.0), Some(9_223_372_036_854_774_784));
+    assert_eq!(logos_i64_key_of_f64(1.0), Some(1));
+    assert_eq!(logos_i64_key_of_f64(1.5), None);
+}

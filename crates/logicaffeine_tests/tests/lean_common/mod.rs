@@ -117,14 +117,15 @@ pub fn run_in(dir: &Path, args: &[&str]) -> Run {
         .current_dir(dir)
         .output()
         .expect("largo spawns");
-    held_to_contract(output)
+    held(output)
 }
 
 pub fn run(args: &[&str]) -> Run {
     run_in(&repo_root(), args)
 }
 
-fn held_to_contract(output: Output) -> Run {
+/// A finished `largo lean …` run, held to the output contract.
+pub fn held(output: Output) -> Run {
     let exit = output
         .status
         .code()
@@ -317,6 +318,70 @@ pub fn toolchain() -> Option<Toolchain> {
     Some(Toolchain { exporter })
 }
 
+/// The exporter registry this box holds: `$LOGOS_LEAN_EXPORTERS`, else `~/.logos/lean/exporters`
+/// (`scripts/lean/install-lean-exporters.py`), when it exists.
+pub fn exporter_registry() -> Option<PathBuf> {
+    std::env::var_os("LOGOS_LEAN_EXPORTERS")
+        .map(PathBuf::from)
+        .or_else(|| dirs_home().map(|home| home.join(".logos/lean/exporters")))
+        .filter(|dir| dir.is_dir())
+}
+
+fn dirs_home() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(PathBuf::from)
+}
+
+/// The installed toolchain of `profile`, when its `lean` reports the profile's release.
+pub fn profile_toolchain(
+    profile: &logicaffeine_kernel::interface::lean::profile::Profile,
+) -> Option<PathBuf> {
+    let elan = std::env::var_os("ELAN_HOME")
+        .map(PathBuf::from)
+        .or_else(|| dirs_home().map(|home| home.join(".elan")))?;
+    let dir = elan
+        .join("toolchains")
+        .join(profile.toolchain.replace('/', "--").replace(':', "---"));
+    let reported = Command::new(dir.join("bin/lean"))
+        .arg("--version")
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&reported.stdout);
+    (reported.status.success() && text.contains(&format!("version {},", profile.lean_version)))
+        .then_some(dir)
+}
+
+/// The registry entry of `profile`, when it holds a built exporter.
+pub fn profile_exporter(
+    profile: &logicaffeine_kernel::interface::lean::profile::Profile,
+) -> Option<PathBuf> {
+    use logicaffeine_kernel::interface::lean::profile::ExporterForm;
+    let entry = exporter_registry()?.join(profile.lean_version);
+    let built = match profile.exporter.form {
+        ExporterForm::Interpreted => entry.join(".lake/build/lib/Export.olean"),
+        ExporterForm::Executable => entry.join(".lake/build/bin/lean4export"),
+    };
+    (entry.join("Main.lean").is_file() && built.is_file()).then_some(entry)
+}
+
+/// A profile's tools are absent: allowed unless `LOGOS_REQUIRE_TOOLS` names `lean`, and reported.
+pub fn require_absent_tools_allowed(
+    profile: &logicaffeine_kernel::interface::lean::profile::Profile,
+) {
+    let spec = std::env::var("LOGOS_REQUIRE_TOOLS").unwrap_or_default();
+    let required = spec.trim() == "1"
+        || spec.eq_ignore_ascii_case("all")
+        || spec.split([',', ' ']).any(|t| t.trim() == "lean");
+    assert!(
+        !required,
+        "LOGOS_REQUIRE_TOOLS demands the Lean {} toolchain and its registered exporter, which are absent",
+        profile.lean_version
+    );
+    eprintln!(
+        "LOGOS_TOOL_SKIP: lean {} (project-mode test asserts the infrastructure refusal path)",
+        profile.lean_version
+    );
+}
+
 /// `lean import --project <project> --target <target> --out <out>` plus the exporter location.
 pub fn project_import(project: &Path, target: &str, out: &Path, extra: &[&str]) -> Run {
     let exporter = repo_root().join("reference-kernels/lean4export");
@@ -385,15 +450,27 @@ pub fn name_index(text: &str, lean: &str) -> u64 {
         std::collections::HashMap::from([(0, String::new())]);
     for line in text.lines().skip(1) {
         let v: Value = serde_json::from_str(line).unwrap();
-        if let (Some(i), Some(s)) = (v.get("in"), v.get("str")) {
-            let pre = &names[&s["pre"].as_u64().unwrap()];
-            let full = if pre.is_empty() {
-                s["str"].as_str().unwrap().to_string()
-            } else {
-                format!("{pre}.{}", s["str"].as_str().unwrap())
-            };
-            names.insert(i.as_u64().unwrap(), full);
-        }
+        let Some(i) = v.get("in") else { continue };
+        let (pre, part) = if let Some(s) = v.get("str") {
+            (
+                s["pre"].as_u64().unwrap(),
+                s["str"].as_str().unwrap().to_string(),
+            )
+        } else if let Some(n) = v.get("num") {
+            (
+                n["pre"].as_u64().unwrap(),
+                n["i"].as_u64().unwrap().to_string(),
+            )
+        } else {
+            continue;
+        };
+        let pre = &names[&pre];
+        let full = if pre.is_empty() {
+            part
+        } else {
+            format!("{pre}.{part}")
+        };
+        names.insert(i.as_u64().unwrap(), full);
     }
     *names
         .iter()

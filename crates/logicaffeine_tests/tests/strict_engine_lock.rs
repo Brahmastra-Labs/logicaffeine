@@ -137,9 +137,10 @@ fn strict_vm_refuses_a_scheduler_program() {
 }
 
 /// The public UI/CLI selector is strict too: an explicitly selected VM never
-/// inherits the product dispatcher's scheduler fallback.
+/// inherits the product dispatcher's tree-walker fallback. A scheduled program runs on the VM's own
+/// scheduler, at the run's seed, and prints what the VM's seeded runner prints.
 #[test]
-fn ui_bridge_explicit_vm_refuses_scheduler_instead_of_falling_back() {
+fn ui_bridge_explicit_vm_runs_a_scheduled_program_on_its_own_scheduler() {
     let src = "## To worker:\n\
         \x20   Show \"worker\".\n\
         \n\
@@ -148,14 +149,11 @@ fn ui_bridge_explicit_vm_refuses_scheduler_instead_of_falling_back() {
         \x20   Show \"main\".\n";
 
     let vm = run_ui_on(Engine::Vm, src);
-    assert!(
-        vm.lines.is_empty(),
-        "a refusal carries no tree-walker output"
-    );
-    assert!(
-        vm.error.as_deref().is_some_and(|e| e.contains("scheduler")),
-        "the explicit VM refusal names its capability boundary: {:?}",
-        vm.error
+    let scheduled = logicaffeine_compile::run_vm_concurrent_seeded(src, 0);
+    assert_eq!(vm.error, None, "the explicit VM runs it");
+    assert_eq!(
+        vm.lines, scheduled.lines,
+        "the explicit VM prints what its seeded scheduler prints"
     );
 
     let tree = run_ui_on(Engine::TreeWalker, src);

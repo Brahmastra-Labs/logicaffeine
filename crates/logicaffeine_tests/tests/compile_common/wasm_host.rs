@@ -502,6 +502,46 @@ fn link_exact_integers<T: 'static>(l: &mut Linker<T>) {
 ///
 /// Generic over the store's data type, so a test keeps whatever recorder it needs and simply stops
 /// hand-writing the parts that were never its decision.
+/// Build an argv `Seq of Text` in `data` at a fixed high address (clear of the small programs'
+/// bump-allocated heap), the exact layout the AOT reads: a 16-byte header `[len][cap][data_ptr]`
+/// for the sequence and for each `Text`, sequence elements in 8-byte slots holding a `Text` handle.
+pub fn build_argv(data: &mut [u8], args: &[String]) -> i32 {
+    let seq = 60000usize;
+    let n = args.len();
+    let seq_data = seq + 16;
+    let mut p = seq_data + n * 8;
+    let mut handles = Vec::new();
+    for s in args {
+        let t = p;
+        let b = s.as_bytes();
+        let td = t + 16;
+        data[t..t + 4].copy_from_slice(&(b.len() as i32).to_le_bytes());
+        data[t + 4..t + 8].copy_from_slice(&(b.len() as i32).to_le_bytes());
+        data[t + 8..t + 12].copy_from_slice(&(td as i32).to_le_bytes());
+        data[td..td + b.len()].copy_from_slice(b);
+        handles.push(t as i64);
+        p = (td + b.len() + 7) & !7;
+    }
+    data[seq..seq + 4].copy_from_slice(&(n as i32).to_le_bytes());
+    data[seq + 4..seq + 8].copy_from_slice(&(n as i32).to_le_bytes());
+    data[seq + 8..seq + 12].copy_from_slice(&(seq_data as i32).to_le_bytes());
+    for (i, h) in handles.iter().enumerate() {
+        let sl = seq_data + i * 8;
+        data[sl..sl + 8].copy_from_slice(&h.to_le_bytes());
+    }
+    seq as i32
+}
+
+/// Link `env.args` to return `argv` (index 0 the program name) as the module's `Seq of Text`.
+pub fn link_args<T: 'static>(l: &mut Linker<T>, argv: &[&str]) {
+    let argv: Vec<String> = argv.iter().map(|a| a.to_string()).collect();
+    l.func_wrap("env", "args", move |mut c: Caller<'_, T>| -> i32 {
+        let mem = c.get_export("memory").unwrap().into_memory().unwrap();
+        build_argv(mem.data_mut(&mut c), &argv)
+    })
+    .expect("env.args");
+}
+
 pub fn link_value_imports<T: 'static>(l: &mut Linker<T>) {
     l.func_wrap(
         "env",
@@ -637,10 +677,16 @@ pub fn link_value_imports<T: 'static>(l: &mut Linker<T>) {
     })
     .expect("time_now");
 
-    l.func_wrap("env", "parse_int", |c: Caller<'_, T>, h: i32| -> i64 {
-        read_text(&c, h)
-            .parse::<i64>()
-            .expect("a valid Int literal")
+    l.func_wrap("env", "parse_int", |c: Caller<'_, T>, h: i32| -> Result<i64, wasmi::core::Trap> {
+        let text = logicaffeine_compile::interpreter::RuntimeValue::Text(std::rc::Rc::new(read_text(&c, h)));
+        match logicaffeine_compile::semantics::builtins::call_builtin(
+            logicaffeine_compile::semantics::builtins::BuiltinId::ParseInt,
+            vec![text],
+        ) {
+            Ok(logicaffeine_compile::interpreter::RuntimeValue::Int(n)) => Ok(n),
+            Ok(other) => Err(wasmi::core::Trap::new(format!("parseInt answered a {}", other.type_name()))),
+            Err(why) => Err(wasmi::core::Trap::new(why)),
+        }
     })
     .expect("parse_int");
     l.func_wrap(
@@ -1916,6 +1962,14 @@ pub fn run_outcome_hosted(
             heap_ptr,
         }),
         (Ok(()), Some(reason)) => Err(format!("reported {reason:?} but kept running")),
+        // A host import refuses in the reference's words by trapping with them (`parse_int`, `read_reals`), as the
+        // JavaScript hosts throw them; a trap of the module's own carries a code and no words.
+        (Err(trap), None) if trap.trap_code().is_none() => Ok(WasmRun {
+            output: r.lines.join("\n"),
+            lines: r.lines.clone(),
+            failure: Some(trap.to_string()),
+            heap_ptr,
+        }),
         (Err(e), None) => Err(format!("trapped with no reason: {e}")),
     }
 }

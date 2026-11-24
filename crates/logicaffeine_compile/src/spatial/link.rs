@@ -207,6 +207,7 @@ pub fn dense_tables(g: &TensorGraph, linked: &[usize], target: &SpatialTarget, a
             TensorOpSpec::Relu(u) if matrix(&op.out, u.n) => whole(),
             TensorOpSpec::Sigmoid(u) if matrix(&op.out, u.n) => whole(),
             TensorOpSpec::Gelu(u) if matrix(&op.out, u.n) => whole(),
+            TensorOpSpec::Erf(u) if matrix(&op.out, u.n) => whole(),
             TensorOpSpec::Scale(u) if matrix(&op.out, u.n) => whole(),
             TensorOpSpec::Softcap(u) if matrix(&op.out, u.n) => whole(),
             TensorOpSpec::Decay(d) if d.rows > 1 => vec![&op.ins[0], &op.out],
@@ -420,6 +421,7 @@ fn link_unchecked(
         TensorOpSpec::LutAttention(spec) => q::from_lut_attention(spec, &names, target),
         TensorOpSpec::Sigmoid(spec) => one(q::from_sigmoid(spec, &names, shape(spec.n), target)),
         TensorOpSpec::Gelu(spec) => one(q::from_gelu(spec, &names, shape(spec.n), target)),
+        TensorOpSpec::Erf(spec) => one(q::from_erf(spec, &names, shape(spec.n), target)),
         TensorOpSpec::Scale(spec) => one(q::from_scale(spec, &names, shape(spec.n), target)),
         TensorOpSpec::Softcap(spec) => one(q::from_softcap(spec, &names, shape(spec.n), target)),
         TensorOpSpec::Decay(spec) => one(q::from_decay(spec, &names, target)),
@@ -446,7 +448,10 @@ fn link_unchecked(
             let tables: BTreeSet<String> = op.ins.iter().chain(std::iter::once(&op.out)).filter(|t| dense(t)).cloned().collect();
             q::from_gated_delta(spec, &names, &tables, target)
         }
-        TensorOpSpec::Attention(spec) => q::from_attention(spec, &names, target),
+        TensorOpSpec::Attention(spec) => {
+            assert_eq!(spec.from_row, 0, "a spatial shim runs no block's last rows apart from the rest");
+            q::from_attention(spec, &names, target)
+        }
         TensorOpSpec::FullAttention(spec) => q::from_full_attention(spec, &names, target),
         TensorOpSpec::Moe(spec) => q::from_moe(spec, &names, target),
         TensorOpSpec::RowGather(spec) => one(q::from_row_gather(spec, &names, floats(), dense(&op.ins[0]), target)),

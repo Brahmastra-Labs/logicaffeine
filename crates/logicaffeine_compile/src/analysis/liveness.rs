@@ -52,15 +52,21 @@ impl LivenessResult {
             }
         }
         // A function reaches Main's variables by name (they are its globals), so a call can read one no Main
-        // statement names: every name a function body reads stays live throughout Main.
-        let reached: HashSet<Symbol> = stmts
-            .iter()
-            .filter_map(|s| match s {
-                Stmt::FunctionDef { body, .. } => Some(Reads::of_block(body, &defined).names),
-                _ => None,
-            })
-            .flatten()
-            .collect();
+        // statement names: every name a function or closure body reads or writes without declaring it stays live
+        // throughout Main. Foreign code in a callee may touch any name a body mentions.
+        let globals = crate::optimize::writes::CalleeGlobals::of_program(stmts);
+        let reached: HashSet<Symbol> = if globals.opaque {
+            stmts
+                .iter()
+                .filter_map(|s| match s {
+                    Stmt::FunctionDef { body, .. } => Some(Reads::of_block(body, &defined).names),
+                    _ => None,
+                })
+                .flatten()
+                .collect()
+        } else {
+            globals.reads.union(&globals.symbols).filter(|s| !defined.contains(s)).copied().collect()
+        };
         analyze_body(stmts, &reached, &defined, &mut by_stmt);
         Self { functions, by_stmt }
     }

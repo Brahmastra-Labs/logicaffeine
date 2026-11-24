@@ -1003,6 +1003,9 @@ pub enum SfpuKind {
     /// `x / |x|` divides by zero at zero, and a clamp of `x·K` is a sign only above `1/K`. One SFPU instruction on
     /// Tensix (`sign_tile`); a compare and a mux on a PCU.
     Sign,
+    /// The error function `erf(x)` — exact GELU's `0.5·x·(1 + erf(x/√2))`, which no composition of the others reaches.
+    /// One SFPU instruction on Tensix (`erf_tile`); the library's `erf` wherever this IR is evaluated.
+    Erf,
 }
 
 /// The pooling function of a reduction (over whichever axis is marked [`IterKind::Reduce`]).

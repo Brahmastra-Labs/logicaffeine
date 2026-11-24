@@ -56,7 +56,7 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
             }
 
             let subject = self.parse_noun_phrase(true)?;
-            let verb = self.consume_verb();
+            let verb = self.consume_verb()?;
 
             let mut args = vec![Term::Constant(subject.noun)];
             if self.check_content_word() || self.check_article() {
@@ -124,7 +124,7 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
         }
 
         if self.check_verb() {
-            let verb = self.consume_verb();
+            let verb = self.consume_verb()?;
             let mut args = vec![var_term];
 
             if self.check_content_word() {
@@ -146,7 +146,7 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
         if self.check(&TokenType::Does) || self.check(&TokenType::Do) {
             self.advance();
             let subject = self.parse_noun_phrase(true)?;
-            let verb = self.consume_verb();
+            let verb = self.consume_verb()?;
 
             let body = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
@@ -250,7 +250,7 @@ impl<'a, 'ctx, 'int> QuestionParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> 
 
         if is_copula {
             let body = if self.check_verb() {
-                let (verb, _, verb_aspect, _) = self.consume_verb_with_metadata();
+                let (verb, _, verb_aspect, _) = self.consume_verb_with_metadata()?;
                 let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
                     name: verb,
                     args: self.ctx.terms.alloc_slice([Term::Constant(subject_symbol)]),

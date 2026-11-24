@@ -26,7 +26,6 @@
     "attn_output_gate": [
       "lane_compile_lock::a_gated_attention_gates_its_output_in_its_store",
       "lane_compile_lock::a_batchs_gated_attentions_gate_their_rows_in_their_store",
-      "lane_compile_lock::the_hybrid_step_fuses_the_recurrence_and_the_gate",
       "lane_compile_lock::a_prefill_chunk_takes_its_rows_in_one_launch_per_op"
     ],
     "conv_parts": [

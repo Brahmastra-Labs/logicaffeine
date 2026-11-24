@@ -471,15 +471,32 @@ fn the_math_grammar_survives_depth_width_and_a_rewind_in_the_middle_of_a_documen
 /// report nobody can act on.
 #[test]
 fn an_unsupported_math_relation_is_refused_by_name_and_english_is_left_alone() {
+    // The order spellings now have a production, so the theorem door no longer refuses them:
+    // a false order reaches the prover and fails there, never in the parser.
+    for (order, goal) in [
+        ("For all n, n plus 1 is greater than n.", "lt(n, Add(n, 1)) = true"),
+        ("For all n, n plus 1 is less than n.", "lt(Add(n, 1), n) = true"),
+    ] {
+        if let Err(err) = surface_a(&goal_only("Order", order)) {
+            assert!(
+                err.contains("Goal:") && err.contains(goal),
+                "`{order}` has a production now, so it must reach the prover as `{goal}`, never \
+                 be refused at the parser: {err}"
+            );
+        }
+    }
+
+    // An order word with no production is still refused BY NAME, listing the relations that
+    // do exist, rather than reported as a missing content word.
     for order in [
-        "For all n, n plus 1 is greater than n.",
-        "For all n, n plus 1 is less than n.",
+        "For all n, n plus 1 exceeds n.",
+        "For all n, n plus 1 is smaller than n.",
     ] {
         let err = surface_a(&goal_only("Order", order))
-            .expect_err("an order between arithmetic TERMS has no production here yet");
+            .expect_err("an order word with no term production must be refused");
         assert!(
-            err.contains("equals"),
-            "`{order}` must be refused by naming the relation this surface DOES have, not by \
+            err.contains("equals") && err.contains("is at most") && err.contains("ORDERS"),
+            "`{order}` must be refused by naming the relations this surface DOES have, not by \
              reporting a missing content word: {err}"
         );
     }

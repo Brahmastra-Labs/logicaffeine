@@ -1,4 +1,4 @@
-//! LLM Heal in the Studio (work/LLM_HEAL.md, DAT-108), as the page is prerendered: the Heal
+//! Heal in the Studio, as the page is prerendered: the Heal
 //! button stands in Code and Logic modes only, after Run or Execute and before Compile, in the
 //! site's blue with the fairy as its icon; at rest there is no fairy and no card on the page; and
 //! the fairy the button shows is a file the site serves.

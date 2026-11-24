@@ -217,3 +217,32 @@ fn an_index_past_a_map_entry_fails_as_any_index_past_the_end() {
     let entry = (3i64, 9i64);
     let _ = LogosIndex::logos_get(&entry, 3i64);
 }
+
+// A string's 1-based index counts characters, whatever the bytes before it are: the byte at a
+// character's position is only that character when every earlier character is one byte.
+#[test]
+fn a_string_index_after_a_multibyte_character_is_the_character_there() {
+    let text = "éab".to_string();
+    assert_eq!(text.logos_get(1), "é");
+    assert_eq!(text.logos_get(2), "a");
+    assert_eq!(text.logos_get(3), "b");
+    assert_eq!(text.logos_get(-1), "b");
+    assert_eq!(text.logos_get(-3), "é");
+    assert_eq!(text.logos_get_char(3), 'b');
+    assert_eq!(text.logos_get_char(-2), 'a');
+}
+
+#[test]
+fn every_string_index_is_the_char_count_s_character() {
+    for text in ["héllo wörld", "日本語のテキスト", "a😀b😀c", "plain ascii", "ﬁx ŉ ǅ"] {
+        let owned = text.to_string();
+        let chars: Vec<char> = text.chars().collect();
+        let n = chars.len() as i64;
+        for i in 1..=n {
+            let want = chars[(i - 1) as usize];
+            assert_eq!(owned.logos_get(i), want.to_string(), "{text:?} at {i}");
+            assert_eq!(owned.logos_get_char(i), want, "{text:?} at {i}");
+            assert_eq!(owned.logos_get(i - n - 1), want.to_string(), "{text:?} at {}", i - n - 1);
+        }
+    }
+}

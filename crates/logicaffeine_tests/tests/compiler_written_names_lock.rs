@@ -33,6 +33,7 @@ fn every_minted_name() -> Vec<(&'static str, String)> {
         ("block_slot_param", n::block_slot_param("content")),
         ("html_fn_name", n::html_fn_name("App")),
         ("serve_fn_name", n::serve_fn_name("App")),
+        ("paths_fn_name", n::paths_fn_name("Post")),
         ("draw_depth_param", n::draw_depth_param().to_string()),
         ("view_html_fn_name", n::view_html_fn_name("card")),
         ("bind_fn_name", n::bind_fn_name("App", "count")),

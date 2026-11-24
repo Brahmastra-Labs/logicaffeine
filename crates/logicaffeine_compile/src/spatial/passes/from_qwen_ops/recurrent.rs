@@ -1,6 +1,15 @@
 //! Carried state: decays and the gated delta rule, flat, blocked, widened and chunked.
 
 use super::*;
+use crate::tensor_recognize::qwen::GateAct;
+
+/// A Gated DeltaNet's output gate on `z`: `silu(z)`, or `σ(z)` as `1/(1 + e^(−z))`.
+fn delta_gate(gate: GateAct, z: Box<TensorBody>) -> Box<TensorBody> {
+    match gate {
+        GateAct::Silu => silu_expr(z),
+        GateAct::Sigmoid => unary(SfpuKind::Recip, add(konst(1.0), unary(SfpuKind::Exp, mul(z, konst(-1.0))))),
+    }
+}
 
 /// `y[i] = (1 + e^(ar[i] + dt[i]))^(alog[i])` — Gated DeltaNet's forget gate.
 ///

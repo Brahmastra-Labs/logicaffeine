@@ -13,7 +13,7 @@
 //! both `logicaffeine_language` and `logicaffeine_compile` can reach it without
 //! a dependency cycle.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use logicaffeine_kernel::{
     double_check, infer_type, is_subtype, prelude::StandardLibrary, Context, DoubleCheck, Term,
@@ -45,6 +45,21 @@ pub struct VerifiedProof {
 }
 
 impl VerifiedProof {
+    /// The proof as a certificate hands it out: the kernel proof term and a context in which it is closed. A
+    /// theorem's free variable is a local of the context the proof was checked in, and a certificate replays only
+    /// declarations, so each local the proof reaches is disclosed as a declaration of its type: the view both kernels
+    /// checked ([`recheck_view`]). `None` for an unverified proof.
+    pub fn certified_proof(&self) -> Option<(Term, Context)> {
+        if !self.verified {
+            return None;
+        }
+        let term = self.proof_term.as_ref()?;
+        Some(match recheck_view(&self.kernel_ctx, term) {
+            Some((ctx, closed)) => (closed, ctx),
+            None => (term.clone(), self.kernel_ctx.clone()),
+        })
+    }
+
     /// The axioms this proof transitively rests on — see [`AxiomFootprint`].
     ///
     /// Read off the kernel TERM, never the derivation: the derivation is producer
@@ -188,15 +203,28 @@ pub fn prove_certify_check(premises: &[ProofExpr], goal: &ProofExpr) -> Verified
 }
 
 /// One theorem in a dependency-ordered library: proved from its own `premises` plus
-/// the conclusions of the theorems it `cites`. This is the unit the multi-theorem
-/// driver discharges in citation order (the Euclid-graph engine).
+/// what the theorems it `cites` state, each its premises implying its goal. This is the
+/// unit the multi-theorem driver discharges in citation order (the Euclid-graph engine).
 #[derive(Debug, Clone, PartialEq)]
 pub struct LibraryTheorem {
     pub name: String,
     pub premises: Vec<ProofExpr>,
     pub goal: ProofExpr,
-    /// Names of earlier theorems whose conclusions this proof relies on.
+    /// Names of earlier theorems whose statements this proof relies on.
     pub cites: Vec<String>,
+}
+
+/// What a library theorem states once proved: its goal under its own premises. A citation, or a `[simp]` pool,
+/// carries this and never the bare goal, which follows only from those premises.
+pub(crate) fn theorem_statement(premises: &[ProofExpr], goal: &ProofExpr) -> ProofExpr {
+    let mut premises = premises.iter().cloned();
+    match premises.next() {
+        None => goal.clone(),
+        Some(first) => {
+            let condition = premises.fold(first, |acc, p| ProofExpr::And(Box::new(acc), Box::new(p)));
+            ProofExpr::Implies(Box::new(condition), Box::new(goal.clone()))
+        }
+    }
 }
 
 /// The outcome of proving one theorem in a library.
@@ -204,6 +232,10 @@ pub struct LibraryResult {
     pub name: String,
     pub verified: bool,
     pub verification_error: Option<String>,
+    /// The kernel proof term and a context it type-checks in with nothing left local (the theorem's vocabulary and
+    /// free variables, and its premises, axioms and cited lemmas as hypotheses), present exactly when `verified`:
+    /// what a re-checkable certificate is minted from ([`VerifiedProof::certified_proof`]).
+    pub proof: Option<(Term, Context)>,
 }
 
 /// Order theorems so every citation precedes its citer. A theorem is ready once all
@@ -263,7 +295,7 @@ pub fn prove_library_with_axioms(
     theorems: &[LibraryTheorem],
 ) -> Vec<LibraryResult> {
     use std::collections::HashMap;
-    let mut proved: HashMap<&str, &ProofExpr> = HashMap::new();
+    let mut proved: HashMap<&str, ProofExpr> = HashMap::new();
     let mut by_name: HashMap<&str, LibraryResult> = HashMap::new();
 
     for &i in &citation_order(theorems) {
@@ -271,20 +303,22 @@ pub fn prove_library_with_axioms(
         let mut premises = axioms.to_vec();
         premises.extend(t.premises.iter().cloned());
         for cite in &t.cites {
-            if let Some(goal) = proved.get(cite.as_str()) {
-                premises.push((*goal).clone());
+            if let Some(statement) = proved.get(cite.as_str()) {
+                premises.push(statement.clone());
             }
         }
         let vp = prove_certify_check(&premises, &t.goal);
         if vp.verified {
-            proved.insert(t.name.as_str(), &t.goal);
+            proved.insert(t.name.as_str(), theorem_statement(&t.premises, &t.goal));
         }
+        let proof = vp.certified_proof();
         by_name.insert(
             t.name.as_str(),
             LibraryResult {
                 name: t.name.clone(),
                 verified: vp.verified,
                 verification_error: vp.verification_error,
+                proof,
             },
         );
     }
@@ -295,6 +329,70 @@ pub fn prove_library_with_axioms(
             by_name
                 .remove(t.name.as_str())
                 .expect("every theorem produces a result")
+        })
+        .collect()
+}
+
+/// One refutation in a library: the claim that `goal` does not follow from the axioms, its own `premises` and the
+/// statements of the theorems it `cites`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LibraryRefutation {
+    pub name: String,
+    pub premises: Vec<ProofExpr>,
+    pub goal: ProofExpr,
+    /// Names of the theorems whose statements the refutation keeps true.
+    pub cites: Vec<String>,
+}
+
+/// The outcome of one refutation in a library.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RefutationResult {
+    pub name: String,
+    /// Whether a countermodel was found and re-verified.
+    pub refuted: bool,
+    pub error: Option<String>,
+    /// The structure in which every premise holds and the goal fails, present exactly when `refuted`.
+    pub countermodel: Option<crate::counterexample::FiniteModel>,
+}
+
+/// Refute each of `refutations` against the shared `axioms`: the least model of the axioms and the refutation's
+/// own premises is the candidate countermodel ([`least_countermodel`](crate::counterexample::least_countermodel)),
+/// and it must also keep true the statement of every theorem the refutation cites, each read as its premises
+/// implying its goal. A cited name that is not a theorem of `theorems` fails the refutation, as citing a statement
+/// the check cannot see would claim more than it shows.
+pub fn refute_library_with_axioms(
+    axioms: &[(String, ProofExpr)],
+    theorems: &[LibraryTheorem],
+    refutations: &[LibraryRefutation],
+) -> Vec<RefutationResult> {
+    use crate::counterexample::{check_countermodel, least_countermodel};
+
+    refutations
+        .iter()
+        .map(|r| {
+            let mut premises = axioms.to_vec();
+            premises.extend(r.premises.iter().enumerate().map(|(i, p)| (format!("given {}", i + 1), p.clone())));
+            let outcome = least_countermodel(&premises, &r.goal).and_then(|model| {
+                for cite in &r.cites {
+                    let Some(t) = theorems.iter().find(|t| &t.name == cite) else {
+                        let what = if refutations.iter().any(|other| &other.name == cite) {
+                            "a refutation, which states no fact to rely on"
+                        } else {
+                            "no theorem of the development"
+                        };
+                        return Err(format!("it cites `{cite}`, {what}"));
+                    };
+                    premises.push((cite.clone(), theorem_statement(&t.premises, &t.goal)));
+                }
+                check_countermodel(&premises, &r.goal, &model)?;
+                Ok(model)
+            });
+            match outcome {
+                Ok(model) => {
+                    RefutationResult { name: r.name.clone(), refuted: true, error: None, countermodel: Some(model) }
+                }
+                Err(e) => RefutationResult { name: r.name.clone(), refuted: false, error: Some(e), countermodel: None },
+            }
         })
         .collect()
 }
@@ -340,12 +438,61 @@ pub fn prove_certify_check_bounded_with_defs(
     })
 }
 
+/// The search's copy of a theorem, with each of its context locals — a term variable free in a premise or
+/// the goal — held as an opaque constant, paired with the local each constant stands for.
+///
+/// A local is a fixed, arbitrary value: no step may bind it to another term or instantiate a premise at it.
+/// The search binds a `Variable` freely, so it holds each local the way `∀`-introduction holds its
+/// eigenvariable, as a constant it can only match itself; the derivation it finds is read back over the
+/// locals (`rewrite_tree_const_to_var`) before the certifier checks it against the premises as stated.
+fn rigidify_locals(
+    premises: &[ProofExpr],
+    goal: &ProofExpr,
+    referents: &std::collections::HashSet<String>,
+) -> (Vec<ProofExpr>, ProofExpr, Vec<(String, String)>) {
+    let mut free: Vec<String> = premises
+        .iter()
+        .chain(std::iter::once(goal))
+        .flat_map(crate::unify::free_names)
+        .filter(|name| !referents.contains(name))
+        .collect();
+    free.sort();
+    free.dedup();
+    let (mut premises, mut goal) = (premises.to_vec(), goal.clone());
+    let mut locals = Vec::new();
+    for local in free {
+        let eigen = format!("__local_{local}");
+        let constant = ProofTerm::Constant(eigen.clone());
+        let held: Vec<ProofExpr> = premises
+            .iter()
+            .map(|p| crate::unify::instantiate_expr(p, &local, &constant))
+            .collect();
+        let held_goal = crate::unify::instantiate_expr(&goal, &local, &constant);
+        if held != premises || held_goal != goal {
+            premises = held;
+            goal = held_goal;
+            locals.push((eigen, local));
+        }
+    }
+    (premises, goal, locals)
+}
+
 fn prove_certify_check_bounded_with_defs_inner(
     premises: &[ProofExpr],
     goal: &ProofExpr,
     definitions: &[Definition],
     max_depth: usize,
 ) -> VerifiedProof {
+    // The theorem's free variables are its context locals; a binder's variable ranges. Renaming every
+    // binder that shares a name with a local lets the collector, the search and the certifier each read
+    // a name one way. A discourse referent — introduced by a premise's `∃`, read free elsewhere — is the
+    // individual the search's existential elimination names, so it keeps its name and is held as no local.
+    let referents = crate::unify::discourse_referents(premises, goal);
+    let mut problem = premises.to_vec();
+    problem.push(goal.clone());
+    let mut problem = crate::unify::standardize_apart(&problem, &referents);
+    let goal = &problem.pop().expect("the goal is the problem's last formula");
+    let premises = &problem[..];
     let abstracted = abstract_definitions(definitions);
     let definitions = &abstracted[..];
     if let Err(e) = validate_definitions(definitions) {
@@ -398,14 +545,18 @@ fn prove_certify_check_bounded_with_defs_inner(
     // proposition no context carries, so a search that used it would hand `finish_check` a
     // tree the kernel must refuse. Read them as stated — see `PremiseVariables`.
     engine.set_premise_variables(crate::PremiseVariables::Local);
-    for premise in &flat_premises {
-        engine.add_axiom(premise.clone());
-    }
     // The engine searches over event-ABSTRACTED premises, so the goal must be
     // abstracted to the same form (`Alice admires Bob` ⇒ `admire(Alice, Bob)`).
     let search_goal = engine.abstract_all_events(search_goal);
-    let derivation = match engine.prove(search_goal) {
-        Ok(d) => d,
+    let (rigid_premises, rigid_goal, locals) =
+        rigidify_locals(&flat_premises, &search_goal, &referents);
+    for premise in &rigid_premises {
+        engine.add_axiom(premise.clone());
+    }
+    let derivation = match engine.prove(rigid_goal) {
+        Ok(d) => locals.iter().fold(d, |tree, (eigen, local)| {
+            crate::engine::rewrite_tree_const_to_var(&tree, eigen, local)
+        }),
         Err(e) => {
             return VerifiedProof {
                 derivation: None,
@@ -867,37 +1018,51 @@ fn recheck_view(ctx: &Context, term: &Term) -> Option<(Context, Term)> {
         return None;
     }
 
-    let mut out = ctx.clone();
+    // A local and a declaration may share a spelling — a statement's free variable `h1` beside the
+    // hypothesis `h1` registered for its first premise — because a binding and a declaration live in
+    // different scopes. Promoted, the local needs a declaration name of its own; reusing the
+    // hypothesis's would make that hypothesis's type mention itself.
+    let mut taken: BTreeSet<String> = ctx.iter_declarations().map(|(d, _)| d.to_string()).collect();
+    let mut promoted = BTreeMap::new();
     for name in &names {
+        let mut global = name.clone();
+        let mut k = 0u32;
+        while taken.contains(&global) {
+            k += 1;
+            global = format!("{name}'{k}");
+        }
+        taken.insert(global.clone());
+        promoted.insert(name.clone(), global);
+    }
+
+    let mut out = ctx.clone();
+    for (name, global) in &promoted {
         if let Some(ty) = ctx.get(name) {
-            out.add_declaration(name, ty.clone());
+            out.add_declaration(global, ty.clone());
         }
     }
     let rewritten: Vec<(String, Term)> = ctx
         .iter_declarations()
         .filter_map(|(decl, ty)| {
-            let fresh = vars_to_globals(ty, &names, &mut Vec::new());
+            let fresh = vars_to_globals(ty, &promoted, &mut Vec::new());
             (fresh != *ty).then(|| (decl.to_string(), fresh))
         })
         .collect();
     for (decl, ty) in rewritten {
         out.add_declaration(&decl, ty);
     }
-    Some((out, vars_to_globals(term, &names, &mut Vec::new())))
+    Some((out, vars_to_globals(term, &promoted, &mut Vec::new())))
 }
 
-/// Rewrite every free `Var(n)` with `n` in `names` to `Global(n)`. A binder of the same name
-/// SHADOWS the local, so `bound` is tracked exactly as [`collect_free_kernel_vars`] tracks it —
-/// the eliminator's own `λn` must keep binding its own `n`.
-fn vars_to_globals(term: &Term, names: &BTreeSet<String>, bound: &mut Vec<String>) -> Term {
+/// Rewrite every free `Var(n)` with `n` among `names`' keys to `Global(names[n])`. A binder of the
+/// same name SHADOWS the local, so `bound` is tracked exactly as [`collect_free_kernel_vars`] tracks
+/// it — the eliminator's own `λn` must keep binding its own `n`.
+fn vars_to_globals(term: &Term, names: &BTreeMap<String, String>, bound: &mut Vec<String>) -> Term {
     match term {
-        Term::Var(name) => {
-            if names.contains(name) && !bound.iter().any(|b| b == name) {
-                Term::Global(name.clone())
-            } else {
-                term.clone()
-            }
-        }
+        Term::Var(name) => match names.get(name) {
+            Some(global) if !bound.iter().any(|b| b == name) => Term::Global(global.clone()),
+            _ => term.clone(),
+        },
         Term::App(f, a) => Term::App(
             Box::new(vars_to_globals(f, names, bound)),
             Box::new(vars_to_globals(a, names, bound)),

@@ -59,7 +59,7 @@ const ANALYSIS_ONLY: &[(&str, &str)] = &[
         "reads a Logic-mode theorem block",
     ),
     (
-        "crates/logicaffeine_compile/src/ui_bridge.rs::compile_theory_for_ui",
+        "crates/logicaffeine_compile/src/ui_bridge.rs::theory_development",
         "reads a Logic-mode theory",
     ),
     (
@@ -97,7 +97,6 @@ const CORE_ENCODINGS: &[(&str, &str)] = &[
 /// Seams known to resolve: the census must find each of them, or it is not reading the source.
 const KNOWN_RESOLVING: &[&str] = &[
     "crates/logicaffeine_compile/src/ui_bridge.rs::parse_seam_with",
-    "crates/logicaffeine_compile/src/ui_bridge.rs::with_optimized_program_tiered_scoped",
     "crates/logicaffeine_compile/src/compile.rs::compile_program_full_with_proven",
     "crates/logicaffeine_compile/src/compile.rs::with_optimized_program",
     "crates/logicaffeine_compile/src/compile.rs::compile_to_c_tiered",
@@ -650,9 +649,14 @@ fn e2e_a_native_function_divides_a_rational_exactly() {
             .unwrap_or_else(|e| panic!("the native module does not build: {e}\n{}", module.rust));
         let (native, calls) =
             load_aot_native(&so, &module.symbol, module.arity).expect("the native module loads");
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
         let forge = logicaffeine_jit::ForgeTier::new();
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
         let mut vm = Vm::new(&program)
             .with_native_tier(&forge)
+            .with_policy_ctx(&policies, interner);
+        #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+        let mut vm = Vm::new(&program)
             .with_policy_ctx(&policies, interner);
         vm.install_aot_native(index, native);
         vm.run().expect("runs");

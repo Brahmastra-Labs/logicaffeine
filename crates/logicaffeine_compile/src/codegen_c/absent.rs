@@ -49,12 +49,8 @@ fn at_depth(ty: CType, depths: &Depths, depth: usize, registry: &TypeRegistry) -
     }
     let held = match ty {
         CType::Opt(_) | CType::Void | CType::Tower => return ty,
-        map if super::types::map_entry_types(&map).is_some() || matches!(map, CType::MapStrValue(_) | CType::MapI64Value(_)) => {
-            let (key, value) = match &map {
-                CType::MapStrValue(value) => (CType::String, (**value).clone()),
-                CType::MapI64Value(value) => (CType::Int64, (**value).clone()),
-                other => super::types::map_entry_types(other).expect("a map"),
-            };
+        map if super::types::map_entry_types(&map).is_some() => {
+            let (key, value) = super::types::map_entry_types(&map).expect("a map");
             super::types::map_ctype(&key, &at_depth(value, depths, depth + 1, registry))
         }
         other => match super::types::seq_element(&other, registry) {

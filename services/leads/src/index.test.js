@@ -280,7 +280,7 @@ describe('the body', () => {
 
   it('counts bytes, not characters', async () => {
     const h = harness();
-    const raw = JSON.stringify(validBody({ website: '', source: 'pricing', note: '\u00e9'.repeat(4100) }));
+    const raw = JSON.stringify(validBody({ website: '', source: 'contact', note: '\u00e9'.repeat(4100) }));
     expect(raw.length).toBeLessThan(CAP);
     expect(new TextEncoder().encode(raw).byteLength).toBeGreaterThan(CAP);
     const r = await h.send(leadRequest({ raw }));
@@ -594,6 +594,25 @@ describe('Turnstile', () => {
     expect(h.sent).toEqual([]);
   });
 
+  it('accepts a verdict made with the testing keys only while the interim switch is on', async () => {
+    // The live page carries Cloudflare's public testing site key until the next export; such a
+    // verdict names example.com and no action.
+    const testing = { hostname: 'example.com', action: null, testingKey: true };
+    const on = harness({ siteverify: siteverifyAnswer(testing) });
+    const accepted = await on.send(leadRequest());
+    expect(accepted.status).toBe(202);
+    expect(on.sent).toHaveLength(1);
+    vi.restoreAllMocks();
+    const off = harness({ siteverify: siteverifyAnswer(testing), env: { TURNSTILE_ACCEPT_TESTING_KEY: 'false' } });
+    const refused = await off.send(leadRequest());
+    expect(refused.status).toBe(403);
+    expect(off.sent).toEqual([]);
+    vi.restoreAllMocks();
+    // A verdict without Cloudflare's testing mark gets no such pass, switch or no switch.
+    const unmarked = harness({ siteverify: siteverifyAnswer({ hostname: 'example.com', action: null }) });
+    expect((await unmarked.send(leadRequest())).status).toBe(403);
+  });
+
   it('checks the hostname against the page that sent the lead', async () => {
     const origin = 'https://www.logicaffeine.com';
     const good = harness({ siteverify: siteverifyAnswer({ hostname: 'www.logicaffeine.com' }) });
@@ -751,7 +770,7 @@ describe('storage', () => {
       email: 'buyer@example.com',
       phone: '+1 (555) 123-4567',
       phone_digits: '15551234567',
-      source: 'pricing',
+      source: 'contact',
       country: 'DE',
       created_at: expect.stringMatching(ISO),
       notified_at: expect.stringMatching(ISO),
@@ -810,9 +829,9 @@ describe('the notification', () => {
     expect(h.mailed).toHaveLength(1);
     const [{ body }] = h.mailed;
     expect(body.to).toEqual([SALES_INBOX]);
-    expect(body.from).toBe(`LOGICAFFEINE pricing form <${env.NOTIFY_FROM}>`);
+    expect(body.from).toBe(`LOGICAFFEINE contact form <${env.NOTIFY_FROM}>`);
     expect(body.reply_to).toBe('buyer@example.com');
-    expect(body.subject).toBe('Pricing request \u2014 buyer@example.com');
+    expect(body.subject).toBe('Contact request \u2014 buyer@example.com');
     expect(Object.keys(body).sort()).toEqual(['from', 'html', 'reply_to', 'subject', 'text', 'to']);
   });
 
@@ -826,7 +845,7 @@ describe('the notification', () => {
     expect(attempt.authorization).toBe(`Bearer ${inject('resendKey')}`);
     expect(attempt.contentType).toMatch(/^application\/json/);
     expect(attempt.hasSignal).toBe(true);
-    expect(attempt.idempotencyKey).toBe(`pricing-lead/${row.id}/${row.created_at}`);
+    expect(attempt.idempotencyKey).toBe(`contact-lead/${row.id}/${row.created_at}`);
     expect(attempt.idempotencyKey.length).toBeLessThanOrEqual(256);
   });
 
@@ -855,7 +874,7 @@ describe('the notification', () => {
     const { text } = h.sent[0];
     expect(text).toMatch(/^Email: +buyer@example\.com$/m);
     expect(text).toMatch(/^Phone: +\+1 \(555\) 123-4567$/m);
-    expect(text).toMatch(/^Source: +pricing$/m);
+    expect(text).toMatch(/^Source: +contact page$/m);
     expect(text).toMatch(/^Country: +US$/m);
     expect(text).toMatch(new RegExp(`^Received: +${row.created_at.replace(/\./g, '\\.')}$`, 'm'));
     expect(text).toMatch(new RegExp(`^Lead: +#${row.id}$`, 'm'));
@@ -867,7 +886,7 @@ describe('the notification', () => {
     await h.send(leadRequest({ body: validBody({ email: "o'brien&co@example.com" }) }));
     expect(h.sent).toHaveLength(1);
     const [message] = h.sent;
-    expect(message.subject).toBe("Pricing request \u2014 o'brien&co@example.com");
+    expect(message.subject).toBe("Contact request \u2014 o'brien&co@example.com");
     expect(message.reply_to).toBe("o'brien&co@example.com");
     expect(message.html).toContain('o&#39;brien&amp;co@example.com');
     expect(message.html).not.toContain("o'brien&co");
@@ -1093,7 +1112,7 @@ describe('the notification can never reach a stranger', () => {
     const [{ body }] = h.mailed;
     expect(body.to).toEqual([SALES_INBOX]);
     expect(body.reply_to).toBe('buyer@example.com');
-    expect(body.from).toBe(`LOGICAFFEINE pricing form <${env.NOTIFY_FROM}>`);
+    expect(body.from).toBe(`LOGICAFFEINE contact form <${env.NOTIFY_FROM}>`);
     expect(JSON.stringify(body)).not.toContain(stranger);
   });
 });

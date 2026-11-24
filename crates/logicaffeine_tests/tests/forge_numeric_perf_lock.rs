@@ -9,7 +9,8 @@
 //!     under load — contention slows both runs on the same box, so the RATIO holds. Off x86 the forge
 //!     declines to the VM, so the speed claim is x86-gated; correctness still holds there.
 
-#![cfg(not(target_arch = "wasm32"))]
+// This suite tests the native tier alone, which exists only on x86_64 outside Windows.
+#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 
 use logicaffeine_compile::compile::vm_outcome_with_args;
 use logicaffeine_compile::vm::NativeTier;

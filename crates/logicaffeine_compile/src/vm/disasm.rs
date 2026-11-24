@@ -142,13 +142,131 @@ pub fn format_op(op: &Op, prog: &CompiledProgram) -> String {
     }
 }
 
-/// Absolute control-transfer targets of an op (for tape arrows / reachability).
+/// Absolute control-transfer targets of an op (for tape arrows / reachability). EXHAUSTIVE (no
+/// wildcard): an op that names a pc is listed with its target, every other op with none, so a new
+/// instruction cannot compile until it is placed here, and a reachability walk never mistakes a jump
+/// for a fall-through.
 pub fn op_targets(op: &Op) -> Vec<usize> {
     match *op {
         Op::Jump { target } => vec![target],
         Op::JumpIfFalse { target, .. } | Op::JumpIfTrue { target, .. } => vec![target],
         Op::IterNext { exit, .. } => vec![exit],
-        _ => Vec::new(),
+        Op::LoadConst { .. }
+        | Op::Move { .. }
+        | Op::RevSwap { .. }
+        | Op::RevXor { .. }
+        | Op::RevNeg { .. }
+        | Op::RevAdd { .. }
+        | Op::RevSub { .. }
+        | Op::EnsureOwned { .. }
+        | Op::Add { .. }
+        | Op::AddAssign { .. }
+        | Op::Sub { .. }
+        | Op::Mul { .. }
+        | Op::Div { .. }
+        | Op::ExactDiv { .. }
+        | Op::FloorDiv { .. }
+        | Op::Mod { .. }
+        | Op::DivPow2 { .. }
+        | Op::MagicDivU { .. }
+        | Op::Lt { .. }
+        | Op::Gt { .. }
+        | Op::LtEq { .. }
+        | Op::GtEq { .. }
+        | Op::Eq { .. }
+        | Op::ApproxEq { .. }
+        | Op::NotEq { .. }
+        | Op::Not { .. }
+        | Op::Concat { .. }
+        | Op::SeqConcat { .. }
+        | Op::Pow { .. }
+        | Op::BitXor { .. }
+        | Op::BitAnd { .. }
+        | Op::BitOr { .. }
+        | Op::Shl { .. }
+        | Op::Shr { .. }
+        | Op::Call { .. }
+        | Op::CallBuiltin { .. }
+        | Op::CallValue { .. }
+        | Op::MakeClosure { .. }
+        | Op::CheckPolicy { .. }
+        | Op::ListPushField { .. }
+        | Op::GlobalGet { .. }
+        | Op::GlobalSet { .. }
+        | Op::Return { .. }
+        | Op::ReturnNothing
+        | Op::NewList { .. }
+        | Op::NewEmptyList { .. }
+        | Op::NewEmptyListWithCapacity { .. }
+        | Op::NewEmptyListFixed { .. }
+        | Op::NewEmptyListI32 { .. }
+        | Op::NewEmptySet { .. }
+        | Op::NewEmptyMap { .. }
+        | Op::NewEmptyMapWithCapacity { .. }
+        | Op::NewRange { .. }
+        | Op::ListPush { .. }
+        | Op::SetAdd { .. }
+        | Op::RemoveFrom { .. }
+        | Op::SetIndex { .. }
+        | Op::SetIndexUnchecked { .. }
+        | Op::Index { .. }
+        | Op::IndexUnchecked { .. }
+        | Op::RegionBoundsGuard { .. }
+        | Op::Length { .. }
+        | Op::Contains { .. }
+        | Op::FormatValue { .. }
+        | Op::SliceOp { .. }
+        | Op::DeepClone { .. }
+        | Op::NewTuple { .. }
+        | Op::UnionOp { .. }
+        | Op::IntersectOp { .. }
+        | Op::LoadToday { .. }
+        | Op::LoadNow { .. }
+        | Op::NewStruct { .. }
+        | Op::StructInsert { .. }
+        | Op::GetField { .. }
+        | Op::NewInductive { .. }
+        | Op::TestArm { .. }
+        | Op::BindArm { .. }
+        | Op::CrdtBump { .. }
+        | Op::CrdtMerge { .. }
+        | Op::CrdtJoin { .. }
+        | Op::BigIntWide { .. }
+        | Op::NewCrdt { .. }
+        | Op::CrdtAppend { .. }
+        | Op::CrdtResolve { .. }
+        | Op::IterPrepare { .. }
+        | Op::IterPop
+        | Op::ListPop { .. }
+        | Op::Sleep { .. }
+        | Op::DestructureTuple { .. }
+        | Op::Show { .. }
+        | Op::Args { .. }
+        | Op::ChanNew { .. }
+        | Op::ChanSend { .. }
+        | Op::ChanRecv { .. }
+        | Op::ChanTrySend { .. }
+        | Op::ChanTryRecv { .. }
+        | Op::ChanClose { .. }
+        | Op::Spawn { .. }
+        | Op::SpawnHandle { .. }
+        | Op::TaskAwait { .. }
+        | Op::TaskAbort { .. }
+        | Op::SelectArmRecv { .. }
+        | Op::SelectArmTimeout { .. }
+        | Op::SelectWait { .. }
+        | Op::NetConnect { .. }
+        | Op::NetListen { .. }
+        | Op::NetSend { .. }
+        | Op::NetStream { .. }
+        | Op::NetAwait { .. }
+        | Op::NetMakePeer { .. }
+        | Op::NetSync { .. }
+        | Op::Tcp { .. }
+        | Op::Serve { .. }
+        | Op::FailWith { .. }
+        | Op::Obs { .. }
+        | Op::Halt => Vec::new(),
     }
 }
 

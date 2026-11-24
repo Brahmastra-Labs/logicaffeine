@@ -8,7 +8,8 @@
 //! - DEFLATE streams (ZIP entries, gzip members, zlib streams) that [`deflate`] re-creates bit for bit are
 //!   replaced by their inflated bytes ([`streams`]);
 //! - a 16-bit image (a byte parity under which neighbouring samples are close, and a row width under which the
-//!   sample above is close) is replaced by its median-predictor residuals, high byte first;
+//!   sample above is close) is replaced by the residuals of an adaptive least-squares predictor over its causal
+//!   neighbours, high byte first;
 //! - otherwise, in 64 KiB blocks that look like x86 code, call and jump targets are made absolute, so calls
 //!   to one function become one repeated byte string.
 //!
@@ -19,10 +20,12 @@
 //! only while the history is one-sided, its last byte's run, and its last three bytes at this bit position). A
 //! match model follows the longest earlier occurrence of the recent bytes, surviving single mismatches. A
 //! two-layer gated mixer, its weight sets chosen by the partial byte, the match state, the previous bytes, how
-//! many orders are known and the model in use, combines them; five adaptive probability maps refine the result
-//! and a last mixer weighs the refinements.
+//! many orders are known and the model in use, combines them; six adaptive probability maps refine the result
+//! and a last mixer weighs the refinements, at [`Level::Max`] beside the long short-term memory network's own
+//! prediction.
 //!
-//! Everything is integer-only and every table is sized from the input length, so the decoder rebuilds the
+//! Every computation runs in one fixed order (integer arithmetic, and the network's and the image predictor's floating
+//! point without fused operations) and every table is sized from the input length, so the decoder rebuilds the
 //! encoder's state exactly from the header alone.
 
 use crate::describe::{read_uvarint, write_uvarint};
@@ -137,10 +140,10 @@ const BINARY_LAGS: [&[usize]; 22] = [
     &[1, 3, 5],
 ];
 const CONTEXTS: usize = BINARY + BINARIES;
-/// Image contexts, live only when the encoder found a 16-bit image (whose bytes are then residuals of the median
-/// predictor): the local activity, the texture of the neighbours against the prediction, the neighbours'
-/// residuals, the intensity, and the other predictors (mean, gradient, west, north, north-east edge) relative to
-/// the median one; the low byte's contexts also hold the high byte.
+/// Image contexts, live only when the encoder found a 16-bit image (whose bytes are then residuals of the
+/// least-squares predictor): the local activity, the texture of the neighbours against the prediction, the
+/// neighbours' residuals, the intensity, and other predictors (mean, gradient, west, north, north-east edge)
+/// relative to the least-squares one; the low byte's contexts also hold the high byte.
 const IMAGE: usize = CONTEXTS;
 const IMAGES: usize = 12;
 /// 8-bit image contexts, live inside the image regions of opened GIF and PNG data (rows of known length): each
@@ -162,6 +165,8 @@ const LSTM_LAYERS: usize = 2;
 const LSTM_HORIZON: usize = 20;
 /// The LSTM's stretched probability in bands of 128, keying the first APM with the partial byte.
 const LSTM_BANDS: usize = 32;
+/// The final mixer's input for the network's prediction, after the first mixers' output and the six APMs'.
+const FINAL_LSTM: usize = 7;
 /// An APM knot's update count: where it starts (the identity curve is worth that many bits) and where it stops (the
 /// step settles at `1/(APM_LIMIT + 1.5)`, slow enough to average out noise, quick enough to follow a drifting file).
 const APM_START: u16 = 4;
@@ -988,7 +993,7 @@ impl Model {
             apm6: counting_apm(8 * 256),
             misses: 0,
             apm_mask: (1 << apm_bits) - 1,
-            final_mixer: Mixer::new(if max { 7 } else { 3 }, if max { 7 * 256 } else { 256 }).with_learning_rate(2),
+            final_mixer: Mixer::new(if max { FINAL_LSTM + 1 } else { 3 }, if max { 7 * 256 } else { 256 }).with_learning_rate(2),
             calibration: Calibration::new(8),
             calibration2: Calibration::new(8),
             base: [0; SLOTS],
@@ -1265,6 +1270,7 @@ impl Model {
         for (i, q) in [pm, p1, p2, p3, p4, p5, p6].into_iter().enumerate() {
             self.final_mixer.set(i, stretch(q));
         }
+        self.final_mixer.set(FINAL_LSTM, lstm.unwrap_or(0));
         let run = self.misses.trailing_zeros();
         let band = (32 - run.leading_zeros()) as usize;
         let p = self.final_mixer.mix(self.c0 as usize + 256 * band);
@@ -2209,8 +2215,9 @@ fn unfold_residual(code: u16) -> i16 {
     if code & 0x8000 == 0 { code as i16 } else { (-i32::from(code & 0x7FFF) - 1) as i16 }
 }
 
-/// Replace each little-endian sample from `parity` on by its MED residual, sign-magnitude, high byte first
-/// (`forward`), or rebuild the samples from those residuals. A trailing odd byte is left as it is.
+/// Replace each little-endian sample from `parity` on by its residual against the least-squares prediction from
+/// the samples before it, sign-magnitude, high byte first (`forward`), or rebuild the samples from those residuals.
+/// A trailing odd byte is left as it is.
 fn image_residuals(data: &mut [u8], image: Image, forward: bool) {
     let start = image.parity.min(data.len());
     let count = (data.len() - start) / 2;

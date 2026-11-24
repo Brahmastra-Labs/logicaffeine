@@ -257,6 +257,29 @@ fn a_spatial_chips_programs_are_the_decode_step_cut_apart() {
     }
 }
 
+/// A decode step cut at any layers is its spans laid end to end, op for op: the first the embedding and the layers before
+/// the first cut, each next the layers up to the next cut, the last the layers from the last cut with the head and the
+/// arg-max — one cut or several, at the first layer, the middle or the last; and one span of every layer is the step.
+#[test]
+fn a_decode_step_cut_at_any_layer_is_its_spans_op_for_op() {
+    for (what, spec) in [("the tiny configuration", Qwen38Cfg::tiny().spec()), ("the 27B header", header_spec("qwen3.8-27b-q4_k_m"))] {
+        let (ctx, n) = (64, spec.layers.len());
+        let whole = ops_of(&written(&spec, Cut::Decode { ctx }).0 .0);
+        assert_eq!(ops_of(&written(&spec, Cut::DecodeSpan { from: 0, to: n, ctx }).0 .0), whole, "{what}: one span of every layer is the step");
+        for at in [vec![1], vec![n / 2], vec![n - 1], vec![1, n / 2, n - 1]] {
+            let edges: Vec<usize> = std::iter::once(0).chain(at.iter().copied()).chain(std::iter::once(n)).collect();
+            let mut parts = Vec::new();
+            for w in edges.windows(2) {
+                parts.extend(ops_of(&written(&spec, Cut::DecodeSpan { from: w[0], to: w[1], ctx }).0 .0));
+            }
+            assert_eq!(parts.len(), whole.len(), "{what}: cut at {at:?}, the spans' ops are the step's");
+            for (i, (a, b)) in parts.iter().zip(&whole).enumerate() {
+                assert_eq!(a, b, "{what}: cut at {at:?}, op {i}");
+            }
+        }
+    }
+}
+
 #[test]
 fn an_sn50_bundle_names_the_cut_of_every_program_it_lowered() {
     let cfg = Qwen38Cfg::tiny();
@@ -306,7 +329,7 @@ fn sources() -> Vec<(String, String)> {
 }
 
 /// The author's writers: every function that writes a model's program, or a cut of it.
-const WRITERS: [&str; 17] = [
+const WRITERS: [&str; 18] = [
     "forward",
     "decode_step",
     "prefill",
@@ -316,6 +339,7 @@ const WRITERS: [&str; 17] = [
     "head",
     "decode_embed",
     "decode_head",
+    "decode_span",
     "decode_batch_embed",
     "stacked_layer",
     "prefill_head",

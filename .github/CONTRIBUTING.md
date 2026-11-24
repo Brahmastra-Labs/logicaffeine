@@ -197,7 +197,7 @@ logicaffeine/
 ├── examples/                    # Example LOGOS projects, each with a README
 ├── editors/vscode/              # VS Code extension
 ├── benchmarks/                  # Cross-language benchmark suite + results
-├── services/                    # Cloudflare Workers: the package registry, the lead form and the heal worker
+├── services/                    # Cloudflare Workers: the package registry and the lead form
 ├── scripts/                     # Entry points and the FPGA/silicon tooling at the top; the rest by area, indexed in scripts/README.md
 ├── .config/                     # nextest profiles, repo shape, size budgets, mutation scope, coverage floors
 ├── .github/                     # CI workflows, issue and PR templates, this guide

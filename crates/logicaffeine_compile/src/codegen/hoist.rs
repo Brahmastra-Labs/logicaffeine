@@ -615,6 +615,12 @@ pub(crate) fn plan_borrow_hoist<'a>(
     entries
 }
 
+/// The indentation of what a hoist scope holds: one level inside the braces of a scope that opened, the scope's own
+/// where none did.
+pub(crate) fn scoped_indent(entries: &[HoistEntry], indent: usize) -> usize {
+    indent + usize::from(!entries.is_empty())
+}
+
 /// Open the hoist scope: guards, shadows, and the slice type flips.
 /// Returns nothing to restore beyond what the entries carry — call
 /// [`emit_hoist_close`] with the same entries on the way out.
@@ -636,19 +642,24 @@ pub(crate) fn emit_hoist_open(
         match (e.kind, e.is_vec) {
             // LogosSeq: a `.borrow()` guard + slice shadow.
             (HoistKind::Shared, false) => {
-                writeln!(output, "{}    let __{}_g = {}.borrow();", indent_str, n, n).unwrap();
-                writeln!(output, "{}    let {} = &__{}_g[..];", indent_str, n, n).unwrap();
+                writeln!(
+                    output,
+                    "{}    let __{}_g: std::cell::Ref<'_, Vec<{}>> = {}.borrow();",
+                    indent_str, n, e.elem_ty, n
+                )
+                .unwrap();
+                writeln!(output, "{}    let {}: &[{}] = &__{}_g[..];", indent_str, n, e.elem_ty, n).unwrap();
                 ctx.register_variable_type(e.sym, format!("&[{}]", e.elem_ty));
             }
             (HoistKind::MutSlice, false) => {
                 emit_cow(&Expr::Identifier(e.sym), ctx, &names, &inner, output);
                 writeln!(
                     output,
-                    "{}    let mut __{}_g = {}.borrow_mut();",
-                    indent_str, n, n
+                    "{}    let mut __{}_g: std::cell::RefMut<'_, Vec<{}>> = {}.borrow_mut();",
+                    indent_str, n, e.elem_ty, n
                 )
                 .unwrap();
-                writeln!(output, "{}    let {} = &mut __{}_g[..];", indent_str, n, n).unwrap();
+                writeln!(output, "{}    let {}: &mut [{}] = &mut __{}_g[..];", indent_str, n, e.elem_ty, n).unwrap();
                 ctx.register_variable_type(e.sym, format!("&mut [{}]", e.elem_ty));
             }
             (HoistKind::MutVec, false) => {
@@ -659,28 +670,33 @@ pub(crate) fn emit_hoist_open(
                 emit_cow(&Expr::Identifier(e.sym), ctx, &names, &inner, output);
                 writeln!(
                     output,
-                    "{}    let mut __{}_g = {}.borrow_mut();",
-                    indent_str, n, n
+                    "{}    let mut __{}_g: std::cell::RefMut<'_, Vec<{}>> = {}.borrow_mut();",
+                    indent_str, n, e.elem_ty, n
                 )
                 .unwrap();
-                writeln!(output, "{}    let {} = &mut *__{}_g;", indent_str, n, n).unwrap();
+                writeln!(output, "{}    let {}: &mut Vec<{}> = &mut __{}_g;", indent_str, n, e.elem_ty, n).unwrap();
                 ctx.register_variable_type(e.sym, format!("Vec<{}>", e.elem_ty));
             }
             // De-Rc'd Vec: the SAME noalias slice, but no `.borrow()`.
             (HoistKind::Shared, true) => {
-                writeln!(output, "{}    let {} = &{}[..];", indent_str, n, n).unwrap();
+                writeln!(output, "{}    let {}: &[{}] = &{}[..];", indent_str, n, e.elem_ty, n).unwrap();
                 ctx.register_variable_type(e.sym, format!("&[{}]", e.elem_ty));
             }
             (HoistKind::MutSlice, true) => {
-                writeln!(output, "{}    let {} = &mut {}[..];", indent_str, n, n).unwrap();
+                writeln!(output, "{}    let {}: &mut [{}] = &mut {}[..];", indent_str, n, e.elem_ty, n).unwrap();
                 ctx.register_variable_type(e.sym, format!("&mut [{}]", e.elem_ty));
             }
             (HoistKind::MutVec, true) => {
-                // Resized in the loop — keep it a `&mut Vec` (a slice can't
-                // push) but reborrow so LLVM gets the `&mut` noalias. The
-                // binding is `mut` so a NESTED loop can reborrow it again
-                // (`let mut a = &mut a;` then inner `let mut a = &mut a;`).
-                writeln!(output, "{}    let mut {} = &mut {};", indent_str, n, n).unwrap();
+                // Resized in the loop — keep it a `&mut Vec` (a slice can't push) but reborrow so LLVM gets the
+                // `&mut` noalias. A nested loop reborrows the handle its enclosing loop holds through it
+                // (`let a: &mut Vec<T> = &mut *a;`), so neither binding is `mut`.
+                let through = if ctx.reborrow(e.sym) { "*" } else { "" };
+                writeln!(
+                    output,
+                    "{}    let {}: &mut Vec<{}> = &mut {}{};",
+                    indent_str, n, e.elem_ty, through, n
+                )
+                .unwrap();
                 ctx.register_variable_type(e.sym, format!("Vec<{}>", e.elem_ty));
             }
         }
@@ -699,6 +715,9 @@ pub(crate) fn emit_hoist_close(
     }
     for e in entries {
         ctx.register_variable_type(e.sym, e.old_type.clone());
+        if e.kind == HoistKind::MutVec && e.is_vec {
+            ctx.end_reborrow(e.sym);
+        }
     }
     writeln!(output, "{}}}", indent_str).unwrap();
 }

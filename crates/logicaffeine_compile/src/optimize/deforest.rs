@@ -10,12 +10,20 @@
 //!
 //! Becomes:
 //!   Repeat for x in source: ... Let y = <expr>. <body> ...
+//!
+//! The fused loop runs consumer iteration k before producer iterations k+1..n, so the two loops fuse only
+//! when those actions commute ([`fusion_commutes`]): the intermediate is touched only by the producer's
+//! pushes and the consumer's walk, neither loop writes a name the other touches, the two do not both print,
+//! a failure is not reordered against a print or another failure, and a consumer that can leave early
+//! leaves behind nothing the producer would still have done. Names are compared as names
+//! ([`super::mentions`]).
 
 use std::collections::HashSet;
 
+use super::mentions::Mentions;
 use super::writes::{CalleeGlobals, WriteSet};
 use crate::arena::Arena;
-use crate::ast::stmt::{Block, Expr, Pattern, Stmt, StringPart};
+use crate::ast::stmt::{BinaryOpKind, Block, Expr, Pattern, Stmt, StringPart};
 use crate::intern::{Interner, Symbol};
 
 pub fn deforest_stmts<'a>(
@@ -172,6 +180,7 @@ fn try_deforest<'a>(
 ) -> Option<(usize, Vec<Stmt<'a>>)> {
     // Step 1: stmts[start] must be `Let mutable temp = new Seq/List`
     let temp_sym = match_temp_init(&stmts[start], interner)?;
+    let temp = interner.resolve(temp_sym);
 
     // Step 2: stmts[start+1] must be a Repeat that pushes to temp
     let producer_idx = start + 1;
@@ -190,7 +199,7 @@ fn try_deforest<'a>(
             consumer_idx = Some(j);
             break;
         }
-        if stmt_references_symbol(&stmts[j], temp_sym) {
+        if Mentions::of_stmt(&stmts[j]).touches(temp, interner) {
             return None;
         }
         if !is_safe_intermediate(&stmts[j]) {
@@ -202,7 +211,7 @@ fn try_deforest<'a>(
 
     // Step 4: Verify temp is not referenced after the consumer
     for j in (consumer_idx + 1)..stmts.len() {
-        if stmt_references_symbol(&stmts[j], temp_sym) {
+        if Mentions::of_stmt(&stmts[j]).touches(temp, interner) {
             return None;
         }
     }
@@ -217,14 +226,17 @@ fn try_deforest<'a>(
         _ => return None,
     };
 
-    // Step 6: Safety — consumer body must not write to producer's source symbols (directly, in a
-    // nested block, or through a call to a function that assigns one of them).
-    let producer_source = collect_iterable_symbols(&stmts[producer_idx]);
-    let consumer_writes = WriteSet::of_block(consumer_body).with_callee_globals(globals);
-    if producer_source
-        .iter()
-        .any(|sym| consumer_writes.may_write(*sym))
-    {
+    // Step 6: Safety — the two loops' actions commute, and the intermediates hoisted above the
+    // producer can neither see nor shadow what it does.
+    if !fusion_commutes(
+        &stmts[producer_idx],
+        temp,
+        pattern_var,
+        consumer_body,
+        &intermediates,
+        interner,
+        globals,
+    ) {
         return None;
     }
 
@@ -330,279 +342,311 @@ fn is_safe_intermediate(stmt: &Stmt) -> bool {
     matches!(stmt, Stmt::Let { .. })
 }
 
-/// Collect symbols from the producer's iterable expression.
-fn collect_iterable_symbols(stmt: &Stmt) -> HashSet<Symbol> {
-    let mut syms = HashSet::new();
-    if let Stmt::Repeat { iterable, .. } = stmt {
-        collect_expr_symbols(iterable, &mut syms);
-    }
-    syms
+/// What a loop body does, as far as reordering it against another loop's work can tell. Names are
+/// spelled names: the parser may mint a distinct symbol for each occurrence of one variable.
+struct Actions {
+    /// Every name the body reads, declares, assigns or mutates.
+    touched: HashSet<String>,
+    /// Every name the body declares, assigns or mutates, a callee's global writes included.
+    written: HashSet<String>,
+    /// The names it writes that outlive one pass: assigned or mutated, not declared in the body.
+    outer_writes: HashSet<String>,
+    /// It prints, or runs a call (a callee may print).
+    shows: bool,
+    /// It runs a call: a callee may read a global the other loop writes.
+    calls: bool,
+    /// It can fail: a division, an index, a call, a `Fail`, a nested `While` that may not finish.
+    fails: bool,
+    /// It can leave its own loop early: a `Break` of that loop, or a `Return`.
+    exits: bool,
+    /// It returns from the function.
+    returns: bool,
+    /// It does something this summary does not model; such a body is never reordered.
+    unknown: bool,
 }
 
-fn collect_expr_symbols(expr: &Expr, syms: &mut HashSet<Symbol>) {
-    match expr {
-        Expr::Dom(q) => {
-            if let Some(sel) = q.selector() {
-                collect_expr_symbols(sel, syms);
+impl Actions {
+    /// The actions of `body`, leaving out what `skip` (the producer's pushes to the intermediate) does
+    /// beyond evaluating the pushed value.
+    fn of(body: &[Stmt], skip: Option<&str>, interner: &Interner, globals: &CalleeGlobals) -> Self {
+        let names = |syms: &mut dyn Iterator<Item = Symbol>| -> HashSet<String> {
+            syms.map(|s| interner.resolve(s).to_string()).filter(|n| Some(n.as_str()) != skip).collect()
+        };
+        let mentions = Mentions::of_block(body);
+        let writes = WriteSet::of_block(body).with_callee_globals(globals);
+        let declared = names(&mut writes.declared().iter().copied());
+        let mut acts = Actions {
+            touched: names(&mut mentions.symbols()),
+            written: names(&mut writes.symbols()),
+            outer_writes: names(&mut writes.assigned().iter().chain(writes.mutated().iter()).copied())
+                .into_iter()
+                .filter(|n| !declared.contains(n))
+                .collect(),
+            shows: false,
+            calls: writes.has_calls(),
+            fails: false,
+            exits: false,
+            returns: false,
+            unknown: mentions.is_opaque() || writes.is_opaque(),
+        };
+        acts.walk_block(body, 0, skip, interner);
+        if acts.calls {
+            acts.shows = true;
+            acts.fails = true;
+        }
+        acts
+    }
+
+    fn walk_block(&mut self, block: &[Stmt], depth: u32, skip: Option<&str>, interner: &Interner) {
+        for stmt in block {
+            self.walk_stmt(stmt, depth, skip, interner);
+        }
+    }
+
+    fn walk_stmt(&mut self, stmt: &Stmt, depth: u32, skip: Option<&str>, interner: &Interner) {
+        match stmt {
+            Stmt::Let { value, .. } | Stmt::Set { value, .. } => self.walk_expr(value),
+            Stmt::Push { value, collection } => {
+                let skipped = matches!(collection, Expr::Identifier(c) if Some(interner.resolve(*c)) == skip);
+                if !skipped {
+                    self.walk_expr(collection);
+                }
+                self.walk_expr(value);
             }
-        }
-        Expr::View(v) => {
-            let (view_exprs, view_blocks) = v.exprs_and_blocks();
-            for e in view_exprs {
-                collect_expr_symbols(e, syms);
+            Stmt::Add { value, collection } | Stmt::Remove { value, collection } => {
+                self.walk_expr(collection);
+                self.walk_expr(value);
             }
-            let _ = view_blocks;
-        }
-        Expr::Identifier(s) => {
-            syms.insert(*s);
-        }
-        Expr::Literal(_) | Expr::OptionNone => {}
-        Expr::BinaryOp { left, right, .. } => {
-            collect_expr_symbols(left, syms);
-            collect_expr_symbols(right, syms);
-        }
-        Expr::Not { operand }
-        | Expr::Length {
-            collection: operand,
-        }
-        | Expr::Copy { expr: operand }
-        | Expr::Give { value: operand }
-        | Expr::OptionSome { value: operand }
-        | Expr::ManifestOf { zone: operand }
-        | Expr::FieldAccess {
-            object: operand, ..
-        } => {
-            collect_expr_symbols(operand, syms);
-        }
-        Expr::Index { collection, index }
-        | Expr::Contains {
-            collection,
-            value: index,
-        }
-        | Expr::Union {
-            left: collection,
-            right: index,
-        }
-        | Expr::Intersection {
-            left: collection,
-            right: index,
-        }
-        | Expr::Range {
-            start: collection,
-            end: index,
-        }
-        | Expr::WithCapacity {
-            value: collection,
-            capacity: index,
-        }
-        | Expr::ChunkAt {
-            index,
-            zone: collection,
-        } => {
-            collect_expr_symbols(collection, syms);
-            collect_expr_symbols(index, syms);
-        }
-        Expr::Slice {
-            collection,
-            start,
-            end,
-        } => {
-            collect_expr_symbols(collection, syms);
-            collect_expr_symbols(start, syms);
-            collect_expr_symbols(end, syms);
-        }
-        Expr::List(items) | Expr::Tuple(items) => {
-            for item in items {
-                collect_expr_symbols(item, syms);
+            Stmt::SetField { object, value, .. } => {
+                self.walk_expr(object);
+                self.walk_expr(value);
             }
-        }
-        Expr::New { init_fields, .. } => {
-            for (_, val) in init_fields {
-                collect_expr_symbols(val, syms);
+            Stmt::SetIndex { collection, index, value } => {
+                self.fails = true;
+                self.walk_expr(collection);
+                self.walk_expr(index);
+                self.walk_expr(value);
             }
-        }
-        Expr::NewVariant { fields, .. } => {
-            for (_, val) in fields {
-                collect_expr_symbols(val, syms);
+            Stmt::Pop { collection, .. } => {
+                self.fails = true;
+                self.walk_expr(collection);
             }
-        }
-        Expr::InterpolatedString(parts) => {
-            for part in parts {
-                if let StringPart::Expr { value, .. } = part {
-                    collect_expr_symbols(value, syms);
+            Stmt::Show { object, recipient } => {
+                self.shows = true;
+                self.walk_expr(object);
+                self.walk_expr(recipient);
+            }
+            Stmt::If { cond, then_block, else_block } => {
+                self.walk_expr(cond);
+                self.walk_block(then_block, depth, skip, interner);
+                if let Some(eb) = else_block {
+                    self.walk_block(eb, depth, skip, interner);
                 }
             }
-        }
-        Expr::Call { args, .. } => {
-            for arg in args {
-                collect_expr_symbols(arg, syms);
+            Stmt::Repeat { iterable, body, .. } => {
+                self.walk_expr(iterable);
+                self.walk_block(body, depth + 1, skip, interner);
             }
-        }
-        Expr::CallExpr { callee, args } => {
-            collect_expr_symbols(callee, syms);
-            for arg in args {
-                collect_expr_symbols(arg, syms);
+            Stmt::While { cond, body, .. } => {
+                self.fails = true;
+                self.walk_expr(cond);
+                self.walk_block(body, depth + 1, skip, interner);
             }
+            Stmt::Break => {
+                if depth == 0 {
+                    self.exits = true;
+                }
+            }
+            Stmt::Return { value } => {
+                self.exits = true;
+                self.returns = true;
+                if let Some(v) = value {
+                    self.walk_expr(v);
+                }
+            }
+            Stmt::Fail { reason } => {
+                self.fails = true;
+                self.walk_expr(reason);
+            }
+            _ => self.unknown = true,
         }
-        Expr::Closure { .. } | Expr::Escape { .. } => {}
+    }
+
+    fn walk_expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Literal(_) | Expr::Identifier(_) | Expr::OptionNone => {}
+            Expr::BinaryOp { op, left, right } => {
+                if matches!(
+                    op,
+                    BinaryOpKind::Divide
+                        | BinaryOpKind::ExactDivide
+                        | BinaryOpKind::FloorDivide
+                        | BinaryOpKind::Modulo
+                        | BinaryOpKind::Pow
+                ) {
+                    self.fails = true;
+                }
+                self.walk_expr(left);
+                self.walk_expr(right);
+            }
+            Expr::Not { operand }
+            | Expr::Length { collection: operand }
+            | Expr::Copy { expr: operand }
+            | Expr::OptionSome { value: operand }
+            | Expr::FieldAccess { object: operand, .. } => self.walk_expr(operand),
+            Expr::Contains { collection, value } => {
+                self.walk_expr(collection);
+                self.walk_expr(value);
+            }
+            Expr::Union { left, right } | Expr::Intersection { left, right } => {
+                self.walk_expr(left);
+                self.walk_expr(right);
+            }
+            Expr::Range { start, end } => {
+                self.walk_expr(start);
+                self.walk_expr(end);
+            }
+            Expr::Index { collection, index } => {
+                self.fails = true;
+                self.walk_expr(collection);
+                self.walk_expr(index);
+            }
+            Expr::Slice { collection, start, end } => {
+                self.fails = true;
+                self.walk_expr(collection);
+                self.walk_expr(start);
+                self.walk_expr(end);
+            }
+            Expr::List(items) | Expr::Tuple(items) => {
+                for item in items.iter() {
+                    self.walk_expr(item);
+                }
+            }
+            Expr::New { init_fields, .. } => {
+                for (_, v) in init_fields.iter() {
+                    self.walk_expr(v);
+                }
+            }
+            Expr::NewVariant { fields, .. } => {
+                for (_, v) in fields.iter() {
+                    self.walk_expr(v);
+                }
+            }
+            Expr::InterpolatedString(parts) => {
+                for part in parts.iter() {
+                    if let StringPart::Expr { value, .. } = part {
+                        self.walk_expr(value);
+                    }
+                }
+            }
+            Expr::Call { args, .. } => {
+                self.calls = true;
+                for a in args.iter() {
+                    self.walk_expr(a);
+                }
+            }
+            Expr::CallExpr { callee, args } => {
+                self.calls = true;
+                self.walk_expr(callee);
+                for a in args.iter() {
+                    self.walk_expr(a);
+                }
+            }
+            _ => self.unknown = true,
+        }
     }
 }
 
-/// Check if any expression in a statement references a given symbol.
-fn stmt_references_symbol(stmt: &Stmt, sym: Symbol) -> bool {
-    match stmt {
-        Stmt::Let { var, value, .. } => *var == sym || expr_references_symbol(value, sym),
-        Stmt::Set { target, value } => *target == sym || expr_references_symbol(value, sym),
-        Stmt::Show { object, recipient } => {
-            expr_references_symbol(object, sym) || expr_references_symbol(recipient, sym)
+/// Whether `stmts` touch `temp` only as the target of `Push v to temp` with `v` not touching it, entering
+/// the `If`s [`replace_pushes`] rewrites. Any other place `temp` appears needs the list itself.
+fn touches_temp_only_by_pushing(stmts: &[Stmt], temp: &str, interner: &Interner) -> bool {
+    stmts.iter().all(|stmt| match stmt {
+        Stmt::Push { value, collection: Expr::Identifier(c) } if interner.resolve(*c) == temp => {
+            !Mentions::of_expr(value).touches(temp, interner)
         }
-        Stmt::Push { collection, value }
-        | Stmt::Add { collection, value }
-        | Stmt::Remove { collection, value } => {
-            expr_references_symbol(collection, sym) || expr_references_symbol(value, sym)
+        Stmt::If { cond, then_block, else_block } => {
+            !Mentions::of_expr(cond).touches(temp, interner)
+                && touches_temp_only_by_pushing(then_block, temp, interner)
+                && else_block.map_or(true, |eb| touches_temp_only_by_pushing(eb, temp, interner))
         }
-        Stmt::Pop { collection, into } => {
-            expr_references_symbol(collection, sym) || into.map_or(false, |s| s == sym)
-        }
-        Stmt::SetIndex {
-            collection,
-            index,
-            value,
-        } => {
-            expr_references_symbol(collection, sym)
-                || expr_references_symbol(index, sym)
-                || expr_references_symbol(value, sym)
-        }
-        Stmt::SetField { object, value, .. } => {
-            expr_references_symbol(object, sym) || expr_references_symbol(value, sym)
-        }
-        Stmt::Return { value } => value.map_or(false, |v| expr_references_symbol(v, sym)),
-        Stmt::Call { args, .. } => args.iter().any(|a| expr_references_symbol(a, sym)),
-        Stmt::If {
-            cond,
-            then_block,
-            else_block,
-        } => {
-            expr_references_symbol(cond, sym)
-                || then_block.iter().any(|s| stmt_references_symbol(s, sym))
-                || else_block.map_or(false, |eb| {
-                    eb.iter().any(|s| stmt_references_symbol(s, sym))
-                })
-        }
-        Stmt::While { cond, body, .. } => {
-            expr_references_symbol(cond, sym) || body.iter().any(|s| stmt_references_symbol(s, sym))
-        }
-        Stmt::Repeat {
-            iterable,
-            body,
-            pattern,
-        } => {
-            let pattern_matches = match pattern {
-                Pattern::Identifier(s) => *s == sym,
-                Pattern::Tuple(syms) => syms.contains(&sym),
-            };
-            pattern_matches
-                || expr_references_symbol(iterable, sym)
-                || body.iter().any(|s| stmt_references_symbol(s, sym))
-        }
-        Stmt::Inspect { target, arms, .. } => {
-            expr_references_symbol(target, sym)
-                || arms
-                    .iter()
-                    .any(|arm| arm.body.iter().any(|s| stmt_references_symbol(s, sym)))
-        }
-        // Conservative: unknown statement types are assumed to reference the symbol
-        _ => true,
-    }
+        other => !Mentions::of_stmt(other).touches(temp, interner),
+    })
 }
 
-fn expr_references_symbol(expr: &Expr, sym: Symbol) -> bool {
-    match expr {
-        Expr::Dom(q) => q
-            .selector()
-            .is_some_and(|sel| expr_references_symbol(sel, sym)),
-        Expr::View(v) => {
-            let (view_exprs, view_blocks) = v.exprs_and_blocks();
-            let _ = &view_blocks;
-            view_exprs.iter().any(|e| expr_references_symbol(e, sym))
-                || view_blocks
-                    .iter()
-                    .any(|b| b.iter().any(|st| stmt_references_symbol(st, sym)))
-        }
-        Expr::Identifier(s) => *s == sym,
-        Expr::Literal(_) | Expr::OptionNone => false,
-        Expr::BinaryOp { left, right, .. } => {
-            expr_references_symbol(left, sym) || expr_references_symbol(right, sym)
-        }
-        Expr::Not { operand }
-        | Expr::Length {
-            collection: operand,
-        }
-        | Expr::Copy { expr: operand }
-        | Expr::Give { value: operand }
-        | Expr::OptionSome { value: operand }
-        | Expr::ManifestOf { zone: operand }
-        | Expr::FieldAccess {
-            object: operand, ..
-        } => expr_references_symbol(operand, sym),
-        Expr::Index { collection, index }
-        | Expr::Contains {
-            collection,
-            value: index,
-        }
-        | Expr::Union {
-            left: collection,
-            right: index,
-        }
-        | Expr::Intersection {
-            left: collection,
-            right: index,
-        }
-        | Expr::Range {
-            start: collection,
-            end: index,
-        }
-        | Expr::WithCapacity {
-            value: collection,
-            capacity: index,
-        }
-        | Expr::ChunkAt {
-            index,
-            zone: collection,
-        } => expr_references_symbol(collection, sym) || expr_references_symbol(index, sym),
-        Expr::Slice {
-            collection,
-            start,
-            end,
-        } => {
-            expr_references_symbol(collection, sym)
-                || expr_references_symbol(start, sym)
-                || expr_references_symbol(end, sym)
-        }
-        Expr::List(items) | Expr::Tuple(items) => {
-            items.iter().any(|item| expr_references_symbol(item, sym))
-        }
-        Expr::New { init_fields, .. } => init_fields
-            .iter()
-            .any(|(_, val)| expr_references_symbol(val, sym)),
-        Expr::NewVariant { fields, .. } => fields
-            .iter()
-            .any(|(_, val)| expr_references_symbol(val, sym)),
-        Expr::InterpolatedString(parts) => parts.iter().any(|part| {
-            if let StringPart::Expr { value, .. } = part {
-                expr_references_symbol(value, sym)
-            } else {
-                false
-            }
-        }),
-        Expr::Call { args, .. } => args.iter().any(|a| expr_references_symbol(a, sym)),
-        Expr::CallExpr { callee, args } => {
-            expr_references_symbol(callee, sym)
-                || args.iter().any(|a| expr_references_symbol(a, sym))
-        }
-        // Conservative for opaque expressions
-        Expr::Closure { .. } | Expr::Escape { .. } => true,
+/// Whether fusing `producer` (which fills `temp`) with the consumer `Repeat for pattern_var in temp:
+/// consumer_body`, hoisting `intermediates` above the producer, keeps the program's meaning. The fused loop
+/// runs the consumer's pass for item k before the producer's passes k+1..n, so every action of the one must
+/// commute with every action of the other.
+fn fusion_commutes(
+    producer: &Stmt,
+    temp: &str,
+    pattern_var: Symbol,
+    consumer_body: &[Stmt],
+    intermediates: &[Stmt],
+    interner: &Interner,
+    globals: &CalleeGlobals,
+) -> bool {
+    let Stmt::Repeat { pattern, iterable, body } = producer else {
+        return false;
+    };
+    if !touches_temp_only_by_pushing(body, temp, interner) {
+        return false;
     }
+    let mut p = Actions::of(body, Some(temp), interner, globals);
+    let c = Actions::of(consumer_body, None, interner, globals);
+    if p.unknown || c.unknown || p.returns {
+        return false;
+    }
+    let source = Mentions::of_expr(iterable);
+    if source.is_opaque() || c.touched.contains(temp) {
+        return false;
+    }
+    p.touched.extend(source.symbols().map(|s| interner.resolve(s).to_string()));
+
+    // Data: neither loop writes a name the other touches. The consumer's pass now runs inside the
+    // producer's, so its item name must not be one the producer reads, nor the producer's item names
+    // ones the consumer reads.
+    if c.written.iter().any(|n| p.touched.contains(n)) || p.written.iter().any(|n| c.touched.contains(n)) {
+        return false;
+    }
+    if p.touched.contains(interner.resolve(pattern_var)) {
+        return false;
+    }
+    let producer_items: Vec<Symbol> = match pattern {
+        Pattern::Identifier(s) => vec![*s],
+        Pattern::Tuple(syms) => syms.clone(),
+    };
+    if producer_items.iter().any(|s| c.touched.contains(interner.resolve(*s))) {
+        return false;
+    }
+    // A callee may read a global the other loop writes.
+    if p.calls && !c.written.is_empty() || c.calls && !p.written.is_empty() {
+        return false;
+    }
+
+    // Order: two loops that both print would interleave their lines; a failure moved ahead of or past a
+    // print, or past another failure, changes what the run shows or which error it reports.
+    if p.shows && c.shows || p.fails && (c.shows || c.fails) || c.fails && p.shows {
+        return false;
+    }
+    // A consumer that leaves early also stops the producer's later passes: they must have done nothing.
+    if c.exits && (p.shows || p.fails || !p.outer_writes.is_empty()) {
+        return false;
+    }
+
+    // The intermediates now run before the producer: each must be a `Let` that cannot fail, reads
+    // nothing the producer writes, and binds no name the producer touches.
+    intermediates.iter().all(|stmt| {
+        let Stmt::Let { var, .. } = stmt else {
+            return false;
+        };
+        let acts = Actions::of(std::slice::from_ref(stmt), None, interner, globals);
+        !acts.unknown
+            && !acts.fails
+            && !acts.shows
+            && !p.touched.contains(interner.resolve(*var))
+            && !acts.touched.iter().any(|n| p.written.contains(n))
+    })
 }
 
 /// Build the fused Repeat loop. Replaces each `Push val to temp` in the producer

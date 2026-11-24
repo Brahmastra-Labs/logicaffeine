@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **`MicroOp::MagicDivS`, division by a divisor fixed at compile time for a dividend of either sign.** `x / d` or `x % d`
+  (`mul_back = d`) as a signed multiply-high, an add of the dividend when the magic is negative, an arithmetic shift and
+  a one for a negative dividend; no side exit, since the divisor is at least two. It lowers on the register-allocating
+  backend (`x64asm::Asm::imul_r`, the one-operand signed multiply) and the stencil tiers (`logos_stencil_magicdivs`),
+  and `reference_eval` evaluates it through `magic_eval_signed`. `jit_value_specialization_lock` checks it against
+  `x / d` and `x % d` on every backend, pinned and unpinned, for 300 divisors in a row, every power of two, large
+  divisors and 300 random ones.
+- `regalloc::compile_function_regalloc_precise_framed`: the precise function backend with the VM register count from
+  the caller. `compile_function_regalloc_precise` reads it from the stream's prologue, which a function versioned at its
+  entry does not open with, so such a function fell back to the per-piece tier, and a held value of -1 in its first
+  check would have read as the prologue (`jit_regalloc_listreturn`, `jit_function_value_specialization_lock`).
+
 ## [0.11.0] - 2026-11-02
 
 ### Added

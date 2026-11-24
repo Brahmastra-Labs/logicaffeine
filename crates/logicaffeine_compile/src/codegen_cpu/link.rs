@@ -828,6 +828,7 @@ impl Cx<'_> {
             TensorOpSpec::Silu(s) => phases.push(self.exp_values(op, s.n, rows, "lk_silu_vals", &|x| format!("{x} / (1.f + lk_exp(0.f - {x}))"))),
             TensorOpSpec::Sigmoid(s) => phases.push(self.exp_values(op, s.n, rows, "lk_sigmoid_vals", &|x| format!("1.f / (1.f + lk_exp(0.f - {x}))"))),
             TensorOpSpec::Gelu(s) => phases.push(self.values(op, s.n, rows, &|x| format!("lk_gelu1({x})"))),
+            TensorOpSpec::Erf(s) => phases.push(self.values(op, s.n, rows, &|x| format!("std::erf({x})"))),
             TensorOpSpec::Relu(r) => {
                 let zero = if self.int(&op.ins[0]) { "(int64_t)0" } else { "0.f" };
                 phases.push(self.values(op, r.n, rows, &|x| format!("std::max({x}, {zero})")));
@@ -978,6 +979,7 @@ impl Cx<'_> {
                 phases.extend(out.place);
             }
             TensorOpSpec::Attention(a) => {
+                assert_eq!(a.from_row, 0, "the CPU tier's shim runs no block's last rows apart from the rest");
                 let ar = a.rows.max(1);
                 let mut qin = self.input(op, 0, a.h * a.hd, ar * a.h * a.hd, Some(ar), &mut setup, &mut phases);
                 let cache = |cx: &Self, k: usize, width: usize| -> (String, usize, usize) {

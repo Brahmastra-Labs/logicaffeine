@@ -6,6 +6,57 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Partial compilation of loop regions: a region that does not lower whole is compiled from the code with its cold
+  paths replaced, each cold entry a precise exit (`logos_rt_side_exit`) the VM resumes at, refused when a register live
+  there is one the exit cannot re-box; a cut region counts its iterations in a frame slot. `RegionReport::cold_entries`
+  and `cold_exits` (`jit_partial_region_lock`).
+- A loop region that builds a list literal every iteration (`Let pair be [i, i * 2]`) keeps one buffer: the literal is
+  cleared and refilled in place in the pinned register it ends in, where it was a region the JIT declined. The VM
+  compiler builds the literal in a scratch register and copies it into the name; when that copy is the scratch's only
+  use, the literal is built straight into the name's buffer and the copy does nothing (`jit_partial_region_lock`).
+- `ForgeTier::region_reports` and `JitBackendOptimizationTrace::regions`: every loop region compiled, as a
+  `RegionReport` (entries, completions, exits, side exits, guard misses, demoted) (`jit_partial_region_lock`).
+- **A loop is specialized on the flags it never changes.** Before lowering a region, the JIT folds every in-region
+  branch its invariant live-ins decide: a `Bool` no op in the loop writes, or a comparison in the same block of such an
+  `Int` or `Bool` with another or with a constant, seeded with the values the VM saw at the hot crossing. Each folds to
+  the jump it would take, the side no entry takes is dropped (so a loop whose dead side holds an op the JIT cannot
+  lower, a `Show` say, now runs native), and the region guards each value it read. `jit_invariant_branch_lock`: a flag
+  off or on, an ordering against a constant, a flag that turns on in a later entry (runs on bytecode, same output) and
+  a flag the loop writes.
+- **A loop is specialized on the divisor it never changes.** A region whose `/` or `%` divides by an `Int` that no op in
+  the loop writes compiles against the value the VM saw at the hot crossing: the division becomes `MagicDivS` (a
+  multiply-high and shifts in place of `idiv`), and the region reports a value guard (`RegionFn::value_guards`) the VM
+  checks on every entry. A divisor of one, zero or a negative one is not specialized. The trace names it
+  `value_specialized_region` (`JitOptimization::ValueSpecializedRegion`); `LOGOS_VALUE_SPEC=0` turns it off.
+  `ForgeTier::value_specializations` and `JitBackendOptimizationTrace::value_specializations` report each specialized
+  loop (`ValueSpecialization`: loop head, slots and values, entries, value-guard misses and how many of them the loop's
+  generic region ran, and whether the generic region replaced it).
+  `jit_value_specialization_lock` holds the output to the tree-walker's for divisors from the command line, dividends
+  down to `i64::MIN`, a divisor that changes between entries and one the loop writes; a `% k` loop runs 1.62× the
+  generic region on an i9-14900K (`jit_value_specialization_perf_lock`, floor 1.25×).
+- **A function is specialized on the arguments its callers never change.** The VM records what each `Int` or `Bool`
+  parameter was passed over a function's warm-up and hands the compile the values every call agreed on. Wherever a
+  parameter keeps its entry value (`entry_copies`, below), the lowered stream is copied and folded on it (each branch it
+  decides becomes the jump it takes, each division by it the signed reciprocal) and versioned at the
+  function's own entry ahead of the generic stream, one compare per value choosing the copy. The check is in the machine
+  code because native callers reach the function through the dispatch table, past every guard the VM applies: a call
+  passing another value, from the VM, a native loop or the function's own recursion, runs the generic code, so a
+  function is compiled, and specialized, once. The trace names it `value_specialized_function`
+  (`JitOptimization::ValueSpecializedFunction`); `ForgeTier::function_specializations` and
+  `JitBackendOptimizationTrace::function_specializations` report each one (`FunctionSpecialization`: the function, its
+  entry pc, the registers and values); `LOGOS_VALUE_SPEC=0` turns it off. `jit_function_value_specialization_lock`
+  holds the output to the tree-walker's for divisors and flags from the command line, a fuzz set of divisors over
+  dividends across the word, a value that changes after the warm-up (in a native loop's calls and in the function's
+  recursion), two values held at once, a list-parameter function that side-exits in its specialized copy, and a value
+  that varies in the warm-up, one nothing folds on and one the function writes, none of them specialized; a digit-sum
+  function runs 2.8× the generic one on an i9-14900K (`jit_function_value_specialization_perf_lock`, floor 1.5×).
+- A slot holds a live-in's value where every path brings it a copy of it (`entry_copies`, a must-copy analysis over
+  the lowered stream): a function's self tail call that passes a parameter on unchanged keeps it specialized, and a
+  loop region's division by a copy of an invariant divisor now multiplies by its reciprocal too, under the guard on the
+  live-in (`function_versioning_tests`, `jit_function_value_specialization_lock`, `jit_value_specialization_lock`).
+
 ## [0.11.0] - 2026-11-02
 
 ### Added

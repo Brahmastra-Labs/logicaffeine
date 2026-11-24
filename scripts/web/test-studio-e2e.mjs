@@ -61,6 +61,7 @@ function serve(dir) {
     let file = path.join(dir, decodeURIComponent(url.pathname));
     if (!file.startsWith(dir)) { res.writeHead(403).end(); return; }
     if (fs.existsSync(file) && fs.statSync(file).isDirectory()) file = path.join(file, 'index.html');
+    if (!fs.existsSync(file) && fs.existsSync(`${file}.html`)) file = `${file}.html`;
     if (!fs.existsSync(file)) file = path.join(dir, 'index.html');
     res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
     fs.createReadStream(file).pipe(res);
@@ -567,12 +568,12 @@ scenario('the_debugger_output_is_what_the_program_printed', async (t) => {
     lastRun = again;
     if (same && (again.lines.length > 0 || again.note)) break;
   }
-  const rust = await t.page.waitForSelector('xpath/.//button[contains(@class, "output-mode-btn") and normalize-space(.)="Rust"]', { timeout: 10000 });
-  await rust.click();
+  await t.page.waitForSelector('.output-target', { timeout: 10000 });
+  await t.page.select('.output-target', 'rust');
   await t.frames(2);
   await t.openDebugger();
   assert(!(await t.page.$('.dbg-out')) && !(await t.page.$('.dbg-out-grip')), 'the debugger drawer still has an output pane of its own');
-  const active = await t.page.$eval('.output-mode-btn.active', (b) => b.innerText.trim()).catch(() => null);
+  const active = await t.page.$eval('.output-target', (s) => s.options[s.selectedIndex].text.trim()).catch(() => null);
   assert(active === 'Output', `opening the debugger left the Output column on ${JSON.stringify(active)}`);
 
   const before = await t.outputColumn();
@@ -2754,6 +2755,11 @@ scenario('the_syntax_tree_starts_collapsed_and_the_dictionary_open', async (t) =
 scenario('a_closed_block_opens_when_clicked_anywhere_on_it', async (t) => {
   for (const viewport of [DESKTOP, PHONE]) {
     await t.open(FILES.sentences, viewport);
+    // A phone opens on the program (Collin, 2026-11-24): the blocks are on its Logic pane.
+    if (viewport.isMobile) {
+      await (await t.page.$$('.mobile-tabs [role="tab"]'))[1].tap();
+      await t.frames(4);
+    }
     for (const title of ['Syntax Tree', 'Symbol Dictionary']) {
       const spots = (r) => [
         ['its title', ...middle(logicBlock(r, title).words)],
@@ -3774,6 +3780,70 @@ scenario('a_web_page_paints_its_preview_from_the_first_frame', async (t) => {
   assert(blank.length === 0, `a rebuild flashed the preview blank ${blank.length} times`);
 });
 
+// The preview's words, read through the browser's handle on the sandboxed frame.
+async function previewWords(page) {
+  const handle = await page.$('.studio-main iframe');
+  const frame = handle && await handle.contentFrame();
+  return frame ? frame.evaluate(() => (document.body ? document.body.innerText : '')).catch(() => '') : '';
+}
+
+// Rebuilding a page is the compiler's work, and it must never hold the page still (Collin,
+// 2026-11-23: the web previews freeze and glitch). The longest gap between two painted frames,
+// from the first keystroke until the new page shows, stays under a second, on a desktop and a phone.
+scenario('editing_a_web_page_never_freezes_the_studio', async (t) => {
+  for (const device of [DESKTOP, PHONES[0]]) {
+    await t.fresh();
+    await t.open(FILES.web, device);
+    if (device.isMobile) {
+      const tabs = await t.page.$$('.mobile-tabs [role="tab"]');
+      await tabs[0].tap();
+      await t.frames(4);
+    }
+    await t.page.evaluate(() => {
+      window.__stall = 0;
+      let last = performance.now();
+      const tick = () => {
+        const now = performance.now();
+        window.__stall = Math.max(window.__stall, now - last);
+        last = now;
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    await t.page.evaluate(() => {
+      const editor = document.querySelector('.studio-main > section textarea');
+      const at = editor.value.indexOf('Count: {');
+      editor.focus();
+      editor.setSelectionRange(at, at + 'Count'.length);
+    });
+    await t.page.keyboard.type('Tally');
+    const until = Date.now() + 180000;
+    while (Date.now() < until && !(await previewWords(t.page)).includes('Tally')) await new Promise((r) => setTimeout(r, 100));
+    const words = await previewWords(t.page);
+    assert(words.includes('Tally'), `${device.isMobile ? 'phone' : 'desktop'}: the edit never reached the preview: ${JSON.stringify(words.slice(0, 80))}`);
+    const stall = await t.page.evaluate(() => window.__stall);
+    assert(stall < 1000, `${device.isMobile ? 'phone' : 'desktop'}: the Studio froze for ${Math.round(stall)}ms while the page rebuilt`);
+  }
+}, { engines: ['chrome'], allowErrors: NAVIGATION_ABORT });
+
+// An edit taken back inside the typing pause is no edit: the preview keeps the page the editor holds.
+scenario('an_edit_taken_back_at_once_leaves_the_preview_alone', async (t) => {
+  await t.open(FILES.web);
+  await t.page.waitForFunction(() => document.querySelector('.studio-main iframe'), { timeout: 30000 });
+  await t.page.evaluate(async () => {
+    const editor = document.querySelector('.studio-main > section textarea');
+    const original = editor.value;
+    const put = (text) => { editor.value = text; editor.dispatchEvent(new Event('input', { bubbles: true })); };
+    put(original.replace('Count: {', 'Mistake: {'));
+    await new Promise((r) => setTimeout(r, 60));
+    put(original);
+  });
+  await new Promise((r) => setTimeout(r, 15000));
+  const words = await previewWords(t.page);
+  assert(!words.includes('Mistake'), `the preview shows an edit the editor no longer holds: ${JSON.stringify(words.slice(0, 80))}`);
+  assert(words.includes('Count'), `the preview lost the page: ${JSON.stringify(words.slice(0, 80))}`);
+}, { engines: ['chrome'], allowErrors: NAVIGATION_ABORT });
+
 // The Files tree is one tab stop, and the arrows, Home, End and Enter walk and open it (WAI-ARIA).
 scenario('the_file_tree_answers_the_keyboard', async (t) => {
   await t.open(FILES.code);
@@ -3886,6 +3956,8 @@ const DEVICES = [
   { name: 'wide desktop', band: 'desktop', width: 1920, height: 1080 },
 ];
 const TOUCH_DEVICES = DEVICES.filter((d) => d.hasTouch);
+// The phones a reader holds upright: a common iPhone, a small Android and the largest iPhone.
+const PHONES = [[390, 844], [360, 800], [430, 932]].map(([width, height]) => ({ name: `phone ${width}×${height}`, band: 'phone', width, height, deviceScaleFactor: 3, isMobile: true, hasTouch: true }));
 // A file of every mode, each opening its own panes.
 const BAND_FILES = [FILES.sentences, FILES.code, FILES.math, FILES.threePanels, FILES.web];
 
@@ -4022,9 +4094,15 @@ scenario('a_phone_switches_between_the_editor_and_the_output', async (t) => {
   const look = () => readBand(t.page);
   let b = await look();
   assert(b.switchShown, 'the phone shows no switch');
-  assert(b.panes.length === 1 && b.panes[0].col === 'col-center', `a phone opens Code on ${JSON.stringify(b.panes.map((p) => p.col))}, not its output`);
+  assert(b.panes.length === 1 && b.panes[0].col === 'col-left', `a phone opens Code on ${JSON.stringify(b.panes.map((p) => p.col))}, not its program`);
   const selected = await t.page.$eval('.mobile-tabs [aria-selected="true"]', (el) => el.innerText.trim());
-  assert(/Output/.test(selected), `the switch selects ${JSON.stringify(selected)}, not Output`);
+  assert(/Editor/.test(selected), `the switch selects ${JSON.stringify(selected)}, not Editor`);
+  const outputTab = await t.page.$('.mobile-tabs [role="tab"]:nth-child(2)');
+  assert(outputTab && await outputTab.isVisible(), 'the switch has no Output tab to tap');
+  await outputTab.tap();
+  await t.frames(4);
+  b = await look();
+  assert(b.panes.length === 1 && b.panes[0].col === 'col-center', `after a tap on Output the phone shows ${JSON.stringify(b.panes.map((p) => p.col))}`);
   const editorTab = await t.page.$('.mobile-tabs [role="tab"]:nth-child(1)');
   assert(editorTab && await editorTab.isVisible(), 'the switch has no Editor tab to tap');
   await editorTab.tap();
@@ -4038,6 +4116,69 @@ scenario('a_phone_switches_between_the_editor_and_the_output', async (t) => {
   });
   assert(Math.abs(room.pane - room.main) <= 1, `the editor takes ${px(room.pane)} of the pane's ${px(room.main)}`);
   assert(b.scrollWidth <= b.viewport, 'the phone scrolls sideways');
+}, { engines: ['chrome'], allowErrors: NAVIGATION_ABORT });
+
+// A phone opens a file on the program, whichever kind of file it is (Collin, 2026-11-23: every
+// program started on the output instead of the program he selected).
+scenario('a_phone_opens_every_kind_of_file_on_its_program', async (t) => {
+  const off = [];
+  for (const phone of PHONES) {
+    for (const [kind, file] of EVERY_KIND) {
+      await t.fresh();
+      await t.open(file, phone);
+      await new Promise((r) => setTimeout(r, 800));
+      const b = await readBand(t.page);
+      const at = `${phone.name} on ${kind}`;
+      if (b.panes.length !== 1 || b.panes[0].col !== 'col-left') off.push(`${at}: opens on ${JSON.stringify(b.panes.map((p) => p.col))}, not the program`);
+      const selected = await t.page.$$eval('.mobile-tabs [role="tab"]', (tabs) => tabs.findIndex((tab) => tab.getAttribute('aria-selected') === 'true'));
+      if (selected !== 0) off.push(`${at}: the switch selects tab ${selected}, not the program's`);
+      const editor = await t.page.$eval('.studio-main > section textarea', (e) => ({ text: e.value.trim().length, w: e.getBoundingClientRect().width, h: e.getBoundingClientRect().height }));
+      if (!editor.text || editor.w < 100 || editor.h < 100) off.push(`${at}: the program is not on screen (${JSON.stringify(editor)})`);
+    }
+  }
+  assert(off.length === 0, off.join('\n'));
+}, { engines: ['chrome'], allowErrors: NAVIGATION_ABORT });
+
+// A file chosen from the Files drawer opens on its program too, even when the phone was on the output.
+scenario('a_file_chosen_on_a_phone_opens_on_its_program', async (t) => {
+  for (const phone of PHONES) {
+    await t.fresh();
+    await t.open(FILES.code, phone);
+    const tabs = await t.page.$$('.mobile-tabs [role="tab"]');
+    await tabs[1].tap();
+    await t.frames(4);
+    await t.page.tap('.sidebar-toggle-btn');
+    await t.page.waitForSelector('.studio-sidebar.drawer-open .file-tree-item', { timeout: 10000 });
+    const listed = () => t.page.evaluate(() => [...document.querySelectorAll('.studio-sidebar .file-tree-item')].some((row) => row.getAttribute('title')?.endsWith('recursion.logos')));
+    if (!(await listed())) {
+      await t.page.evaluate(() => { for (const row of document.querySelectorAll('.studio-sidebar .file-tree-item')) if (row.querySelector('.chevron') && /functions/.test(row.innerText)) row.click(); });
+      await t.frames(4);
+    }
+    assert(await listed(), `${phone.name}: the Files drawer does not list recursion.logos`);
+    const row = await t.page.evaluateHandle(() => [...document.querySelectorAll('.studio-sidebar .file-tree-item')].find((r) => r.getAttribute('title')?.endsWith('recursion.logos')));
+    await row.evaluate((r) => r.scrollIntoView({ block: 'center' }));
+    await row.tap();
+    await t.page.waitForFunction(() => /[?&]file=[^&]*recursion/.test(location.search), { timeout: 15000 });
+    await t.frames(6);
+    const b = await readBand(t.page);
+    assert(b.panes.length === 1 && b.panes[0].col === 'col-left', `${phone.name}: a chosen file opens on ${JSON.stringify(b.panes.map((p) => p.col))}, not its program`);
+  }
+}, { engines: ['chrome'], allowErrors: NAVIGATION_ABORT });
+
+// Running still takes a phone to the output, one tap from the program.
+scenario('running_on_a_phone_shows_the_output', async (t) => {
+  for (const phone of PHONES) {
+    await t.fresh();
+    await t.open(FILES.code, phone);
+    const tabs = await t.page.$$('.mobile-tabs [role="tab"]');
+    await tabs[0].tap();
+    await t.frames(4);
+    await t.page.tap('.execute-btn');
+    await t.page.waitForFunction(() => document.querySelector('.studio-main > .col-center.phone-shown'), { timeout: 15000 });
+    await t.page.waitForFunction((want) => document.querySelector('.studio-main > .col-center').innerText.includes(want), { timeout: 30000 }, FIBONACCI_FIRST_LINE);
+    const selected = await t.page.$eval('.mobile-tabs [aria-selected="true"]', (el) => el.innerText.trim());
+    assert(/Output/.test(selected), `${phone.name}: after Run the switch selects ${JSON.stringify(selected)}`);
+  }
 }, { engines: ['chrome'], allowErrors: NAVIGATION_ABORT });
 
 // An upright tablet keeps the split bar between the editor and the output, and a finger drags it.
@@ -4057,6 +4198,115 @@ scenario('a_tablet_split_bar_drags_with_a_finger', async (t) => {
   const after = await t.layout();
   assert(after.left.h - before.left.h > 60, `a finger dragging the split bar down 120px grew the editor by only ${px(after.left.h - before.left.h)}`);
   assert(after.scrollWidth <= after.viewport, 'the tablet scrolls sideways');
+}, { engines: ['chrome'], allowErrors: NAVIGATION_ABORT });
+
+// What a phone's pane must hold to: no sideways page, every control inside the window (or inside a
+// strip that scrolls), every control a finger wide, and no words cut off at the window's edge.
+async function phoneFaults(page) {
+  return page.evaluate(() => {
+    const vw = document.documentElement.clientWidth;
+    const faults = [];
+    if (document.documentElement.scrollWidth > vw) faults.push(`the page scrolls sideways (${document.documentElement.scrollWidth}px in ${vw}px)`);
+    const shown = (el) => {
+      for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+        const c = getComputedStyle(n);
+        if (c.display === 'none' || c.visibility === 'hidden') return false;
+      }
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    };
+    const scrolls = (el) => {
+      for (let n = el.parentElement; n; n = n.parentElement) {
+        const o = getComputedStyle(n).overflowX;
+        if ((o === 'auto' || o === 'scroll') && n.scrollWidth > n.clientWidth) return true;
+      }
+      return false;
+    };
+    const name = (el) => (el.getAttribute('aria-label') || el.title || el.innerText || el.className || el.tagName).toString().trim().replace(/\s+/g, ' ').slice(0, 40);
+    const scope = [...document.querySelectorAll('#app .studio-toolbar, #app .mobile-tabs, #app .studio-guide, #app .studio-main, #app .proof-drawer, #app .studio-dock')];
+    for (const root of scope) {
+      for (const c of root.querySelectorAll('button, select, a[href], [role="tab"]')) {
+        if (!shown(c)) continue;
+        const r = c.getBoundingClientRect();
+        // The laid-out size: a tab just tapped is still drawn a little smaller by its press animation.
+        if (c.offsetWidth < 44 || c.offsetHeight < 44) faults.push(`"${name(c)}" is ${c.offsetWidth}×${c.offsetHeight}, under a finger's 44`);
+        if ((r.right > vw + 1 || r.left < -1) && !scrolls(c)) faults.push(`"${name(c)}" runs off the window (${Math.round(r.left)} to ${Math.round(r.right)} of ${vw})`);
+      }
+      for (const el of root.querySelectorAll('*')) {
+        if (el.children.length || !(el.textContent || '').trim() || !shown(el)) continue;
+        const r = el.getBoundingClientRect();
+        if ((r.right > vw + 1 || r.left < -1) && !scrolls(el)) faults.push(`the words "${name(el)}" run off the window (${Math.round(r.left)} to ${Math.round(r.right)} of ${vw})`);
+      }
+    }
+    return [...new Set(faults)];
+  });
+}
+
+// Every pane of a file, each tapped in turn on each phone, holds to phoneFaults.
+async function everyPaneFits(t, files) {
+  const off = [];
+  for (const phone of PHONES) {
+    for (const file of files) {
+      await t.fresh();
+      await t.open(file, phone);
+      await new Promise((r) => setTimeout(r, 800));
+      const count = (await t.page.$$('.mobile-tabs [role="tab"]')).length;
+      for (let i = 0; i < count; i++) {
+        const tabs = await t.page.$$('.mobile-tabs [role="tab"]');
+        const label = await tabs[i].evaluate((tab) => tab.innerText.trim().replace(/\s+/g, ' '));
+        await tabs[i].tap();
+        await t.frames(4);
+        for (const fault of await phoneFaults(t.page)) off.push(`${phone.name}, ${file}, ${label}: ${fault}`);
+      }
+    }
+  }
+  return off;
+}
+
+// Logic mode on a phone (Collin, 2026-11-23: "not responsive and completely unusable").
+scenario('logic_mode_fits_a_phone', async (t) => {
+  const off = await everyPaneFits(t, [FILES.logic, FILES.sentences, FILES.longProof]);
+  assert(off.length === 0, off.join('\n'));
+}, { engines: ['chrome'], allowErrors: NAVIGATION_ABORT });
+
+scenario('every_other_mode_fits_a_phone', async (t) => {
+  const off = await everyPaneFits(t, [FILES.code, FILES.math, FILES.threePanels, FILES.web]);
+  assert(off.length === 0, off.join('\n'));
+}, { engines: ['chrome'], allowErrors: NAVIGATION_ABORT });
+
+// A phone gives the program the whole pane: the proof is a pane of its own beside Input and Logic,
+// never a drawer over the editor, and Prove takes the reader there.
+scenario('the_proof_is_its_own_pane_on_a_phone', async (t) => {
+  for (const phone of PHONES) {
+    await t.fresh();
+    await t.open(FILES.logic, phone);
+    const labels = await t.page.$$eval('.mobile-tabs [role="tab"]', (tabs) => tabs.map((tab) => tab.innerText.trim()));
+    assert(labels.length === 3 && /Proof/.test(labels[2]), `${phone.name}: the switch shows ${JSON.stringify(labels)}, not Input, Logic and Proof`);
+    const tabs = await t.page.$$('.mobile-tabs [role="tab"]');
+    await tabs[0].tap();
+    await t.frames(4);
+    const onInput = await t.page.evaluate(() => {
+      const drawer = document.querySelector('.proof-drawer');
+      const editor = document.querySelector('.studio-main > .col-left textarea').getBoundingClientRect();
+      return { drawer: !!drawer && getComputedStyle(drawer).display !== 'none' && drawer.getBoundingClientRect().height > 0, editor: editor.height, window: innerHeight };
+    });
+    assert(!onInput.drawer, `${phone.name}: the proof still covers the Input pane`);
+    assert(onInput.editor >= onInput.window * 0.45, `${phone.name}: the editor is ${px(onInput.editor)} tall in a ${px(onInput.window)} window`);
+    await tabs[2].tap();
+    await t.frames(4);
+    const onProof = await t.page.evaluate(() => {
+      const drawer = document.querySelector('.proof-drawer');
+      const main = document.querySelector('.studio-content');
+      return { drawer: !!drawer && drawer.getBoundingClientRect().height, main: main ? main.getBoundingClientRect().height : 0, text: drawer ? drawer.innerText : '' };
+    });
+    assert(onProof.drawer >= phone.height * 0.45, `${phone.name}: the Proof pane is ${px(onProof.drawer)} tall`);
+    assert(onProof.main === 0, `${phone.name}: the panes stay on screen behind the proof (${px(onProof.main)})`);
+    assert(/Modus Ponens|Proof found/.test(onProof.text), `${phone.name}: the Proof pane shows ${JSON.stringify(onProof.text.slice(0, 80))}`);
+    await tabs[0].tap();
+    await t.frames(4);
+    await t.page.tap('.studio-dock-btn.primary');
+    await t.page.waitForFunction(() => document.querySelector('.mobile-tabs [role="tab"]:nth-child(3)')?.getAttribute('aria-selected') === 'true', { timeout: 15000 });
+  }
 }, { engines: ['chrome'], allowErrors: NAVIGATION_ABORT });
 
 // A tablet on its side keeps the desktop's column bars, each drawn 6px and grabbed 44px wide, and a
@@ -4329,79 +4579,108 @@ async function main() {
   return failed ? 1 : 0;
 }
 
-// LLM Heal: the fairy mends a typo through the worker, which the page's own
-// fetch answers here, so no request leaves the machine. The card shows both texts; Keep lands
-// the mend, Undo does not, and a failing worker is said so.
-// The address the build under test was given (LOGOS_HEAL_URL at build time), else production.
-const HEAL_ENDPOINT = process.env.LOGOS_HEAL_URL || 'https://api.logicaffeine.com/heal';
-async function stubHeal(page, answer) {
-  await page.evaluateOnNewDocument((endpoint, answer) => {
-    window.__heals = [];
+// Heal: the fairy puts the file back as it was before the reader changed it, and nothing leaves the
+// page. Every POST the page makes is recorded, and the scenarios assert Heal made none.
+async function watchPosts(page) {
+  await page.evaluateOnNewDocument(() => {
+    window.__posts = [];
     const real = window.fetch.bind(window);
     window.fetch = (input, init) => {
       const request = input instanceof Request ? input : new Request(input, init);
-      if (request.url !== endpoint) return real(input, init);
-      return request.clone().text().then((text) => {
-        window.__heals.push(JSON.parse(text));
-        return new Response(JSON.stringify(answer.json), { status: answer.status, headers: { 'content-type': 'application/json' } });
-      });
+      if (request.method === 'POST') window.__posts.push(request.url);
+      return real(input, init);
     };
-  }, HEAL_ENDPOINT, answer);
+  });
 }
 const HEAL_BEFORE = '## Main\nShwo "hello".\n';
-const HEAL_AFTER = '## Main\nShow "hello".\n';
 async function editorText(t) {
   return t.page.$eval('.studio-main > section textarea', (e) => e.value);
 }
 
-scenario('heal_mends_a_typo_and_keep_lands_it', async (t) => {
-  await stubHeal(t.page, { status: 200, json: { ok: true, healed: HEAL_AFTER, model: 'stub' } });
+// How long a program ran shows under its output, and is not its output: the Output column's text is
+// exactly what the program printed, so a reader who copies it, and every example's promise, gets the
+// program's lines alone (the run time came in with #16 as a line of the output and broke the promises).
+scenario('a_programs_run_time_shows_under_its_output_but_is_not_part_of_it', async (t) => {
+  for (const viewport of [DESKTOP, PHONES[0]]) {
+    await t.fresh();
+    await t.open(FILES.code, viewport);
+    if (viewport.isMobile) {
+      await (await t.page.$$('.mobile-tabs [role="tab"]'))[1].tap();
+      await t.frames(4);
+    }
+    await t.page.waitForFunction(() => document.querySelector('.interpreter-run-time'), { timeout: 60000 });
+    const seen = await t.page.evaluate(() => {
+      const column = document.querySelector('.studio-main > .col-center');
+      const printed = [...column.querySelectorAll('.interpreter-line')].map((l) => l.innerText).join('\n');
+      const time = column.querySelector('.interpreter-run-time');
+      const box = time.getBoundingClientRect();
+      const drawn = [getComputedStyle(time, '::before').content, getComputedStyle(time, '::after').content, time.innerText].join(' ');
+      return { text: column.querySelector('.panel-content').innerText.trim(), printed: printed.trim(), drawn, height: box.height, lastLine: column.querySelector('.interpreter-line:last-of-type')?.getBoundingClientRect().bottom ?? 0, top: box.top };
+    });
+    const at = viewport.isMobile ? 'phone' : 'desktop';
+    assert(seen.printed.length > 0, `${at}: the program printed nothing`);
+    assert(seen.text === seen.printed, `${at}: the Output column reads ${JSON.stringify(seen.text.slice(-80))}, not just what the program printed`);
+    assert(/Finished in .*ms|Finished in .*s/.test(seen.drawn), `${at}: the run time is not drawn (${JSON.stringify(seen.drawn)})`);
+    assert(seen.height > 0 && seen.top >= seen.lastLine - 1, `${at}: the run time is not shown under the output`);
+  }
+}, { engines: ['chrome'], allowErrors: NAVIGATION_ABORT });
+
+// Heal puts an example back as it shipped (Collin, 2026-11-18).
+
+scenario('heal_puts_an_edited_example_back_as_it_shipped', async (t) => {
+  await watchPosts(t.page);
   await t.open(FILES.code);
+  const shipped = await editorText(t);
   await retype(t, HEAL_BEFORE);
-  // What the editor holds after typing (it indents and ends lines its own way) is the Before.
   const typed = await editorText(t);
-  assert(typed.includes('Shwo'), `the editor does not hold the typo: ${JSON.stringify(typed)}`);
+  assert(typed.includes('Shwo'), `the editor does not hold the edit: ${JSON.stringify(typed)}`);
   await t.page.click('.heal-btn');
-  await t.page.waitForSelector('.heal-card', { timeout: 15000 });
-  const texts = await t.page.$$eval('.heal-card pre', (ps) => ps.map((p) => p.innerText));
-  assert(texts.length === 2 && texts[0].includes('Shwo') && texts[1].includes('Show "hello"'), `the card shows ${JSON.stringify(texts)}`);
-  const sent = await t.page.evaluate(() => window.__heals);
-  assert(sent.length === 1 && sent[0].mode === 'code' && sent[0].fragment === true && sent[0].text.includes('Shwo'), `the worker was asked ${JSON.stringify(sent)}`);
-  assert(!sent[0].text.includes('Fibonacci'), 'the worker was sent the file around the typed lines');
+  await t.page.waitForSelector('.heal-card-restored', { timeout: 15000 });
+  assert(await editorText(t) === shipped, `Heal did not put the example back: ${JSON.stringify(await editorText(t))}`);
   const dock = await t.page.$eval('.studio-dock-text', (e) => e.innerText);
-  assert(/Healed \d+ lines?\. Keep or Undo\./.test(dock), `the dock reads ${JSON.stringify(dock)}`);
-  assert(await editorText(t) === typed, 'the editor changed before Keep');
-  await t.page.click('.heal-keep');
+  assert(/before your changes/.test(dock), `the dock reads ${JSON.stringify(dock)}`);
+  assert((await t.page.evaluate(() => window.__posts)).length === 0, 'Heal sent the program off the page');
+  await t.page.evaluate(() => [...document.querySelectorAll('.heal-card button')].find((b) => b.innerText.trim() === 'Done').click());
   await t.page.waitForFunction(() => !document.querySelector('.heal-card'), { timeout: 5000 });
-  const kept = await editorText(t);
-  assert(kept.includes('Show "hello"') && !kept.includes('Shwo'), `Keep did not land the mend: ${JSON.stringify(kept)}`);
+  assert(await editorText(t) === shipped, 'closing the card undid the restore');
 });
 
-scenario('heal_undo_leaves_the_editor_alone', async (t) => {
-  await stubHeal(t.page, { status: 200, json: { ok: true, healed: HEAL_AFTER, model: 'stub' } });
+scenario('heal_undo_brings_the_readers_version_back', async (t) => {
+  await watchPosts(t.page);
   await t.open(FILES.code);
   await retype(t, HEAL_BEFORE);
   const typed = await editorText(t);
   await t.page.click('.heal-btn');
-  await t.page.waitForSelector('.heal-card', { timeout: 15000 });
+  await t.page.waitForSelector('.heal-card-restored', { timeout: 15000 });
   await t.page.evaluate(() => [...document.querySelectorAll('.heal-card button')].find((b) => b.innerText.trim() === 'Undo').click());
   await t.page.waitForFunction(() => !document.querySelector('.heal-card'), { timeout: 5000 });
-  assert(await editorText(t) === typed, 'Undo changed the editor');
+  assert(await editorText(t) === typed, 'Undo did not bring the edit back');
   assert(!(await t.page.$('.heal-fairy')), 'the fairy did not go home after Undo');
 });
 
-scenario('heal_says_so_when_the_worker_fails', async (t) => {
-  await stubHeal(t.page, { status: 502, json: { ok: false, error: 'upstream_failed' } });
+scenario('heal_on_an_unchanged_example_says_so', async (t) => {
+  await watchPosts(t.page);
   await t.open(FILES.code);
-  await retype(t, HEAL_BEFORE);
-  const typed = await editorText(t);
+  const shipped = await editorText(t);
   await t.page.click('.heal-btn');
   await t.page.waitForSelector('.heal-card-failed', { timeout: 15000 });
   const said = await t.page.$eval('.heal-card-failed p', (e) => e.innerText);
-  assert(/did not answer/.test(said), `the failure reads ${JSON.stringify(said)}`);
-  assert(await editorText(t) === typed, 'a failed heal changed the editor');
+  assert(/Nothing to put back/.test(said), `the card reads ${JSON.stringify(said)}`);
+  assert(await editorText(t) === shipped, 'Heal changed an unchanged example');
   await t.page.evaluate(() => [...document.querySelectorAll('.heal-card button')].find((b) => b.innerText.trim() === 'Close').click());
   await t.page.waitForFunction(() => !document.querySelector('.heal-card'), { timeout: 5000 });
+});
+
+scenario('a_restored_example_stays_restored_after_switching_files', async (t) => {
+  await watchPosts(t.page);
+  await t.open(FILES.code);
+  const shipped = await editorText(t);
+  await retype(t, HEAL_BEFORE);
+  await t.page.click('.heal-btn');
+  await t.page.waitForSelector('.heal-card-restored', { timeout: 15000 });
+  await t.open(FILES.recursion);
+  await t.open(FILES.code);
+  assert(await editorText(t) === shipped, `switching files brought the old edit back: ${JSON.stringify(await editorText(t))}`);
 });
 
 main().then((code) => process.exit(code), (e) => { console.error(e); process.exit(2); });

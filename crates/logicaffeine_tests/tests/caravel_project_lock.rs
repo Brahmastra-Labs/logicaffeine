@@ -204,8 +204,9 @@ fn every_refusal_is_reachable() {
 /// runs the management SoC and the Wishbone bus and which Caravel's own chip signoff times at 25 ns; and
 /// `user_clock2`, the PLL's 90-degree phase through a divider of its own (`caravel_clocking.v`, housekeeping's
 /// `pll90_sel`). A project on the core clock runs no faster than the chip signs that clock for; a faster one runs on
-/// `user_clock2`. The whole-program engine runs at 16 ns, so it is on `user_clock2`, and the same project on the
-/// core clock is refused by name. Wherever Caravel is fetched, the core period is its signoff SDC's.
+/// `user_clock2`. The whole-program engine runs at the 48 ns its macro is signed off at, so it is on the core clock,
+/// and the signed macro refuses a faster chip clock; a faster engine whose macro is not signed yet is refused on the
+/// core clock at 16 ns by name. Wherever Caravel is fetched, the core period is its signoff SDC's.
 #[test]
 fn each_project_runs_on_a_clock_the_chip_is_signed_for() {
     let h = SKY130A
@@ -226,7 +227,7 @@ fn each_project_runs_on_a_clock_the_chip_is_signed_for() {
     }
     assert_eq!(HarnessClock::by_port("clk"), None);
     assert_eq!(DRAM_PROJECT.clock, HarnessClock::Core);
-    assert_eq!(WPE_PROJECT.clock, HarnessClock::User2);
+    assert_eq!(WPE_PROJECT.clock, HarnessClock::Core);
     assert_eq!(
         WPE_PROJECT.clock, WPE_CLOCK,
         "the project runs the engine on the clock its macro is wired to"
@@ -242,17 +243,31 @@ fn each_project_runs_on_a_clock_the_chip_is_signed_for() {
             );
         }
     }
+    assert_eq!(
+        CaravelProject {
+            clock_period_ps: 16_000,
+            ..WPE_PROJECT
+        }
+        .check(&SKY130A),
+        Err(CaravelProjectUnplaceable::MacroSlowerThanChip {
+            macro_period_ns: 48.0,
+            chip_period_ns: 16.0
+        }),
+        "the macro signed at 48 ns does not run a 16 ns chip"
+    );
     let on_core = CaravelProject {
         clock: HarnessClock::Core,
+        clock_period_ps: 16_000,
+        macro_module: "faster_engine_user_project",
         ..WPE_PROJECT
     };
     assert_eq!(
         on_core.check(&SKY130A),
         Err(CaravelProjectUnplaceable::CoreClockPastSignoff {
-            period_ns: WPE_PROJECT.clock_period_ns(),
+            period_ns: 16.0,
             signoff_ns: h.core_clock_period_ns
         }),
-        "the engine's period is a frequency the chip does not sign its core clock for"
+        "16 ns is a frequency the chip does not sign its core clock for"
     );
     assert!(
         on_core.flow_shell(&SKY130A).is_err(),
@@ -283,8 +298,15 @@ fn each_project_runs_on_a_clock_the_chip_is_signed_for() {
 fn the_wrapper_is_timed_at_every_clock_the_chip_runs() {
     let h = SKY130A.user_area.unwrap().harness.unwrap();
     assert_eq!(DRAM_PROJECT.wrapper_clocks_ns(&h), (25.0, None));
-    assert_eq!(WPE_PROJECT.wrapper_clocks_ns(&h), (25.0, Some(21.0)));
-    for p in CARAVEL_PROJECTS {
+    assert_eq!(WPE_PROJECT.wrapper_clocks_ns(&h), (48.0, None));
+    let on_user2 = CaravelProject {
+        clock: HarnessClock::User2,
+        clock_period_ps: 21_000,
+        macro_module: "faster_engine_user_project",
+        ..WPE_PROJECT
+    };
+    assert_eq!(on_user2.wrapper_clocks_ns(&h), (25.0, Some(21.0)), "a project on user_clock2 times both clocks");
+    for p in CARAVEL_PROJECTS.iter().chain([&on_user2]) {
         let (core, user2) = p.wrapper_clocks_ns(&h);
         let sh = p.flow_shell(&SKY130A).unwrap();
         let tail = format!(

@@ -501,7 +501,7 @@ pub(super) fn codegen_c_export_with_marshaling(
                     {
                         writeln!(
                             output,
-                            "            let __ptr = Box::into_raw(Box::new(val)) as usize;"
+                            "            let __ptr = ::std::boxed::Box::into_raw(::std::boxed::Box::new(val)) as usize;"
                         )
                         .unwrap();
                         writeln!(output, "            let mut __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();
@@ -557,7 +557,7 @@ pub(super) fn codegen_c_export_with_marshaling(
             .unwrap();
             writeln!(
                 output,
-                "    let __ptr = Box::into_raw(Box::new(result)) as usize;"
+                "    let __ptr = ::std::boxed::Box::into_raw(::std::boxed::Box::new(result)) as usize;"
             )
             .unwrap();
             writeln!(output, "    let mut __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();

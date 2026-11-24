@@ -284,8 +284,7 @@ fn try_version_nest<'a>(
     // Register every qualifying chain node in the CLONE as proven-raw.
     mark_chains_stmt(&fast_loop, &ivs, ea);
 
-    // Guard: every distinct bound expression `V <= B` (a literal bound folds
-    // at compile time via the same comparison).
+    // Guard: every distinct bound expression `V <= B`; a literal bound is decided here.
     let b_lit = ea.alloc(Expr::Literal(Literal::Number(bound_b as i64)));
     let mut guard: Option<&Expr> = None;
     let mut seen: Vec<&Expr> = Vec::new();
@@ -308,7 +307,11 @@ fn try_version_nest<'a>(
             }),
         });
     }
-    let guard = guard?;
+    let guard = match super::guard::decide(guard?, ea) {
+        super::guard::Decided::Never => return None,
+        super::guard::Decided::Always => None,
+        super::guard::Decided::AtRunTime(g) => Some(g),
+    };
 
     super::mark_fired(crate::optimization::Opt::LoopSplit);
 
@@ -319,8 +322,11 @@ fn try_version_nest<'a>(
     // scoping) but an `undeclared` error under C/CUDA codegen. Hoist the declaration
     // before the guard; the branches read the already-initialized variable (both
     // paths start it at the same non-negative literal `counted_level` requires).
-    match init {
-        Stmt::Let { .. } => {
+    // A guard that always holds leaves the fast clone alone.
+    match (init, guard) {
+        (Stmt::Let { .. }, None) => Some(vec![init.clone(), fast_loop]),
+        (_, None) => Some(vec![fast_init, fast_loop]),
+        (Stmt::Let { .. }, Some(guard)) => {
             let then_block = sa.alloc_slice(vec![fast_loop]);
             let else_block = sa.alloc_slice(vec![w.clone()]);
             let guarded = Stmt::If {
@@ -330,7 +336,7 @@ fn try_version_nest<'a>(
             };
             Some(vec![init.clone(), guarded])
         }
-        _ => {
+        (_, Some(guard)) => {
             let then_block = sa.alloc_slice(vec![fast_init, fast_loop]);
             let else_block = sa.alloc_slice(vec![init.clone(), w.clone()]);
             Some(vec![Stmt::If {
@@ -427,8 +433,10 @@ fn chain_qualifies(e: &Expr, ivs: &[Symbol]) -> bool {
     }
 }
 
-/// Worst-case magnitude with IV leaves capped at `b` (literals exact).
-/// `None` = not a qualifying chain node or the bound arithmetic overflows.
+/// Worst-case magnitude with IV leaves capped at `b` (literals exact), every
+/// step bounded within i64 ([`word_op_magnitude`](crate::semantics::arith::word_op_magnitude)):
+/// the fast clone computes every node raw. `None` = not a qualifying chain node,
+/// or a step may leave the word.
 fn chain_magnitude(e: &Expr, ivs: &[Symbol], b: u128) -> Option<u128> {
     match e {
         Expr::Literal(Literal::Number(n)) => Some(n.unsigned_abs() as u128),
@@ -436,13 +444,11 @@ fn chain_magnitude(e: &Expr, ivs: &[Symbol], b: u128) -> Option<u128> {
         Expr::BinaryOp { op, left, right } if is_int_arith(*op) => {
             let l = chain_magnitude(left, ivs, b)?;
             let r = chain_magnitude(right, ivs, b)?;
-            match op {
-                BinaryOpKind::Add | BinaryOpKind::Subtract => l.checked_add(r),
-                BinaryOpKind::Multiply => l.checked_mul(r),
-                BinaryOpKind::Divide => Some(l),
-                BinaryOpKind::Modulo => Some(r.min(l)),
-                _ => unreachable!("is_int_arith covers exactly these five"),
-            }
+            let divisor = match right {
+                Expr::Literal(Literal::Number(d)) => Some(*d),
+                _ => None,
+            };
+            crate::semantics::arith::word_op_magnitude(*op, l, r, divisor, i64::MAX as u128)
         }
         _ => None,
     }
@@ -666,16 +672,18 @@ fn copy_block<'a>(
     Some(sa.alloc_slice(out))
 }
 
-/// Deep-copy an expression; a qualifying tiny-helper call is replaced by its
-/// substituted body (fresh nodes).
+/// Deep-copy an expression, leaves included, each copy holding the facts of the node it copies; a qualifying
+/// tiny-helper call is replaced by its substituted body (fresh nodes). A leaf shared with the original would join
+/// what the range oracle proves of the clone (under the guard) with what it proves of the fallback.
 fn copy_expr<'a>(
     e: &'a Expr<'a>,
     ivs: &[Symbol],
     helpers: &Helpers<'a>,
     ea: &'a Arena<Expr<'a>>,
 ) -> Option<&'a Expr<'a>> {
-    Some(match e {
-        Expr::Literal(_) | Expr::Identifier(_) => e,
+    let copy = match e {
+        Expr::Literal(l) => ea.alloc(Expr::Literal(l.clone())),
+        Expr::Identifier(s) => ea.alloc(Expr::Identifier(*s)),
         Expr::BinaryOp { op, left, right } => ea.alloc(Expr::BinaryOp {
             op: *op,
             left: copy_expr(left, ivs, helpers, ea)?,
@@ -713,7 +721,9 @@ fn copy_expr<'a>(
             })
         }
         _ => return None,
-    })
+    };
+    super::facts::copy_expr_facts(e, copy);
+    Some(copy)
 }
 
 // =============================================================================

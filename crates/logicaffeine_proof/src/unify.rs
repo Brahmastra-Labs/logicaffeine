@@ -390,6 +390,13 @@ fn free_vars_expr(
     }
 }
 
+/// The names free in `expr` — binder-aware, see [`free_vars_expr`].
+pub(crate) fn free_names(expr: &ProofExpr) -> std::collections::HashSet<String> {
+    let mut free = std::collections::HashSet::new();
+    free_vars_expr(expr, &mut Vec::new(), &mut free);
+    free
+}
+
 /// Whether `var` occurs free in `expr` — binder-aware, see [`free_vars_expr`].
 pub(crate) fn occurs_free(var: &str, expr: &ProofExpr) -> bool {
     let mut free = std::collections::HashSet::new();
@@ -684,6 +691,171 @@ fn alpha_rename_expr(expr: &ProofExpr, from: &str, to: &str) -> ProofExpr {
         }
         ProofExpr::Hole(_) | ProofExpr::Unsupported(_) => expr.clone(),
         ProofExpr::Term(t) => ProofExpr::Term(alpha_rename_term(t, from, to)),
+    }
+}
+
+/// The discourse referents of a problem: each name the `∃` opening a premise introduces (`∃x. …`, `∃x. ∃y. …`)
+/// that another formula of the problem reads free. "The barber is a man." introduces the barber as `∃x. …`;
+/// "The barber shaves …" then speaks of that `x`. The search's existential elimination names the referent, and
+/// every free reading of it means that individual: it is no context local.
+pub(crate) fn discourse_referents(
+    premises: &[ProofExpr],
+    goal: &ProofExpr,
+) -> std::collections::HashSet<String> {
+    let mut free = std::collections::HashSet::new();
+    for e in premises.iter().chain(std::iter::once(goal)) {
+        free.extend(free_names(e));
+    }
+    let mut referents = std::collections::HashSet::new();
+    for premise in premises {
+        let mut opening = premise;
+        while let ProofExpr::Exists { variable, body } = opening {
+            if free.contains(variable) {
+                referents.insert(variable.clone());
+            }
+            opening = body;
+        }
+    }
+    referents
+}
+
+/// Standardize a problem apart: every binder — `∀`, `∃`, `λ`, a match arm's bindings, a fixpoint's name, an
+/// event variable — whose name is also FREE in some formula of `exprs` is renamed to a fresh name, through
+/// its whole scope. A name in `keep` is a discourse referent ([`discourse_referents`]): its binder and its free
+/// readings are one individual, and keep their name.
+///
+/// A theorem's free variables are its context locals: fixed, arbitrary values, where a bound variable ranges.
+/// Both are spelled as names, and the name is what the symbol collector registers a local by and what the
+/// search's substitution is keyed on, so a rule `∀h1. …` beside a fact `P(x, h1)` made them one variable.
+/// After this, no name is both bound and free anywhere in the problem but a referent, and reading a name tells
+/// which it is.
+pub fn standardize_apart(
+    exprs: &[ProofExpr],
+    keep: &std::collections::HashSet<String>,
+) -> Vec<ProofExpr> {
+    let mut free = std::collections::HashSet::new();
+    for e in exprs {
+        free_vars_expr(e, &mut Vec::new(), &mut free);
+    }
+    free.retain(|name| !keep.contains(name));
+    if free.is_empty() {
+        return exprs.to_vec();
+    }
+    let mut avoid = free.clone();
+    for e in exprs {
+        all_names_expr(e, &mut avoid);
+    }
+    exprs.iter().map(|e| rename_binders_apart(e, &free, &mut avoid)).collect()
+}
+
+/// [`standardize_apart`] on one formula: a binder named in `free` takes a fresh name kept out of `avoid`.
+fn rename_binders_apart(
+    expr: &ProofExpr,
+    free: &std::collections::HashSet<String>,
+    avoid: &mut std::collections::HashSet<String>,
+) -> ProofExpr {
+    let rebind = |name: &String, body: &ProofExpr, avoid: &mut std::collections::HashSet<String>| {
+        if free.contains(name) {
+            let fresh = fresh_proof_name(name, avoid);
+            avoid.insert(fresh.clone());
+            let body = alpha_rename_expr(body, name, &fresh);
+            (fresh, body)
+        } else {
+            (name.clone(), body.clone())
+        }
+    };
+    let go = |e: &ProofExpr, avoid: &mut std::collections::HashSet<String>| {
+        Box::new(rename_binders_apart(e, free, avoid))
+    };
+    match expr {
+        ProofExpr::Atom(_)
+        | ProofExpr::Predicate { .. }
+        | ProofExpr::Identity(..)
+        | ProofExpr::TypedVar { .. }
+        | ProofExpr::Hole(_)
+        | ProofExpr::Unsupported(_)
+        | ProofExpr::Term(_) => expr.clone(),
+        ProofExpr::And(l, r) => ProofExpr::And(go(l, avoid), go(r, avoid)),
+        ProofExpr::Or(l, r) => ProofExpr::Or(go(l, avoid), go(r, avoid)),
+        ProofExpr::Implies(l, r) => ProofExpr::Implies(go(l, avoid), go(r, avoid)),
+        ProofExpr::Iff(l, r) => ProofExpr::Iff(go(l, avoid), go(r, avoid)),
+        ProofExpr::Not(i) => ProofExpr::Not(go(i, avoid)),
+        ProofExpr::ForAll { variable, body } => {
+            let (variable, body) = rebind(variable, body, avoid);
+            ProofExpr::ForAll { variable, body: go(&body, avoid) }
+        }
+        ProofExpr::Exists { variable, body } => {
+            let (variable, body) = rebind(variable, body, avoid);
+            ProofExpr::Exists { variable, body: go(&body, avoid) }
+        }
+        ProofExpr::Lambda { variable, body } => {
+            let (variable, body) = rebind(variable, body, avoid);
+            ProofExpr::Lambda { variable, body: go(&body, avoid) }
+        }
+        ProofExpr::Modal { domain, force, flavor, body } => ProofExpr::Modal {
+            domain: domain.clone(),
+            force: *force,
+            flavor: flavor.clone(),
+            body: go(body, avoid),
+        },
+        ProofExpr::Counterfactual { antecedent, consequent } => ProofExpr::Counterfactual {
+            antecedent: go(antecedent, avoid),
+            consequent: go(consequent, avoid),
+        },
+        ProofExpr::Temporal { operator, body } => ProofExpr::Temporal {
+            operator: operator.clone(),
+            body: go(body, avoid),
+        },
+        ProofExpr::TemporalBinary { operator, left, right } => ProofExpr::TemporalBinary {
+            operator: operator.clone(),
+            left: go(left, avoid),
+            right: go(right, avoid),
+        },
+        ProofExpr::App(f, a) => ProofExpr::App(go(f, avoid), go(a, avoid)),
+        ProofExpr::NeoEvent { event_var, verb, roles } => {
+            if free.contains(event_var) {
+                let fresh = fresh_proof_name(event_var, avoid);
+                avoid.insert(fresh.clone());
+                ProofExpr::NeoEvent {
+                    event_var: fresh.clone(),
+                    verb: verb.clone(),
+                    roles: roles
+                        .iter()
+                        .map(|(r, t)| (r.clone(), alpha_rename_term(t, event_var, &fresh)))
+                        .collect(),
+                }
+            } else {
+                expr.clone()
+            }
+        }
+        ProofExpr::Ctor { name, args } => ProofExpr::Ctor {
+            name: name.clone(),
+            args: args.iter().map(|a| *go(a, avoid)).collect(),
+        },
+        ProofExpr::Match { scrutinee, arms } => ProofExpr::Match {
+            scrutinee: go(scrutinee, avoid),
+            arms: arms
+                .iter()
+                .map(|arm| {
+                    let mut bindings = Vec::with_capacity(arm.bindings.len());
+                    let mut body = arm.body.clone();
+                    for b in &arm.bindings {
+                        let (name, renamed) = rebind(b, &body, avoid);
+                        bindings.push(name);
+                        body = renamed;
+                    }
+                    MatchArm {
+                        ctor: arm.ctor.clone(),
+                        bindings,
+                        body: *go(&body, avoid),
+                    }
+                })
+                .collect(),
+        },
+        ProofExpr::Fixpoint { name, body } => {
+            let (name, body) = rebind(name, body, avoid);
+            ProofExpr::Fixpoint { name, body: go(&body, avoid) }
+        }
     }
 }
 

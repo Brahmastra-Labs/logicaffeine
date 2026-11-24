@@ -173,6 +173,7 @@ pub static SIGNOFF_BLOCKS: std::sync::LazyLock<Vec<SignoffBlock>> =
                 "RUN_2026.10.20_18.30.02"
             ),
             block!("dram_user_project", 20.0, 7.15, "RUN_2026.10.16_07.41.44"),
+            block!("wpe_user_project", 48.0, 1.29, "RUN_2026.09.28_20.20.58", Some(SynthStrategy::Area(3))),
             block!(
                 "systolic_pipe16_realbist",
                 19.5,

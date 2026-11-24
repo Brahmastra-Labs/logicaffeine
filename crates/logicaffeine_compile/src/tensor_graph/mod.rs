@@ -13,6 +13,7 @@ pub mod facts;
 pub mod front;
 pub mod fuse;
 pub mod graph;
+pub mod last_row;
 pub mod link;
 pub mod numerics;
 pub mod shim;

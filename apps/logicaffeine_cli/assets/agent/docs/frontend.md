@@ -142,6 +142,12 @@ Expect that the text of "#chosen" is equal to "tea".
 no hooks and no dependency arrays: a component's identity is its position in the page, never the
 order its code happened to run in.
 
+What a failure while mounting stops depends on who mounts. In `## Main`, `Mount` is the program's
+own statement, as it is in the page's `main` in a browser: if `When the page loads:` or the first
+paint fails, the program stops there. In a `## Test`, `Mount` is the test reaching into a page that
+has loaded, as an event does: the failure is the page's, delivered to `When an action fails` and
+reported, nothing of the failed paint is drawn, and the test runs on to its next statement.
+
 `Toggle open.` flips a `Bool` field in one sentence.
 
 ## Lists and keys
@@ -1129,7 +1135,10 @@ Every page ships a built-in theme: design tokens on `:root` (`--paper`, `--ink`,
 `--font-sans`, `--font-mono`, `--measure`, `--space`), element styles (headings, buttons, inputs,
 tables, `.card`), and a dark mode. The scaffold's `static/theme.css` uses the same token names, so
 changing one there reskins everything; a component's `Style:` rules win over the theme's element
-rules. A site that brings its whole design opts out in `Largo.toml`: `[web]` then `theme = false`.
+rules. The theme comes first in every page's head, then the site's top-level `static/*.css`, then
+the stylesheets a page links in its own `Head:` in the order it writes them, so anything a site or a
+page writes beats the theme. A site that brings its whole design opts out in `Largo.toml`: `[web]`
+then `theme = false`.
 
 ## Directives
 

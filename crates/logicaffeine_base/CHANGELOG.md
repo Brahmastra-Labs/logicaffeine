@@ -8,6 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `reciprocal::SignedReciprocal`: the signed magic reciprocal of a divisor `d ≥ 2` (Granlund–Montgomery, in the form of
+  Warren's *Hacker's Delight* §10-1), whose `quotient` and `remainder` are truncating `x / d` and `x % d` for every `i64`
+  dividend, negative ones and `i64::MIN` included. `new` returns only a reciprocal `counterexample` decides exact: the
+  construction's error bound is checked in exact arithmetic at the critical dividends, for the divisor at hand, and a
+  reciprocal that fails it is named with a dividend it gets wrong. Tested on every divisor up to 1100, every power of
+  two and large divisors against every dividend where truncation turns, and on 200,000 random pairs; every divisor up
+  to 100,000 is decided exact, every corrupted reciprocal is refused with a dividend it really gets wrong, and both
+  bounds are held at equality.
+- `temporal::shown_duration(nanos)`: how `Show` writes a duration, its largest whole unit truncated toward zero and
+  signed, as the tree-walker prints it.
 - **`describe` searches representations, not only generators.** `T_INTS_MULT` describes a column sharing a common
   factor with its minimum by its quotients (NYC taxi timestamps, whole seconds held in microseconds: 26.1 → 12.2 bits a
   value, under pcodec's 12.5). `T_INTS_CXOR` splits wide bit patterns at their high bits and XORs each value's low bits
@@ -27,9 +37,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`entropy`**: a carry-less binary arithmetic coder (`Encoder`, `Decoder`, the `BitIo` trait that drives one model
   in both directions) that takes `P(1)` as a 32-bit fraction (`encode_fine`, `decode_fine`, `BitIo::code_fine`; the
   12-bit `encode`/`decode`/`code` are it at `p12 · 2²⁰`, byte for byte), `squash`/`stretch`, `AdaptiveProb`, `HashedProbs` and `ProbBuckets` (64-byte buckets, one cache
-  line per group of decisions), a gated logistic `Mixer`, the two-layer `Mixer2` (16-bit weights, its dot product and
-  update SSE2 multiply-adds on x86-64 and the same integer arithmetic elsewhere, a dead zone that skips negligible
-  updates), an `Apm`, a `Calibration` (per context and 12-bit probability, the zeros and ones that followed it, read
+  line per group of decisions), a gated logistic `Mixer` (its inputs readable back, `input`), the two-layer `Mixer2`
+  (16-bit weights, its dot product and update SSE2 multiply-adds on x86-64 and the same integer arithmetic elsewhere,
+  a dead zone that skips negligible updates), an `Apm`, a `Calibration` (per context and 12-bit probability, the
+  zeros and ones that followed it, read
   back as a 32-bit probability), the integer coding cost `cost`, and `prefetch` — all integer arithmetic, so predictions are
   bit-identical on every machine. Bucketing the entropy-coded column's contexts made it about ten times faster at the
   same size.
@@ -90,12 +101,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   machines that start as the 256 order-1 byte trees and clone a state when one incoming transition carries most of its
   traffic, so they learn their own variable-order contexts (12 bytes a state; the fast ones start over when full, at
   their own times, the slow ones keep growing). At `Level::Max` a long short-term memory network reads the bytes too
-  (`cm::lstm`): two layers of 160 cells with coupled input and forget gates, predicting the next byte a bit at a time
-  through 255 logistic units (one per partial byte), learning online by backpropagation through time and an Adam step
-  every 20 bytes, its rate falling with the steps (by a factor of √2 after the first 20,000, to a floor a tenth of the
-  first) — on a worker thread one window behind, or in place where there are no threads, with the same result — all in
-  `f32` arithmetic of one fixed order, so it predicts the same bits on every machine; its probability is a mixer input
-  and, in 32 bands, keys the first probability map. A two-layer mixer with fifteen weight-set selectors (among them a
+  (`cm::lstm`): two layers of 160 cells with coupled input and forget gates, predicting the next byte as a softmax over
+  its 256 values (every output row learns from every byte; a bit's probability is the share of the bytes under its
+  partial byte that continue with a one), learning online by backpropagation through time and an Adam step every 20
+  bytes, its rate falling with the steps (by a factor of √2 after the first 20,000, to a floor a tenth of the first),
+  the output rows' twice the rest's — on a worker thread one window behind, or in place where there are no threads,
+  with the same result — all in `f32` arithmetic of one fixed order, so it predicts the same bits on every machine;
+  its probability is a mixer input, an input of the final mixer too, and, in 32 bands, keys the first probability map.
+  A two-layer mixer with fifteen weight-set selectors (among them a
   record's column over the whole record, how the partial byte agrees with the byte one record up, and the place in a
   4-byte word) combines everything, each weight set's step settling from the full learning rate toward three eighths of
   it as the set is chosen again and again (half way after 4,096 choices), six probability maps refine the result, each
@@ -112,14 +125,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   InfoZIP's zip shares); `cm::lzw`: GIF's LZW both ways, with the matches an encoder ended early (`cuts`, `encode_cut`);
   `cm::x86`: an x86 instruction-length decoder that names the field and instruction of every byte and what each
   instruction does (sixteen kinds, from the opcode maps; a group opcode's from its ModRM reg field).
-- `temporal::shown_duration(nanos)`: how `Show` writes a duration, its largest whole unit truncated toward zero and
-  signed, as the tree-walker prints it.
 
 ### Fixed
 
 - Every `describe` column form checks its element count against `max_elements` before expanding: `T_BYTES`,
   `T_INTS_DELTA`, `T_INTS_DOD`, `T_INTS_FOR` (a width-0 body expanded a claimed count with no bytes behind it),
   `T_INTS_DICT` (likewise for a one-entry dictionary) and `T_INTS_RLE` (capped at 2²⁸ rather than the budget) did not.
+- `Uuid::parse` and `Uuid::parse_many` refuse the control bytes `0x10`-`0x19` on every machine: the SSSE3 validator
+  case-folded them onto the digits.
+- `cm::decompress` refuses an Alpha span whose end overflows instead of panicking, and a nested germ's flow or power
+  recipe whose start state does not match its update decodes to `None` instead of panicking.
+- `Lanes16Word8::shr_bytes` clears every lane for a count of 8 or more, the same in debug and release builds.
+- `pow` takes `i32::MIN` in `Complex`, `ComplexF`, `Algebraic`, `ExactReal` and `puiseux::Closed`, and
+  `add_business_days` takes `i64::MIN`, without overflowing.
+- The hybrid loop's Lie series and `exp_matrix`'s falling factorials are exact past `20!`.
+- `Interner::new().intern("")` is `Symbol::EMPTY`, and `lookup("")` finds it.
+- `Rational::to_f64` of a value whose terms pass `f64::MAX` is the nearest float, not NaN.
+- `parse_duration` reads a fraction of any length exactly, truncated to the nanosecond.
 
 ## [0.11.0] - 2026-11-02
 

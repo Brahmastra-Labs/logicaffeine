@@ -386,16 +386,24 @@ pub(crate) trait AstHost {
     ) -> bool;
     /// `function` is the integer power builtin (`pow(a, b)`).
     fn is_power(&self, function: Symbol) -> bool;
+    /// `function` is the magnitude builtin (`abs(x)`), whose result is as wide as its operand's negation: the
+    /// magnitude of the least word is past it.
+    fn is_magnitude(&self, _function: Symbol) -> bool {
+        false
+    }
     /// The value of `e` provably lies within i64 wherever the body computes it (a range the tier's oracle proves,
     /// a loop's guard bounding it among them): it never outgrows a word, whatever feeds it.
     fn fits_word(&self, e: &Expr) -> bool;
 }
 
-/// What the decision says of one body of a syntax tree: its exact variables, and whether a value it returns is.
+/// What the decision says of one body of a syntax tree: its exact variables, whether a value it returns is, and
+/// which of its sums, differences, products and quotients can outgrow a word, wherever each stands (a binding's
+/// value, a shown value, an operand of a comparison, an argument), by the node's address.
 #[derive(Debug, Default)]
 pub(crate) struct BodyDecision {
     pub(crate) vars: HashSet<Symbol>,
     pub(crate) returns: bool,
+    pub(crate) exprs: HashSet<usize>,
 }
 
 /// A body's graph: one definition per variable, fed by every binding of it, and one per expression. A variable that
@@ -403,6 +411,10 @@ pub(crate) struct BodyDecision {
 struct BodyGraph<'h> {
     graph: Graph,
     vars: HashMap<Symbol, usize>,
+    /// Each expression's definition, by the node's address: an expression is one definition however it is reached.
+    exprs: HashMap<usize, usize>,
+    /// The sums, differences, products and quotients among them.
+    arithmetic: Vec<(usize, usize)>,
     no_int: HashSet<usize>,
     returns: Vec<usize>,
     self_calls: Vec<usize>,
@@ -439,6 +451,29 @@ impl BodyGraph<'_> {
     }
 
     fn expr(&mut self, e: &Expr) -> usize {
+        let at = e as *const Expr as usize;
+        if let Some(&d) = self.exprs.get(&at) {
+            return d;
+        }
+        let d = self.expr_def(e);
+        self.exprs.insert(at, d);
+        if matches!(
+            e,
+            Expr::BinaryOp {
+                op: BinaryOpKind::Add
+                    | BinaryOpKind::Subtract
+                    | BinaryOpKind::Multiply
+                    | BinaryOpKind::Divide
+                    | BinaryOpKind::FloorDivide,
+                ..
+            }
+        ) {
+            self.arithmetic.push((at, d));
+        }
+        d
+    }
+
+    fn expr_def(&mut self, e: &Expr) -> usize {
         match e {
             Expr::Literal(Literal::Number(v)) => {
                 self.graph
@@ -451,6 +486,12 @@ impl BodyGraph<'_> {
                     self.graph.defs[d].operation = Operation::Bounded(WORD_MAX);
                     self.graph.inputs[d].clear();
                 }
+                d
+            }
+            Expr::Call { function, args } if args.len() == 1 && self.host.is_magnitude(*function) => {
+                let x = self.expr(args[0]);
+                let d = self.graph.def(Operation::Sum { doubles: false }, false, false);
+                self.graph.input(d, 0, x, Flow::Sum);
                 d
             }
             Expr::Call { function, args } if args.len() == 2 && self.host.is_power(*function) => {
@@ -551,6 +592,8 @@ pub(crate) fn body_exactness(
     let mut g = BodyGraph {
         graph: Graph::default(),
         vars: HashMap::new(),
+        exprs: HashMap::new(),
+        arithmetic: Vec::new(),
         no_int: HashSet::new(),
         returns: Vec::new(),
         self_calls: Vec::new(),
@@ -578,6 +621,11 @@ pub(crate) fn body_exactness(
         Visited::Stmt(Stmt::Return { value: Some(value) }) => {
             let root = g.expr(value);
             g.returns.push(root);
+            Walk::Into
+        }
+        // Every other expression is decided too, wherever it stands; a binding's value is already a definition.
+        Visited::Expr(e @ Expr::BinaryOp { .. }) => {
+            g.expr(e);
             Walk::Into
         }
         Visited::Stmt(Stmt::Inspect { arms, .. }) => {
@@ -612,6 +660,12 @@ pub(crate) fn body_exactness(
             .map(|(s, _)| *s)
             .collect(),
         returns: g.returns.iter().any(|r| decision.exact[*r]),
+        exprs: g
+            .arithmetic
+            .iter()
+            .filter(|(_, d)| decision.exact[*d])
+            .map(|(at, _)| *at)
+            .collect(),
     }
 }
 

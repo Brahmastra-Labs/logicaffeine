@@ -582,3 +582,15 @@ fn a_jump_that_pushes_the_state_it_holds_away_is_refused() {
     let err = run(&m, vec![num(a(0))], &a(3)).unwrap_err();
     assert!(err.contains("does not pull the state back"), "2x − 1 holds 1 but doubles what leaves it: {err}");
 }
+
+// The Lie series runs to `MAX_LIE_ORDER = 32` terms, so `factorial` is exact well past `i64`:
+// `21!` already passes `i64::MAX`.
+#[test]
+fn the_factorials_the_lie_series_needs_are_exact_past_i64() {
+    assert_eq!(factorial(0), a(1));
+    assert_eq!(factorial(1), a(1));
+    assert_eq!(factorial(20), a(2_432_902_008_176_640_000));
+    assert_eq!(factorial(21), factorial(20).mul(&a(21)));
+    assert_eq!(factorial(32), (21..=32).fold(factorial(20), |acc, i| acc.mul(&a(i))));
+    assert_eq!(quotient(&factorial(20), &factorial(21)), quotient(&a(1), &a(21)));
+}

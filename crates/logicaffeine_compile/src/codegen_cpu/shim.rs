@@ -133,7 +133,7 @@ impl Shim for CpuShim {
             | MoeGateUpAct | MoeGatherInOperand | MoeDownCombine | MoeDeferredFinalize | SharedExpertFusion | GdnStep
             | GdnInputEpilogue | GdnDecodeWhole | GdnPostConvPrep | ConvBiasSilu | ConvParts | GdnGateProjections
             | GdnGating | FusedSampling | CapArgmax | StridedRead | RowWrite | JoinInPlace | StridedValues
-            | ConvSiluL2norm | GdnOutputQuant | GemvQuant | ElementwiseQuant | DeltaQkNorm => whole,
+            | ConvSiluL2norm | GdnOutputQuant | GemvQuant | ElementwiseQuant | DeltaQkNorm | HcPost | GemmAct | HcMix | HcPostNorm => whole,
             LastLayerRows | CudaGraphs | PersistentLayerMegakernel | HostWeightStreaming => Decompose,
             CompensatedResidual => Refuse("the CPU program sums its residual in f32, uncompensated"),
             MixedBatchAttention => Refuse("no op of the IR states a step whose rows are one sequence's prompt beside another's next token"),

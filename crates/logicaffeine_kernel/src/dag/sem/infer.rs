@@ -262,7 +262,7 @@ impl Sem<'_> {
                 self.const0(self.k.wk.nat)
             }
             Node::StrLit(_) => {
-                if check && !(self.k.env.contains(self.k.wk.char_of_nat) && self.k.env.contains(self.k.wk.string_of_list))
+                if check && !(self.k.env.contains(self.k.wk.char_of_nat) && self.k.env.contains(self.k.wk.string_literal))
                 {
                     return Err(reject("string literal used before 'String.ofList' and 'Char.ofNat' are declared"));
                 }

@@ -7,6 +7,7 @@
 
 use logicaffeine_compile::compile::{tw_outcome_with_args, vm_outcome_with_args};
 use logicaffeine_compile::vm::NativeTier;
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_jit::ForgeTier;
 
 fn norm(s: &str) -> String {
@@ -17,6 +18,7 @@ fn norm(s: &str) -> String {
         .join("\n")
 }
 
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn tiered(src: &str) -> (String, Option<String>, u32, u32) {
     let tier = ForgeTier::new();
     let vm = vm_outcome_with_args(src, &[], Some(&tier as &dyn NativeTier));
@@ -34,6 +36,7 @@ fn tiered(src: &str) -> (String, Option<String>, u32, u32) {
 /// A hot loop inside a function called ONCE: the function-call threshold
 /// never trips, so only in-function OSR can take it native.
 #[test]
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn hot_loop_inside_function_tiers_as_region() {
     // The function also takes a Text param, putting the WHOLE body outside
     // the function adapter's subset — the loop region is the only native
@@ -61,6 +64,7 @@ fn hot_loop_inside_function_tiers_as_region() {
 /// write-back preservation must consult the FUNCTION's named-register map,
 /// not Main's (their indices are unrelated).
 #[test]
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn conditional_write_preservation_uses_function_frame_names() {
     let src = "## To countPrimes (tag: Text, n: Int) -> Int:\n\
                \x20   Let mutable count be 0.\n\
@@ -101,8 +105,13 @@ fn function_frame_region_deopt_error_parity() {
                ## Main\n\
                Show 7.\n\
                Show risky(\"x\", 5000).\n";
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
-    let vm = vm_outcome_with_args(src, &[], Some(&tier as &dyn NativeTier));
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
+    let vm = vm_outcome_with_args(src, &[], native);
     let tw = tw_outcome_with_args(src, &[]);
     assert_eq!(
         (norm(&vm.output), &vm.error),

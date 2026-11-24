@@ -487,7 +487,8 @@ pub fn run_tests_with_launcher(
                 );
                 let mut interp = crate::interpreter::Interpreter::new(interner)
                     .with_type_registry(types)
-                    .with_policies(policies.clone());
+                    .with_policies(policies.clone())
+                    .driving_pages_as(crate::page_host::DrivenBy::Host);
                 // Hermetic tests get the sealed in-memory filesystem (§1.7): the
                 // Vfs-backed `Read`/`Write` statements and `Given a file …` share
                 // one source of truth. A filesystem-capability test gets real disk.
@@ -1067,8 +1068,10 @@ pub fn render_report_json(report: &RunReport) -> String {
 //     premise, never a proven fact.
 //   * A theorem/axiom NAME COLLISION is rejected upstream (see
 //     [`Inventory::from_prove`]), so an axiom can never masquerade as a theorem.
+//   * A refutation is `proof: false` whether or not it holds: its certificate is a finite
+//     countermodel re-checked premise by premise, not a kernel proof term.
 //   * The counts are internally consistent:
-//     examples + properties + theorems + axioms + admitted == the item total, and
+//     examples + properties + theorems + refutations + axioms + admitted == the item total, and
 //     the `proven` set ⊆ properties + theorems.
 
 /// The KIND of a claim — the top-level partition the inventory reports over.
@@ -1083,6 +1086,9 @@ pub enum ClaimKind {
     Property,
     /// A `## Theorem`/`Theorem …` claim discharged by the proof engine.
     Theorem,
+    /// A `Theorem … refute …` claim: a formula that does not follow, shown by a finite model of the premises in which
+    /// it is false.
+    Refutation,
     /// A `## Axiom`/`Axiom …` — an ASSUMPTION admitted into the premise base,
     /// never proved.
     Axiom,
@@ -1127,6 +1133,10 @@ pub enum ClaimStatus {
     Proved,
     /// A theorem the proof engine could not discharge.
     Unproved,
+    /// A refutation whose countermodel was found and re-checked — the formula does not follow.
+    Refuted,
+    /// A refutation with no countermodel found — not established either way.
+    Unrefuted,
     /// An axiom / admitted assumption — a premise, reported as an assumption,
     /// explicitly not a proof.
     Assumption,
@@ -1177,20 +1187,21 @@ pub struct InventoryItem {
 }
 
 /// The rolled-up census the inventory carries alongside its items — the
-/// internally-consistent counts (examples + properties + theorems + axioms +
-/// admitted == claims; proven ⊆ properties + theorems).
+/// internally-consistent counts (examples + properties + theorems + refutations +
+/// axioms + admitted == claims; proven ⊆ properties + theorems).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 pub struct InventorySummary {
     pub claims: usize,
     pub examples: usize,
     pub properties: usize,
     pub theorems: usize,
+    pub refutations: usize,
     pub axioms: usize,
     pub admitted_assumptions: usize,
     /// Items that are ACTUAL proofs (kernel-certified theorems) — never counts an
     /// axiom, an example, or a finite-enumeration property.
     pub proven: usize,
-    /// Falsified examples/properties + unproved theorems + vacuous examples.
+    /// Falsified examples/properties + unproved theorems + unrefuted refutations + vacuous examples.
     pub failing: usize,
 }
 
@@ -1211,6 +1222,7 @@ impl Inventory {
             examples: count(ClaimKind::Example),
             properties: count(ClaimKind::Property),
             theorems: count(ClaimKind::Theorem),
+            refutations: count(ClaimKind::Refutation),
             axioms: count(ClaimKind::Axiom),
             admitted_assumptions: count(ClaimKind::AdmittedAssumption),
             proven: items.iter().filter(|i| i.proof).count(),
@@ -1219,7 +1231,10 @@ impl Inventory {
                 .filter(|i| {
                     matches!(
                         i.status,
-                        ClaimStatus::Failed | ClaimStatus::Unproved | ClaimStatus::Vacuous
+                        ClaimStatus::Failed
+                            | ClaimStatus::Unproved
+                            | ClaimStatus::Unrefuted
+                            | ClaimStatus::Vacuous
                     )
                 })
                 .count(),
@@ -1342,6 +1357,16 @@ pub struct ProvenClaim {
     pub certificate: Option<crate::kernel::certificate::TheoremCertificate>,
 }
 
+/// One refutation a `largo prove` pass checked, as the inventory receives it.
+#[derive(Debug, Clone)]
+pub struct RefutedClaim {
+    pub name: String,
+    /// True when a countermodel was found and re-checked.
+    pub refuted: bool,
+    /// The re-checked countermodel's reading (`24 facts over 9 elements`), present exactly when `refuted`.
+    pub countermodel: Option<String>,
+}
+
 impl Inventory {
     /// Build the inventory for a `largo prove` pass from its classified claims:
     /// theorems, axioms (assumptions), and admitted assumptions. REJECTS a
@@ -1356,8 +1381,24 @@ impl Inventory {
         axioms: &[String],
         admitted: &[String],
     ) -> Result<Inventory, String> {
+        Self::from_prove_with_refutations(theorems, &[], axioms, admitted)
+    }
+
+    /// [`Inventory::from_prove`] for a pass that also checked refutations, each inventoried
+    /// as a [`ClaimKind::Refutation`] after the theorems. A refutation's name is held to
+    /// the same collision rule as a theorem's.
+    pub fn from_prove_with_refutations(
+        theorems: &[ProvenClaim],
+        refutations: &[RefutedClaim],
+        axioms: &[String],
+        admitted: &[String],
+    ) -> Result<Inventory, String> {
         use std::collections::BTreeSet;
-        let theorem_names: BTreeSet<&str> = theorems.iter().map(|t| t.name.as_str()).collect();
+        let theorem_names: BTreeSet<&str> = theorems
+            .iter()
+            .map(|t| t.name.as_str())
+            .chain(refutations.iter().map(|r| r.name.as_str()))
+            .collect();
         let assumption_names: BTreeSet<&str> = axioms
             .iter()
             .chain(admitted.iter())
@@ -1411,6 +1452,26 @@ impl Inventory {
                 proof,
                 certificate,
                 certificate_rechecks,
+            });
+        }
+        for r in refutations {
+            items.push(InventoryItem {
+                kind: ClaimKind::Refutation,
+                name: r.name.clone(),
+                status: if r.refuted {
+                    ClaimStatus::Refuted
+                } else {
+                    ClaimStatus::Unrefuted
+                },
+                // A countermodel is one finite structure checked whole, which settles that the
+                // formula does not follow: not a sampling of cases.
+                finite_enumeration: false,
+                domain_bound: None,
+                counterexample: r.countermodel.clone(),
+                vacuous: false,
+                proof: false,
+                certificate: None,
+                certificate_rechecks: None,
             });
         }
         for a in axioms {

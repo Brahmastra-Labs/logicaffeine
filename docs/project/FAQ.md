@@ -65,7 +65,7 @@ Induction. `phase104_induction_vs_z3` poses `∀n:Nat. n + 0 = n`: the Z3 oracle
 
 ### Is the compiled code proved to match its source?
 
-Not yet. `logicaffeine_tv` is translation validation, built to prove for each compile that the emitted Rust behaves observably like its LOGOS source, with Z3 discharging the equivalence. Today only the LOGOS side has a symbolic executor. Nothing executes the emitted Rust symbolically yet, so the source-to-Rust equivalence is not closed.
+For the integer core, program by program. `logicaffeine_tv` is translation validation: instead of proving the compiler correct once, it checks each program the compiler translates, with Z3 discharging the equivalence. Its `bytecode` module proves, for every input, that each function the register VM runs computes what its source computes, loops included (an invariant inferred at each loop head, or, where the compiler replaced a loop with its closed form, the polynomial relation the loop's runs suggest), and refutes a miscompile with an input that shows it (`bytecode_tv_lock`). Its `rust` module proves the same of the Rust the AOT backend emits, up to a loud integer overflow where a value needs more than 64 bits (`rust_tv_lock`). A function outside that core (collections, text, floats) is reported `Unsupported`, never as agreement. The emitted C is not validated, and no compile path calls the validator: it is a library and its locks.
 
 What runs is the source encoder and its soundness check. `check_encoder_sound` runs a program through the tree-walking interpreter and through the symbolic encoder, then proves with Z3 that they agree on every `Show` and on whether an error was raised. It covers straight-line `Int`/`Bool` programs and a determinate concurrency fragment; anything else is reported `Unsupported`, never as agreement. Translation validation is also not a machine-checked proof of the compiler: its trust rests on the encoders, Z3 and rustc. Between the execution tiers, the evidence today is the differential suites described under [What does an English program run on?](#what-does-an-english-program-run-on).
 
@@ -157,7 +157,7 @@ The Studio at **[logicaffeine.com/studio](https://logicaffeine.com/studio)** run
 ### What's honestly not done yet?
 
 - The **English Barber paradox**: the proof engine finds a derivation, but the certifier does not yet turn it into a kernel term, so `compile_theorem` reports it as not proved (`phase105_string_door_honesty`); the predicate-level form certifies (above).
-- **Source ↔ emitted-Rust equivalence**: translation validation checks the LOGOS side only; the emitted Rust has no symbolic executor yet (above).
+- **Source ↔ emitted-C equivalence, and code past the integer core**: translation validation covers the VM's bytecode and the emitted Rust on integers (above); the emitted C has no symbolic executor yet.
 - **Jones-optimal self-application**: the second and third Futamura projections run by genuine self-application, but their residuals still carry interpreter dispatch; `futamura_p2p3_ratchet` holds the surviving dispatch count to ceilings that may only fall.
 - **A trusted base larger than Lean's three axioms**: `crates/logicaffeine_kernel/TCB.md` names every assumption Lean does not share and the argument for each.
 - **No quantum backend**: a Cirq target is a planned milestone on the [roadmap](https://logicaffeine.com/roadmap), with no code behind it.

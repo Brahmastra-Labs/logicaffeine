@@ -70,3 +70,18 @@ fn replay_divergence_panics_on_kind_mismatch() {
     let mut rep = Chooser::replay(trace);
     rep.decide(ChoiceKind::SelectWinner, 3);
 }
+
+#[test]
+fn the_seed_a_run_is_not_given_is_logos_seed_else_zero() {
+    std::env::remove_var("LOGOS_SEED");
+    assert_eq!(SchedSeed::from_env(), SchedSeed(0), "unset is seed 0");
+    for (text, seed) in [("42", 42), (" 7\n", 7), ("0", 0), ("18446744073709551615", u64::MAX)] {
+        std::env::set_var("LOGOS_SEED", text);
+        assert_eq!(SchedSeed::from_env(), SchedSeed(seed), "LOGOS_SEED={text:?}");
+    }
+    for junk in ["", "seven", "-1", "18446744073709551616", "1.5"] {
+        std::env::set_var("LOGOS_SEED", junk);
+        assert_eq!(SchedSeed::from_env(), SchedSeed(0), "LOGOS_SEED={junk:?} is not a seed");
+    }
+    std::env::remove_var("LOGOS_SEED");
+}

@@ -12,7 +12,7 @@
 /// ([`defined_names`]), so adding a module here makes its whole vocabulary live with nothing else to update.
 /// `std.lg` is absent: its `Unit`, `Pair` and `Triple` stay an explicit import (`logos:std`).
 #[cfg_attr(not(test), allow(dead_code))]
-pub(crate) const PRELUDE_FILES: [&str; 49] = [
+pub(crate) const PRELUDE_FILES: [&str; 50] = [
     // Core algebraic types (Result/Option) come first: later modules'
     // signatures (file.lg's `-> Result of Text and Text`) refer to them.
     "core",
@@ -63,6 +63,8 @@ pub(crate) const PRELUDE_FILES: [&str; 49] = [
     "collections",
     "heap",
     "sort",
+    // After `strings`: the evaluator joins and orders names through it.
+    "datalog",
     "calendar",
     "blas",
     "lapack",

@@ -110,3 +110,13 @@ fn every_logic_theorem_reads_as_its_registry_promise() {
     }
     assert!(wrong.is_empty(), "{} theorem(s) read wrong:\n{}", wrong.len(), wrong.join("\n"));
 }
+
+#[test]
+fn a_refusal_names_the_missing_fact_in_plain_words() {
+    let said = plain_refusal("Certification failed: Certification error: Cannot find hypothesis with type matching: \u{2200}u(Barber(u) \u{2192} u = the_barber)");
+    assert!(said.starts_with("One step leans on a fact the givens do not state: \u{2200}u(Barber(u) \u{2192} u = the_barber)."), "{said}");
+    assert!(said.contains("add it as a Given"), "{said}");
+    assert!(!said.contains("Certification"), "the kernel's own words leaked: {said}");
+    let other = plain_refusal("Certification failed: Certification error: type mismatch in step 3");
+    assert!(other.starts_with("The kernel could not check one of its steps. It said: type mismatch in step 3"), "{other}");
+}

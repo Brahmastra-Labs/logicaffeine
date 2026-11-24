@@ -511,7 +511,7 @@ fn emit_registry_create(out: &mut String, alloc_expr: &str, _rust_type: &str) {
     writeln!(out, "        let __data = {};", alloc_expr).unwrap();
     writeln!(
         out,
-        "        let __ptr = Box::into_raw(Box::new(__data)) as usize;"
+        "        let __ptr = ::std::boxed::Box::into_raw(::std::boxed::Box::new(__data)) as usize;"
     )
     .unwrap();
     writeln!(out, "        let mut __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();
@@ -528,7 +528,7 @@ fn emit_registry_free(out: &mut String, rust_type: &str) {
     writeln!(out, "        match __reg.free(__id) {{").unwrap();
     writeln!(
         out,
-        "            Ok(__ptr) => {{ unsafe {{ drop(Box::from_raw(__ptr as *mut {})); }} }}",
+        "            Ok(__ptr) => {{ unsafe {{ drop(::std::boxed::Box::from_raw(__ptr as *mut {})); }} }}",
         rust_type
     )
     .unwrap();
@@ -776,7 +776,7 @@ pub(crate) fn codegen_c_accessors(
                     writeln!(out, "            Ok(val) => {{").unwrap();
                     writeln!(
                         out,
-                        "                let __ptr = Box::into_raw(Box::new(val)) as usize;"
+                        "                let __ptr = ::std::boxed::Box::into_raw(::std::boxed::Box::new(val)) as usize;"
                     )
                     .unwrap();
                     writeln!(out, "                let mut __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();
@@ -948,7 +948,7 @@ pub(crate) fn codegen_c_accessors(
                     writeln!(out, "        let keys = LogosSeq::from_vec(map.borrow().keys().cloned().collect::<Vec<{}>>());", key_rust).unwrap();
                     writeln!(
                         out,
-                        "        let __kptr = Box::into_raw(Box::new(keys)) as usize;"
+                        "        let __kptr = ::std::boxed::Box::into_raw(::std::boxed::Box::new(keys)) as usize;"
                     )
                     .unwrap();
                     writeln!(out, "        let mut __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();
@@ -972,7 +972,7 @@ pub(crate) fn codegen_c_accessors(
                     writeln!(out, "        let values = LogosSeq::from_vec(map.borrow().values().cloned().collect::<Vec<{}>>());", val_rust).unwrap();
                     writeln!(
                         out,
-                        "        let __vptr = Box::into_raw(Box::new(values)) as usize;"
+                        "        let __vptr = ::std::boxed::Box::into_raw(::std::boxed::Box::new(values)) as usize;"
                     )
                     .unwrap();
                     writeln!(out, "        let mut __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();
@@ -1128,7 +1128,7 @@ pub(crate) fn codegen_c_accessors(
                     writeln!(out, "            Ok(val) => {{").unwrap();
                     writeln!(
                         out,
-                        "                let __ptr = Box::into_raw(Box::new(val)) as usize;"
+                        "                let __ptr = ::std::boxed::Box::into_raw(::std::boxed::Box::new(val)) as usize;"
                     )
                     .unwrap();
                     writeln!(out, "                let mut __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();
@@ -1431,7 +1431,7 @@ pub(crate) fn codegen_c_accessors(
                         writeln!(out, "        let opt: {} = Some(val_str);", opt_type).unwrap();
                         writeln!(
                             out,
-                            "        let __ptr = Box::into_raw(Box::new(opt)) as usize;"
+                            "        let __ptr = ::std::boxed::Box::into_raw(::std::boxed::Box::new(opt)) as usize;"
                         )
                         .unwrap();
                         writeln!(out, "        let mut __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();
@@ -1451,7 +1451,7 @@ pub(crate) fn codegen_c_accessors(
                         writeln!(out, "        let opt: {} = Some(value);", opt_type).unwrap();
                         writeln!(
                             out,
-                            "        let __ptr = Box::into_raw(Box::new(opt)) as usize;"
+                            "        let __ptr = ::std::boxed::Box::into_raw(::std::boxed::Box::new(opt)) as usize;"
                         )
                         .unwrap();
                         writeln!(out, "        let mut __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();
@@ -1473,7 +1473,7 @@ pub(crate) fn codegen_c_accessors(
                     writeln!(out, "        let opt: {} = None;", opt_type).unwrap();
                     writeln!(
                         out,
-                        "        let __ptr = Box::into_raw(Box::new(opt)) as usize;"
+                        "        let __ptr = ::std::boxed::Box::into_raw(::std::boxed::Box::new(opt)) as usize;"
                     )
                     .unwrap();
                     writeln!(out, "        let mut __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();
@@ -1628,7 +1628,7 @@ pub(crate) fn codegen_c_accessors(
                         writeln!(out, "            Ok(val) => {{").unwrap();
                         writeln!(
                             out,
-                            "                let __ptr = Box::into_raw(Box::new(val)) as usize;"
+                            "                let __ptr = ::std::boxed::Box::into_raw(::std::boxed::Box::new(val)) as usize;"
                         )
                         .unwrap();
                         writeln!(out, "                let mut __reg = logos_handle_registry().lock().unwrap_or_else(|e| e.into_inner());").unwrap();
@@ -1950,7 +1950,7 @@ pub fn generate_c_header(
 
     writeln!(
         out,
-        "// Generated from {}.lg — LogicAffeine Universal ABI",
+        "// Generated from the LOGOS module `{}` — LogicAffeine Universal ABI",
         module_name
     )
     .unwrap();

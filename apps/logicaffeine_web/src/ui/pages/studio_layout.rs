@@ -41,14 +41,11 @@ pub enum MobileTab {
     Panel3,
 }
 
-/// The pane a phone opens a file of `mode` on: the output for a file that runs or previews as it
-/// opens, the editor for Math, which waits for Execute. Decided by the mode alone, so the server's
-/// render is the phone's first frame.
-pub fn first_pane(mode: StudioMode) -> MobileTab {
-    match mode {
-        StudioMode::Math => MobileTab::Panel1,
-        StudioMode::Logic | StudioMode::Code | StudioMode::Hardware | StudioMode::Web => MobileTab::Panel2,
-    }
+/// The pane a phone opens a file of any `mode` on: the program the reader selected (Collin,
+/// 2026-11-23). Run, Execute and Compile take the phone to the output from there. The same in every
+/// mode, so the server's render is the phone's first frame.
+pub fn first_pane(_mode: StudioMode) -> MobileTab {
+    MobileTab::Panel1
 }
 
 /// A stretch of the page from top to bottom, in CSS pixels.

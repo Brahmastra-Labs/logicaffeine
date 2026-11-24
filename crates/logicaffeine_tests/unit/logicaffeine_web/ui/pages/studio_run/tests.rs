@@ -85,3 +85,44 @@ fn a_theory_certifies_each_theorem_and_builds_no_context() {
     assert!(theorems.len() >= 3, "the theory certified {} theorems", theorems.len());
     assert!(theorems.iter().all(|line| line.success), "a theorem of the theory was not certified: {theorems:?}");
 }
+
+#[test]
+fn a_theory_reports_a_refutation_by_its_countermodel_never_as_kernel_certified() {
+    let run = run_math(
+        "## Theory Facts\n\nAxiom p_a: P(A).\nAxiom rule: for all x, if P(x) then Q(x).\nTheorem q_a: prove Q(A).\nTheorem not_r: refute R(A).\n",
+    );
+    let line = |name: &str| {
+        run.lines
+            .iter()
+            .find(|line| line.input == format!("Theorem {name}"))
+            .unwrap_or_else(|| panic!("no line for {name}: {:?}", run.lines))
+    };
+    assert_eq!(line("q_a").output, Ok("kernel-certified".to_string()));
+    let refuted = line("not_r");
+    assert!(refuted.success, "{refuted:?}");
+    let said = refuted.output.as_ref().expect("a refutation that holds is a success line");
+    assert!(said.starts_with("refuted") && said.contains("countermodel of 2 facts over 1 element"), "{said}");
+    assert!(!said.contains("kernel-certified"), "{said}");
+}
+
+// ---------------------------------------------------------------------------------------------
+// The stopwatch every Run and every opened program is timed with.
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn a_stopwatch_reads_a_nonnegative_duration() {
+    let watch = Stopwatch::start();
+    let run = watch.stop(true);
+    assert!(run.millis >= 0.0, "a run took {} ms", run.millis);
+    assert!(run.finished);
+    assert!(!Stopwatch::start().stop(false).finished);
+}
+
+#[test]
+fn a_stopwatch_counts_the_time_that_passes() {
+    let watch = Stopwatch::start();
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let run = watch.stop(true);
+    assert!(run.millis >= 19.0, "20 ms passed and the stopwatch read {} ms", run.millis);
+    assert!(run.millis < 5_000.0, "20 ms passed and the stopwatch read {} ms", run.millis);
+}

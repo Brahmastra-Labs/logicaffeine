@@ -48,6 +48,19 @@ Show c.
     assert!(rust.contains("let c: i64 = 20"), "After escape:\n{}", rust);
 }
 
+/// A string literal that spans lines inside an escape block holds the text the block wrote, wherever the block sits:
+/// the emitter moves the block's lines in, never the lines inside a literal.
+#[test]
+fn escape_block_string_spanning_lines_keeps_its_text_at_any_depth() {
+    let in_main = "## Main\nEscape to Rust:\n    let s = \"first\n    second\";\n    println!(\"{}\", s);\n";
+    let in_loop = "## Main\nRepeat for i from 1 to 2:\n    Escape to Rust:\n        let s = \"first\n        second\";\n        println!(\"{}\", s);\n";
+    let in_function = "## To greet ():\n    Escape to Rust:\n        let s = \"first\n        second\";\n        println!(\"{}\", s);\n\n## Main\nCall greet.\n";
+    for source in [in_main, in_loop, in_function] {
+        let rust = compile_to_rust(source).expect("Should compile");
+        assert!(rust.contains("let s = \"first\nsecond\";"), "the literal's second line moved:\n{}", rust);
+    }
+}
+
 #[test]
 fn escape_block_in_function_body() {
     let source = r#"## To greet (name: Text):

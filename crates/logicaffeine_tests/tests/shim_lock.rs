@@ -275,7 +275,8 @@ fn nested(op: &Op, depth: usize) -> Vec<(&Op, usize)> {
 
 /// OPT-2: the lane's shim is its link. Over every lane cut, fused by the whole shared table so that every class it can
 /// build is built, every fused op the lane could be handed — a fold's members at every depth as much as the fold — is
-/// `Native` under the lane's shim exactly when the lane's link builds it whole: a class the shim answers `Native` for has
+/// `Native` under the lane's shim, with every knob that takes a class on (`head_epilogue`), exactly when the lane's
+/// link builds it whole: a class the shim answers `Native` for has
 /// a launch, and every op of it the kernels run (`fits`) links; a class the shim decomposes or refuses has no launch.
 /// Nothing built escapes: every class a cut builds is judged on it, the only ones passed over being ops that hold a
 /// member the lane does not link whole, which the lane is never handed as they stand — and a fold's members are judged
@@ -287,17 +288,18 @@ fn the_lane_shim_is_its_link() {
     let (mut at_top, mut inside): (BTreeSet<ClassId>, BTreeSet<ClassId>) = (BTreeSet::new(), BTreeSet::new());
     for c in every_lane_cut() {
         let all = optimize(&c.g, &ReferenceShim, &[]).graph;
-        let link = Link { g: &all, constants: &c.constants, shim: &c.shim, io: &c.io };
+        let shim = LaneShim { knobs: CudaKnobs { head_epilogue: true, ..c.shim.knobs }, ..c.shim.clone() };
+        let link = Link { g: &all, constants: &c.constants, shim: &shim, io: &c.io };
         let (mut built, mut judged): (BTreeSet<ClassId>, BTreeSet<ClassId>) = (BTreeSet::new(), BTreeSet::new());
         for (op, depth) in all.ops.iter().flat_map(|o| nested(o, 0)) {
             let Sym::Fused(f) = &op.sym else { continue };
             built.insert(f.class);
-            if !lane_shaped(op, &c.shim) {
+            if !lane_shaped(op, &shim) {
                 continue;
             }
             judged.insert(f.class);
             if depth == 0 { at_top.insert(f.class) } else { inside.insert(f.class) };
-            let allowed = allows(&c.shim, op, &all) == Allow::Native;
+            let allowed = allows(&shim, op, &all) == Allow::Native;
             let linked = link.whole(op);
             assert_eq!(
                 allowed,
@@ -322,7 +324,7 @@ fn the_lane_shim_is_its_link() {
                 let Sym::Fused(f) = &op.sym else { continue };
                 if f.class == *class {
                     assert!(
-                        f.parts.iter().any(|p| matches!(&p.sym, Sym::Fused(inner) if c.shim.supports(inner.class) != Support::Native)),
+                        f.parts.iter().any(|p| matches!(&p.sym, Sym::Fused(inner) if shim.supports(inner.class) != Support::Native)),
                         "{}: a `{class}` the lane could be handed is never judged",
                         c.what
                     );
@@ -384,13 +386,13 @@ fn misaligned_head_product(g: &TensorGraph) -> Op {
 fn a_decomposed_class_whose_part_is_refused_is_refused_whole_by_name() {
     let corpus = lane_corpus();
     let (what, g, shim) = corpus.iter().find(|(_, g, _)| g.ops.iter().any(|o| o.prim().is_some_and(|p| p.kind() == "HeadMatmul"))).expect("a cut with a per-head product");
-    assert_eq!(shim.supports(ClassId::DualNorm), Support::Decompose, "the lane runs two norms of one source apart");
+    assert_eq!(shim.supports(ClassId::NormWeightOffset), Support::Decompose, "the lane runs a norm's offset weight as its parts");
     let part = misaligned_head_product(g);
     let Allow::Refuse(part_why) = allows(shim, &part, g) else { panic!("{what}: the lane refuses a per-head product off the blocks") };
-    let fused = Op { sym: Sym::Fused(Fused { class: ClassId::DualNorm, parts: vec![part.clone()] }), ..part.clone() };
+    let fused = Op { sym: Sym::Fused(Fused { class: ClassId::NormWeightOffset, parts: vec![part.clone()] }), ..part.clone() };
     match allows(shim, &fused, g) {
         Allow::Refuse(why) => {
-            assert!(why.contains("dual_norm") && why.contains("HeadMatmul") && why.contains(&part_why), "{what}: the refusal names the class, the part and its reason: {why}");
+            assert!(why.contains("norm_weight_offset") && why.contains("HeadMatmul") && why.contains(&part_why), "{what}: the refusal names the class, the part and its reason: {why}");
         }
         other => panic!("{what}: a class run as parts with a refused part answers {other:?}"),
     }

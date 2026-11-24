@@ -10,8 +10,39 @@
 use logicaffeine_compile::{compile_for_proof, compile_for_ui, compile_theorem_for_ui, CompileResult, ProofCompileResult, TheoremCompileResult};
 use logicaffeine_kernel::interface::Repl;
 
+use crate::ui::components::status_bar::RunTime;
 use crate::ui::pages::studio::parse_math_statements;
 use crate::ui::state::ReplLine;
+
+/// A stopwatch for a run: started when the run starts, stopped when its last line is in. In the
+/// browser it reads `performance.now()`, the page's monotonic clock; natively, `Instant`.
+pub struct Stopwatch {
+    started: f64,
+}
+
+impl Stopwatch {
+    pub fn start() -> Stopwatch {
+        Stopwatch { started: now_millis() }
+    }
+
+    /// The run's time, `finished` when it ran to its end rather than stopping on an error.
+    pub fn stop(self, finished: bool) -> RunTime {
+        RunTime { millis: (now_millis() - self.started).max(0.0), finished }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn now_millis() -> f64 {
+    web_sys::window().and_then(|window| window.performance()).map(|clock| clock.now()).unwrap_or_default()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn now_millis() -> f64 {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+    static ORIGIN: OnceLock<Instant> = OnceLock::new();
+    ORIGIN.get_or_init(Instant::now).elapsed().as_secs_f64() * 1_000.0
+}
 
 /// What running a Logic document produced.
 pub enum LogicRun {
@@ -67,7 +98,12 @@ pub fn run_math(code: &str) -> MathRun {
                 format!("{} theorems checked", theory.theorems.len()),
             ));
             for theorem in &theory.theorems {
-                if theorem.verified {
+                if let (true, Some(model)) = (theorem.verified, &theorem.countermodel) {
+                    lines.push(ReplLine::success(
+                        format!("Theorem {}", theorem.name),
+                        format!("refuted: countermodel of {}, every premise re-checked", model.render()),
+                    ));
+                } else if theorem.verified {
                     lines.push(ReplLine::success(format!("Theorem {}", theorem.name), "kernel-certified".to_string()));
                 } else {
                     lines.push(ReplLine::error(

@@ -457,7 +457,7 @@ fn every_op_family_lowers_from_its_own_file() {
         ("rows", &["from_l2norm", "from_row_norm_flat"]),
         ("rope", &["from_rope"]),
         ("gathers", &["from_row_gather", "from_rows_gather", "from_argmax", "from_set_row"]),
-        ("pointwise", &["from_silu", "from_int_requant", "from_int_clamp", "from_relu", "from_sigmoid", "from_gelu", "from_scale", "from_softcap", "from_signed_root", "from_lane_sums", "from_lane_mean", "from_lane_spread"]),
+        ("pointwise", &["from_silu", "from_int_requant", "from_int_clamp", "from_relu", "from_sigmoid", "from_gelu", "from_erf", "from_scale", "from_softcap", "from_signed_root", "from_lane_sums", "from_lane_mean", "from_lane_spread"]),
         ("shape", &["from_transpose", "from_head_slice", "from_join"]),
         ("products", &["from_head_matmul"]),
         ("ngram", &["from_ngram_ids"]),

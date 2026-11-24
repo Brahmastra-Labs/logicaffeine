@@ -109,3 +109,41 @@ fn test_ormap_concurrent_update() {
     a.merge(&b);
     assert_eq!(a.get(&"score".to_string()).unwrap().value(), 15);
 }
+
+// An ORMap's delta carries its whole state, so applying it is the same as merging that state: a
+// key the sender removed after the receiver saw it is removed on the receiver too.
+#[test]
+fn applying_a_full_delta_removes_what_the_sender_removed() {
+
+    let mut a: ORMap<String, PNCounter> = ORMap::new(1);
+    let mut b: ORMap<String, PNCounter> = ORMap::new(2);
+    a.get_or_insert("k".to_string()).increment(5);
+    b.apply_delta(&a.delta_since(&VClock::new()).unwrap());
+    assert!(b.contains_key(&"k".to_string()));
+    a.remove(&"k".to_string());
+    b.apply_delta(&a.delta_since(&VClock::new()).unwrap());
+    assert!(!b.contains_key(&"k".to_string()), "the removed key survived a full delta");
+}
+
+#[test]
+fn applying_a_full_delta_equals_merging_the_state() {
+
+    let mut a: ORMap<String, PNCounter> = ORMap::new(1);
+    let mut b: ORMap<String, PNCounter> = ORMap::new(2);
+    a.get_or_insert("x".to_string()).increment(1);
+    a.get_or_insert("y".to_string()).increment(2);
+    b.get_or_insert("y".to_string()).increment(3);
+    b.get_or_insert("z".to_string()).increment(4);
+    let mut merged = b.clone();
+    merged.merge(&a);
+    a.remove(&"x".to_string());
+    merged.merge(&a);
+    let mut via_delta = b.clone();
+    let mut a_first: ORMap<String, PNCounter> = ORMap::new(1);
+    a_first.get_or_insert("x".to_string()).increment(1);
+    a_first.get_or_insert("y".to_string()).increment(2);
+    via_delta.apply_delta(&a_first.delta_since(&VClock::new()).unwrap());
+    via_delta.apply_delta(&a.delta_since(&VClock::new()).unwrap());
+    let keys = |m: &ORMap<String, PNCounter>| { let mut k: Vec<String> = m.keys().cloned().collect(); k.sort(); k };
+    assert_eq!(keys(&via_delta), keys(&merged));
+}

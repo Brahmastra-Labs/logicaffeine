@@ -6,6 +6,8 @@
 //! demand). Every rule the lane records has a meaning, every symbol the map names is one section 3.4 maps, and every
 //! rule the lane fires has a census test that names it.
 
+#[path = "common/checkpoints.rs"]
+mod checkpoints;
 #[path = "common/fusion_map.rs"]
 mod fusion_map;
 #[path = "common/scratch.rs"]
@@ -134,18 +136,21 @@ fn the_d5005_cells_are_the_engine_programs_of_the_one_program() {
 }
 
 /// The real checkpoints' map, written to `benchmarks/results/demo/fusion_map.json`. On demand: every scoreboard
-/// checkpoint under `models/` it finds.
+/// checkpoint under `models/` it finds, Qwen3.8-27B's the Q4_K_M the card runs.
 #[test]
 #[ignore = "reads the real checkpoints: cargo nextest run -p logicaffeine-tests --test fusion_map_lock --run-ignored only"]
 fn the_real_checkpoints_map_regenerates() {
     let mut models = BTreeMap::new();
-    for name in ["llama3.2-1b", "gemma3-1b", "qwen3.5-0.8b", "qwen3-8b", "deepseek-v2-lite", "gpt-oss-20b", "qwen3.8-27b"] {
-        let dir = root().join("models").join(name);
-        let Some(gguf) = std::fs::read_dir(&dir).ok().and_then(|d| {
-            d.filter_map(|e| e.ok().map(|e| e.path())).find(|p| p.extension().is_some_and(|x| x == "gguf"))
-        }) else {
-            continue;
-        };
+    for (name, file) in [
+        ("llama3.2-1b", "llama3.2-1b"),
+        ("gemma3-1b", "gemma3-1b"),
+        ("qwen3.5-0.8b", "qwen3.5-0.8b"),
+        ("qwen3-8b", "qwen3-8b"),
+        ("deepseek-v2-lite", "deepseek-v2-lite"),
+        ("gpt-oss-20b", "gpt-oss-20b"),
+        ("qwen3.8-27b", "qwen3.8-27b/Qwen3.8-27B-Q4_K_M.gguf"),
+    ] {
+        let Some(gguf) = checkpoints::checkpoint(file) else { continue };
         let g = Gguf::open(&gguf).unwrap_or_else(|e| panic!("{}: {e}", gguf.display()));
         let spec = ModelSpec::from_gguf(&g).unwrap_or_else(|e| panic!("{name}: {e}"));
         models.insert(name.to_string(), cells(&spec, &gguf));

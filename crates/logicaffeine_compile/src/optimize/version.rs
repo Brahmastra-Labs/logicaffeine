@@ -231,10 +231,11 @@ impl<'a, 'k> Versioner<'a, 'k> {
             target: counter,
             value: clone.map_expr(start),
         };
+        let region = self.branches(init, guard, fast_init, fast_loop, lp)?;
         if tile_legal {
             super::mark_fired(crate::optimization::Opt::Tile);
         }
-        Some(self.branches(init, guard, fast_init, fast_loop, lp))
+        Some(region)
     }
 
     /// `init; loop` as `If <limit> <= C: <clone, the arithmetic on the items it grows raw> Otherwise: <as
@@ -273,13 +274,16 @@ impl<'a, 'k> Versioner<'a, 'k> {
             target: counter,
             value: clone.map_expr(start),
         };
+        let region = self.branches(init, guard, fast_init, fast_loop, lp)?;
         super::mark_fired(crate::optimization::Opt::AccumBound);
-        Some(self.branches(init, guard, fast_init, fast_loop, lp))
+        Some(region)
     }
 
     /// `If guard: <fast_init; fast_loop> Otherwise: <init's value restated; lp>`. The counter is re-stated at the
     /// top of each branch, so each branch keeps the counted-loop shape the backends lower; a `Let` is hoisted above
-    /// the guard so the counter stays in the enclosing scope.
+    /// the guard so the counter stays in the enclosing scope. A guard decided before the program runs
+    /// ([`super::guard`]) is not emitted: one that always holds leaves the clone alone, one that never holds leaves
+    /// the region unversioned (`None`).
     fn branches(
         &self,
         init: &Stmt<'a>,
@@ -287,7 +291,17 @@ impl<'a, 'k> Versioner<'a, 'k> {
         fast_init: Stmt<'a>,
         fast_loop: Stmt<'a>,
         lp: &Stmt<'a>,
-    ) -> Vec<Stmt<'a>> {
+    ) -> Option<Vec<Stmt<'a>>> {
+        let guard = match super::guard::decide(guard, self.arenas.exprs) {
+            super::guard::Decided::Never => return None,
+            super::guard::Decided::Always => {
+                return Some(match init {
+                    Stmt::Let { .. } => vec![init.clone(), fast_loop],
+                    _ => vec![fast_init, fast_loop],
+                });
+            }
+            super::guard::Decided::AtRunTime(g) => g,
+        };
         let (counter, start) = match init {
             Stmt::Let { var, value, .. } | Stmt::Set { target: var, value } => (*var, *value),
             _ => unreachable!("a nest's init is a Let or a Set"),
@@ -302,10 +316,10 @@ impl<'a, 'k> Versioner<'a, 'k> {
             then_block: sa.alloc_slice(vec![fast_init, fast_loop]),
             else_block: Some(sa.alloc_slice(vec![slow_init, lp.clone()])),
         };
-        match init {
+        Some(match init {
             Stmt::Let { .. } => vec![init.clone(), branches],
             _ => vec![branches],
-        }
+        })
     }
 }
 
@@ -518,6 +532,7 @@ pub(crate) fn total_guard<'a>(
             mark_ops_raw(right);
         }
     }
+    let parts = super::guard::tightened(&parts, ea);
     (!parts.is_empty()).then(|| conjunction(ea, &parts))
 }
 

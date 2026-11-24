@@ -298,6 +298,30 @@ Show length of xs.
     common::assert_exact_output(source, "3");
 }
 
+/// A call site in a function that returns no list is held to the same rule as one in `Main` or in a list-returning
+/// function: a result bound into a second binding is a shared list, so its callee keeps the function's `Seq` return.
+/// The specializer's generated compiler binds `Let ifKeys be mixTemp15.` after `Let mixTemp15 be coreKeysOf(env).`
+/// inside a function returning a record.
+#[test]
+fn a_call_in_a_function_returning_no_list_is_held_to_its_callers_binding() {
+    let source = r#"## To keysOf (n: Int) -> Seq of Text:
+    Let mutable out be a new Seq of Text.
+    Push "a" to out.
+    If n is greater than 1:
+        Push "b" to out.
+    Return out.
+
+## To countKeys (n: Int) -> Int:
+    Let tmp be keysOf(n).
+    Let keys be tmp.
+    Return length of keys.
+
+## Main
+Show countKeys(3).
+"#;
+    common::assert_exact_output(source, "2");
+}
+
 // =============================================================================
 // Phase 3 — interprocedural: a Seq passed ONLY to borrow-params (&[T]/&mut [T])
 // does not escape, so the caller's Seq de-Rc's and is passed by reference.

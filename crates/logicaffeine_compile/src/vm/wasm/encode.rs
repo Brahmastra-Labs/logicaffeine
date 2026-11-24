@@ -90,6 +90,49 @@ pub(crate) fn i32_const(out: &mut Vec<u8>, v: i32) {
     leb_i32(out, v);
 }
 
+/// An unsigned LEB128 of `v` in exactly five bytes, never the shortest form: a memory instruction's
+/// offset. No other emitter writes one, so a five-byte LEB in this backend's code marks a static address
+/// (see [`i32_load_static`]).
+pub(crate) fn leb_u32_static(out: &mut Vec<u8>, v: u32) {
+    for i in 0..5 {
+        let mut byte = ((v >> (7 * i)) & 0x7f) as u8;
+        if i < 4 {
+            byte |= 0x80;
+        }
+        out.push(byte);
+    }
+}
+
+/// A signed LEB128 of `v` in exactly five bytes, never the shortest form: an `i32.const` immediate, the
+/// padded form a linker relocates in place (`R_WASM_MEMORY_ADDR_SLEB`). For an address, which is never
+/// negative, its bytes are [`leb_u32_static`]'s.
+pub(crate) fn leb_i32_static(out: &mut Vec<u8>, v: i32) {
+    let v = v as i64;
+    for i in 0..5 {
+        let mut byte = ((v >> (7 * i)) & 0x7f) as u8;
+        if i < 4 {
+            byte |= 0x80;
+        }
+        out.push(byte);
+    }
+}
+
+/// `i32.const` of an address in the module's static region (the free-list table, the reserved low
+/// words, an interned Text, the heap's base), as a five-byte signed LEB. A relocating pass finds every
+/// static address by that encoding alone and moves it with the region (`reloc::module_to_relocatable`).
+pub(crate) fn i32_const_static(out: &mut Vec<u8>, addr: i32) {
+    debug_assert!((0..1 << 27).contains(&addr), "a static address fits 27 bits, so its own encoding is shorter");
+    out.push(0x41);
+    leb_i32_static(out, addr);
+}
+
+/// `i32.load` whose offset is a static address, the offset as a five-byte LEB for the same reason.
+pub(crate) fn i32_load_static(out: &mut Vec<u8>, offset: u32) {
+    out.push(0x28);
+    leb_u32(out, 2);
+    leb_u32_static(out, offset);
+}
+
 /// `<base on stack> <opcode> align offset` — a linear-memory load/store. `align` is the
 /// natural-alignment log2 (2 for i32/f32, 3 for i64/f64).
 fn mem_op(out: &mut Vec<u8>, opcode: u8, align: u32, offset: u32) {

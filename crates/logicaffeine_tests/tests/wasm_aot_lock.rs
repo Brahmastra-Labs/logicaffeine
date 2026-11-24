@@ -43,6 +43,8 @@ use logicaffeine_compile::vm::{Compiler, Op};
 
 #[path = "compile_common/mod.rs"]
 mod common;
+mod datalog_corpus;
+mod relations_corpus;
 
 /// How the AOT WebAssembly backend handles an op. Five PRECISE categories make the completeness
 /// claim PROVABLE, not asserted: `Deferred` is genuine remaining WORK, and its census is now EMPTY.
@@ -157,14 +159,23 @@ fn op_support(op: &Op) -> Support {
             // copies of x`): a bump-allocated header + `n*8` buffer filled in a runtime loop. Scalar
             // element kinds (Int/Float); a reference element (deep-copy) defers to the VM.
             BuiltinId::RepeatSeq => S,
-            // The Word ring (ℤ/2³²/ℤ/2⁶⁴, the crypto substrate): construct/extract (`word32`/`word64`/
-            // `intOfWord32`/`intOfWord64`), rotate (`rotl`/`rotr`), bitwise (`word_and`/`word_or`/
-            // `word_not`), the `word64` shift/mask primitives, and `word32Shr` (SHA-256's logical
-            // right-shift, `i32.shr_u`) — all native wasm `i32`/`i64` ops.
+            // The Word ring (ℤ/2⁸/ℤ/2¹⁶/ℤ/2³²/ℤ/2⁶⁴, the crypto substrate): construct/extract
+            // (`word8`/`word16`/`word32`/`word64`/`intOfWord8`/`intOfWord16`/`intOfWord32`/
+            // `intOfWord64`), rotate (`rotl`/`rotr`), bitwise (`word_and`/`word_or`/`word_not`), the
+            // `word64` shift/mask primitives, and `word32Shr` (SHA-256's logical right-shift,
+            // `i32.shr_u`) — all native wasm `i32`/`i64` ops. `Word8`/`Word16` ride an `i32` local
+            // masked to their width (wasm has no narrower integer arithmetic); rotate/bitwise (no
+            // 8-/16-bit caller yet) stay sound-refused at their own OWN-KIND lowering, below this
+            // builtin-level census — this row is about `BuiltinId::Rotl` etc. existing at all, not
+            // every kind each one reaches.
             BuiltinId::Word32
             | BuiltinId::Word64
+            | BuiltinId::Word16Make
+            | BuiltinId::Word8Make
             | BuiltinId::IntOfWord32
             | BuiltinId::IntOfWord64
+            | BuiltinId::IntOfWord16
+            | BuiltinId::IntOfWord8
             | BuiltinId::Rotl
             | BuiltinId::Rotr
             | BuiltinId::Wand
@@ -737,6 +748,9 @@ const CORPUS: &[(&str, &str)] = &[
     ("map_dynamic_capacity", "## Main\n    Let n be 17.\n    Let mutable m be a new Map of Int to Int with capacity n.\n    Set item 5 of m to 50.\n    Show item 5 of m.\n    Show length of m.\n"),
             // A different valtype down the same path — a fix keyed on integers would miss it.
     ("inspect_option_text", "## Main\n    Let v be some \"hi\".\n    Inspect v:\n        When Some (t):\n            Show t.\n        When None:\n            Show \"-\".\n"),
+    // A loop over a `Seq of <enum>` PARAMETER binds each row's payloads from the parameter's declared
+    // type — the row was built in the caller, so there is no construction here to trace.
+    ("inspect_rows_of_an_enum_parameter", "## A Statement is either:\n    Allocate (target: Text, site: Text).\n    Copy (target: Text, source: Text).\n\n## To f (program: Seq of Statement) -> Int:\n    Let mutable n be 0.\n    Repeat for s in program:\n        Inspect s:\n            When Allocate (v, h):\n                Show v + h.\n                Set n to n + 1.\n            When Copy (v1, v2):\n                Show v1.\n    Return n.\n\n## Main\nLet program be a new Seq of Statement.\nPush a new Allocate with target \"a\" and site \"h1\" to program.\nPush a new Copy with target \"c\" and source \"a\" to program.\nShow f(program).\n"),
     // The case that always worked must keep working: the new transparent branch must not swallow
     // a genuine enum bind.
     ("inspect_result_still_enum", "## To f (n: Int) -> Result of Int and Text:\n    If n is greater than 0:\n        Return a new Ok with value n.\n    Return a new Err with error \"neg\".\n\n## Main\n    Inspect f(7):\n        When Ok (v):\n            Show v.\n        When Err (e):\n            Show e.\n"),
@@ -1299,6 +1313,39 @@ const CORPUS: &[(&str, &str)] = &[
          Return rotl(acc, 5).\n\n\
          ## Main\n    Let mutable w be a new Seq of Word32.\n    Push word32(2863311530) to w.\n    \
          Push word32(1431655765) to w.\n    Show mix(w).\n",
+    ),
+    (
+        // The `Word16` ℤ/2¹⁶ ring (B22): `word16` construct (masking a value past 16 bits AT
+        // construction — wasm has no 16-bit local, so the mask IS the ring), wrapping `+`/`-`/`*` (a
+        // native `i32` op then `i32.and 0xFFFF` back into it), unsigned `/`/`%` (already in-ring, no
+        // extra mask needed), unsigned compare, `intOfWord16` extract, and the UNSIGNED `Show`
+        // (`print_word`, as `Word32`/`Word64` use). Rotate/bitwise have no 16-bit caller yet and stay
+        // unlowered — outside B22's stated scope.
+        "word16_ring",
+        "## Main\n    Let a be word16(60000).\n    Let b be word16(7000).\n    \
+         Show a + b.\n    Show a - b.\n    Show b - a.\n    Show a * b.\n    Show a / b.\n    Show a % b.\n    \
+         Show a is less than b.\n    Show b is less than a.\n    Show a equals word16(60000).\n    \
+         Show intOfWord16(a).\n    Show word16(70000).\n    Show intOfWord16(word16(70000)).\n",
+    ),
+    (
+        // The `Word8` ℤ/2⁸ ring (B22) — the same shape as `word16_ring` at 8-bit width.
+        "word8_ring",
+        "## Main\n    Let a be word8(200).\n    Let b be word8(7).\n    \
+         Show a + b.\n    Show a - b.\n    Show b - a.\n    Show a * b.\n    Show a / b.\n    Show a % b.\n    \
+         Show a is less than b.\n    Show b is less than a.\n    Show a equals word8(200).\n    \
+         Show intOfWord8(a).\n    Show word8(300).\n    Show intOfWord8(word8(300)).\n",
+    ),
+    (
+        // B22's own named failure, now self-contained on wasm too: a product past the 64-bit word,
+        // divided back within it, then narrowed to its low 16 (and, here, also low 8) bits via
+        // `word16`/`word8` + `intOfWord16`/`intOfWord8` — the exact repro
+        // `c_defined_integers_lock::a_product_past_the_word_divided_back_within_it_keeps_its_low_word`
+        // names (`6917529027641081856 * 4` is `3·2⁶³`, past `i64::MAX`, before the `/` brings it back).
+        "word16_and_word8_past_the_word",
+        "## To lowWord16 (a: Int) and (b: Int) and (c: Int) -> Int:\n    Return intOfWord16(word16((a * b) / c)).\n\n\
+         ## To lowWord8 (a: Int) and (b: Int) and (c: Int) -> Int:\n    Return intOfWord8(word8((a * b) / c)).\n\n\
+         ## Main\n    Show lowWord16(6917529027641081856, 4, 1125899906842624).\n    Show lowWord16(1000, 3, 7).\n    \
+         Show lowWord8(6917529027641081856, 4, 1125899906842624).\n    Show lowWord8(1000, 3, 7).\n",
     ),
     (
         // Bit ops: `xor` (BitXor), `shifted left by` (Shl), `shifted right by` (Shr).
@@ -2905,6 +2952,253 @@ fn wasm_equals_vm_and_treewalker_over_the_corpus() {
     );
 }
 
+/// RELATIONS on the self-contained WASM backend: every program of the shared relations corpus (sets of
+/// tuples as values, a fixpoint of joins over them, a tuple of sets across a call) lowers with no linked
+/// runtime and prints the tree-walker's output byte for byte. The tests crate's
+/// `param_return_tier_coverage_lock::relations_as_sets_of_tuples_agree_across_tiers` holds the VM, AOT-Rust
+/// and C to the same corpus.
+#[test]
+fn relations_as_sets_of_tuples_run_on_wasm() {
+    for (name, src) in relations_corpus::PROGRAMS {
+        let tw = tw_outcome(src);
+        assert_eq!(tw.error, None, "`{name}` must run cleanly on the tree-walker oracle:\n{src}");
+        assert_eq!(
+            vm_outcome(src).output.trim(),
+            tw.output.trim(),
+            "BASE EQUIVALENCE BROKEN (tree-walker != VM) for `{name}`"
+        );
+        let module = compile_to_wasm(src)
+            .unwrap_or_else(|e| panic!("`{name}` must lower to self-contained WASM: {e:?}"));
+        assert_eq!(
+            run_aot(&module).trim(),
+            tw.output.trim(),
+            "WASM != TREE-WALKER for `{name}` — fix vm/wasm/, never this lock."
+        );
+    }
+}
+
+/// `xs contains v` over a list compares each element with `v` BY VALUE on wasm, as the VM's `==` does, whatever the
+/// list holds: an Int, a Bool or a Real by its word, a Text by its bytes (a Text built at run time included), a list
+/// or a tuple through its shape's equality function. A list of Text was refused, and a list of lists or tuples lowered
+/// to a module wasm validation rejects (`i64.eq` against a handle); the Datalog evaluator written in LOGOS met the
+/// first.
+#[test]
+fn contains_over_a_list_compares_by_value_on_wasm() {
+    let programs = [
+        (
+            "text",
+            "## Main\nLet xs be [\"a\", \"bb\"].\nShow xs contains \"bb\".\nShow xs contains \"b\".\n\
+             Let mutable built be \"b\".\nSet built to built + \"b\".\nShow xs contains built.\n",
+        ),
+        (
+            "text through a function",
+            "## To has (xs: Seq of Text) and (x: Text) -> Bool:\n    Return xs contains x.\n\n\
+             ## Main\nShow has([\"x\", \"y\"], \"y\").\nShow has([\"x\", \"y\"], \"z\").\n",
+        ),
+        (
+            "lists",
+            "## Main\nLet xs be [[1, 2], [3]].\nShow xs contains [3].\nShow xs contains [1].\nShow xs contains [1, 2].\n",
+        ),
+        (
+            "tuples",
+            "## Main\nLet xs be [(1, \"a\"), (2, \"b\")].\nShow xs contains (2, \"b\").\nShow xs contains (2, \"a\").\n",
+        ),
+        ("reals", "## Main\nLet xs be [1.5, 2.5].\nShow xs contains 2.5.\nShow xs contains 3.5.\n"),
+        ("bools", "## Main\nLet xs be [true, true].\nShow xs contains true.\nShow xs contains false.\n"),
+    ];
+    for (name, src) in programs {
+        let tw = tw_outcome(src);
+        assert_eq!(tw.error, None, "`{name}` must run cleanly on the tree-walker oracle:\n{src}");
+        assert_eq!(
+            vm_outcome(src).output.trim(),
+            tw.output.trim(),
+            "BASE EQUIVALENCE BROKEN (tree-walker != VM) for `{name}`"
+        );
+        let module = compile_to_wasm(src)
+            .unwrap_or_else(|e| panic!("`{name}` must lower to self-contained WASM: {e:?}"));
+        assert_eq!(
+            run_aot(&module).trim(),
+            tw.output.trim(),
+            "WASM != TREE-WALKER for `{name}` — fix vm/wasm/, never this lock."
+        );
+    }
+}
+
+/// `xs contains v` / `Add`/`Remove` over a SET or LIST whose members are records or variants compares
+/// them BY VALUE on wasm, exactly as the VM's `==` does: a generated equality function per record/
+/// variant shape, field for field (a nested record's field through its own shape's function in turn),
+/// a variant by constructor first and only a shared constructor's payload positions after. A list or
+/// set of records/variants used to be refused by name (B17); `records_and_variants_with_an_exact_int_field_compare_by_value_on_wasm`
+/// holds the one subtlety a record's Int field adds (a counted integer cell, never a plain word).
+#[test]
+fn records_and_variants_compare_by_value_on_wasm() {
+    let programs = [
+        (
+            "a set of records dedups and reports membership by value",
+            "## A Point has:\n    An x: Int.\n    A y: Int.\n\n\
+             ## Main\nLet mutable pts be a new Set of Point.\n\
+             Add a new Point with x 1 and y 2 to pts.\n\
+             Add a new Point with x 3 and y 4 to pts.\n\
+             Add a new Point with x 1 and y 2 to pts.\n\
+             Show length of pts.\n\
+             Show pts contains a new Point with x 1 and y 2.\n\
+             Show pts contains a new Point with x 9 and y 9.\n\
+             Remove a new Point with x 1 and y 2 from pts.\n\
+             Show length of pts.\n\
+             Show pts contains a new Point with x 1 and y 2.\n",
+        ),
+        (
+            "a list of variants compares by value, nullary and payload-carrying alike",
+            "## A Shape is either:\n    A Circle with radius Int.\n    A Square with side Int.\n    A Dot.\n\n\
+             ## Main\nLet mutable xs be a new Seq of Shape.\n\
+             Push a new Circle with radius 5 to xs.\n\
+             Push a new Square with side 3 to xs.\n\
+             Push a new Dot to xs.\n\
+             Show xs contains a new Circle with radius 5.\n\
+             Show xs contains a new Circle with radius 6.\n\
+             Show xs contains a new Square with side 3.\n\
+             Show xs contains a new Dot.\n",
+        ),
+        (
+            "a set of variants compares by value",
+            "## A Shape is either:\n    A Circle with radius Int.\n    A Dot.\n\n\
+             ## Main\nLet mutable xs be a new Set of Shape.\n\
+             Add a new Circle with radius 5 to xs.\n\
+             Add a new Dot to xs.\n\
+             Add a new Circle with radius 5 to xs.\n\
+             Show length of xs.\n\
+             Show xs contains a new Circle with radius 5.\n\
+             Show xs contains a new Circle with radius 6.\n",
+        ),
+        (
+            "nested records compare by value field through field, including the nested one",
+            "## A Point has:\n    An x: Int.\n    A y: Int.\n\n\
+             ## A Box has:\n    A corner: Point.\n    A tag: Int.\n\n\
+             ## Main\nLet mutable xs be a new Seq of Box.\n\
+             Push a new Box with corner (a new Point with x 1 and y 2) and tag 9 to xs.\n\
+             Show xs contains a new Box with corner (a new Point with x 1 and y 2) and tag 9.\n\
+             Show xs contains a new Box with corner (a new Point with x 1 and y 3) and tag 9.\n\
+             Show xs contains a new Box with corner (a new Point with x 1 and y 2) and tag 8.\n",
+        ),
+    ];
+    for (name, src) in programs {
+        let tw = tw_outcome(src);
+        assert_eq!(tw.error, None, "`{name}` must run cleanly on the tree-walker oracle:\n{src}");
+        assert_eq!(
+            vm_outcome(src).output.trim(),
+            tw.output.trim(),
+            "BASE EQUIVALENCE BROKEN (tree-walker != VM) for `{name}`"
+        );
+        let module = compile_to_wasm(src)
+            .unwrap_or_else(|e| panic!("`{name}` must lower to self-contained WASM: {e:?}"));
+        assert_eq!(
+            run_aot(&module).trim(),
+            tw.output.trim(),
+            "WASM != TREE-WALKER for `{name}` — fix vm/wasm/, never this lock."
+        );
+    }
+}
+
+/// A record's Int field may hold a counted integer cell instead of a plain word (the exact extension,
+/// `Signatures::record_ints`, `vm/wasm/module/exact.rs`) once a value past 64 bits reaches it anywhere
+/// in the program — `grow` below (seven squarings of a small seed) forces that decision the same way
+/// `wasm_exact_record_storage_lock.rs` does. The held integer's HANDLE is never interned
+/// (`compile_common::wasm_host::exact_word` mints a fresh slot on every box/clone), so two SEPARATELY
+/// computed records holding the identical huge value, as `grow(3)` called twice here builds, must
+/// still compare and dedup as the SAME value — the one way a naive handle-equality shortcut would have
+/// been caught.
+#[test]
+fn records_with_an_exact_int_field_compare_by_value_on_wasm() {
+    const PRELUDE: &str = "## A Box has:\n    A value: Int.\n\n\
+                            ## No Inline\n## To grow (start: Int) -> Int:\n    Let n be start.\n    \
+                            Repeat for i from 1 to 7:\n        Set n to n * n.\n    Return n.\n\n";
+    let programs = [
+        (
+            "a list dedups two separately-computed equal held values and tells a differing one apart",
+            "## Main\nLet mutable xs be a new Seq of Box.\n\
+             Push a new Box with value grow(3) to xs.\n\
+             Show xs contains a new Box with value grow(3).\n\
+             Show xs contains a new Box with value grow(5).\n\
+             Show xs contains a new Box with value 3.\n",
+        ),
+        (
+            "a set dedups two separately-computed equal held values",
+            "## Main\nLet mutable boxes be a new Set of Box.\n\
+             Add a new Box with value grow(3) to boxes.\n\
+             Add a new Box with value grow(5) to boxes.\n\
+             Add a new Box with value grow(3) to boxes.\n\
+             Show length of boxes.\n\
+             Show boxes contains a new Box with value grow(3).\n\
+             Show boxes contains a new Box with value grow(7).\n",
+        ),
+        (
+            "a nested record's held field is the one compared",
+            "## A Wrapper has:\n    A child: Box.\n    A tag: Int.\n\n\
+             ## Main\nLet mutable xs be a new Seq of Wrapper.\n\
+             Push a new Wrapper with child (a new Box with value grow(3)) and tag 1 to xs.\n\
+             Show xs contains a new Wrapper with child (a new Box with value grow(3)) and tag 1.\n\
+             Show xs contains a new Wrapper with child (a new Box with value grow(5)) and tag 1.\n\
+             Show xs contains a new Wrapper with child (a new Box with value grow(3)) and tag 2.\n",
+        ),
+    ];
+    for (name, body) in programs {
+        let src = format!("{PRELUDE}{body}");
+        let tw = tw_outcome(&src);
+        assert_eq!(tw.error, None, "`{name}` must run cleanly on the tree-walker oracle:\n{src}");
+        assert_eq!(
+            vm_outcome(&src).output.trim(),
+            tw.output.trim(),
+            "BASE EQUIVALENCE BROKEN (tree-walker != VM) for `{name}`"
+        );
+        let module = compile_to_wasm(&src)
+            .unwrap_or_else(|e| panic!("`{name}` must lower to self-contained WASM: {e:?}"));
+        assert_eq!(
+            run_aot(&module).trim(),
+            tw.output.trim(),
+            "WASM != TREE-WALKER for `{name}` — fix vm/wasm/, never this lock."
+        );
+    }
+}
+
+/// What B17 did NOT fix: a SET whose members are MAPS is still refused by name on wasm (never lowered
+/// to a module wasm validation rejects) — only records, variants, tuples and lists compare by value
+/// as members. The refusal message says so, not the pre-B17 wording.
+#[test]
+fn a_set_of_maps_is_refused_by_name_on_wasm() {
+    let src = "## Main\nLet mutable inner be a new Map of Int to Int.\nSet item 1 of inner to 10.\n\
+               Let mutable outer be a new Set of (Map of Int to Int).\nAdd inner to outer.\n\
+               Show outer contains inner.\n";
+    let err = match compile_to_wasm(src) {
+        Ok(module) => panic!("a set of maps is refused, not lowered: a {}-byte module", module.len()),
+        Err(err) => err,
+    };
+    assert!(
+        format!("{err:?}").contains("maps or sets"),
+        "the refusal names the members: {err:?}"
+    );
+}
+
+/// The standard library's Datalog evaluator, written in LOGOS, on the self-contained WASM backend: the four points-to
+/// rules, constants an end-to-end tuple encoding would confuse, random stratified programs and the refused ones, in one
+/// module, print the tree-walker's lines, each program's the Rust engine's model or refusal. The other tiers are
+/// `datalog_in_logos_lock`'s.
+#[test]
+fn the_datalog_evaluator_runs_on_wasm() {
+    let programs = datalog_corpus::sampled();
+    let src = datalog_corpus::logos_programs(&programs);
+    let tw = tw_outcome(&src);
+    assert_eq!(tw.error, None, "the evaluator runs cleanly on the tree-walker oracle:\n{src}");
+    let module = compile_to_wasm(&src).unwrap_or_else(|e| panic!("the evaluator lowers to self-contained WASM: {e:?}"));
+    let out = run_aot(&module);
+    assert_eq!(out.trim(), tw.output.trim(), "WASM != TREE-WALKER for the Datalog evaluator — fix vm/wasm/, never this lock.");
+    let sections = datalog_corpus::sections(&out);
+    assert_eq!(sections.len(), programs.len(), "one section per program:\n{out}");
+    for ((name, p), (shown, text)) in programs.iter().zip(&sections) {
+        assert_eq!(name, shown);
+        assert_eq!(datalog_corpus::printed(text), datalog_corpus::expected(p), "`{name}` on WASM");
+    }
+}
+
 /// FIRST-CLASS PARAMETER/RETURN on the self-contained WASM backend. A function that takes each value
 /// kind as a PARAMETER and RETURNS it (the identity round-trip) must carry the value across the
 /// function boundary byte-for-byte — observed identically on the tree-walker, the VM, and the emitted
@@ -3013,6 +3307,23 @@ fn first_class_param_return_round_trips_on_wasm() {
             "seq_tuple",
             "## To idsq (x: Seq of (Int, Int)) -> Seq of (Int, Int):\n    Return x.\n\n\
              ## Main\nLet r be idsq([(1, 2), (3, 4)]).\n    Let p be item 2 of r.\n    Show item 1 of p.\n    Show item 2 of p.\n",
+        ),
+        (
+            // A Set of tuples: a duplicate add is one member, membership is by value, a `for` destructures.
+            "set_tuple",
+            "## To idrel (x: Set of (Text, Text)) -> Set of (Text, Text):\n    Return x.\n\n\
+             ## Main\nLet s be a new Set of (Text, Text).\n    Add (\"a\", \"h1\") to s.\n    Add (\"b\", \"h2\") to s.\n\
+             Add (\"a\", \"h1\") to s.\n    Let r be idrel(s).\n    Show the length of r.\n\
+             Show r contains (\"b\", \"h2\").\n    Show r contains (\"b\", \"h1\").\n\
+             Repeat for (v, h) in r:\n        Show v + \" -> \" + h.\n",
+        ),
+        (
+            // A tuple of Sets, built in the callee, returned and destructured by the caller.
+            "tuple_of_sets",
+            "## To split (n: Int) -> (Set of Int, Set of Int):\n    Let evens be a new Set of Int.\n\
+             \x20   Let odds be a new Set of Int.\n    Repeat for i from 1 to n:\n        If i is even:\n\
+             \x20           Add i to evens.\n        Otherwise:\n            Add i to odds.\n    Return (evens, odds).\n\n\
+             ## Main\nLet (e, o) be split(5).\n    Show e contains 4.\n    Show o contains 4.\n    Show the length of o.\n",
         ),
         // ── ROBUSTNESS beyond the ratchet: genuinely HETEROGENEOUS tuples/records (the real `Kind::Tuple`
         //    machinery, not the homogeneous Seq path), FLOAT-in-aggregate, and TRANSFORM-through-boundary
@@ -3265,6 +3576,26 @@ fn the_generics_corpus_runs_on_wasm() {
         failures.len(),
         GENERICS.len(),
         failures.join("\n\n")
+    );
+}
+
+/// The code after a stop runs on no path: the VM compiles a call to a function nothing defines to a stop, and the
+/// `Inspect` after it reads a register nothing writes on any path that reaches it. The registers it names held a
+/// counter and then a loop's character before the stop; neither may decide a type for code that never runs. The
+/// module stops where the tree-walker stops, after what it printed, in its words.
+#[test]
+fn code_after_a_stop_fails_alike_whatever_its_registers_held_before() {
+    let src = "## Main\nLet t be \"ab\".\nLet mutable acc be t + \"x\".\nRepeat for i from 1 to 3:\n    Set acc to acc + \"y\".\n\
+               Repeat for ch in t:\n    Show ch.\nInspect frobnicate(\"PATH\"):\n    When Some (path):\n        Show path.\n\
+               \x20   When None:\n        Show t + \"!\".\n";
+    let tw = tw_outcome(src);
+    assert!(tw.error.is_some(), "the tree-walker stops:\n{src}");
+    let run = crate::common::wasm_host::run_outcome(src)
+        .unwrap_or_else(|why| panic!("the module must build and run: {why}\n{src}"));
+    assert_eq!(
+        (run.output.trim(), run.failure.as_deref()),
+        (tw.output.trim(), tw.error.as_deref()),
+        "the module stops where the tree-walker stops:\n{src}"
     );
 }
 

@@ -1,4 +1,4 @@
-//! The pricing form's lead worker (`services/leads`) and the joints it shares with the rest of the tree.
+//! The contact form's lead worker (`services/leads`) and the joints it shares with the rest of the tree.
 //!
 //! The worker's vitest suite and the page's Rust validator walk one vector file, and the worker's deploy
 //! workflow reruns that suite whenever the file or the worker changes, then migrates D1 before it deploys.

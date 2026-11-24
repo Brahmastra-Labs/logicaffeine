@@ -129,11 +129,11 @@ fn aot_default_codegen_for_benchmark_is_byte_identical() {
 
 #[test]
 fn aot_default_codegen_for_concurrent_program_unchanged_modeA() {
-    // A concurrent program in the DEFAULT (Mode A) compile emits today's
-    // tokio-based shape: an async main and the platform concurrency runtime, and
-    // NO seeded/deterministic machinery (that is opt-in Mode B only).
+    // A concurrent program compiled with `--threads` (Mode A) emits the tokio-based
+    // shape: an async main and the platform concurrency runtime, and NO
+    // seeded/deterministic machinery (that is opt-in Mode B only).
     let src = DETERMINATE_CORPUS[0].1;
-    let rust = compile_to_rust(src).expect("compiles");
+    let rust = logicaffeine_compile::compile::compile_program_full_threaded(src).expect("compiles").rust_code;
     assert!(
         rust.contains("async fn main()"),
         "Mode A concurrent main is async:\n{rust}"
@@ -164,9 +164,11 @@ const SELECT_BOTH_READY: &str = "## Main\n\
 #[test]
 fn aot_mode_b_select_emits_seeded_pick_mode_a_does_not() {
     // Mode B lowers `Select` to the seeded winner-pick (sharing the interpreter's
-    // choice function); Mode A keeps the raw `tokio::select!`. This is the ONLY
-    // emission difference between the two modes.
-    let mode_a = logicaffeine_compile::compile_to_rust(SELECT_BOTH_READY).expect("compiles");
+    // choice function); Mode A (`--threads`) keeps the raw `tokio::select!`. This is
+    // the ONLY emission difference between the two modes.
+    let mode_a = logicaffeine_compile::compile::compile_program_full_threaded(SELECT_BOTH_READY)
+        .expect("compiles")
+        .rust_code;
     assert!(
         mode_a.contains("tokio::select!"),
         "Mode A keeps raw tokio::select!:\n{mode_a}"

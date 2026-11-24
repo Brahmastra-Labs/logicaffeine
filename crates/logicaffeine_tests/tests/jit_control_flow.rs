@@ -1,5 +1,8 @@
 //! J2 differentials: jumps, branches, back-edges — real loops in native code.
 
+// This suite tests the native tier alone, which exists only on x86_64 outside Windows.
+#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+
 use logicaffeine_forge::jit::{compile_straightline, reference_eval, JitCompileError, MicroOp};
 
 fn run_both(ops: &[MicroOp], inputs: &[i64]) -> (i64, i64, Vec<i64>, Vec<i64>) {

@@ -1373,6 +1373,7 @@ pub fn emit_forward(
             }
             Sym::Prim(TensorOpSpec::Attention(a)) => {
                 assert!(a.softcap.is_none(), "the forward's shim admits no soft-capped attention");
+                assert_eq!(a.from_row, 0, "the forward's shim runs no block's last rows apart from the rest");
                 let (q, kc, vc, out, h, kv, hd, l) = (&a.q, &a.kc, &a.vc, &a.out, &a.h, &a.kv, &a.hd, &a.l);
                 // Single-query multi-head GQA attention over the L-length KV cache — ONE parallel kernel, a BLOCK
                 // per query head. Each block: dot the query head against every cached key of its GQA kv-head →

@@ -21,6 +21,12 @@ use std::rc::Rc;
 
 const ABSENT: u32 = u32::MAX;
 
+/// The Lean releases whose `String` is the structure `String.mk (data : List Char)`, so that their
+/// kernel reads a string literal as `String.mk [Char.ofNat c, …]`; every other release reads it as
+/// `String.ofList [Char.ofNat c, …]`. The same fact as `interface::lean::profile::RELEASES`
+/// (`lean_profile_registry` holds the two together).
+pub const LIST_CHAR_STRING_RELEASES: &[&str] = &["4.14.0"];
+
 /// Export index → interned id; dense for the usual contiguous numbering, a map for the rest.
 struct IdMap {
     dense: Vec<u32>,
@@ -957,9 +963,19 @@ impl<'k> Reader<'k> {
                     .and_then(|f| t.get(f, "version"))
                     .and_then(|x| t.str(x));
                 match fmt {
-                    Some(ver) if ver.starts_with("3.") => Ok(()),
-                    _ => Err(KernelFailure::resource("unsupported export format version")),
+                    Some(ver) if ver.starts_with("3.") => {}
+                    _ => return Err(KernelFailure::resource("unsupported export format version")),
                 }
+                // A string literal is read as its release's kernel reads it: through the `String`
+                // constructor while `String` is a list of characters, `String.ofList` after.
+                let release = t
+                    .get(v, "lean")
+                    .and_then(|l| t.get(l, "version"))
+                    .and_then(|x| t.str(x));
+                if release.is_some_and(|r| LIST_CHAR_STRING_RELEASES.contains(&&*r)) {
+                    self.k.wk.string_literal = self.k.s.names.dotted("String.mk");
+                }
+                Ok(())
             }
             b"axiom" => {
                 let header = self.header(t, v)?;

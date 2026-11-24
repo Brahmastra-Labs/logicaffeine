@@ -5,6 +5,10 @@
 //! (`ggml/src/ggml-quants.c`, `dequantize_row_*`) operation for operation, in the order those definitions write
 //! them, so their output is the reference's to the bit (`model_quant_lock` compiles the reference and compares).
 
+pub mod grids;
+
+use grids::{IQ1S_GRID, IQ2S_GRID, IQ2XS_GRID, IQ2XXS_GRID, IQ3S_GRID, IQ3XXS_GRID, KMASK_IQ2XS, KSIGNS_IQ2XS};
+
 /// A ggml tensor type this crate reads, by its GGUF type id.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum GgmlType {
@@ -24,6 +28,18 @@ pub enum GgmlType {
     Iq4Nl,
     Iq4Xs,
     Mxfp4,
+    Nvfp4,
+    Q1_0,
+    Q2_0,
+    Tq1_0,
+    Tq2_0,
+    Iq2Xxs,
+    Iq2Xs,
+    Iq2S,
+    Iq3Xxs,
+    Iq3S,
+    Iq1S,
+    Iq1M,
 }
 
 /// Weights per super-block of the K-quant formats.
@@ -47,8 +63,20 @@ impl GgmlType {
             14 => GgmlType::Q6K,
             20 => GgmlType::Iq4Nl,
             23 => GgmlType::Iq4Xs,
+            16 => GgmlType::Iq2Xxs,
+            17 => GgmlType::Iq2Xs,
+            18 => GgmlType::Iq3Xxs,
+            19 => GgmlType::Iq1S,
+            21 => GgmlType::Iq3S,
+            22 => GgmlType::Iq2S,
+            29 => GgmlType::Iq1M,
             30 => GgmlType::Bf16,
+            34 => GgmlType::Tq1_0,
+            35 => GgmlType::Tq2_0,
             39 => GgmlType::Mxfp4,
+            40 => GgmlType::Nvfp4,
+            41 => GgmlType::Q1_0,
+            42 => GgmlType::Q2_0,
             other => return Err(other),
         })
     }
@@ -72,6 +100,18 @@ impl GgmlType {
             GgmlType::Iq4Xs => 23,
             GgmlType::Bf16 => 30,
             GgmlType::Mxfp4 => 39,
+            GgmlType::Nvfp4 => 40,
+            GgmlType::Q1_0 => 41,
+            GgmlType::Q2_0 => 42,
+            GgmlType::Tq1_0 => 34,
+            GgmlType::Tq2_0 => 35,
+            GgmlType::Iq2Xxs => 16,
+            GgmlType::Iq2Xs => 17,
+            GgmlType::Iq2S => 22,
+            GgmlType::Iq3Xxs => 18,
+            GgmlType::Iq3S => 21,
+            GgmlType::Iq1S => 19,
+            GgmlType::Iq1M => 29,
         }
     }
 
@@ -94,6 +134,18 @@ impl GgmlType {
             GgmlType::Iq4Nl => "iq4_nl",
             GgmlType::Iq4Xs => "iq4_xs",
             GgmlType::Mxfp4 => "mxfp4",
+            GgmlType::Nvfp4 => "nvfp4",
+            GgmlType::Q1_0 => "q1_0",
+            GgmlType::Q2_0 => "q2_0",
+            GgmlType::Tq1_0 => "tq1_0",
+            GgmlType::Tq2_0 => "tq2_0",
+            GgmlType::Iq2Xxs => "iq2_xxs",
+            GgmlType::Iq2Xs => "iq2_xs",
+            GgmlType::Iq2S => "iq2_s",
+            GgmlType::Iq3Xxs => "iq3_xxs",
+            GgmlType::Iq3S => "iq3_s",
+            GgmlType::Iq1S => "iq1_s",
+            GgmlType::Iq1M => "iq1_m",
         }
     }
 
@@ -108,7 +160,23 @@ impl GgmlType {
             | GgmlType::Q8_0
             | GgmlType::Iq4Nl
             | GgmlType::Mxfp4 => 32,
-            GgmlType::Q2K | GgmlType::Q3K | GgmlType::Q4K | GgmlType::Q5K | GgmlType::Q6K | GgmlType::Iq4Xs => QK_K,
+            GgmlType::Nvfp4 | GgmlType::Q2_0 => 64,
+            GgmlType::Q1_0 => 128,
+            GgmlType::Q2K
+            | GgmlType::Q3K
+            | GgmlType::Q4K
+            | GgmlType::Q5K
+            | GgmlType::Q6K
+            | GgmlType::Iq4Xs
+            | GgmlType::Tq1_0
+            | GgmlType::Tq2_0
+            | GgmlType::Iq2Xxs
+            | GgmlType::Iq2Xs
+            | GgmlType::Iq2S
+            | GgmlType::Iq3Xxs
+            | GgmlType::Iq3S
+            | GgmlType::Iq1S
+            | GgmlType::Iq1M => QK_K,
         }
     }
 
@@ -130,6 +198,18 @@ impl GgmlType {
             GgmlType::Q6K => QK_K / 2 + QK_K / 4 + QK_K / 16 + 2,
             GgmlType::Iq4Nl => 2 + 16,
             GgmlType::Iq4Xs => 2 + 2 + QK_K / 64 + QK_K / 2,
+            GgmlType::Nvfp4 => 4 + 32,
+            GgmlType::Q1_0 => 2 + 128 / 8,
+            GgmlType::Q2_0 => 2 + 64 / 4,
+            GgmlType::Tq1_0 => 2 + QK_K / 64 + (QK_K - 4 * QK_K / 64) / 5,
+            GgmlType::Tq2_0 => 2 + QK_K / 4,
+            GgmlType::Iq2Xxs => 2 + QK_K / 4,
+            GgmlType::Iq2Xs => 2 + QK_K / 4 + QK_K / 32,
+            GgmlType::Iq2S => 2 + QK_K / 4 + QK_K / 16,
+            GgmlType::Iq3Xxs => 2 + 3 * QK_K / 8,
+            GgmlType::Iq3S => 2 + QK_K / 4 + QK_K / 32 + QK_K / 8 + QK_K / 64,
+            GgmlType::Iq1S => 2 + QK_K / 8 + QK_K / 16,
+            GgmlType::Iq1M => QK_K / 8 + QK_K / 16 + QK_K / 32,
         }
     }
 
@@ -172,6 +252,18 @@ impl GgmlType {
                 GgmlType::Q6K => q6_k(b, out),
                 GgmlType::Iq4Nl => iq4_nl(b, out),
                 GgmlType::Iq4Xs => iq4_xs(b, out),
+                GgmlType::Nvfp4 => nvfp4(b, out),
+                GgmlType::Q1_0 => q1_0(b, out),
+                GgmlType::Q2_0 => q2_0(b, out),
+                GgmlType::Tq1_0 => tq1_0(b, out),
+                GgmlType::Tq2_0 => tq2_0(b, out),
+                GgmlType::Iq2Xxs => iq2_xxs(b, out),
+                GgmlType::Iq2Xs => iq2_xs(b, out),
+                GgmlType::Iq2S => iq2_s(b, out),
+                GgmlType::Iq3Xxs => iq3_xxs(b, out),
+                GgmlType::Iq3S => iq3_s(b, out),
+                GgmlType::Iq1S => iq1_s(b, out),
+                GgmlType::Iq1M => iq1_m(b, out),
             }
         }
     }
@@ -234,20 +326,6 @@ pub fn f16_to_f32(h: u16) -> f32 {
     f32::from_bits(bits)
 }
 
-/// bfloat16 → binary32: the high half of the word.
-pub fn bf16_to_f32(h: u16) -> f32 {
-    f32::from_bits((h as u32) << 16)
-}
-
-/// `x` rounded to bfloat16, to nearest with ties to even; a NaN stays a quiet NaN.
-pub fn f32_to_bf16(x: f32) -> u16 {
-    let b = x.to_bits();
-    if x.is_nan() {
-        return ((b >> 16) | 0x0040) as u16;
-    }
-    ((b + 0x7fff + ((b >> 16) & 1)) >> 16) as u16
-}
-
 /// The largest finite fp8 e4m3 value: `1.75 · 2⁸`.
 pub const E4M3_MAX: f32 = 448.0;
 
@@ -284,6 +362,20 @@ pub fn e4m3_to_f32(b: u8) -> f32 {
         0 => sign * frac * 2f32.powi(-9),
         _ => sign * (1.0 + frac / 8.0) * 2f32.powi(exp - 7),
     }
+}
+
+/// bfloat16 → binary32: the high half of the word.
+pub fn bf16_to_f32(h: u16) -> f32 {
+    f32::from_bits((h as u32) << 16)
+}
+
+/// `x` rounded to bfloat16, to nearest with ties to even; a NaN stays a quiet NaN.
+pub fn f32_to_bf16(x: f32) -> u16 {
+    let b = x.to_bits();
+    if x.is_nan() {
+        return ((b >> 16) | 0x0040) as u16;
+    }
+    ((b + 0x7fff + ((b >> 16) & 1)) >> 16) as u16
 }
 
 /// An `e4m3fn` float's value as `torch` widens it: bias 7, no infinities, `S.1111.111` a NaN keeping its sign and
@@ -479,6 +571,195 @@ fn mxfp4(b: &[u8], y: &mut Vec<f32>) {
     let qs = &b[1..17];
     y.extend(qs.iter().map(|&q| KVALUES_MXFP4[(q & 0x0f) as usize] as f32 * d));
     y.extend(qs.iter().map(|&q| KVALUES_MXFP4[(q >> 4) as usize] as f32 * d));
+}
+
+/// `2^e`, exactly, for `e` in f32's normal range.
+fn pow2(e: i32) -> f32 {
+    f32::from_bits(((e + 127) as u32) << 23)
+}
+
+/// Half of an unsigned E4M3 scale, its sign bit ignored and `0x7f` (E4M3's NaN) read as zero — ggml's
+/// `ggml_ue4m3_to_fp32`, halved to undo the doubled E2M1 table.
+fn ue4m3_half(x: u8) -> f32 {
+    if x == 0 || x == 0x7f {
+        return 0.0;
+    }
+    let (exp, man) = (((x >> 3) & 0xf) as i32, (x & 7) as f32);
+    let raw = if exp == 0 { man * pow2(-9) } else { (1.0 + man / 8.0) * pow2(exp - 7) };
+    raw * 0.5
+}
+
+fn nvfp4(b: &[u8], y: &mut Vec<f32>) {
+    for s in 0..4 {
+        let d = ue4m3_half(b[s]);
+        let qs = &b[4 + 8 * s..12 + 8 * s];
+        y.extend(qs.iter().map(|&q| KVALUES_MXFP4[(q & 0x0f) as usize] as f32 * d));
+        y.extend(qs.iter().map(|&q| KVALUES_MXFP4[(q >> 4) as usize] as f32 * d));
+    }
+}
+
+fn q1_0(b: &[u8], y: &mut Vec<f32>) {
+    let d = half(b, 0);
+    y.extend((0..128).map(|j| if (b[2 + j / 8] >> (j % 8)) & 1 == 1 { d } else { -d }));
+}
+
+fn q2_0(b: &[u8], y: &mut Vec<f32>) {
+    let d = half(b, 0);
+    y.extend((0..64).map(|j| (((b[2 + j / 4] >> ((j % 4) * 2)) & 3) as i32 - 1) as f32 * d));
+}
+
+/// The ternary digit `q · 3ⁿ` carries in its top trit, as `(q · 3ⁿ mod 256) · 3 / 256`: TQ1_0's base-3 packing.
+fn trit(q: u8, n: usize) -> f32 {
+    let q = q.wrapping_mul([1u8, 3, 9, 27, 81, 243][n]);
+    (((q as u16 * 3) >> 8) as i16 - 1) as f32
+}
+
+fn tq1_0(b: &[u8], y: &mut Vec<f32>) {
+    let (qs, qh, d) = (&b[0..48], &b[48..52], half(b, 52));
+    for n in 0..5 {
+        y.extend(qs[0..32].iter().map(|&q| trit(q, n) * d));
+    }
+    for n in 0..5 {
+        y.extend(qs[32..48].iter().map(|&q| trit(q, n) * d));
+    }
+    for n in 0..4 {
+        y.extend(qh.iter().map(|&q| trit(q, n) * d));
+    }
+}
+
+fn tq2_0(b: &[u8], y: &mut Vec<f32>) {
+    let d = half(b, 64);
+    for j in (0..64).step_by(32) {
+        for l in 0..4 {
+            y.extend(b[j..j + 32].iter().map(|&q| (((q >> (2 * l)) & 3) as i8 - 1) as f32 * d));
+        }
+    }
+}
+
+/// Byte `j` of a grid point.
+fn point(p: u64, j: usize) -> f32 {
+    (p >> (8 * j)) as u8 as f32
+}
+
+/// `dl · grid[j]`, negated where `signs` marks element `j`.
+fn signed(dl: f32, magnitude: f32, signs: u8, j: usize) -> f32 {
+    dl * magnitude * if signs & KMASK_IQ2XS[j] != 0 { -1.0 } else { 1.0 }
+}
+
+fn iq2_xxs(b: &[u8], y: &mut Vec<f32>) {
+    let d = half(b, 0);
+    for ib in 0..QK_K / 32 {
+        let at = 2 + 8 * ib;
+        let (a0, a1) = (&b[at..at + 4], u32::from_le_bytes(b[at + 4..at + 8].try_into().unwrap()));
+        let db = d * (0.5 + (a1 >> 28) as f32) * 0.25;
+        for l in 0..4 {
+            let grid = IQ2XXS_GRID[a0[l] as usize];
+            let signs = KSIGNS_IQ2XS[((a1 >> (7 * l)) & 127) as usize];
+            y.extend((0..8).map(|j| signed(db, point(grid, j), signs, j)));
+        }
+    }
+}
+
+fn iq2_xs(b: &[u8], y: &mut Vec<f32>) {
+    let (d, scales) = (half(b, 0), &b[66..74]);
+    for ib in 0..QK_K / 32 {
+        let db = [d * (0.5 + (scales[ib] & 0xf) as f32) * 0.25, d * (0.5 + (scales[ib] >> 4) as f32) * 0.25];
+        for l in 0..4 {
+            let at = 2 + 2 * (4 * ib + l);
+            let q = u16::from_le_bytes([b[at], b[at + 1]]);
+            let (grid, signs) = (IQ2XS_GRID[(q & 511) as usize], KSIGNS_IQ2XS[(q >> 9) as usize]);
+            y.extend((0..8).map(|j| signed(db[l / 2], point(grid, j), signs, j)));
+        }
+    }
+}
+
+fn iq2_s(b: &[u8], y: &mut Vec<f32>) {
+    let (d, qs, signs, qh, scales) = (half(b, 0), &b[2..34], &b[34..66], &b[66..74], &b[74..82]);
+    for ib in 0..QK_K / 32 {
+        let db = [d * (0.5 + (scales[ib] & 0xf) as f32) * 0.25, d * (0.5 + (scales[ib] >> 4) as f32) * 0.25];
+        for l in 0..4 {
+            let index = qs[4 * ib + l] as usize | ((qh[ib] as usize) << (8 - 2 * l) & 0x300);
+            let grid = IQ2S_GRID[index];
+            y.extend((0..8).map(|j| signed(db[l / 2], point(grid, j), signs[4 * ib + l], j)));
+        }
+    }
+}
+
+fn iq3_xxs(b: &[u8], y: &mut Vec<f32>) {
+    let (d, qs, scales_and_signs) = (half(b, 0), &b[2..66], &b[66..98]);
+    for ib in 0..QK_K / 32 {
+        let aux = u32::from_le_bytes(scales_and_signs[4 * ib..4 * ib + 4].try_into().unwrap());
+        let db = d * (0.5 + (aux >> 28) as f32) * 0.5;
+        for l in 0..4 {
+            let signs = KSIGNS_IQ2XS[((aux >> (7 * l)) & 127) as usize];
+            let (g1, g2) = (IQ3XXS_GRID[qs[8 * ib + 2 * l] as usize], IQ3XXS_GRID[qs[8 * ib + 2 * l + 1] as usize]);
+            y.extend((0..4).map(|j| signed(db, point(g1 as u64, j), signs, j)));
+            y.extend((0..4).map(|j| signed(db, point(g2 as u64, j), signs, j + 4)));
+        }
+    }
+}
+
+fn iq3_s(b: &[u8], y: &mut Vec<f32>) {
+    let (d, qs, qh, signs, scales) = (half(b, 0), &b[2..66], &b[66..74], &b[74..106], &b[106..110]);
+    for ib in (0..QK_K / 32).step_by(2) {
+        let db = [d * (1 + 2 * (scales[ib / 2] & 0xf) as i32) as f32, d * (1 + 2 * (scales[ib / 2] >> 4) as i32) as f32];
+        for half_block in 0..2 {
+            let (q, h, s) = (&qs[8 * (ib + half_block)..], qh[ib + half_block] as usize, &signs[4 * (ib + half_block)..]);
+            for l in 0..4 {
+                let g1 = IQ3S_GRID[q[2 * l] as usize | ((h << (8 - 2 * l)) & 256)];
+                let g2 = IQ3S_GRID[q[2 * l + 1] as usize | ((h << (7 - 2 * l)) & 256)];
+                y.extend((0..4).map(|j| signed(db[half_block], point(g1 as u64, j), s[l], j)));
+                y.extend((0..4).map(|j| signed(db[half_block], point(g2 as u64, j), s[l], j + 4)));
+            }
+        }
+    }
+}
+
+/// The offset IQ1_S and IQ1_M add to every grid value, negated by a group's sign bit (ggml's `IQ1S_DELTA`).
+const IQ1_DELTA: f32 = 0.125;
+
+/// Element `j` of an IQ1 grid point: a signed byte.
+fn ternary(p: u64, j: usize) -> f32 {
+    (p >> (8 * j)) as u8 as i8 as f32
+}
+
+fn iq1_s(b: &[u8], y: &mut Vec<f32>) {
+    let (d, qs) = (half(b, 0), &b[2..34]);
+    for ib in 0..QK_K / 32 {
+        let qh = u16::from_le_bytes([b[34 + 2 * ib], b[35 + 2 * ib]]);
+        let dl = d * (2 * ((qh >> 12) & 7) as i32 + 1) as f32;
+        let delta = if qh & 0x8000 != 0 { -IQ1_DELTA } else { IQ1_DELTA };
+        for l in 0..4 {
+            let grid = IQ1S_GRID[qs[4 * ib + l] as usize | ((((qh >> (3 * l)) & 7) as usize) << 8)];
+            y.extend((0..8).map(|j| dl * (ternary(grid, j) + delta)));
+        }
+    }
+}
+
+fn iq1_m(b: &[u8], y: &mut Vec<f32>) {
+    let (qs, qh) = (&b[0..32], &b[32..48]);
+    let sc: [u16; 4] = std::array::from_fn(|i| u16::from_le_bytes([b[48 + 2 * i], b[49 + 2 * i]]));
+    let d = f16_to_f32((sc[0] >> 12) | ((sc[1] >> 8) & 0x00f0) | ((sc[2] >> 4) & 0x0f00) | (sc[3] & 0xf000));
+    for ib in 0..QK_K / 32 {
+        let shift = 6 * (ib % 2);
+        let dl = [
+            d * (2 * ((sc[ib / 2] >> shift) & 7) as i32 + 1) as f32,
+            d * (2 * ((sc[ib / 2] >> (shift + 3)) & 7) as i32 + 1) as f32,
+        ];
+        let (q, h) = (&qs[4 * ib..4 * ib + 4], &qh[2 * ib..2 * ib + 2]);
+        let index = [
+            q[0] as usize | ((h[0] as usize) << 8 & 0x700),
+            q[1] as usize | ((h[0] as usize) << 4 & 0x700),
+            q[2] as usize | ((h[1] as usize) << 8 & 0x700),
+            q[3] as usize | ((h[1] as usize) << 4 & 0x700),
+        ];
+        let delta = |bit: bool| if bit { -IQ1_DELTA } else { IQ1_DELTA };
+        let deltas = [delta(h[0] & 0x08 != 0), delta(h[0] & 0x80 != 0), delta(h[1] & 0x08 != 0), delta(h[1] & 0x80 != 0)];
+        for l in 0..4 {
+            let grid = IQ1S_GRID[index[l]];
+            y.extend((0..8).map(|j| dl[l / 2] * (ternary(grid, j) + deltas[l])));
+        }
+    }
 }
 
 fn q2_k(b: &[u8], y: &mut Vec<f32>) {

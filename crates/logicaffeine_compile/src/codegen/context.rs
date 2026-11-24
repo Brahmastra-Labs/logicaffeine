@@ -39,9 +39,44 @@ use super::{codegen_assertion, codegen_expr};
 /// The context also tracks variable types for capability resolution. This allows
 /// statements like `Check that user can publish the document` to resolve "the document"
 /// to a variable named `doc` of type `Document`.
+/// The bounds hints one scope's current run of statements has stated: consecutive statements of one block, each
+/// emitted through `codegen_stmt`, so a hint stated by one dominates the rest on straight-line code. Each hint is kept
+/// with the bindings it names.
+#[derive(Default, Clone)]
+struct HintRun {
+    /// The address of the statement that would continue the run: the one after its last in the block's slice.
+    next: Option<usize>,
+    /// Whether the run's last statement is being written: its blocks may read the run.
+    open: bool,
+    /// What the run's last statement may change, dropped from the run once that statement is written (an `If`'s arms
+    /// drop their own changes as they go).
+    pending: Option<crate::optimize::WriteSet>,
+    stated: Vec<(String, Vec<Symbol>)>,
+}
+
+/// The hints of a context at one point of its statements ([`RefinementContext::hints`]).
+#[derive(Clone)]
+pub(super) struct HintsSnapshot(Vec<HintRun>);
+
 pub struct RefinementContext<'a> {
     /// Stack of scopes. Each scope maps variable Symbol to (bound_var, predicate).
     scopes: Vec<HashMap<Symbol, (Symbol, &'a LogicExpr<'a>)>>,
+
+    /// The bounds hints each scope of `scopes` has stated in its current run of statements.
+    hint_runs: Vec<HintRun>,
+
+    /// The counters each scope of `scopes` has left without a binding ([`Self::leave_unbound`]), each with whether a
+    /// statement after the one that binds it sets it again.
+    unbound: Vec<HashMap<Symbol, bool>>,
+
+    /// The tentative declarations ([`super::tentative`]) each scope of `scopes` holds, by the variable they declare.
+    tentative: Vec<HashMap<Symbol, usize>>,
+
+    /// The `&mut Vec` handles open hoists hold ([`super::hoist`]), each with how many hoists hold it.
+    reborrowed: HashMap<Symbol, usize>,
+
+    /// The statements that end the function being written, by address ([`Self::set_tail`], [`Self::end_arms`]).
+    tails: Vec<usize>,
 
     /// Maps variable name Symbol to Rust type name (for capability resolution and optimization).
     variable_types: HashMap<Symbol, String>,
@@ -80,6 +115,8 @@ pub struct RefinementContext<'a> {
     /// `LogosSeq<T>`), so a `Return` of a borrowed-slice param emits `.to_vec()`
     /// without the `LogosSeq::from_vec(...)` wrapper.
     returns_vec: bool,
+    /// The function being written returns nothing (`Main`'s body).
+    returns_nothing: bool,
     /// Opt::TextSliceReturn — `Some(param_index)` when the current function returns a borrowed
     /// `&'a str` sub-slice of that Text param, so the terminal builder + `text_from_bytes(out)`
     /// lowers to `return &s[lo-1..hi]` and the signature carries the `'a` lifetime.
@@ -177,6 +214,9 @@ pub struct RefinementContext<'a> {
     /// counted loop index-reads them up to a proven bound (so growth reallocs
     /// are pure overhead C avoids by sizing the buffer exactly).
     vec_presize: HashMap<Symbol, String>,
+    /// The `While` loops being emitted on the words of the `IntVec`s they touch, innermost last
+    /// ([`super::int_vec::versioned_while`]).
+    intvec_loops: Vec<super::int_vec::IntVecLoop<'a>>,
     /// Loop-invariant positive divisors lowered to a precomputed `LogosDivU64`
     /// magic multiply — keyed `divisor sym -> helper variable name`. The `% n` /
     /// `/ n` sites read this to emit `helper.rem(..)` / `helper.div(..)` instead
@@ -196,6 +236,11 @@ impl<'a> RefinementContext<'a> {
     pub fn new() -> Self {
         Self {
             scopes: vec![HashMap::new()],
+            hint_runs: vec![HintRun::default()],
+            unbound: vec![HashMap::new()],
+            tentative: vec![HashMap::new()],
+            reborrowed: HashMap::new(),
+            tails: Vec::new(),
             variable_types: HashMap::new(),
             simd_fns: Rc::default(),
             string_vars: HashSet::new(),
@@ -205,6 +250,7 @@ impl<'a> RefinementContext<'a> {
             array_fill_pos: HashMap::new(),
             de_rc_vars: HashSet::new(),
             returns_vec: false,
+            returns_nothing: false,
             str_slice_source: None,
             byte_slice_source: None,
             returns_bigint: false,
@@ -227,6 +273,7 @@ impl<'a> RefinementContext<'a> {
             i32_maps: HashSet::new(),
             i32_sets: HashSet::new(),
             vec_presize: HashMap::new(),
+            intvec_loops: Vec::new(),
             fast_div: HashMap::new(),
             promotable_int_candidates: HashSet::new(),
             rational_joins: HashMap::new(),
@@ -237,6 +284,11 @@ impl<'a> RefinementContext<'a> {
     pub fn from_type_env(type_env: &crate::analysis::types::TypeEnv) -> Self {
         Self {
             scopes: vec![HashMap::new()],
+            hint_runs: vec![HintRun::default()],
+            unbound: vec![HashMap::new()],
+            tentative: vec![HashMap::new()],
+            reborrowed: HashMap::new(),
+            tails: Vec::new(),
             variable_types: type_env.to_legacy_variable_types(),
             simd_fns: Rc::default(),
             string_vars: type_env.to_legacy_string_vars(),
@@ -246,6 +298,7 @@ impl<'a> RefinementContext<'a> {
             array_fill_pos: HashMap::new(),
             de_rc_vars: HashSet::new(),
             returns_vec: false,
+            returns_nothing: false,
             str_slice_source: None,
             byte_slice_source: None,
             returns_bigint: false,
@@ -268,6 +321,7 @@ impl<'a> RefinementContext<'a> {
             i32_maps: HashSet::new(),
             i32_sets: HashSet::new(),
             vec_presize: HashMap::new(),
+            intvec_loops: Vec::new(),
             fast_div: HashMap::new(),
             promotable_int_candidates: HashSet::new(),
             rational_joins: HashMap::new(),
@@ -525,6 +579,11 @@ impl<'a> RefinementContext<'a> {
 
     /// The `with_capacity` argument for a push-built de-Rc Vec, if it is
     /// index-read up to a proven bound (else `None` → plain `Vec::new()`).
+    /// The `While` loops being emitted on the words of their `IntVec`s, innermost last.
+    pub(super) fn intvec_loops(&mut self) -> &mut Vec<super::int_vec::IntVecLoop<'a>> {
+        &mut self.intvec_loops
+    }
+
     pub(super) fn get_vec_presize(&self, sym: Symbol) -> Option<&String> {
         self.vec_presize.get(&sym)
     }
@@ -541,6 +600,11 @@ impl<'a> RefinementContext<'a> {
         &self.fast_div
     }
 
+    /// `divisor` keeps its division: it takes no libdivide helper.
+    pub(super) fn forget_fast_div(&mut self, divisor: Symbol) {
+        self.fast_div.remove(&divisor);
+    }
+
     /// Set the de-Rc'd Seq variables (emitted as plain `Vec<T>`).
     pub fn set_de_rc_vars(&mut self, vars: HashSet<Symbol>) {
         self.de_rc_vars = vars;
@@ -554,6 +618,16 @@ impl<'a> RefinementContext<'a> {
     /// Does the current function return an owned `Vec<T>` (Phase 4)?
     pub(super) fn returns_vec(&self) -> bool {
         self.returns_vec
+    }
+
+    /// Mark that the function being written returns nothing.
+    pub(super) fn set_returns_nothing(&mut self, v: bool) {
+        self.returns_nothing = v;
+    }
+
+    /// Does the function being written return nothing?
+    pub(super) fn returns_nothing(&self) -> bool {
+        self.returns_nothing
     }
 
     /// Opt::TextSliceReturn — record the borrowed Text param index this fn returns a slice of.
@@ -613,6 +687,16 @@ impl<'a> RefinementContext<'a> {
         self.promotable_int_candidates.contains(&sym)
     }
 
+    /// Withdraw `sym` from the promotion candidates, so its `Let` binds a machine word; whether it was one.
+    pub(super) fn withdraw_promotable_candidate(&mut self, sym: Symbol) -> bool {
+        self.promotable_int_candidates.remove(&sym)
+    }
+
+    /// Make `sym` a promotion candidate again.
+    pub(super) fn restore_promotable_candidate(&mut self, sym: Symbol) {
+        self.promotable_int_candidates.insert(sym);
+    }
+
     /// Hold the scope's exactly joined bindings as rationals: each is declared its joined type, which holds every
     /// integer it is given whole, so none is an overflow-promoting integer as well.
     pub(super) fn set_rational_joins(&mut self, joins: HashMap<Symbol, String>) {
@@ -666,15 +750,183 @@ impl<'a> RefinementContext<'a> {
 
     pub(super) fn push_scope(&mut self) {
         self.scopes.push(HashMap::new());
+        self.hint_runs.push(HintRun::default());
+        self.unbound.push(HashMap::new());
+        self.tentative.push(HashMap::new());
     }
 
     pub(super) fn pop_scope(&mut self) {
         self.scopes.pop();
+        self.hint_runs.pop();
+        self.unbound.pop();
+        self.tentative.pop();
+    }
+
+    /// Mark `stmt` as the statement that ends the function being written, or no statement.
+    pub(super) fn set_tail(&mut self, stmt: Option<&Stmt<'_>>) {
+        self.tails = stmt.map(|s| s as *const Stmt<'_> as usize).into_iter().collect();
+    }
+
+    /// While the arms of `stmt`, an `If` with an `Otherwise` or an `Inspect`, are written: when `stmt` ends the
+    /// function, the statement ending each arm (`arm_ends`) ends it too. Returns the tails as they were, for
+    /// [`Self::restore_tails`].
+    pub(super) fn end_arms<'s>(&mut self, stmt: &Stmt<'_>, arm_ends: impl IntoIterator<Item = Option<&'s Stmt<'s>>>) -> Vec<usize> {
+        let ends = if self.is_tail(stmt) {
+            arm_ends.into_iter().flatten().map(|s| s as *const Stmt<'_> as usize).collect()
+        } else {
+            Vec::new()
+        };
+        std::mem::replace(&mut self.tails, ends)
+    }
+
+    /// The tails as [`Self::end_arms`] found them.
+    pub(super) fn restore_tails(&mut self, tails: Vec<usize>) {
+        self.tails = tails;
+    }
+
+    /// Whether `stmt` ends the function being written.
+    pub(super) fn is_tail(&self, stmt: &Stmt<'_>) -> bool {
+        self.tails.contains(&(stmt as *const Stmt<'_> as usize))
+    }
+
+    /// A hoist reborrows `var` as a `&mut Vec`: whether an enclosing hoist already holds it as one.
+    pub(super) fn reborrow(&mut self, var: Symbol) -> bool {
+        let held = self.reborrowed.entry(var).or_insert(0);
+        *held += 1;
+        *held > 1
+    }
+
+    /// A hoist that reborrowed `var` closes.
+    pub(super) fn end_reborrow(&mut self, var: Symbol) {
+        if let Some(held) = self.reborrowed.get_mut(&var) {
+            *held -= 1;
+            if *held == 0 {
+                self.reborrowed.remove(&var);
+            }
+        }
+    }
+
+    /// Record that `var`'s binding in this scope is the tentative declaration `id`.
+    pub(super) fn declare_tentatively(&mut self, var: Symbol, id: usize) {
+        if let Some(scope) = self.tentative.last_mut() {
+            scope.insert(var, id);
+        }
+    }
+
+    /// A write to `var`'s binding: the tentative declaration it is, from this scope out, is needed.
+    pub(super) fn need_binding(&mut self, var: Symbol) {
+        if let Some(id) = self.tentative.iter().rev().find_map(|scope| scope.get(&var)) {
+            super::tentative::need(*id);
+        }
+    }
+
+    /// Leave `counter` without a binding in this scope: the `Set` of this block that next speaks of it introduces one,
+    /// mutable when `rewritten` (a later statement sets it again).
+    pub(super) fn leave_unbound(&mut self, counter: Symbol, rewritten: bool) {
+        if let Some(scope) = self.unbound.last_mut() {
+            scope.insert(counter, rewritten);
+        }
+    }
+
+    /// Take `counter` back from [`Self::leave_unbound`]: whether it is set again, when this scope left it without a
+    /// binding.
+    pub(super) fn take_unbound(&mut self, counter: Symbol) -> Option<bool> {
+        self.unbound.last_mut().and_then(|scope| scope.remove(&counter))
+    }
+
+    /// The oracle as a shared handle, for a caller that keeps it while changing the context.
+    pub(super) fn oracle_shared(&self) -> Option<std::rc::Rc<crate::optimize::OracleFacts>> {
+        self.oracle.clone()
+    }
+
+    /// Continue this scope's run of hints at `stmt`, or begin a new one when `stmt` does not directly follow the run's
+    /// last statement in its block.
+    pub(super) fn hint_run_at(&mut self, stmt: &Stmt<'_>) {
+        let at = stmt as *const Stmt<'_> as usize;
+        self.close_hint_run();
+        if let Some(run) = self.hint_runs.last_mut() {
+            if run.next != Some(at) {
+                run.stated.clear();
+            }
+            run.next = Some(at + std::mem::size_of::<Stmt<'_>>());
+            run.open = true;
+        }
+    }
+
+    /// The statement this scope's run reached is written: what it may change is dropped.
+    pub(super) fn close_hint_run(&mut self) {
+        if let Some(changes) = self.hint_runs.last_mut().and_then(|run| run.pending.take()) {
+            self.forget_assumptions(&changes);
+        }
+        if let Some(run) = self.hint_runs.last_mut() {
+            run.open = false;
+        }
+    }
+
+    /// Drop what `changes` names from this scope's run once its statement is written.
+    pub(super) fn forget_when_written(&mut self, changes: crate::optimize::WriteSet) {
+        if let Some(run) = self.hint_runs.last_mut() {
+            run.pending = Some(changes);
+        }
+    }
+
+    /// Whether this scope's run has stated `cond`, or, while the statement whose block this is is being written, the
+    /// run around it has.
+    pub(super) fn assumes(&self, cond: &str) -> bool {
+        let states = |run: &HintRun| run.stated.iter().any(|(c, _)| c == cond);
+        let mut runs = self.hint_runs.iter().rev();
+        if runs.next().is_some_and(states) {
+            return true;
+        }
+        for run in runs {
+            if !run.open {
+                return false;
+            }
+            if states(run) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// The hints every run states, to restore once an alternative version of the statement being written is done
+    /// ([`Self::restore_hints`]): what one version states does not hold in another.
+    pub(super) fn hints(&self) -> HintsSnapshot {
+        HintsSnapshot(self.hint_runs.clone())
+    }
+
+    /// The hints as [`Self::hints`] took them.
+    pub(super) fn restore_hints(&mut self, hints: HintsSnapshot) {
+        self.hint_runs = hints.0;
+    }
+
+    /// Record that this scope's run states `cond`, which names `names`.
+    pub(super) fn assume(&mut self, cond: String, names: Vec<Symbol>) {
+        if let Some(run) = self.hint_runs.last_mut() {
+            run.stated.push((cond, names));
+        }
+    }
+
+    /// Drop every hint naming a binding `changes` may write from this scope's run and from each run around it whose
+    /// statement is being written: a block of that statement may read them.
+    pub(super) fn forget_assumptions(&mut self, changes: &crate::optimize::WriteSet) {
+        for (depth, run) in self.hint_runs.iter_mut().rev().enumerate() {
+            if depth > 0 && !run.open {
+                break;
+            }
+            run.stated
+                .retain(|(_, names)| !names.iter().any(|s| changes.may_write(*s)));
+        }
     }
 
     /// Register a variable as having String type.
     pub(super) fn register_string_var(&mut self, var: Symbol) {
         self.string_vars.insert(var);
+    }
+
+    /// A variable bound again to a value that is not text.
+    pub(super) fn forget_string_var(&mut self, var: Symbol) {
+        self.string_vars.remove(&var);
     }
 
     /// Check if a variable is known to be a String.
@@ -709,7 +961,16 @@ impl<'a> RefinementContext<'a> {
 
     /// Register a variable with its type for capability resolution.
     pub(super) fn register_variable_type(&mut self, var: Symbol, type_name: String) {
+        debug_assert!(
+            !(super::int_vec::promotes_here(var) && super::int_vec::is_word_list(&type_name)),
+            "{var:?} is declared `{type_name}`, a list of machine words, where the program holds it as an `IntVec`"
+        );
         self.variable_types.insert(var, type_name);
+    }
+
+    /// Forget the Rust type recorded for `var`: a new binding of the name whose type nothing here names.
+    pub(super) fn forget_variable_type(&mut self, var: Symbol) {
+        self.variable_types.remove(&var);
     }
 
     /// Get variable type map for expression codegen optimization.

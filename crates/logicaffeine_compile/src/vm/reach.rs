@@ -36,6 +36,9 @@
 //!   (`VdomFeatures`);
 //! - hydration (`vdHydrate`) runs only for a page its build pre-rendered, which the host says
 //!   ([`HostEntries::drawing_fresh`] says it never is).
+//!
+//! A function the optimizer specialized on a constant argument plays its origin's part in each of
+//! these: a specialized writer opens its feature, a specialized member waits for its component.
 
 use super::instruction::{CompiledProgram, Op};
 use crate::semantics::builtins::BuiltinId;
@@ -278,6 +281,17 @@ pub fn reach_with(
 /// The function a page's mount adopts pre-rendered markup through.
 const HYDRATE: &str = "vdHydrate";
 
+/// Each function's name as its role reads it: a specialization the optimizer made plays its origin's
+/// part ([`specialization_origin`](crate::optimize::partial_eval::specialization_origin)), so
+/// `vdOpenKeyed_s1_t21d` writes keyed records as `vdOpenKeyed` does and `__render_App_s0_1` draws `App`.
+fn role_names<'i>(program: &CompiledProgram, interner: &'i Interner) -> Vec<&'i str> {
+    program
+        .functions
+        .iter()
+        .map(|f| crate::optimize::partial_eval::specialization_origin(interner.resolve(f.name)))
+        .collect()
+}
+
 /// Which `vdom.lg` feature each function belongs to (`lgx_lower::VDOM_FEATURES`), and which features
 /// a reached writer has opened: an edge into a feature waits, in `pending`, for its first writer.
 struct VdomFeatures {
@@ -290,11 +304,7 @@ struct VdomFeatures {
 impl VdomFeatures {
     fn of(program: &CompiledProgram, interner: &Interner) -> VdomFeatures {
         use logicaffeine_language::parser::lgx_lower::VDOM_FEATURES;
-        let names: Vec<&str> = program
-            .functions
-            .iter()
-            .map(|f| interner.resolve(f.name))
-            .collect();
+        let names = role_names(program, interner);
         let feature_of = names
             .iter()
             .map(|n| VDOM_FEATURES.iter().position(|f| n.starts_with(f.prefix)))
@@ -362,11 +372,7 @@ impl ComponentOwners {
             action_fn_name, bind_fn_name, callback_trampoline_fn_name, mount_fn_name,
             patch_fn_name, render_fn_name,
         };
-        let names: Vec<&str> = program
-            .functions
-            .iter()
-            .map(|f| interner.resolve(f.name))
-            .collect();
+        let names = role_names(program, interner);
         let render_prefix = render_fn_name("");
         let components: Vec<(String, usize)> = names
             .iter()

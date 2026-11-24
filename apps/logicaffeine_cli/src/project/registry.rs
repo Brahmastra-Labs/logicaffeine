@@ -325,9 +325,12 @@ fn add_dir_recursive<W: std::io::Write>(
         if path.is_dir() {
             add_dir_recursive(builder, base_dir, &rel_path)?;
         } else if path.is_file() {
-            // Only include .lg, .md, and common config files
+            // Only include LOGOS modules and common config files
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if matches!(ext, "lg" | "md" | "toml" | "json") || name_str == "LICENSE" {
+            if logicaffeine_compile::source_files::is_module_file(&path)
+                || matches!(ext, "toml" | "json")
+                || name_str == "LICENSE"
+            {
                 add_file_to_tar(builder, base_dir, &rel_path)?;
             }
         }

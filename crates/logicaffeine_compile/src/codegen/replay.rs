@@ -57,6 +57,15 @@ impl<'s, 'a> Scope<'s, 'a> {
         )
     }
 
+    /// `e` as the value a send into `pipe` gives up: moved where the pipe carries a Copy type, else [`Self::value`].
+    fn sent(&self, e: &Expr, pipe: &Expr) -> String {
+        if self.pipe_element(pipe).is_some_and(|element| super::stmt::is_copy_type(&element)) {
+            // A pipe of machine words carries an exact value narrowed into the word.
+            return super::expr::into_word(e, self.expr(e), self.ctx.get_variable_types());
+        }
+        self.value(e)
+    }
+
     fn value(&self, e: &Expr) -> String {
         let s = codegen_expr_boxed_with_types_oracle(
             e,
@@ -180,14 +189,14 @@ pub(super) fn replay_stmt<'a>(stmt: &Stmt<'a>, scope: &mut Scope<'_, 'a>) -> Opt
             };
             writeln!(
                 out,
-                "{pad}let {} = {REPLAY}::Pipe::<{element}>::open({capacity}).await;",
+                "{pad}let {}: {REPLAY}::Pipe<{element}> = {REPLAY}::Pipe::open({capacity}).await;",
                 names.ident(*var)
             )
             .unwrap();
             scope.bind(*var, Some(format!("{REPLAY}::Pipe<{element}>")));
         }
         Stmt::SendPipe { value, pipe } => {
-            let v = scope.value(value);
+            let v = scope.sent(value, pipe);
             writeln!(out, "{pad}{}.send({v}).await;", scope.expr(pipe)).unwrap();
         }
         Stmt::TrySendPipe {
@@ -195,7 +204,7 @@ pub(super) fn replay_stmt<'a>(stmt: &Stmt<'a>, scope: &mut Scope<'_, 'a>) -> Opt
             pipe,
             result,
         } => {
-            let v = scope.value(value);
+            let v = scope.sent(value, pipe);
             let call = format!("{}.try_send({v}).await", scope.expr(pipe));
             match result {
                 Some(r) => {
@@ -209,8 +218,9 @@ pub(super) fn replay_stmt<'a>(stmt: &Stmt<'a>, scope: &mut Scope<'_, 'a>) -> Opt
             let element = scope.pipe_element(pipe);
             writeln!(
                 out,
-                "{pad}let {} = {}.recv().await;",
+                "{pad}let {}{} = {}.recv().await;",
                 names.ident(*var),
+                element.as_deref().map(|e| format!(": {e}")).unwrap_or_default(),
                 scope.expr(pipe)
             )
             .unwrap();
@@ -220,8 +230,9 @@ pub(super) fn replay_stmt<'a>(stmt: &Stmt<'a>, scope: &mut Scope<'_, 'a>) -> Opt
             let element = scope.pipe_element(pipe);
             writeln!(
                 out,
-                "{pad}let {} = {}.try_recv().await;",
+                "{pad}let {}{} = {}.try_recv().await;",
                 names.ident(*var),
+                element.as_deref().map(|e| format!(": Option<{e}>")).unwrap_or_default(),
                 scope.expr(pipe)
             )
             .unwrap();

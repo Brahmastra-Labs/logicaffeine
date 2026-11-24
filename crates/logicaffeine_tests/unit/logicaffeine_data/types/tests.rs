@@ -774,3 +774,56 @@ fn int_tables_stay_at_most_half_full() {
         }
     }
 }
+
+#[test]
+fn merge_entries_adds_the_keys_it_lacks_and_folds_the_keys_both_hold() {
+    let mut mine: LogosMap<String, i64> = LogosMap::new();
+    mine.insert("k".to_string(), 1);
+    mine.insert("a".to_string(), 10);
+    let theirs: LogosMap<String, i64> = LogosMap::new();
+    theirs.0.borrow_mut().insert("j".to_string(), 7);
+    theirs.0.borrow_mut().insert("k".to_string(), 2);
+    mine.merge_entries(&theirs, |held, given| *held += *given);
+    let entries: Vec<(String, i64)> = mine.0.borrow().iter().map(|(k, v)| (k.clone(), *v)).collect();
+    assert_eq!(
+        entries,
+        vec![("k".to_string(), 3), ("a".to_string(), 10), ("j".to_string(), 7)],
+        "a held key keeps its place and folds; a new key follows"
+    );
+    assert_eq!(theirs.0.borrow().len(), 2, "the incoming map is left as it was");
+}
+
+#[test]
+fn merge_entries_copies_a_shared_map_before_it_folds() {
+    let mut mine: LogosMap<String, i64> = LogosMap::new();
+    mine.insert("k".to_string(), 1);
+    let alias = mine.clone();
+    let theirs: LogosMap<String, i64> = LogosMap::new();
+    theirs.0.borrow_mut().insert("k".to_string(), 5);
+    mine.merge_entries(&theirs, |held, given| *held += *given);
+    assert_eq!(mine.get(&"k".to_string()), Some(6));
+    assert_eq!(alias.get(&"k".to_string()), Some(1), "another holder of the map does not see the fold");
+    let mut twice = theirs.clone();
+    twice.merge_entries(&theirs, |held, given| *held += *given);
+    assert_eq!(twice.get(&"k".to_string()), Some(10), "a map folded with itself folds each value with itself");
+    assert_eq!(theirs.get(&"k".to_string()), Some(5));
+}
+
+#[test]
+fn into_vec_takes_a_list_only_one_handle_holds_and_copies_a_shared_one() {
+    let only = LogosSeq::from_vec(vec![1_i64, 2, 3]);
+    let at = only.borrow().as_ptr();
+    let taken = only.into_vec();
+    assert_eq!(taken, vec![1, 2, 3]);
+    assert_eq!(taken.as_ptr(), at, "the list's only handle gives its items up without a copy");
+
+    let shared = LogosSeq::from_vec(vec![4_i64, 5]);
+    let other = shared.clone();
+    let copied = shared.into_vec();
+    assert_eq!(copied, vec![4, 5]);
+    other.push(6);
+    assert_eq!(copied, vec![4, 5], "the copy is the caller's own");
+    assert_eq!(*other.borrow(), vec![4, 5, 6], "the other handle keeps the list");
+
+    assert_eq!(LogosSeq::<i64>::new().into_vec(), Vec::<i64>::new());
+}

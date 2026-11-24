@@ -25,6 +25,9 @@ pub fn logos_approx_eq(a: f64, b: f64) -> bool {
     if a == b {
         return true;
     }
+    if a.is_infinite() || b.is_infinite() {
+        return false;
+    }
     let diff = (a - b).abs();
     diff <= f64::max(1e-9 * f64::max(a.abs(), b.abs()), 1e-12)
 }
@@ -45,6 +48,13 @@ impl Truthy for bool {
 }
 
 impl Truthy for i64 {
+    #[inline]
+    fn truthy(&self) -> bool {
+        *self != 0
+    }
+}
+
+impl Truthy for crate::types::LogosInt {
     #[inline]
     fn truthy(&self) -> bool {
         *self != 0
@@ -218,6 +228,33 @@ pub fn logos_sub_i64(a: i64, b: i64) -> i64 {
     }
 }
 
+/// The integers from `start` through `end`, exact: what a counted loop walks when a bound is past the word.
+pub fn logos_exact_range(
+    start: crate::types::LogosInt,
+    end: crate::types::LogosInt,
+) -> impl Iterator<Item = crate::types::LogosInt> {
+    let one = crate::types::LogosInt::from_i64(1);
+    let mut next = Some(start);
+    std::iter::from_fn(move || {
+        let at = next.take()?;
+        if at > end {
+            return None;
+        }
+        next = Some(at.add(&one));
+        Some(at)
+    })
+}
+
+/// `abs(a)` on a machine word, checked: the magnitude of the least word is past it, and stops the run with the overflow
+/// sentence there, never wrapping back to the least word.
+#[inline(always)]
+pub fn logos_abs_i64(a: i64) -> i64 {
+    match a.checked_abs() {
+        Some(v) => v,
+        None => narrowed_overflow(crate::types::LogosInt::from_i64(a).abs()),
+    }
+}
+
 #[inline(always)]
 pub fn logos_mul_i64(a: i64, b: i64) -> i64 {
     match a.checked_mul(b) {
@@ -251,7 +288,31 @@ pub fn logos_rem_i64(a: i64, b: i64) -> i64 {
 #[cold]
 #[inline(never)]
 fn narrowed_overflow(v: crate::types::LogosInt) -> ! {
-    panic!("Integer overflow: {v} does not fit a 64-bit Int")
+    raise_overflow(v, "Int")
+}
+
+thread_local! {
+    static OVERFLOWED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Stop at a value no machine word holds, with every tier's sentence: the run ends there, or, inside the word form of
+/// an exact region (`logicaffeine_system::failure::speculate`), the region runs again exactly. The panic is marked as
+/// this one ([`overflow_raised`]) for the boundary that catches it.
+#[cold]
+#[inline(never)]
+pub fn raise_overflow(v: impl std::fmt::Display, what: &str) -> ! {
+    OVERFLOWED.with(|o| o.set(true));
+    panic!("Integer overflow: {v} does not fit a 64-bit {what}")
+}
+
+/// Whether the panic unwinding now is a value past the word ([`raise_overflow`]).
+pub fn overflow_raised() -> bool {
+    OVERFLOWED.with(|o| o.get())
+}
+
+/// Whether the panic unwinding now is a value past the word, clearing the mark.
+pub fn take_overflow() -> bool {
+    OVERFLOWED.with(|o| o.replace(false))
 }
 
 /// Narrow a width-bounded i128 chain result back to i64 (overflow ruling v2,
@@ -270,7 +331,7 @@ pub fn logos_narrow_i128(v: i128) -> i64 {
 #[cold]
 #[inline(never)]
 fn narrowed_overflow_i128(v: i128) -> ! {
-    panic!("Integer overflow: {v} does not fit a 64-bit Int")
+    raise_overflow(v, "Int")
 }
 
 /// Truncating i128 division inside a width-bounded exact chain. The zero
@@ -384,7 +445,8 @@ pub fn logos_pow_exact(
 /// non-integral float (`1.5`) matches no Int key.
 #[inline(always)]
 pub fn logos_i64_key_of_f64(f: f64) -> Option<i64> {
-    if f.fract() == 0.0 && f >= i64::MIN as f64 && f <= i64::MAX as f64 {
+    // `i64::MAX as f64` rounds up to 2^63, which no i64 holds: the bound is exclusive.
+    if f.fract() == 0.0 && f >= i64::MIN as f64 && f < 9_223_372_036_854_775_808.0 {
         Some(f as i64)
     } else {
         None

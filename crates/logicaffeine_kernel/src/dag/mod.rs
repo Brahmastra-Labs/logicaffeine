@@ -18,6 +18,7 @@
 //! log.
 
 pub mod arena;
+pub mod assumptions;
 pub mod check;
 pub mod env;
 pub mod error;

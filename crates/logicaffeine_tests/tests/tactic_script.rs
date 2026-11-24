@@ -238,15 +238,17 @@ fn pred2(name: &str, a: ProofTerm, b: ProofTerm) -> ProofExpr {
 
 #[test]
 fn scripted_library_cites_earlier_theorem() {
-    // mortal_socrates proves mortal(Socrates) by `auto`; socrates_dies cites it to get
-    // mortal(Socrates), then proves dies(Socrates) by `auto`. A scripted Euclid-graph.
+    // mortal_socrates proves mortal(Socrates) by `auto` from the shared axioms alone, so it
+    // states mortal(Socrates) outright; socrates_dies cites it, then proves dies(Socrates) by
+    // `auto`. A scripted Euclid-graph.
     let _ = pred2; // (kept for symmetry with multi-arg libraries)
+    let axioms = vec![
+        forall("x", implies(pr("man", v("x")), pr("mortal", v("x")))),
+        pr("man", k("Socrates")),
+    ];
     let mortal_socrates = ScriptedTheorem {
         name: "mortal_socrates".to_string(),
-        premises: vec![
-            forall("x", implies(pr("man", v("x")), pr("mortal", v("x")))),
-            pr("man", k("Socrates")),
-        ],
+        premises: vec![],
         goal: pr("mortal", k("Socrates")),
         script: "auto".to_string(),
         cites: vec![],
@@ -263,7 +265,7 @@ fn scripted_library_cites_earlier_theorem() {
         cites: vec!["mortal_socrates".to_string()],
         simp: false,
     };
-    let r = prove_scripted_library(&[], &[mortal_socrates, socrates_dies]);
+    let r = prove_scripted_library(&axioms, &[mortal_socrates, socrates_dies]);
     assert!(
         r[0].verified,
         "mortal_socrates: {:?}",
@@ -299,13 +301,15 @@ fn scripted_library_without_citation_fails() {
 
 #[test]
 fn scripted_library_with_explicit_tactic_scripts() {
-    // `both` proves happy ∧ tall from its own premises by an explicit script;
-    // `both_swapped` has NO premises of its own — it can only prove tall ∧ happy by
-    // CITING `both` (getting the conjunction), then destructing it. Tests that the
-    // citation is load-bearing AND that explicit (non-auto) scripts certify.
+    // `both` proves happy ∧ tall from the shared axioms by an explicit script, so it states
+    // the conjunction outright; `both_swapped` has NO premises of its own and cites `both`:
+    // the conjunction arrives as `hp2`, after the two axioms, and its script destructs it and
+    // re-assembles it swapped. Tests that a citation reaches an explicit (non-auto) script as a
+    // named hypothesis, and that such scripts certify.
+    let axioms = vec![pr("happy", k("Bob")), pr("tall", k("Bob"))];
     let lemma = ScriptedTheorem {
         name: "both".to_string(),
-        premises: vec![pr("happy", k("Bob")), pr("tall", k("Bob"))],
+        premises: vec![],
         goal: and(pr("happy", k("Bob")), pr("tall", k("Bob"))),
         script: "split <;> assumption".to_string(),
         cites: vec![],
@@ -315,16 +319,43 @@ fn scripted_library_with_explicit_tactic_scripts() {
         name: "both_swapped".to_string(),
         premises: vec![],
         goal: and(pr("tall", k("Bob")), pr("happy", k("Bob"))),
-        // only premise is the cited `happy ∧ tall` (hp0); destruct it, re-assemble swapped.
-        script: "Destruct hp0. Split <;> by assumption.".to_string(),
+        // hp0, hp1 are the axioms; hp2 is the cited `happy ∧ tall`: destruct it, re-assemble swapped.
+        script: "Destruct hp2. Split <;> by assumption.".to_string(),
         cites: vec!["both".to_string()],
         simp: false,
     };
-    let r = prove_scripted_library(&[], &[lemma, swapped]);
+    let r = prove_scripted_library(&axioms, &[lemma, swapped]);
     assert!(r[0].verified, "lemma both: {:?}", r[0].verification_error);
     assert!(
         r[1].verified,
         "both_swapped (cites both): {:?}",
         r[1].verification_error
     );
+}
+
+
+/// A scripted library cites what a theorem states, its premises implying its goal: `both` proves `happy ∧ tall` only
+/// from its own two premises, so `both_swapped`, holding neither, cannot prove `tall ∧ happy` by citing it, and a
+/// `[simp]` lemma proved under a premise joins the pool as that implication, never as a bare rewrite rule.
+#[test]
+fn a_scripted_citation_is_the_cited_premises_implying_its_goal() {
+    let lemma = ScriptedTheorem {
+        name: "both".to_string(),
+        premises: vec![pr("happy", k("Bob")), pr("tall", k("Bob"))],
+        goal: and(pr("happy", k("Bob")), pr("tall", k("Bob"))),
+        script: "split <;> assumption".to_string(),
+        cites: vec![],
+        simp: true,
+    };
+    let swapped = ScriptedTheorem {
+        name: "both_swapped".to_string(),
+        premises: vec![],
+        goal: and(pr("tall", k("Bob")), pr("happy", k("Bob"))),
+        script: "auto".to_string(),
+        cites: vec!["both".to_string()],
+        simp: false,
+    };
+    let r = prove_scripted_library(&[], &[lemma, swapped]);
+    assert!(r[0].verified, "lemma both: {:?}", r[0].verification_error);
+    assert!(!r[1].verified, "tall(Bob) ∧ happy(Bob) follows from nothing both_swapped holds");
 }

@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use super::instruction::{Constant, EnumTypeDef, Op};
-use super::native_tier::{CalleeSig, NativeCtx, NativeFn, NativeTier, ParamKind, SlotKind};
+use super::native_tier::{CalleeSig, NativeCtx, NativeFn, NativeTier, ParamKind, ScalarValue, SlotKind};
 
 /// A function to compile, fully owned so it can cross to the worker thread. Every
 /// field is cloned from the immutable `CompiledProgram` at submit time (the `Vm`, its
@@ -33,6 +33,7 @@ pub(crate) struct FunctionRequest {
     pub param_count: u16,
     pub register_count: u16,
     pub param_kinds: Vec<Option<ParamKind>>,
+    pub values: Vec<Option<ScalarValue>>,
     pub cow_exempt_regs: Vec<u16>,
     pub ret_kind: Option<SlotKind>,
     pub callees: Vec<CalleeSig>,
@@ -88,6 +89,7 @@ impl BgCompiler {
                             f.register_count,
                             f.fi as u16,
                             &f.param_kinds,
+                            &f.values,
                             &f.cow_exempt_regs,
                             f.ret_kind,
                             &f.ctx,

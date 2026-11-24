@@ -1169,6 +1169,10 @@ impl Closed {
     /// `self^k`; refused for zero to a negative power and, on a rational function of a root of
     /// `dt`, for a power past [`crate::hyperreal::MAX_POWER_DEGREE`] in that root.
     pub fn pow(&self, k: i32) -> Result<Closed, PowerRefusal> {
+        // `-k` overflows for `i32::MIN`, so that one exponent is taken as the square of `x^(MIN/2)`.
+        if k == i32::MIN {
+            return self.pow(i32::MIN / 2)?.pow(2);
+        }
         if k < 0 {
             let inverse = self.recip().ok_or(PowerRefusal {
                 error: PowerError::ZeroToNegative,

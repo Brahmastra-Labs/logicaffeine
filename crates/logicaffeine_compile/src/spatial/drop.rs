@@ -126,23 +126,26 @@ struct Loaded {
     head: SpatialProgram,
 }
 
+/// The program under `bundle/dir`, its certificate made again and its schedule digest held to `digest`, the manifest's.
+fn load_program(bundle: &Path, rel: &str, dir: &str, digest: &serde_json::Value) -> Result<SpatialProgram, DropRefusal> {
+    let file = format!("{rel}{dir}/neutral.json");
+    let text = std::fs::read_to_string(bundle.join(dir).join("neutral.json")).map_err(|e| refuse(format!("{file}: {e}")))?;
+    let mut p =
+        parse_neutral(&text).map_err(|e| refuse(format!("{file}: the program does not parse, so its certificate cannot be checked: {e}")))?;
+    p.certificate = None;
+    let c = certify_choreography(&p).map_err(|e| refuse(format!("{file}: its certificate cannot be made again: {e:?}")))?;
+    let want = digest.as_str().ok_or_else(|| refuse(format!("{rel}manifest.json: no schedule digest for `{dir}`")))?;
+    let got = format!("{:016x}", c.schedule_digest);
+    if got != want {
+        return Err(refuse(format!(
+            "{file}: its certificate's schedule digest is {got}, the manifest's {want}: the program is not the one certified"
+        )));
+    }
+    Ok(p)
+}
+
 fn load(bundle: &Path, rel: &str, manifest: &serde_json::Value) -> Result<Loaded, DropRefusal> {
-    let one = |dir: &str, digest: &serde_json::Value| -> Result<SpatialProgram, DropRefusal> {
-        let file = format!("{rel}{dir}/neutral.json");
-        let text = std::fs::read_to_string(bundle.join(dir).join("neutral.json")).map_err(|e| refuse(format!("{file}: {e}")))?;
-        let mut p = parse_neutral(&text)
-            .map_err(|e| refuse(format!("{file}: the program does not parse, so its certificate cannot be checked: {e}")))?;
-        p.certificate = None;
-        let c = certify_choreography(&p).map_err(|e| refuse(format!("{file}: its certificate cannot be made again: {e:?}")))?;
-        let want = digest.as_str().ok_or_else(|| refuse(format!("{rel}manifest.json: no schedule digest for `{dir}`")))?;
-        let got = format!("{:016x}", c.schedule_digest);
-        if got != want {
-            return Err(refuse(format!(
-                "{file}: its certificate's schedule digest is {got}, the manifest's {want}: the program is not the one certified"
-            )));
-        }
-        Ok(p)
-    };
+    let one = |dir: &str, digest: &serde_json::Value| load_program(bundle, rel, dir, digest);
     let embed = one("embed", &manifest["embed"]["schedule_digest"])?;
     let kinds = manifest["kinds"]
         .as_array()
@@ -289,6 +292,108 @@ fn decode_loaded(
         }
     }
     Ok(Decoded { tokens: out, logits })
+}
+
+/// Where a tensor of an exported graph's program gets its values on a host.
+enum GraphBound {
+    /// The graph's input.
+    Input,
+    /// A parameter of the archive, read in the view the program declares it.
+    Param(crate::model::bind::Binding),
+    /// Nothing the host hands: a tensor the program declares its own value for, or computes.
+    Own,
+}
+
+/// Run `program` on `x` as an exported graph's host does: every tensor it reads bound by `bound` — the graph's input,
+/// a parameter read from `weights` — the program run through the spatial evaluator, and the tensor `output` names
+/// returned row by row.
+fn run_graph(
+    program: &SpatialProgram,
+    bound: &dyn Fn(&str) -> Result<GraphBound, DropRefusal>,
+    output: &str,
+    weights: &mut dyn WeightSource,
+    x: &[f64],
+) -> Result<Vec<f64>, DropRefusal> {
+    let mut inputs = Inputs::default();
+    for t in &program.tensors {
+        if t.role == TensorRole::Output {
+            continue;
+        }
+        let n = t.elems.rows * t.elems.cols;
+        let v = match bound(&t.name)? {
+            GraphBound::Input => x.to_vec(),
+            GraphBound::Param(b) => values(&b, weights).map_err(|e| refuse(format!("`{}`: {e}", b.tensor)))?,
+            GraphBound::Own if !matches!(t.init, TensorInit::External | TensorInit::Zero) => continue,
+            GraphBound::Own => vec![0.0; n],
+        };
+        if v.len() != n {
+            return Err(refuse(format!("`{}` fills {} of its {n} values", t.name, v.len())));
+        }
+        inputs.tensors.insert(t.id, Value::Float(v));
+    }
+    let out = program
+        .tensors
+        .iter()
+        .find(|t| t.name == output)
+        .ok_or_else(|| refuse(format!("the program has no tensor `{output}`, the graph's output")))?
+        .id;
+    let r = eval_choreography_every_tensor(program, &inputs).map_err(|e| refuse(format!("the evaluator: {e:?}")))?;
+    match r.tensors.get(&out) {
+        Some(Value::Float(v)) => Ok(v.clone()),
+        Some(Value::Int(v)) => Ok(v.iter().map(|x| *x as f64).collect()),
+        None => Err(refuse(format!("the evaluator leaves no `{output}`"))),
+    }
+}
+
+/// Run the exported graph's bundle at `bundle` on `x`, the graph's input row by row, its parameters read from the
+/// archive at `archive`: the forward program's certificate made again and held to the manifest's digest, every tensor
+/// it reads bound by the manifest — the input, a parameter of the archive in the view the program declares it — and the
+/// program run through the spatial evaluator. The graph's output, row by row.
+pub fn run_graph_bundle(bundle: &Path, archive: &Path, x: &[f64]) -> Result<Vec<f64>, DropRefusal> {
+    use crate::model::bind::{Binding, View};
+    use crate::model::graph::{Graph, GraphWeights};
+    let manifest = read_manifest(bundle, "")?;
+    if manifest["schema"] != crate::compile::RDU_GRAPH_MANIFEST_SCHEMA {
+        return Err(refuse(format!("manifest.json: schema {}, not an exported graph's bundle", manifest["schema"])));
+    }
+    let program = load_program(bundle, "", "forward", &manifest["forward"]["schedule_digest"])?;
+    let (graph, pt2) = Graph::open(archive).map_err(|e| refuse(format!("{}: {e}", archive.display())))?;
+    let entries = manifest["forward"]["tensors"].as_array().cloned().unwrap_or_default();
+    let bound = |name: &str| -> Result<GraphBound, DropRefusal> {
+        let Some(e) = entries.iter().find(|e| e["program"] == name) else { return Ok(GraphBound::Own) };
+        if e.get("input").is_some() {
+            return Ok(GraphBound::Input);
+        }
+        let Some(tensor) = e["param"].as_str() else { return Ok(GraphBound::Own) };
+        let view = match e["view"].as_str() {
+            Some("transposed") => View::Transposed,
+            Some("same") => View::Same,
+            other => return Err(refuse(format!("manifest.json: `{name}` is read in view {other:?}"))),
+        };
+        Ok(GraphBound::Param(Binding { tensor: tensor.to_string(), view }))
+    };
+    let output = manifest["output"]["program"].as_str().ok_or_else(|| refuse("manifest.json: no output"))?;
+    run_graph(&program, &bound, output, &mut GraphWeights { graph: &graph, pt2: &pt2 }, x)
+}
+
+/// An exported graph's forward lowered on `target` ([`crate::compile::lower_graph`]) and run there on `x` as the
+/// bundle's host runs it, its parameters read from the archive `pt2` the graph was imported from: the graph's output,
+/// row by row.
+pub fn run_graph_on(
+    graph: &crate::model::graph::Graph,
+    pt2: &crate::model::pt2::Pt2,
+    target: &crate::spatial::target::SpatialTarget,
+    x: &[f64],
+) -> Result<Vec<f64>, DropRefusal> {
+    use crate::model::graph::GraphWeights;
+    let (authored, program, _) = crate::compile::lower_graph(graph, "graph", target).map_err(refuse)?;
+    let bound = |name: &str| -> Result<GraphBound, DropRefusal> {
+        if name == authored.input.var {
+            return Ok(GraphBound::Input);
+        }
+        Ok(authored.params.iter().find(|(v, _)| v == name).map_or(GraphBound::Own, |(_, b)| GraphBound::Param(b.clone())))
+    };
+    run_graph(&program, &bound, &authored.output.var, &mut GraphWeights { graph, pt2 }, x)
 }
 
 fn read_manifest(bundle: &Path, rel: &str) -> Result<serde_json::Value, DropRefusal> {

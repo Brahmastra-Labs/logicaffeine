@@ -10,8 +10,11 @@
 //! lane with its batch step of `B` sequences (`lane::compile_batch_holding`); `--bench` then decodes `B` prompts
 //! together, sequence `b`'s the given tokens each moved `7919 b` on modulo the vocabulary, and its decode rate is every
 //! sequence's tokens a second, the batch's aggregate. `--state=bf16` stores the gated-delta memories in bf16 between
-//! steps (the `recurrent_state` knob; `f32` unless given); `--cache=f16` stores every attention's cache in binary16 (the
-//! `cache_precision` knob; `f32` unless given). `--device-bytes=<n>` runs the
+//! steps (the `recurrent_state` knob; `f32` unless given); `--cache=f16` stores every attention's cache in binary16 and
+//! `--cache=e4m3` in fp8 e4m3 (the `cache_precision` knob; `f32` unless given). `--logits=unread` compiles the greedy form
+//! (the `logits` knob): the host takes each next token alone, so a final soft cap folds into the arg-max's read; it times
+//! `--bench` only, the golden comparison reading every prompt's logits. `--head-epilogue=on` folds each projection that
+//! turns its heads into the rotation's place (the `head_epilogue` knob; off unless given). `--device-bytes=<n>` runs the
 //! program on n bytes of the device, the matrices past them read from mapped host memory (`lane::residence`); without
 //! it the program takes the memory it finds free.
 //! For every prompt the lane generates the golden's continuation length and prints how many steps it agrees with
@@ -26,12 +29,18 @@
 //! allocates (`Lane::plan`), where it places its matrices on the chip compiled for and on the `--device-bytes` given,
 //! the weight bytes a decode step reads a token (`Gguf::decode_read_bytes`) and whether it routes through experts, and
 //! the decode step's launches: how many, how many of each kind (`plan::kind`), and each in order with what it writes;
-//! with `--batch=<B>`, the batch step's census beside it.
+//! with `--batch=<B>`, the batch step's census beside it. `--cpu-layers=<s>` cuts the model at layer `s`
+//! (`codegen_cpu::split`): its first `s` layers linked for the host's cores (activations one word a block, the caches
+//! as `--cache` keeps them), the rest compiled for the device, one program prompting a token at a time;
+//! `--front-threads=<n>` runs the host's layers on `n` threads (8 unless given).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use logicaffeine_compile::codegen_cuda::knobs::{CachePrecision, CudaKnobs, StatePrecision};
+use logicaffeine_compile::codegen_cpu::kernels::FLAGS_X86_AVX2_VNNI;
+use logicaffeine_compile::codegen_cpu::shim::{CpuActivations, CpuCache, CpuIsa, CpuShim};
+use logicaffeine_compile::codegen_cpu::split::compile_cut;
+use logicaffeine_compile::codegen_cuda::knobs::{CachePrecision, CudaKnobs, Logits, StatePrecision};
 use logicaffeine_compile::codegen_cuda::lane::plan::kind;
 use logicaffeine_compile::codegen_cuda::lane::residence::place;
 use logicaffeine_compile::codegen_cuda::lane::{compile_batch_holding, compile_holding, LaneOptions};
@@ -85,13 +94,34 @@ fn main() {
     let cache_precision = match cache.last().map(|s| &s["--cache=".len()..]) {
         None | Some("f32") => CachePrecision::F32,
         Some("f16") => CachePrecision::F16,
-        Some(other) => panic!("--cache is f32 or f16, not {other:?}"),
+        Some("e4m3") => CachePrecision::E4m3,
+        Some(other) => panic!("--cache is f32, f16 or e4m3, not {other:?}"),
+    };
+    let (unread, args): (Vec<String>, Vec<String>) = args.into_iter().partition(|a| a.starts_with("--logits="));
+    let logits = match unread.last().map(|s| &s["--logits=".len()..]) {
+        None | Some("written") => Logits::Written,
+        Some("unread") => Logits::Unread,
+        Some(other) => panic!("--logits is written or unread, not {other:?}"),
+    };
+    let (turned, args): (Vec<String>, Vec<String>) = args.into_iter().partition(|a| a.starts_with("--head-epilogue="));
+    let head_epilogue = match turned.last().map(|s| &s["--head-epilogue=".len()..]) {
+        None | Some("off") => false,
+        Some("on") => true,
+        Some(other) => panic!("--head-epilogue is on or off, not {other:?}"),
     };
     let (device, args): (Vec<String>, Vec<String>) = args.into_iter().partition(|a| a.starts_with("--device-bytes="));
     let device: Vec<String> = device
         .last()
         .map(|d| vec!["--device-bytes".to_string(), d["--device-bytes=".len()..].parse::<usize>().expect("--device-bytes is a byte count").to_string()])
         .unwrap_or_default();
+    let (cut, args): (Vec<String>, Vec<String>) = args.into_iter().partition(|a| a.starts_with("--cpu-layers="));
+    let cut: Option<usize> = cut.last().map(|c| c["--cpu-layers=".len()..].parse().expect("--cpu-layers is a count of layers"));
+    let (threads, args): (Vec<String>, Vec<String>) = args.into_iter().partition(|a| a.starts_with("--front-threads="));
+    let front_threads: Vec<String> = threads
+        .last()
+        .map(|t| vec!["--front-threads".to_string(), t["--front-threads=".len()..].parse::<usize>().expect("--front-threads is a count").to_string()])
+        .unwrap_or_default();
+    let device: Vec<String> = device.into_iter().chain(front_threads).collect();
     if args.len() < 4 && !(args.len() >= 3 && args[2] == "--plan") {
         eprintln!("usage: model_lane <gguf> <golden-f32.json> <golden-cpu.json> [int8|two|precise] [prefill] [ctx]");
         std::process::exit(2);
@@ -110,11 +140,22 @@ fn main() {
     let ctx: usize = args.get(ci).map_or(cdef, |s| s.parse().expect("ctx is a number"));
     let gguf = Gguf::open(ckpt).expect("the checkpoint opens");
     let spec = ModelSpec::from_gguf(&gguf).expect("the spec reads");
-    let knobs = CudaKnobs { activations: numerics, recurrent_state, cache_precision, ..CudaKnobs::default() };
+    let knobs = CudaKnobs { activations: numerics, recurrent_state, cache_precision, logits, head_epilogue, ..CudaKnobs::default() };
     let opts = LaneOptions { ctx, knobs, prefill };
-    let lane = match batch {
-        Some(b) => compile_batch_holding(&spec, ckpt, &opts, b, &held),
-        None => compile_holding(&spec, ckpt, &opts, &held),
+    let split = cut.map(|from| {
+        assert!(batch.is_none() && held.is_empty(), "--cpu-layers compiles the decode step alone, every rule applied");
+        let cache = match cache_precision {
+            CachePrecision::F32 => CpuCache::F32,
+            CachePrecision::F16 => CpuCache::F16,
+            CachePrecision::E4m3 => panic!("the host's layers keep no e4m3 cache"),
+        };
+        let shim = CpuShim { isa: CpuIsa::X86Avx2Vnni, activations: CpuActivations::OneWord, cache, fuse: true };
+        compile_cut(&spec, ckpt, &LaneOptions { prefill: 1, ..opts }, from, &shim).unwrap_or_else(|e| panic!("the split compiles: {e}"))
+    });
+    let lane = match (&split, batch) {
+        (Some(s), _) => Ok(s.lane.clone()),
+        (None, Some(b)) => compile_batch_holding(&spec, ckpt, &opts, b, &held),
+        (None, None) => compile_holding(&spec, ckpt, &opts, &held),
     }
     .unwrap_or_else(|e| panic!("the lane compiles: {e}"));
     if plan_only {
@@ -161,8 +202,18 @@ fn main() {
     std::fs::create_dir_all(&dir).expect("the work directory");
     let (cu, bin, side) = (dir.join("lane.cu"), dir.join("lane"), dir.join("lane.side"));
     std::fs::write(&cu, &lane.program.cu).expect("write the program");
-    std::fs::write(&side, &lane.program.sidecar).expect("write the sidecar");
-    let built = Command::new("nvcc").args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu).output().expect("nvcc");
+    std::fs::write(&side, split.as_ref().map_or_else(|| lane.program.sidecar.clone(), |s| s.sidecar())).expect("write the sidecar");
+    let mut nvcc = Command::new("nvcc");
+    nvcc.args(["-O3", "-std=c++17", "-arch=sm_86", "-o"]).arg(&bin).arg(&cu);
+    if let Some(s) = &split {
+        // The host's layers: the front's library, built for the host's cores and linked into the lane's program.
+        let (src, obj) = (dir.join("front.cpp"), dir.join("front.o"));
+        std::fs::write(&src, s.front_source()).expect("write the front");
+        let built = Command::new("g++").args(["-O3", "-std=c++17"]).args(FLAGS_X86_AVX2_VNNI).args(["-pthread", "-c", "-o"]).arg(&obj).arg(&src).output().expect("g++");
+        assert!(built.status.success(), "the front builds:\n{}", String::from_utf8_lossy(&built.stderr));
+        nvcc.arg(&obj).arg("-lpthread");
+    }
+    let built = nvcc.output().expect("nvcc");
     assert!(built.status.success(), "the program builds:\n{}", String::from_utf8_lossy(&built.stderr));
     if bench {
         let n_gen = &args[4];
@@ -217,6 +268,7 @@ fn main() {
         );
         return;
     }
+    assert!(logits == Logits::Written, "--logits=unread times --bench alone: the golden comparison reads every prompt's logits");
     let (f32g, cpu) = (golden(&args[2]), golden(&args[3]));
     let (mut ours_f32, mut ours_cpu, mut theirs, mut rates) = (0, 0, 0, Vec::new());
     let (mut our_dev, mut their_dev) = (0f64, 0f64);

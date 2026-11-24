@@ -995,7 +995,7 @@ Fused multiply-add `x * y + z`.
     Return (x * y) + z.
 
 ## Note
-The error function `erf(x)` via the Abramowitz-Stegun rational-times-Gaussian approximation, odd-symmetric in `x`.
+The error function `erf(x)`, odd in `x` and within an ulp everywhere: Go's `math.Erf`, operation for operation.
 
 ## To erf (x: Real) -> Real:
     Let mutable sign be 1.0.
@@ -1003,23 +1003,88 @@ The error function `erf(x)` via the Abramowitz-Stegun rational-times-Gaussian ap
     If x is less than 0.0:
         Set sign to 0.0 - 1.0.
         Set ax to 0.0 - x.
-    If ax is greater than 2.0:
-        Let t be 1.0 / (1.0 + 0.3275911 * ax).
-        Let p1 be (0.0 - 1.453152027) + (1.061405429 * t).
-        Let p2 be 1.421413741 + (p1 * t).
-        Let p3 be (0.0 - 0.284496736) + (p2 * t).
-        Let p4 be 0.254829592 + (p3 * t).
-        Let poly be p4 * t.
-        Return sign * (1.0 - poly * exp(0.0 - ax * ax)).
-    Let x2 be ax * ax.
-    Let mutable term be ax.
-    Let mutable sumv be ax.
-    Let mutable n be 1.0.
-    While n is at most 40.0:
-        Set term to ((term * (0.0 - x2)) * ((2.0 * n) - 1.0)) / (n * ((2.0 * n) + 1.0)).
-        Set sumv to sumv + term.
-        Set n to n + 1.0.
-    Return sign * (1.1283791670955126 * sumv).
+    If ax is less than 0.84375:
+        If ax is less than 3.7252902984619140625e-09:
+            If ax is less than 2.848094538889218e-306:
+                Return sign * (0.125 * ((8.0 * ax) + (1.02703333676410069053e+00 * ax))).
+            Return sign * (ax + (1.28379167095512586316e-01 * ax)).
+        Let z be ax * ax.
+        Let mutable r be 0.0 - 2.37630166566501626084e-05.
+        Set r to (0.0 - 5.77027029648944159157e-03) + z * r.
+        Set r to (0.0 - 2.84817495755985104766e-02) + z * r.
+        Set r to (0.0 - 3.25042107247001499370e-01) + z * r.
+        Set r to 1.28379167095512558561e-01 + z * r.
+        Let mutable s be 0.0 - 3.96022827877536812320e-06.
+        Set s to 1.32494738004321644526e-04 + z * s.
+        Set s to 5.08130628187576562776e-03 + z * s.
+        Set s to 6.50222499887672944485e-02 + z * s.
+        Set s to 3.97917223959155352819e-01 + z * s.
+        Set s to 1.0 + z * s.
+        Return sign * (ax + ax * (r / s)).
+    If ax is less than 1.25:
+        Let d be ax - 1.0.
+        Let mutable p be 0.0 - 2.16637559486879084300e-03.
+        Set p to 3.54783043256182359371e-02 + d * p.
+        Set p to (0.0 - 1.10894694282396677476e-01) + d * p.
+        Set p to 3.18346619901161753674e-01 + d * p.
+        Set p to (0.0 - 3.72207876035701323847e-01) + d * p.
+        Set p to 4.14856118683748331666e-01 + d * p.
+        Set p to (0.0 - 2.36211856075265944077e-03) + d * p.
+        Let mutable q be 1.19844998467991074170e-02.
+        Set q to 1.36370839120290507362e-02 + d * q.
+        Set q to 1.26171219808761642112e-01 + d * q.
+        Set q to 7.18286544141962662868e-02 + d * q.
+        Set q to 5.40397917702171048937e-01 + d * q.
+        Set q to 1.06420880400844228286e-01 + d * q.
+        Set q to 1.0 + d * q.
+        Return sign * (8.45062911510467529297e-01 + (p / q)).
+    If ax is at least 6.0:
+        Return sign.
+    Let w be 1.0 / (ax * ax).
+    Let mutable rr be 0.0.
+    Let mutable ss be 0.0.
+    If ax is less than 2.857142857142857:
+        Set rr to 0.0 - 9.81432934416914548592e+00.
+        Set rr to (0.0 - 8.12874355063065934246e+01) + w * rr.
+        Set rr to (0.0 - 1.84605092906711035994e+02) + w * rr.
+        Set rr to (0.0 - 1.62396669462573470355e+02) + w * rr.
+        Set rr to (0.0 - 6.23753324503260060396e+01) + w * rr.
+        Set rr to (0.0 - 1.05586262253232909814e+01) + w * rr.
+        Set rr to (0.0 - 6.93858572707181764372e-01) + w * rr.
+        Set rr to (0.0 - 9.86494403484714822705e-03) + w * rr.
+        Set ss to 0.0 - 6.04244152148580987438e-02.
+        Set ss to 6.57024977031928170135e+00 + w * ss.
+        Set ss to 1.08635005541779435134e+02 + w * ss.
+        Set ss to 4.29008140027567833386e+02 + w * ss.
+        Set ss to 6.45387271733267880336e+02 + w * ss.
+        Set ss to 4.34565877475229228821e+02 + w * ss.
+        Set ss to 1.37657754143519042600e+02 + w * ss.
+        Set ss to 1.96512716674392571292e+01 + w * ss.
+        Set ss to 1.0 + w * ss.
+    Otherwise:
+        Set rr to 0.0 - 4.83519191608651397019e+02.
+        Set rr to (0.0 - 1.02509513161107724954e+03) + w * rr.
+        Set rr to (0.0 - 6.37566443368389627722e+02) + w * rr.
+        Set rr to (0.0 - 1.60636384855821916062e+02) + w * rr.
+        Set rr to (0.0 - 1.77579549177547519889e+01) + w * rr.
+        Set rr to (0.0 - 7.99283237680523006574e-01) + w * rr.
+        Set rr to (0.0 - 9.86494292470009928597e-03) + w * rr.
+        Set ss to 0.0 - 2.24409524465858183362e+01.
+        Set ss to 4.74528541206955367215e+02 + w * ss.
+        Set ss to 2.55305040643316442583e+03 + w * ss.
+        Set ss to 3.19985821950859553908e+03 + w * ss.
+        Set ss to 1.53672958608443695994e+03 + w * ss.
+        Set ss to 3.25792512996573918826e+02 + w * ss.
+        Set ss to 3.03380607434824582924e+01 + w * ss.
+        Set ss to 1.0 + w * ss.
+    Let mutable scale be 262144.0.
+    If ax is less than 2.0:
+        Set scale to 1048576.0.
+    Otherwise If ax is less than 4.0:
+        Set scale to 524288.0.
+    Let z be floorR(ax * scale) / scale.
+    Let tail be exp((0.0 - (z * z)) - 0.5625) * exp(((z - ax) * (z + ax)) + (rr / ss)).
+    Return sign * (1.0 - (tail / ax)).
 
 ## Note
 The complementary error function `1 - erf(x)`.

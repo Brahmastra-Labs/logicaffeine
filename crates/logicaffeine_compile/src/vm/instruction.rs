@@ -1904,10 +1904,11 @@ pub enum BoundaryType {
     /// key expression's own kind (no map metadata needed); the VALUE kind is carried here so a
     /// parameter map's `item k of m` resolves its result kind cross-region.
     Map(Box<BoundaryType>, Box<BoundaryType>),
-    /// A HETEROGENEOUS tuple (`Pair`/`Triple` of mixed element types) — one i32 handle to a buffer of
-    /// 8-byte slots, each holding its element at its own kind. The per-position element types are
-    /// carried so a `item N of t` (constant `N`) resolves its result kind cross-region. (A homogeneous
-    /// tuple resolves to [`BoundaryType::Seq`] instead — it shares the list buffer layout.)
+    /// A tuple (`(Int, Text)`, `Pair of Int and Int`) — one i32 handle to a buffer of 8-byte slots,
+    /// each holding its element at its own kind. The per-position element types are carried so a
+    /// `item N of t` (constant `N`) resolves its result kind cross-region, and so the type says it is a
+    /// tuple — what it displays as and compares as. A backend whose HOMOGENEOUS tuple shares a list's
+    /// layout reads that from the positions.
     Tuple(Vec<BoundaryType>),
     /// A first-class BUILTIN value type by name (`Uuid`, `Duration`, `Time`, `Span`, `Money`,
     /// `Quantity`, `Rational`, `Complex`, `Decimal`, `Modular`) — a scalar/handle type whose wasm

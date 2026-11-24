@@ -291,6 +291,7 @@ fn cuda_kind(spec: &TensorOpSpec) -> Option<&'static str> {
         TensorOpSpec::Attention(_) => Some("Attention"),
         TensorOpSpec::Moe(_) => Some("Moe"),
         TensorOpSpec::Sigmoid(_)
+        | TensorOpSpec::Erf(_)
         | TensorOpSpec::Softcap(_)
         | TensorOpSpec::LaneMean(_)
         | TensorOpSpec::LaneSpread(_)
@@ -537,6 +538,7 @@ fn own_recognizer(op: &str) -> Option<&'static str> {
         "swiglu" => "swiglu",
         "sigmoid" => "sigmoid",
         "gelu" => "gelu",
+        "erf" => "erf",
         "silu" => "silu",
         "l2norm" | "l2norm_heads" => "l2norm",
         "rope_partial" => "rope",

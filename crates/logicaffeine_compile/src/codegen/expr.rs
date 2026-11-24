@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 
 use crate::analysis::registry::TypeRegistry;
@@ -12,9 +13,7 @@ use super::context::RefinementContext;
 use super::detection::{collect_mutable_vars, expr_debug_prefix, parse_aos_tag};
 use super::i64_map::is_logos_map_type;
 use super::types::{codegen_type_expr, infer_logos_type, infer_numeric_type, rust_type_ident};
-use super::{
-    codegen_stmt, get_root_identifier, has_copy_element_type, has_copy_value_type, is_copy_type,
-};
+use super::{codegen_stmt, get_root_identifier, has_copy_element_type, is_copy_type};
 
 use std::sync::LazyLock;
 
@@ -66,9 +65,11 @@ pub(crate) struct ExprCtx<'a> {
     /// True while codegen'ing the argument of a `wordN(...)` truncation. The
     /// result keeps only the low N bits, so Int add/sub/mul lower to raw i64
     /// `wrapping_*` (identical low bits to the checked-exact helper, matching the
-    /// crate's wrapping word semantics) instead of `logos_*_exact`. Propagates
-    /// through the additive chain but is RESET at a call boundary (a call's
-    /// argument is a full-width value, not truncated).
+    /// crate's wrapping word semantics) instead of `logos_*_exact`. Holds through
+    /// the operators whose low bits are their operands' (`+ - *`, the bitwise
+    /// ones) and is RESET under any other (a quotient, a remainder and a
+    /// comparison read their operands whole, a shift its count) and at a call
+    /// boundary (a call's argument is a full-width value, not truncated).
     pub int_wrapping: bool,
     /// True while codegen'ing a closure ARGUMENT to a scalar exact higher-order function
     /// (`exact_hof_fns` — `apply(f, x)`). The closure's integer params are typed
@@ -103,13 +104,6 @@ impl<'a> ExprCtx<'a> {
     }
 }
 
-/// True when the bounds-elision oracle proves `index` in range for `collection`,
-/// so the access can lower to `get_unchecked`. The `LOGOS_ORACLE_UNCHECKED=0`
-/// kill switch forces the checked form (A/B against the `assert_unchecked` hint
-/// path). Soundness rests on the kernel-LIA-certified proof plus the caller's
-/// entry precondition guard; a `debug_assert!` (emitted by the statement-level
-/// hint pass) traps an unsound proof in debug builds.
-/// A compile-time Int op on two literals (overflow ruling v2, stage 2).
 thread_local! {
     /// The whole-program set of `Int`-returning functions whose value can exceed i64, so their
     /// return type is the promoting `LogosInt` (`bigint_promote::bigint_returning_fns`). Set once
@@ -256,6 +250,11 @@ pub(crate) fn begin_program_emission() {
     crate::codegen::simd_reduce::reset_ids();
     // PROBE_ID (codegen::probe) numbers the `__probeN` bindings a fused map test makes: ResetAtEntry, as above.
     crate::codegen::probe::reset_names();
+    // LOOP_COUNT numbers the versioned `IntVec` loops' labels, REGION_ID the word regions' `__done{id}` flags, and
+    // NEXT / NEEDED the tentative declarations and the ones a write needs: ResetAtEntry, as above.
+    crate::codegen::int_vec::reset_loop_labels();
+    crate::codegen::unboxed::reset_region_ids();
+    crate::codegen::tentative::reset();
 }
 
 thread_local! {
@@ -285,7 +284,7 @@ pub(crate) fn set_bigint_returning_fns(fns: &HashSet<Symbol>) {
     BIGINT_RETURNING_FNS.with(|c| *c.borrow_mut() = fns.clone());
 }
 
-fn is_bigint_returning_call(function: Symbol) -> bool {
+pub(super) fn is_bigint_returning_call(function: Symbol) -> bool {
     BIGINT_RETURNING_FNS.with(|c| c.borrow().contains(&function))
 }
 
@@ -350,15 +349,12 @@ pub(crate) fn stores_logos_int(struct_type: Symbol, field: Symbol) -> bool {
 /// — the context a promoted `Let` binding uses — widened to a `LogosInt` (`From` is the identity on
 /// one already, and promotes a machine word). A narrowed form would trap on the way in a bignum the
 /// field exists to hold, and a bare machine word is not a `LogosInt` at all.
-fn exact_field_value(value: &Expr, ecx: &ExprCtx) -> String {
-    let tolerant = codegen_expr_ctx(
-        value,
-        &ExprCtx {
-            int_exact_tolerant: true,
-            ..*ecx
-        },
-    );
-    format!("logicaffeine_data::LogosInt::from({tolerant})")
+pub(super) fn exact_field_value(value: &Expr, ecx: &ExprCtx) -> String {
+    let tolerant = ExprCtx {
+        int_exact_tolerant: true,
+        ..*ecx
+    };
+    as_logos_int(value, ecx.interner, ecx.variable_types, || codegen_expr_ctx(value, &tolerant))
 }
 
 /// The whole promoted-field set, for an analysis that needs to ask about many fields at once
@@ -552,17 +548,26 @@ pub(super) fn sequenced_call(
             .any(|(j, a)| j != *at && mentions_binding(a, *root))
     });
     if !overlaps {
-        return wait.around(format!("{path}({})", rendered.join(", ")));
+        return wait.around(format!("{path}({})", arguments(&rendered)));
     }
     let mut before = String::new();
     for (j, arg) in rendered.iter_mut().enumerate() {
         if lends.iter().any(|(at, _)| *at == j) {
             continue;
         }
-        before.push_str(&format!("let __arg{j} = {arg}; "));
+        before.push_str(&format!("let __arg{j} = {}; ", super::precedence::standalone(arg)));
         *arg = format!("__arg{j}");
     }
-    format!("{{ {before}{} }}", wait.around(format!("{path}({})", rendered.join(", "))))
+    format!("{{ {before}{} }}", wait.around(format!("{path}({})", arguments(&rendered))))
+}
+
+/// Rendered arguments as a call's argument list: each without the parentheses around all of it.
+pub(super) fn arguments(rendered: &[String]) -> String {
+    rendered
+        .iter()
+        .map(|arg| super::precedence::standalone(arg))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 thread_local! {
@@ -645,20 +650,22 @@ pub(super) fn lends_binding(expr: &Expr, binding: Symbol) -> bool {
 /// operand for the whole call, so when an operand's call lends a binding to a `mutable` parameter
 /// the text is built from values taken first, in order — a field or binding read copied out
 /// before the lend writes it, as every tier reads it.
-fn format_in_order(fmt: &str, operands: &[&Expr], values: Vec<String>) -> String {
-    let lends = operands.iter().any(|operand| {
-        let mut lends = false;
-        crate::analysis::callgraph::for_each_call_site_in_expr(operand, &mut |function, _| {
-            lends |= !super::fn_role_indices(function, super::FnRole::ValueMutable).is_empty();
-        });
-        lends
-    });
-    if !lends {
-        return format!("format!(\"{fmt}\", {})", values.join(", "));
+fn format_in_order(
+    fmt: &str,
+    operands: &[&Expr],
+    values: Vec<String>,
+    variable_types: &HashMap<Symbol, String>,
+) -> String {
+    if !lends_to_a_mutable(operands) {
+        let shown: Vec<Cow<str>> =
+            operands.iter().zip(&values).map(|(operand, value)| shown(operand, value, variable_types)).collect();
+        return format!("format!(\"{fmt}\", {})", shown.join(", "));
     }
     let mut taken = String::from("{ ");
     for (i, (operand, value)) in operands.iter().zip(&values).enumerate() {
         let value = match operand {
+            // A machine-scalar binding is copied by the `let`.
+            Expr::Identifier(_) if matches!(shown(operand, value, variable_types), Cow::Owned(_)) => value.clone(),
             Expr::Identifier(_) | Expr::FieldAccess { .. } => format!("({value}).clone()"),
             _ => value.clone(),
         };
@@ -667,6 +674,122 @@ fn format_in_order(fmt: &str, operands: &[&Expr], values: Vec<String>) -> String
     let names: Vec<String> = (0..values.len()).map(|i| format!("__text_{i}")).collect();
     taken.push_str(&format!("format!(\"{fmt}\", {}) }}", names.join(", ")));
     taken
+}
+
+/// Whether an operand's call anywhere inside it lends a binding to a `mutable` parameter.
+fn lends_to_a_mutable(operands: &[&Expr]) -> bool {
+    operands.iter().any(|operand| {
+        let mut lends = false;
+        crate::analysis::callgraph::for_each_call_site_in_expr(operand, &mut |function, _| {
+            lends |= !super::fn_role_indices(function, super::FnRole::ValueMutable).is_empty();
+        });
+        lends
+    })
+}
+
+/// Whether `e` is text under `+`: a text expression, a binding or field or indexed read declared `Text`, a held
+/// text. The type is the only thing that can answer it — a field or a parameter cannot be assumed to be text, since
+/// an Int under `+` is addition and folding it into a format would turn `5 + 1` into "51".
+fn text_operand(e: &Expr, ecx: &ExprCtx) -> bool {
+    is_definitely_string_expr_with_vars(e, ecx.string_vars)
+        || super::absent::holds_text(e, ecx)
+        || is_text_typed_identifier(e, ecx.variable_types)
+        || is_text_typed_index(e, ecx.variable_types)
+        || record_field_rust_type(e, ecx.interner, ecx.variable_types, ecx.registry).is_some_and(|t| t == "String")
+}
+
+/// Whether `left op right` joins text: a `Concat`, or a `+` with a text operand.
+fn is_text_concatenation(op: BinaryOpKind, left: &Expr, right: &Expr, ecx: &ExprCtx) -> bool {
+    matches!(op, BinaryOpKind::Concat)
+        || (matches!(op, BinaryOpKind::Add) && (text_operand(left, ecx) || text_operand(right, ecx)))
+}
+
+/// A text concatenation as formatting writes it: the format string, holding the text of every literal operand, and
+/// the values that fill its holes.
+pub(super) struct Formatted {
+    pub(super) fmt: String,
+    pub(super) args: Vec<String>,
+}
+
+impl Formatted {
+    /// The text: `format!(…)`, or the literal it is when no hole is left.
+    pub(super) fn format(&self) -> String {
+        if self.args.is_empty() {
+            return format!("::std::string::String::from(\"{}\")", self.fmt.replace("{{", "{").replace("}}", "}"));
+        }
+        format!("format!(\"{}\", {})", self.fmt, self.args.join(", "))
+    }
+
+    /// The text as `format_args!(…)`, for a sink that writes it without building it.
+    pub(super) fn format_args(&self) -> String {
+        let args: String = self.args.iter().map(|a| format!(", {a}")).collect();
+        format!("format_args!(\"{}\"{args})", self.fmt)
+    }
+}
+
+/// `operands`, a text concatenation's, as [`Formatted`]: a text literal (or `nothing`) written into the format string,
+/// any other operand a hole, a machine-scalar binding filling it from a copy ([`shown`]). `None` when an operand lends
+/// a binding to a `mutable` parameter: those are taken in order first ([`format_in_order`]).
+fn concat_formatted(operands: &[&Expr], ecx: &ExprCtx) -> Option<Formatted> {
+    if lends_to_a_mutable(operands) {
+        return None;
+    }
+    let mut fmt = String::new();
+    let mut args = Vec::new();
+    for e in operands {
+        let literal = match e {
+            Expr::Literal(Literal::Text(sym)) => Some(ecx.interner.resolve(*sym)),
+            Expr::Literal(Literal::Nothing) | Expr::OptionNone => Some("nothing"),
+            _ => None,
+        };
+        if let Some(text) = literal {
+            fmt.push_str(&crate::codegen::stmt::rust_string_escape(&text.replace('{', "{{").replace('}', "}}")));
+            continue;
+        }
+        let value = codegen_expr_ctx(e, ecx);
+        let value = if super::absent::is_held(e, ecx) {
+            // A value-or-nothing joins as it shows: its value, or `nothing`.
+            format!("logicaffeine_system::io::show_string({})", lent_to_show(&value))
+        } else {
+            shown(e, &value, ecx.variable_types).into_owned()
+        };
+        fmt.push_str("{}");
+        args.push(value);
+    }
+    Some(Formatted { fmt, args })
+}
+
+/// `Show expr`'s argument when `expr` is a text concatenation, as `format_args!(…)` ([`Formatted::format_args`]), in
+/// the context every `Show` formats in ([`codegen_expr_with_async_and_strings`]); `None` for any other expression.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn shown_concatenation(
+    expr: &Expr,
+    interner: &Interner,
+    synced_vars: &HashSet<Symbol>,
+    async_functions: &HashSet<Symbol>,
+    string_vars: &HashSet<Symbol>,
+    variable_types: &HashMap<Symbol, String>,
+    fast_div: &HashMap<Symbol, String>,
+    registry: &TypeRegistry,
+) -> Option<String> {
+    let ecx = ExprCtx {
+        async_functions,
+        string_vars,
+        variable_types,
+        fast_div,
+        registry,
+        int_exact_tolerant: true,
+        ..ExprCtx::bare(interner, synced_vars)
+    };
+    let Expr::BinaryOp { op, left, right } = expr else {
+        return None;
+    };
+    if !is_text_concatenation(*op, left, right, &ecx) {
+        return None;
+    }
+    let mut operands = Vec::new();
+    collect_string_concat_operands_with(expr, &|e| text_operand(e, &ecx), &mut operands);
+    concat_formatted(&operands, &ecx).map(|text| text.format_args())
 }
 
 /// For each argument, the bindings that an argument to its right lends to a `mutable` parameter,
@@ -695,6 +818,29 @@ fn call_argument_read(
     lent_after: bool,
 ) -> String {
     let variable_types = ecx.variable_types;
+    // A list that may hold integers past the word is handed over as the `IntVec` the parameter takes.
+    if super::int_vec::promotes_param(function, i) {
+        return super::int_vec::argument(function, i, a, ecx);
+    }
+    // A function of the program whose result is exact, handed to a parameter that takes a function answering a
+    // machine word, is handed as one: its result narrowed into the word, loudly past it.
+    if let Expr::Identifier(f) = a {
+        let param = fn_param_rust_type(function, i);
+        let takes_words = param.as_deref().and_then(|t| t.strip_prefix("impl Fn(")).filter(|t| {
+            t.split(" + ").next().is_some_and(|sig| sig.ends_with("-> i64"))
+        });
+        if let Some(sig) = takes_words.filter(|_| is_bigint_returning_call(*f) && !variable_types.contains_key(f)) {
+            let inputs = sig.split(')').next().unwrap_or("");
+            let arity = if inputs.trim().is_empty() { 0 } else { inputs.split(',').count() };
+            let names_: Vec<String> = (0..arity).map(|k| format!("__a{k}")).collect();
+            return format!(
+                "|{}| {}({}).expect_i64(\"Int\")",
+                names_.join(", "),
+                RustNames::new(ecx.interner).ident(*f),
+                names_.join(", ")
+            );
+        }
+    }
     let names = RustNames::new(ecx.interner);
     let raw_name = names.raw(function);
     // The callee's calling roles: a readonly borrow (`&[T]`) and a value-semantics `mutable`
@@ -711,7 +857,7 @@ fn call_argument_read(
         if !callee_value_mutable.contains(&i) && !callee_mut_borrow_indices.contains(&i) {
             if let Some(code) = super::rational::value_as(a, &super::rational::named(&param), ecx) {
                 return if callee_borrow_indices.contains(&i) {
-                    format!("&*({code}).borrow()")
+                    format!("&{}.borrow()", super::precedence::operand(&code, super::precedence::Under::Postfix))
                 } else {
                     code
                 };
@@ -726,15 +872,20 @@ fn call_argument_read(
     // so `wordN(f(a * b))` must NOT wrap `a * b`.
     let arg_wrapping = matches!(raw_name, "word8" | "word16" | "word32" | "word64");
     if arg_wrapping {
-        let value = codegen_expr_ctx(
-            a,
-            &ExprCtx {
-                int_wrapping: true,
-                int_exact_tolerant: true,
-                ..*ecx
-            },
+        // An Int literal is its own two's-complement word.
+        if let Expr::Literal(Literal::Number(n)) = a {
+            return format!("{n}i64");
+        }
+        let wrapping = ExprCtx {
+            int_wrapping: true,
+            int_exact_tolerant: true,
+            ..*ecx
+        };
+        let exact = as_logos_int(a, ecx.interner, variable_types, || codegen_expr_ctx(a, &wrapping));
+        return format!(
+            "({}.wrapping_u64() as i64)",
+            super::precedence::operand(&exact, super::precedence::Under::Postfix)
         );
-        return format!("(logicaffeine_data::LogosInt::from({value}).wrapping_u64() as i64)");
     }
     // Selective higher-order-overflow analysis (call-site half): a scalar exact-HOF
     // (`apply(f, x)`) exactifies its fn-param + int-params to `LogosInt`, and a `fn`-typed
@@ -765,7 +916,9 @@ fn call_argument_read(
     // (an exact-HOF's `LogosInt` param, or any arg of an exact `fn`-typed param). An
     // already-promoted var passes by clone (never the `.expect_i64` narrow below); a raw
     // `i64` value/literal wraps in `LogosInt::from` (identity for an existing `LogosInt`).
+    // A `mutable` parameter is lent the caller's own binding, exact or not (below).
     let promote_int = !matches!(a, Expr::Closure { .. })
+        && !callee_value_mutable.contains(&i)
         && (callee_is_exact_fnptr
             || (callee_is_exact_hof
                 && fn_param_rust_type(function, i).as_deref()
@@ -776,8 +929,16 @@ fn call_argument_read(
                 .get(sym)
                 .map_or(false, |t| t.contains("__bigint"))
             {
-                return format!("{}.clone()", names.ident(*sym));
+                // A dead last use (the binding is reassigned right after) moves; any other read copies.
+                return if is_movable_last_use(*sym) { names.ident(*sym) } else { format!("{}.clone()", names.ident(*sym)) };
             }
+        }
+        // A field is read in place: a `LogosInt` one is copied out, never moved out of its record.
+        if matches!(a, Expr::FieldAccess { .. }) {
+            return format!(
+                "logicaffeine_data::LogosInt::from({}.clone())",
+                super::precedence::operand(&s, super::precedence::Under::Postfix)
+            );
         }
         return format!("logicaffeine_data::LogosInt::from({})", s);
     }
@@ -823,7 +984,7 @@ fn call_argument_read(
             return match held.as_deref() {
                 Some(t) if t.starts_with("&mut [") => s,
                 Some(t) if t.starts_with("Vec<") => format!("&mut {}", s),
-                _ => format!("&mut *{}.borrow_mut()", s),
+                _ => format!("&mut {}.borrow_mut()", s),
             };
         }
         return format!("&mut {}", s);
@@ -838,7 +999,7 @@ fn call_argument_read(
                 return s;
             }
         }
-        return format!("&({})", s);
+        return lent_to_show(&s);
     }
     if callee_borrow_indices.contains(&i) {
         // A slice handed to a borrowed parameter is the view of the items, never a copy of them.
@@ -870,13 +1031,13 @@ fn call_argument_read(
                     return format!("&{}.to_vec()", s);
                 }
                 if ty.starts_with("LogosSeq") {
-                    return format!("&*{}.borrow()", s);
+                    return format!("&{}.borrow()", s);
                 }
             }
             // Unknown type at borrow position — default to LogosSeq conversion.
             // All LOGOS Seq variables are LogosSeq<T> unless materialized as Vec<T>
             // (which is always tracked). Safe because borrow positions only accept Seq<T>.
-            return format!("&*{}.borrow()", s);
+            return format!("&{}.borrow()", s);
         }
         // Non-identifier at borrow position (e.g. list literal, function call).
         // Most such expressions evaluate to LogosSeq<T> and borrow the temporary,
@@ -885,7 +1046,7 @@ fn call_argument_read(
         if let Some(marshalled) = borrow_position_non_identifier(a, &s) {
             return marshalled;
         }
-        format!("&*{}.borrow()", s)
+        format!("&{}.borrow()", s)
     } else {
         // Regular param: clone non-Copy identifiers
         if let Expr::Identifier(sym) = a {
@@ -898,6 +1059,13 @@ fn call_argument_read(
             {
                 return format!("{}.expect_i64(\"Int\")", names.ident(*sym));
             }
+            // Handed over only as a value of its own: not a `mutable` parameter (lent in place, or lent as a shared
+            // reference to its list or map), not a binding held as a reference. Handing one of those over passes the
+            // reference, where a copy of it is the value the callee takes.
+            let handed_over = !lent_in_place(*sym, variable_types)
+                && !lent_by_sharing(*sym, variable_types)
+                && !variable_types.get(sym).is_some_and(|t| t.starts_with('&'))
+                && super::flow::moves_at_last_use(*sym, 1);
             if let Some(ty) = variable_types.get(sym) {
                 // A sequence this function holds BORROWED (`&[T]`, its own
                 // read-only parameter) handed to a parameter that OWNS its
@@ -911,12 +1079,13 @@ fn call_argument_read(
                         _ => format!("LogosSeq::from_vec(({}).to_vec())", s),
                     };
                 }
-                if !is_copy_type(ty) {
+                // A binding this statement names here alone, at its last use, is handed over; any other is copied.
+                if !is_copy_type(ty) && !handed_over {
                     return format!("{}.clone()", s);
                 }
-            } else {
-                // Unknown type (e.g. pattern-bound variable from Inspect):
-                // clone defensively to avoid move-after-use in loops
+            } else if !fn_param_rust_type(function, i).is_some_and(|p| is_copy_type(&p)) && !handed_over {
+                // Unknown type (e.g. pattern-bound variable from Inspect): clone defensively to avoid
+                // move-after-use in loops, unless the parameter takes a `Copy` value, which the argument then is.
                 return format!("{}.clone()", s);
             }
         }
@@ -933,7 +1102,7 @@ fn call_argument_read(
             && !produces_float(a, variable_types, ecx.interner)
             && !mentions_bigint_var(a, variable_types)
         {
-            return format!("(({}) as f64)", s);
+            return super::precedence::cast(&s, "f64");
         }
         s
     }
@@ -984,6 +1153,43 @@ pub(super) fn called_function_path(
 fn program_defines_function(function: Symbol) -> bool {
     FN_RETURN_TYPES.with(|c| c.borrow().contains_key(&function))
         || FN_PARAM_TYPES.with(|c| c.borrow().contains_key(&function))
+}
+
+/// An item of a sequence or tuple literal, emitted as `emitted`, as the owned value the literal keeps.
+///
+/// ★ A COLLECTION LITERAL COPIES ITS ITEMS, and `vec![…]` (or `Value::from`) MOVES whatever it names — so
+/// a field read among the items moves that field out of its record (`[c's env, c's env]` could not build
+/// twice), and a variable named twice, read again after the literal, or named inside a loop is used after
+/// its move. There is no callee signature to consult here, so the test is the item's own type; when that
+/// is unknown the clone is owed anyway, because ownership is not in doubt at this site the way it is at a
+/// call. `give x` is the explicit move and stays one.
+///
+/// `analysis/ownership.rs` has no `Expr::List` or `Expr::Tuple` arm, so nothing upstream sees it.
+fn literal_item(item: &Expr, emitted: String, ecx: &ExprCtx) -> String {
+    let bare = match item {
+        Expr::Copy { expr } => *expr,
+        other => other,
+    };
+    // A list or a tuple holds its integers as machine words: an exact one narrows into the word, loudly past it.
+    if emits_logos_int(bare, ecx) {
+        let held = match bare {
+            Expr::Identifier(_) => emitted.strip_suffix(".clone()").map(str::to_string).unwrap_or(emitted),
+            _ => emitted,
+        };
+        return format!("{}.expect_i64(\"Int\")", super::precedence::operand(&held, super::precedence::Under::Postfix));
+    }
+    match bare {
+        Expr::FieldAccess { .. } => {
+            match record_field_rust_type(bare, ecx.interner, ecx.variable_types, ecx.registry) {
+                Some(ty) if !field_read_moves(&ty) => emitted,
+                _ => format!("{emitted}.clone()"),
+            }
+        }
+        Expr::Identifier(sym) if identifier_read_moves(*sym, ecx.variable_types) => {
+            format!("{emitted}.clone()")
+        }
+        _ => emitted,
+    }
 }
 
 /// True when that field's Rust type is one a MOVE would consume — a `String`, a collection, a
@@ -1088,6 +1294,49 @@ pub(crate) fn copies_out_of_a_lend(expr: &Expr, variable_types: &HashMap<Symbol,
     }
 }
 
+/// Whether storing the field read `expr` (`o's f`, `o's f's g`) must copy it: its type is one a move consumes
+/// ([`field_read_moves`]; a field of a type the program does not declare is taken to be one), and the record it is
+/// read out of is a borrow, or this statement is not that record's last use (`flow::moves_at_last_use`) — the
+/// program reads the record again. A statement that is the last use of a record it owns moves the field out.
+pub(crate) fn field_read_copies(expr: &Expr, variable_types: &HashMap<Symbol, String>) -> bool {
+    let Expr::FieldAccess { object, .. } = expr else {
+        return false;
+    };
+    let Some(record) = field_read_root(object) else {
+        return false;
+    };
+    let consumed = read_field_type(expr, variable_types).is_none_or(|ty| field_read_moves(&ty));
+    let borrowed = variable_types.get(&record).is_some_and(|t| t.starts_with('&'));
+    consumed && (borrowed || !super::flow::moves_at_last_use(record, 1))
+}
+
+/// The binding a record read is rooted at: `o` of `o`, `o's f`, `a copy of o`.
+fn field_read_root(expr: &Expr) -> Option<Symbol> {
+    match expr {
+        Expr::Identifier(sym) => Some(*sym),
+        Expr::FieldAccess { object, .. } => field_read_root(object),
+        Expr::Copy { expr } => field_read_root(expr),
+        _ => None,
+    }
+}
+
+/// The Rust type of a field read out of a record binding of one of the program's types (`o's f`, `o's f's g`), as
+/// the program declares it ([`program_record_field_type`](super::types::program_record_field_type)).
+fn read_field_type(expr: &Expr, variable_types: &HashMap<Symbol, String>) -> Option<String> {
+    let Expr::FieldAccess { object, field } = expr else {
+        return None;
+    };
+    let record = match object {
+        Expr::Identifier(sym) => {
+            let ty = variable_types.get(sym)?;
+            ty.split("|__hl:").next().unwrap_or(ty).trim_start_matches('&').trim().to_string()
+        }
+        Expr::FieldAccess { .. } => read_field_type(object, variable_types)?,
+        _ => return None,
+    };
+    super::types::program_record_field_type(&record, *field)
+}
+
 /// The Rust type of a field read out of a record lent in place (`(*b).f`, `(*b).f.g`) — what the
 /// read would move out of the caller's record unless it copies. `None` for anything else.
 fn lent_field_type(expr: &Expr, variable_types: &HashMap<Symbol, String>) -> Option<String> {
@@ -1180,6 +1429,7 @@ fn collection_place(
         }
         Expr::FieldAccess { object, field } => {
             let (place, record) = collection_place(object, variable_types, names)?;
+            let place = through_reference(object, &place);
             let ty = super::types::program_record_field_type(&record, *field)?;
             Some((
                 format!(
@@ -1372,11 +1622,6 @@ impl Drop for RangeOracleScope {
     }
 }
 
-/// Whether a range oracle is installed now.
-pub(crate) fn range_oracle_installed() -> bool {
-    RANGE_ORACLE.with(|c| c.borrow().is_some())
-}
-
 thread_local! {
     /// Whole-program map: user function name → its parameters' Rust types (as `codegen_type_expr`
     /// spells them, e.g. `"f64"` for a `Real` parameter). Set once per program at codegen entry by
@@ -1394,7 +1639,7 @@ pub(crate) fn set_fn_param_types(m: &HashMap<Symbol, Vec<String>>) {
 }
 
 /// The declared Rust type of `function`'s parameter at `index`, if that user function is known.
-fn fn_param_rust_type(function: Symbol, index: usize) -> Option<String> {
+pub(super) fn fn_param_rust_type(function: Symbol, index: usize) -> Option<String> {
     FN_PARAM_TYPES.with(|c| {
         c.borrow()
             .get(&function)
@@ -1405,15 +1650,48 @@ fn fn_param_rust_type(function: Symbol, index: usize) -> Option<String> {
 /// The argument `Show x to f` hands `f`. Showing LENDS: the caller keeps `x`. A recipient taking a
 /// reference (the built-in `show`, or a parameter lowered to `&str`/`&[T]`) gets `&x`; one whose
 /// parameter owns its value (`(data: Text)` lowered to `String`) gets a copy.
-pub(super) fn lend_to(recipient: &Expr, value: &str) -> String {
-    let owned = match recipient {
-        Expr::Identifier(f) => fn_param_rust_type(*f, 0).is_some_and(|t| !t.starts_with('&')),
-        _ => false,
-    };
-    if owned {
+pub(super) fn lend_to(recipient: &Expr, value: &str, interner: &Interner) -> String {
+    if takes_its_value(recipient, interner) {
         format!("({value}).clone()")
     } else {
         format!("&{value}")
+    }
+}
+
+/// Whether `recipient` is a function whose parameter takes the value it is shown, not a borrow of it. The display,
+/// `show`, borrows, whatever the program declares under that name ([`display_path`]).
+fn takes_its_value(recipient: &Expr, interner: &Interner) -> bool {
+    match recipient {
+        Expr::Identifier(f) if interner.resolve(*f) == "show" => false,
+        Expr::Identifier(f) => fn_param_rust_type(*f, 0).is_some_and(|t| !t.starts_with('&')),
+        _ => false,
+    }
+}
+
+/// The Rust path of the runtime's display, which a `Show` whose recipient is `show` calls — as on the tree-walker,
+/// never a function of the program's that shares the name: `show`, or its full path where the program declares a
+/// function named `show` or a local named `show` is in scope, either of which the bare name would reach.
+pub(super) fn display_path(show: Symbol, variable_types: &HashMap<Symbol, String>) -> &'static str {
+    if program_defines_function(show) || variable_types.contains_key(&show) {
+        "logicaffeine_system::io::show"
+    } else {
+        "show"
+    }
+}
+
+/// [`lend_to`] for `e`, the value shown: a machine-scalar binding is lent as a copy ([`shown`]), and a recipient that
+/// takes its value gets the binding, which is the copy.
+pub(super) fn lend_shown(
+    recipient: &Expr,
+    e: &Expr,
+    value: &str,
+    variable_types: &HashMap<Symbol, String>,
+    interner: &Interner,
+) -> String {
+    match shown(e, value, variable_types) {
+        Cow::Owned(_) if takes_its_value(recipient, interner) => value.to_string(),
+        Cow::Owned(copy) => format!("&{copy}"),
+        Cow::Borrowed(_) => lend_to(recipient, value, interner),
     }
 }
 
@@ -1434,6 +1712,14 @@ pub(crate) fn set_fn_return_types(m: &HashMap<Symbol, String>) {
 /// `f` of the whole-program function → declared-return-Rust-type map.
 pub(crate) fn with_declared_returns<R>(f: impl FnOnce(&HashMap<Symbol, String>) -> R) -> R {
     FN_RETURN_TYPES.with(|c| f(&c.borrow()))
+}
+
+/// Whether `e` is a `Bool`: by its inferred type, or as a call of a function declared to return one. A condition, a
+/// negation or an `and`/`or` operand that is one reads as itself; any other value is tested for its truthiness.
+pub(super) fn is_bool_valued(e: &Expr, interner: &Interner, variable_types: &HashMap<Symbol, String>) -> bool {
+    matches!(infer_logos_type(e, interner, variable_types), crate::analysis::types::LogosType::Bool)
+        || matches!(e, Expr::Call { function, .. }
+            if with_declared_returns(|returns| returns.get(function).is_some_and(|t| t == "bool")))
 }
 
 /// True when `function`'s declared return type is an owned `String` or a borrowed `&str` — i.e. a
@@ -1572,15 +1858,30 @@ pub(crate) fn set_movable_last_use(sym: Option<Symbol>) {
 /// (an early `left_str` the promoted-exact path then discards), and the mark is only
 /// ever set when `sym` occurs exactly once in the AST — so at most one rendered read
 /// reaches the emitted output, and every read of it is a safe move.
-fn is_movable_last_use(sym: Symbol) -> bool {
+pub(super) fn is_movable_last_use(sym: Symbol) -> bool {
     MOVABLE_LAST_USE.with(|c| *c.borrow() == Some(sym))
+}
+
+/// Whether the low bits of `a op b` are a function of the low bits of `a` and `b` alone: reduction mod `2^N` is a ring
+/// homomorphism (`+`, `-`, `*`) and the bitwise operators act bit by bit. A quotient, a remainder and a comparison
+/// read their operands whole, and a shift its count.
+pub(crate) fn keeps_low_bits(op: BinaryOpKind) -> bool {
+    matches!(
+        op,
+        BinaryOpKind::Add
+            | BinaryOpKind::Subtract
+            | BinaryOpKind::Multiply
+            | BinaryOpKind::BitAnd
+            | BinaryOpKind::BitOr
+            | BinaryOpKind::BitXor
+    )
 }
 
 /// Does `e` PRODUCE a value stored as the overflow-promoting `LogosInt`? — a variable typed with
 /// the `|__bigint` sentinel, or an inline call to a bignum-returning function. Such an operand
 /// forces the exact-helper path so the result stays `LogosInt` rather than a raw `i64` operator
 /// (or `as u64` cast) that `LogosInt` has no impl for.
-fn mentions_bigint_var(e: &Expr, variable_types: &HashMap<Symbol, String>) -> bool {
+pub(super) fn mentions_bigint_var(e: &Expr, variable_types: &HashMap<Symbol, String>) -> bool {
     match e {
         Expr::Identifier(s) => variable_types
             .get(s)
@@ -1591,11 +1892,253 @@ fn mentions_bigint_var(e: &Expr, variable_types: &HashMap<Symbol, String>) -> bo
         // same fact arriving by a different route.
         Expr::FieldAccess { field, .. } => is_exact_field_name(*field),
         Expr::Call { function, .. } => is_bigint_returning_call(*function),
+        // An item of a list that may hold integers past the word is one of them where an exact sink reads it.
+        Expr::Index { collection, .. } => {
+            super::int_vec::exact_view() && super::int_vec::is_int_vec(collection, variable_types)
+        }
         Expr::BinaryOp { left, right, .. } => {
             mentions_bigint_var(left, variable_types) || mentions_bigint_var(right, variable_types)
         }
         Expr::Not { operand } => mentions_bigint_var(operand, variable_types),
         _ => false,
+    }
+}
+
+/// Whether a call of `name` with `arity` arguments is answered by one of the runtime's builtins, a machine word, rather
+/// than by a body of the program's: a word or lane function ([`super::word_calls`]), the library's substring search and
+/// count, and its bit rotations and reversals. The exactness decision takes such a call's result as the word it is.
+pub(super) fn call_answers_a_word(name: &str, arity: usize) -> bool {
+    super::word_calls::by_name(name, arity).is_some()
+        || (crate::loader::is_library_function(name)
+            && (matches!((name, arity), ("indexOf" | "countSub", 2))
+                || (crate::optimize::active_config().is_on(crate::optimization::Opt::BitIntrinsics)
+                    && matches!(
+                        (name, arity),
+                        ("rotateLeft" | "rotateRight", 3) | ("reverseBits" | "reverseBytes", 2)
+                    ))))
+}
+
+/// `code`, the emission of the `Int` `e`, as the `Real` it meets: a machine word cast, an exact integer converted to
+/// its nearest float (`LogosInt::to_f64`).
+fn real_operand(e: &Expr, code: &str, ecx: &ExprCtx) -> String {
+    if emits_logos_int(e, ecx) {
+        format!("{}.to_f64()", super::precedence::operand(code, super::precedence::Under::Postfix))
+    } else {
+        super::precedence::cast(code, "f64")
+    }
+}
+
+/// Whether the `Int` `e` holds a `LogosInt` wherever it is read outside an exact context: a binding the exactness
+/// decision promotes, a call to a function whose result is exact.
+pub(super) fn exact_leaf(e: &Expr, variable_types: &HashMap<Symbol, String>) -> bool {
+    match e {
+        Expr::Identifier(s) => variable_types.get(s).is_some_and(|t| t.contains("__bigint")),
+        Expr::Call { function, .. } => is_bigint_returning_call(*function),
+        _ => false,
+    }
+}
+
+/// `code`, the emission of `e` outside an exact context, as the machine word a place of words holds (an item of a
+/// list or a tuple, a byte): an exact leaf narrows into the word, loudly past it.
+pub(super) fn into_word(e: &Expr, code: String, variable_types: &HashMap<Symbol, String>) -> String {
+    let bare = match e {
+        Expr::Copy { expr } => *expr,
+        other => other,
+    };
+    if !exact_leaf(bare, variable_types) {
+        return code;
+    }
+    let held = match bare {
+        Expr::Identifier(_) => code.strip_suffix(".clone()").map(str::to_string).unwrap_or(code),
+        _ => code,
+    };
+    format!("{}.expect_i64(\"Int\")", super::precedence::operand(&held, super::precedence::Under::Postfix))
+}
+
+/// `code`, the emission of the field read `e`, as the machine word a place of words holds: a field the program stores
+/// as a `LogosInt` narrows into the word, loudly past it.
+pub(super) fn field_into_word(e: &Expr, code: String, ecx: &ExprCtx) -> String {
+    if !reads_exact_field(e, ecx) {
+        return code;
+    }
+    let held = code.strip_suffix(".clone()").map(str::to_string).unwrap_or(code);
+    format!("{}.expect_i64(\"Int\")", super::precedence::operand(&held, super::precedence::Under::Postfix))
+}
+
+/// Whether `e`, written in `ecx`, is a `LogosInt`: in the exact-tolerant context what [`tolerant_logos_int`] says; in
+/// any other a leaf that holds one, a promoted binding outside an index or a call to a function that returns one, an
+/// `Int` operation there narrowing its own result to the word.
+pub(super) fn emits_logos_int(e: &Expr, ecx: &ExprCtx) -> bool {
+    if ecx.int_exact_tolerant {
+        return tolerant_logos_int(e, ecx.interner, ecx.variable_types);
+    }
+    match e {
+        Expr::Identifier(_) if ecx.int_index_context => false,
+        Expr::FieldAccess { .. } => reads_exact_field(e, ecx),
+        _ => exact_leaf(e, ecx.variable_types),
+    }
+}
+
+/// Whether `e` reads a field the program stores as a `LogosInt`, its record known by the binding read, never guessed
+/// from the field's name alone.
+fn reads_exact_field(e: &Expr, ecx: &ExprCtx) -> bool {
+    let Expr::FieldAccess { object, field } = e else { return false };
+    let object = match object {
+        Expr::Copy { expr } => *expr,
+        other => other,
+    };
+    let named = match object {
+        Expr::Identifier(var) => ecx.variable_types.get(var).and_then(|ty| {
+            let held = ty.split("|__hl:").next().unwrap_or(ty).trim_start_matches('&').trim_start_matches("mut ");
+            let base = held.rsplit("::").next().unwrap_or(held);
+            ecx.registry.iter_types().find(|(sym, _)| rust_type_ident(ecx.interner.resolve(**sym)) == base).map(|(s, _)| *s)
+        }),
+        _ => None,
+    };
+    if let Some(record) = named {
+        return stores_logos_int(record, *field);
+    }
+    // A binding whose type names no record: the field is exact where every record that has a field of its name
+    // stores that field exact.
+    let mut holders = ecx.registry.iter_types().filter(|(_, def)| {
+        matches!(def, crate::analysis::registry::TypeDef::Struct { fields, .. } if fields.iter().any(|f| f.name == *field))
+    });
+    let mut any = false;
+    let all = holders.all(|(sym, _)| {
+        any = true;
+        stores_logos_int(*sym, *field)
+    });
+    any && all
+}
+
+/// Whether `e` is the magnitude of an `Int` (`abs(x)`), which the exact-tolerant context takes as the exact `LogosInt`
+/// it is: the magnitude of the least word is past it.
+pub(super) fn int_magnitude(e: &Expr, interner: &Interner, variable_types: &HashMap<Symbol, String>) -> bool {
+    matches!(e, Expr::Call { function, args } if args.len() == 1
+        && interner.resolve(*function) == "abs"
+        && (infer_numeric_type(args[0], interner, variable_types) == "i64" || mentions_bigint_var(args[0], variable_types)))
+}
+
+/// Whether `e`, written in the exact-tolerant context, is a `LogosInt` already: a promoted binding, a call to a
+/// function that returns one, an `Int` sum, difference, product, quotient or remainder with such an operand (the
+/// by-reference methods and `logos_*_exact` answer one, and nothing narrows a tolerant result), two literals whose
+/// sum, difference, product, quotient or remainder passes the word (`LogosInt::from_literal`), and an `Int` power
+/// other than two literals whose power fits the word (`logos_pow_exact`). An `Int` operation the range oracle may keep
+/// in the word is not decided here: that is the emission's own choice.
+pub(super) fn tolerant_logos_int(e: &Expr, interner: &Interner, variable_types: &HashMap<Symbol, String>) -> bool {
+    let int = |e: &Expr| infer_numeric_type(e, interner, variable_types) == "i64";
+    if int_magnitude(e, interner, variable_types) {
+        return true;
+    }
+    if let Expr::Call { function, args } = e {
+        if matches!(interner.resolve(*function), "min" | "max")
+            && args.len() == 2
+            && !program_defines_function(*function)
+            && args.iter().all(|a| infer_numeric_type(a, interner, variable_types) != "f64")
+        {
+            return true;
+        }
+    }
+    match e {
+        Expr::Identifier(s) => variable_types.get(s).is_some_and(|t| t.contains("__bigint")),
+        Expr::Call { function, .. } => is_bigint_returning_call(*function),
+        Expr::Index { collection, .. } => {
+            super::int_vec::exact_view() && super::int_vec::is_int_vec(collection, variable_types)
+        }
+        Expr::BinaryOp { op, left, right } => match (op, left, right) {
+            (
+                BinaryOpKind::Add
+                | BinaryOpKind::Subtract
+                | BinaryOpKind::Multiply
+                | BinaryOpKind::Divide
+                | BinaryOpKind::Modulo,
+                Expr::Literal(Literal::Number(a)),
+                Expr::Literal(Literal::Number(b)),
+            ) => matches!(const_exact_int(*op, *a, *b), Some(ConstExact::Promoted(_))),
+            (
+                BinaryOpKind::Add
+                | BinaryOpKind::Subtract
+                | BinaryOpKind::Multiply
+                | BinaryOpKind::Divide
+                | BinaryOpKind::Modulo,
+                _,
+                _,
+            ) => (mentions_bigint_var(left, variable_types) || mentions_bigint_var(right, variable_types)) && int(e),
+            (BinaryOpKind::Pow, Expr::Literal(Literal::Number(a)), Expr::Literal(Literal::Number(b))) => {
+                u32::try_from(*b).ok().and_then(|b| a.checked_pow(b)).is_none()
+            }
+            (BinaryOpKind::Pow, _, _) => int(left) && int(right),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// `left op right`, a comparison of two `Int`s one of which is arithmetic that may leave the word, on their exact
+/// values: both in 128 bits where each side's chain fits them, both as `LogosInt`s where one does not. A side is never
+/// narrowed into the word before it is compared. `None` for any other comparison, which compares its words.
+fn exact_int_comparison(op: BinaryOpKind, left: &Expr, right: &Expr, ecx: &ExprCtx) -> Option<String> {
+    let op_str = match op {
+        BinaryOpKind::Lt => "<",
+        BinaryOpKind::LtEq => "<=",
+        BinaryOpKind::Gt => ">",
+        BinaryOpKind::GtEq => ">=",
+        BinaryOpKind::Eq => "==",
+        BinaryOpKind::NotEq => "!=",
+        _ => return None,
+    };
+    let big = |e: &Expr| mentions_bigint_var(e, ecx.variable_types);
+    let int = |e: &Expr| big(e) || infer_numeric_type(e, ecx.interner, ecx.variable_types) == "i64";
+    let narrows = |e: &Expr| is_exact_arith_node(e) && (big(e) || !emits_pure_i64(e, ecx));
+    if ecx.int_index_context || !int(left) || !int(right) || !(narrows(left) || narrows(right)) {
+        return None;
+    }
+    let plain = ExprCtx { int_exact_tolerant: false, ..*ecx };
+    let wide = |e: &Expr| -> Option<String> {
+        match e {
+            Expr::Literal(Literal::Number(n)) => Some(format!("{n}i128")),
+            _ if narrows(e) => wide_chain(e, ecx),
+            _ if big(e) => None,
+            _ => Some(format!("i128::from({})", super::precedence::standalone(&codegen_expr_ctx(e, &plain)))),
+        }
+    };
+    if let (Some(l), Some(r)) = (wide(left), wide(right)) {
+        return Some(format!("({} {op_str} {})", super::precedence::standalone(&l), super::precedence::standalone(&r)));
+    }
+    let exact = ExprCtx { int_exact_tolerant: true, ..*ecx };
+    let side = |e: &Expr| as_logos_int(e, ecx.interner, ecx.variable_types, || codegen_expr_ctx(e, &exact));
+    Some(format!("(&{} {op_str} &{})", side(left), side(right)))
+}
+
+/// `value` as a `LogosInt`, from its exact-tolerant form, which `emit` gives: that form where it is one
+/// ([`tolerant_logos_int`]), widened by `From` where it may be a machine word. An item of an `IntVec` is read as the
+/// exact integer it holds, never narrowed to its word on the way.
+pub(super) fn as_logos_int(
+    value: &Expr,
+    interner: &Interner,
+    variable_types: &HashMap<Symbol, String>,
+    emit: impl FnOnce() -> String,
+) -> String {
+    let widen = || {
+        let code = emit();
+        let code = super::precedence::standalone(&code);
+        if tolerant_logos_int(value, interner, variable_types) {
+            code.to_string()
+        } else if matches!(value, Expr::FieldAccess { .. }) && !code.ends_with(".clone()") {
+            // A field is read in place: a `LogosInt` one is copied out of its record, never moved.
+            format!(
+                "logicaffeine_data::LogosInt::from({}.clone())",
+                super::precedence::operand(&code, super::precedence::Under::Postfix)
+            )
+        } else {
+            format!("logicaffeine_data::LogosInt::from({code})")
+        }
+    };
+    match value {
+        Expr::Index { collection, .. } if super::int_vec::is_int_vec(collection, variable_types) => {
+            super::int_vec::with_exact_view(widen)
+        }
+        _ => widen(),
     }
 }
 
@@ -1641,20 +2184,18 @@ fn bignum_operand_place(
         int_exact_tolerant: true,
         ..*ecx
     };
-    let emitted = codegen_expr_ctx(operand, &tol);
+    let exact = as_logos_int(operand, ecx.interner, ecx.variable_types, || codegen_expr_ctx(operand, &tol));
     let n = BIGNUM_TMP.with(|c| {
         let v = c.get();
         c.set(v + 1);
         v
     });
     let tmp = format!("__lbop{}", n);
-    prelude.push_str(&format!(
-        "let {}: logicaffeine_data::LogosInt = ({}).into(); ",
-        tmp, emitted
-    ));
+    prelude.push_str(&format!("let {}: logicaffeine_data::LogosInt = {}; ", tmp, exact));
     tmp
 }
 
+/// A compile-time Int op on two literals (overflow ruling v2, stage 2).
 enum ConstExact {
     /// The exact result fits i64 — emit today's raw text, byte-identical.
     InRange,
@@ -1691,6 +2232,45 @@ fn const_exact_int(op: BinaryOpKind, a: i64, b: i64) -> Option<ConstExact> {
     })
 }
 
+/// Whether `limit + 1` cannot pass the largest Int: an upper bound on `limit` is below it.
+///
+/// An expression's bound is the tightest of the range oracle's, where it proves one; its own, for a literal, a length,
+/// a sum or a difference (the difference subtracting the lower bound of what it takes away); and the edge of the Int
+/// range, which bounds every Int. A length is below [`LENGTH_CEILING`]. So `length of text` and `length of text - 5`
+/// are below the largest Int whatever the text, and an end a versioning guard bounds (`capacity <= 2^62`) is too.
+pub(crate) fn below_largest_int(limit: &Expr, oracle: Option<&crate::optimize::OracleFacts>) -> bool {
+    fn bound(e: &Expr, upper: bool, oracle: Option<&crate::optimize::OracleFacts>) -> i128 {
+        let (edge, tighter): (i128, fn(i128, i128) -> i128) = if upper {
+            (i128::from(i64::MAX), i128::min)
+        } else {
+            (i128::from(i64::MIN), i128::max)
+        };
+        let proven = oracle
+            .and_then(|o| if upper { o.expr_upper_bound(e) } else { o.expr_lower_bound(e) })
+            .map(i128::from);
+        let own = match e {
+            Expr::Literal(Literal::Number(n)) => Some(i128::from(*n)),
+            Expr::Length { .. } => Some(if upper { LENGTH_CEILING } else { 0 }),
+            Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => {
+                Some(bound(left, upper, oracle) + bound(right, upper, oracle))
+            }
+            Expr::BinaryOp { op: BinaryOpKind::Subtract, left, right } => {
+                Some(bound(left, upper, oracle) - bound(right, !upper, oracle))
+            }
+            _ => None,
+        };
+        [proven, own].into_iter().flatten().fold(edge, tighter)
+    }
+    let ask = |oracle: Option<&crate::optimize::OracleFacts>| bound(limit, true, oracle) < i128::from(i64::MAX);
+    match oracle {
+        Some(o) => ask(Some(o)),
+        None => RANGE_ORACLE.with(|r| ask(r.borrow().as_deref())),
+    }
+}
+
+/// No collection or text holds this many items: every item takes at least a bit, and no target addresses 2^57 bytes.
+const LENGTH_CEILING: i128 = 1 << 60;
+
 /// True when the range-analysis Oracle bounds BOTH operands such that the
 /// exact result provably fits i64 — the license for raw (unchecked) i64
 /// emission. Add/Sub are monotone in each operand; Mul takes the corner
@@ -1722,10 +2302,20 @@ fn oracle_proves_int_op_in_range(
     })
 }
 
+/// Whether the oracle `o` proves the Int expression `e` stays in the word, by the proof the emitter writes a raw
+/// operation on: the whole expression's range, or a sum, difference or product of operand ranges that cannot leave it.
+pub(super) fn oracle_proves_in_word(o: &crate::optimize::OracleFacts, e: &Expr) -> bool {
+    match e {
+        Expr::BinaryOp { op, left, right } => oracle_facts_prove_int_op(o, e, *op, left, right),
+        _ => o.expr_int_range(e).is_some(),
+    }
+}
+
 /// The range check over a specific [`OracleFacts`]: is the exact result of
-/// `left op right` provably inside i64? Add/Sub are monotone in each operand;
-/// Mul takes the corner products. Div/Mod never qualify here (their rims are
-/// divisor-shaped, not range-shaped).
+/// `left op right` provably inside i64, by a machine operation that cannot
+/// fail? Add/Sub are monotone in each operand; Mul takes the corner products.
+/// Div/Mod qualify only through the whole expression's range, and only where
+/// the machine operation is safe ([`oracle_proves_division_safe`]).
 fn oracle_facts_prove_int_op(
     o: &crate::optimize::OracleFacts,
     whole: &Expr,
@@ -1733,6 +2323,9 @@ fn oracle_facts_prove_int_op(
     left: &Expr,
     right: &Expr,
 ) -> bool {
+    if matches!(op, BinaryOpKind::Divide | BinaryOpKind::Modulo) && !oracle_proves_division_safe(o, op, left, right) {
+        return false;
+    }
     // If the oracle bounds the WHOLE expression to an i64 range (the affine
     // index proof `prev[w - wi]` gives `w - wi ∈ [0, len)`), it cannot overflow.
     if o.expr_int_range(whole).is_some() {
@@ -1752,6 +2345,23 @@ fn oracle_facts_prove_int_op(
         _ => return false,
     };
     lo >= i64::MIN as i128 && hi <= i64::MAX as i128
+}
+
+/// Whether the machine quotient or remainder (`op`) of `left` by `right` neither fails nor leaves the word, whatever
+/// the result's range: the divisor is never 0 (a machine division by zero panics with Rust's sentence, not the
+/// program's), and never -1 where the dividend may be the word's least value (`MIN / -1` overflows; a machine
+/// `MIN % -1` traps where its value is 0).
+fn oracle_proves_division_safe(o: &crate::optimize::OracleFacts, op: BinaryOpKind, left: &Expr, right: &Expr) -> bool {
+    if let Expr::Literal(Literal::Number(d)) = right {
+        if word_safe_literal_divisor(op, *d) {
+            return true;
+        }
+    }
+    let Some((ra, rb)) = o.expr_int_range(right) else { return false };
+    let never_zero = ra > 0 || rb < 0;
+    let never_minus_one = ra > -1 || rb < -1;
+    let dividend_above_min = o.expr_int_range(left).is_some_and(|(la, _)| la > i64::MIN);
+    never_zero && (never_minus_one || dividend_above_min)
 }
 
 /// If `index` is a **coefficient-1 affine** expression in a `__zero_based_i64`
@@ -1847,6 +2457,35 @@ pub(crate) fn logos_index_str(
     })
 }
 
+/// The 1-based index of a store `Set item index of … to …`, spelled as the read of the same item spells it
+/// ([`logos_index_str`]): the rebased counter where a loop rebased it, otherwise the whole expression in an integer
+/// index's context.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn store_index_str<'a>(
+    index: &Expr,
+    interner: &'a Interner,
+    synced_vars: &'a HashSet<Symbol>,
+    boxed_fields: &'a HashSet<(String, String, String)>,
+    registry: &'a TypeRegistry,
+    async_functions: &'a HashSet<Symbol>,
+    string_vars: &'a HashSet<Symbol>,
+    variable_types: &'a HashMap<Symbol, String>,
+    fast_div: &'a HashMap<Symbol, String>,
+    oracle: Option<&'a crate::optimize::OracleFacts>,
+) -> String {
+    let ecx = ExprCtx {
+        boxed_fields,
+        registry,
+        async_functions,
+        string_vars,
+        variable_types,
+        fast_div,
+        oracle,
+        ..ExprCtx::bare(interner, synced_vars)
+    };
+    logos_index_str(index, &ecx, variable_types, interner)
+}
+
 /// The 1-based index a coefficient-1 affine index in a rebased loop counter names (`j`, `j + k`,
 /// `j - k`, the counter 0-based): the counter with its 1 given back. `None` for any other index.
 pub(crate) fn rebased_logos_index(
@@ -1893,24 +2532,107 @@ pub(crate) fn proven_offset_str(
             left,
             right,
         } => match (left, right) {
-            (_, Expr::Literal(Literal::Number(1))) => match left {
-                Expr::Identifier(_) => format!("{} as usize", i(left)),
-                _ => format!("({}) as usize", i(left)),
-            },
-            (Expr::Literal(Literal::Number(1)), _) => match right {
-                Expr::Identifier(_) => format!("{} as usize", i(right)),
-                _ => format!("({}) as usize", i(right)),
-            },
-            (_, Expr::Literal(Literal::Number(k))) if *k > 1 => {
-                format!("({} + {}) as usize", i(left), k - 1)
-            }
-            (Expr::Literal(Literal::Number(k)), _) if *k > 1 => {
-                format!("({} + {}) as usize", i(right), k - 1)
-            }
-            _ => format!("({} - 1) as usize", i(index)),
+            (_, Expr::Literal(Literal::Number(1))) => as_usize(&i(left)),
+            (Expr::Literal(Literal::Number(1)), _) => as_usize(&i(right)),
+            (_, Expr::Literal(Literal::Number(k))) if *k > 1 => shifted(&i(left), "+", k - 1),
+            (Expr::Literal(Literal::Number(k)), _) if *k > 1 => shifted(&i(right), "+", k - 1),
+            _ => shifted(&i(index), "-", 1),
         },
-        _ => format!("({} - 1) as usize", i(index)),
+        _ => shifted(&i(index), "-", 1),
     }
+}
+
+/// `&code`, the borrow `show_string` takes.
+pub(super) fn lent_to_show(code: &str) -> String {
+    format!("&{}", super::precedence::operand(code, super::precedence::Under::Prefix))
+}
+
+/// `code`, the value of `e`, as a value to format: a machine-scalar binding (`i64`, `f64`, `bool`, …) as a copy,
+/// `{ x }`. Formatting borrows what it is given, and a borrowed binding keeps a slot the formatter may read, so every
+/// loop before it that calls out (an overflow check's panic, a checked chain's cold path) stores the binding there
+/// each iteration; a copy leaves the binding unborrowed, in a register.
+pub(super) fn shown<'c>(e: &Expr, code: &'c str, variable_types: &HashMap<Symbol, String>) -> Cow<'c, str> {
+    let plain_name = {
+        let name = code.strip_prefix("r#").unwrap_or(code);
+        name.bytes().next().is_some_and(|b| b.is_ascii_alphabetic() || b == b'_')
+            && name.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    };
+    match e {
+        Expr::Identifier(sym) if plain_name && variable_types.get(sym).is_some_and(|t| super::stmt::machine_scalar(t)) => {
+            Cow::Owned(format!("{{ {code} }}"))
+        }
+        _ => Cow::Borrowed(code),
+    }
+}
+
+/// The key type of a map typed `ty`: the `K` of a `LogosMap<K, V>`, a `HashMap<K, V>` or an `FxHashMap<K, V>`, and the
+/// `i64` an integer-keyed map takes.
+fn map_key_type(ty: &str) -> Option<String> {
+    let ty = ty.split("|__hl:").next().unwrap_or(ty);
+    let ty = ty.strip_prefix("&mut ").or_else(|| ty.strip_prefix('&')).unwrap_or(ty).trim();
+    if ["LogosI64", "LogosI32", "LogosDenseI64"].iter().any(|p| ty.starts_with(p)) {
+        return Some("i64".to_string());
+    }
+    let args = ty.split_once('<')?.1.strip_suffix('>')?;
+    super::types::top_level_parts(args).first().map(|k| k.trim().to_string())
+}
+
+/// `let __key: &K = &key;`, the binding a map lookup reads its key through.
+fn bound_key(map_ty: &str, key: &str) -> String {
+    match map_key_type(map_ty) {
+        Some(k) => format!("let __key: &{k} = {};", lent_to_show(key)),
+        None => format!("let __key = {};", lent_to_show(key)),
+    }
+}
+
+/// `key`, the code of `index`, as the key `LogosIndex::logos_get` takes by value: a place whose type is not `Copy` (a
+/// binding, a record's field) is copied in, unless the place is a binding this statement names only here at its last
+/// use, so a lookup never consumes the key it reads.
+fn key_by_value(index: &Expr, key: String, ecx: &ExprCtx) -> String {
+    let moves = |t: &str| !t.starts_with("__") && !t.contains("|__") && field_read_moves(t);
+    let copied = match index {
+        Expr::Identifier(sym) => {
+            ecx.variable_types
+                .get(sym)
+                .is_some_and(|t| moves(t.split("|__hl:").next().unwrap_or(t)))
+                && !super::flow::moves_at_last_use(*sym, 1)
+        }
+        Expr::FieldAccess { .. } => {
+            record_field_rust_type(index, ecx.interner, ecx.variable_types, ecx.registry).is_some_and(|t| moves(&t))
+        }
+        _ => false,
+    };
+    if copied {
+        format!("{}.clone()", super::precedence::operand(&key, super::precedence::Under::Postfix))
+    } else {
+        key
+    }
+}
+
+/// `code`, the Rust of `object`, as the object of a field access: a binding read through a reference (a lent `mutable`
+/// parameter, a boxed binding), written `(*name)`, is named bare, since a field access goes through the reference on
+/// its own.
+pub(super) fn through_reference<'c>(object: &Expr, code: &'c str) -> &'c str {
+    match (object, code.strip_prefix("(*").and_then(|c| c.strip_suffix(')'))) {
+        (Expr::Identifier(_), Some(name)) if name.chars().all(|c| c.is_alphanumeric() || c == '_') => name,
+        _ => code,
+    }
+}
+
+/// `code` as the receiver of a lane method.
+fn lane_receiver(code: &str) -> Cow<'_, str> {
+    super::precedence::operand(code, super::precedence::Under::Postfix)
+}
+
+/// `code` as a `usize` offset.
+fn as_usize(code: &str) -> String {
+    format!("{} as usize", super::precedence::operand(code, super::precedence::Under::Cast))
+}
+
+/// `code op k` as a `usize` offset.
+fn shifted(code: &str, op: &'static str, k: i64) -> String {
+    use super::precedence::{operand, Side, Under};
+    format!("({} {op} {k}) as usize", operand(code, Under::Binary(op, Side::Left)))
 }
 
 /// Is `e` an Int-exactable arithmetic interior node — the shape the tolerant
@@ -1940,7 +2662,7 @@ fn is_exact_arith_node(e: &Expr) -> bool {
 /// only over-routes to the exact helper — never emits the type-broken mix.
 fn emits_pure_i64(e: &Expr, ecx: &ExprCtx) -> bool {
     let Expr::BinaryOp { left, right, .. } = e else {
-        return true;
+        return !(ecx.int_exact_tolerant && tolerant_logos_int(e, ecx.interner, ecx.variable_types));
     };
     if !is_exact_arith_node(e) {
         return true;
@@ -1960,9 +2682,8 @@ fn int_op_stays_raw(e: &Expr, ecx: &ExprCtx) -> bool {
     if let (Expr::Literal(Literal::Number(a)), Expr::Literal(Literal::Number(b))) = (left, right) {
         matches!(const_exact_int(*op, *a, *b), Some(ConstExact::InRange))
     } else {
-        let safe_lit_div_mod = matches!(right, Expr::Literal(Literal::Number(d))
-            if (matches!(op, BinaryOpKind::Divide) && *d != 0 && *d != -1)
-                || (matches!(op, BinaryOpKind::Modulo) && *d != 0));
+        let safe_lit_div_mod =
+            matches!(right, Expr::Literal(Literal::Number(d)) if word_safe_literal_divisor(*op, *d));
         safe_lit_div_mod || oracle_proves_int_op_in_range(ecx, e, *op, left, right)
     }
 }
@@ -2040,7 +2761,8 @@ fn spell_mod_wrap(wrap: crate::optimize::modwrap::ModWrap, l: &str, r: &str, ty:
     match wrap {
         crate::optimize::modwrap::ModWrap::Identity => format!("({l})"),
         crate::optimize::modwrap::ModWrap::Once => format!(
-            "{{ let __wrap: {ty} = {l}; if __wrap >= {r} {{ __wrap - {r} }} else {{ __wrap }} }}"
+            "{{ let __wrap: {ty} = {}; if __wrap >= {r} {{ __wrap - {r} }} else {{ __wrap }} }}",
+            super::precedence::standalone(l)
         ),
     }
 }
@@ -2078,28 +2800,43 @@ fn try_mask_narrow(expr: &Expr, ecx: &ExprCtx) -> Option<String> {
         int_exact_tolerant: false,
         ..*ecx
     };
-    Some(format!(
-        "((({}) & {}u32) as i64)",
-        rust_low_bits(&masked.chain, &operands),
-        masked.mask
+    use super::precedence::{operand, Side, Under};
+    let low = rust_low_bits(&masked.chain, &operands);
+    if masked.mask == u32::MAX {
+        return Some(super::precedence::cast(&low, "i64"));
+    }
+    Some(super::precedence::cast(
+        &format!("{} & {}u32", operand(&low, Under::Binary("&", Side::Left)), masked.mask),
+        "i64",
     ))
 }
 
+/// A low-bits chain as `u32` wrapping arithmetic: a bare expression, each operand parenthesized only where its
+/// operator needs it.
 fn rust_low_bits(chain: &super::lowbits::LowBits, ecx: &ExprCtx) -> String {
     use super::lowbits::{LowBits, LowOp};
+    use super::precedence::{operand, standalone, Side, Under};
     match chain {
-        LowBits::Word(e) => format!("(({}) as u32)", codegen_expr_ctx(e, ecx)),
+        LowBits::Word(e) => format!("{} as u32", operand(&codegen_expr_ctx(e, ecx), Under::Cast)),
         LowBits::Const(c) => format!("{c}u32"),
-        LowBits::Shl(c, s) => format!("({} << {s})", rust_low_bits(c, ecx)),
+        LowBits::Shl(c, s) => format!("{} << {s}", operand(&rust_low_bits(c, ecx), Under::Binary("<<", Side::Left))),
         LowBits::Op(op, l, r) => {
             let (l, r) = (rust_low_bits(l, ecx), rust_low_bits(r, ecx));
+            let method = |name: &str| format!("{}.{name}({})", operand(&l, Under::Postfix), standalone(&r));
+            let binary = |op: &'static str| {
+                format!(
+                    "{} {op} {}",
+                    operand(&l, Under::Binary(op, Side::Left)),
+                    operand(&r, Under::Binary(op, Side::Right))
+                )
+            };
             match op {
-                LowOp::Add => format!("{l}.wrapping_add({r})"),
-                LowOp::Sub => format!("{l}.wrapping_sub({r})"),
-                LowOp::Mul => format!("{l}.wrapping_mul({r})"),
-                LowOp::And => format!("({l} & {r})"),
-                LowOp::Or => format!("({l} | {r})"),
-                LowOp::Xor => format!("({l} ^ {r})"),
+                LowOp::Add => method("wrapping_add"),
+                LowOp::Sub => method("wrapping_sub"),
+                LowOp::Mul => method("wrapping_mul"),
+                LowOp::And => binary("&"),
+                LowOp::Or => binary("|"),
+                LowOp::Xor => binary("^"),
             }
         }
     }
@@ -2136,12 +2873,13 @@ fn numeric_type_through_arith(
 
 /// Worst-case MAGNITUDE of an exact Int chain — the i128-lowering gate. A
 /// literal costs its own magnitude, every other PROVEN-i64 leaf costs the
-/// full `2^63` (covers `i64::MIN`); add/sub sum magnitudes, mul multiplies
-/// them, div keeps the dividend's, rem is bounded by both. Exact tracking
-/// (not bit-widths, which compound over-estimates: `(i·n + j) + 1` is
-/// `2^126 + 2^63 + 1`, comfortably inside i128, where width arithmetic
-/// rounds every step up). `None` = some node is not provably an i64-valued
-/// Int-chain member, or the bound escapes u128 — only the promoting
+/// full `2^63` (covers `i64::MIN`); each step's bound is
+/// [`word_op_magnitude`](crate::semantics::arith::word_op_magnitude)'s in an
+/// i128, so a step past 127 bits under a remainder that narrows it fails the
+/// gate. Exact tracking (not bit-widths, which compound over-estimates:
+/// `(i·n + j) + 1` is `2^126 + 2^63 + 1`, comfortably inside i128, where width
+/// arithmetic rounds every step up). `None` = some node is not provably an
+/// i64-valued Int-chain member, or a step may pass i128 — only the promoting
 /// `LogosInt` chain is exact there.
 fn exact_chain_max_magnitude(e: &Expr, ecx: &ExprCtx) -> Option<u128> {
     if mentions_bigint_var(e, ecx.variable_types) {
@@ -2152,13 +2890,7 @@ fn exact_chain_max_magnitude(e: &Expr, ecx: &ExprCtx) -> Option<u128> {
         Expr::BinaryOp { op, left, right } if is_exact_arith_node(e) => {
             let l = exact_chain_max_magnitude(left, ecx)?;
             let r = exact_chain_max_magnitude(right, ecx)?;
-            match op {
-                BinaryOpKind::Add | BinaryOpKind::Subtract => l.checked_add(r),
-                BinaryOpKind::Multiply => l.checked_mul(r),
-                BinaryOpKind::Divide => Some(l),
-                BinaryOpKind::Modulo => Some(r.min(l)),
-                _ => unreachable!("is_exact_arith_node covers exactly these five"),
-            }
+            word_step(*op, l, r, right, i128::MAX as u128)
         }
         _ => (infer_numeric_type(e, ecx.interner, ecx.variable_types) == "i64")
             .then_some(1u128 << 63),
@@ -2180,12 +2912,12 @@ fn emit_exact_chain_i128(e: &Expr, ecx: &ExprCtx) -> String {
                 BinaryOpKind::Subtract => format!("({} - {})", l, r),
                 BinaryOpKind::Multiply => format!("({} * {})", l, r),
                 BinaryOpKind::Divide if nonzero_lit => format!("({} / {})", l, r),
-                BinaryOpKind::Divide => format!("logos_div_i128({}, {})", l, r),
+                BinaryOpKind::Divide => format!("logos_div_i128({})", arguments(&[l, r])),
                 BinaryOpKind::Modulo if nonzero_lit => {
                     let Expr::Literal(Literal::Number(m)) = &**right else { unreachable!() };
                     raw_literal_rem(*m, oracle_int_range(ecx, left), &l, &r, "i128")
                 }
-                BinaryOpKind::Modulo => format!("logos_rem_i128({}, {})", l, r),
+                BinaryOpKind::Modulo => format!("logos_rem_i128({})", arguments(&[l, r])),
                 _ => unreachable!("is_exact_arith_node covers exactly these five"),
             }
         }
@@ -2194,9 +2926,26 @@ fn emit_exact_chain_i128(e: &Expr, ecx: &ExprCtx) -> String {
                 int_exact_tolerant: false,
                 ..*ecx
             };
-            format!("(({}) as i128)", codegen_expr_ctx(e, &plain))
+            super::precedence::cast(&codegen_expr_ctx(e, &plain), "i128")
         }
     }
+}
+
+/// Whether the Int expression `e` is emitted as a machine word whose value is its exact value: nothing in it is held
+/// exact, and every operation in it is proven to stay in the word.
+pub(super) fn stays_word(e: &Expr, ecx: &ExprCtx) -> bool {
+    !mentions_bigint_var(e, ecx.variable_types) && emits_pure_i64(e, ecx)
+}
+
+/// The width-bounded chain `e` as the 128-bit value it computes, every intermediate exact, not narrowed: `None` when
+/// `e` is no arithmetic chain whose worst case fits 127 bits.
+pub(super) fn wide_chain(e: &Expr, ecx: &ExprCtx) -> Option<String> {
+    let Expr::BinaryOp { .. } = e else { return None };
+    if !is_exact_arith_node(e) {
+        return None;
+    }
+    let magnitude = exact_chain_max_magnitude(e, ecx)?;
+    (magnitude <= i128::MAX as u128).then(|| emit_exact_chain_i128(e, ecx))
 }
 
 /// The register-shaped lowerings for a root-NARROWED exact Int op. Both
@@ -2227,9 +2976,7 @@ fn try_fuse_narrowed_int_op(
         // `i64::MIN / -1` overflow when the divisor is not `-1` — so the checked `logos_div_i64`/
         // `logos_rem_i64` helper is dead weight. Emit the raw op (LLVM turns `/ C` into a
         // multiply-shift). Mirrors the i128 chain's `safe_lit_div_mod`.
-        let safe_lit_div_mod = matches!(right, Expr::Literal(Literal::Number(d))
-            if (matches!(op, BinaryOpKind::Divide) && *d != 0 && *d != -1)
-                || (matches!(op, BinaryOpKind::Modulo) && *d != 0));
+        let safe_lit_div_mod = matches!(right, Expr::Literal(Literal::Number(d)) if word_safe_literal_divisor(op, *d));
         if safe_lit_div_mod {
             let l = codegen_expr_ctx(left, &plain);
             let r = codegen_expr_ctx(right, &plain);
@@ -2250,7 +2997,7 @@ fn try_fuse_narrowed_int_op(
         };
         let l = codegen_expr_ctx(left, &plain);
         let r = codegen_expr_ctx(right, &plain);
-        return Some(format!("{}({}, {})", helper, l, r));
+        return Some(format!("{helper}({})", arguments(&[l, r])));
     }
     None
 }
@@ -2262,16 +3009,7 @@ fn try_fuse_narrowed_int_op(
 fn try_i128_chain(op: BinaryOpKind, left: &Expr, right: &Expr, ecx: &ExprCtx) -> Option<String> {
     let l = exact_chain_max_magnitude(left, ecx)?;
     let r = exact_chain_max_magnitude(right, ecx)?;
-    let root_magnitude = match op {
-        BinaryOpKind::Add | BinaryOpKind::Subtract => l.checked_add(r)?,
-        BinaryOpKind::Multiply => l.checked_mul(r)?,
-        BinaryOpKind::Divide => l,
-        BinaryOpKind::Modulo => r.min(l),
-        _ => return None,
-    };
-    if root_magnitude > (i128::MAX as u128) {
-        return None;
-    }
+    word_step(op, l, r, right, i128::MAX as u128)?;
     let le = emit_exact_chain_i128(left, ecx);
     let re = emit_exact_chain_i128(right, ecx);
     let nonzero_lit = matches!(right, Expr::Literal(Literal::Number(d)) if *d != 0);
@@ -2280,15 +3018,33 @@ fn try_i128_chain(op: BinaryOpKind, left: &Expr, right: &Expr, ecx: &ExprCtx) ->
         BinaryOpKind::Subtract => format!("({} - {})", le, re),
         BinaryOpKind::Multiply => format!("({} * {})", le, re),
         BinaryOpKind::Divide if nonzero_lit => format!("({} / {})", le, re),
-        BinaryOpKind::Divide => format!("logos_div_i128({}, {})", le, re),
+        BinaryOpKind::Divide => format!("logos_div_i128({})", arguments(&[le.clone(), re.clone()])),
         BinaryOpKind::Modulo if nonzero_lit => {
             let Expr::Literal(Literal::Number(m)) = right else { unreachable!() };
             raw_literal_rem(*m, oracle_int_range(ecx, left), &le, &re, "i128")
         }
-        BinaryOpKind::Modulo => format!("logos_rem_i128({}, {})", le, re),
+        BinaryOpKind::Modulo => format!("logos_rem_i128({})", arguments(&[le.clone(), re.clone()])),
         _ => unreachable!("root op matched above"),
     };
-    Some(format!("logos_narrow_i128({})", chain))
+    Some(format!("logos_narrow_i128({})", super::precedence::standalone(&chain)))
+}
+
+/// The bound of one step of a chain lowered to machine words whose results reach magnitude `limit`: its operands'
+/// bounds `l` and `r`, `right` the divisor of a quotient or remainder
+/// ([`word_op_magnitude`](crate::semantics::arith::word_op_magnitude)).
+fn word_step(op: BinaryOpKind, l: u128, r: u128, right: &Expr, limit: u128) -> Option<u128> {
+    let divisor = match right {
+        Expr::Literal(Literal::Number(d)) => Some(*d),
+        _ => None,
+    };
+    crate::semantics::arith::word_op_magnitude(op, l, r, divisor, limit)
+}
+
+/// Whether a quotient or remainder (`op`) by the literal `d` is a machine operation that never leaves the word and
+/// never fails: a divisor other than 0 and -1 (`MIN / -1` overflows, and a machine `MIN % -1` traps where its value is
+/// 0).
+fn word_safe_literal_divisor(op: BinaryOpKind, d: i64) -> bool {
+    matches!(op, BinaryOpKind::Divide | BinaryOpKind::Modulo) && d != 0 && d != -1
 }
 
 /// The key a guarded dual knows a leaf by: a name's symbol (every occurrence in one expression holds the one value
@@ -2301,26 +3057,26 @@ fn dual_leaf_key(e: &Expr) -> usize {
 }
 
 /// Chain magnitude with every non-literal leaf capped at `bound`, or at its own magnitude when the Oracle proves its
-/// range (`proven`, by [`dual_leaf_key`]) — the solver's evaluation function for the guarded-dual tier.
+/// range (`proven`, by [`dual_leaf_key`]) — the smaller of the two when `held` — the solver's evaluation function for
+/// the guarded-dual tier.
 fn chain_magnitude_with_leaf_bound(
     e: &Expr,
     bound: u128,
     proven: &HashMap<usize, u128>,
+    held: bool,
 ) -> Option<u128> {
     match e {
         Expr::Literal(Literal::Number(n)) => Some(n.unsigned_abs() as u128),
         Expr::BinaryOp { op, left, right } if is_exact_arith_node(e) => {
-            let l = chain_magnitude_with_leaf_bound(left, bound, proven)?;
-            let r = chain_magnitude_with_leaf_bound(right, bound, proven)?;
-            match op {
-                BinaryOpKind::Add | BinaryOpKind::Subtract => l.checked_add(r),
-                BinaryOpKind::Multiply => l.checked_mul(r),
-                BinaryOpKind::Divide => Some(l),
-                BinaryOpKind::Modulo => Some(r.min(l)),
-                _ => unreachable!("is_exact_arith_node covers exactly these five"),
-            }
+            let l = chain_magnitude_with_leaf_bound(left, bound, proven, held)?;
+            let r = chain_magnitude_with_leaf_bound(right, bound, proven, held)?;
+            word_step(*op, l, r, right, i64::MAX as u128)
         }
-        _ => Some(proven.get(&dual_leaf_key(e)).copied().unwrap_or(bound)),
+        _ => Some(match proven.get(&dual_leaf_key(e)) {
+            Some(&own) if held => own.min(bound),
+            Some(&own) => own,
+            None => bound,
+        }),
     }
 }
 
@@ -2341,12 +3097,12 @@ fn emit_chain_with_bound_leaves(e: &Expr, names: &HashMap<usize, String>, raw: b
                     BinaryOpKind::Subtract => format!("({} - {})", l, r),
                     BinaryOpKind::Multiply => format!("({} * {})", l, r),
                     BinaryOpKind::Divide if nonzero_lit => format!("({} / {})", l, r),
-                    BinaryOpKind::Divide => format!("logos_div_i64({}, {})", l, r),
+                    BinaryOpKind::Divide => format!("logos_div_i64({}, {})", super::precedence::standalone(&l), super::precedence::standalone(&r)),
                     BinaryOpKind::Modulo if nonzero_lit => {
                         let Expr::Literal(Literal::Number(m)) = &**right else { unreachable!() };
                         raw_literal_rem(*m, codegen_oracle_range(left), &l, &r, "i64")
                     }
-                    BinaryOpKind::Modulo => format!("logos_rem_i64({}, {})", l, r),
+                    BinaryOpKind::Modulo => format!("logos_rem_i64({}, {})", super::precedence::standalone(&l), super::precedence::standalone(&r)),
                     _ => unreachable!("is_exact_arith_node covers exactly these five"),
                 }
             } else {
@@ -2358,7 +3114,7 @@ fn emit_chain_with_bound_leaves(e: &Expr, names: &HashMap<usize, String>, raw: b
                     BinaryOpKind::Modulo => "logos_rem_exact",
                     _ => unreachable!("is_exact_arith_node covers exactly these five"),
                 };
-                format!("{}({}, {})", helper, l, r)
+                format!("{}({}, {})", helper, super::precedence::standalone(&l), super::precedence::standalone(&r))
             }
         }
         Expr::Identifier(s) => names[&(usize::MAX - s.index())].clone(),
@@ -2387,9 +3143,11 @@ fn try_guarded_dual_chain<'e>(
     Some(match dual.guard {
         Some(guard) => format!(
             "{{ {}if {guard} {{ {} }} else {{ logos_cold_path(move || {}.expect_i64(\"Int\")) }} }}",
-            dual.binds, dual.fast, dual.slow
+            dual.binds,
+            super::precedence::standalone(&dual.fast),
+            dual.slow
         ),
-        None => format!("{{ {}{} }}", dual.binds, dual.fast),
+        None => format!("{{ {}{} }}", dual.binds, super::precedence::standalone(&dual.fast)),
     })
 }
 
@@ -2402,10 +3160,12 @@ pub(crate) struct CheckedChain {
     pub(crate) exact: String,
 }
 
-fn checked_chain_parts<'e>(e: &'e Expr<'e>, ecx: &ExprCtx, prefix: &str) -> Option<CheckedChain> {
-    fn emit(e: &Expr, names: &HashMap<usize, String>) -> String {
+pub(super) fn checked_chain_parts<'e>(e: &'e Expr<'e>, ecx: &ExprCtx, prefix: &str) -> Option<CheckedChain> {
+    /// `e` as Rust: an `i64` for a leaf, an `Option<i64>` (`true`) for a step, whose `None` ends the chain.
+    /// `depth` names the values a step's closures take, one name per nesting.
+    fn emit(e: &Expr, names: &HashMap<usize, String>, depth: usize) -> (String, bool) {
         match e {
-            Expr::Literal(Literal::Number(n)) => format!("({n}i64)"),
+            Expr::Literal(Literal::Number(n)) => (format!("{n}i64"), false),
             Expr::BinaryOp { op, left, right } if is_exact_arith_node(e) => {
                 let step = match op {
                     BinaryOpKind::Add => "checked_add",
@@ -2414,9 +3174,20 @@ fn checked_chain_parts<'e>(e: &'e Expr<'e>, ecx: &ExprCtx, prefix: &str) -> Opti
                     BinaryOpKind::Divide => "checked_div",
                     _ => "checked_rem",
                 };
-                format!("{}.{step}({})?", emit(left, names), emit(right, names))
+                let (l, l_steps) = emit(left, names, depth + 1);
+                let (r, r_steps) = emit(right, names, depth + 1);
+                // A negative literal is a receiver only in parentheses (`-5i64.checked_mul(x)` is `-(…)`).
+                let receiver = |code: &str| if code.starts_with('-') { format!("({code})") } else { code.to_string() };
+                let (a, b) = (format!("__a{depth}"), format!("__b{depth}"));
+                let code = match (l_steps, r_steps) {
+                    (false, false) => format!("{}.{step}({r})", receiver(&l)),
+                    (true, false) => format!("{l}.and_then(|{a}: i64| {a}.{step}({r}))"),
+                    (false, true) => format!("{r}.and_then(|{b}: i64| {}.{step}({b}))", receiver(&l)),
+                    (true, true) => format!("{l}.and_then(|{a}: i64| {r}.and_then(|{b}: i64| {a}.{step}({b})))"),
+                };
+                (code, true)
             }
-            _ => names[&dual_leaf_key(e)].clone(),
+            _ => (names[&dual_leaf_key(e)].clone(), false),
         }
     }
     if !is_exact_arith_node(e) {
@@ -2429,9 +3200,96 @@ fn checked_chain_parts<'e>(e: &'e Expr<'e>, ecx: &ExprCtx, prefix: &str) -> Opti
     let (binds, names) = bind_chain_leaves(&leaves, &exprs, ecx, prefix);
     Some(CheckedChain {
         binds,
-        checked: format!("(|| -> Option<i64> {{ Some({}) }})()", emit(e, &names)),
+        checked: emit(e, &names, 0).0,
         exact: emit_chain_with_bound_leaves(e, &names, false),
     })
+}
+
+/// The machine scalar a closure evidently returns, for its signature to state: the `i64`, `f64` or `bool` every value
+/// it returns infers to, its parameters read as declared (`types`). `None` where a returned value is of another type
+/// or reads a bignum, and for a body that does not end in a `Return` (a path that falls off its end answers `()`).
+fn closure_result_type(
+    body: &crate::ast::stmt::ClosureBody<'_>,
+    interner: &Interner,
+    types: &HashMap<Symbol, String>,
+) -> Option<String> {
+    use crate::ast::stmt::ClosureBody;
+    use crate::analysis::types::LogosType;
+    let settled = |e: &Expr| -> Option<String> {
+        if mentions_bigint_var(e, types) {
+            return None;
+        }
+        match infer_logos_type(e, interner, types) {
+            t @ (LogosType::Int | LogosType::Float | LogosType::Bool) => Some(t.to_rust_type()),
+            _ => None,
+        }
+    };
+    match body {
+        ClosureBody::Expression(e) => settled(e),
+        ClosureBody::Block(stmts) => {
+            if !matches!(stmts.last(), Some(Stmt::Return { value: Some(_) })) {
+                return None;
+            }
+            let mut result: Option<Option<String>> = None;
+            super::bigint_promote::for_each_return(stmts, |e| {
+                let t = settled(e);
+                result = Some(match result.take() {
+                    None => t,
+                    Some(seen) if seen == t => seen,
+                    Some(_) => None,
+                });
+            });
+            result.flatten()
+        }
+    }
+}
+
+/// A closure literal this module emitted (`move |params| body`), its result stated: `move |params| -> result body`.
+/// The parameter list is the text between the first two `|`, which no parameter of an emitted closure contains.
+pub(crate) fn with_closure_result(closure: &str, result: &str) -> Option<String> {
+    let params_start = closure.strip_prefix("move |")?;
+    let close = params_start.find('|')?;
+    let (params, body) = params_start.split_at(close);
+    let body = &body[1..];
+    if body.trim_start().starts_with("->") {
+        return Some(closure.to_string());
+    }
+    Some(format!("move |{params}| -> {result}{body}"))
+}
+
+/// `left op right` for a binary operator, `left` and `right` the operands' code and `left_expr`/`right_expr` their
+/// syntax. A shift is the reference's wrapping shift (`semantics::arith`: the count truncated to `u32`, masked mod
+/// 64): `x.wrapping_shl(c as u32)`, or `x << c` when the count is a literal in `0..64`. An integer literal shifted
+/// is written `i64`: Rust implements `Shl<i64>` for every integer type, so nothing else would pin it.
+pub(crate) fn word_binary(
+    op: BinaryOpKind,
+    op_str: &str,
+    left: &str,
+    right: &str,
+    left_expr: &Expr,
+    right_expr: &Expr,
+) -> String {
+    use super::precedence::{operand, Under};
+    if !matches!(op, BinaryOpKind::Shl | BinaryOpKind::Shr) {
+        return format!("({left} {op_str} {right})");
+    }
+    let left = match left_expr {
+        Expr::Literal(Literal::Number(n)) => format!("{n}i64"),
+        _ => left.to_string(),
+    };
+    if matches!(right_expr, Expr::Literal(Literal::Number(c)) if (0..64).contains(c)) {
+        return format!("({left} {op_str} {right})");
+    }
+    let method = if matches!(op, BinaryOpKind::Shl) {
+        "wrapping_shl"
+    } else {
+        "wrapping_shr"
+    };
+    format!(
+        "{}.{method}({} as u32)",
+        operand(&left, Under::Postfix),
+        operand(right, Under::Cast)
+    )
 }
 
 /// A bit operation (`&`, `|`, `^`, `<<`, `>>`) over an Int operand the Oracle cannot keep within a machine word — an
@@ -2477,7 +3335,7 @@ fn try_guarded_bitwise<'e>(
                 words.push(code);
             } else {
                 let name = format!("__bw{side}");
-                binds.push_str(&format!("let {name}: i64 = {code}; "));
+                binds.push_str(&format!("let {name}: i64 = {}; ", super::precedence::standalone(&code)));
                 words.push(name);
             }
             slow.push(None);
@@ -2501,7 +3359,7 @@ fn try_guarded_bitwise<'e>(
     let exact = if matches!(op, BinaryOpKind::BitAnd) {
         format!("logos_band_exact({}, {})", operand(0), operand(1))
     } else {
-        format!("({} {op_str} {})", operand(0), operand(1))
+        word_binary(op, op_str, &operand(0), &operand(1), left, right)
     };
     let (scrutinee, pattern) = match checked.as_slice() {
         [(word, value)] => (value.clone(), format!("Some({word})")),
@@ -2513,9 +3371,10 @@ fn try_guarded_bitwise<'e>(
             ),
         ),
     };
+    let arm = word_binary(op, op_str, &words[0], &words[1], left, right);
     Some(format!(
-        "{{ {binds}match {scrutinee} {{ {pattern} => ({} {op_str} {}), _ => logos_cold_path(move || {exact}) }} }}",
-        words[0], words[1]
+        "{{ {binds}match {scrutinee} {{ {pattern} => {}, _ => logos_cold_path(move || {exact}) }} }}",
+        super::precedence::standalone(&arm)
     ))
 }
 
@@ -2604,7 +3463,7 @@ fn bind_chain_leaves(
         binds.push_str(&format!(
             "let {}: i64 = {}; ",
             name,
-            codegen_expr_ctx(le, &plain)
+            super::precedence::standalone(&codegen_expr_ctx(le, &plain))
         ));
         names.insert(*addr, name);
     }
@@ -2622,7 +3481,9 @@ fn guarded_dual_parts<'e>(
     if leaves.is_empty() || leaves.len() > 6 {
         return None;
     }
-    // A leaf the Oracle bounds costs its own magnitude and needs no guard term.
+    // A leaf the Oracle bounds costs its own magnitude and needs no guard term — while the chain fits a machine word
+    // at that magnitude. Where it does not (`i * 47` with `i` proven only below 2^60), the leaf is held to the bound
+    // like the rest and guarded where its own magnitude exceeds it.
     let proven: HashMap<usize, u128> = leaves
         .iter()
         .zip(leaf_exprs.iter())
@@ -2631,30 +3492,24 @@ fn guarded_dual_parts<'e>(
             Some((*addr, lo.unsigned_abs().max(hi.unsigned_abs()) as u128))
         })
         .collect();
-    // Solve for the largest power-of-two leaf bound that keeps the chain in
-    // i64 (descending scan; the chain magnitude is monotone in the bound).
-    let root_mag = |b: u128| -> Option<u128> {
-        let l = chain_magnitude_with_leaf_bound(left, b, &proven)?;
-        let r = chain_magnitude_with_leaf_bound(right, b, &proven)?;
-        match op {
-            BinaryOpKind::Add | BinaryOpKind::Subtract => l.checked_add(r),
-            BinaryOpKind::Multiply => l.checked_mul(r),
-            BinaryOpKind::Divide => Some(l),
-            BinaryOpKind::Modulo => Some(r.min(l)),
-            _ => None,
-        }
+    let root_mag = |b: u128, held: bool| -> Option<u128> {
+        let l = chain_magnitude_with_leaf_bound(left, b, &proven, held)?;
+        let r = chain_magnitude_with_leaf_bound(right, b, &proven, held)?;
+        word_step(op, l, r, right, i64::MAX as u128)
     };
-    let mut bound: u128 = 0;
-    for exp in (16..=62).rev() {
-        let b = 1u128 << exp;
-        if root_mag(b).is_some_and(|m| m <= i64::MAX as u128) {
-            bound = b;
-            break;
-        }
-    }
-    if bound == 0 {
-        return None;
-    }
+    // Solve for the largest power-of-two leaf bound that keeps the chain in
+    // i64 (descending scan; the chain magnitude is monotone in the bound),
+    // the proven leaves free first.
+    let solve = |held: bool| {
+        (16..=62)
+            .rev()
+            .map(|exp| 1u128 << exp)
+            .find(|&b| root_mag(b, held).is_some_and(|m| m <= i64::MAX as u128))
+    };
+    let (bound, held) = match solve(false) {
+        Some(b) => (b, false),
+        None => (solve(true)?, true),
+    };
     let (binds, names) = bind_chain_leaves(&leaves, &leaf_exprs, whole_ecx, prefix);
     // Guard terms in LEAF ORDER (the deduped evaluation order) — HashMap
     // iteration would make the emitted text nondeterministic across compiles.
@@ -2665,15 +3520,15 @@ fn guarded_dual_parts<'e>(
     let terms = leaves
         .iter()
         .zip(leaf_exprs.iter())
-        .filter(|(addr, _)| !proven.contains_key(addr))
+        .filter(|(addr, _)| proven.get(addr).is_none_or(|&own| held && own > bound))
         .map(|(addr, le)| {
             let n = &names[addr];
             let b = bound as i64;
             let nonneg = whole_ecx.oracle.is_some_and(|o| o.expr_proven_nonneg(le));
             if nonneg {
-                format!("({n} <= {b}i64)")
+                format!("{n} <= {b}i64")
             } else {
-                format!("({n} >= -{b}i64 && {n} <= {b}i64)")
+                format!("(-{b}_i64..={b}_i64).contains(&{n})")
             }
         })
         .collect::<Vec<_>>();
@@ -2688,12 +3543,12 @@ fn guarded_dual_parts<'e>(
                 BinaryOpKind::Subtract => format!("({} - {})", l, r),
                 BinaryOpKind::Multiply => format!("({} * {})", l, r),
                 BinaryOpKind::Divide if nonzero_lit => format!("({} / {})", l, r),
-                BinaryOpKind::Divide => format!("logos_div_i64({}, {})", l, r),
+                BinaryOpKind::Divide => format!("logos_div_i64({}, {})", super::precedence::standalone(&l), super::precedence::standalone(&r)),
                 BinaryOpKind::Modulo if nonzero_lit => {
                     let Expr::Literal(Literal::Number(m)) = right else { unreachable!() };
                     raw_literal_rem(*m, codegen_oracle_range(left), &l, &r, "i64")
                 }
-                BinaryOpKind::Modulo => format!("logos_rem_i64({}, {})", l, r),
+                BinaryOpKind::Modulo => format!("logos_rem_i64({}, {})", super::precedence::standalone(&l), super::precedence::standalone(&r)),
                 _ => unreachable!(),
             }
         } else {
@@ -2705,7 +3560,7 @@ fn guarded_dual_parts<'e>(
                 BinaryOpKind::Modulo => "logos_rem_exact",
                 _ => unreachable!(),
             };
-            format!("{}({}, {})", helper, l, r)
+            format!("{}({}, {})", helper, super::precedence::standalone(&l), super::precedence::standalone(&r))
         }
     };
     Some(GuardedDual {
@@ -2794,7 +3649,13 @@ pub(crate) fn select_arm<'a, 'e>(
     })
 }
 
-fn oracle_proves_index(ecx: &ExprCtx, collection: &Expr, index: &Expr) -> bool {
+/// True when the bounds-elision oracle proves `index` in range for `collection`,
+/// so the access can lower to `get_unchecked`. The `LOGOS_ORACLE_UNCHECKED=0`
+/// kill switch forces the checked form (A/B against the `assert_unchecked` hint
+/// path). Soundness rests on the kernel-LIA-certified proof plus the caller's
+/// entry precondition guard; a `debug_assert!` (emitted by the statement-level
+/// hint pass) traps an unsound proof in debug builds.
+pub(super) fn oracle_proves_index(ecx: &ExprCtx, collection: &Expr, index: &Expr) -> bool {
     if !crate::optimize::active_config().is_on(crate::optimization::Opt::Unchecked) {
         return false;
     }
@@ -2824,8 +3685,8 @@ pub(crate) fn range_bound_strs(
 
 /// The Rust range a counted `Repeat for c from start to end` walks. The half-open `start..end + 1` is the
 /// form LLVM optimizes (an inclusive `RangeInclusive` carries its exhausted flag through every iteration),
-/// and it is exact wherever `end + 1` exists: a constant `end` below `i64::MAX`, or an `end` the range oracle
-/// bounds below it. Any other `end` keeps the inclusive range, which reaches `i64::MAX` itself.
+/// and it is exact wherever `end + 1` exists ([`below_largest_int`]). Any other `end` keeps the inclusive range,
+/// which reaches `i64::MAX` itself.
 pub(crate) fn counted_loop_range(
     start: &Expr,
     end: &Expr,
@@ -2842,10 +3703,7 @@ pub(crate) fn counted_loop_range(
             None => format!("({start_str}..={end_str})"),
         };
     }
-    if oracle
-        .and_then(|o| o.expr_int_range(end))
-        .is_some_and(|(_, hi)| hi < i64::MAX)
-    {
+    if below_largest_int(end, oracle) {
         return format!("({start_str}..({end_str} + 1))");
     }
     format!("({start_str}..={end_str})")
@@ -2938,7 +3796,7 @@ fn indexed_read(owner: &str, collection: &Expr, index: &Expr, copy: bool, ecx: &
                 "{}.{}({})",
                 owner,
                 item_accessor(index, ecx.oracle, false),
-                logos_index_str(index, ecx, variable_types, interner)
+                super::precedence::standalone(&logos_index_str(index, ecx, variable_types, interner))
             ),
             true,
         )
@@ -3313,7 +4171,7 @@ fn rational_operand(expr: &Expr, code: &str, variable_types: &HashMap<Symbol, St
     if is_rational_expr(expr, variable_types) {
         code.to_string()
     } else {
-        format!("LogosRational::from_i64(({}) as i64)", code)
+        format!("LogosRational::from_i64({})", super::precedence::standalone(&super::precedence::cast(code, "i64")))
     }
 }
 
@@ -3350,6 +4208,112 @@ pub(crate) fn clock_read(name: &str) -> Option<(&'static str, &'static str)> {
         ClockRead::Today => ("logicaffeine_system::temporal::today()", "LogosDate"),
         ClockRead::Now => ("logicaffeine_system::temporal::now()", "LogosMoment"),
     })
+}
+
+/// The word or lane vector type a call of the runtime builtin `function` returns: the word of the width a builtin
+/// builds or answers, from the builtins' shared record of word results
+/// ([`BuiltinId::word_result`](crate::semantics::builtins::BuiltinId::word_result): `word32(…)`, `word64Shl(…)`); the
+/// vector a lane function returns, from its row in the runtime's table ([`word_calls`](super::word_calls):
+/// `splat16Word16(…)`); or `first`, the type of the first argument, for a builtin whose word is its argument's
+/// (`word_and`, `rotl`, …) and for the in-vector permutes (`nttBlend`, …). `None` where the program defines a
+/// function of that name (declarer wins) or the builtin returns no word.
+pub(super) fn builtin_word<'w>(function: Symbol, first: Option<&'w str>, interner: &Interner) -> Option<&'w str> {
+    use crate::semantics::builtins::BuiltinId;
+    if program_defines_function(function) {
+        return None;
+    }
+    let id = crate::semantics::builtins::builtin_from_name(interner.resolve(function))?;
+    match id.word_result(None) {
+        Some(8) => Some("Word8"),
+        Some(16) => Some("Word16"),
+        Some(32) => Some("Word32"),
+        Some(64) => Some("Word64"),
+        Some(_) => None,
+        None => {
+            if let Some(call) = super::word_calls::of_builtin(id) {
+                return super::stmt::WORD_TYPES.contains(&call.result).then_some(call.result);
+            }
+            let keeps_its_argument = id.word_result(Some(0)).is_some()
+                || matches!(id, BuiltinId::NttBcastLo | BuiltinId::NttBcastHi | BuiltinId::NttBlend);
+            if keeps_its_argument {
+                first.filter(|ty| super::stmt::WORD_TYPES.contains(ty))
+            } else {
+                None
+            }
+        }
+    }
+}
+
+/// The Rust type of what [`codegen_expr`] writes for `expr`, where the form it writes fixes that type whatever the
+/// program's bindings hold: a literal; a construction (`T::<A>::default()`, a declared record's `T { … }`, a declared
+/// enum's variant); a list or set literal whose items share such a type; a builtin's word ([`builtin_word`]) and what
+/// a runtime word function returns ([`word_calls`](super::word_calls)); `sqrt`, written as a complex's root for a
+/// complex operand and as an `f64`'s for any other, which it reads as an `f64` ([`typed_receiver`]); a float
+/// `complex(…)` and the `conjugate` of one, written as the inexact complex (`LogosComplexF`); and a union or
+/// intersection of two sets the program tracks as one type. `None` elsewhere — a `let` of such a value states no type
+/// rather than a guess — and for a rational, whose binding the rational path types.
+pub(super) fn written_type(
+    expr: &Expr,
+    variable_types: &HashMap<Symbol, String>,
+    registry: &TypeRegistry,
+    interner: &Interner,
+) -> Option<String> {
+    use crate::analysis::registry::TypeDef;
+    use crate::analysis::types::LogosType;
+    // A type the program declares without parameters: its constructions write its whole name.
+    let declared = |name: Symbol| -> Option<String> {
+        match registry.get(name)? {
+            TypeDef::Struct { generics, .. } | TypeDef::Enum { generics, .. } if generics.is_empty() => {
+                Some(rust_type_ident(interner.resolve(name)))
+            }
+            _ => None,
+        }
+    };
+    // The one type every item is written as.
+    let shared = |items: &[&Expr]| -> Option<String> {
+        let (first, rest) = items.split_first()?;
+        let ty = written_type(first, variable_types, registry, interner)?;
+        rest.iter()
+            .all(|item| written_type(item, variable_types, registry, interner).as_ref() == Some(&ty))
+            .then_some(ty)
+    };
+    let written = match expr {
+        Expr::Literal(
+            lit @ (Literal::Number(_) | Literal::Float(_) | Literal::Boolean(_) | Literal::Text(_) | Literal::Char(_)),
+        ) => Some(LogosType::from_literal(lit).to_rust_type()),
+        Expr::New { type_name, type_args, init_fields } if init_fields.is_empty() && !type_args.is_empty() => {
+            let args: Vec<String> = type_args.iter().map(|t| codegen_type_expr(t, interner)).collect();
+            Some(format!("{}<{}>", rust_type_ident(interner.resolve(*type_name)), args.join(", ")))
+        }
+        Expr::New { type_name, .. } => declared(*type_name),
+        Expr::NewVariant { enum_name, .. } => declared(*enum_name),
+        Expr::List(items) => shared(items).map(|item| format!("LogosSeq<{item}>")),
+        Expr::Call { function, .. } if program_defines_function(*function) => None,
+        Expr::Call { function, args } => {
+            let name = interner.resolve(*function);
+            let first = args.first().and_then(|a| written_type(a, variable_types, registry, interner));
+            let word = builtin_word(*function, first.as_deref(), interner).map(str::to_string);
+            let returned = || super::word_calls::by_name(name, args.len()).map(|call| call.result.to_string());
+            word.or_else(returned).or_else(|| match (name, args.as_slice()) {
+                ("setOf", [_, ..]) => shared(args).map(|item| format!("Set<{item}>")),
+                ("sqrt", [operand]) => Some(
+                    if is_complexf_expr(operand, variable_types, interner) { "LogosComplexF" } else { "f64" }
+                        .to_string(),
+                ),
+                ("complex" | "conjugate", _) if is_complexf_expr(expr, variable_types, interner) => {
+                    Some("LogosComplexF".to_string())
+                }
+                _ => None,
+            })
+        }
+        Expr::Union { left: Expr::Identifier(l), right: Expr::Identifier(r) }
+        | Expr::Intersection { left: Expr::Identifier(l), right: Expr::Identifier(r) } => {
+            let (lt, rt) = (variable_types.get(l)?, variable_types.get(r)?);
+            (lt == rt && lt.starts_with("Set<") && !lt.contains('_') && !lt.contains('|')).then(|| lt.clone())
+        }
+        _ => None,
+    };
+    written.filter(|t| !t.contains(super::rational::RATIONAL))
 }
 
 /// The Rust type a value expression evidently produces, read from its shape: an exact value, a
@@ -3402,6 +4366,8 @@ pub(super) fn value_rust_type(
             variable_types,
             registry,
         )?),
+        // A float `complex(…)`, and the `sqrt` or `conjugate` of one, is the inexact complex.
+        Expr::Call { .. } if is_complexf_expr(expr, variable_types, interner) => Some("LogosComplexF".to_string()),
         Expr::Call { function, .. } => {
             plain(FN_RETURN_TYPES.with(|c| c.borrow().get(function).cloned())?)
         }
@@ -3422,6 +4388,10 @@ pub(super) fn value_rust_type(
                 .collect::<Option<Vec<_>>>()?;
             Some(super::types::tuple_rust_type(&elems))
         }
+        // The union or intersection of two sets is a set of the same members.
+        Expr::Union { left, .. } | Expr::Intersection { left, .. } => {
+            value_rust_type(left, variable_types, registry, interner).filter(|t| t.starts_with("Set<"))
+        }
         _ => None,
     }
 }
@@ -3436,16 +4406,16 @@ pub(super) fn interpolation_hole(spec: Option<&str>, arg: &str) -> (String, Stri
     match spec {
         None => (
             "{}".to_string(),
-            format!("logicaffeine_system::io::show_string(&({arg}))"),
+            format!("logicaffeine_system::io::show_string({})", lent_to_show(arg)),
         ),
         Some("$") => (
             "{}".to_string(),
-            format!("logicaffeine_system::io::format_currency(&({arg}))"),
+            format!("logicaffeine_system::io::format_currency({})", lent_to_show(arg)),
         ),
         Some(s) => match s.strip_prefix('.').and_then(|p| p.parse::<usize>().ok()) {
             Some(precision) => (
                 "{}".to_string(),
-                format!("logicaffeine_system::io::format_fixed(&({arg}), {precision})"),
+                format!("logicaffeine_system::io::format_fixed({}, {precision})", lent_to_show(arg)),
             ),
             None => (format!("{{:{s}}}"), arg.to_string()),
         },
@@ -3489,7 +4459,7 @@ fn decimal_operand(
     if is_decimal_expr(expr, variable_types, interner) {
         code.to_string()
     } else {
-        format!("LogosDecimal::from_i64(({}) as i64)", code)
+        format!("LogosDecimal::from_i64({})", super::precedence::standalone(&super::precedence::cast(code, "i64")))
     }
 }
 
@@ -3518,6 +4488,12 @@ pub(super) fn seq_element_rust_type<'a>(
         return None;
     };
     let t = variable_types.get(sym)?.as_str();
+    // A list whose length a loop hoists carries the hoisted name after its type (`&[i64]|__hl:__xs_len`).
+    let t = t.split("|__hl:").next().unwrap_or(t);
+    // A list that may hold integers past the word holds `Int`s, each read as the machine word it is.
+    if super::int_vec::holds_int_vec(t) {
+        return Some("i64");
+    }
     if let Some(inner) = t
         .strip_prefix("LogosSeq<")
         .and_then(|s| s.strip_suffix('>'))
@@ -3630,7 +4606,7 @@ fn complex_operand(
     if is_complex_expr(expr, variable_types, interner) {
         code.to_string()
     } else {
-        format!("LogosComplex::from_i64(({}) as i64)", code)
+        format!("LogosComplex::from_i64({})", super::precedence::standalone(&super::precedence::cast(code, "i64")))
     }
 }
 
@@ -3878,7 +4854,7 @@ fn complexf_operand(
     if is_complexf_expr(expr, variable_types, interner) {
         code.to_string()
     } else {
-        format!("LogosComplexF::from_f64(({}) as f64)", code)
+        format!("LogosComplexF::from_f64({})", super::precedence::standalone(&super::precedence::cast(code, "f64")))
     }
 }
 
@@ -4136,10 +5112,12 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 // Skip a bignum-promoted operand: `LogosInt` has no `Shr`/`BitAnd` with an integer, so
                 // `len >> 3` / `len & 7` would be an E0369 — the division/modulo must stay on the exact
                 // bignum path. (Only fire on a raw i64 `x >= 0`, where the mask/shift is valid + faster.)
+                // In the exact-tolerant context the operand must stay a machine word, which the mask or shift needs.
                 if *d > 0
                     && (*d as u64).is_power_of_two()
                     && is_nonneg_expr(left)
                     && !mentions_bigint_var(left, ecx.variable_types)
+                    && (!ecx.int_exact_tolerant || emits_pure_i64(left, ecx))
                 {
                     crate::optimize::mark_fired(crate::optimization::Opt::StrengthReducePow2);
                     let l = codegen_expr_ctx(left, ecx);
@@ -4235,6 +5213,20 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
         }
 
         Expr::BinaryOp { op, left, right } => {
+            // Under a `wordN(...)` truncation only an operation whose low bits are its operands' keeps the operands to
+            // their low bits.
+            let whole;
+            let ecx = if ecx.int_wrapping && !keeps_low_bits(*op) {
+                whole = ExprCtx { int_wrapping: false, ..*ecx };
+                &whole
+            } else {
+                ecx
+            };
+            if !ecx.int_wrapping {
+                if let Some(code) = super::int_vec::arithmetic(expr, ecx) {
+                    return code;
+                }
+            }
             // A comparison or equality reads a counter operand as its total (`is_counter_read`).
             let compares = matches!(
                 op,
@@ -4255,6 +5247,101 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                         code
                     }
                 }};
+            }
+            // `x >= lo and x <= hi` over one Int name is the range `lo..=hi` holding it.
+            if matches!(op, BinaryOpKind::And) {
+                if let (Some((at, x, lo, _)), Some((_, y, hi, holds))) = (range_bound(left, true), range_bound(right, false)) {
+                    let word = ecx
+                        .variable_types
+                        .get(&x)
+                        .is_some_and(|t| t.split("|__hl:").next() == Some("i64"));
+                    if x == y && word {
+                        let name = recurse!(at);
+                        let upto = if holds { "..=" } else { ".." };
+                        return format!("({lo}_i64{upto}{hi}_i64).contains(&{name})");
+                    }
+                }
+            }
+            if matches!(op, BinaryOpKind::Eq | BinaryOpKind::NotEq) {
+                // `x == nothing` asks whether the option holds nothing.
+                if let (other, Expr::OptionNone) | (Expr::OptionNone, other) = (*left, *right) {
+                    let code = recurse!(other);
+                    let asked = if matches!(op, BinaryOpKind::Eq) { "is_none" } else { "is_some" };
+                    return format!(
+                        "{}.{asked}()",
+                        super::precedence::operand(&code, super::precedence::Under::Postfix)
+                    );
+                }
+                // `x is equal to nothing`: a value-or-nothing (`absent`) answers for itself; an option asks whether it
+                // holds nothing, as above; `nothing` is itself; a value of any other kind never is, the comparison a
+                // constant once the value is computed.
+                if let (other, Expr::Literal(Literal::Nothing)) | (Expr::Literal(Literal::Nothing), other) = (*left, *right) {
+                    use crate::analysis::types::LogosType;
+                    let held = super::absent::is_held(other, ecx);
+                    let equal = matches!(op, BinaryOpKind::Eq);
+                    match super::types::infer_logos_type(other, ecx.interner, ecx.variable_types) {
+                        _ if held => {}
+                        LogosType::Option(_) => {
+                            let code = recurse!(other);
+                            let asked = if equal { "is_none" } else { "is_some" };
+                            return format!(
+                                "{}.{asked}()",
+                                super::precedence::operand(&code, super::precedence::Under::Postfix)
+                            );
+                        }
+                        LogosType::Unknown => {}
+                        LogosType::Unit => return equal.to_string(),
+                        _ if matches!(other, Expr::Identifier(_) | Expr::Literal(_)) => return (!equal).to_string(),
+                        _ => {
+                            let code = recurse!(other);
+                            return format!("{{ let _ = {}; {} }}", super::precedence::standalone(&code), !equal);
+                        }
+                    }
+                }
+            }
+            if matches!(op, BinaryOpKind::Eq | BinaryOpKind::NotEq) {
+                use crate::analysis::types::LogosType;
+                let equal = matches!(op, BinaryOpKind::Eq);
+                let typed = |e: &Expr| super::types::infer_logos_type(e, ecx.interner, ecx.variable_types);
+                let with_literal = match (left, right) {
+                    (other, Expr::Literal(lit)) | (Expr::Literal(lit), other) => Some((*other, lit)),
+                    _ => None,
+                };
+                match with_literal {
+                    // `b == true` is `b`, `b == false` is `!b`.
+                    Some((b, Literal::Boolean(v)))
+                        if is_bool_valued(b, ecx.interner, ecx.variable_types) || is_bool_item(b, ecx.variable_types) =>
+                    {
+                        let code = recurse!(b);
+                        return if equal == *v {
+                            format!("({})", super::precedence::standalone(&code))
+                        } else {
+                            format!(
+                                "(!{})",
+                                super::precedence::operand(&code, super::precedence::Under::Prefix)
+                            )
+                        };
+                    }
+                    // A Text compares with a Text literal as written: no `String` is made for it. The empty Text is asked
+                    // whether it is empty.
+                    Some((t, Literal::Text(sym)))
+                        if matches!(typed(t), LogosType::String)
+                            || value_rust_type(t, ecx.variable_types, ecx.registry, ecx.interner).as_deref() == Some("String") =>
+                    {
+                        let code = recurse!(t);
+                        if ecx.interner.resolve(*sym).is_empty() {
+                            let receiver = super::precedence::operand(&code, super::precedence::Under::Postfix);
+                            return if equal { format!("{receiver}.is_empty()") } else { format!("!{receiver}.is_empty()") };
+                        }
+                        let op_str = if equal { "==" } else { "!=" };
+                        return format!(
+                            "({} {op_str} \"{}\")",
+                            super::precedence::operand(&code, super::precedence::Under::Binary(op_str, super::precedence::Side::Left)),
+                            crate::codegen::stmt::rust_string_escape(ecx.interner.resolve(*sym))
+                        );
+                    }
+                    _ => {}
+                }
             }
             // Rotate-idiom recognition: an inlined/const-specialized `rotateLeft(x,s,w)` folds to
             // `((x << s) & M) | ((x & M) >> (w-s))` — a masked shift LLVM will not turn into a
@@ -4289,7 +5376,12 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                         } else {
                             "div"
                         };
-                        return format!("({}.{}(({}) as u64) as i64)", helper, method, dividend);
+                        return format!(
+                            "({}.{}({} as u64) as i64)",
+                            helper,
+                            method,
+                            super::precedence::operand(&dividend, super::precedence::Under::Cast)
+                        );
                     }
                 }
             }
@@ -4307,21 +5399,13 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
             // has no `Expr::Index` arm at all) — `is_text_typed_identifier` and
             // `is_text_typed_index` close both the same way `record_field_rust_type` closes the
             // field case: by consulting the DECLARED type instead of guessing from shape alone.
-            let string_operand = |e: &Expr| {
-                is_definitely_string_expr_with_vars(e, string_vars)
-                    || super::absent::holds_text(e, ecx)
-                    || is_text_typed_identifier(e, variable_types)
-                    || is_text_typed_index(e, variable_types)
-                    || record_field_rust_type(e, interner, variable_types, ecx.registry)
-                        .is_some_and(|t| t == "String")
-            };
-            let is_string_concat = matches!(op, BinaryOpKind::Concat)
-                || (matches!(op, BinaryOpKind::Add)
-                    && (string_operand(left) || string_operand(right)));
-
-            if is_string_concat {
+            let string_operand = |e: &Expr| text_operand(e, ecx);
+            if is_text_concatenation(*op, left, right, ecx) {
                 let mut operands = Vec::new();
                 collect_string_concat_operands_with(expr, &string_operand, &mut operands);
+                if let Some(text) = concat_formatted(&operands, ecx) {
+                    return text.format();
+                }
                 let placeholders: String =
                     operands.iter().map(|_| "{}").collect::<Vec<_>>().join("");
                 let values: Vec<String> = operands
@@ -4337,13 +5421,13 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                             "\"nothing\"".to_string()
                         } else if super::absent::is_held(e, ecx) {
                             // A value-or-nothing joins as it shows: its value, or `nothing`.
-                            format!("logicaffeine_system::io::show_string(&({}))", recurse!(e))
+                            format!("logicaffeine_system::io::show_string({})", lent_to_show(&recurse!(e)))
                         } else {
                             recurse!(e)
                         }
                     })
                     .collect();
-                return format_in_order(&placeholders, &operands, values);
+                return format_in_order(&placeholders, &operands, values, ecx.variable_types);
             }
 
             // `a followed by b` — merge two sequences into one fresh `LogosSeq` (the default repr
@@ -4365,7 +5449,11 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
             if matches!(op, BinaryOpKind::ApproxEq) {
                 let l = recurse!(left);
                 let r = recurse!(right);
-                return format!("logos_approx_eq(({}) as f64, ({}) as f64)", l, r);
+                return format!(
+                    "logos_approx_eq({}, {})",
+                    super::precedence::standalone(&super::precedence::cast(&l, "f64")),
+                    super::precedence::standalone(&super::precedence::cast(&r, "f64"))
+                );
             }
 
             // `| & ^ -` on SET operands are the set operations (insertion-
@@ -4424,93 +5512,18 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     let s = recurse!(seq_e);
                     let n = recurse!(n_e);
                     return format!(
-                        "{{ let __rp_src = ({}).to_vec(); let __rp_n = (({}) as i64).max(0) as usize; \
+                        "{{ let __rp_src = {}.to_vec(); let __rp_n = {}.max(0) as usize; \
                          let mut __rp = Vec::with_capacity(__rp_src.len() * __rp_n); \
                          for _ in 0..__rp_n {{ __rp.extend(__rp_src.iter().map(|__e| logicaffeine_data::deep_copy!(*__e))); }} \
                          LogosSeq::from_vec(__rp) }}",
-                        s, n
+                        super::precedence::operand(&s, super::precedence::Under::Postfix),
+                        super::precedence::cast(&n, "i64")
                     );
                 }
             }
 
-            // Optimize HashMap .get() for equality comparisons to avoid cloning
             if matches!(op, BinaryOpKind::Eq | BinaryOpKind::NotEq) {
                 let neg = matches!(op, BinaryOpKind::NotEq);
-                // Check if left side is a HashMap/LogosMap index
-                if let Expr::Index { collection, index } = left {
-                    if let Expr::Identifier(sym) = collection {
-                        if let Some(t) = variable_types.get(sym) {
-                            if is_logos_map_type(t) {
-                                let coll_str = recurse!(collection);
-                                let key_str = irecurse!(index);
-                                let val_str = recurse!(right);
-                                let cmp = if neg { "!=" } else { "==" };
-                                return format!(
-                                    "({}.get(&({})) {} Some({}))",
-                                    coll_str, key_str, cmp, val_str
-                                );
-                            } else if t.starts_with("std::collections::HashMap")
-                                || t.starts_with("HashMap")
-                                || t.starts_with("rustc_hash::FxHashMap")
-                                || t.starts_with("FxHashMap")
-                            {
-                                let coll_str = recurse!(collection);
-                                let key_str = irecurse!(index);
-                                let val_str = recurse!(right);
-                                let cmp = if neg { "!=" } else { "==" };
-                                if has_copy_value_type(t) {
-                                    return format!(
-                                        "({}.get(&({})).copied() {} Some({}))",
-                                        coll_str, key_str, cmp, val_str
-                                    );
-                                } else {
-                                    return format!(
-                                        "({}.get(&({})) {} Some(&({})))",
-                                        coll_str, key_str, cmp, val_str
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-                // Check if right side is a HashMap/LogosMap index
-                if let Expr::Index { collection, index } = right {
-                    if let Expr::Identifier(sym) = collection {
-                        if let Some(t) = variable_types.get(sym) {
-                            if is_logos_map_type(t) {
-                                let coll_str = recurse!(collection);
-                                let key_str = irecurse!(index);
-                                let val_str = recurse!(left);
-                                let cmp = if neg { "!=" } else { "==" };
-                                return format!(
-                                    "(Some({}) {} {}.get(&({})))",
-                                    val_str, cmp, coll_str, key_str
-                                );
-                            } else if t.starts_with("std::collections::HashMap")
-                                || t.starts_with("HashMap")
-                                || t.starts_with("rustc_hash::FxHashMap")
-                                || t.starts_with("FxHashMap")
-                            {
-                                let coll_str = recurse!(collection);
-                                let key_str = irecurse!(index);
-                                let val_str = recurse!(left);
-                                let cmp = if neg { "!=" } else { "==" };
-                                if has_copy_value_type(t) {
-                                    return format!(
-                                        "(Some({}) {} {}.get(&({})).copied())",
-                                        val_str, cmp, coll_str, key_str
-                                    );
-                                } else {
-                                    return format!(
-                                        "(Some(&({})) {} {}.get(&({})))",
-                                        val_str, cmp, coll_str, key_str
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-
                 // Optimize string-index-vs-string-index comparison to use direct
                 // byte comparison via as_bytes() instead of logos_get_char().
                 // Byte equality is correct for UTF-8: two characters are equal
@@ -4684,8 +5697,15 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                         BinaryOpKind::NotEq => "!=",
                         _ => unreachable!(),
                     };
-                    return format!("({} {} {})", left_str, op_str, right_str);
+                    return word_binary(*op, op_str, &left_str, &right_str, left, right);
                 }
+            }
+
+            if let Some(code) = super::int_vec::comparison(*op, left, right, ecx) {
+                return code;
+            }
+            if let Some(code) = exact_int_comparison(*op, left, right, ecx) {
+                return code;
             }
 
             let left_str = recurse!(left);
@@ -4699,13 +5719,8 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     BinaryOpKind::Or => "||",
                     _ => unreachable!(),
                 };
-                let bools = matches!(
-                    infer_logos_type(left, interner, variable_types),
-                    crate::analysis::types::LogosType::Bool
-                ) && matches!(
-                    infer_logos_type(right, interner, variable_types),
-                    crate::analysis::types::LogosType::Bool
-                );
+                let bools =
+                    is_bool_valued(left, interner, variable_types) && is_bool_valued(right, interner, variable_types);
                 return if bools {
                     format!("({} {} {})", left_str, op_str, right_str)
                 } else {
@@ -5029,14 +6044,18 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     let l = if lt == "f64" {
                         left_str.clone()
                     } else {
-                        format!("(({}) as f64)", left_str)
+                        super::precedence::cast(&left_str, "f64")
                     };
                     let r = if rt == "f64" {
                         right_str.clone()
                     } else {
-                        format!("(({}) as f64)", right_str)
+                        super::precedence::cast(&right_str, "f64")
                     };
-                    return format!("({}).powf({})", l, r);
+                    return format!(
+                        "{}.powf({})",
+                        super::precedence::operand(&l, super::precedence::Under::Postfix),
+                        super::precedence::standalone(&r)
+                    );
                 }
                 // Both operands constant: fold at compile time. The i64 fast path
                 // (`checked_pow`) emits a plain literal; overflow or a negative/oversized
@@ -5090,12 +6109,12 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     let l = if lt == "f64" {
                         left_str.clone()
                     } else {
-                        format!("(({}) as f64)", left_str)
+                        super::precedence::cast(&left_str, "f64")
                     };
                     let r = if rt == "f64" {
                         right_str.clone()
                     } else {
-                        format!("(({}) as f64)", right_str)
+                        super::precedence::cast(&right_str, "f64")
                     };
                     return format!("({} / {}).floor()", l, r);
                 }
@@ -5188,13 +6207,19 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 // `flip` marks that the FLOAT was on the left, so the ordering
                 // reverses (`f < i` ⟺ `cmp(i, f) == Greater`).
                 let mixed_cmp = if is_cmp && left_type == "f64" && right_type == "i64" {
-                    Some((right_str.clone(), left_str.clone(), true))
+                    Some((*right, right_str.clone(), left_str.clone(), true))
                 } else if is_cmp && left_type == "i64" && right_type == "f64" {
-                    Some((left_str.clone(), right_str.clone(), false))
+                    Some((*left, left_str.clone(), right_str.clone(), false))
                 } else {
                     None
                 };
-                if let Some((int_e, float_e, flip)) = mixed_cmp {
+                if let Some((int_expr, int_e, float_e, flip)) = mixed_cmp {
+                    let exact = emits_logos_int(int_expr, ecx);
+                    let int_e = if exact {
+                        super::precedence::operand(&int_e, super::precedence::Under::Postfix).into_owned()
+                    } else {
+                        int_e
+                    };
                     let pat = match (op, flip) {
                         (BinaryOpKind::Lt, false) | (BinaryOpKind::Gt, true) => {
                             "Some(core::cmp::Ordering::Less)"
@@ -5208,6 +6233,12 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                         (BinaryOpKind::GtEq, false) | (BinaryOpKind::LtEq, true) => {
                             "Some(core::cmp::Ordering::Greater | core::cmp::Ordering::Equal)"
                         }
+                        (BinaryOpKind::Eq, _) if exact => {
+                            return format!("({int_e}.cmp_real({float_e}) == Some(core::cmp::Ordering::Equal))");
+                        }
+                        (BinaryOpKind::NotEq, _) if exact => {
+                            return format!("({int_e}.cmp_real({float_e}) != Some(core::cmp::Ordering::Equal))");
+                        }
                         (BinaryOpKind::Eq, _) => {
                             return format!("logos_i64_eq_f64({}, {})", int_e, float_e);
                         }
@@ -5216,15 +6247,18 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                         }
                         _ => unreachable!("is_cmp covers exactly the six comparison ops"),
                     };
+                    if exact {
+                        return format!("matches!({int_e}.cmp_real({float_e}), {pat})");
+                    }
                     return format!(
                         "matches!(logos_cmp_i64_f64({}, {}), {})",
                         int_e, float_e, pat
                     );
                 }
                 if left_type == "f64" && right_type != "f64" {
-                    return format!("({} {} (({}) as f64))", left_str, op_str, right_str);
+                    return format!("({} {} {})", left_str, op_str, real_operand(right, &right_str, ecx));
                 } else if right_type == "f64" && left_type != "f64" {
-                    return format!("((({}) as f64) {} {})", left_str, op_str, right_str);
+                    return format!("({} {} {})", real_operand(left, &left_str, ecx), op_str, right_str);
                 }
 
                 // Under a `wordN(...)` truncation the result is mod 2^N, so Int add/sub/mul lower to raw
@@ -5234,6 +6268,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 if ecx.int_wrapping
                     && left_type == "i64"
                     && right_type == "i64"
+                    && !mentions_bigint_var(expr, variable_types)
                     && !ecx.int_index_context
                     && matches!(
                         op,
@@ -5253,7 +6288,12 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     // only use is this op) is an ambiguous `{integer}` in the emitted Rust, and
                     // `wrapping_add` exists on every integer type → E0689. `as i64` is a no-op on an
                     // already-i64 value and resolves the method. The result is i64, as before.
-                    return format!("(({}) as i64).{}({})", l, method, r);
+                    return format!(
+                        "{}.{}({})",
+                        super::precedence::cast(&l, "i64"),
+                        method,
+                        super::precedence::standalone(&r)
+                    );
                 }
 
                 // Overflow ruling v2 (stage 2): compiled Int arithmetic is EXACT.
@@ -5274,8 +6314,11 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 // OTHER operand's type is unknown (e.g. a `while`→`for` loop counter that was never
                 // registered): the result must stay `LogosInt`, and a raw `LogosInt * i64` has no
                 // operator. `logos_*_exact` takes `impl Into<LogosInt>`, so a bare `i64` flows in.
-                let has_bigint_operand = mentions_bigint_var(left, variable_types)
-                    || mentions_bigint_var(right, variable_types);
+                // An operation over a `Real` is a real one, whatever exact `Int` feeds it.
+                let has_bigint_operand = (mentions_bigint_var(left, variable_types)
+                    || mentions_bigint_var(right, variable_types))
+                    && left_type != "f64"
+                    && right_type != "f64";
 
                 // ★ BIT OPERATIONS ACT ON MACHINE WORDS. `semantics::arith::binary_op` defines `|`, `^`,
                 // `<<` and `>>` on two `Int`s alone, and `&` also on a big integer that is not negative
@@ -5332,7 +6375,13 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                             code
                         }
                     };
-                    return format!("({} {} {})", word(left, l), op_str, word(right, r));
+                    return word_binary(*op, op_str, &word(left, l), &word(right, r), left, right);
+                }
+                // Bit operations act on words: in an exact context, operands no exact value reaches are the words they are.
+                if is_bitwise && ecx.int_exact_tolerant && int_operand(left, left_type) && int_operand(right, right_type) {
+                    let word = ExprCtx { int_exact_tolerant: false, ..*ecx };
+                    let (l, r) = (codegen_expr_ctx(left, &word), codegen_expr_ctx(right, &word));
+                    return word_binary(*op, op_str, &l, &r, left, right);
                 }
                 if is_exactable
                     && (left_type == "i64" && right_type == "i64" || has_bigint_operand)
@@ -5345,20 +6394,17 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                             format!("{}.expect_i64(\"Int\")", e)
                         }
                     };
-                    // `/` and `%` by a NONZERO literal can never overflow i64
-                    // (a remainder is bounded by the divisor; a quotient shrinks
-                    // — the sole exception `i64::MIN / -1` is excluded) and can
-                    // never divide by zero, so raw matches the interpreter and
-                    // keeps the mod-pow2 strength reduction (`x % 1024 → x & 1023`)
-                    // legible. A zero (or `-1` for `/`) literal falls through to
-                    // the checked helper for the canonical loud error.
+                    // `/` and `%` by a literal other than 0 and -1 can never overflow i64
+                    // (a remainder is bounded by the divisor; a quotient shrinks) and can
+                    // never divide by zero, so raw matches the interpreter and keeps the
+                    // mod-pow2 strength reduction (`x % 1024 → x & 1023`) legible. A zero
+                    // or `-1` literal falls through to the checked helper: the canonical
+                    // loud error, `i64::MIN / -1`'s exact quotient, `i64::MIN % -1`'s 0.
                     if let Expr::Literal(Literal::Number(d)) = right {
-                        let safe_div = matches!(op, BinaryOpKind::Divide) && *d != 0 && *d != -1;
-                        let safe_mod = matches!(op, BinaryOpKind::Modulo) && *d != 0;
                         // A promoted (`LogosInt`) dividend has no raw `/`/`%` operator and may exceed
                         // i64, so it must use the exact helper below rather than this raw fast-path —
                         // including a dividend whose own inner sub-op promotes (`emits_pure_i64`).
-                        if (safe_div || safe_mod)
+                        if word_safe_literal_divisor(*op, *d)
                             && !has_bigint_operand
                             && emits_pure_i64(left, ecx)
                         {
@@ -5385,7 +6431,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     {
                         match const_exact_int(*op, *a, *b) {
                             Some(ConstExact::InRange) => {
-                                return format!("({} {} {})", left_str, op_str, right_str);
+                                return word_binary(*op, op_str, &left_str, &right_str, left, right);
                             }
                             Some(ConstExact::Promoted(lit)) => return narrow(lit),
                             // A constant zero divisor falls to the runtime
@@ -5401,7 +6447,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                         // (`LogosInt`, no arithmetic operators) the exact helper below is the only
                         // valid lowering, even when the result provably fits i64 — the Oracle can
                         // prove THIS sum in range while an inner sub-sum promotes (E0369 otherwise).
-                        return format!("({} {} {})", left_str, op_str, right_str);
+                        return word_binary(*op, op_str, &left_str, &right_str, left, right);
                     }
                     // A root-NARROWED op (non-tolerant, no promoted operand)
                     // has two register-shaped exact lowerings that skip the
@@ -5472,11 +6518,45 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     };
                     let l = codegen_expr_ctx(left, &tol);
                     let r = codegen_expr_ctx(right, &tol);
-                    return narrow(format!("{}({}, {})", helper, l, r));
+                    return narrow(format!("{}({}, {})", helper, super::precedence::standalone(&l), super::precedence::standalone(&r)));
                 }
             }
 
-            format!("({} {} {})", left_str, op_str, right_str)
+            // An `Int` operation the exact-tolerant context reaches beside an operand whose type the emitter cannot
+            // name (a call the optimizer synthesized) combines exactly: its `Int` side may already be a `LogosInt`.
+            if ecx.int_exact_tolerant
+                && !ecx.int_index_context
+                && matches!(
+                    op,
+                    BinaryOpKind::Add
+                        | BinaryOpKind::Subtract
+                        | BinaryOpKind::Multiply
+                        | BinaryOpKind::Divide
+                        | BinaryOpKind::Modulo
+                )
+                && matches!(
+                    (
+                        numeric_type_through_arith(left, interner, variable_types),
+                        numeric_type_through_arith(right, interner, variable_types)
+                    ),
+                    ("i64", "unknown") | ("unknown", "i64")
+                )
+            {
+                let helper = match op {
+                    BinaryOpKind::Add => "logos_add_exact",
+                    BinaryOpKind::Subtract => "logos_sub_exact",
+                    BinaryOpKind::Multiply => "logos_mul_exact",
+                    BinaryOpKind::Divide => "logos_div_exact",
+                    _ => "logos_rem_exact",
+                };
+                return format!(
+                    "{helper}({}, {})",
+                    super::precedence::standalone(&left_str),
+                    super::precedence::standalone(&right_str)
+                );
+            }
+
+            word_binary(*op, op_str, &left_str, &right_str, left, right)
         }
 
         Expr::Call { function, args } => {
@@ -5500,10 +6580,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
             // guide teaches emitted a call to Rust's `format!` MACRO as a function and the program
             // did not build. A program that defines its own `format` keeps it (declarer wins).
             if raw_name == "format" && args.len() == 1 && !program_defines_function(*function) {
-                return format!(
-                    "logicaffeine_system::io::show_string(&({}))",
-                    recurse!(&args[0])
-                );
+                return format!("logicaffeine_system::io::show_string({})", lent_to_show(&recurse!(&args[0])));
             }
             // `length(x)` and `copy(x)` are the call spellings of `length of x` and `copy of x`: each
             // emits exactly what its dedicated node emits. A program's own `length`/`copy` wins.
@@ -5550,11 +6627,13 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                             } else {
                                 "rotate_right"
                             };
+                            let word = super::precedence::cast(&recurse!(&args[0]), &format!("u{w}"));
+                            let count = super::precedence::cast(&recurse!(&args[1]), "u32");
                             return format!(
-                                "(({} as u{w}).{}(({}) as u32) as i64)",
-                                recurse!(&args[0]),
+                                "({}.{}({}) as i64)",
+                                word,
                                 m,
-                                recurse!(&args[1])
+                                super::precedence::standalone(&count)
                             );
                         }
                     }
@@ -5580,6 +6659,10 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 }
             }
             let args_str: Vec<String> = call_arguments(*function, args, ecx);
+            // A call of the runtime's word and lane functions, written from its row ([`super::word_calls`]).
+            if let Some(call) = super::word_calls::by_name(raw_name, args_str.len()) {
+                return call.lower(&args_str);
+            }
             // Builtin math functions → Rust method call syntax
             match raw_name {
                 // stdlib `indexOf`/`countSub` (Text substring search) → the
@@ -5626,7 +6709,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     format!("({}).sqrt()", args_str[0])
                 }
                 "sqrt" if args_str.len() == 1 => {
-                    format!("(({}) as f64).sqrt()", args_str[0])
+                    format!("{}.sqrt()", typed_receiver(&args[0], &args_str[0], "f64", interner, variable_types))
                 }
                 "conjugate"
                     if args_str.len() == 1
@@ -5649,7 +6732,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 }
                 "re" if args_str.len() == 1 => {
                     // A real number IS its real part.
-                    format!("(({}) as f64)", args_str[0])
+                    super::precedence::cast(&args_str[0], "f64")
                 }
                 "im" if args_str.len() == 1
                     && (is_complexf_expr(&args[0], variable_types, interner)
@@ -5676,23 +6759,17 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 // `fill_clone` slots (the element evaluates once).
                 "repeatSeq" if args_str.len() == 2 => {
                     format!(
-                        "{{ let __rp_x = ({}); let __rp_n = (({}) as i64).max(0) as usize; \
+                        "{{ let __rp_x = {}; let __rp_n = {}.max(0) as usize; \
                          let mut __rp = Vec::with_capacity(__rp_n); \
                          for _ in 0..__rp_n {{ __rp.push(logicaffeine_data::deep_copy!(__rp_x)); }} \
                          LogosSeq::from_vec(__rp) }}",
-                        args_str[0], args_str[1]
+                        super::precedence::standalone(&args_str[0]),
+                        super::precedence::cast(&into_word(args[1], args_str[1].clone(), variable_types), "i64")
                     )
                 }
                 // `{a, b, …}` set literal — elements into the Set repr
                 // (hash-set semantics: dedup by value equality).
-                "setOf" if !args_str.is_empty() => {
-                    let mut s = String::from("{ let mut __set_lit = Set::default(); ");
-                    for a in &args_str {
-                        s.push_str(&format!("__set_lit.insert({}); ", a));
-                    }
-                    s.push_str("__set_lit }");
-                    s
-                }
+                "setOf" if !args_str.is_empty() => format!("Set::from_iter([{}])", args_str.join(", ")),
                 // Exact base-10: `decimal_of` takes the argument by its Rust type (Text is read, an Int
                 // widens, a Decimal is itself, any other kind fails with the engines' sentence).
                 "decimal" if args_str.len() == 1 => {
@@ -5702,7 +6779,15 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 // `sqrt`); two exact reals stay an exact `LogosComplex` (integers embed as `n/1`).
                 "complex" if args_str.len() == 2 => {
                     if complex_call_is_float(args, variable_types, interner) {
-                        format!("LogosComplexF::new(({}) as f64, ({}) as f64)", args_str[0], args_str[1])
+                        // A part already a `Real` is the `f64` it is; any other is cast to one.
+                        let part = |i: usize| {
+                            if infer_numeric_type(&args[i], interner, variable_types) == "f64" {
+                                super::precedence::standalone(&args_str[i]).to_string()
+                            } else {
+                                super::precedence::standalone(&super::precedence::cast(&args_str[i], "f64")).to_string()
+                            }
+                        };
+                        format!("LogosComplexF::new({}, {})", part(0), part(1))
                     } else {
                         let re = rational_operand(&args[0], &args_str[0], variable_types);
                         let im = rational_operand(&args[1], &args_str[1], variable_types);
@@ -5711,7 +6796,11 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 }
                 // A ℤ/nℤ element from a value and a modulus (both integers).
                 "modular" if args_str.len() == 2 => {
-                    format!("LogosModular::new(({}) as i64, ({}) as i64)", args_str[0], args_str[1])
+                    format!(
+                        "LogosModular::new({}, {})",
+                        super::precedence::standalone(&super::precedence::cast(&into_word(args[0], args_str[0].clone(), variable_types), "i64")),
+                        super::precedence::standalone(&super::precedence::cast(&into_word(args[1], args_str[1].clone(), variable_types), "i64"))
+                    )
                 }
                 // A dimensioned quantity from an exact magnitude and a unit name (`quantity(2, "inch")`).
                 // The magnitude rides the rational tower (integers embed as `n/1`), so it never truncates.
@@ -5798,7 +6887,10 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 // `chr(code)` → a one-char String (the char code → text; used building the canonical
                 // UUID hex in Logos). Fully qualified — it lives in the `text` submodule, not the glob.
                 "chr" if args_str.len() == 1 => {
-                    format!("logicaffeine_system::text::chr(({}) as i64)", args_str[0])
+                    format!(
+                        "logicaffeine_system::text::chr({})",
+                        super::precedence::standalone(&super::precedence::cast(&into_word(args[0], args_str[0].clone(), variable_types), "i64"))
+                    )
                 }
                 // `parseInt`/`parseFloat(text)` → i64/f64. Like `chr`, they live in the `text`
                 // submodule (not the crate-root glob), so the call MUST be fully qualified — a bare
@@ -5863,138 +6955,21 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 "local_instant" if args_str.len() == 2 => {
                     format!("({}).local_instant(&({}).to_string())", args_str[0], args_str[1])
                 }
-                // SHA-1 SHA-NI lane (`Lanes4Word32` = one `__m128i`): pack/unpack + the four SHA ops,
-                // which lower to the `sha1rnds4`/`sha1msg1/2`/`sha1nexte` hardware instructions.
-                "lanes4Word32" if args_str.len() == 1 => {
-                    format!("lanes4_word32(&({}))", args_str[0])
-                }
-                "lanes4Of" if args_str.len() == 4 => {
-                    format!("lanes4_of({}, {}, {}, {})", args_str[0], args_str[1], args_str[2], args_str[3])
-                }
-                // Byte-shuffle lane (`Lanes16Word8`): pshufb + per-byte shift + interleaves — the SIMD
-                // hex codec written in Logos lowers to these.
-                "lanes16Word8" if args_str.len() == 1 => format!("lanes16_word8(&({}))", args_str[0]),
-                "seqOfLanes16W8" if args_str.len() == 1 => format!("seq_of_lanes16w8({})", args_str[0]),
-                "splat16Word8" if args_str.len() == 1 => format!("splat16_word8({})", args_str[0]),
-                "shuffle16" if args_str.len() == 2 => {
-                    format!("shuffle16({}, {})", args_str[0], args_str[1])
-                }
-                "shrBytes16" if args_str.len() == 2 => {
-                    format!("shr_bytes16({}, {})", args_str[0], args_str[1])
-                }
-                "interleaveLo16" if args_str.len() == 2 => {
-                    format!("interleave_lo16({}, {})", args_str[0], args_str[1])
-                }
-                "interleaveHi16" if args_str.len() == 2 => {
-                    format!("interleave_hi16({}, {})", args_str[0], args_str[1])
-                }
-                "byteAdd16" if args_str.len() == 2 => {
-                    format!("byte_add16({}, {})", args_str[0], args_str[1])
-                }
-                "maddubs16" if args_str.len() == 2 => {
-                    format!("maddubs16({}, {})", args_str[0], args_str[1])
-                }
-                "packus16" if args_str.len() == 2 => {
-                    format!("packus16({}, {})", args_str[0], args_str[1])
-                }
-                "seqOfLanes4W32" if args_str.len() == 1 => {
-                    format!("seq_of_lanes4w32({})", args_str[0])
-                }
-                "sha1rnds4" if args_str.len() == 3 => {
-                    format!("sha1rnds4({}, {}, {})", args_str[0], args_str[1], args_str[2])
-                }
-                "sha1msg1" if args_str.len() == 2 => {
-                    format!("sha1msg1({}, {})", args_str[0], args_str[1])
-                }
-                "sha1msg2" if args_str.len() == 2 => {
-                    format!("sha1msg2({}, {})", args_str[0], args_str[1])
-                }
-                "sha1nexte" if args_str.len() == 2 => {
-                    format!("sha1nexte({}, {})", args_str[0], args_str[1])
-                }
-                // SIMD lane vector: pack a Seq of Word32 into one `__m256i`, or read its lanes back.
-                "lanes8Word32" if args_str.len() == 1 => {
-                    format!("lanes8_word32(&({}))", args_str[0])
-                }
-                "seqOfLanes8" if args_str.len() == 1 => {
-                    format!("seq_of_lanes8({})", args_str[0])
-                }
-                "splat8Word32" if args_str.len() == 1 => {
-                    format!("splat8_word32({})", args_str[0])
-                }
-                "intOfWord32" if args_str.len() == 1 => {
-                    format!("int_of_word32({})", args_str[0])
-                }
-                "intOfWord64" if args_str.len() == 1 => {
-                    format!("int_of_word64({})", args_str[0])
-                }
-                "word64Shl" if args_str.len() == 2 => {
-                    format!("word64_shl({}, {})", args_str[0], args_str[1])
-                }
-                "word64Shr" if args_str.len() == 2 => {
-                    format!("word64_shr({}, {})", args_str[0], args_str[1])
-                }
-                "word32Shr" if args_str.len() == 2 => {
-                    format!("word32_shr({}, {})", args_str[0], args_str[1])
-                }
-                "word64And" if args_str.len() == 2 => {
-                    format!("word64_and({}, {})", args_str[0], args_str[1])
-                }
-                "word16" if args_str.len() == 1 => {
-                    format!("word16({})", args_str[0])
-                }
-                "intOfWord16" if args_str.len() == 1 => {
-                    format!("int_of_word16({})", args_str[0])
-                }
-                "word8" if args_str.len() == 1 => {
-                    format!("word8({})", args_str[0])
-                }
-                "intOfWord8" if args_str.len() == 1 => {
-                    format!("int_of_word8({})", args_str[0])
-                }
-                "lanes4Word64" if args_str.len() == 1 => {
-                    format!("lanes4_word64(&({}))", args_str[0])
-                }
-                "seqOfLanes4" if args_str.len() == 1 => {
-                    format!("seq_of_lanes4({})", args_str[0])
-                }
-                "mul32x32to64" if args_str.len() == 2 => {
-                    format!("mul32x32to64({}, {})", args_str[0], args_str[1])
-                }
-                "hsumLanes4" if args_str.len() == 1 => {
-                    format!("hsum_lanes4({})", args_str[0])
-                }
-                "splat4Word64" if args_str.len() == 1 => {
-                    format!("splat4_word64({})", args_str[0])
-                }
-                "andNot4" if args_str.len() == 2 => {
-                    format!("and_not4({}, {})", args_str[0], args_str[1])
-                }
-                "lanes16Word16" if args_str.len() == 1 => {
-                    format!("lanes16_word16(&({}))", args_str[0])
-                }
-                "seqOfLanes16" if args_str.len() == 1 => {
-                    format!("seq_of_lanes16({})", args_str[0])
-                }
-                "splat16Word16" if args_str.len() == 1 => {
-                    format!("splat16_word16({})", args_str[0])
-                }
-                "mulhi16" if args_str.len() == 2 => {
-                    format!("mulhi16({}, {})", args_str[0], args_str[1])
-                }
-                "montmul32" if args_str.len() == 4 => {
-                    format!("montmul32({}, {}, {}, {})", args_str[0], args_str[1], args_str[2], args_str[3])
-                }
                 // Method calls so Rust resolves the right lane impl by type (Lanes16Word16 i16 NTT
                 // strides 8/4/2; Lanes8Word32 i32 NTT strides 4/2/1).
                 "nttBcastLo" if args_str.len() == 2 => {
-                    format!("({}).ntt_bcast_lo(({}) as usize)", args_str[0], args_str[1])
+                    format!("{}.ntt_bcast_lo({})", lane_receiver(&args_str[0]), as_usize(&args_str[1]))
                 }
                 "nttBcastHi" if args_str.len() == 2 => {
-                    format!("({}).ntt_bcast_hi(({}) as usize)", args_str[0], args_str[1])
+                    format!("{}.ntt_bcast_hi({})", lane_receiver(&args_str[0]), as_usize(&args_str[1]))
                 }
                 "nttBlend" if args_str.len() == 3 => {
-                    format!("({}).ntt_blend({}, ({}) as usize)", args_str[0], args_str[1], args_str[2])
+                    format!(
+                        "{}.ntt_blend({}, {})",
+                        lane_receiver(&args_str[0]),
+                        super::precedence::standalone(&args_str[1]),
+                        as_usize(&args_str[2])
+                    )
                 }
                 // Modular exponentiation: `pow(m, e)` where the base is a ℤ/nℤ element.
                 "pow" if args_str.len() == 2 && is_modular_expr(&args[0], variable_types, interner) => {
@@ -6025,24 +7000,54 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     format!("({}).abs()", args_str[0])
                 }
                 "abs" if args_str.len() == 1 => {
-                    let arg_type = infer_numeric_type(&args[0], interner, variable_types);
-                    if arg_type == "f64" {
-                        format!("(({}) as f64).abs()", args_str[0])
-                    } else {
-                        format!("(({}) as i64).abs()", args_str[0])
+                    let field = record_field_rust_type(&args[0], interner, variable_types, ecx.registry);
+                    let real = field.as_deref() == Some("f64") || infer_numeric_type(&args[0], interner, variable_types) == "f64";
+                    let ty = if real { "f64" } else { "i64" };
+                    // An `Int`'s magnitude is exact where an exact value is taken, and checked into the word anywhere
+                    // else: the magnitude of the least word is past it.
+                    if !real {
+                        let held = super::precedence::operand(&args_str[0], super::precedence::Under::Postfix);
+                        return match (emits_logos_int(&args[0], ecx), ecx.int_exact_tolerant) {
+                            (true, true) => format!("{held}.abs()"),
+                            (true, false) => format!("{held}.abs().expect_i64(\"Int\")"),
+                            (false, true) => format!(
+                                "logicaffeine_data::LogosInt::from({}).abs()",
+                                super::precedence::standalone(&args_str[0])
+                            ),
+                            (false, false) => format!("logos_abs_i64({})", super::precedence::standalone(&args_str[0])),
+                        };
                     }
+                    let receiver = if field.as_deref() == Some(ty) {
+                        super::precedence::operand(&args_str[0], super::precedence::Under::Postfix).into_owned()
+                    } else {
+                        typed_receiver(&args[0], &args_str[0], ty, interner, variable_types)
+                    };
+                    format!("{receiver}.abs()")
                 }
                 "floor" if args_str.len() == 1 => {
-                    format!("((({}) as f64).floor() as i64)", args_str[0])
+                    format!(
+                        "({}.floor() as i64)",
+                        typed_receiver(&args[0], &args_str[0], "f64", interner, variable_types)
+                    )
                 }
                 "ceil" if args_str.len() == 1 => {
-                    format!("((({}) as f64).ceil() as i64)", args_str[0])
+                    format!(
+                        "({}.ceil() as i64)",
+                        typed_receiver(&args[0], &args_str[0], "f64", interner, variable_types)
+                    )
                 }
                 "round" if args_str.len() == 1 => {
-                    format!("((({}) as f64).round() as i64)", args_str[0])
+                    format!(
+                        "({}.round() as i64)",
+                        typed_receiver(&args[0], &args_str[0], "f64", interner, variable_types)
+                    )
                 }
                 "pow" if args_str.len() == 2 => {
-                    format!("((({}) as f64).powf(({}) as f64))", args_str[0], args_str[1])
+                    format!(
+                        "{}.powf({})",
+                        typed_receiver(&args[0], &args_str[0], "f64", interner, variable_types),
+                        super::precedence::standalone(&super::precedence::cast(&args_str[1], "f64"))
+                    )
                 }
                 method @ ("min" | "max") if args_str.len() == 2 => {
                     // A Real on either side makes the whole call Real, as the VM promotes it: both
@@ -6054,6 +7059,20 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                             "logicaffeine_data::logos_{}_f64(({}) as f64, ({}) as f64)",
                             method, args_str[0], args_str[1]
                         )
+                    } else if ecx.int_exact_tolerant || args.iter().any(|a| mentions_bigint_var(a, variable_types)) {
+                        // Where an exact value is taken, or beside an exact operand: the lesser or greater of the two
+                        // exact values, narrowed into the word where a word is taken.
+                        let tolerant = ExprCtx { int_exact_tolerant: true, ..*ecx };
+                        let exact: Vec<String> = args
+                            .iter()
+                            .map(|a| as_logos_int(a, interner, variable_types, || codegen_expr_ctx(a, &tolerant)))
+                            .collect();
+                        let chosen = format!("std::cmp::{method}({}, {})", exact[0], exact[1]);
+                        if ecx.int_exact_tolerant {
+                            chosen
+                        } else {
+                            format!("{chosen}.expect_i64(\"Int\")")
+                        }
                     } else {
                         format!("({}).{}({})", args_str[0], method, args_str[1])
                     }
@@ -6130,26 +7149,29 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
             } else {
                 let at = logos_index_str(index, ecx, variable_types, interner);
                 let item = item_accessor(index, ecx.oracle, false);
-                format!("{}.{}({})[{}]", tag.backing, item, at, tag.col)
+                format!("{}.{}({})[{}]", tag.backing, item, super::precedence::standalone(&at), tag.col)
             }
         }
 
         Expr::Index { collection, index } => {
+            if super::int_vec::is_int_vec(collection, variable_types) {
+                return super::int_vec::item(collection, index, ecx);
+            }
             let coll_str = recurse!(collection);
+            // A map another expression gives (a record's field, a function's result) is the map its value is.
+            let valued_map = match collection {
+                Expr::Identifier(_) => None,
+                _ => value_rust_type(collection, variable_types, ecx.registry, interner)
+                    .filter(|t| super::types::is_owned_map(t)),
+            };
             // Direct indexing for known collection types (avoids trait dispatch)
             // Strip |__hl: hoisting suffix so type parsing (strip_suffix, etc.) works correctly.
-            // A collection no binding names — a call's result — is a map when the program declares it one, and is
-            // read by key as a named map is.
-            let returned_map = match collection {
-                Expr::Identifier(_) => None,
-                _ => value_rust_type(collection, variable_types, ecx.registry, interner).filter(|t| is_logos_map_type(t)),
-            };
             let known_type = if let Expr::Identifier(sym) = collection {
                 variable_types
                     .get(sym)
                     .map(|s| s.split("|__hl:").next().unwrap_or(s.as_str()))
             } else {
-                returned_map.as_deref()
+                valued_map.as_deref()
             };
             // A map entry, `(key, value)`, read at a constant index: the key or the value itself, of its own type.
             if let (Some(t), Expr::Literal(Literal::Number(n))) = (known_type, index) {
@@ -6192,7 +7214,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                         format!("unsafe {{ {}.get_unchecked({}) }}", coll_str, offset)
                     } else {
                         let at = logos_index_str(index, ecx, variable_types, interner);
-                        format!("{}.item({})", coll_str, at)
+                        format!("{}.item({})", coll_str, super::precedence::standalone(&at))
                     }
                 }
                 Some(t)
@@ -6211,27 +7233,19 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     // A byte view and a narrowed (`Vec<i32>`) sequence widen to the i64 the rest of the
                     // program expects (lossless).
                     if item_read_widens(t) {
-                        format!("(({}) as i64)", read)
+                        super::precedence::cast(&read, "i64")
                     } else {
                         read
                     }
                 }
                 Some(t) if t.starts_with("&[") || t.starts_with("&mut [") || t.starts_with('[') => {
-                    // A slice (&[T] / &mut [T]) or an O3 fixed array [T; N].
-                    let elem = if t.starts_with('[') {
-                        t.trim_start_matches('[').split("; ").next().unwrap_or("_")
-                    } else {
-                        t.strip_prefix("&mut [")
-                            .or_else(|| t.strip_prefix("&["))
-                            .and_then(|s| s.strip_suffix(']'))
-                            .unwrap_or("_")
-                    };
-                    let copy = is_copy_type(elem);
+                    // A slice (&[T] / &mut [T]), an O3 fixed array [T; N], or a reference to one.
+                    let copy = super::types::collection_element_type(t).is_some_and(is_copy_type);
                     let read = indexed_read(&coll_str, collection, index, copy, ecx);
                     // A narrowed slice (`&[i32]`/`&mut [i32]`, from a hoisted
                     // `Vec<i32>`) sign-extends to i64 (lossless).
                     if item_read_widens(t) {
-                        format!("(({}) as i64)", read)
+                        super::precedence::cast(&read, "i64")
                     } else {
                         read
                     }
@@ -6242,10 +7256,21 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     if let Some(probe) = super::probe::read(collection, index) {
                         return probe;
                     }
+                    // A Text literal key is looked up as the text it is, borrowed: no `String` is made for it.
+                    if let Expr::Literal(Literal::Text(key)) = index {
+                        if super::types::map_entry_types(t).is_some_and(|(k, _)| k.trim() == "String") {
+                            return format!(
+                                "{{ let __key: &str = \"{}\"; logicaffeine_data::failure::found({}.get(__key), __key) }}",
+                                super::stmt::rust_string_escape(interner.resolve(*key)),
+                                coll_str
+                            );
+                        }
+                    }
                     let index_str = irecurse!(index);
                     format!(
-                        "{{ let __key = &({}); logicaffeine_data::failure::found({}.get(__key), __key) }}",
-                        index_str, coll_str
+                        "{{ {} logicaffeine_data::failure::found({}.get(__key), __key) }}",
+                        bound_key(t, &index_str),
+                        coll_str
                     )
                 }
                 Some(t)
@@ -6256,25 +7281,27 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 {
                     let index_str = irecurse!(index);
                     format!(
-                        "{{ let __key = &({}); logicaffeine_data::failure::found({}.get(__key).cloned(), __key) }}",
-                        index_str, coll_str
+                        "{{ {} logicaffeine_data::failure::found({}.get(__key).cloned(), __key) }}",
+                        bound_key(t, &index_str),
+                        coll_str
                     )
                 }
                 Some("String") => {
                     let index_str = irecurse!(index);
-                    format!("LogosIndex::logos_get(&{}, {})", coll_str, index_str)
+                    format!("LogosIndex::logos_get(&{}, {})", coll_str, super::precedence::standalone(&index_str))
                 }
                 // A collection no type reaches takes its key by value: a key that is not `Copy` goes in as a copy, so
                 // the program still holds the one it reads again.
                 _ => {
-                    let index_str = irecurse!(index);
-                    let key = match index {
-                        Expr::Identifier(sym) if variable_types.get(sym).is_some_and(|t| !is_copy_type(t)) => {
-                            format!("{index_str}.clone()")
-                        }
-                        _ => index_str,
+                    // An index read from a field stored exact names its item as the word it must be.
+                    let index_str = if reads_exact_field(index, ecx) {
+                        super::rational::integer_operand(index, crate::semantics::collections::IntegerPlace::ListRead, ecx)
+                            .unwrap_or_else(|| irecurse!(index))
+                    } else {
+                        irecurse!(index)
                     };
-                    format!("LogosIndex::logos_get(&{}, {})", coll_str, key)
+                    let key = key_by_value(index, index_str, ecx);
+                    format!("LogosIndex::logos_get(&{}, {})", coll_str, super::precedence::standalone(&key))
                 }
             }
         }
@@ -6389,10 +7416,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
         Expr::Length {
             collection: Expr::Identifier(sym),
         } if affine_array_trip(variable_types.get(sym)).is_some() => {
-            format!(
-                "(({}) as i64)",
-                affine_array_trip(variable_types.get(sym)).unwrap()
-            )
+            super::precedence::cast(&affine_array_trip(variable_types.get(sym)).unwrap(), "i64")
         }
 
         // AoS-interleaved member: its length is the backing's fixed row count.
@@ -6403,6 +7427,9 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
         }
 
         Expr::Length { collection } => {
+            if super::int_vec::is_int_vec(collection, variable_types) {
+                return super::int_vec::length(collection, ecx);
+            }
             if let Expr::Identifier(sym) = collection {
                 if let Some(t) = variable_types.get(sym) {
                     if let Some(pos) = t.find("|__hl:") {
@@ -6419,11 +7446,22 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
         }
 
         Expr::Contains { collection, value } => {
+            if super::int_vec::is_int_vec(collection, variable_types) {
+                return super::int_vec::contains(collection, value, ecx);
+            }
             let coll_str = match collection {
                 Expr::Slice { collection, start, end } => slice_view(collection, start, end, ecx),
                 _ => recurse!(collection),
             };
             let val_str = recurse!(value);
+            // A collection of the program's holds its integers as machine words: an exact one past the word is in none.
+            if emits_logos_int(value, ecx) {
+                return format!(
+                    "{}.to_i64().is_some_and(|__k| {}.logos_contains(&__k))",
+                    super::precedence::operand(&val_str, super::precedence::Under::Postfix),
+                    coll_str
+                );
+            }
             // Numeric-unified map key: a Float indexing an `Int`-keyed map coerces to its Int
             // (`1.0` → key `1`; a non-integral `1.5` matches nothing), mirroring the interpreter's
             // `1 == 1.0` key rule. An `i64`-keyed `logos_contains` otherwise rejects the `f64` operand.
@@ -6478,43 +7516,9 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
         }
 
         Expr::List(ref items) => {
-            // ★ A SEQUENCE LITERAL COPIES ITS ELEMENTS, and `vec![…]` MOVES whatever it names — so
-            // a field read among its elements moves that field out of its record (`[c's env,
-            // c's env]` could not build twice), and a variable named twice, or read again after
-            // the literal, is used after its move. There is no callee signature to consult here,
-            // so the test is the element's own type; when that is unknown the clone is owed
-            // anyway, because ownership is not in doubt at this site the way it is at a call.
-            // `give x` is the explicit move and stays one.
-            //
-            // `analysis/ownership.rs` has no `Expr::List` arm at all, so nothing upstream sees it.
             let item_strs: Vec<String> = items
                 .iter()
-                .map(|i| {
-                    let emitted = recurse!(i);
-                    let bare = match i {
-                        Expr::Copy { expr } => *expr,
-                        other => other,
-                    };
-                    match bare {
-                        Expr::FieldAccess { .. } => {
-                            match record_field_rust_type(
-                                bare,
-                                ecx.interner,
-                                ecx.variable_types,
-                                ecx.registry,
-                            ) {
-                                Some(ty) if !field_read_moves(&ty) => emitted,
-                                _ => format!("{emitted}.clone()"),
-                            }
-                        }
-                        Expr::Identifier(sym)
-                            if identifier_read_moves(*sym, ecx.variable_types) =>
-                        {
-                            format!("{emitted}.clone()")
-                        }
-                        _ => emitted,
-                    }
-                })
+                .map(|i| literal_item(i, recurse!(i), ecx))
                 .collect();
             format!("LogosSeq::from_vec(vec![{}])", item_strs.join(", "))
         }
@@ -6522,7 +7526,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
         Expr::Tuple(ref items) => {
             let item_strs: Vec<String> = items
                 .iter()
-                .map(|i| format!("Value::from({})", recurse!(i)))
+                .map(|i| format!("Value::from({})", super::precedence::standalone(&literal_item(i, recurse!(i), ecx))))
                 .collect();
             // A tuple is a `LogosTuple` (newtype over `Vec<Value>`, Derefs to it so indexing /
             // destructuring / returns are unchanged) — distinct from a Seq so `Show` renders parens.
@@ -6579,7 +7583,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
             let obj_str = recurse!(object);
             format!(
                 "{}.{}",
-                obj_str,
+                through_reference(object, &obj_str),
                 crate::codegen::escape_rust_ident(field_name)
             )
         }
@@ -6616,20 +7620,20 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                         if super::types::program_record_field_type(&type_str, *name)
                             .is_some_and(|t| t == super::tower::VALUE)
                         {
-                            return format!("{}: {}", field_name, super::tower::value(value, ecx));
+                            return super::types::field_init(&field_name, &super::tower::value(value, ecx));
                         }
                         // A field that holds a value-or-nothing stores `nothing`, another whole, or a value present.
                         if let Some(code) = super::types::program_record_field_type(&type_str, *name)
                             .and_then(|t| super::absent::stored(value, &t, ecx))
                         {
-                            return format!("{}: {}", field_name, code);
+                            return super::types::field_init(&field_name, &code);
                         }
                         // An integer stored in a field that holds rationals is the rational it equals.
                         if let Some(code) = super::types::program_record_field_type(&type_str, *name)
                             .filter(|t| t.contains(super::rational::RATIONAL))
                             .and_then(|t| super::rational::value_as(value, &super::rational::named(&t), ecx))
                         {
-                            return format!("{}: {}", field_name, code);
+                            return super::types::field_init(&field_name, &code);
                         }
                         let exact_field = stores_logos_int(*type_name, *name);
                         let value_str = if exact_field {
@@ -6694,7 +7698,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                         // genuinely exceeded `i64` would be silently replaced, trading a loud
                         // build failure for a wrong number.
                         if exact_field {
-                            format!("{}: logicaffeine_data::LogosInt::from({})", field_name, value_str)
+                            super::types::field_init(&field_name, &value_str)
                         } else if lent_by_sharing_binding {
                             format!("{}: {}.deep_clone()", field_name, value_str)
                         } else if borrowed_slice {
@@ -6702,7 +7706,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                         } else if value_semantics_copy {
                             format!("{}: {}.clone()", field_name, value_str)
                         } else {
-                            format!("{}: {}", field_name, value_str)
+                            super::types::field_init(&field_name, &value_str)
                         }
                     })
                     .collect::<Vec<_>>()
@@ -6795,9 +7799,9 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                         };
                         let val = if let Some(sym) = binding {
                             let base_name = if boxed_bindings.contains(sym) {
-                                format!("(*{})", interner.resolve(*sym))
+                                format!("(*{})", names.ident(*sym))
                             } else {
-                                interner.resolve(*sym).to_string()
+                                names.ident(*sym)
                             };
                             let movable = CONSTRUCTION_USES.with(|u| {
                                 let mut uses = u.borrow_mut();
@@ -6824,7 +7828,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                                 format!("{}.clone()", base_name)
                             };
                             if exact(*field_name) {
-                                format!("logicaffeine_data::LogosInt::from({read})")
+                                as_logos_int(value, interner, variable_types, || read)
                             } else {
                                 read
                             }
@@ -6851,7 +7855,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                             });
                         let field = crate::codegen::escape_rust_ident(name);
                         if boxed_fields.contains(&key) || declared_boxed {
-                            (field, format!("Box::new({})", val))
+                            (field, format!("::std::boxed::Box::new({})", val))
                         } else {
                             (field, val)
                         }
@@ -6890,12 +7894,12 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
             match value {
                 // Empty string → String::with_capacity(cap)
                 Expr::Literal(Literal::Text(sym)) if interner.resolve(*sym).is_empty() => {
-                    format!("String::with_capacity(({}) as usize)", cap_str)
+                    format!("String::with_capacity({})", reserved_for(capacity, &cap_str, variable_types))
                 }
                 // Non-empty string → { let mut __s = String::with_capacity(cap); __s.push_str("..."); __s }
                 Expr::Literal(Literal::Text(sym)) => {
                     let text = crate::codegen::stmt::rust_string_escape(interner.resolve(*sym));
-                    format!("{{ let mut __s = String::with_capacity(({}) as usize); __s.push_str(\"{}\"); __s }}", cap_str, text)
+                    format!("{{ let mut __s = String::with_capacity({}); __s.push_str(\"{}\"); __s }}", reserved_for(capacity, &cap_str, variable_types), text)
                 }
                 // Collection Expr::New → Type::with_capacity(cap)
                 Expr::New {
@@ -6905,16 +7909,13 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 } => {
                     let type_str = interner.resolve(*type_name);
                     match type_str {
-                        "Seq" | "List" | "Vec" => {
+                        name if crate::semantics::collections::builds_list(name) => {
                             let elem = if !type_args.is_empty() {
                                 codegen_type_expr(&type_args[0], interner)
                             } else {
                                 "()".to_string()
                             };
-                            format!(
-                                "LogosSeq::<{}>::with_capacity(({}) as usize)",
-                                elem, cap_str
-                            )
+                            format!("LogosSeq::<{}>::with_capacity({})", elem, reserved_for(capacity, &cap_str, variable_types))
                         }
                         "Map" | "HashMap" => {
                             let (k, v) = if type_args.len() >= 2 {
@@ -6925,10 +7926,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                             } else {
                                 ("String".to_string(), "String".to_string())
                             };
-                            format!(
-                                "LogosMap::<{}, {}>::with_capacity(({}) as usize)",
-                                k, v, cap_str
-                            )
+                            format!("LogosMap::<{}, {}>::with_capacity({})", k, v, reserved_for(capacity, &cap_str, variable_types))
                         }
                         "Set" | "HashSet" => {
                             let elem = if !type_args.is_empty() {
@@ -6936,7 +7934,11 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                             } else {
                                 "()".to_string()
                             };
-                            format!("{{ let __s: Set<{}> = Set::with_capacity_and_hasher(({}) as usize, Default::default()); __s }}", elem, cap_str)
+                            format!(
+                                "{{ let __s: Set<{}> = Set::with_capacity_and_hasher({}, Default::default()); __s }}",
+                                elem,
+                                reserved_for(capacity, &cap_str, variable_types)
+                            )
                         }
                         _ => recurse!(value), // Unknown type — ignore capacity
                     }
@@ -7003,6 +8005,17 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 HashMap::new()
             };
 
+            // The closure states its result where every value it returns settles on one machine scalar: its
+            // signature is then the whole type of a binding that holds it.
+            let result = if exact {
+                String::new()
+            } else {
+                let mut declared = ecx.variable_types.clone();
+                for (name, ty) in params.iter() {
+                    declared.insert(*name, codegen_type_expr(ty, interner));
+                }
+                closure_result_type(body, interner, &declared).map_or(String::new(), |t| format!(" -> {t}"))
+            };
             match body {
                 ClosureBody::Expression(expr) => {
                     let body_str = if exact {
@@ -7027,7 +8040,11 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                         };
                         codegen_expr_ctx(expr, &bctx)
                     };
-                    format!("move |{}| {{ {} }}", params_str.join(", "), body_str)
+                    format!(
+                        "move |{}|{result} {{ {} }}",
+                        params_str.join(", "),
+                        super::precedence::standalone(&body_str)
+                    )
                 }
                 ClosureBody::Block(stmts) => {
                     let mut body_str = String::new();
@@ -7051,6 +8068,8 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     let empty_boxed = HashSet::new();
                     let empty_registry = TypeRegistry::new();
                     let type_env = crate::analysis::types::TypeEnv::new();
+                    // The closure's last statement ends it: a `Return` there is its value.
+                    ctx.set_tail(stmts.last());
                     for stmt in stmts.iter() {
                         body_str.push_str(&codegen_stmt(
                             stmt,
@@ -7070,7 +8089,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                         ));
                     }
                     format!(
-                        "move |{}| {{\n{}{}}}",
+                        "move |{}|{result} {{\n{}{}}}",
                         params_str.join(", "),
                         body_str,
                         "    "
@@ -7082,7 +8101,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
         Expr::CallExpr { callee, args } => {
             let callee_str = recurse!(callee);
             let args_str: Vec<String> = args.iter().map(|a| recurse!(a)).collect();
-            format!("({})({})", callee_str, args_str.join(", "))
+            format!("({})({})", callee_str, arguments(&args_str))
         }
 
         Expr::InterpolatedString(parts) => codegen_interpolated_string(parts, ecx),
@@ -7090,11 +8109,11 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
         Expr::Not { operand } => {
             // Logical negation of truthiness (`~` is the bitwise complement).
             let operand_str = recurse!(operand);
-            if matches!(
-                infer_logos_type(operand, interner, variable_types),
-                crate::analysis::types::LogosType::Bool
-            ) {
-                format!("!({})", operand_str)
+            if is_bool_valued(operand, interner, variable_types) {
+                format!(
+                    "!{}",
+                    super::precedence::operand(&operand_str, super::precedence::Under::Prefix)
+                )
             } else {
                 format!("(!logos_truthy(&({})))", operand_str)
             }
@@ -7153,8 +8172,10 @@ pub(crate) fn codegen_interpolated_string(
                     fmt_str.push('=');
                 }
                 let arg_str = codegen_expr_ctx(value, ecx);
-                let (piece, arg) =
-                    interpolation_hole(format_spec.map(|s| interner.resolve(s)), &arg_str);
+                let (piece, arg) = interpolation_hole(
+                    format_spec.map(|s| interner.resolve(s)),
+                    &shown(value, &arg_str, ecx.variable_types),
+                );
                 fmt_str.push_str(&piece);
                 args.push(arg);
                 holes.push(value);
@@ -7183,7 +8204,136 @@ pub(crate) fn codegen_interpolated_string(
         }
         format!("::std::string::String::from(\"{}\")", raw)
     } else {
-        format_in_order(&fmt_str, &holes, args)
+        format_in_order(&fmt_str, &holes, args, ecx.variable_types)
+    }
+}
+
+/// The constants of `std::f64::consts`, by name.
+const F64_CONSTANTS: [(&str, f64); 19] = {
+    use std::f64::consts::*;
+    [
+        ("E", E),
+        ("FRAC_1_PI", FRAC_1_PI),
+        ("FRAC_1_SQRT_2", FRAC_1_SQRT_2),
+        ("FRAC_2_PI", FRAC_2_PI),
+        ("FRAC_2_SQRT_PI", FRAC_2_SQRT_PI),
+        ("FRAC_PI_2", FRAC_PI_2),
+        ("FRAC_PI_3", FRAC_PI_3),
+        ("FRAC_PI_4", FRAC_PI_4),
+        ("FRAC_PI_6", FRAC_PI_6),
+        ("FRAC_PI_8", FRAC_PI_8),
+        ("LN_10", LN_10),
+        ("LN_2", LN_2),
+        ("LOG10_2", LOG10_2),
+        ("LOG10_E", LOG10_E),
+        ("LOG2_10", LOG2_10),
+        ("LOG2_E", LOG2_E),
+        ("PI", PI),
+        ("SQRT_2", SQRT_2),
+        ("TAU", TAU),
+    ]
+};
+
+/// The name of the `std::f64::consts` constant `x` is, to the bit.
+pub(crate) fn named_f64_constant(x: f64) -> Option<&'static str> {
+    F64_CONSTANTS
+        .iter()
+        .find(|(_, c)| c.to_bits() == x.to_bits())
+        .map(|(name, _)| *name)
+}
+
+/// Whether `x` lies within a thousandth of a `std::f64::consts` constant without being it: a value the program wrote
+/// for its own sake.
+pub(crate) fn near_f64_constant(x: f64) -> bool {
+    named_f64_constant(x).is_none() && F64_CONSTANTS.iter().any(|(_, c)| (x - c).abs() <= c.abs() * 1e-3)
+}
+
+/// `comparison` as one end of a range over a name — `x >= c` or `c <= x` when `lower`; `x <= c` or `c >= x`, or the
+/// end it excludes, `x < c` or `c > x`, when not: the name's node, the name, the literal `c`, and whether the range
+/// holds `c`.
+fn range_bound<'e>(comparison: &'e Expr<'e>, lower: bool) -> Option<(&'e Expr<'e>, Symbol, i64, bool)> {
+    let Expr::BinaryOp { op, left, right } = comparison else {
+        return None;
+    };
+    let (name, literal, holds) = match (op, lower) {
+        (BinaryOpKind::GtEq, true) | (BinaryOpKind::LtEq, false) => (*left, *right, true),
+        (BinaryOpKind::LtEq, true) | (BinaryOpKind::GtEq, false) => (*right, *left, true),
+        (BinaryOpKind::Lt, false) => (*left, *right, false),
+        (BinaryOpKind::Gt, false) => (*right, *left, false),
+        _ => return None,
+    };
+    match (name, literal) {
+        (Expr::Identifier(x), Expr::Literal(Literal::Number(c))) => Some((name, *x, *c, holds)),
+        _ => None,
+    }
+}
+
+/// Whether `e` is an item of a list of Bools: a bit-packed `LogosBits`, or a list whose items are `bool`.
+fn is_bool_item(e: &Expr, variable_types: &HashMap<Symbol, String>) -> bool {
+    let Expr::Index { collection: Expr::Identifier(list), .. } = e else {
+        return false;
+    };
+    variable_types.get(list).is_some_and(|t| {
+        let t = t.split("|__hl:").next().unwrap_or(t);
+        t == "LogosBits" || super::types::collection_element_type(t) == Some("bool")
+    })
+}
+
+/// Whether the code [`codegen_expr`] writes for `e` has a machine type of its own: some leaf of it is a binding, an
+/// item, a field or a call with a declared result. Literals, joined by operators or by `min`/`max` (written
+/// `a.min(b)`, whose result is its receiver's type), are an integer or float of no type of its own until rustc
+/// defaults it, which an inherent method call does not wait for (`(-42).min(7).abs()` is E0689).
+fn type_fixed(e: &Expr, interner: &Interner) -> bool {
+    match e {
+        Expr::Literal(_) => false,
+        Expr::BinaryOp { left, right, .. } => type_fixed(left, interner) || type_fixed(right, interner),
+        Expr::Call { function, args }
+            if !program_defines_function(*function) && matches!(interner.resolve(*function), "min" | "max") =>
+        {
+            args.iter().any(|a| type_fixed(a, interner))
+        }
+        _ => true,
+    }
+}
+
+/// `code`, the emitted `arg`, as the receiver of a method of `ty`: as it is when it already is a `ty` of its own
+/// ([`type_fixed`]), cast to `ty` otherwise.
+fn typed_receiver(
+    arg: &Expr,
+    code: &str,
+    ty: &str,
+    interner: &Interner,
+    variable_types: &HashMap<Symbol, String>,
+) -> String {
+    if infer_numeric_type(arg, interner, variable_types) == ty && type_fixed(arg, interner) {
+        super::precedence::operand(code, super::precedence::Under::Postfix).into_owned()
+    } else {
+        super::precedence::cast(code, ty)
+    }
+}
+
+/// [`reserved`] for the capacity `capacity`, emitted as `code`: an exact one reserves the word it is, or nothing past
+/// the word.
+pub(crate) fn reserved_for(capacity: &Expr, code: &str, variable_types: &HashMap<Symbol, String>) -> String {
+    if !exact_leaf(capacity, variable_types) {
+        return reserved(code);
+    }
+    let held = match capacity {
+        Expr::Identifier(_) => code.strip_suffix(".clone()").unwrap_or(code),
+        _ => code,
+    };
+    format!(
+        "{}.to_i64().map_or(0, |__c| __c.max(0) as usize)",
+        super::precedence::operand(held, super::precedence::Under::Postfix)
+    )
+}
+
+/// The `usize` a collection reserves for a capacity of `code` items (an `i64`): a capacity is a hint, so a negative
+/// one reserves nothing.
+pub(crate) fn reserved(code: &str) -> String {
+    match super::precedence::standalone(code).parse::<i64>() {
+        Ok(n) => n.max(0).to_string(),
+        Err(_) => format!("{}.max(0) as usize", super::precedence::operand(code, super::precedence::Under::Postfix)),
     }
 }
 
@@ -7201,7 +8351,10 @@ pub(crate) fn codegen_literal(lit: &Literal, interner: &Interner) -> String {
         Literal::Float(f) if f.is_nan() => "f64::NAN".to_string(),
         Literal::Float(f) if f.is_infinite() && *f > 0.0 => "f64::INFINITY".to_string(),
         Literal::Float(f) if f.is_infinite() => "f64::NEG_INFINITY".to_string(),
-        Literal::Float(f) => format!("{}f64", f),
+        Literal::Float(f) => match named_f64_constant(*f) {
+            Some(name) => format!("std::f64::consts::{name}"),
+            None => format!("{}f64", f),
+        },
         // String literals are converted to String for consistent Text type handling
         Literal::Text(sym) => {
             format!(

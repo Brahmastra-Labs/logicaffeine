@@ -124,8 +124,8 @@ pub const DRAM_PROJECT: CaravelProject = CaravelProject {
 };
 
 /// The whole-program engine ([`wpe_caravel`](super::wpe_caravel)): its UART and its PSRAM on user GPIOs, clocked
-/// on `user_clock2` at the clock its UART bit period was derived from, faster than the chip signs its core clock
-/// for. Its ports are held to the harness's minimum input delays
+/// on the harness clock [`WPE_CLOCK`] names at the period its UART bit period was derived from, the one its macro and
+/// wrapper are signed off at. Its ports are held to the harness's minimum input delays
 /// (`flow_config::vehicle_macro_sdc`), so its hold margin is OpenLane's placement default, 0.1 ns: the 0.7 ns the
 /// command player carries buffered 35,656 of the engine's paths.
 pub const WPE_PROJECT: CaravelProject = CaravelProject {

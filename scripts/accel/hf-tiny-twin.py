@@ -17,6 +17,7 @@ Runs in a Python with torch and transformers (LOGOS_PYTHON); the tokenizers come
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -682,6 +683,38 @@ FAMILIES["glm-dsa"] = dict(
 # DeepSeek-V3 as its FP8 release stores it: every projection in e4m3 beside a float32 scale per block (blocks of 16 × 24
 # here, which divide few of the twin's axes, where the release's are 128 × 128).
 FAMILIES["deepseek2-fp8"] = dict(FAMILIES["deepseek2"], fp8_blocks=[16, 24])
+# gpt-oss as OpenAI publishes it: its experts in MXFP4 (`mxfp4_experts`).
+FAMILIES["gpt-oss-mxfp4"] = dict(FAMILIES["gpt-oss"], mxfp4=True)
+# Kimi K2 Thinking as Moonshot publishes it: its routed experts' projections in 4-bit integers, symmetric, a scale a group
+# of 32 inputs, compressed-tensors' `pack-quantized` format (`pack_quantized`).
+FAMILIES["kimi_k2-int4"] = dict(FAMILIES["kimi_k2"], pack_quantized=dict(group=32, symmetric=True, experts_only=True))
+# Qwen3 with every projection in 4-bit integers beside a zero point a group of 32 inputs, as an asymmetric
+# `pack-quantized` release stores them.
+FAMILIES["qwen3-int4"] = dict(FAMILIES["qwen3"], pack_quantized=dict(group=32, symmetric=False, experts_only=False))
+# Qwen3 as llm-compressor's FP8 releases store it (compressed-tensors `float-quantized`): e4m3 codes, a bf16 scale an
+# output channel (`compressed_scaled`); over blocks of 16 × 24, which divide few of the twin's axes, scales in float32;
+# and int8 codes a scale an output channel (`int-quantized`).
+FAMILIES["qwen3-fp8-channel"] = dict(FAMILIES["qwen3"], compressed_scaled=dict(kind="float", strategy="channel"))
+FAMILIES["qwen3-fp8-block"] = dict(FAMILIES["qwen3"], compressed_scaled=dict(kind="float", strategy="block", block=[16, 24],
+                                                                             scale_dtype="float32"))
+FAMILIES["qwen3-int8-channel"] = dict(FAMILIES["qwen3"], compressed_scaled=dict(kind="int", strategy="channel"))
+# Llama as NVIDIA ModelOpt's FP8 export stores it (`modelopt_fp8`), its method stated only in `hf_quant_config.json`.
+FAMILIES["llama-modelopt-fp8"] = dict(FAMILIES["llama"], modelopt_fp8=True)
+# GPTQ (`gptq`): Qwen3 in 4-bit codes, symmetric, in the `gptq` format; Llama in 8-bit codes about zero points, in
+# GPTQModel's `gptq_v2`, its inputs quantized in an order of their own (`desc_act`).
+FAMILIES["qwen3-gptq"] = dict(FAMILIES["qwen3"], gptq=dict(bits=4, group=32, symmetric=True, act_order=False, version="gptq"))
+FAMILIES["llama-gptq"] = dict(FAMILIES["llama"], gptq=dict(bits=8, group=32, symmetric=False, act_order=True,
+                                                         version="gptq_v2"))
+# AutoAWQ's GEMM layout (`awq`): Qwen3 about zero points, Llama without them, a group of 32 inputs. llama.cpp's converter
+# does not read AWQ: the GGUF is its conversion of the directory compressed-tensors converts the twin into
+# (`awq_as_compressed`).
+FAMILIES["qwen3-awq"] = dict(FAMILIES["qwen3"], awq=dict(group=32, zero_point=True))
+FAMILIES["llama-awq"] = dict(FAMILIES["llama"], awq=dict(group=32, zero_point=False))
+# NVFP4 (`nvfp4`): Qwen3-MoE as NVIDIA ModelOpt's exports store it, every expert's projections too (its FFN 64 wide, since
+# NVFP4 packs inputs in sixty-fours), and Llama as compressed-tensors' `nvfp4-pack-quantized` stores it.
+FAMILIES["qwen3moe-nvfp4"] = dict(FAMILIES["qwen3moe"], config=dict(FAMILIES["qwen3moe"]["config"], moe_intermediate_size=64),
+                                  nvfp4="modelopt")
+FAMILIES["llama-nvfp4"] = dict(FAMILIES["llama"], nvfp4="compressed-tensors")
 
 # Qwen3 with its tensors stored in five dtypes at once, as a checkpoint may mix them: each name's dtype by the first
 # rule it meets.
@@ -909,6 +942,390 @@ def fp8_blocks(hf: Path, block) -> None:
     (hf / "config.json").write_text(json.dumps(config, indent=2))
 
 
+# The magnitudes of an E2M1 code, by its low three bits.
+E2M1 = [0.0, 0.5, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0]
+
+
+def mxfp4_experts(hf: Path) -> None:
+    """Every expert projection (`mlp.experts.gate_up_proj`, `mlp.experts.down_proj`) stored as gpt-oss's release stores
+    it: each expert's output rows by blocks of 32 inputs (`<name>_blocks`, `[experts, out, in / 32, 16]`), two E2M1
+    codes a byte with the even element in the low nibble, beside an E8M0 scale per block (`<name>_scales`, its exponent
+    biased by 127): the block's largest magnitude over E2M1's 6 sets the scale's power of two, each element its nearest
+    code. transformers' reader of the release (`convert_moe_packed_tensors`) must decode every table to the values
+    quantized, so the layout is the release's, not this script's reading of it. `quantization_config` names the method
+    and the modules left unquantized, as the release's does."""
+    from safetensors.torch import load_file, save_file
+    from transformers.integrations.mxfp4 import convert_moe_packed_tensors
+    index_path = hf / "model.safetensors.index.json"
+    index = json.loads(index_path.read_text())
+    grid = torch.tensor(E2M1)
+    for shard in sorted(hf.glob("*.safetensors")):
+        tensors = load_file(shard)
+        names = [n for n in tensors if n.endswith("mlp.experts.gate_up_proj") or n.endswith("mlp.experts.down_proj")]
+        for name in names:
+            w = tensors.pop(name).float().transpose(1, 2).contiguous()
+            experts, out, inputs = w.shape
+            blocks = w.reshape(experts, out, inputs // 32, 32)
+            largest = blocks.abs().amax(-1)
+            exponent = torch.where(largest > 0, torch.ceil(torch.log2(largest / 6.0)), torch.zeros_like(largest)).clamp(-127, 127)
+            scaled = blocks / torch.ldexp(torch.ones_like(exponent), exponent.to(torch.int32)).unsqueeze(-1)
+            code = (scaled.abs().unsqueeze(-1) - grid).abs().argmin(-1)
+            code = code | (((scaled < 0) & (code > 0)).to(torch.int64) << 3)
+            tensors[f"{name}_blocks"] = (code[..., 0::2] | (code[..., 1::2] << 4)).to(torch.uint8)
+            tensors[f"{name}_scales"] = (exponent + 127).to(torch.uint8)
+            magnitude = grid[code & 7] * torch.where(code >= 8, -1.0, 1.0)
+            quantized = torch.ldexp(magnitude, exponent.to(torch.int32).unsqueeze(-1)).reshape(experts, out, inputs)
+            decoded = convert_moe_packed_tensors(tensors[f"{name}_blocks"], tensors[f"{name}_scales"], dtype=torch.float32)
+            assert torch.equal(decoded, quantized.transpose(1, 2)), f"{name}: transformers reads other values"
+            del index["weight_map"][name]
+            index["weight_map"][f"{name}_blocks"] = shard.name
+            index["weight_map"][f"{name}_scales"] = shard.name
+        save_file(tensors, shard, metadata={"format": "pt"})
+    index_path.write_text(json.dumps(index, indent=2))
+    config = json.loads((hf / "config.json").read_text())
+    config["quantization_config"] = dict(
+        modules_to_not_convert=["model.layers.*.self_attn", "model.layers.*.mlp.router", "model.embed_tokens", "lm_head"],
+        quant_method="mxfp4",
+    )
+    (hf / "config.json").write_text(json.dumps(config, indent=2))
+
+
+def pack_quantized(hf: Path, group: int, symmetric: bool, experts_only: bool) -> None:
+    """Linear weights stored as compressed-tensors' `pack-quantized` format stores them: 4-bit codes, a scale a group of
+    `group` inputs, eight codes to an int32 word along the input axis (`<name>_packed`), the bf16 scales
+    (`<name>_scale`), the weight's shape (`<name>_shape`) and, asymmetric, a zero point a group packed eight to a word
+    along the output axis (`<name>_zero_point`), each packed by compressed-tensors' own `pack_to_int32` and read back by
+    its `unpack_from_int32`. Symmetric, a group's scale is its largest magnitude over 7.5 and its integers run -8 to 7;
+    asymmetric, the scale spans the group's range over 15 and the zero point carries its minimum to -8. Quantized are
+    the routed experts' projections (`experts_only`, Kimi K2 Thinking's release) or every projection;
+    `quantization_config` is the release's, with this group, symmetry and `ignore` list."""
+    from safetensors.torch import load_file, save_file
+    from compressed_tensors.compressors.pack_quantized.helpers import pack_to_int32, unpack_from_int32
+    index_path = hf / "model.safetensors.index.json"
+    index = json.loads(index_path.read_text())
+    expert = re.compile(r"\.mlp\.experts\.\d+\.(gate|up|down)_proj\.weight$")
+    for shard in sorted(hf.glob("*.safetensors")):
+        tensors = load_file(shard)
+        names = [n for n in tensors if (expert.search(n) if experts_only else n.endswith("_proj.weight") and tensors[n].dim() == 2)]
+        for name in names:
+            w = tensors.pop(name).float()
+            rows, cols = w.shape
+            groups = w.reshape(rows, cols // group, group)
+            if symmetric:
+                scale = (groups.abs().amax(-1) / 7.5).to(torch.bfloat16).float()
+                scale = torch.where(scale > 0, scale, torch.ones_like(scale))
+                integers = torch.clamp(torch.round(groups / scale.unsqueeze(-1)), -8, 7)
+            else:
+                low, high = groups.amin(-1), groups.amax(-1)
+                scale = ((high - low) / 15).to(torch.bfloat16).float()
+                scale = torch.where(scale > 0, scale, torch.ones_like(scale))
+                zero = torch.clamp(torch.round(-low / scale) - 8, -8, 7)
+                integers = torch.clamp(torch.round(groups / scale.unsqueeze(-1)) + zero.unsqueeze(-1), -8, 7)
+                packed_zero = pack_to_int32(zero.to(torch.int8), 4, packed_dim=0).contiguous()
+                assert torch.equal(unpack_from_int32(packed_zero, 4, zero.shape, packed_dim=0), zero.to(torch.int8))
+                tensors[f"{name}_zero_point"] = packed_zero
+            integers = integers.reshape(rows, cols).to(torch.int8)
+            tensors[f"{name}_packed"] = pack_to_int32(integers, 4)
+            assert torch.equal(unpack_from_int32(tensors[f"{name}_packed"], 4, integers.shape), integers)
+            tensors[f"{name}_scale"] = scale.to(torch.bfloat16)
+            tensors[f"{name}_shape"] = torch.tensor([rows, cols], dtype=torch.int32)
+            del index["weight_map"][name]
+            for part in ["packed", "scale", "shape"] + ([] if symmetric else ["zero_point"]):
+                index["weight_map"][f"{name}_{part}"] = shard.name
+        save_file(tensors, shard, metadata={"format": "pt"})
+    index_path.write_text(json.dumps(index, indent=2))
+    config = json.loads((hf / "config.json").read_text())
+    weights = dict(actorder=None, block_structure=None, dynamic=False, group_size=group, num_bits=4, observer="minmax",
+                   observer_kwargs={}, strategy="group", symmetric=symmetric, type="int")
+    config["quantization_config"] = dict(
+        config_groups=dict(group_0=dict(input_activations=None, output_activations=None, targets=["Linear"], weights=weights)),
+        format="pack-quantized",
+        ignore=["lm_head", "re:.*self_attn.*", "re:.*shared_experts.*", "re:.*mlp\\.(gate|up|gate_up|down)_proj.*"]
+        if experts_only else ["lm_head"],
+        kv_cache_scheme=None,
+        quant_method="compressed-tensors",
+        quantization_status="compressed",
+    )
+    (hf / "config.json").write_text(json.dumps(config, indent=2))
+
+
+def gptq(hf: Path, bits: int, group: int, symmetric: bool, act_order: bool, version: str) -> None:
+    """Every projection stored as a GPTQ release stores it (AutoGPTQ, GPTQModel), packed by vLLM's own `gptq_pack` and
+    `pack_cols`: the transposed weight's `bits`-wide codes, `32 // bits` to an int32 word down each input column
+    (`<name>.qweight`, `[in / pack, out]`); an fp16 scale (`<name>.scales`, `[groups, out]`) and a zero point packed
+    along the outputs (`<name>.qzeros`, `[groups, out / pack]`) a group of `group` inputs and an output, the `gptq`
+    format storing the zero point less one and `gptq_v2` the zero point itself; and each input's group
+    (`<name>.g_idx`). Symmetric, every zero point is the codes' midpoint; asymmetric, it carries a group's minimum to code
+    0. With `act_order` the inputs are quantized in an order of their own (`desc_act`), so a group's inputs scatter."""
+    from safetensors.torch import load_file, save_file
+    from vllm.model_executor.layers.quantization.utils.quant_utils import gptq_pack, pack_cols
+    index_path = hf / "model.safetensors.index.json"
+    index = json.loads(index_path.read_text())
+    maxq = (1 << bits) - 1
+    generator = torch.Generator().manual_seed(7)
+    for shard in sorted(hf.glob("*.safetensors")):
+        tensors = load_file(shard)
+        for name in [n for n in tensors if n.endswith("_proj.weight") and tensors[n].dim() == 2]:
+            w = tensors.pop(name).float().T.contiguous()
+            inputs, out = w.shape
+            groups = inputs // group
+            order = torch.randperm(inputs, generator=generator) if act_order else torch.arange(inputs)
+            g_idx = torch.empty(inputs, dtype=torch.int32)
+            g_idx[order] = (torch.arange(inputs) // group).to(torch.int32)
+            codes = torch.empty(inputs, out)
+            scales = torch.empty(groups, out)
+            zeros = torch.empty(groups, out)
+            for g in range(groups):
+                rows = g_idx == g
+                part = w[rows]
+                if symmetric:
+                    scale = (part.abs().amax(0) / (maxq / 2)).half().float()
+                    zero = torch.full((out,), float((maxq + 1) // 2))
+                else:
+                    low, high = part.amin(0).clamp(max=0), part.amax(0).clamp(min=0)
+                    scale = ((high - low) / maxq).half().float()
+                    zero = None
+                scale = torch.where(scale > 0, scale, torch.ones_like(scale))
+                if zero is None:
+                    zero = torch.clamp(torch.round(-low / scale), 0, maxq)
+                codes[rows] = torch.clamp(torch.round(part / scale) + zero, 0, maxq)
+                scales[g], zeros[g] = scale, zero
+            stored = zeros - 1 if version == "gptq" else zeros
+            assert stored.min() >= 0, f"{name}: a `gptq` zero point of 0 wraps when stored less one"
+            base = name.removesuffix(".weight")
+            tensors[f"{base}.qweight"] = gptq_pack(codes.to(torch.int32), bits, inputs, out)
+            tensors[f"{base}.qzeros"] = pack_cols(stored.to(torch.int32), bits, groups, out)
+            tensors[f"{base}.scales"] = scales.half()
+            tensors[f"{base}.g_idx"] = g_idx
+            del index["weight_map"][name]
+            for part in ["qweight", "qzeros", "scales", "g_idx"]:
+                index["weight_map"][f"{base}.{part}"] = shard.name
+        save_file(tensors, shard, metadata={"format": "pt"})
+    index_path.write_text(json.dumps(index, indent=2))
+    config = json.loads((hf / "config.json").read_text())
+    config["quantization_config"] = dict(
+        bits=bits, checkpoint_format=version, damp_percent=0.01, desc_act=act_order, group_size=group,
+        model_file_base_name=None, model_name_or_path=None, quant_method="gptq", static_groups=False, sym=symmetric,
+        true_sequential=True,
+    )
+    (hf / "config.json").write_text(json.dumps(config, indent=2))
+
+
+def compressed_scaled(hf: Path, kind: str, strategy: str, block=None, scale_dtype: str = "bfloat16") -> None:
+    """Every projection stored as compressed-tensors' scaled formats store it (`float-quantized`: e4m3 codes, as the FP8
+    releases of llm-compressor write them; `int-quantized`: int8 codes): the weight's own 8-bit codes beside
+    `<name>_scale`, a scale an output channel (`[out, 1]`) or a block of `block` (`[ceil(out / b0), ceil(in / b1)]`),
+    each scale its channel's or block's largest magnitude over the codes' (448, 127); activations dynamic, so no
+    activation scale is stored. `quantization_config` is such a release's."""
+    from safetensors.torch import load_file, save_file
+    index_path = hf / "model.safetensors.index.json"
+    index = json.loads(index_path.read_text())
+    top = 448.0 if kind == "float" else 127.0
+    for shard in sorted(hf.glob("*.safetensors")):
+        tensors = load_file(shard)
+        for name in [n for n in tensors if n.endswith("_proj.weight") and tensors[n].dim() == 2]:
+            w = tensors[name].float()
+            rows, cols = w.shape
+            b0, b1 = block if strategy == "block" else (1, cols)
+            scale = torch.ones(-(-rows // b0), -(-cols // b1))
+            for i in range(scale.shape[0]):
+                for j in range(scale.shape[1]):
+                    largest = w[i * b0:(i + 1) * b0, j * b1:(j + 1) * b1].abs().max()
+                    if largest > 0:
+                        scale[i, j] = largest / top
+            scale = scale.to(getattr(torch, scale_dtype))
+            spread = scale.float().repeat_interleave(b0, 0).repeat_interleave(b1, 1)[:rows, :cols]
+            if kind == "float":
+                codes = (w / spread).to(torch.float8_e4m3fn)
+            else:
+                codes = torch.clamp(torch.round(w / spread), -128, 127).to(torch.int8)
+            tensors[name] = codes
+            tensors[f"{name}_scale"] = scale
+            index["weight_map"][f"{name}_scale"] = shard.name
+        save_file(tensors, shard, metadata={"format": "pt"})
+    index_path.write_text(json.dumps(index, indent=2))
+    config = json.loads((hf / "config.json").read_text())
+    weights = dict(actorder=None, block_structure=list(block) if strategy == "block" else None, dynamic=False,
+                   group_size=None, num_bits=8, observer="minmax", observer_kwargs={}, strategy=strategy, symmetric=True,
+                   type=kind)
+    activations = dict(actorder=None, block_structure=None, dynamic=True, group_size=None, num_bits=8, observer=None,
+                       observer_kwargs={}, strategy="token", symmetric=True, type=kind)
+    config["quantization_config"] = dict(
+        config_groups=dict(group_0=dict(input_activations=activations, output_activations=None, targets=["Linear"],
+                                        weights=weights)),
+        format=f"{kind}-quantized", ignore=["lm_head"], kv_cache_scheme=None, quant_method="compressed-tensors",
+        quantization_status="compressed",
+    )
+    (hf / "config.json").write_text(json.dumps(config, indent=2))
+
+
+def modelopt_fp8(hf: Path) -> None:
+    """Every projection stored as NVIDIA ModelOpt's FP8 export stores it: e4m3 codes beside one float32 scale for the
+    whole weight (`<name>_scale`, its largest magnitude over 448) and the activation's (`<module>.input_scale`), the
+    attention's key and value projections beside the cache's scales (`k_proj.k_scale`, `v_proj.v_scale`). The method is
+    stated only in `hf_quant_config.json`, as ModelOpt's exports state it, its producer naming the method."""
+    from safetensors.torch import load_file, save_file
+    index_path = hf / "model.safetensors.index.json"
+    index = json.loads(index_path.read_text())
+    generator = torch.Generator().manual_seed(11)
+    for shard in sorted(hf.glob("*.safetensors")):
+        tensors = load_file(shard)
+        for name in [n for n in tensors if n.endswith("_proj.weight") and tensors[n].dim() == 2]:
+            w = tensors[name].float()
+            scale = (w.abs().max() / 448.0).reshape(())
+            tensors[name] = (w / scale).to(torch.float8_e4m3fn)
+            module = name.removesuffix(".weight")
+            extra = {f"{name}_scale": scale, f"{module}.input_scale": (0.01 + torch.rand((), generator=generator))}
+            if module.endswith("k_proj"):
+                extra[f"{module}.k_scale"] = torch.rand((), generator=generator)
+            if module.endswith("v_proj"):
+                extra[f"{module}.v_scale"] = torch.rand((), generator=generator)
+            for k, v in extra.items():
+                tensors[k] = v.float()
+                index["weight_map"][k] = shard.name
+        save_file(tensors, shard, metadata={"format": "pt"})
+    index_path.write_text(json.dumps(index, indent=2))
+    (hf / "hf_quant_config.json").write_text(json.dumps(dict(
+        producer=dict(name="modelopt", version="0.29.0"),
+        quantization=dict(quant_algo="FP8", kv_cache_quant_algo="FP8", exclude_modules=["lm_head"]),
+    ), indent=4))
+
+
+def awq(hf: Path, group: int, zero_point: bool) -> None:
+    """Every projection stored as AutoAWQ's GEMM layout stores it, packed by vLLM's own `awq_pack`: the transposed
+    weight's 4-bit codes eight to an int32 word along each input's row, in AWQ's interleaved order (`<name>.qweight`,
+    `[in, out / 8]`); each group's zero points packed the same way (`<name>.qzeros`, `[groups, out / 8]`); and fp16
+    scales (`<name>.scales`, `[groups, out]`), a group of `group` inputs. About zero points, a group's scale spans its
+    range over 15 and its zero point carries its minimum to code 0; without them (`zero_point` false), a group's scale is
+    its largest magnitude over 7.5 and its codes sit about 8, and no `qzeros` is stored."""
+    from safetensors.torch import load_file, save_file
+    from vllm.model_executor.layers.quantization.utils.quant_utils import awq_pack
+    index_path = hf / "model.safetensors.index.json"
+    index = json.loads(index_path.read_text())
+    for shard in sorted(hf.glob("*.safetensors")):
+        tensors = load_file(shard)
+        for name in [n for n in tensors if n.endswith("_proj.weight") and tensors[n].dim() == 2]:
+            w = tensors.pop(name).float().T.contiguous()
+            inputs, out = w.shape
+            groups = w.reshape(inputs // group, group, out)
+            if zero_point:
+                low, high = groups.amin(1).clamp(max=0), groups.amax(1).clamp(min=0)
+                scale = ((high - low) / 15).half().float()
+                scale = torch.where(scale > 0, scale, torch.ones_like(scale))
+                zero = torch.clamp(torch.round(-low / scale), 0, 15)
+            else:
+                scale = (groups.abs().amax(1) / 7.5).half().float()
+                scale = torch.where(scale > 0, scale, torch.ones_like(scale))
+                zero = torch.full_like(scale, 8.0)
+            codes = torch.clamp(torch.round(groups / scale.unsqueeze(1)) + zero.unsqueeze(1), 0, 15).reshape(inputs, out)
+            base = name.removesuffix(".weight")
+            parts = {"qweight": awq_pack(codes.to(torch.int32), 4, inputs, out), "scales": scale.half()}
+            if zero_point:
+                parts["qzeros"] = awq_pack(zero.to(torch.int32), 4, inputs // group, out)
+            del index["weight_map"][name]
+            for part, value in parts.items():
+                tensors[f"{base}.{part}"] = value
+                index["weight_map"][f"{base}.{part}"] = shard.name
+        save_file(tensors, shard, metadata={"format": "pt"})
+    index_path.write_text(json.dumps(index, indent=2))
+    config = json.loads((hf / "config.json").read_text())
+    config["quantization_config"] = dict(bits=4, group_size=group, modules_to_not_convert=None, quant_method="awq",
+                                         version="gemm", zero_point=zero_point)
+    (hf / "config.json").write_text(json.dumps(config, indent=2))
+
+
+def awq_as_compressed(hf: Path, out: Path) -> None:
+    """The AutoAWQ directory `hf`, written into `out` as compressed-tensors' own `AutoAWQConverter` converts it, without
+    loss, into `pack-quantized`: llama.cpp's converter does not read AWQ, so the GGUF an AWQ twin is held to is its
+    conversion of this directory."""
+    from safetensors.torch import load_file, save_file
+    from compressed_tensors.entrypoints.convert.converters.autoawq import AutoAWQConverter
+    shutil.copytree(hf, out)
+    config = json.loads((out / "config.json").read_text())
+    converter = AutoAWQConverter.from_autoawq_config(config["quantization_config"])
+    index_path = out / "model.safetensors.index.json"
+    index = json.loads(index_path.read_text())
+    for shard in sorted(out.glob("*.safetensors")):
+        tensors = load_file(shard)
+        converter.validate(tensors)
+        before = set(tensors)
+        tensors = converter.process(tensors)
+        for name in before - set(tensors):
+            del index["weight_map"][name]
+        for name in set(tensors) - before:
+            index["weight_map"][name] = shard.name
+        save_file(tensors, shard, metadata={"format": "pt"})
+    index_path.write_text(json.dumps(index, indent=2))
+    config["quantization_config"] = converter.create_config().model_dump(mode="json")
+    (out / "config.json").write_text(json.dumps(config, indent=2))
+
+
+def nvfp4(hf: Path, layout: str) -> None:
+    """Every projection stored as an NVFP4 release stores it, its E2M1 codes packed two to a byte by compressed-tensors'
+    own `pack_fp4_to_uint8` (the earlier element in the low nibble) and read back by its `unpack_fp4_from_uint8`: a
+    float32 scale a weight (its largest magnitude over 6 · 448), an E4M3 scale a block of 16 inputs (the block's largest
+    magnitude over 6, over the weight's scale), each element the nearest E2M1 value of its quotient, and a float32 scale
+    of the activation. `layout` `modelopt` names them as NVIDIA ModelOpt's exports do (`<name>.weight` the codes,
+    `.weight_scale`, `.weight_scale_2`, `.input_scale`; the method stated in `hf_quant_config.json` alone);
+    `compressed-tensors` as its `nvfp4-pack-quantized` format does (`.weight_packed`, `.weight_scale`, and the reciprocal
+    scales `.weight_global_scale`, `.input_global_scale`). The attention's output projections and the last block's expert
+    down projections keep both scales at exactly 1, which the converter writes no tensor for."""
+    from safetensors.torch import load_file, save_file
+    from compressed_tensors.compressors.nvfp4.helpers import pack_fp4_to_uint8, unpack_fp4_from_uint8
+    index_path = hf / "model.safetensors.index.json"
+    index = json.loads(index_path.read_text())
+    generator = torch.Generator().manual_seed(13)
+    grid = torch.tensor(E2M1)
+    last_layer = json.loads((hf / "config.json").read_text())["num_hidden_layers"] - 1
+    for shard in sorted(hf.glob("*.safetensors")):
+        tensors = load_file(shard)
+        for name in [n for n in tensors if n.endswith("_proj.weight") and tensors[n].dim() == 2]:
+            w = tensors.pop(name).float()
+            rows, cols = w.shape
+            assert cols % 64 == 0, f"{name}: NVFP4's super-blocks need inputs in sixty-fours, not {cols}"
+            unit = name.endswith("o_proj.weight") or (".experts." in name and name.endswith("down_proj.weight")
+                                                      and f".layers.{last_layer}." in name)
+            scale2 = torch.tensor(1.0) if unit else (w.abs().max() / (6.0 * 448.0)).clamp(min=2.0 ** -40)
+            blocks = w.reshape(rows, cols // 16, 16)
+            block_scale = (blocks.abs().amax(-1) / 6.0 / scale2).to(torch.float8_e4m3fn)
+            divisor = torch.where(block_scale.float() > 0, block_scale.float(), torch.ones(())) * scale2
+            quotient = (blocks / divisor.unsqueeze(-1)).reshape(rows, cols)
+            nearest = grid[(quotient.abs().unsqueeze(-1) - grid).abs().argmin(-1)] * torch.where(quotient < 0, -1.0, 1.0)
+            codes = pack_fp4_to_uint8(nearest)
+            assert torch.equal(unpack_fp4_from_uint8(codes, rows, cols, torch.float32).abs(), nearest.abs()), name
+            input_scale = torch.tensor(1.0) if unit else 0.01 + torch.rand((), generator=generator)
+            stem = name.removesuffix(".weight")
+            if layout == "modelopt":
+                parts = {f"{stem}.weight": codes, f"{stem}.weight_scale": block_scale,
+                         f"{stem}.weight_scale_2": scale2.float(), f"{stem}.input_scale": input_scale.float()}
+            else:
+                parts = {f"{stem}.weight_packed": codes, f"{stem}.weight_scale": block_scale,
+                         f"{stem}.weight_global_scale": (1.0 / scale2).reshape(1).float(),
+                         f"{stem}.input_global_scale": (1.0 / input_scale).reshape(1).float()}
+            del index["weight_map"][name]
+            for k, v in parts.items():
+                tensors[k] = v
+                index["weight_map"][k] = shard.name
+        save_file(tensors, shard, metadata={"format": "pt"})
+    index_path.write_text(json.dumps(index, indent=2))
+    if layout == "modelopt":
+        (hf / "hf_quant_config.json").write_text(json.dumps(dict(
+            producer=dict(name="modelopt", version="0.33.0"),
+            quantization=dict(quant_algo="NVFP4", kv_cache_quant_algo=None, group_size=16, exclude_modules=["lm_head"]),
+        ), indent=4))
+        return
+    config = json.loads((hf / "config.json").read_text())
+    args = dict(actorder=None, block_structure=None, dynamic=False, group_size=16, num_bits=4, observer="minmax",
+                observer_kwargs={}, strategy="tensor_group", symmetric=True, type="float")
+    config["quantization_config"] = dict(
+        config_groups=dict(group_0=dict(input_activations=dict(args, dynamic="local", observer=None), output_activations=None,
+                                        targets=["Linear"], weights=args)),
+        format="nvfp4-pack-quantized", ignore=["lm_head"], kv_cache_scheme=None, quant_method="compressed-tensors",
+        quantization_status="compressed",
+    )
+    (hf / "config.json").write_text(json.dumps(config, indent=2))
+
+
 def add_mtp(model, hf: Path, like: int, generator: torch.Generator, dtype: torch.dtype) -> None:
     """The draft block a published Qwen3.5 checkpoint carries beside its model (`mtp.*`), which transformers does not
     build: one decoder layer shaped as full-attention layer `like`, the projection of [embedding | hidden] (`fc`, d × 2d)
@@ -1126,6 +1543,20 @@ def build(family: str, out: Path) -> None:
         mix_dtypes(hf, spec["mixed"])
     if "fp8_blocks" in spec:
         fp8_blocks(hf, spec["fp8_blocks"])
+    if spec.get("mxfp4"):
+        mxfp4_experts(hf)
+    if "pack_quantized" in spec:
+        pack_quantized(hf, **spec["pack_quantized"])
+    if "compressed_scaled" in spec:
+        compressed_scaled(hf, **spec["compressed_scaled"])
+    if spec.get("modelopt_fp8"):
+        modelopt_fp8(hf)
+    if "gptq" in spec:
+        gptq(hf, **spec["gptq"])
+    if "awq" in spec:
+        awq(hf, **spec["awq"])
+    if "nvfp4" in spec:
+        nvfp4(hf, spec["nvfp4"])
     for f in (TOKENIZERS / spec["tokenizer"]).iterdir():
         if f.name != "SOURCE" and f.name in spec.get("tokenizer_files", [f.name]):
             shutil.copy(f, hf / f.name)
@@ -1145,6 +1576,10 @@ def build(family: str, out: Path) -> None:
         (out / "converted").mkdir()
         converted = out / "converted" / "hf"
         as_minimax_text01(hf, converted)
+    if "awq" in spec:
+        (out / "converted").mkdir()
+        converted = out / "converted" / "hf"
+        awq_as_compressed(hf, converted)
     subprocess.run(
         [sys.executable, "-c", CONVERT, str(LLAMA_CPP / "convert_hf_to_gguf.py"), str(converted), "--outtype", "f32",
          "--outfile", str(gguf)],

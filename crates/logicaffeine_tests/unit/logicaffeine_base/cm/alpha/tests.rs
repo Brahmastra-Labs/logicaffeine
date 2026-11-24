@@ -423,3 +423,42 @@ fn data_that_only_looks_like_opcodes_is_not_alpha_code() {
     let code = alpha_like(20_000, 21);
     assert_eq!(blocks(&code), vec![1, 1], "real code keeps its structure");
 }
+
+// ---------------------------------------------------------------------------------------------
+// `read` refuses a span whose end, `start + 4·words`, passes the body or the address space: a
+// forged gap near 2^64 must come back `None`, never wrap into a span that `filter` would slice.
+// ---------------------------------------------------------------------------------------------
+
+fn spans_record(entries: &[(u64, u64)]) -> Vec<u8> {
+    let mut buf = Vec::new();
+    crate::describe::write_uvarint(entries.len() as u64, &mut buf);
+    for (gap, words) in entries {
+        crate::describe::write_uvarint(*gap, &mut buf);
+        crate::describe::write_uvarint(*words, &mut buf);
+    }
+    buf
+}
+
+#[test]
+fn a_gap_that_wraps_the_span_end_is_refused() {
+    for gap in [u64::MAX - 3, u64::MAX - 2, u64::MAX, u64::MAX / 2 + 1, (usize::MAX - 3) as u64] {
+        let buf = spans_record(&[(gap, 1)]);
+        assert_eq!(read(&buf, &mut 0, 64), None, "a gap of {gap} was accepted");
+    }
+}
+
+#[test]
+fn a_second_span_whose_gap_wraps_is_refused() {
+    let buf = spans_record(&[(0, 1), (u64::MAX - 7, 1)]);
+    assert_eq!(read(&buf, &mut 0, 64), None);
+}
+
+#[test]
+fn spans_inside_the_body_still_read_back() {
+    let buf = spans_record(&[(0, 2), (4, 3)]);
+    assert_eq!(read(&buf, &mut 0, 64), Some(vec![Span { start: 0, words: 2 }, Span { start: 12, words: 3 }]));
+    let ends_at_len = spans_record(&[(60, 1)]);
+    assert_eq!(read(&ends_at_len, &mut 0, 64), Some(vec![Span { start: 60, words: 1 }]));
+    let past_len = spans_record(&[(61, 1)]);
+    assert_eq!(read(&past_len, &mut 0, 64), None);
+}

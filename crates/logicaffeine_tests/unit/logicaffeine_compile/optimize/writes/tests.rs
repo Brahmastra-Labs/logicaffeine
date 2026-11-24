@@ -244,3 +244,45 @@ fn rebound_names_flags_reassignments_and_double_declarations_only() {
         assert!(!rebound.contains(&sym("d")));
     });
 }
+
+#[test]
+fn a_callee_reading_an_undeclared_name_reads_a_global() {
+    let src = "## To peek -> Int:\n    Return counter + 1.\n## Main\n    Let mutable counter be 1.\n    Show peek().\n";
+    with_program(src, |stmts, sym| {
+        let globals = CalleeGlobals::of_program(stmts);
+        assert!(globals.reads.contains(&sym("counter")), "the callee reads `counter` without declaring it");
+        assert!(!globals.contains(&sym("counter")), "a read is not a write");
+    });
+}
+
+#[test]
+fn a_callee_reading_its_own_parameters_and_locals_reads_no_global() {
+    let src = "## To total (n: Int) -> Int:\n    Let mutable i be 0.\n    Set i to i + n.\n    Return i.\n## Main\n    Let mutable i be 1.\n    Show i.\n    Show total(2).\n";
+    with_program(src, |stmts, sym| {
+        let globals = CalleeGlobals::of_program(stmts);
+        assert!(!globals.reads.contains(&sym("i")), "`i` is the callee's own: {:?}", globals.reads);
+        assert!(!globals.reads.contains(&sym("n")), "`n` is the callee's parameter: {:?}", globals.reads);
+    });
+}
+
+#[test]
+fn a_local_declared_in_a_nested_block_does_not_hide_a_later_global_read() {
+    let src = "## To peek (c: Bool) -> Int:\n    If c:\n        Let counter be 5.\n        Show counter.\n    Return counter.\n## Main\n    Let mutable counter be 1.\n    Show peek(true).\n";
+    with_program(src, |stmts, sym| {
+        let globals = CalleeGlobals::of_program(stmts);
+        assert!(
+            globals.reads.contains(&sym("counter")),
+            "`Return counter` reads the global: the `Let` was inside the `If`"
+        );
+    });
+}
+
+#[test]
+fn a_closure_reading_a_name_it_does_not_bind_reads_a_global() {
+    let src = "## Main\n    Let step be 3.\n    Let add be (x: Int) -> x + step.\n    Show add(1).\n";
+    with_program(src, |stmts, sym| {
+        let globals = CalleeGlobals::of_program(stmts);
+        assert!(globals.reads.contains(&sym("step")), "the closure body reads `step`");
+        assert!(!globals.reads.contains(&sym("x")), "`x` is the closure's parameter");
+    });
+}

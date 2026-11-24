@@ -25,7 +25,6 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::commands::emit::browser_host_js;
 use crate::commands::serve_web::content_type_for;
 
 /// The build-time error a broken page raises: the page path plus the compiler's
@@ -434,9 +433,24 @@ fn prerendered_html(
     favicon: Option<&str>,
     canonical: Option<&str>,
     theme: logicaffeine_compile::web_host::ShellTheme,
+    site_stylesheets: &str,
+) -> String {
+    prerendered_html_at(source, stem, favicon, canonical, theme, site_stylesheets, None)
+}
+
+/// [`prerendered_html`] for the page rendered AT `location` — a URL its `Paths:` declared — so a
+/// parameterized page's markup is the page for that address, bound exactly as a browser binds it.
+fn prerendered_html_at(
+    source: &str,
+    stem: &str,
+    favicon: Option<&str>,
+    canonical: Option<&str>,
+    theme: logicaffeine_compile::web_host::ShellTheme,
+    site_stylesheets: &str,
+    location: Option<&str>,
 ) -> String {
     with_canonical(
-        prerendered_document(source, stem, favicon, theme),
+        prerendered_document(source, stem, favicon, theme, site_stylesheets, location),
         canonical,
     )
 }
@@ -447,12 +461,14 @@ fn prerendered_document(
     stem: &str,
     favicon: Option<&str>,
     theme: logicaffeine_compile::web_host::ShellTheme,
+    site_stylesheets: &str,
+    location: Option<&str>,
 ) -> String {
     // The head is rendered BY the page's own mount (`Head:` reads the page's state),
     // so it is only known once the markup render has run — and a page whose markup
     // cannot be drawn still gets the default shell, because pre-rendering is an
     // improvement and never a new way to fail.
-    let Ok(markup) = logicaffeine_compile::web_host::first_paint(source) else {
+    let Ok(markup) = logicaffeine_compile::web_host::first_paint_at(source, location) else {
         // ★ THE HEAD IS NOT THE BODY'S TO LOSE. This used to pass `None`, so a page whose body
         // would not draw — a mistyped `<Nav/>` is enough — shipped `<title>{stem}</title>`, the
         // FILE NAME, with no description and no social card. That is the wrong half to drop and
@@ -467,19 +483,21 @@ fn prerendered_document(
         // `first_paint` resets the recorder and then runs, so whatever the head render
         // managed before the body gave out is still recorded here.
         let declared = logicaffeine_compile::semantics::dom::head_html();
-        return logicaffeine_compile::web_host::browser_host_html_themed(
+        return logicaffeine_compile::web_host::browser_host_html_composed(
             stem,
             declared.as_deref(),
             favicon,
             theme,
+            site_stylesheets,
         );
     };
     let declared = logicaffeine_compile::semantics::dom::head_html();
-    let shell = logicaffeine_compile::web_host::browser_host_html_themed(
+    let shell = logicaffeine_compile::web_host::browser_host_html_composed(
         stem,
         declared.as_deref(),
         favicon,
         theme,
+        site_stylesheets,
     );
     // The mark tells the page's mount that this markup is its own first paint, to adopt rather
     // than clear and draw again.
@@ -504,6 +522,7 @@ pub(crate) fn prerendered_html_pub(source: &str, stem: &str) -> String {
         None,
         None,
         logicaffeine_compile::web_host::ShellTheme::Default,
+        "",
     )
 }
 
@@ -516,8 +535,9 @@ pub(crate) fn prerendered_html_in_site(
     favicon: Option<&str>,
     canonical: Option<&str>,
     theme: logicaffeine_compile::web_host::ShellTheme,
+    site_stylesheets: &str,
 ) -> String {
-    prerendered_html(source, stem, favicon, canonical, theme)
+    prerendered_html(source, stem, favicon, canonical, theme, site_stylesheets)
 }
 
 /// ★ THE URL NAMESPACE A PAGE OWNS — ONE rule, for `largo serve` and `largo build` alike.
@@ -598,6 +618,88 @@ pub(crate) fn page_path_matches(pattern: &str, request: &str) -> bool {
             .all(|(a, b)| a.starts_with(':') || a == b)
 }
 
+/// The concrete URLs a parameterized page is BUILT at — the answer its `Paths:` section gives —
+/// each checked against the page itself. Empty for a page that declares none.
+///
+/// ★ EVERY URL IS CHECKED HERE, AT BUILD TIME, because a page built at the wrong address is
+/// invisible until somebody links it. A URL must match the page's own pattern (the one rule the dev
+/// server, the binary and `routeParam` share), must not repeat, and an `Int` parameter's segment
+/// must read as a whole number — the page would trap parsing it in every visitor's browser.
+pub(crate) fn declared_page_urls(page: &PageClosure) -> Result<Vec<String>, BundleError> {
+    let (source, stem) = (page.closure.source.as_str(), page.stem.as_str());
+    let file = page.file();
+    let urls = logicaffeine_compile::compile::page_build_paths(source)
+        .map_err(|e| BundleError(format!("{file}: {e}")))?
+        .unwrap_or_default();
+    if urls.is_empty() {
+        return Ok(urls);
+    }
+    let pattern = page_path(source, stem).map_err(|why| BundleError(format!("{file} {why}")))?;
+    let int_slots = int_parameters(source);
+    let mut seen = std::collections::BTreeSet::new();
+    for url in &urls {
+        let path = url.split('?').next().unwrap_or(url);
+        if !page_path_matches(&pattern, path) {
+            return Err(BundleError(format!(
+                "{file} lists `{url}` in its `Paths:`, and `{pattern}` does not match it — a page is \
+                 built only at addresses its own pattern answers, one segment per `:name`."
+            )));
+        }
+        if !seen.insert(path.to_string()) {
+            return Err(BundleError(format!(
+                "{file} lists `{url}` twice in its `Paths:` — one address is one page."
+            )));
+        }
+        for (slot, value) in pattern.split('/').zip(path.split('/')) {
+            let Some(slot_name) = slot.strip_prefix(':') else {
+                continue;
+            };
+            if int_slots.iter().any(|n| n == slot_name) && !reads_as_int(value) {
+                return Err(BundleError(format!(
+                    "{file} lists `{url}` in its `Paths:`, but `{slot_name}` is an `Int` and \
+                     `{value}` is not a whole number — the page would fail reading it."
+                )));
+            }
+        }
+    }
+    Ok(urls)
+}
+
+/// The names of a page's parameters declared `Int`.
+fn int_parameters(source: &str) -> Vec<String> {
+    use logicaffeine_language::ast::component::ComponentKind;
+    use logicaffeine_language::ast::stmt::{Stmt, TypeExpr};
+    logicaffeine_compile::ui_bridge::with_parsed_program(source, |parsed, interner| {
+        let Ok((stmts, _, _)) = parsed else {
+            return Vec::new();
+        };
+        stmts
+            .iter()
+            .find_map(|s| match s {
+                Stmt::ComponentDef(def) => match &def.kind {
+                    ComponentKind::Page { params, .. } => Some(
+                        params
+                            .iter()
+                            .filter(|(_, ty)| {
+                                matches!(ty, TypeExpr::Primitive(t) | TypeExpr::Named(t)
+                                    if interner.resolve(*t) == "Int")
+                            })
+                            .map(|(name, _)| interner.resolve(*name).to_string())
+                            .collect(),
+                    ),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .unwrap_or_default()
+    })
+}
+
+/// Does a path segment read as the whole number an `Int` parameter parses it as?
+fn reads_as_int(segment: &str) -> bool {
+    segment.parse::<i64>().is_ok()
+}
+
 pub(crate) fn page_html_paths_at(path: &str) -> Vec<String> {
     // A parameterized page publishes ONE document — the same bytes answer every id, because the
     // id is read from the location at run time — at the safe form of its own path.
@@ -619,6 +721,9 @@ pub(crate) fn page_html_paths_at(path: &str) -> Vec<String> {
 /// The file name stays the DEFAULT, because a scaffold should not need a header to work and every
 /// existing project relies on `app.lg` being the front page. The header OVERRIDES it: convention
 /// where you want none, a declaration where you do.
+///
+/// A refusal reads as the rest of a sentence whose subject is the page's file, so the caller, which
+/// knows the file, names it: `pages/about.logos declares …`.
 pub(crate) fn page_path(source: &str, stem: &str) -> Result<String, BundleError> {
     match declared_page_path(source) {
         Some(declared) => {
@@ -626,9 +731,8 @@ pub(crate) fn page_path(source: &str, stem: &str) -> Result<String, BundleError>
                 // A path is absolute or it is not a path. Resolving `about` to something plausible
                 // would serve the page at a URL nobody can predict.
                 return Err(BundleError(format!(
-                    "pages/{stem}.lg declares `## Page {declared}`, but a page's path must start \
-                     with `/` — it is the URL people type, so it is absolute. Did you mean \
-                     `/{declared}`?"
+                    "declares `## Page {declared}`, but a page's path must start with `/` — it is \
+                     the URL people type, so it is absolute. Did you mean `/{declared}`?"
                 )));
             }
             Ok(declared)
@@ -664,24 +768,20 @@ fn declared_page_path(source: &str) -> Option<String> {
 /// `file:line:col` — never a silently-dropped or overlay'd asset.
 fn build_page_assets(
     page: &PageClosure,
+    declared_urls: &[String],
     css_links: &str,
     favicon: Option<&str>,
     site: Option<&str>,
     out: &mut Vec<Asset>,
 ) -> Result<(), BundleError> {
     let (source, stem) = (page.closure.source.as_str(), page.stem.as_str());
-    let path = page_path(source, stem)?;
+    let path = page_path(source, stem).map_err(|why| BundleError(format!("{} {why}", page.file())))?;
     let canonical = site.and_then(|site| canonical_url(site, &path));
     // TODO(S16): the static/embedded-release build has no `Manifest` in scope here yet — wired to
     // `ShellTheme::Default` until `plan_site`'s callers (`commands/build.rs`, `project/build.rs`)
     // thread the project's own `[web]` opt-out through.
-    let document = prerendered_html(
-        source,
-        stem,
-        favicon,
-        canonical.as_deref(),
-        logicaffeine_compile::web_host::ShellTheme::Default,
-    );
+    let theme = logicaffeine_compile::web_host::ShellTheme::Default;
+    let document = prerendered_html(source, stem, favicon, canonical.as_deref(), theme, css_links);
     // A page shipped with its markup is built to adopt it; one the build could not pre-render draws
     // fresh, and its module carries no hydration.
     let entries = match ships_prerendered(&document) {
@@ -697,7 +797,8 @@ fn build_page_assets(
                 &page.path,
             );
             BundleError(format!(
-                "pages/{stem}.lg does not build:\n{}",
+                "{} does not build:\n{}",
+                page.file(),
                 crate::diagnostics::render_parse_error(&pe, &at)
             ))
         })?;
@@ -719,13 +820,22 @@ fn build_page_assets(
     };
     let wasm_path = hashed_path(&format!("{base}.wasm"), &wasm);
     let wasm_name = wasm_path.trim_start_matches('/').to_string();
-    let js = browser_host_js(stem).replace(&format!("{stem}.wasm"), &wasm_name);
+    let js = logicaffeine_compile::web_host::browser_host_js_at(&format!("./{wasm_name}"));
     let js_bytes = js.into_bytes();
     let js_path = hashed_path(&format!("{base}.js"), &js_bytes);
     let js_name = js_path.trim_start_matches('/').to_string();
-    let html = document
-        .replace("</head>", &format!("{css_links}</head>"))
-        .replace(&format!("{stem}.js"), &js_name);
+    // ★ THE REFERENCE IS REWRITTEN, NOT THE TEXT. Renaming every `<stem>.js` in the document also
+    // renamed the page's own words — `lessons/web.json` on a page named `web` shipped as
+    // `lessons/web.<hash>.json` — so only the module script the shell wrote is renamed.
+    let module_tag = |src: String| logicaffeine_compile::web_host::module_script_tag(&src);
+    let shipped = |document: String| {
+        document.replacen(
+            &module_tag(format!("./{stem}.js")),
+            &module_tag(format!("./{js_name}")),
+            1,
+        )
+    };
+    let html = shipped(document);
 
     // The HTML routes come from the ONE rule the dev server also follows, so a URL that works in
     // development is a URL the shipped site serves. The PAGE keeps its own name — it is what
@@ -733,13 +843,46 @@ fn build_page_assets(
     for p in page_html_paths_at(&path) {
         out.push(Asset::html(p, html.clone().into_bytes()));
     }
+    // ★ AND ONE DOCUMENT PER ADDRESS ITS `Paths:` NAMES, each rendered AT that address — the page
+    // binds its parameters from the location exactly as it does in a browser — loading the same
+    // module as every other address of the page. The pattern's own document above stays as the
+    // fallback a value the list did not name is rewritten to.
+    for url in declared_urls {
+        let canonical = site.and_then(|site| canonical_url(site, url));
+        let document = prerendered_html_at(
+            source,
+            stem,
+            favicon,
+            canonical.as_deref(),
+            theme,
+            css_links,
+            Some(url),
+        );
+        if !ships_prerendered(&document) {
+            let why = logicaffeine_compile::web_host::first_paint_at(source, Some(url))
+                .err()
+                .unwrap_or_default();
+            return Err(BundleError(format!(
+                "{} lists `{url}` in its `Paths:`, and the page cannot be pre-rendered there: {why}",
+                page.file()
+            )));
+        }
+        let html = shipped(document);
+        for p in page_html_paths_at(url) {
+            out.push(Asset::html(p, html.clone().into_bytes()));
+        }
+    }
     out.push(Asset::new(wasm_path, wasm));
     out.push(Asset::new(js_path, js_bytes));
     Ok(())
 }
 
-/// Every `pages/<stem>.lg` as `(stem, file)`, sorted by stem — the ONE enumeration `largo serve`,
-/// `largo build`, `largo check` and `largo test` share, so they read the same page set.
+/// Every LOGOS source file in `pages/` as `(stem, file)`, sorted by stem — the ONE enumeration
+/// `largo serve`, `largo build`, `largo check` and `largo test` share, so they read the same page set.
+///
+/// ★ A PAGE'S NAME IS ITS FILE'S STEM, so `app.lg` beside `app.logos` is one page written twice.
+/// Which of them shipped would depend on the order the directory was read in — a decision nobody
+/// made — so the enumeration refuses the pair, naming both files.
 pub(crate) fn page_files(pages_dir: &Path) -> Result<Vec<(String, PathBuf)>, BundleError> {
     let mut entries: Vec<(String, PathBuf)> = Vec::new();
     // ★ A MISSING DIRECTORY AND AN UNREADABLE ONE ARE DIFFERENT ANSWERS. A site with `static/` and
@@ -767,19 +910,35 @@ pub(crate) fn page_files(pages_dir: &Path) -> Result<Vec<(String, PathBuf)>, Bun
             ))
         })?;
         let path = f.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("lg") {
+        if logicaffeine_compile::source_files::is_source_file(&path) {
             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                 entries.push((stem.to_string(), path));
             }
         }
     }
     entries.sort();
+    if let Some(pair) = entries.windows(2).find(|pair| pair[0].0 == pair[1].0) {
+        return Err(BundleError(format!(
+            "{} and {} are the same page written twice — a page is named by its file's stem, so \
+             which one shipped would depend on the order the directory was read in. Keep one of \
+             them.",
+            page_file(&pair[0].1),
+            page_file(&pair[1].1)
+        )));
+    }
     Ok(entries)
+}
+
+/// `pages/about.logos` — a page's file as a person finds it in the project, which is what every
+/// message about the page names.
+pub(crate) fn page_file(path: &Path) -> String {
+    let name = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+    format!("pages/{name}")
 }
 
 /// One page and the closure it compiles as: the page plus every module it imports.
 pub(crate) struct PageClosure {
-    /// The file stem — `app` for `pages/app.lg`.
+    /// The file stem — `app` for `pages/app.logos`.
     pub stem: String,
     /// The page's file.
     pub path: PathBuf,
@@ -790,11 +949,12 @@ pub(crate) struct PageClosure {
 /// Every page with its assembled closure, sorted by stem. A page that will not assemble is an
 /// error naming it.
 pub(crate) fn page_closures(pages_dir: &Path) -> Result<Vec<PageClosure>, BundleError> {
+    let dep_roots = page_dep_roots(pages_dir)?;
     page_files(pages_dir)?
         .into_iter()
         .map(|(stem, path)| {
-            let closure = crate::closure::assemble_closure(&path)
-                .map_err(|e| BundleError(format!("pages/{stem}.lg: {e}")))?;
+            let closure = crate::closure::assemble_closure_with_deps(&path, dep_roots.clone())
+                .map_err(|e| BundleError(format!("{}: {e}", page_file(&path))))?;
             Ok(PageClosure {
                 stem,
                 path,
@@ -802,6 +962,44 @@ pub(crate) fn page_closures(pages_dir: &Path) -> Result<Vec<PageClosure>, Bundle
             })
         })
         .collect()
+}
+
+impl PageClosure {
+    /// `pages/about.logos` — the file this page is written in.
+    pub(crate) fn file(&self) -> String {
+        page_file(&self.path)
+    }
+}
+
+/// The project's declared dependencies, linked for its pages exactly as for its program.
+///
+/// ★ A PAGE IS PART OF THE PROJECT. `largo check`, `largo test` and a program's `largo build` resolve
+/// `[dependencies]` before they assemble anything, and the site's pages were assembled with none:
+/// a bare `Import Crumbs.` in a page found nothing, and a path into the declared dependency was
+/// refused as escaping the project root. The manifest is the one found by walking up from
+/// `pages/`, as [`site_url`] finds it; a directory outside any project links nothing.
+pub(crate) fn page_dep_roots(
+    pages_dir: &Path,
+) -> Result<Vec<logicaffeine_compile::loader::DepRoot>, BundleError> {
+    let Some(root) = project_root_of(pages_dir) else {
+        return Ok(Vec::new());
+    };
+    let manifest = crate::project::manifest::Manifest::load(&root)
+        .map_err(|e| BundleError(e.to_string()))?;
+    crate::project::deps::resolve_dep_roots(&root, &manifest)
+        .map_err(|e| BundleError(e.to_string()))
+}
+
+/// The project `pages_dir` belongs to: the nearest directory above it holding a `Largo.toml`.
+fn project_root_of(pages_dir: &Path) -> Option<PathBuf> {
+    let mut dir = pages_dir.parent();
+    while let Some(d) = dir {
+        if d.join("Largo.toml").is_file() {
+            return Some(d.to_path_buf());
+        }
+        dir = d.parent();
+    }
+    None
 }
 
 /// Every page's assembled source, sorted by stem.
@@ -1012,13 +1210,13 @@ pub(crate) fn error_page_document(
     theme: logicaffeine_compile::web_host::ShellTheme,
 ) -> Result<String, String> {
     let markup = render_error_page(source)?;
-    let doc = logicaffeine_compile::web_host::browser_host_html_themed(
+    let doc = logicaffeine_compile::web_host::browser_host_html_composed(
         &format!("{status}"),
         None,
         favicon,
         theme,
+        css_links,
     )
-    .replace("</head>", &format!("{css_links}</head>"))
     .replace("<body>\n", &format!("<body>\n{markup}\n"));
     Ok(strip_module_script(&doc))
 }
@@ -1051,18 +1249,12 @@ fn favicon_href(statics: &[Asset]) -> Option<String> {
 /// resolves its project, so `largo build`, `largo serve` and a plain `plan_site` cannot
 /// disagree about which project this is.
 pub(crate) fn site_url(pages_dir: &Path) -> Option<String> {
-    let mut dir = pages_dir.parent();
-    while let Some(d) = dir {
-        if d.join("Largo.toml").is_file() {
-            return crate::project::manifest::Manifest::load(d)
-                .ok()
-                .and_then(|m| m.package.site)
-                .map(|u| u.trim_end_matches('/').to_string())
-                .filter(|u| !u.is_empty());
-        }
-        dir = d.parent();
-    }
-    None
+    let root = project_root_of(pages_dir)?;
+    crate::project::manifest::Manifest::load(&root)
+        .ok()
+        .and_then(|m| m.package.site)
+        .map(|u| u.trim_end_matches('/').to_string())
+        .filter(|u| !u.is_empty())
 }
 
 /// `robots.txt`, generated when the project ships none.
@@ -1133,8 +1325,13 @@ pub(crate) fn plan_site(pages_dir: &Path, static_dir: &Path) -> Result<Vec<Asset
         .into_iter()
         .partition(|p| error_page_status(&p.closure.source).is_some());
     let mut claimed: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
-    for PageClosure { stem, closure, .. } in &pages {
-        let source = &closure.source;
+    // The addresses a crawler is told about: each page's own path, except that a parameterized
+    // page with a `Paths:` is listed at the addresses it names rather than at its placeholder,
+    // which is not a page anybody links.
+    let mut listed: Vec<String> = Vec::new();
+    let mut declared: Vec<Vec<String>> = Vec::with_capacity(pages.len());
+    for page in &pages {
+        let (stem, source) = (&page.stem, &page.closure.source);
         // ★ SAY IT WHEN A PAGE SHIPS EMPTY. The fallback is deliberate and stays — a page the
         // server walk cannot draw still works in a browser — but a SILENT fallback means a real
         // site goes out with a `<body>` holding one `<script>`, and the author finds out from a
@@ -1142,30 +1339,56 @@ pub(crate) fn plan_site(pages_dir: &Path, static_dir: &Path) -> Result<Vec<Asset
         // pages. Naming it costs one line and removes the surprise.
         if let Some(why) = prerender_refusal(source) {
             eprintln!(
-                "warning: pages/{stem}.lg is not pre-rendered — its `Head:` still ships, so links \
-                 and search results are unaffected, but the BODY fills in only once its module \
-                 loads, so a reader with no script sees an empty page. The render said: {why}"
+                "warning: {} is not pre-rendered — its `Head:` still ships, so links and search \
+                 results are unaffected, but the BODY fills in only once its module loads, so a \
+                 reader with no script sees an empty page. The render said: {why}",
+                page.file()
             );
         }
-        let path = page_path(source, stem)?;
+        let path =
+            page_path(source, stem).map_err(|why| BundleError(format!("{} {why}", page.file())))?;
         // ★ CLAIM THE PUBLISHED PATH, NOT THE PATTERN. `/posts/:id` publishes at `/posts/id`, so
         // a literal `## Page /posts/id` in another file would land on the same bytes; keying the
         // claim on the raw pattern would let the two through and ship whichever was read last.
-        if let Some(other) = claimed.insert(page_asset_base(&path), stem.clone()) {
+        if let Some(other) = claimed.insert(page_asset_base(&path), page.file()) {
             return Err(BundleError(format!(
-                "pages/{other}.lg and pages/{stem}.lg both serve `{path}` — one URL is one page, \
-                 and which you got would depend on the order the directory was read in. Give one \
-                 of them a different `## Page` path."
+                "{other} and {} both serve `{path}` — one URL is one page, and which you got would \
+                 depend on the order the directory was read in. Give one of them a different \
+                 `## Page` path.",
+                page.file()
             )));
         }
+        let urls = declared_page_urls(page)?;
+        if urls.is_empty() {
+            listed.push(page_asset_base(&path));
+        }
+        declared.push(urls);
     }
+    // ★ A DECLARED ADDRESS IS AN EXACT PAGE, so it collides like one — checked once every page's
+    // own path is claimed, so the refusal is the same whichever file the directory read first.
+    for (page, urls) in pages.iter().zip(&declared) {
+        for url in urls {
+            let at = url.split('?').next().unwrap_or(url).to_string();
+            if let Some(other) = claimed.insert(at.clone(), page.file()) {
+                return Err(BundleError(format!(
+                    "{other} and {} both serve `{at}` — {} builds it from its `Paths:`, and one URL \
+                     is one page. Remove it from the list, or give the other page a different path.",
+                    page.file(),
+                    page.file()
+                )));
+            }
+            listed.push(at);
+        }
+    }
+    listed.sort();
 
     let favicon = favicon_href(&statics);
     let site = site_url(pages_dir);
     let mut page_assets = Vec::new();
-    for page in &pages {
+    for (page, urls) in pages.iter().zip(&declared) {
         build_page_assets(
             page,
+            urls,
             &css_links,
             favicon.as_deref(),
             site.as_deref(),
@@ -1177,7 +1400,8 @@ pub(crate) fn plan_site(pages_dir: &Path, static_dir: &Path) -> Result<Vec<Asset
     // so a declared error page has to exist as `/<status>.html` — the name GitHub Pages,
     // Netlify, Cloudflare Pages and S3 all look for. The binary answers it through the
     // router; this is the same page, delivered the other way.
-    for PageClosure { stem, closure, .. } in error_pages {
+    for page in error_pages {
+        let closure = &page.closure;
         let status = error_page_status(&closure.source).expect("partitioned on exactly this");
         // TODO(S16): unwired to the manifest here — see `build_page_assets`'s own TODO above.
         let doc = error_page_document(
@@ -1191,8 +1415,8 @@ pub(crate) fn plan_site(pages_dir: &Path, static_dir: &Path) -> Result<Vec<Asset
             // Loud, like every other build refusal — a declared error page that silently
             // did not ship is the defect this whole feature exists to end.
             BundleError(format!(
-                "pages/{stem}.lg declares `## Error page {status}` and it cannot be \
-                 rendered: {why}"
+                "{} declares `## Error page {status}` and it cannot be rendered: {why}",
+                page.file()
             ))
         })?;
         page_assets.push(Asset::html(format!("/{status}.html"), doc.into_bytes()));
@@ -1207,12 +1431,12 @@ pub(crate) fn plan_site(pages_dir: &Path, static_dir: &Path) -> Result<Vec<Asset
         generated_robots(site.as_deref()).into_bytes(),
     ));
     if let Some(url) = &site {
-        // `claimed` is the canonical path of every page — one `<loc>` each, never the
-        // `.html` twins, which are the same page at a second address.
-        let paths: Vec<String> = claimed.keys().cloned().collect();
+        // `listed` is the canonical path of every page — one `<loc>` each, never the `.html`
+        // twins, which are the same page at a second address — and each address a `Paths:`
+        // declared.
         page_assets.push(Asset::new(
             "/sitemap.xml".to_string(),
-            generated_sitemap(url, &paths).into_bytes(),
+            generated_sitemap(url, &listed).into_bytes(),
         ));
     }
 

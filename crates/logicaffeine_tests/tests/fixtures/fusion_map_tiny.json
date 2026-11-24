@@ -49,6 +49,10 @@
       "lane_compile_lock::a_steps_delta_rule_norms_its_query_and_key_heads",
       "lane_compile_lock::a_steps_delta_rule_takes_its_heads_norms_only_where_its_inputs_launch_holds_no_whole_head"
     ],
+    "dual_norm": [
+      "lane_compile_lock::the_latent_step_absorbs_each_heads_query_and_reads_its_values_in_the_cache",
+      "lane_compile_lock::a_latent_layers_two_norms_are_one_launch"
+    ],
     "embed_norm": [
       "lane_compile_lock::the_dense_steps_fuse_where_their_dataflow_allows",
       "lane_compile_lock::the_sandwiched_step_windows_its_local_layers_and_fuses_its_gates",
@@ -115,6 +119,7 @@
     "gemv_parts": [
       "lane_compile_lock::the_dense_steps_fuse_where_their_dataflow_allows",
       "lane_compile_lock::the_decode_step_projects_one_activation_by_its_matrices_in_one_launch",
+      "lane_compile_lock::the_expert_step_routes_each_token_in_one_launch_set",
       "lane_compile_lock::the_sandwiched_step_windows_its_local_layers_and_fuses_its_gates",
       "lane_compile_lock::the_biased_step_folds_its_biases_and_routes_by_an_f32_router",
       "lane_compile_lock::the_latent_step_absorbs_each_heads_query_and_reads_its_values_in_the_cache",
@@ -146,15 +151,6 @@
     ],
     "norm_scale": [
       "lane_compile_lock::a_scaled_norm_is_one_row_kernel"
-    ],
-    "qkv_head_epilogue": [
-      "lane_compile_lock::the_dense_steps_fuse_where_their_dataflow_allows",
-      "lane_compile_lock::the_decode_step_projects_one_activation_by_its_matrices_in_one_launch",
-      "lane_compile_lock::the_step_rotates_its_query_and_key_heads_in_one_launch",
-      "lane_compile_lock::the_sandwiched_step_windows_its_local_layers_and_fuses_its_gates",
-      "lane_compile_lock::the_biased_step_folds_its_biases_and_routes_by_an_f32_router",
-      "lane_compile_lock::a_decode_layers_query_key_and_value_are_one_launch_with_their_head_epilogue",
-      "lane_compile_lock::the_hybrid_step_fuses_the_recurrence_and_the_gate"
     ],
     "relu_sqr": [
       "lane_compile_lock::a_relu_square_compiles_and_folds_into_its_producer"
@@ -203,8 +199,8 @@
           "fused_quant": 10,
           "gemv_norm_epilogue": 6,
           "gemv_parts": 3,
-          "qkv_head_epilogue": 6,
           "relu_sqr": 3,
+          "rope_parts": 3,
           "row_write": 6
         },
         "symbols": {
@@ -216,8 +212,8 @@
           "glu_act_mul_quant": 3,
           "merged_qkv": 3,
           "norm_quant": 1,
-          "qkv_head_epilogue": 6,
           "relu_sqr": 3,
+          "rope_qk_one_launch": 3,
           "row_write": 6
         }
       },
@@ -273,6 +269,7 @@
         "rules": {
           "add_norm": 6,
           "argmax_advance": 1,
+          "dual_norm": 3,
           "embed_norm": 1,
           "fused_quant": 11,
           "gemv_norm_epilogue": 4,
@@ -289,6 +286,7 @@
         "symbols": {
           "add_norm": 6,
           "add_norm_quant": 6,
+          "dual_norm": 3,
           "embed_norm": 1,
           "fused_sampling": 1,
           "gemv_gate_up_glu": 3,
@@ -323,7 +321,7 @@
           "gemv_norm_epilogue": 6,
           "gemv_parts": 3,
           "glu_pair": 3,
-          "qkv_head_epilogue": 6,
+          "rope_parts": 3,
           "row_write": 6,
           "sandwich_norm": 6
         },
@@ -341,7 +339,7 @@
           "merged_qkv": 3,
           "norm_quant": 1,
           "norm_then_add": 6,
-          "qkv_head_epilogue": 6,
+          "rope_qk_one_launch": 3,
           "row_write": 6
         }
       },
@@ -363,7 +361,7 @@
           "gemv_parts": 3,
           "glu_pair": 3,
           "head_norm_rope": 6,
-          "qkv_head_epilogue": 6,
+          "rope_parts": 3,
           "row_write": 6,
           "sandwich_norm": 6
         },
@@ -381,7 +379,7 @@
           "norm_quant": 1,
           "norm_then_add": 6,
           "qk_norm_rope": 6,
-          "qkv_head_epilogue": 6,
+          "rope_qk_one_launch": 3,
           "row_write": 6
         }
       },
@@ -401,7 +399,7 @@
           "gemv_norm_epilogue": 3,
           "gemv_parts": 3,
           "moe_deferred_finalize": 3,
-          "qkv_head_epilogue": 6,
+          "rope_parts": 3,
           "row_write": 6
         },
         "symbols": {
@@ -414,7 +412,7 @@
           "merged_qkv": 3,
           "moe_deferred_finalize": 3,
           "norm_quant": 1,
-          "qkv_head_epilogue": 6,
+          "rope_qk_one_launch": 3,
           "row_write": 6
         }
       },
@@ -434,7 +432,7 @@
           "gemm_scale": 7,
           "gemv_parts": 3,
           "glu_pair": 3,
-          "qkv_head_epilogue": 6,
+          "rope_parts": 3,
           "row_write": 6
         },
         "symbols": {
@@ -448,7 +446,7 @@
           "glu_act_mul_quant": 3,
           "merged_qkv": 3,
           "norm_quant": 1,
-          "qkv_head_epilogue": 6,
+          "rope_qk_one_launch": 3,
           "row_write": 6
         }
       },
@@ -467,7 +465,7 @@
           "gemv_norm_epilogue": 6,
           "gemv_parts": 3,
           "glu_pair": 3,
-          "qkv_head_epilogue": 6,
+          "rope_parts": 3,
           "row_write": 6
         },
         "symbols": {
@@ -480,7 +478,7 @@
           "glu_act_mul_quant": 3,
           "merged_qkv": 3,
           "norm_quant": 1,
-          "qkv_head_epilogue": 6,
+          "rope_qk_one_launch": 3,
           "row_write": 6
         }
       },
@@ -509,7 +507,7 @@
           "gemv_norm_epilogue": 6,
           "gemv_parts": 3,
           "glu_pair": 3,
-          "qkv_head_epilogue": 6,
+          "rope_parts": 3,
           "row_write": 6
         },
         "symbols": {
@@ -522,7 +520,7 @@
           "glu_act_mul_quant": 3,
           "merged_qkv": 3,
           "norm_quant": 1,
-          "qkv_head_epilogue": 6,
+          "rope_qk_one_launch": 3,
           "row_write": 6
         }
       },
@@ -553,7 +551,7 @@
           "gemv_parts": 3,
           "glu_pair": 3,
           "norm_scale": 1,
-          "qkv_head_epilogue": 6,
+          "rope_parts": 3,
           "row_write": 6
         },
         "symbols": {
@@ -568,7 +566,7 @@
           "merged_qkv": 3,
           "norm_quant": 1,
           "norm_scale": 1,
-          "qkv_head_epilogue": 6,
+          "rope_qk_one_launch": 3,
           "row_write": 6
         }
       },
@@ -588,7 +586,7 @@
           "gemv_parts": 3,
           "glu_pair": 3,
           "head_norm_rope": 6,
-          "qkv_head_epilogue": 6,
+          "rope_parts": 3,
           "row_write": 6
         },
         "symbols": {
@@ -602,7 +600,7 @@
           "merged_qkv": 3,
           "norm_quant": 1,
           "qk_norm_rope": 6,
-          "qkv_head_epilogue": 6,
+          "rope_qk_one_launch": 3,
           "row_write": 6
         }
       },
@@ -641,7 +639,7 @@
           "gemv_parts": 1,
           "glu_pair": 3,
           "head_norm_rope": 2,
-          "qkv_head_epilogue": 2,
+          "rope_parts": 1,
           "row_write": 2
         },
         "symbols": {
@@ -664,7 +662,7 @@
           "merged_qkv": 1,
           "norm_quant": 1,
           "qk_norm_rope": 2,
-          "qkv_head_epilogue": 2,
+          "rope_qk_one_launch": 1,
           "row_write": 2
         }
       },
@@ -704,7 +702,7 @@
           "gemv_parts": 3,
           "head_norm_rope": 6,
           "moe_deferred_finalize": 3,
-          "qkv_head_epilogue": 6,
+          "rope_parts": 3,
           "row_write": 6
         },
         "symbols": {
@@ -717,7 +715,7 @@
           "moe_deferred_finalize": 3,
           "norm_quant": 1,
           "qk_norm_rope": 6,
-          "qkv_head_epilogue": 6,
+          "rope_qk_one_launch": 3,
           "row_write": 6
         }
       },

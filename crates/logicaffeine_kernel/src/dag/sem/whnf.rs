@@ -250,7 +250,7 @@ impl Sem<'_> {
             let cell = self.st.arena.neutral_app(cons, chr);
             list = self.st.arena.neutral_app(cell, list);
         }
-        let of_list = self.const0(self.k.wk.string_of_list)?;
+        let of_list = self.const0(self.k.wk.string_literal)?;
         Ok(self.st.arena.neutral_app(of_list, list))
     }
 

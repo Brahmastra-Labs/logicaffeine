@@ -221,6 +221,7 @@ pub enum Backend {
     /// The bytecode VM after the run-path optimizer at its top tier.
     VmOptimized,
     /// The bytecode VM with the copy-and-patch JIT installed: x86-64 machine code for every hot region.
+    /// Where the JIT does not exist (aarch64, Windows) the VM runs with no native tier, as the product does there.
     VmForge,
     /// Futamura projection 1 with the LOGOS partial evaluator (`pe_source`) hosted on the tree-walker: the
     /// residual program, decompiled, run on the VM.
@@ -866,8 +867,13 @@ pub fn run_direct(
         Backend::VmForge => pinned_clock(|| match driver_of(src) {
             Err(why) => Verdict::Observed(Observation::of_lines(&[], Some(&why))),
             Ok(Driver::Plain) => {
+                #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
                 let tier = logicaffeine_jit::ForgeTier::new();
-                let r = compile::vm_outcome_with_args(src, &argv, Some(&tier as &dyn logicaffeine_compile::vm::NativeTier));
+                #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+                let native = Some(&tier as &dyn logicaffeine_compile::vm::NativeTier);
+                #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+                let native: Option<&dyn logicaffeine_compile::vm::NativeTier> = None;
+                let r = compile::vm_outcome_with_args(src, &argv, native);
                 Verdict::Observed(Observation::of_stream(r.output, r.error.as_deref()))
             }
             Ok(driver) => Verdict::Unrun(format!("the JIT is installed only on the synchronous VM; this program needs the {driver:?} driver")),

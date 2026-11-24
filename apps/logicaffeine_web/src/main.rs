@@ -19,6 +19,12 @@ use logicaffeine_web::App;
 fn main() {
     use dioxus::prelude::*;
 
+    // The Studio's preview worker loads this same bundle for its compiler: no window, no app.
+    #[cfg(target_arch = "wasm32")]
+    if web_sys::window().is_none() {
+        return;
+    }
+
     // The prerender pass writes into a SIBLING of public/ rather than public/
     // itself: dx finishes the client build after the prerender and rewrites
     // public/index.html (the shell), which would clobber the prerendered `/`.
@@ -43,6 +49,13 @@ fn main() {
         .launch(App);
 }
 
+/// One page's preview document, built in the Studio's preview worker (`assets/preview-worker.js`).
+#[cfg(all(target_arch = "wasm32", feature = "web"))]
+#[wasm_bindgen::prelude::wasm_bindgen]
+pub fn preview_document_in_worker(source: &str) -> String {
+    logicaffeine_web::ui::pages::studio_workbench::preview_document(source)
+}
+
 #[cfg(not(any(feature = "web", feature = "server")))]
 fn main() {
     panic!("logicaffeine-web builds with --features web (wasm client) or server (SSG prerender)");
@@ -57,6 +70,6 @@ mod ssg {
 
     #[server(endpoint = "static_routes")]
     pub async fn static_routes() -> ServerFnResult<Vec<String>> {
-        Ok(logicaffeine_web::sitemap::prerender_routes())
+        Ok(logicaffeine_web::sitemap::static_routes())
     }
 }

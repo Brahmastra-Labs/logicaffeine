@@ -1,6 +1,6 @@
 //! The Studio's status bar, in VS Code's manner: a strip along the bottom edge, under a line,
-//! saying how many problems the language service found, where the editor's caret is and what
-//! is selected, and which language the editor holds.
+//! saying how many problems the language service found, how long the last run took, where the
+//! editor's caret is and what is selected, and which language the editor holds.
 
 use dioxus::prelude::*;
 
@@ -82,6 +82,63 @@ impl Caret {
     }
 }
 
+/// How long a program's last run took, from Run (or opening its file) to its last line, and
+/// whether it ran to its end or stopped on an error.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RunTime {
+    pub millis: f64,
+    pub finished: bool,
+}
+
+impl RunTime {
+    /// The duration the way a person reads a stopwatch: tenths of a millisecond under ten
+    /// milliseconds, whole milliseconds under a second, seconds under a minute, then minutes and
+    /// seconds. A browser's clock is coarse (Firefox counts whole milliseconds), so a reading of
+    /// zero says only that the run took under a millisecond.
+    pub fn duration(&self) -> String {
+        let ms = self.millis;
+        if !(ms > 0.0) {
+            return "under 1 ms".to_string();
+        }
+        if ms < 0.05 {
+            return "under 0.1 ms".to_string();
+        }
+        if (ms * 10.0).round() < 100.0 {
+            return format!("{:.1} ms", ms);
+        }
+        if ms.round() < 1_000.0 {
+            return format!("{:.0} ms", ms);
+        }
+        let seconds = ms / 1_000.0;
+        if (seconds * 100.0).round() < 1_000.0 {
+            return format!("{:.2} s", seconds);
+        }
+        if (seconds * 10.0).round() < 600.0 {
+            return format!("{:.1} s", seconds);
+        }
+        let whole = seconds.round() as u64;
+        format!("{} min {} s", whole / 60, whole % 60)
+    }
+
+    /// What the status bar says: "Ran in 0.4 ms", or "Stopped after 0.4 ms" for a run an error ended.
+    pub fn status_label(&self) -> String {
+        if self.finished {
+            format!("Ran in {}", self.duration())
+        } else {
+            format!("Stopped after {}", self.duration())
+        }
+    }
+
+    /// What the Output column says under the program's last line.
+    pub fn output_label(&self) -> String {
+        if self.finished {
+            format!("Finished in {}", self.duration())
+        } else {
+            format!("Stopped after {}", self.duration())
+        }
+    }
+}
+
 pub const STATUS_BAR_STYLE: &str = r#"
 .studio-statusbar {
     flex: none;
@@ -121,6 +178,7 @@ pub const STATUS_BAR_STYLE: &str = r#"
     height: 13px;
     flex: none;
 }
+.statusbar-item.run-time { color: #7ee2b8; }
 .statusbar-count.errors svg { color: #f14c4c; }
 .statusbar-count.warnings svg { color: #cca700; }
 "#;
@@ -133,8 +191,15 @@ const WARNING_MARK: &str = r#"<svg viewBox="0 0 16 16" fill="none" stroke="curre
 /// The strip itself. It reads `status` on its own, so a caret move redraws the strip and
 /// nothing else. `indent` is the editor's indentation step in spaces. `problems` is false for an
 /// editor no language service reads, where a count of none would claim a check that never ran.
+/// `run` is how long the open program's last run took, shown beside the caret once it has run.
 #[component]
-pub fn StatusBar(status: Signal<EditorStatus>, language: String, indent: usize, problems: bool) -> Element {
+pub fn StatusBar(
+    status: Signal<EditorStatus>,
+    language: String,
+    indent: usize,
+    problems: bool,
+    #[props(default)] run: Option<RunTime>,
+) -> Element {
     let status = status();
     let ProblemCount { errors, warnings } = status.problems;
     let position = status.caret.label();
@@ -155,6 +220,14 @@ pub fn StatusBar(status: Signal<EditorStatus>, language: String, indent: usize, 
                 }
             }
             div { class: "statusbar-side",
+                if let Some(run) = run {
+                    span {
+                        class: "statusbar-item run-time",
+                        "data-status": "run-time",
+                        title: "How long the last run took",
+                        "{run.status_label()}"
+                    }
+                }
                 span { class: "statusbar-item", "data-status": "position", "{position}" }
                 span { class: "statusbar-item", "data-status": "indent", "Spaces: {indent}" }
                 span { class: "statusbar-item", "data-status": "language", "{language}" }

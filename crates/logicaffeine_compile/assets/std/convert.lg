@@ -17,8 +17,13 @@ Returns the byte code of the first byte of text `s`.
 
 ## Note
 Renders integer `n` in the given radix `base`, using digits `0`-`9` then lowercase letters for values 10 and up.
+A base outside 2 to 36 has no digits to write it in, and is refused.
 
 ## To toBase (n: Int) and (base: Int) -> Text:
+    If base is less than 2:
+        Fail with "toBase(): the base must be 2 to 36; it is " + format(base) + ".".
+    If base is greater than 36:
+        Fail with "toBase(): the base must be 2 to 36; it is " + format(base) + ".".
     If n is equal to 0:
         Return "0".
     Let mutable m be n.

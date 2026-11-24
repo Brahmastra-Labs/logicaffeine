@@ -488,9 +488,11 @@ pub(super) fn emit(expr: &Expr, ecx: &ExprCtx) -> Option<String> {
                 return None;
             }
             let at = place(collection, ecx).unwrap_or_else(|| whole(collection, ecx));
+            let key = super::expr::codegen_expr_ctx(index, ecx);
             Some(format!(
-                "{{ let __key = &({}); logicaffeine_data::failure::found({at}.get(__key), __key) }}",
-                super::expr::codegen_expr_ctx(index, ecx)
+                "{{ let __key: &{} = {}; logicaffeine_data::failure::found({at}.get(__key), __key) }}",
+                args[0].trim(),
+                super::expr::lent_to_show(&key)
             ))
         }
         Expr::Index { collection, .. } if is_held(collection, ecx) => {
@@ -810,7 +812,9 @@ pub(super) fn iteration(iterable: &Expr, ecx: &ExprCtx) -> Option<(String, Strin
 
 /// `expr`, a value of no value-or-nothing, as a value of its own: a binding that is not `Copy` copied, not moved.
 fn copied(expr: &Expr, ecx: &ExprCtx) -> String {
-    super::stmt::stored_value(expr, super::expr::codegen_expr_ctx(expr, ecx), ecx.variable_types)
+    // A value-or-nothing holds its integer as a machine word: an exact one narrows into it, loudly past it.
+    let code = super::expr::into_word(expr, super::expr::codegen_expr_ctx(expr, ecx), ecx.variable_types);
+    super::stmt::stored_value(expr, code, ecx.variable_types)
 }
 
 /// Whether `expr` is a value-or-nothing that holds text.

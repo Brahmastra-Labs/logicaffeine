@@ -19,16 +19,8 @@ use std::time::Duration;
 
 /// The cases the `Term` path cannot decide today, with the reason it gives.
 const TERM_GAPS: &[(&str, &str)] = &[
-    ("good/init-prelude.ndjson", "has no pinned literal reading"),
-    (
-        "good/perf/magma-list-deep-n21.ndjson",
-        "has no pinned literal reading",
-    ),
-    (
-        "good/perf/magma-list-deep-n36.ndjson",
-        "has no pinned literal reading",
-    ),
     ("good/perf/app-lam.ndjson", "materialization budget"),
+    ("good/init-prelude.ndjson", DEADLINE_PASSED),
     ("good/other/nat-lit-sub.ndjson", DEADLINE_PASSED),
     ("good/perf/fueled-chain.ndjson", DEADLINE_PASSED),
 ];

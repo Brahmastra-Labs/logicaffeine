@@ -34,7 +34,18 @@ pub(crate) fn logos_value_unbox_call(rust_ty: &str) -> Option<String> {
     {
         return Some(format!("logos_seq({})", logos_value_unbox_fn(inner)?));
     }
+    if let Some(inner) = ty.strip_prefix("Set<").and_then(|t| t.strip_suffix('>')) {
+        return Some(format!("logos_set({})", logos_value_unbox_fn(inner)?));
+    }
+    if is_tuple_type(ty) {
+        return Some("logos_tuple()".to_string());
+    }
     is_program_boxable(ty).then(|| format!("logos_boxed::<{ty}>()"))
+}
+
+/// Whether `ty` is a tuple's Rust type: a bare `LogosTuple`, or one carrying its marker.
+fn is_tuple_type(ty: &str) -> bool {
+    ty == "LogosTuple" || ty.starts_with("LogosTuple /* ")
 }
 
 /// [`logos_value_unbox_call`] as a function from `Value` — the element unboxer `Value::logos_seq` takes.
@@ -51,6 +62,15 @@ fn logos_value_unbox_fn(rust_ty: &str) -> Option<String> {
             "|v: logicaffeine_data::Value| v.logos_seq({})",
             logos_value_unbox_fn(inner)?
         ));
+    }
+    if let Some(inner) = ty.strip_prefix("Set<").and_then(|t| t.strip_suffix('>')) {
+        return Some(format!(
+            "|v: logicaffeine_data::Value| v.logos_set({})",
+            logos_value_unbox_fn(inner)?
+        ));
+    }
+    if is_tuple_type(ty) {
+        return Some("logicaffeine_data::Value::logos_tuple".to_string());
     }
     is_program_boxable(ty).then(|| format!("logicaffeine_data::Value::logos_boxed::<{ty}>"))
 }
@@ -83,29 +103,76 @@ fn is_program_boxable(rust_ty: &str) -> bool {
     !rust_ty.contains(',') && PROGRAM.with(|p| p.borrow().showable_idents.contains(base))
 }
 
-/// The comma-joined type list inside a marker (`RECORD_FIELD_MARKER` / `TUPLE_ELEM_MARKER`), or `None`
-/// if `ty` carries no such marker. The marker must be the TOP-LEVEL type (`Vec<Value> /* … */`), NOT
-/// nested in a container (`LogosSeq<Vec<Value> /* … */>` is a SEQ of tuples — a seq, not a tuple), so a
-/// `split_once(marker)` alone would wrongly fire; we require the exact `Vec<Value> ` prefix first. A
-/// trailing hoisting suffix (`…*/|__hl:…`) is fine — `split_once(" */")` stops at the marker's close.
-/// No marker type contains `,` (see [`is_program_boxable`]), so the inner `split(',')` at the call
-/// sites is unambiguous.
+/// The type list inside a marker (`RECORD_FIELD_MARKER` / `TUPLE_ELEM_MARKER`), or `None` if `ty` carries
+/// no such marker. The marker must be the TOP-LEVEL type (`LogosTuple /* … */`, `Vec<Value> /* … */`), not
+/// one nested in a container (`LogosSeq<LogosTuple /* … */>` is a SEQ of tuples), so the prefix is required
+/// first. An element type may carry a marker of its own (`Set<LogosTuple /* logos_tuple: String,String */>`)
+/// — Rust reads that as a nested block comment — so the marker's close is found by depth, not at the first
+/// `*/`. A trailing hoisting suffix (`…*/|__hl:…`) lies past the close and is never part of the body.
 fn marker_body<'a>(ty: &'a str, marker: &str) -> Option<&'a str> {
-    // A tuple's Rust type is `LogosTuple /* logos_tuple: … */`; a record's is `Vec<Value> /* logos_record:
-    // … */`. Both markers are TOP-LEVEL (a nested `LogosSeq<LogosTuple /* … */>` starts with `LogosSeq<`,
-    // so neither prefix matches → correctly not treated as a bare tuple/record).
-    let after_prefix = ty
+    let body = ty
         .strip_prefix("Vec<Value> ")
         .or_else(|| ty.strip_prefix("LogosTuple "))?
         .strip_prefix(marker)?;
-    after_prefix.split_once(" */").map(|(body, _)| body)
+    let bytes = body.as_bytes();
+    let mut depth = 1usize;
+    let mut i = 0;
+    while i + 1 < bytes.len() {
+        match (bytes[i], bytes[i + 1]) {
+            (b'/', b'*') => {
+                depth += 1;
+                i += 2;
+            }
+            (b'*', b'/') => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(body[..i].trim_end());
+                }
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
+    None
+}
+
+/// A marker body's entries, cut at each comma outside `<…>`, `(…)`, `[…]` and any nested marker comment,
+/// each trimmed: one entry per tuple position (`i64`, `Set<LogosTuple /* logos_tuple: String,String */>`)
+/// or record field (`quotient=i64`).
+fn marker_entries(body: &str) -> Vec<&str> {
+    let bytes = body.as_bytes();
+    let mut entries = Vec::new();
+    let (mut nest, mut comments, mut start, mut i) = (0i32, 0i32, 0usize, 0usize);
+    while i < bytes.len() {
+        match bytes[i] {
+            b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                comments += 1;
+                i += 1;
+            }
+            b'*' if bytes.get(i + 1) == Some(&b'/') => {
+                comments -= 1;
+                i += 1;
+            }
+            b'<' | b'(' | b'[' if comments == 0 => nest += 1,
+            b'>' | b')' | b']' if comments == 0 => nest -= 1,
+            b',' if nest == 0 && comments == 0 => {
+                entries.push(body[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    entries.push(body[start..].trim());
+    entries
 }
 
 /// Given a record variable's marked Rust type and a field name, the field's 1-based position in the
 /// positional `Vec<Value>` (what `LogosIndex::logos_get` wants). `None` if not a marked record / no field.
 pub(crate) fn logos_record_field_index(ty: &str, field: &str) -> Option<i64> {
     let body = marker_body(ty, RECORD_FIELD_MARKER)?;
-    body.split(',')
+    marker_entries(body)
+        .into_iter()
         .position(|f| f.split('=').next().unwrap_or(f).trim() == field)
         .map(|p| p as i64 + 1)
 }
@@ -114,7 +181,7 @@ pub(crate) fn logos_record_field_index(ty: &str, field: &str) -> Option<i64> {
 /// unbox), or `None` if not a marked record / the field's type is non-scalar (unmarked).
 pub(crate) fn logos_record_field_type<'a>(ty: &'a str, field: &str) -> Option<&'a str> {
     let body = marker_body(ty, RECORD_FIELD_MARKER)?;
-    body.split(',').find_map(|f| {
+    marker_entries(body).into_iter().find_map(|f| {
         let (n, t) = f.split_once('=')?;
         (n.trim() == field).then(|| t.trim())
     })
@@ -153,6 +220,12 @@ pub(crate) fn map_entry_types(ty: &str) -> Option<(&str, &str)> {
     }
 }
 
+/// Whether `ty` is a `LogosMap<K, V>` itself, owned: what a binding of a map, an element of a `Seq of Map` and a map
+/// field hold.
+pub(crate) fn is_owned_map(ty: &str) -> bool {
+    ty.starts_with("LogosMap<") && map_entry_types(ty).is_some()
+}
+
 /// The component a constant `item n of entry` reads from a map entry typed `(K, V)`, with its type: the key at
 /// `1` (or `-2`, counted from the back), the value at `2` (or `-1`). `None` for any other type or index.
 pub(crate) fn entry_component(ty: &str, n: i64) -> Option<(usize, &str)> {
@@ -167,14 +240,33 @@ pub(crate) fn entry_component(ty: &str, n: i64) -> Option<(usize, &str)> {
     }
 }
 
+/// The element type a collection's Rust type holds: `T` of `LogosSeq<T>`, `Set<T>`, `Vec<T>`, a slice
+/// `&[T]` or an array `[T; N]`, owned or borrowed, past any hoisting suffix. `None` for a type that is
+/// not one of those.
+pub(crate) fn collection_element_type(ty: &str) -> Option<&str> {
+    let ty = ty.split("|__hl:").next().unwrap_or(ty).trim();
+    let ty = ty.strip_prefix("&mut ").or_else(|| ty.strip_prefix('&')).unwrap_or(ty).trim();
+    let generic = |prefix: &str| ty.strip_prefix(prefix).and_then(|t| t.strip_suffix('>'));
+    if let Some(inner) = generic("LogosSeq<").or_else(|| generic("Set<")).or_else(|| generic("Vec<")) {
+        return Some(inner.trim());
+    }
+    let inner = ty.strip_prefix('[')?.strip_suffix(']')?;
+    Some(inner.split(';').next().unwrap_or(inner).trim())
+}
+
+/// The Rust type of each position of a tuple whose Rust type is `ty`, when `ty` is a marked tuple
+/// (`LogosTuple /* logos_tuple: String,i64 */`): one entry per position, in order.
+pub(crate) fn logos_tuple_elem_types(ty: &str) -> Option<Vec<&str>> {
+    Some(marker_entries(marker_body(ty, TUPLE_ELEM_MARKER)?))
+}
+
 pub(crate) fn logos_tuple_elem_type(ty: &str, pos_1based: i64) -> Option<&str> {
     if pos_1based < 1 {
         return None;
     }
-    marker_body(ty, TUPLE_ELEM_MARKER)?
-        .split(',')
+    marker_entries(marker_body(ty, TUPLE_ELEM_MARKER)?)
+        .into_iter()
         .nth((pos_1based - 1) as usize)
-        .map(|t| t.trim())
 }
 
 /// Whether every one of these Rust type strings can ride a `Value` and come back out (see
@@ -305,6 +397,18 @@ fn is_builtin_maybe() -> bool {
     !PROGRAM.with(|p| p.borrow().declared.contains("Maybe"))
 }
 
+/// The tuple a written `Pair`/`Triple` of `parts` is (`Pair of Int and Text`), unless the program declares a type of
+/// that name, which is its own, or the parts are not its arity.
+fn named_tuple(base: &str, parts: &[String]) -> Option<String> {
+    let arity = match base {
+        "Pair" => 2,
+        "Triple" => 3,
+        _ => return None,
+    };
+    let declared = PROGRAM.with(|p| p.borrow().declared.contains(base));
+    (!declared && parts.len() == arity).then(|| tuple_rust_type(parts))
+}
+
 thread_local! {
     /// When on, every emitted `enum` also gets `WireEncode`/`WireDecode` impls (the shared
     /// `logicaffeine_data::wire` codec). Off by default so ordinary programs' generated Rust is
@@ -331,7 +435,7 @@ fn wire_impls_enabled() -> bool {
 fn wire_field_type(f: &FieldDef, enum_name: &str, interner: &Interner) -> String {
     let rust_type = codegen_field_type(&f.ty, interner);
     if field_is_boxed(&f.ty, enum_name, interner) {
-        format!("Box<{}>", rust_type)
+        format!("::std::boxed::Box<{}>", rust_type)
     } else {
         rust_type
     }
@@ -516,6 +620,9 @@ pub(super) fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
                     }
                 }
                 other => {
+                    if let Some(tuple) = named_tuple(other, &params_str) {
+                        return tuple;
+                    }
                     let base = rust_type_ident(other);
                     if params_str.is_empty() {
                         base
@@ -578,7 +685,9 @@ pub(super) fn codegen_type_expr(ty: &TypeExpr, interner: &Interner) -> String {
                 .map(|i| codegen_type_expr(i, interner))
                 .collect();
             let output_str = codegen_type_expr(output, interner);
-            format!("impl Fn({}) -> {}", inputs_str.join(", "), output_str)
+            // A closure captures by value what the program can copy: it is `Clone`, so one bound to a name may be
+            // passed more than once.
+            format!("impl Fn({}) -> {} + Clone", inputs_str.join(", "), output_str)
         }
         // Phase 43C: Refinement types use the base type for Rust type annotation
         // The constraint predicate is handled separately via debug_assert!
@@ -815,13 +924,15 @@ pub(crate) fn rust_type_ident(name: &str) -> String {
 /// Generate a single struct definition with derives and visibility.
 /// Phase 34: Now supports generic type parameters.
 /// Phase 47: Now supports is_portable for Serialize/Deserialize derives.
-/// Phase 49: Now supports is_shared for CRDT Merge impl.
+/// Phase 49: Now supports is_shared for CRDT Merge impl. `merged`: a `Merge` or `Converge` reaches the record, which
+/// then takes the same field-wise `merge`/`join` a `Shared` record does.
 pub(super) fn codegen_struct_def(
     name: Symbol,
     fields: &[FieldDef],
     generics: &[Symbol],
     is_portable: bool,
     is_shared: bool,
+    merged: bool,
     interner: &Interner,
     indent: usize,
     c_abi_value_structs: &HashSet<Symbol>,
@@ -890,8 +1001,9 @@ pub(super) fn codegen_struct_def(
     writeln!(output, "{}}}\n", ind).unwrap();
 
     // Phase 49: Generate the Merge trait impl (additive, `Merge`/`Synced`) AND the inherent `join` (idempotent,
-    // `Converge`) for Shared structs — both fold every field ≡ the VM's `crdt_merge_field`/`crdt_join_field`.
-    if is_shared {
+    // `Converge`) for Shared structs and for any record a `Merge` or `Converge` folds — both fold every field ≡ the
+    // VM's `crdt_merge_field`/`crdt_join_field`.
+    if is_shared || merged {
         output.push_str(&codegen_merge_impl(
             name, fields, generics, interner, indent,
         ));
@@ -1330,37 +1442,63 @@ fn is_int_field(ty: &FieldType, interner: &Interner) -> bool {
 }
 
 /// The per-field fold body shared by `merge` and `join` — the ONE place the VM's field-wise CRDT combine is
-/// mirrored, so the two can never drift. For each field: a CRDT-typed field takes its lattice merge
-/// (`self.f.merge(&other.f)`, idempotent — identical under merge AND join); a bare-`Int` field folds
-/// arithmetically (`wrapping_add` for merge, `max` for the idempotent join); every other field is
-/// last-writer-wins (`self.f = other.f.clone()`, the VM's `_ => incoming`).
+/// mirrored, so the two can never drift. Each field folds as `crdt_merge_field` folds it ([`field_fold`]); under the
+/// idempotent join a bare-`Int` field takes the larger (`crdt_join_field`).
 fn crdt_combine_body(fields: &[FieldDef], interner: &Interner, ind: &str, is_join: bool) -> String {
     let mut body = String::new();
     for field in fields {
         let f = super::escape_rust_ident(interner.resolve(field.name));
-        if is_crdt_field_type(&field.ty, interner) {
-            writeln!(body, "{}        self.{}.merge(&other.{});", ind, f, f).unwrap();
-        } else if is_int_field(&field.ty, interner) {
-            if is_join {
-                writeln!(
-                    body,
-                    "{}        self.{} = self.{}.max(other.{});",
-                    ind, f, f, f
-                )
-                .unwrap();
-            } else {
-                writeln!(
-                    body,
-                    "{}        self.{} = self.{}.wrapping_add(other.{});",
-                    ind, f, f, f
-                )
-                .unwrap();
-            }
+        let fold = if is_join && is_int_field(&field.ty, interner) {
+            format!("self.{f} = self.{f}.max(other.{f});")
         } else {
-            writeln!(body, "{}        self.{} = other.{}.clone();", ind, f, f).unwrap();
-        }
+            let (held, theirs) = (format!("self.{f}"), format!("other.{f}"));
+            field_fold(&field.ty, Fold { place: &held, receiver: &held }, Fold { place: &theirs, receiver: &theirs }, true, interner, 0)
+        };
+        writeln!(body, "{ind}        {fold}").unwrap();
     }
     body
+}
+
+/// A value [`field_fold`] reads or writes: the place it is (`self.f`, `*__held0`) and how a method reaches it
+/// (`self.f`, `__held0`).
+#[derive(Clone, Copy)]
+struct Fold<'s> {
+    place: &'s str,
+    receiver: &'s str,
+}
+
+/// The statement folding `theirs` into `held`, values of a field of type `ty`, as the tree-walker's `crdt_merge_field`
+/// folds them: an `Int` adds (wrapping), a set takes the members it lacks in their order, a map takes the keys it lacks
+/// and folds each value both hold the same way, a CRDT joins by its own merge, any other value is `theirs`. `owned`:
+/// `theirs` is a place (`other.f`), not a reference a map's fold hands over (`__theirs0`).
+fn field_fold(ty: &FieldType, held: Fold, theirs: Fold, owned: bool, interner: &Interner, depth: usize) -> String {
+    let reference = if owned { format!("&{}", theirs.place) } else { theirs.receiver.to_string() };
+    if is_crdt_field_type(ty, interner) {
+        return format!("{}.merge({reference});", held.receiver);
+    }
+    if is_int_field(ty, interner) {
+        return format!("{} = {}.wrapping_add({});", held.place, held.receiver, theirs.place);
+    }
+    if let FieldType::Generic { base, params } = ty {
+        match interner.resolve(*base) {
+            "Set" | "HashSet" => return format!("{}.extend({}.iter().cloned());", held.receiver, theirs.receiver),
+            "Map" | "HashMap" if params.len() == 2 => {
+                let (h, t) = (format!("__held{depth}"), format!("__theirs{depth}"));
+                let (h_place, t_place) = (format!("*{h}"), format!("*{t}"));
+                let inner = field_fold(
+                    &params[1],
+                    Fold { place: &h_place, receiver: &h },
+                    Fold { place: &t_place, receiver: &t },
+                    false,
+                    interner,
+                    depth + 1,
+                );
+                return format!("{}.merge_entries({reference}, |{h}, {t}| {{ {inner} }});", held.receiver);
+            }
+            _ => {}
+        }
+    }
+    format!("{} = {}.clone();", held.place, theirs.receiver)
 }
 
 /// Phase 49: Generate `impl logicaffeine_data::crdt::Merge` for a Shared struct — the ADDITIVE field-wise
@@ -1523,7 +1661,14 @@ pub(super) fn codegen_enum_def(
     } else {
         "#[derive(Debug, Clone, PartialEq)]"
     };
-    writeln!(output, "{}{}", ind, derives).unwrap();
+    // The default is the first variant; a non-generic enum whose first variant holds nothing derives it.
+    let derived_default = generics.is_empty() && variants.first().is_some_and(|v| v.fields.is_empty());
+    let enum_derives = if derived_default {
+        derives.replacen(")]", ", Default)]", 1)
+    } else {
+        derives.to_string()
+    };
+    writeln!(output, "{}{}", ind, enum_derives).unwrap();
     writeln!(
         output,
         "{}pub enum {}{} {{",
@@ -1543,15 +1688,18 @@ pub(super) fn codegen_enum_def(
         };
         let field_name = super::escape_rust_ident(interner.resolve(f.name));
         if field_is_boxed(&f.ty, enum_name_raw, interner) {
-            format!("{}: Box<{}>", field_name, rust_type)
+            format!("{}: ::std::boxed::Box<{}>", field_name, rust_type)
         } else {
             format!("{}: {}", field_name, rust_type)
         }
     };
     let mut payloads = String::new();
-    for variant in variants {
+    for (at, variant) in variants.iter().enumerate() {
         let variant_name = interner.resolve(variant.name);
         if variant.fields.is_empty() {
+            if at == 0 && derived_default {
+                writeln!(output, "{}    #[default]", ind).unwrap();
+            }
             writeln!(output, "{}    {},", ind, variant_name).unwrap();
             continue;
         }
@@ -1571,7 +1719,7 @@ pub(super) fn codegen_enum_def(
                 )
                 .unwrap();
             }
-            VariantShape::Boxed { payload } => {
+            VariantShape::Boxed { payload, .. } => {
                 // The payload takes the enum's type parameters its fields name, so an unused one is no error.
                 let params: Vec<&str> = generics
                     .iter()
@@ -1583,7 +1731,7 @@ pub(super) fn codegen_enum_def(
                 } else {
                     format!("{}<{}>", payload, params.join(", "))
                 };
-                writeln!(output, "{}    {}(Box<{}>),", ind, variant_name, payload_ty).unwrap();
+                writeln!(output, "{}    {}(::std::boxed::Box<{}>),", ind, variant_name, payload_ty).unwrap();
                 writeln!(payloads, "{}{}", ind, derives).unwrap();
                 writeln!(payloads, "{}#[allow(non_camel_case_types)]", ind).unwrap();
                 writeln!(
@@ -1608,7 +1756,7 @@ pub(super) fn codegen_enum_def(
     // Generate Default impl for enum (defaults to first variant)
     // This is needed when the enum is used as a struct field and the struct derives Default
     // Only for non-generic enums — generic enums can't assume their type params implement Default
-    if generics.is_empty() {
+    if generics.is_empty() && !derived_default {
         if let Some(first_variant) = variants.first() {
             let first_variant_name = interner.resolve(first_variant.name);
             writeln!(
@@ -1632,7 +1780,7 @@ pub(super) fn codegen_enum_def(
                     .map(|f| {
                         let field_name = super::escape_rust_ident(interner.resolve(f.name));
                         if field_is_boxed(&f.ty, enum_name_raw, interner) {
-                            (field_name, "Box::new(Default::default())".to_string())
+                            (field_name, "::std::boxed::Box::new(Default::default())".to_string())
                         } else {
                             (field_name, "Default::default()".to_string())
                         }
@@ -1718,6 +1866,9 @@ pub(super) fn codegen_field_type(ty: &FieldType, interner: &Interner) -> String 
             if base_name == "Quantity" {
                 return "LogosQuantity".to_string();
             }
+            if let Some(tuple) = named_tuple(base_name, &param_strs) {
+                return tuple;
+            }
 
             let base_str: String = match base_name {
                 "List" | "Seq" => "LogosSeq".to_string(),
@@ -1789,7 +1940,7 @@ pub(crate) fn field_is_boxed(ty: &FieldType, enum_name: &str, interner: &Interne
 /// itself) in one box around its payload, a struct of the fields.
 pub(crate) enum VariantShape {
     InPlace,
-    Boxed { payload: String },
+    Boxed { payload: String, fields: Vec<String> },
 }
 
 impl VariantShape {
@@ -1804,6 +1955,7 @@ impl VariantShape {
             crate::optimize::mark_fired(crate::optimization::Opt::VariantBox);
             VariantShape::Boxed {
                 payload: variant_payload_ident(enum_raw, interner.resolve(variant.name)),
+                fields: variant.fields.iter().map(|f| super::escape_rust_ident(interner.resolve(f.name))).collect(),
             }
         } else {
             VariantShape::InPlace
@@ -1811,7 +1963,8 @@ impl VariantShape {
     }
 
     /// A pattern for the variant at `path` binding each `(field, name)` to a reference, with `ref` spelled when the
-    /// match is on a place; and the statements that bind them, for the boxed shape.
+    /// match is on a place; and the statements that bind them, for the boxed shape. A field named `_` is matched
+    /// without a binding.
     pub(crate) fn pattern(
         &self,
         path: &str,
@@ -1824,7 +1977,9 @@ impl VariantShape {
                 let fields: Vec<String> = binds
                     .iter()
                     .map(|(f, n)| {
-                        if f == n {
+                        if n == "_" {
+                            format!("{f}: _")
+                        } else if f == n {
                             format!("{r}{n}")
                         } else {
                             format!("{f}: {r}{n}")
@@ -1833,13 +1988,20 @@ impl VariantShape {
                     .collect();
                 (format!("{path} {{ {} }}", fields.join(", ")), String::new())
             }
-            VariantShape::Boxed { .. } => {
-                let prelude = binds
+            VariantShape::Boxed { payload, fields } => {
+                let mut bound: Vec<String> = binds
                     .iter()
-                    .map(|(f, n)| format!("let {n} = &__fields.{f};"))
-                    .collect::<Vec<_>>()
-                    .join(" ");
-                (format!("{path}({r}__fields)"), prelude)
+                    .filter(|(_, n)| n != "_")
+                    .map(|(f, n)| if f == n { f.clone() } else { format!("{f}: {n}") })
+                    .collect();
+                if bound.is_empty() {
+                    return (format!("{path}(_)"), String::new());
+                }
+                if bound.len() < fields.len() {
+                    bound.push("..".to_string());
+                }
+                // The payload is the emitter's own struct: destructuring it names every field's type.
+                (format!("{path}({r}__fields)"), format!("let {payload} {{ {} }} = &**__fields;", bound.join(", ")))
             }
         }
     }
@@ -1849,22 +2011,31 @@ impl VariantShape {
     pub(crate) fn field_pattern(&self, path: &str, field: &str) -> (String, String) {
         match self {
             VariantShape::InPlace => (format!("{path} {{ {field}, .. }}"), String::new()),
-            VariantShape::Boxed { .. } => (
-                format!("{path}(__fields)"),
-                format!("let {field} = &__fields.{field};"),
-            ),
+            VariantShape::Boxed { payload, fields } => {
+                let rest = if fields.len() > 1 { ", .." } else { "" };
+                (format!("{path}(__fields)"), format!("let {payload} {{ {field}{rest} }} = &**__fields;"))
+            }
         }
     }
 
     /// The variant at `path` built from each `(field, value)`.
     pub(crate) fn build(&self, path: &str, values: &[(String, String)]) -> String {
-        let fields: Vec<String> = values.iter().map(|(f, v)| format!("{f}: {v}")).collect();
+        let fields: Vec<String> = values.iter().map(|(f, v)| field_init(f, v)).collect();
         match self {
             VariantShape::InPlace => format!("{path} {{ {} }}", fields.join(", ")),
-            VariantShape::Boxed { payload } => {
-                format!("{path}(Box::new({payload} {{ {} }}))", fields.join(", "))
+            VariantShape::Boxed { payload, .. } => {
+                format!("{path}(::std::boxed::Box::new({payload} {{ {} }}))", fields.join(", "))
             }
         }
+    }
+}
+
+/// A field initializer: `field: value`, or the field alone where its value is the binding of its name.
+pub(crate) fn field_init(field: &str, value: &str) -> String {
+    if field == value {
+        field.to_string()
+    } else {
+        format!("{field}: {value}")
     }
 }
 
@@ -1875,6 +2046,44 @@ pub(crate) fn variant_payload_ident(enum_raw: &str, variant: &str) -> String {
         rust_type_ident(enum_raw),
         rust_type_ident(variant)
     )
+}
+
+/// The type arguments of `ty`, a generic type as written, owned or borrowed: `["String"]` of `Maybe<String>`,
+/// `["i64", "String"]` of `&Result<i64, String>`. `None` for a type written without arguments.
+pub(crate) fn type_arguments(ty: &str) -> Option<Vec<&str>> {
+    let ty = ty.split("|__hl:").next().unwrap_or(ty).trim();
+    let ty = ty.strip_prefix("&mut ").or_else(|| ty.strip_prefix('&')).unwrap_or(ty).trim();
+    let (_, args) = ty.split_once('<')?;
+    Some(top_level_parts(args.strip_suffix('>')?))
+}
+
+/// The Rust type of a field declared `ty` in a type whose parameters are `params`, held in a value whose type gives
+/// them the `arguments` it is written with: the declared type with each parameter in place of its argument (`T` of
+/// a `Maybe<String>` is `String`). A field that names no parameter is its declared type whatever the arguments; one
+/// that names a parameter has no type to write where the arguments are not known.
+pub(crate) fn field_type_at(
+    ty: &FieldType,
+    params: &[Symbol],
+    arguments: Option<&[&str]>,
+    interner: &Interner,
+) -> Option<String> {
+    let declared = codegen_field_type(ty, interner);
+    if !params.iter().any(|p| field_names_param(ty, *p)) {
+        return Some(declared);
+    }
+    let arguments = arguments.filter(|a| a.len() == params.len())?;
+    let names: Vec<&str> = params.iter().map(|p| interner.resolve(*p)).collect();
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let (mut at, mut out) = (declared.as_str(), String::with_capacity(declared.len()));
+    while let Some(start) = at.find(word) {
+        out.push_str(&at[..start]);
+        let len = at[start..].find(|c: char| !word(c)).unwrap_or(at.len() - start);
+        let name = &at[start..start + len];
+        out.push_str(names.iter().position(|n| *n == name).map_or(name, |i| arguments[i]));
+        at = &at[start + len..];
+    }
+    out.push_str(at);
+    Some(out)
 }
 
 /// Whether a field of type `ty` names the type parameter `param`.
@@ -2099,6 +2308,14 @@ pub(super) fn infer_numeric_type(
             return "f64";
         }
     }
+    // A record's field is the type the record declares it with, and an item the type its collection holds.
+    if let Expr::FieldAccess { .. } | Expr::Index { .. } = expr {
+        match held_type(expr, variable_types).as_deref() {
+            Some("i64") => return "i64",
+            Some("f64") => return "f64",
+            _ => {}
+        }
+    }
     // Build a temporary TypeEnv from the string-based variable types
     let mut env = crate::analysis::types::TypeEnv::new();
     for (sym, ty_str) in variable_types {
@@ -2109,8 +2326,55 @@ pub(super) fn infer_numeric_type(
     match inferred {
         crate::analysis::types::LogosType::Int => "i64",
         crate::analysis::types::LogosType::Float => "f64",
+        // What the emission cannot type, the checker typed: an `Int` it solved is an `Int`, so its arithmetic is
+        // checked or exact, never a raw operator.
+        _ if super::instantiation::checked_int(expr) => "i64",
         _ => "unknown",
     }
+}
+
+/// The Rust type the value of a place is held as, as far as the emission knows it: a binding (a lent one as what it
+/// lends), a record's field, an item of a list, an array, a set or a marked tuple, a call's result, a copy of any of
+/// them.
+pub(crate) fn held_type(expr: &Expr, variable_types: &HashMap<Symbol, String>) -> Option<String> {
+    let owned = |ty: &str| {
+        let ty = ty.split("|__hl:").next().unwrap_or(ty);
+        ty.strip_prefix("&mut ").or_else(|| ty.strip_prefix('&')).unwrap_or(ty).to_string()
+    };
+    match expr {
+        Expr::Identifier(sym) => Some(owned(variable_types.get(sym)?)),
+        Expr::FieldAccess { object, field } => program_record_field_type(&held_type(object, variable_types)?, *field),
+        Expr::Index { collection, index } => {
+            let held = held_type(collection, variable_types)?;
+            if let Expr::Literal(crate::ast::stmt::Literal::Number(k)) = index {
+                if let Some(item) = logos_tuple_elem_type(&held, *k) {
+                    return Some(item.to_string());
+                }
+            }
+            element_type(&held)
+        }
+        Expr::Slice { collection, .. } => held_type(collection, variable_types),
+        Expr::Call { function, .. } => super::expr::with_declared_returns(|m| m.get(function).map(|t| owned(t))),
+        Expr::Copy { expr } | Expr::Give { value: expr } => held_type(expr, variable_types),
+        _ => None,
+    }
+}
+
+/// The Rust type of one item of a collection held as `ty`: a list, a borrowed slice, a fixed array, a set, a list
+/// that may hold integers past the word.
+pub(crate) fn element_type(ty: &str) -> Option<String> {
+    let ty = ty.split("|__hl:").next().unwrap_or(ty);
+    let ty = ty.strip_prefix("&mut ").or_else(|| ty.strip_prefix('&')).unwrap_or(ty);
+    if super::int_vec::holds_int_vec(ty) || ty == "LogosI64Set" {
+        return Some("i64".to_string());
+    }
+    for head in ["LogosSeq<", "Vec<", "Seq<", "Set<", "LogosSet<", "FxHashSet<"] {
+        if let Some(inner) = ty.strip_prefix(head).and_then(|t| t.strip_suffix('>')) {
+            return Some(inner.trim().to_string());
+        }
+    }
+    let inner = ty.strip_prefix('[')?.strip_suffix(']')?;
+    Some(inner.split(';').next().unwrap_or(inner).trim().to_string())
 }
 
 /// Full [`LogosType`] inference for an expression (same temporary-TypeEnv
@@ -2128,3 +2392,7 @@ pub(super) fn infer_logos_type(
     }
     env.infer_expr(expr, interner)
 }
+
+#[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/codegen/types/tests.rs"]
+mod tests;

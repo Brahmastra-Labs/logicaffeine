@@ -7,7 +7,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [Unreleased]
 
 ### Added
-
+- **Heal shows the file coming back.** When Heal puts a file back as it was, the reader's text pixelates away over the
+  editor one character at a time while the file's text forms in the mirror of that order, in the editor's own type,
+  then the layer fades, leaving the editor with the file. Past 2,000 characters the file simply shows, and reduced
+  motion skips it.
 - **The benchmarks page's SAT Solver tab has an EDA section.** Model checking on HWMCC'24 against ABC's pdr, ABC given
   each design as AIGER 1.9 describes it, with the competition's own solvers counted within the same limit from its
   results table, in real seconds and in CPU seconds over all their threads; bounded model checking on the designs of the
@@ -17,18 +20,45 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   staged into `/data` for the browser, and `eda_data_guard` holds every summary it shows to the rows it comes from, the
   read each arena records of ABC to one that frees every latch free to start anywhere before it folds, and the page to
   both clocks' counts.
+- **Opening a program in the Studio shows what it does, and how long it took.** Choosing a file in the Files tree
+  switches every output column back to its Output view, so a program last read as Rust or C opens on its output. The
+  program runs as it opens, and the time from start to last line shows under its output ("Finished in 0.4 ms") and in
+  the status bar beside the caret ("Ran in 0.4 ms"), the same for Run. The clock is the page's `performance.now()`.
 
 ### Changed
+- The Studio reports a `## Theory`'s refutation by the size of its re-checked countermodel, never as kernel-certified.
+- The shipped previews carry the runtime whose `parseInt` reads every digit of the word and refuses text that is no Int
+  in the reference's words.
 - The web bundle builds for size (`[profile.wasm-release]` opt-level `s`): at opt-level 3 the main wasm was 27.4 MiB, over Cloudflare Pages' 25 MiB per-file limit, and the deploy failed at the upload; at `s` it is 20.8 MiB, inside the `[web]` budget. The in-browser interpreter is built for size with it.
 
 ### Fixed
-
-- The prebuilt previews of the shipped Web pages carry the browser runtime whose `read_reals` takes the path the module passes it, as `web_previews_lock` holds them to the compiler.
+- The 0.11.0 news article says what the whole-program engine is signed off at: 48 ns on the core clock; its RTL's staged datapath is for a faster clock whose re-sign has not closed.
 - The native `server` feature turns on `logicaffeine-lsp/server`, so the server side links one build of the language server. Locked by `feature_forwarding_lock`.
 - The landing page cites `lean_arena_big_naturals` for the kernel's Lean integers: the suite it cited is absent from a public checkout.
+- The prebuilt previews of the shipped Web pages carry the browser runtime whose `read_reals` takes the path the module passes it, as `web_previews_lock` holds them to the compiler.
 - `public/llms-full.txt` is the concatenation of the guides `llms_lock` holds it to: the logic guide's generic and the imperative guide's `Real` constants.
 - `install.sh` and `install.ps1` end on the README quick start's first run, `largo new hello && cd hello && largo run --interpret`, which needs nothing but `largo`: their `largo run` stopped for a Rust toolchain a newcomer does not have. Locked by `installer_docs_lock`.
 - `public/llms-full.txt` carries the CLI guide's `largo lean check`, the kernel core's check as the Lean Kernel Arena runs it.
+- **Each page is served at the address its canonical link and the sitemap name.** `/guide` answered 308 to
+  `/guide/`, the same for every sitemap address but `/`, while the page served there declared
+  `canonical=https://logicaffeine.com/guide`, the address that redirects. `merge-ssg.sh` now writes each page as its
+  address with `.html` (`guide.html`, `news/<slug>.html`) in place of a directory's `index.html`, so Cloudflare
+  Pages serves `/guide` itself with a 200 and redirects `/guide/` to it. `verify-ssg.sh` checks that layout on the
+  real build, and the Node browser suites' servers find a page at its address with `.html` as Pages does
+  (DAT-170).
+- **An unknown address is a real 404.** `/this-route-does-not-exist-xyz` answered 200 with the landing page and its
+  canonical address, a soft 404 that crawlers index. The build now prerenders the not-found page at `/404`
+  (`sitemap::NOT_FOUND_ROUTE`, outside the sitemap) and `merge-ssg.sh` moves it to the root `404.html`, which
+  Cloudflare Pages serves with a 404 status for every path no file and no rule answers. The page names no canonical
+  address and carries a `noindex` robots tag. `_redirects` no longer rewrites `/*` to the landing page: only the
+  routes the build cannot enumerate (`sitemap::CLIENT_SIDE_ROUTES`, `/workspace/*` and `/registry/package/*`) are
+  rewritten to the app shell. `verify-ssg.sh` checks the 404 page on the real build, and the smoke, render and
+  screenshot checks serve the build through `scripts/web/pages-server.py`, which answers each path as Pages does, so
+  the smoke check now sees the 404 status (DAT-171).
+- A shipped Web page opened from the Studio's Files tree shows its preview at once. The preview frame was created empty
+  and given the page's prebuilt document in the same task, which Chromium drops, so when the document was already
+  fetched the frame stayed blank until something set it again. The frame is now created only with its document in
+  place, and another document gets another frame (`PreviewFrame`).
 
 ## [0.11.0] - 2026-11-02
 

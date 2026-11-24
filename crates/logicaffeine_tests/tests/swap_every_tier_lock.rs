@@ -31,6 +31,7 @@ use logicaffeine_compile::compile::{
 };
 use logicaffeine_compile::optimization::Tier;
 use logicaffeine_compile::vm::NativeTier;
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_jit::ForgeTier;
 
 /// `src` prints exactly `expected` on every tier.
@@ -55,8 +56,13 @@ fn every_tier(src: &str, expected: &str) {
         "the optimized run path's answer:\n{src}"
     );
 
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
-    let jit = vm_outcome_tiered(src, &[], Tier::T3, Some(&tier as &dyn NativeTier));
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
+    let jit = vm_outcome_tiered(src, &[], Tier::T3, native);
     assert_eq!(
         jit.error, None,
         "the optimized run path with the native tier refused:\n{src}"
@@ -699,6 +705,7 @@ Show a.
 
 /// Run `src` on the optimized run path with a fresh native tier; answer its output and how many loop regions reached
 /// native code.
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn native_regions(src: &str) -> (String, u64) {
     let tier = ForgeTier::new();
     let run = vm_outcome_tiered(src, &[], Tier::T3, Some(&tier as &dyn NativeTier));
@@ -711,6 +718,7 @@ fn native_regions(src: &str) -> (String, u64) {
 /// refused by the native tier outright and ran on the bytecode interpreter, twenty times slower than the same loop
 /// written with a temporary.
 #[test]
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn a_loop_that_swaps_two_integers_runs_as_native_code() {
     let src = "## Main
 Let mutable a be 1.
@@ -742,6 +750,7 @@ Show total.
 }
 
 #[test]
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn a_loop_that_swaps_two_reals_runs_as_native_code() {
     let src = "## Main
 Let mutable a be 1.5.

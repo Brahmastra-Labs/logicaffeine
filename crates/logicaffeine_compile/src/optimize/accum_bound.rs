@@ -77,22 +77,37 @@ impl Iv {
 /// construct outside the supported integer-arithmetic grammar (which disqualifies the
 /// region). `unsafe_op` is set if any `+`/`-`/`*` result escapes i64 (⇒ this B fails).
 fn interval_of(e: &Expr, b: i64, unsafe_op: &mut bool, interner: &Interner) -> Option<Iv> {
+    interval_with(e, b, None, unsafe_op, interner)
+}
+
+/// [`interval_of`], the one name `known` gives instead in the range it gives it (a loop counter, over the values
+/// the loop runs it through), every other name in `[-B,B]`.
+fn interval_with(
+    e: &Expr,
+    b: i64,
+    known: Option<(Symbol, Iv)>,
+    unsafe_op: &mut bool,
+    interner: &Interner,
+) -> Option<Iv> {
     match e {
         Expr::Literal(Literal::Number(n)) => Some(Iv::point(*n as i128)),
-        Expr::Identifier(_) => Some(Iv::band(b)),
+        Expr::Identifier(s) => Some(match known {
+            Some((name, iv)) if name == *s => iv,
+            _ => Iv::band(b),
+        }),
         // `abs(x)` is bounded by |x|: interval `[0, max(|lo|,|hi|)]`. Its argument's ops
         // are still checked for i64 escape (the arg is marked/lowered raw too). Any OTHER
         // call is an unknown value — un-boundable, so the region is ineligible.
         Expr::Call { function, args }
             if args.len() == 1 && interner.resolve(*function) == "abs" =>
         {
-            let a = interval_of(args[0], b, unsafe_op, interner)?;
+            let a = interval_with(args[0], b, known, unsafe_op, interner)?;
             let m = a.lo.saturating_abs().max(a.hi.saturating_abs());
             Some(Iv { lo: 0, hi: m })
         }
         Expr::BinaryOp { op, left, right } => {
-            let l = interval_of(left, b, unsafe_op, interner)?;
-            let r = interval_of(right, b, unsafe_op, interner)?;
+            let l = interval_with(left, b, known, unsafe_op, interner)?;
+            let r = interval_with(right, b, known, unsafe_op, interner)?;
             let arith = |iv: Iv, unsafe_op: &mut bool| {
                 if !iv.fits_i64() {
                     *unsafe_op = true;
@@ -171,10 +186,20 @@ fn reads(e: &Expr, out: &mut Vec<Symbol>) {
     }
 }
 
-/// Deep-clone an expression into fresh arena nodes so the fast branch's address-keyed
-/// proven-raw marks never touch the fallback's nodes.
+/// Deep-clone an expression into fresh arena nodes, leaves and index and length subtrees included, each holding the
+/// facts of the node it copies: the fast branch's address-keyed proven-raw marks never touch the fallback's nodes,
+/// and what the range oracle proves of the fast branch (under the guard) is never joined with the fallback's.
 fn clone_expr<'a>(e: &'a Expr<'a>, ea: &'a Arena<Expr<'a>>) -> &'a Expr<'a> {
-    match e {
+    let copy = match e {
+        Expr::Literal(l) => ea.alloc(Expr::Literal(l.clone())),
+        Expr::Identifier(s) => ea.alloc(Expr::Identifier(*s)),
+        Expr::Index { collection, index } => ea.alloc(Expr::Index {
+            collection: clone_expr(collection, ea),
+            index: clone_expr(index, ea),
+        }),
+        Expr::Length { collection } => ea.alloc(Expr::Length {
+            collection: clone_expr(collection, ea),
+        }),
         Expr::BinaryOp { op, left, right } => ea.alloc(Expr::BinaryOp {
             op: *op,
             left: clone_expr(left, ea),
@@ -189,11 +214,12 @@ fn clone_expr<'a>(e: &'a Expr<'a>, ea: &'a Arena<Expr<'a>>) -> &'a Expr<'a> {
             function: *function,
             args: args.iter().map(|a| clone_expr(a, ea)).collect(),
         }),
-        // Leaves (Identifier/Literal/…) are immutable and unmarked — `Expr` is not
-        // `Clone`, and sharing an unmarked leaf between the fast and fallback branches
-        // is sound (only `BinaryOp` nodes get proven-raw marks, and those are fresh).
-        _ => e,
-    }
+        // Any other node is shared: sound, since only arithmetic gets proven-raw marks and every arithmetic node
+        // a clone reaches is fresh.
+        _ => return e,
+    };
+    super::facts::copy_expr_facts(e, copy);
+    copy
 }
 
 /// Clone a statement subtree with fresh arithmetic nodes, marking every `+`/`-`/`*`/
@@ -480,6 +506,40 @@ fn reads_contains(e: &Expr, sym: Symbol) -> bool {
     r.contains(&sym)
 }
 
+/// Where a loop counter starts, as the preamble leaves it.
+#[derive(Clone, Copy)]
+enum CounterStart<'a> {
+    /// The literal the preamble last sets it to.
+    Literal(i64),
+    /// An expression the preamble last sets it to, over inputs the preamble does not write after it: the counter
+    /// starts in that expression's range under the guard on those inputs.
+    Of(&'a Expr<'a>),
+    /// Its value at the loop's entry, the preamble setting it nowhere: the guard bounds the counter itself.
+    Entry,
+}
+
+/// Where `counter` starts, as `preamble` leaves it; `None` for a start that reads the counter or the accumulator
+/// `sum`, or whose inputs the preamble writes after it is taken — no guard at the loop's entry bounds it.
+fn counter_start<'a>(preamble: &[Stmt<'a>], counter: Symbol, sum: Symbol) -> Option<CounterStart<'a>> {
+    let Some(at) = preamble.iter().rposition(|s| {
+        matches!(s, Stmt::Let { var, .. } | Stmt::Set { target: var, .. } if *var == counter)
+    }) else {
+        return Some(CounterStart::Entry);
+    };
+    let (Stmt::Let { value, .. } | Stmt::Set { value, .. }) = &preamble[at] else {
+        unreachable!("the binding found above");
+    };
+    if let Expr::Literal(Literal::Number(n)) = value {
+        return Some(CounterStart::Literal(*n));
+    }
+    let mut inputs = Vec::new();
+    reads(value, &mut inputs);
+    if inputs.contains(&counter) || inputs.contains(&sum) || preamble[at + 1..].iter().any(|s| binds_any(s, &inputs)) {
+        return None;
+    }
+    Some(CounterStart::Of(*value))
+}
+
 /// The literal a variable is seeded with in the preamble (its last `Let`/`Set` to a number),
 /// or `None` if it is not a plain literal seed.
 fn find_init_value(preamble: &[Stmt], var: Symbol) -> Option<i64> {
@@ -500,9 +560,13 @@ fn find_init_value(preamble: &[Stmt], var: Symbol) -> Option<i64> {
 /// Try to version a LINEAR-ACCUMULATOR loop `while counter </<= limit { sum = sum + f(counter);
 /// counter = counter + 1 }` so the fast branch accumulates with a PLAIN i64 `+` (which LLVM
 /// vectorizes) instead of the promoting `logos_add_i64` call. Distinct from `try_version`,
-/// which needs a CLOSED `[-B,B]` system — here `sum` GROWS; we bound its FINAL magnitude by
-/// `iterations × max|f| ≤ limit·M ≤ B·M` and require `(B+1)·M ≤ i64::MAX` under the entry
-/// guard `every input ∈ [-B,B]`. Interval arithmetic over-approximates ⇒ firing is sound.
+/// which needs a CLOSED `[-B,B]` system — here `sum` GROWS. Under the entry guard `every input
+/// ∈ [-B,B]` the counter runs from its start (`counter_start`: a literal, an expression over the
+/// guarded inputs, or its value at the loop's entry, the guard bounding it too) up to the limit's
+/// interval; the terms are
+/// bounded with the counter in that range, and the loop is versioned where
+/// `|start of sum| + trips × Σ max|term| ≤ i64::MAX`, `trips` the most that range allows.
+/// Interval arithmetic over-approximates ⇒ firing is sound.
 fn try_version_linear<'a>(
     while_stmt: &Stmt<'a>,
     preamble: &[Stmt<'a>],
@@ -547,6 +611,11 @@ fn try_version_linear<'a>(
     if init.unsigned_abs() > (1u64 << 31) {
         return None;
     }
+    // Where the counter starts (see `counter_start`); a limit that reads the counter is no bound.
+    let start = counter_start(preamble, counter, sum)?;
+    if reads_contains(limit_expr, counter) {
+        return None;
+    }
     // Largest B in the ladder where every op in every term fits i64 AND the running sum cannot
     // overflow: `(B+1)·ΣM ≤ i64::MAX`, `ΣM = Σ max|term_k|` under all-vars-in-[-B,B] (the per-
     // iteration increment is `Σ term_k`, bounded by `ΣM`; the sum by `iterations·ΣM ≤ B·ΣM`).
@@ -559,11 +628,37 @@ fn try_version_linear<'a>(
     ];
     let mut chosen_b: Option<i64> = None;
     for &b in &CANDS {
+        // The counter's values over the trips: from its start up to the limit's reach (one
+        // short of it for `<`), its step past the last of them still a word.
+        let begin = match start {
+            CounterStart::Literal(s) => Iv::point(s as i128),
+            CounterStart::Entry => Iv::band(b),
+            CounterStart::Of(e) => {
+                let mut start_unsafe = false;
+                match interval_of(e, b, &mut start_unsafe, interner) {
+                    Some(iv) if !start_unsafe => iv,
+                    _ => continue,
+                }
+            }
+        };
+        let mut limit_unsafe = false;
+        let Some(limit) = interval_of(limit_expr, b, &mut limit_unsafe, interner) else {
+            return None;
+        };
+        let last = if incl { limit.hi } else { limit.hi - 1 };
+        if limit_unsafe || last >= i64::MAX as i128 {
+            continue;
+        }
+        let trips = (last - begin.lo + 1).max(0);
+        let counter_range = Iv {
+            lo: begin.lo,
+            hi: last.max(begin.lo),
+        };
         let mut total_m: i128 = 0;
         let mut ok = true;
         for t in &terms {
             let mut unsafe_op = false;
-            match interval_of(t, b, &mut unsafe_op, interner) {
+            match interval_with(t, b, Some((counter, counter_range)), &mut unsafe_op, interner) {
                 Some(iv) if !unsafe_op => {
                     total_m = total_m.saturating_add(iv.lo.abs().max(iv.hi.abs()));
                 }
@@ -573,24 +668,32 @@ fn try_version_linear<'a>(
                 }
             }
         }
-        if ok && (b as i128 + 1).saturating_mul(total_m) <= i64::MAX as i128 {
+        let reach = (init as i128).saturating_abs().saturating_add(trips.saturating_mul(total_m));
+        if ok && reach <= i64::MAX as i128 {
             chosen_b = Some(b);
             break;
         }
     }
     let b = chosen_b?;
-    // Guard inputs = identifiers read by any term or the limit, minus the loop counter
-    // (bounded by the loop) and the accumulator, in deterministic first-read order.
+    // Guard inputs = identifiers read by any term, the limit or the counter's start, minus the
+    // loop counter and the accumulator, in deterministic first-read order; the counter itself
+    // where the preamble never sets it (the guard then bounds the value the loop starts it at).
     let mut ordered: Vec<Symbol> = Vec::new();
     for t in &terms {
         reads(t, &mut ordered);
     }
     reads(limit_expr, &mut ordered);
+    if let CounterStart::Of(e) = start {
+        reads(e, &mut ordered);
+    }
     let mut seen: HashSet<Symbol> = HashSet::new();
-    let inputs: Vec<Symbol> = ordered
+    let mut inputs: Vec<Symbol> = ordered
         .into_iter()
         .filter(|s| *s != counter && *s != sum && seen.insert(*s))
         .collect();
+    if matches!(start, CounterStart::Entry) {
+        inputs.push(counter);
+    }
     if inputs.is_empty() {
         return None;
     }

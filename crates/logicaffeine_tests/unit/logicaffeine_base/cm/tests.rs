@@ -1718,3 +1718,15 @@ fn a_table_whose_entries_hold_e8_bytes_is_not_x86_code() {
     assert!(branch_blocks(&x86_like(200_000, 31)).iter().filter(|&&b| b).count() >= 2, "code calling 64 functions still is");
     round_trips(&table);
 }
+
+#[test]
+fn at_max_the_lstms_prediction_also_reaches_the_final_mixer() {
+    let text = wordy_text(20_000, 34);
+    let mut model = Model::coded(text.len(), Level::Max, None, Vec::new(), Vec::new(), Vec::new());
+    let mut meter = CostMeter(0);
+    for &b in &text {
+        model.code_byte(&mut meter, b);
+    }
+    assert_ne!(model.final_mixer.input(FINAL_LSTM), 0, "the network's prediction reaches the final mixer");
+    assert_eq!(model.final_mixer.input(FINAL_LSTM), model.mixer.input(model.lstm_input), "as the input the first mixers read");
+}

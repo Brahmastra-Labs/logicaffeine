@@ -4,7 +4,8 @@
 //! it, and folds back to an Int (via `intOfWordN`) so the region output is a scalar — asserted equal to the
 //! tree-walker AND (on x86_64) that the hot region actually tiered to native.
 
-#![cfg(not(target_arch = "wasm32"))]
+// This suite tests the native tier alone, which exists only on x86_64 outside Windows.
+#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 
 use logicaffeine_compile::compile::{tw_outcome_with_args, vm_outcome_with_args};
 use logicaffeine_compile::vm::NativeTier;

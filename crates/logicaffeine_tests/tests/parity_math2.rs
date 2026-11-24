@@ -35,7 +35,7 @@ fn parity_math_fma() {
         "10\n-3",
     );
 }
-/// Gauss error function (A&S 7.1.26, ×100 to dodge float display). go: math.Erf · py: math.erf/statistics.erf · c: math.h.erf
+/// Gauss error function (Go's `math.Erf`, operation for operation; ×100 to dodge float display). go: math.Erf · py: math.erf/statistics.erf · c: math.h.erf
 #[test]
 fn parity_math_erf() {
     assert_all_tiers(

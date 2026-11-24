@@ -2,7 +2,8 @@
 """What a full run's tests cost, from its ledger (scripts/test/test-ledger.sh writes one line a test).
 
     test-ledger-report.py LEDGER [--top N] [--window SECONDS]
-    test-ledger-report.py LEDGER --widths CORES [--min-cpu SECONDS] [--max-threads N]
+    test-ledger-report.py LEDGER... --widths CORES [--min-cpu SECONDS] [--max-threads N]
+    test-ledger-report.py LEDGER... --backstops STRETCH
 
 The ledger can hold lines of a run nested inside the one recorded (a test that runs nextest itself); the report reads
 the run with the most lines. It prints the run's totals, the heaviest tests by CPU, the widest (the tests that keep more
@@ -14,14 +15,26 @@ With --widths it prints instead the tests at least that many cores wide, with at
 full-profile nextest overrides: `threads-required` is the test's CPU over its wall clock, rounded, and at most
 --max-threads. A test's wall clock in the gate is stretched by the gate's load and its CPU is not, so the width it
 declares is never more than it kept busy there.
+
+With --backstops it prints the passing tests whose wall clock, STRETCH times over, outlasts the full profile's 30-minute
+backstop, as full-profile overrides of STRETCH times their wall clock in whole five-minute periods: the backstop is for a
+hang, and a test that legitimately runs past it under a gate's load gets one of its own. The ledger for this is a
+measurement of the tests on a quiet box with no backstop, whose wall clocks a gate stretches by up to STRETCH.
+
+The overrides can be read from several ledgers (a gate's, and a measurement of tests the gate cannot time), each read as
+its own run; a test in more than one is written as the last ledger given has it.
 """
 
 import argparse
 import collections
+import math
 import sys
 
 WIDE_CORES = 1.5
 WIDE_WALL_S = 30.0
+# The full profile's backstop (.config/nextest.toml: 120 s × 15), and the period a backstop of its own counts in.
+FULL_BACKSTOP_S = 1800
+BACKSTOP_PERIOD_S = 300
 
 
 class Test:
@@ -84,27 +97,49 @@ def crowded(tests, window):
     return at - origin, busy / window, sorted(tests, key=lambda t: -t.cpu_within(at, at + window)), at
 
 
+def latest(ledgers):
+    """Every test of each ledger's run, a test in more than one ledger as the last of them has it."""
+    by_name = {}
+    for path in ledgers:
+        for t in read(path):
+            by_name[t.name] = t
+    return sorted(by_name.values(), key=lambda t: (t.binary, t.test))
+
+
+def override(t, setting):
+    print("[[profile.full.overrides]]")
+    print(f"filter = 'binary_id({t.binary}) & test(={t.test})'")
+    print(setting)
+    print()
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("ledger")
+    ap.add_argument("ledger", nargs="+")
     ap.add_argument("--top", type=int, default=10)
     ap.add_argument("--window", type=float, default=600.0)
     ap.add_argument("--widths", type=float)
     ap.add_argument("--min-cpu", type=float, default=120.0)
     ap.add_argument("--max-threads", type=int, default=24)
+    ap.add_argument("--backstops", type=float, metavar="STRETCH")
     args = ap.parse_args()
 
-    tests = read(args.ledger)
     if args.widths is not None:
-        wide = [t for t in tests if t.cpu is not None and t.cpu >= args.min_cpu and t.cores() >= args.widths]
-        for t in sorted(wide, key=lambda t: (t.binary, t.test)):
-            print("[[profile.full.overrides]]")
-            print(f"filter = 'binary_id({t.binary}) & test(={t.test})'")
-            print(f"threads-required = {min(args.max_threads, int(t.cores() + 0.5))}")
-            print()
+        for t in latest(args.ledger):
+            if t.cpu is not None and t.cpu >= args.min_cpu and t.cores() >= args.widths:
+                override(t, f"threads-required = {min(args.max_threads, int(t.cores() + 0.5))}")
         return 0
+    if args.backstops is not None:
+        for t in latest(args.ledger):
+            periods = math.ceil(args.backstops * t.wall / BACKSTOP_PERIOD_S)
+            if t.outcome == "exit 0" and periods * BACKSTOP_PERIOD_S > FULL_BACKSTOP_S:
+                override(t, f'slow-timeout = {{ period = "{BACKSTOP_PERIOD_S}s", terminate-after = {periods} }}')
+        return 0
+    if len(args.ledger) > 1:
+        ap.error("a run's load is read from one ledger; several are read only for --widths and --backstops")
+    tests = read(args.ledger[0])
     if not tests:
-        print(f"ledger: no tests in {args.ledger}")
+        print(f"ledger: no tests in {args.ledger[0]}")
         return 0
     cpu = sum(t.cpu or 0.0 for t in tests)
     span = max(t.end for t in tests) - min(t.start for t in tests)

@@ -147,6 +147,82 @@ thread_local! {
         std::cell::RefCell::new(HashMap::new());
 }
 
+/// The functions a run of the program can reach: every function the program's top-level statements other than its
+/// definitions name (a call, a value, a launched task, a route, a test), every exported, native or compiler-written
+/// (`__`) function, and every function one of those names, transitively. A program whose only top-level statements
+/// are definitions reaches every function.
+pub(crate) fn reached_functions(stmts: &[Stmt<'_>], interner: &Interner) -> HashSet<Symbol> {
+    reached_from(stmts, interner, &|_| false)
+}
+
+/// The functions [`reached_functions`] answers, together with every function `seed` picks and every function one of
+/// those names, transitively.
+pub(crate) fn reached_from(
+    stmts: &[Stmt<'_>],
+    interner: &Interner,
+    seed: &dyn Fn(Symbol) -> bool,
+) -> HashSet<Symbol> {
+    use crate::optimize::mentions::Mentions;
+    use logicaffeine_language::ast_depth::{for_each_node, Visited};
+    let functions: HashMap<Symbol, (&[Stmt<'_>], bool)> = stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FunctionDef { name, body, is_native, is_exported, .. } => {
+                let root =
+                    *is_native || *is_exported || interner.resolve(*name).starts_with("__") || seed(*name);
+                Some((*name, (*body, root)))
+            }
+            _ => None,
+        })
+        .collect();
+    let top_level: Vec<&Stmt<'_>> = stmts
+        .iter()
+        .filter(|s| !matches!(s, Stmt::FunctionDef { .. } | Stmt::StructDef { .. }))
+        .collect();
+    if top_level.is_empty() {
+        return functions.keys().copied().collect();
+    }
+    // What `block` names: every name the effect walk hears, and every launched task's function — a spawn's target is
+    // not a call, so the walk does not name it. Foreign code may name any function.
+    let named = |block: &[Stmt<'_>]| -> Vec<Symbol> {
+        let mentions = Mentions::of_block(block);
+        if mentions.is_opaque() {
+            return functions.keys().copied().collect();
+        }
+        let mut names: Vec<Symbol> = mentions.symbols().collect();
+        for_each_node(block, |node| {
+            if let Visited::Stmt(
+                Stmt::LaunchTask { function, .. } | Stmt::LaunchTaskWithHandle { function, .. },
+            ) = node
+            {
+                names.push(*function);
+            }
+        });
+        names
+    };
+    let mut reached: HashSet<Symbol> = HashSet::new();
+    let mut pending: Vec<Symbol> = Vec::new();
+    let reach = |names: Vec<Symbol>, reached: &mut HashSet<Symbol>, pending: &mut Vec<Symbol>| {
+        for sym in names {
+            if functions.contains_key(&sym) && reached.insert(sym) {
+                pending.push(sym);
+            }
+        }
+    };
+    for stmt in &top_level {
+        reach(named(std::slice::from_ref(*stmt)), &mut reached, &mut pending);
+    }
+    for (name, (_, root)) in &functions {
+        if *root && reached.insert(*name) {
+            pending.push(*name);
+        }
+    }
+    while let Some(f) = pending.pop() {
+        reach(named(functions[&f].0), &mut reached, &mut pending);
+    }
+    reached
+}
+
 /// The functions a program built ahead of time compiles: every function that does not need a
 /// document. A function needs one when it is the browser half of a page's lowering (`__render_`,
 /// `__act_`, …, `lgx_lower::is_browser_only_lowering`), when it calls a builtin only a browser has
@@ -1235,3 +1311,7 @@ fn dfs_collect(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/analysis/callgraph/tests.rs"]
+mod tests;

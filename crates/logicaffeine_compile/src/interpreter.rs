@@ -2527,6 +2527,10 @@ pub struct Interpreter<'a> {
     /// The run real numbers the program defines by a function read their functions in, opened the
     /// first time the program defines one ([`Interpreter::open_defined_run`]).
     defined_run: Option<crate::semantics::defined::RunScope<'a>>,
+    /// Whose statements a whole program run's driving statements are, when the run seats its own
+    /// page ([`Interpreter::seat_page_of`]): the program's own `## Main`, unless the run is a
+    /// host's script ([`Interpreter::driving_pages_as`]).
+    page_driver: crate::page_host::DrivenBy,
 }
 
 /// Who carries out a run's driving statements.
@@ -2551,10 +2555,11 @@ struct HostedPage {
 }
 
 impl HostedPage {
-    /// The seat of a page whose `## Page` component `page` names, if it mounts one by itself.
-    fn of(page: Option<String>) -> Self {
+    /// The seat of a page whose `## Page` component `page` names, if it mounts one by itself,
+    /// driven by `by`'s statements.
+    fn of(page: Option<String>, by: crate::page_host::DrivenBy) -> Self {
         HostedPage {
-            host: Some(crate::page_host::LoweredHost::of_page(page)),
+            host: Some(crate::page_host::LoweredHost::of_page(page).driven_by(by)),
             refused: None,
         }
     }
@@ -2790,11 +2795,12 @@ impl<'a> Interpreter<'a> {
             request_deadline: None,
             deadline_tick: 0,
             tiers_noop: false,
-            page: PageSeat::Here(HostedPage::of(None)),
+            page: PageSeat::Here(HostedPage::of(None, crate::page_host::DrivenBy::Program)),
             statement_observer: None,
             page_main: None,
             failed_call_site: None,
             defined_run: None,
+            page_driver: crate::page_host::DrivenBy::Program,
         }
     }
 
@@ -3121,6 +3127,14 @@ impl<'a> Interpreter<'a> {
         self
     }
 
+    /// Carry this run's driving statements out as `by`'s ([`crate::page_host::DrivenBy`]). A whole
+    /// program run drives its page as the program's own `## Main`; a run of a `## Test`'s body is a
+    /// host's script, whose `Mount` is an entry the test makes into the page.
+    pub fn driving_pages_as(mut self, by: crate::page_host::DrivenBy) -> Self {
+        self.page_driver = by;
+        self
+    }
+
     /// Drive this run's page through `p` — the bytecode VM's lowered page, or a real browser —
     /// instead of hosting the page's lowered program here. The seam a host uses to run a
     /// `## Test`'s statements ONCE and carry every driving verb (`Click`, `Mount`, `Navigate`, …)
@@ -3144,15 +3158,19 @@ impl<'a> Interpreter<'a> {
     /// (`program`) runs once and settles, and from then on every driving statement this
     /// interpreter meets is carried out on the page by the driver every lowered tier shares
     /// ([`crate::page_host::LoweredHost`]), with this interpreter as the engine it calls into —
-    /// exactly as a browser drives the page's module. `auto_mounted` names the `## Page` component
-    /// the program mounts by itself, if any. A failing main is the page's failure; the page is
-    /// hosted either way, as a browser can still call into a module whose `main` trapped.
+    /// exactly as a browser drives the page's module, every statement a host's
+    /// ([`crate::page_host::DrivenBy::Host`]). `auto_mounted` names the `## Page` component the
+    /// program mounts by itself, if any. A failing main is the page's failure; the page is hosted
+    /// either way, as a browser can still call into a module whose `main` trapped.
     pub fn host_lowered_page(
         &mut self,
         program: &[Stmt<'a>],
         auto_mounted: Option<String>,
     ) -> Result<(), crate::page_host::DriveError> {
-        self.page = PageSeat::Here(HostedPage::of(auto_mounted));
+        self.page = PageSeat::Here(HostedPage::of(
+            auto_mounted,
+            crate::page_host::DrivenBy::Host,
+        ));
         let ran = self.run_page_main(program);
         self.with_hosted_page(|host, me| host.settle(me));
         ran.map_err(crate::page_host::DriveError::Failed)
@@ -5916,16 +5934,17 @@ impl<'a> Interpreter<'a> {
             Expr::New { type_name, init_fields, .. } => {
                 let name = self.ctx.interner.resolve(*type_name).to_string();
 
-                if name == "Seq" || name == "List" {
-                    return Ok(RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(Vec::new())))));
-                }
-
-                if name == "Set" || name == "HashSet" {
-                    return Ok(RuntimeValue::Set(Rc::new(RefCell::new(vec![]))));
-                }
-
-                if name == "Map" || name == "HashMap" {
-                    return Ok(RuntimeValue::Map(Rc::new(RefCell::new(MapStorage::default()))));
+                match crate::semantics::collections::built_by(&name) {
+                    Some(crate::semantics::collections::Built::List) => {
+                        return Ok(RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(Vec::new())))));
+                    }
+                    Some(crate::semantics::collections::Built::Set) => {
+                        return Ok(RuntimeValue::Set(Rc::new(RefCell::new(vec![]))));
+                    }
+                    Some(crate::semantics::collections::Built::Map) => {
+                        return Ok(RuntimeValue::Map(Rc::new(RefCell::new(MapStorage::default()))));
+                    }
+                    None => {}
                 }
 
                 let mut fields = HashMap::new();
@@ -6542,6 +6561,7 @@ impl<'a> Interpreter<'a> {
             page_main: None,
             failed_call_site: None,
             defined_run: None,
+            page_driver: crate::page_host::DrivenBy::Program,
         };
         let fut = Box::pin(async move {
             child
@@ -6550,6 +6570,17 @@ impl<'a> Interpreter<'a> {
                 .map(|_| ())
         });
         Box::new(InterpreterTask::new(fut, ys, self.err_sink.clone()))
+    }
+
+    /// Call a function the program defines, by name, with values — for a caller outside the
+    /// program that needs one answer from it once its definitions have run (a page's `Paths:`,
+    /// asked at build time).
+    pub async fn call_named(
+        &mut self,
+        function: Symbol,
+        args: Vec<RuntimeValue>,
+    ) -> Result<RuntimeValue, String> {
+        self.call_function_with_values(function, args).await
     }
 
     #[async_recursion(?Send)]
@@ -7257,9 +7288,11 @@ impl<'a> Interpreter<'a> {
     /// A whole program run ([`Interpreter::run`]/[`Interpreter::run_sync`]) hosts the program's own
     /// page LOWERED, on this very interpreter, through the driver every lowered tier shares
     /// ([`crate::page_host::LoweredHost`]): its main is the program up to the first statement that
-    /// acts on the page ([`crate::page_host::page_main_len`]), and the `## Page` it mounts by itself
-    /// is the one a reload mounts again. A page whose main already ran on this interpreter keeps
-    /// both; a page another engine executes ([`PageSeat::Driven`]) is left where it is.
+    /// acts on the page ([`crate::page_host::page_main_len`]), the `## Page` it mounts by itself
+    /// is the one a reload mounts again, and the statements that drive it are the program's own
+    /// unless the run is a host's script ([`Interpreter::driving_pages_as`]). A page whose main
+    /// already ran on this interpreter keeps its seat; a page another engine executes
+    /// ([`PageSeat::Driven`]) is left where it is.
     fn seat_page_of(&mut self, stmts: &[Stmt<'a>]) {
         if self.page_main.is_some() || !matches!(self.page, PageSeat::Here(_)) {
             return;
@@ -7269,6 +7302,7 @@ impl<'a> Interpreter<'a> {
         self.page_main = Some(stmts[..main].to_vec());
         self.page = PageSeat::Here(HostedPage::of(
             crate::page_host::auto_mounted_page_component(stmts, interner),
+            self.page_driver,
         ));
     }
 
@@ -8873,20 +8907,17 @@ impl<'a> Interpreter<'a> {
         };
         let name = self.ctx.interner.resolve(*type_name).to_string();
 
-        if name == "Seq" || name == "List" {
-            return Ok(RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(
-                Vec::new(),
-            )))));
-        }
-
-        if name == "Set" || name == "HashSet" {
-            return Ok(RuntimeValue::Set(Rc::new(RefCell::new(vec![]))));
-        }
-
-        if name == "Map" || name == "HashMap" {
-            return Ok(RuntimeValue::Map(Rc::new(RefCell::new(
-                MapStorage::default(),
-            ))));
+        match crate::semantics::collections::built_by(&name) {
+            Some(crate::semantics::collections::Built::List) => {
+                return Ok(RuntimeValue::List(Rc::new(RefCell::new(ListRepr::Ints(Vec::new())))));
+            }
+            Some(crate::semantics::collections::Built::Set) => {
+                return Ok(RuntimeValue::Set(Rc::new(RefCell::new(vec![]))));
+            }
+            Some(crate::semantics::collections::Built::Map) => {
+                return Ok(RuntimeValue::Map(Rc::new(RefCell::new(MapStorage::default()))));
+            }
+            None => {}
         }
 
         let mut fields = HashMap::new();
@@ -10215,6 +10246,7 @@ impl<'a> Interpreter<'a> {
             page_main: None,
             failed_call_site: None,
             defined_run: None,
+            page_driver: crate::page_host::DrivenBy::Program,
         }
     }
 
@@ -10484,22 +10516,51 @@ fn sleep_nanos(val: &RuntimeValue) -> Result<i64, String> {
     }
 }
 
+/// Whether running `stmts` waits on anything a synchronous run cannot: the clock (`Sleep`) or the
+/// host ([`needs_host`]).
 pub fn needs_async(stmts: &[Stmt], interner: &Interner) -> bool {
-    stmts.iter().any(|s| stmt_needs_async(s, interner))
+    waits_on(stmts, interner) > Waits::Nothing
 }
 
-fn stmt_needs_async(stmt: &Stmt, interner: &Interner) -> bool {
+/// Whether running `stmts` reaches outside the process — a file, the relay, a socket, an HTTP server
+/// — and so needs the host's reactor. A program whose only wait is `Sleep` does not: the
+/// deterministic scheduler serves the clock itself, on every engine.
+pub fn needs_host(stmts: &[Stmt], interner: &Interner) -> bool {
+    waits_on(stmts, interner) == Waits::Host
+}
+
+/// The most a program waits on, in increasing order of what serving it takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Waits {
+    Nothing,
+    Clock,
+    Host,
+}
+
+fn waits_on(stmts: &[Stmt], interner: &Interner) -> Waits {
+    stmts
+        .iter()
+        .map(|s| stmt_waits_on(s, interner))
+        .max()
+        .unwrap_or(Waits::Nothing)
+}
+
+fn stmt_waits_on(stmt: &Stmt, interner: &Interner) -> Waits {
     match stmt {
-        Stmt::ReadFrom { source, .. } => {
-            matches!(source, ReadSource::File(_))
-        }
-        Stmt::WriteFile { .. } | Stmt::Sleep { .. } | Stmt::Mount { .. } => true,
+        Stmt::Sleep { .. } => Waits::Clock,
+        Stmt::ReadFrom {
+            source: ReadSource::File(_),
+            ..
+        } => Waits::Host,
+        Stmt::WriteFile { .. } | Stmt::Mount { .. } => Waits::Host,
         // Networking over the relay is async (dial + subscribe await).
-        Stmt::Sync { .. } | Stmt::Listen { .. } | Stmt::ConnectTo { .. } => true,
+        Stmt::Sync { .. } | Stmt::Listen { .. } | Stmt::ConnectTo { .. } => Waits::Host,
         // The HTTP server binds a tokio listener and awaits per-request handling.
-        Stmt::Serve { .. } => true,
+        Stmt::Serve { .. } => Waits::Host,
         // Peer messaging rides the relay (subscribe/publish/poll) — async only.
-        Stmt::SendMessage { .. } | Stmt::AwaitMessage { .. } | Stmt::StreamMessage { .. } => true,
+        Stmt::SendMessage { .. } | Stmt::AwaitMessage { .. } | Stmt::StreamMessage { .. } => {
+            Waits::Host
+        }
         // tcp.lg natives block on sockets — async only. The prelude splices tcp.lg
         // ONLY when the program references one of its names (declarer-wins fixpoint),
         // so the spliced EMPTY-bodied native declaration IS the reference detector.
@@ -10523,24 +10584,27 @@ fn stmt_needs_async(stmt: &Stmt, interner: &Interner) -> bool {
                 | "tcpUpgradeTls"
         ) =>
         {
-            true
+            Waits::Host
         }
         Stmt::If {
             then_block,
             else_block,
             ..
-        } => {
-            needs_async(then_block, interner)
-                || else_block
-                    .as_ref()
-                    .map_or(false, |b| needs_async(b, interner))
-        }
-        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => needs_async(body, interner),
-        Stmt::FunctionDef { body, .. } => needs_async(body, interner),
-        Stmt::Zone { body, .. } => needs_async(body, interner),
-        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => needs_async(tasks, interner),
-        Stmt::Inspect { arms, .. } => arms.iter().any(|arm| needs_async(arm.body, interner)),
-        _ => false,
+        } => waits_on(then_block, interner).max(
+            else_block
+                .as_ref()
+                .map_or(Waits::Nothing, |b| waits_on(b, interner)),
+        ),
+        Stmt::While { body, .. } | Stmt::Repeat { body, .. } => waits_on(body, interner),
+        Stmt::FunctionDef { body, .. } => waits_on(body, interner),
+        Stmt::Zone { body, .. } => waits_on(body, interner),
+        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => waits_on(tasks, interner),
+        Stmt::Inspect { arms, .. } => arms
+            .iter()
+            .map(|arm| waits_on(arm.body, interner))
+            .max()
+            .unwrap_or(Waits::Nothing),
+        _ => Waits::Nothing,
     }
 }
 

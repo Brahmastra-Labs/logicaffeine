@@ -7,6 +7,32 @@ use crate::interpreter::RuntimeValue;
 
 use super::compare::values_equal;
 
+/// The collection a construction builds.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Built {
+    List,
+    Set,
+    Map,
+}
+
+/// What `a new <name>` builds, by the name it is written with: a list (`Seq`, `List`), a set (`Set`, `HashSet`) or a
+/// map (`Map`, `HashMap`). `None` for any other name, a record or enum of the program's: `Vec` among them, a list TYPE
+/// (`Vec of Int`) and no construction. The tree-walker builds by this rule, and every analysis and emitter reads a
+/// construction by it.
+pub fn built_by(name: &str) -> Option<Built> {
+    match name {
+        "Seq" | "List" => Some(Built::List),
+        "Set" | "HashSet" => Some(Built::Set),
+        "Map" | "HashMap" => Some(Built::Map),
+        _ => None,
+    }
+}
+
+/// Whether `a new <name>` builds a list ([`built_by`]).
+pub fn builds_list(name: &str) -> bool {
+    built_by(name) == Some(Built::List)
+}
+
 /// The interned single-character `Text` for an ASCII byte. `item k of text`
 /// on an ASCII string is the hot path of every character-scanning loop
 /// (string search, parsing); allocating a fresh one-char `Rc<String>` per
@@ -302,7 +328,8 @@ pub fn intersection(left: &RuntimeValue, right: &RuntimeValue) -> Result<Runtime
     }
 }
 
-/// `a to b` — inclusive integer range as a List.
+/// `a to b` — inclusive integer range as a List. An Int is exact, so a bound past `i64` is walked as one: each item
+/// is the exact Int, held as a machine word where it fits.
 pub fn range(start: &RuntimeValue, end: &RuntimeValue) -> Result<RuntimeValue, String> {
     match (start, end) {
         (RuntimeValue::Int(s), RuntimeValue::Int(e)) => {
@@ -311,7 +338,29 @@ pub fn range(start: &RuntimeValue, end: &RuntimeValue) -> Result<RuntimeValue, S
                 crate::interpreter::ListRepr::Ints(range),
             ))))
         }
-        _ => Err("Range requires Int bounds".to_string()),
+        (s, e) => match (exact_int(s), exact_int(e)) {
+            (Some(mut at), Some(last)) => {
+                let one = logicaffeine_base::BigInt::from_i64(1);
+                let mut items = Vec::new();
+                while at <= last {
+                    items.push(RuntimeValue::from_bigint(at.clone()));
+                    at = at.add(&one);
+                }
+                Ok(RuntimeValue::List(Rc::new(RefCell::new(
+                    crate::interpreter::ListRepr::from_values(items),
+                ))))
+            }
+            _ => Err("Range requires Int bounds".to_string()),
+        },
+    }
+}
+
+/// An Int as an exact integer, whether the runtime holds it as a machine word or a big integer.
+fn exact_int(v: &RuntimeValue) -> Option<logicaffeine_base::BigInt> {
+    match v {
+        RuntimeValue::Int(n) => Some(logicaffeine_base::BigInt::from_i64(*n)),
+        RuntimeValue::BigInt(b) => Some((**b).clone()),
+        _ => None,
     }
 }
 
@@ -540,10 +589,9 @@ pub fn integer_place_refusals(place: IntegerPlace) -> (String, String) {
             refused(index_get(&RuntimeValue::Text(Rc::new("abc".to_string())), &fraction())),
         ),
         IntegerPlace::Tuple => (refused(index_get(&pair(), &past_word())), refused(index_get(&pair(), &fraction()))),
-        IntegerPlace::Range => (
-            refused(range(&RuntimeValue::Int(1), &past_word())),
-            refused(range(&RuntimeValue::Int(1), &fraction())),
-        ),
+        // The VM walks a range over any Int, so a compiled module that holds its bounds in machine words stops on one
+        // past the word as on any integer too wide for the place it reaches.
+        IntegerPlace::Range => (past(FailCode::IntTooWide), refused(range(&RuntimeValue::Int(1), &fraction()))),
         IntegerPlace::Slice => (
             refused(slice(&list(), &past_word(), &RuntimeValue::Int(1))),
             refused(slice(&list(), &fraction(), &RuntimeValue::Int(1))),

@@ -7,17 +7,21 @@
 //!
 //! [`bring_up`] runs a checkpoint through the backends asked for and reports, for each, the programs it lowered or why
 //! it refused, beside the identity of the decode step every one of them is a cut of. [`run_sequences`] then runs the
-//! model on every backend that brought it up and is on this machine, every [`Sequence`] it is given — a CPU tier as one
-//! generation program built once: the decode step's own statements in a loop over positions, the weights read once,
-//! each sequence's state declared afresh — each sequence judged by how many of its tokens lead its reference's (the
-//! model's f64 reference, or a golden's continuation). A chip that is not here, or whose run is not built yet, says
-//! which.
+//! model on every backend that brought it up and is on this machine, every [`Sequence`] it is given — a tier of general
+//! programs (the VM, the JIT, C, Rust, RISC-V, WebAssembly) as one generation program built once: the decode step's own
+//! statements in a loop over positions, the weights read once, each sequence's state declared afresh; the CPU tier and
+//! the CUDA lane as the program they linked, built once and run a sequence at a time — each sequence judged by how
+//! many of its tokens lead its reference's (the model's f64 reference, or a golden's continuation). A chip that is not
+//! here, or whose run is not built yet, says which.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Instant;
 
+use crate::codegen_cpu::kernels::FLAGS_X86_AVX2_VNNI;
+use crate::codegen_cpu::model::{compile_model, host_threads};
+use crate::codegen_cpu::shim::{CpuActivations, CpuCache, CpuIsa, CpuShim};
 use crate::codegen_cuda::knobs::CudaKnobs;
 use crate::codegen_cuda::lane::{compile, LaneOptions};
 use crate::model::bind::{bind, rotary_values, values, Source};
@@ -624,6 +628,12 @@ impl Backend for Wasm {
     }
 }
 
+/// The rows of the largest prefill chunk a bring-up compiles over caches of `ctx` positions: the largest power of two up
+/// to 16 the caches hold.
+fn prefill_rows(ctx: usize) -> usize {
+    (1..=16usize).rev().find(|r| r.is_power_of_two() && *r <= ctx).unwrap_or(1)
+}
+
 /// The CUDA lane ([`crate::codegen_cuda::lane`]): the decode step and its prefill chunks as one fused CUDA program
 /// and the sidecar of computed constants it reads.
 pub struct Cuda;
@@ -634,8 +644,7 @@ impl Backend for Cuda {
     }
 
     fn bring_up(&self, spec: &ModelSpec, checkpoint: &Path, ctx: usize, out: &Path) -> Result<Brought, Refused> {
-        let prefill = (1..=16usize).rev().find(|r: &usize| r.is_power_of_two() && *r <= ctx).unwrap_or(1);
-        let opts = LaneOptions { ctx, knobs: CudaKnobs::default(), prefill };
+        let opts = LaneOptions { ctx, knobs: CudaKnobs::default(), prefill: prefill_rows(ctx) };
         let lane = compile(spec, checkpoint, &opts).map_err(|e| Refused(e.to_string()))?;
         let mut files = Vec::new();
         write(out.join("lane.cu"), &lane.program.cu, &mut files)?;
@@ -661,34 +670,100 @@ impl Backend for Cuda {
         let mut nvcc = Command::new("nvcc");
         nvcc.args(["-O3", "-std=c++17", &format!("-arch=sm_{cap}"), "-o"]).arg(&bin).arg(out.join("lane.cu"));
         built(nvcc, "nvcc")?;
-        let (mut tokens, mut seconds) = (Vec::with_capacity(sequences.len()), 0.0);
-        for s in sequences {
-            let n = s.tokens.len();
-            if n == 0 {
-                tokens.push(Vec::new());
-                continue;
-            }
-            let o = Command::new(&bin)
-                .arg(checkpoint)
-                .arg(out.join("lane.side"))
-                .arg(n.to_string())
-                .args(s.prompt.iter().map(u32::to_string))
-                .output()
-                .map_err(|e| Refused(format!("the lane: {e}")))?;
-            let stdout = String::from_utf8_lossy(&o.stdout);
-            if !o.status.success() {
-                return Err(Refused(format!("the lane exited {:?}: {}", o.status.code(), String::from_utf8_lossy(&o.stderr).trim())));
-            }
-            let field = |key: &str| stdout.lines().find_map(|l| l.strip_prefix(key)).map(str::trim);
-            let generated: Result<Vec<u32>, _> = field("TOKENS:").unwrap_or("").split_whitespace().map(str::parse).collect();
-            let generated = generated.map_err(|_| Refused("the lane printed a token that is not a number".to_string()))?;
-            let number = |key: &str| field(key).and_then(|v| v.parse::<f64>().ok());
-            let prefill = number("PREFILL_MS:").ok_or_else(|| Refused("the lane printed no prefill time".to_string()))?;
-            let step = if n > 1 { number("DECODE_MS_PER_TOKEN:").ok_or_else(|| Refused("the lane printed no decode time".to_string()))? } else { 0.0 };
-            seconds += (prefill + step * (n - 1) as f64) / 1000.0;
-            tokens.push(generated);
-        }
+        let (tokens, seconds) = each_sequence(sequences, "the lane", |n| {
+            let mut run = Command::new(&bin);
+            run.arg(checkpoint).arg(out.join("lane.side")).arg(n.to_string());
+            run
+        })?;
         Ok(Generated { tokens, seconds, on: "the GPU".to_string(), program: out.join("lane.cu") })
+    }
+}
+
+/// Every one of `sequences` run by a program built once — `what`, the command `run(n)` gives for a sequence of `n`
+/// tokens, its prompt's tokens after its arguments — printing `TOKENS:` (ids from 0), `PREFILL_MS:` and
+/// `DECODE_MS_PER_TOKEN:`: each sequence's tokens, and the seconds from each prompt to its last token by the program's
+/// own clocks.
+fn each_sequence(sequences: &[Sequence], what: &str, run: impl Fn(usize) -> Command) -> Result<(Vec<Vec<u32>>, f64), Refused> {
+    let (mut tokens, mut seconds) = (Vec::with_capacity(sequences.len()), 0.0);
+    for s in sequences {
+        let n = s.tokens.len();
+        if n == 0 {
+            tokens.push(Vec::new());
+            continue;
+        }
+        let o = run(n).args(s.prompt.iter().map(u32::to_string)).output().map_err(|e| Refused(format!("{what}: {e}")))?;
+        let stdout = String::from_utf8_lossy(&o.stdout);
+        if !o.status.success() {
+            return Err(Refused(format!("{what} exited {:?}: {}", o.status.code(), String::from_utf8_lossy(&o.stderr).trim())));
+        }
+        let field = |key: &str| stdout.lines().find_map(|l| l.strip_prefix(key)).map(str::trim);
+        let generated: Result<Vec<u32>, _> = field("TOKENS:").unwrap_or("").split_whitespace().map(str::parse).collect();
+        let generated = generated.map_err(|_| Refused(format!("{what} printed a token that is not a number")))?;
+        if generated.len() != n {
+            return Err(Refused(format!("{what} printed {} tokens, {n} asked for", generated.len())));
+        }
+        let number = |key: &str| field(key).and_then(|v| v.parse::<f64>().ok());
+        let prefill = number("PREFILL_MS:").ok_or_else(|| Refused(format!("{what} printed no prefill time")))?;
+        let step = if n > 1 { number("DECODE_MS_PER_TOKEN:").ok_or_else(|| Refused(format!("{what} printed no decode time")))? } else { 0.0 };
+        seconds += (prefill + step * (n - 1) as f64) / 1000.0;
+        tokens.push(generated);
+    }
+    Ok((tokens, seconds))
+}
+
+/// The CPU tier ([`crate::codegen_cpu`]): the decode step and its prefill chunks linked from the one IR under `shim`
+/// into one C++17 program for the host's cores, and the sidecar of the values the compiler computed for it. The command
+/// line's `cpu` links under the x86 AVX2 and AVX-VNNI shim at its default numerics, a product by checkpoint rows
+/// reading its activation in one word a block, its caches `f32`.
+pub struct Cpu {
+    pub shim: CpuShim,
+}
+
+impl Default for Cpu {
+    fn default() -> Self {
+        Cpu { shim: CpuShim { isa: CpuIsa::X86Avx2Vnni, activations: CpuActivations::OneWord, cache: CpuCache::F32, fuse: true } }
+    }
+}
+
+impl Backend for Cpu {
+    fn name(&self) -> &'static str {
+        "cpu"
+    }
+
+    fn bring_up(&self, spec: &ModelSpec, checkpoint: &Path, ctx: usize, out: &Path) -> Result<Brought, Refused> {
+        let model = compile_model(spec, checkpoint, ctx, prefill_rows(ctx), &self.shim).map_err(|e| Refused(format!("the CPU tier: {e}")))?;
+        let mut files = Vec::new();
+        write(out.join("model.cpp"), model.source(), &mut files)?;
+        write(out.join("model.side"), model.sidecar(), &mut files)?;
+        Ok(Brought { programs: model.forms.iter().map(|f| f.identity).collect(), files })
+    }
+
+    /// The program built by `g++` for the host once, with the flags its library is built with, and run on the
+    /// checkpoint a sequence a run on the host's threads ([`host_threads`]): its own clocks time each prompt's prefill
+    /// and every decode step after its first token. A host without the program's instruction set is refused by the
+    /// program itself, naming what the host lacks.
+    fn run(&self, _spec: &ModelSpec, checkpoint: &Path, ctx: usize, out: &Path, sequences: &[Sequence]) -> Result<Generated, Refused> {
+        for s in sequences {
+            fits(&s.prompt, s.tokens.len(), ctx)?;
+        }
+        if !cfg!(target_arch = "x86_64") {
+            return Err(Refused(format!("the CPU tier's library is built for x86-64; this machine is {}", std::env::consts::ARCH)));
+        }
+        if !on_path("g++") {
+            return Err(Refused("the CPU tier builds its program with g++, which is not on this machine".to_string()));
+        }
+        let bin = out.join("model");
+        let mut gxx = Command::new("g++");
+        gxx.args(["-O3", "-std=c++17"]).args(FLAGS_X86_AVX2_VNNI).args(["-pthread", "-o"]).arg(&bin).arg(out.join("model.cpp"));
+        built(gxx, "g++")?;
+        let (threads, hybrid) = host_threads();
+        let (tokens, seconds) = each_sequence(sequences, "the CPU program", |n| {
+            let mut run = Command::new(&bin);
+            run.arg(checkpoint).arg(out.join("model.side")).arg(threads.to_string()).arg(n.to_string());
+            run
+        })?;
+        let on = format!("{threads} threads on the host's {}", if hybrid { "performance cores (a hybrid CPU)" } else { "cores" });
+        Ok(Generated { tokens, seconds, on, program: out.join("model.cpp") })
     }
 }
 
@@ -852,6 +927,7 @@ pub fn backends() -> Vec<Box<dyn Backend>> {
         Box::new(Rust),
         Box::new(RiscvQemu),
         Box::new(Wasm),
+        Box::new(Cpu::default()),
         Box::new(Cuda),
         Box::new(D5005),
         Box::new(Sn50),

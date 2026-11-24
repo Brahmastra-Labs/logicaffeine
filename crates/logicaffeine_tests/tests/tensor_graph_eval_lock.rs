@@ -201,7 +201,7 @@ fn every_op_kind_has_an_evaluation_or_a_named_refusal() {
         agree_after(&format!("probe {}", p.op), p.program, &results, p.shows);
     }
     for kind in [
-        "Matmul", "Elementwise", "SwiGlu", "FusedRow", "Rope", "Silu", "Sigmoid", "Gelu", "Scale", "Softcap", "Decay", "L2Norm", "Transpose",
+        "Matmul", "Elementwise", "SwiGlu", "FusedRow", "Rope", "Silu", "Sigmoid", "Gelu", "Erf", "Scale", "Softcap", "Decay", "L2Norm", "Transpose",
         "HeadSlice", "Join", "LaneMean", "LaneSpread", "LaneSums", "SignedRoot", "NgramIds", "HeadMatmul", "CausalConv", "GatedDelta", "Attention", "FullAttention", "Moe", "RowGather",
         "RowsGather", "ArgMax", "SetRow", "IntRequant", "IntClamp", "Relu", "LutAttention",
     ] {

@@ -43,12 +43,13 @@ impl<D: Clone> DeltaBuffer<D> {
 
     /// Get all deltas since the given version.
     ///
-    /// Returns `None` if the version is older than or equal to our oldest evicted delta.
-    /// Returns `Some(vec![])` if the peer is up-to-date.
+    /// Returns `None` once deltas have been evicted and the peer is at or behind the newest evicted
+    /// one, or has not seen it at all (a peer on another replica's line): either way it needs a delta
+    /// the buffer no longer holds. Returns `Some(vec![])` if the peer is up-to-date.
     pub fn deltas_since(&self, version: &VClock) -> Option<Vec<D>> {
-        // If we've evicted deltas and the peer is at or behind what we evicted,
-        // we can't help them catch up (they need the evicted delta).
-        if self.oldest_version != VClock::new() && self.oldest_version.dominates(version) {
+        if self.oldest_version != VClock::new()
+            && (self.oldest_version.dominates(version) || !version.dominates(&self.oldest_version))
+        {
             return None;
         }
 

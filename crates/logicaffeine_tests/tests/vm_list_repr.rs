@@ -11,6 +11,7 @@
 
 use logicaffeine_compile::compile::{tw_outcome_with_args, vm_outcome_with_args};
 use logicaffeine_compile::vm::NativeTier;
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_jit::ForgeTier;
 
 fn norm(s: &str) -> String {
@@ -22,8 +23,13 @@ fn norm(s: &str) -> String {
 }
 
 fn assert_both(src: &str, expected: &str) {
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
-    let vm = vm_outcome_with_args(src, &[], Some(&tier as &dyn NativeTier));
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
+    let vm = vm_outcome_with_args(src, &[], native);
     let tw = tw_outcome_with_args(src, &[]);
     assert_eq!(
         (norm(&vm.output), &vm.error),
@@ -114,8 +120,13 @@ fn bounds_errors_unchanged() {
         "## Main\nLet xs be [0.5].\nShow item 0 of xs.\n",
         "## Main\nLet xs be [\"a\"].\nShow item 9 of xs.\n",
     ] {
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
         let tier = ForgeTier::new();
-        let vm = vm_outcome_with_args(src, &[], Some(&tier as &dyn NativeTier));
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+        let native = Some(&tier as &dyn NativeTier);
+        #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+        let native: Option<&dyn NativeTier> = None;
+        let vm = vm_outcome_with_args(src, &[], native);
         let tw = tw_outcome_with_args(src, &[]);
         assert_eq!(
             (norm(&vm.output), &vm.error),

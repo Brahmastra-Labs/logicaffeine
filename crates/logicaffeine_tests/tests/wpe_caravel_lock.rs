@@ -1,6 +1,6 @@
 //! wpe_caravel_lock — the whole-program engine as a Caravel user project runs programs through the Caravel
-//! pins: its UART on two user GPIOs, the QSPI PSRAM on six more, clocked by `user_clock2` and reset by the
-//! management SoC.
+//! pins: its UART on two user GPIOs, the QSPI PSRAM on six more, clocked by the harness clock `WPE_CLOCK` names
+//! and reset by the management SoC.
 //!
 //! WHY. The engine's off-chip memories need a part on the board, reached through Caravel's user GPIOs, and
 //! the pin plan appears in three places — the macro's `io_out`/`io_oeb` wiring, the pads' power-on modes in
@@ -13,8 +13,9 @@
 //!      bidirectional, every other user GPIO an input;
 //!   2. refusals: a housekeeping pin, a shared pin, a baud rate the clock cannot make within a UART's
 //!      tolerance, a UART the loading stalls could lose bytes on, and an engine clock outside the range
-//!      the PSRAM edge is timed for; and the engine runs on `user_clock2` alone, its reset crossing from the
-//!      management SoC through a synchronizer, its Wishbone acknowledge on `wb_clk_i`;
+//!      the PSRAM edge is timed for; the engine runs at the period its macro and wrapper are signed off at, on its
+//!      harness clock alone, its reset crossing from the management SoC through a synchronizer, its Wishbone
+//!      acknowledge on `wb_clk_i`;
 //!   3. programs run through the Caravel pins stream the on-chip engine's records and frames and the
 //!      model's output, with no PSRAM violation, no lost byte and no pin driven the wrong way;
 //!   4. the bench can fail: a transmit pin left an input, and an SIO pad whose enable is inverted;
@@ -35,7 +36,6 @@ mod common;
 
 use logicaffeine_compile::codegen_sva::caravel_project::WPE_PROJECT;
 use logicaffeine_compile::codegen_sva::pdk_target::{HarnessClock, SKY130A};
-use logicaffeine_compile::codegen_sva::signoff_blocks::honest_period_ns;
 use logicaffeine_compile::codegen_sva::fabric_rtl::program_cfg_fabric;
 use logicaffeine_compile::codegen_sva::psram::{PsramCache, PsramEdge, APS6404L_3SQN};
 use logicaffeine_compile::codegen_sva::wpe_caravel::{
@@ -268,20 +268,28 @@ fn every_unwirable_caravel_engine_is_refused_by_name() {
     .is_err());
 }
 
-/// The engine's clock is the period its slow corner meets, by the rule every signed block's is
-/// (`signoff_blocks::honest_period_ns`). MEASURED at 18.5 ns on the macro harden RUN_2026.10.25_06.23.41, its every
-/// net routed (detailed routing replayed to its 36th pass, 85 local shorts left), extracted with the max-RC rules and
-/// timed at ss_100C_1v60: worst setup -1.13 ns, total -979 ns, through ~18.7 ns of compare-to-control logic and its
-/// fanout tree with 0.94 ns of clock skew, where the routing stage's repairs had closed to +0.03 ns on global-route
-/// parasitics. At 16 ns (RUN_2026.10.20_17.57.25) the same corner had missed by 1.482 ns on global-route parasitics.
+/// The engine runs at the period its macro and its wrapper are signed off at: both ledgers record that clock, both
+/// signoff-clean, and the engine's harness clock is the one the wrapper was timed on (a wrapper on the core clock
+/// records no `user_clock2` period). A faster engine ships with the re-sign that proves it, never before.
 #[test]
-fn the_engine_runs_at_the_period_its_slow_corner_meets() {
+fn the_engine_runs_at_the_period_its_macro_and_wrapper_are_signed_off_at() {
+    let ledger = |path: &str| -> serde_json::Value {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        serde_json::from_str(&std::fs::read_to_string(root.join(path)).unwrap()).unwrap()
+    };
+    let period_ns = WPE_CARAVEL.clk_period_ps as f64 / 1000.0;
+    let macro_ = &ledger("benchmarks/silicon/caravel_macro_signoff.json")["blocks"][WPE_PROJECT.macro_module];
+    let wrapper = &ledger(WPE_PROJECT.wrapper_ledger)["user_project_wrapper"];
+    for (what, entry) in [("macro", macro_), ("wrapper", wrapper)] {
+        assert_eq!(entry["signoff_clean"], true, "the {what} is signoff-clean");
+        assert_eq!(entry["clock_period_ns"].as_f64(), Some(period_ns), "the {what} was timed at the engine's period");
+    }
     assert_eq!(
-        WPE_CARAVEL.clk_period_ps as f64 / 1000.0,
-        honest_period_ns(18.5, -1.13),
-        "the engine's period is the measured slow corner's honest period"
+        wrapper["user_clock2_period_ns"].as_f64(),
+        (WPE_CLOCK == HarnessClock::User2).then_some(period_ns),
+        "the wrapper's user_clock2 is timed exactly when the engine runs on it"
     );
-    assert_eq!(WPE_CARAVEL.clk_period_ps, 21_000);
+    assert_eq!(WPE_CARAVEL.clk_period_ps, 48_000);
     WPE_CARAVEL
         .check_harness(&wpe_caravel_memory())
         .expect("the harness and the board take the engine at that period");
@@ -293,11 +301,11 @@ fn the_shipped_caravel_engine_wires_and_its_numbers_hold() {
     WPE_CARAVEL
         .check(&m)
         .expect("the shipped engine wires to Caravel");
-    assert_eq!(WPE_CARAVEL.clks_per_bit(), 413, "47.62 MHz over 115200 baud");
+    assert_eq!(WPE_CARAVEL.clks_per_bit(), 181, "20.83 MHz over 115200 baud");
     assert_eq!(
         m.edge.max_words(false),
         2,
-        "tCEM leaves two-word bursts at 40 ns, two cycles per SCLK half"
+        "tCEM leaves two-word bursts at 80 ns, one cycle per SCLK half"
     );
     assert!(m.check_uart(WPE_CARAVEL.clks_per_bit()).is_ok());
     let rtl = emit_wpe_user_project_verilog(
@@ -310,7 +318,7 @@ fn the_shipped_caravel_engine_wires_and_its_numbers_hold() {
     .expect("the shipped engine emits");
     assert!(
         rtl.contains("module wpe_user_project")
-            && rtl.contains("wpe_soc_caravel #(.CLKS_PER_BIT(413)) engine")
+            && rtl.contains("wpe_soc_caravel #(.CLKS_PER_BIT(181)) engine")
     );
     let regions = m.regions(WPE_CARAVEL_CAPS);
     let words: u64 = regions.iter().map(|r| 1u64 << r.bits).sum();
@@ -320,18 +328,22 @@ fn the_shipped_caravel_engine_wires_and_its_numbers_hold() {
     );
 }
 
-/// The engine runs on `user_clock2` (`WPE_CLOCK`): the management SoC's core clock, `wb_clk_i`, is signed off at
-/// 25 ns and the engine at 16. Only two things cross between them, and the macro's own top holds both: the reset,
-/// which reaches the engine through two flops in its domain (asserted at once, with no clock running, and released
-/// on the second `user_clock2` edge after its source falls), and the Wishbone acknowledge, which stays on
+/// The engine runs on its harness clock alone (`WPE_CLOCK`: `wb_clk_i`, the core clock the management SoC shares, or
+/// `user_clock2`, the PLL phase a faster engine takes for its own period); the other harness clock reaches it nowhere.
+/// The reset reaches the engine through two flops in its domain (asserted at once, with no clock running, and
+/// released on the second edge of the engine's clock after its source falls), and the Wishbone acknowledge stays on
 /// `wb_clk_i`. The reset's source is `wb_rst_i` or logic-analyzer probe 0 while the management SoC drives it
-/// (`la_oenb[0]` low, efabless's own override in `user_proj_example.v`): at power-on `user_clock2` is the pad clock,
-/// and the firmware that moves it to the PLL resets the engine after the switch, with the PLL left running. The top
-/// is simulated with the engine replaced by a stub that counts its clock and shows its reset; nothing else of the bus
-/// or the logic analyzer reaches the engine.
+/// (`la_oenb[0]` low, efabless's own override in `user_proj_example.v`): at power-on the engine's clock is the pad
+/// clock, and the firmware that moves it to the PLL resets the engine after the switch, with the PLL left running.
+/// The top is simulated with the engine replaced by a stub that counts its clock and shows its reset; nothing else of
+/// the bus or the logic analyzer reaches the engine.
 #[test]
-fn the_engine_runs_on_user_clock2_and_its_reset_crosses_through_a_synchronizer() {
-    assert_eq!(WPE_CLOCK, HarnessClock::User2);
+fn the_engine_runs_on_its_harness_clock_and_its_reset_crosses_through_a_synchronizer() {
+    let (engine, other, e, o) = match WPE_CLOCK {
+        HarnessClock::Core => ("wb_clk_i", "user_clock2", "wb_clk", "uclk"),
+        HarnessClock::User2 => ("user_clock2", "wb_clk_i", "uclk", "wb_clk"),
+    };
+    assert_eq!(WPE_CLOCK.port(), engine);
     let rtl = emit_wpe_user_project_verilog(
         WPE_CARAVEL_NAME,
         WPE_CARAVEL_CAPS,
@@ -343,8 +355,8 @@ fn the_engine_runs_on_user_clock2_and_its_reset_crosses_through_a_synchronizer()
     let top = &rtl[rtl.find("module wpe_user_project (").expect("the macro's top")..];
     let inst = &top[top.find(&format!("wpe_soc_{WPE_CARAVEL_NAME} #(")).expect("the engine instance")..];
     let inst = &inst[..inst.find(");").unwrap()];
-    assert!(inst.contains(".clk(user_clock2)"), "the engine's clock is user_clock2:\n{inst}");
-    for word in ["wb_clk_i", "wb_rst_i", "wbs_", "la_"] {
+    assert!(inst.contains(&format!(".clk({engine})")), "the engine's clock is {engine}:\n{inst}");
+    for word in [other, "wb_rst_i", "wbs_", "la_"] {
         assert!(!inst.contains(word), "{word} reaches the engine only through the synchronizer:\n{inst}");
     }
     assert!(
@@ -361,93 +373,106 @@ fn the_engine_runs_on_user_clock2_and_its_reset_crosses_through_a_synchronizer()
          \x20 assign psram_sio_out = 4'd0; assign psram_sio_oe = 4'd0;\n\
          endmodule\n"
     );
-    let tb = "`timescale 1ns/1ps\n\
+    let tb = format!(
+        "`timescale 1ns/1ps\n\
         module tb;\n\
         \x20 reg wb_clk = 0, uclk = 0, wb_rst = 1, cyc = 0, stb = 0, probe = 0, probe_oenb = 1;\n\
         \x20 integer e0;\n\
         \x20 wire ack; wire [31:0] dat; wire [127:0] la_out; wire [37:0] io_out, io_oeb; wire [2:0] irq;\n\
         \x20 wpe_user_project dut (.wb_clk_i(wb_clk), .wb_rst_i(wb_rst), .wbs_stb_i(stb), .wbs_cyc_i(cyc),\n\
         \x20   .wbs_we_i(1'b0), .wbs_sel_i(4'd0), .wbs_dat_i(32'd0), .wbs_adr_i(32'd0), .wbs_ack_o(ack), .wbs_dat_o(dat),\n\
-        \x20   .la_data_in({127'd0, probe}), .la_data_out(la_out), .la_oenb({{127{1'b1}}, probe_oenb}), .io_in(38'd0),\n\
+        \x20   .la_data_in({{127'd0, probe}}), .la_data_out(la_out), .la_oenb({{{{127{{1'b1}}}}, probe_oenb}}), .io_in(38'd0),\n\
         \x20   .io_out(io_out),\n\
         \x20   .io_oeb(io_oeb), .user_clock2(uclk), .user_irq(irq));\n\
-        \x20 task utick; begin #8 uclk = 1; #8 uclk = 0; end endtask\n\
-        \x20 task wtick; begin #12.5 wb_clk = 1; #12.5 wb_clk = 0; end endtask\n\
+        \x20 task etick; begin #8 {e} = 1; #8 {e} = 0; end endtask\n\
+        \x20 task otick; begin #12.5 {o} = 1; #12.5 {o} = 0; end endtask\n\
         \x20 initial begin\n\
-        \x20   repeat (3) utick;\n\
+        \x20   repeat (3) etick;\n\
         \x20   $display(\"HELD %0d\", dut.engine.rst);\n\
         \x20   #3 wb_rst = 0;\n\
         \x20   #1 $display(\"RELEASED %0d\", dut.engine.rst);\n\
-        \x20   #4 uclk = 1; #1 $display(\"EDGE1 %0d\", dut.engine.rst);\n\
-        \x20   #7 uclk = 0; #8 uclk = 1; #1 $display(\"EDGE2 %0d\", dut.engine.rst);\n\
-        \x20   #7 uclk = 0;\n\
+        \x20   #4 {e} = 1; #1 $display(\"EDGE1 %0d\", dut.engine.rst);\n\
+        \x20   #7 {e} = 0; #8 {e} = 1; #1 $display(\"EDGE2 %0d\", dut.engine.rst);\n\
+        \x20   #7 {e} = 0;\n\
         \x20   e0 = dut.engine.edges;\n\
-        \x20   repeat (4) wtick;\n\
-        \x20   $display(\"WB_EDGES %0d\", dut.engine.edges - e0);\n\
-        \x20   repeat (5) utick;\n\
-        \x20   $display(\"USER_EDGES %0d\", dut.engine.edges - e0);\n\
+        \x20   repeat (4) otick;\n\
+        \x20   $display(\"OTHER_EDGES %0d\", dut.engine.edges - e0);\n\
+        \x20   repeat (5) etick;\n\
+        \x20   $display(\"ENGINE_EDGES %0d\", dut.engine.edges - e0);\n\
         \x20   cyc = 1; stb = 1;\n\
         \x20   #1 $display(\"ACK_BEFORE %0d\", ack);\n\
         \x20   #12.5 wb_clk = 1; #1 $display(\"ACK_AFTER %0d\", ack);\n\
         \x20   #11.5 wb_clk = 0; cyc = 0; stb = 0;\n\
         \x20   wb_rst = 1; #1 $display(\"ASSERTED %0d\", dut.engine.rst);\n\
-        \x20   #2 wb_rst = 0; repeat (2) utick;\n\
+        \x20   #2 wb_rst = 0; repeat (2) etick;\n\
         \x20   $display(\"RUNNING %0d\", dut.engine.rst);\n\
         \x20   probe = 1; #1 $display(\"PROBE_UNDRIVEN %0d\", dut.engine.rst);\n\
         \x20   probe_oenb = 0; #1 $display(\"PROBE_ASSERTED %0d\", dut.engine.rst);\n\
-        \x20   repeat (3) utick;\n\
+        \x20   repeat (3) etick;\n\
         \x20   #2 probe = 0; #1 $display(\"PROBE_RELEASED %0d\", dut.engine.rst);\n\
-        \x20   #5 uclk = 1; #1 $display(\"PROBE_EDGE1 %0d\", dut.engine.rst);\n\
-        \x20   #7 uclk = 0; #8 uclk = 1; #1 $display(\"PROBE_EDGE2 %0d\", dut.engine.rst);\n\
+        \x20   #5 {e} = 1; #1 $display(\"PROBE_EDGE1 %0d\", dut.engine.rst);\n\
+        \x20   #7 {e} = 0; #8 {e} = 1; #1 $display(\"PROBE_EDGE2 %0d\", dut.engine.rst);\n\
         \x20   $finish;\n\
         \x20 end\n\
-        endmodule\n";
-    let dir = workdir("user_clock2_top");
-    let out = simulate(&dir, &[("stub.v", stub), ("top.v", top.to_string()), ("tb.v", tb.to_string())]);
+        endmodule\n"
+    );
+    let dir = workdir("engine_clock_top");
+    let out = simulate(&dir, &[("stub.v", stub), ("top.v", top.to_string()), ("tb.v", tb)]);
     let got = |key: &str| -> i64 {
         out.lines()
             .find_map(|l| l.strip_prefix(&format!("{key} "))?.trim().parse().ok())
             .unwrap_or_else(|| panic!("no {key} in:\n{out}"))
     };
-    assert_eq!(got("HELD"), 1, "wb_rst_i holds the engine in reset while user_clock2 runs");
+    assert_eq!(got("HELD"), 1, "wb_rst_i holds the engine in reset while {engine} runs");
     assert_eq!(got("RELEASED"), 1, "releasing wb_rst_i does not release the engine between its edges");
-    assert_eq!(got("EDGE1"), 1, "nor on the first user_clock2 edge after");
-    assert_eq!(got("EDGE2"), 0, "the second user_clock2 edge releases it");
-    assert_eq!(got("WB_EDGES"), 0, "wb_clk_i edges with user_clock2 stopped do not clock the engine");
-    assert_eq!(got("USER_EDGES"), 5, "every user_clock2 edge does");
+    assert_eq!(got("EDGE1"), 1, "nor on the first {engine} edge after");
+    assert_eq!(got("EDGE2"), 0, "the second {engine} edge releases it");
+    assert_eq!(got("OTHER_EDGES"), 0, "{other} edges with {engine} stopped do not clock the engine");
+    assert_eq!(got("ENGINE_EDGES"), 5, "every {engine} edge does");
     assert_eq!((got("ACK_BEFORE"), got("ACK_AFTER")), (0, 1), "the acknowledge comes on a wb_clk_i edge");
     assert_eq!(got("ASSERTED"), 1, "wb_rst_i resets the engine at once, with no clock running");
-    assert_eq!(got("RUNNING"), 0, "and releases it two user_clock2 edges after it falls");
+    assert_eq!(got("RUNNING"), 0, "and releases it two {engine} edges after it falls");
     assert_eq!(got("PROBE_UNDRIVEN"), 0, "probe 0 is no reset while the management SoC does not drive it");
     assert_eq!(got("PROBE_ASSERTED"), 1, "driven, it resets the engine at once");
     assert_eq!(got("PROBE_RELEASED"), 1, "and released, the engine stays in reset between its edges");
-    assert_eq!(got("PROBE_EDGE1"), 1, "and on the first user_clock2 edge after");
+    assert_eq!(got("PROBE_EDGE1"), 1, "and on the first {engine} edge after");
     assert_eq!(got("PROBE_EDGE2"), 0, "and leaves it on the second");
 }
 
-/// The bench drives the macro the way the chip does: the engine's clock on `user_clock2` at the engine's period,
-/// and `wb_clk_i` beside it at the period Caravel's chip signoff times the core clock at.
+/// The bench drives the macro the way the chip does: the engine's clock at the engine's period on the harness clock
+/// `WPE_CLOCK` names. On the core clock that is `wb_clk_i` itself, and `user_clock2` idles; on `user_clock2`,
+/// `wb_clk_i` runs beside it at the period Caravel's chip signoff times the core clock at.
 #[test]
 fn the_bench_drives_both_clocks_at_their_periods() {
     let h = SKY130A.user_area.unwrap().harness.unwrap();
     let m = wpe_caravel_memory();
     let tb = emit_wpe_user_project_testbench(WPE_CARAVEL_NAME, 3, 64, &m, &WPE_CARAVEL, CARAVEL_IO_MAX);
-    for conn in [".user_clock2(clk)", ".wb_clk_i(wb_clk)", ".wb_rst_i(rst)"] {
-        assert_eq!(tb.matches(conn).count(), 1, "the bench connects {conn}");
+    let (connections, wb_clock): (&[&str], _) = match WPE_CLOCK {
+        HarnessClock::Core => (&[".wb_clk_i(clk)", ".user_clock2(1'b0)", ".wb_rst_i(rst)"], None),
+        HarnessClock::User2 => (
+            &[".wb_clk_i(wb_clk)", ".user_clock2(clk)", ".wb_rst_i(rst)"],
+            Some(format!("always #{} wb_clk = ~wb_clk;", h.core_clock_period_ns / 2.0)),
+        ),
+    };
+    for conn in connections {
+        assert_eq!(tb.matches(conn).count(), 1, "the bench connects {conn}:\n{tb}");
     }
     assert_eq!(
-        tb.matches(&format!("always #{} wb_clk = ~wb_clk;", h.core_clock_period_ns / 2.0)).count(),
-        1,
-        "wb_clk_i runs at the core clock's signoff period"
+        tb.matches("wb_clk = ~wb_clk;").count(),
+        usize::from(wb_clock.is_some()),
+        "wb_clk_i has a clock of its own exactly when the engine is not on it"
     );
+    if let Some(wb) = wb_clock {
+        assert_eq!(tb.matches(&wb).count(), 1, "wb_clk_i runs at the core clock's signoff period");
+    }
     assert!(
         tb.contains(&format!("always #{} clk = ~clk;", WPE_CARAVEL.clk_period_ps as f64 / 2000.0)),
         "the engine's clock at its own period"
     );
 }
 
-/// The PSRAM read window is closed on the engine's clock: the STA script creates its clock on `user_clock2`, where
-/// the edge's SCLK and sample flops are clocked.
+/// The PSRAM read window is closed on the engine's clock: the STA script creates its clock on the port `WPE_CLOCK`
+/// names, where the edge's SCLK and sample flops are clocked.
 #[test]
 fn the_read_window_is_timed_on_the_engines_clock() {
     let tcl = wpe_psram_read_sta_tcl(&WPE_CARAVEL, &wpe_caravel_memory(), "ss.lib", "macro.v", "macro.max.spef");
@@ -459,7 +484,11 @@ fn the_read_window_is_timed_on_the_engines_clock() {
         )),
         "{tcl}"
     );
-    assert!(!tcl.contains("wb_clk_i"), "{tcl}");
+    let other = match WPE_CLOCK {
+        HarnessClock::Core => "user_clock2",
+        HarnessClock::User2 => "wb_clk_i",
+    };
+    assert!(!tcl.contains(other), "the other harness clock times nothing here:\n{tcl}");
 }
 
 // ── 3-4: programs through the pins ─────────────────────────────────────────────────────────────────────────
@@ -753,38 +782,30 @@ fn the_host_refuses_a_program_the_shipped_profile_cannot_hold() {
 
 // ── 5: the harness ─────────────────────────────────────────────────────────────────────────────────────────
 
-/// Half an SCLK period at 21 ns, two engine cycles per half, is 42 ns; a read's round trip — 9.12 ns out through the
-/// harness, 1 ns of board, tACLK 5.5 ns, 1 ns of board, 4.55 ns back in — is 21.17 ns. The same 21 ns clock with one
-/// cycle per half leaves a 21 ns window the round trip overruns, although the wiring on its own is sound there: the
-/// divider, not the clock, is what makes the reads fit.
+/// Half an SCLK period at 48 ns, one engine cycle per half, is 48 ns; a read's round trip — 9.12 ns out through the
+/// harness, 1 ns of board, tACLK 5.5 ns, 1 ns of board, 4.55 ns back in — is 21.17 ns. At 20 ns the same round trip
+/// does not fit the 20 ns half period, although the wiring on its own is sound there: a faster engine needs more
+/// cycles per half.
 #[test]
 fn the_shipped_read_window_covers_the_harness_round_trip() {
     let m = wpe_caravel_memory();
     assert_eq!(WPE_CARAVEL.read_round_trip_ps(&m), 21_170);
-    assert_eq!(WPE_CARAVEL.half_sclk_ps(&m), 42_000);
+    assert_eq!(WPE_CARAVEL.half_sclk_ps(&m), 48_000);
     WPE_CARAVEL
         .check_harness(&m)
         .expect("the shipped engine's reads fit the harness");
-    let one_cycle_edge = PsramEdge::new(APS6404L_3SQN, 16_000, 1)
-        .and_then(|e| e.clocked_down_to(40_000))
-        .expect("one cycle per half is a valid edge at 16 ns");
-    let one_cycle_cache = PsramCache::new(&one_cycle_edge, 3, 1).expect("eight two-word lines");
-    let one_cycle = OffchipMemory {
-        edge: one_cycle_edge,
-        heap: Some(one_cycle_cache),
-        frames: Some(one_cycle_cache),
-        cells: Some(one_cycle_cache),
+    let fast = WpeCaravel {
+        clk_period_ps: 20_000,
+        ..WPE_CARAVEL
     };
-    WPE_CARAVEL
-        .check(&one_cycle)
-        .expect("one cycle per half: the wiring alone is sound");
+    fast.check(&m).expect("at 20 ns the wiring alone is sound");
     assert_eq!(
-        WPE_CARAVEL.check_harness(&one_cycle),
+        fast.check_harness(&m),
         Err(WpeCaravelUnplaceable::ReadWindowShortOfHarness {
-            half_sclk_ps: 21_000,
+            half_sclk_ps: 20_000,
             round_trip_ps: 21_170
         }),
-        "a 21 ns half period is shorter than the round trip"
+        "a 20 ns half period is shorter than the round trip"
     );
     assert_eq!(
         CARAVEL_IO_MAX.with_board(BOARD_FLIGHT_MAX_PS),

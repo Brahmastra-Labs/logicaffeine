@@ -161,7 +161,7 @@ impl ReadonlyParams {
     }
 }
 
-fn is_seq_type(ty: &LogosType) -> bool {
+pub(super) fn is_seq_type(ty: &LogosType) -> bool {
     matches!(ty, LogosType::Seq(_))
 }
 
@@ -179,7 +179,7 @@ fn is_seq_type(ty: &LogosType) -> bool {
 ///
 /// Does NOT recurse into closure bodies (closures in LOGOS capture by clone,
 /// so they don't mutate the original param directly).
-fn collect_direct_mutations(stmts: &[Stmt<'_>], param_set: &HashSet<Symbol>) -> HashSet<Symbol> {
+pub(super) fn collect_direct_mutations(stmts: &[Stmt<'_>], param_set: &HashSet<Symbol>) -> HashSet<Symbol> {
     let mut mutated = HashSet::new();
     for stmt in stmts {
         collect_mutations_from_stmt(stmt, param_set, &mut mutated);
@@ -262,7 +262,7 @@ fn collect_consumed_params(
 ///
 /// Returns `Vec<(callee, [arg0?, arg1?, ...])>` where each arg is `Some(sym)`
 /// if the argument is a plain `Expr::Identifier`, otherwise `None`.
-fn collect_call_sites(stmts: &[Stmt<'_>]) -> Vec<(Symbol, Vec<Option<Symbol>>)> {
+pub(super) fn collect_call_sites(stmts: &[Stmt<'_>]) -> Vec<(Symbol, Vec<Option<Symbol>>)> {
     let mut sites = Vec::new();
     collect_call_sites_from_stmts(stmts, &mut sites);
     sites

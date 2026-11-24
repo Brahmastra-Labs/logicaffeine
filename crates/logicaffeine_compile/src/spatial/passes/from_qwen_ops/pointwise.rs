@@ -326,6 +326,17 @@ pub fn from_sigmoid(
     )
 }
 
+/// `y = erf(x)` — the error function, one SFPU kind ([`SfpuKind::Erf`]) the evaluator computes as the library's `erf`
+/// does, so the chip's error function is the VM's bit for bit.
+pub fn from_erf(
+    spec: &ErfSpec,
+    names: &StageNames,
+    shape: (usize, usize),
+    target: &SpatialTarget,
+) -> Result<SpatialProgram, SpatialReject> {
+    unary_map("erf", "erf", Datapath::Float, |x| unary(SfpuKind::Erf, x), names.operand(0), &names.out, pointwise_shape(shape, spec.n), target)
+}
+
 /// `y = gelu(x)` — ggml's tanh approximation in its one-exponential form `x / (1 + e^-2z)` with
 /// `z = √(2/π)·(x + 0.044715·x³)`, exactly as the parser desugars it (same arrangement, same tails).
 pub fn from_gelu(

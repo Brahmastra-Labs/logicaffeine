@@ -144,6 +144,7 @@ fn lens(op: &TensorOpSpec, n: &dyn Fn(Symbol) -> String) -> Option<String> {
             a.l
         ),
         TensorOpSpec::Sigmoid(_)
+        | TensorOpSpec::Erf(_)
         | TensorOpSpec::Softcap(_)
         | TensorOpSpec::LaneMean(_)
         | TensorOpSpec::LaneSpread(_)

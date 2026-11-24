@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
 # Fetch the published `config.json` of each release the Samba book deploys into the gitignored
-# external/hf-configs/<org>/<name>/config.json: the configurations `model_hf_intake_lock` reads without their weights
+# external/hf-configs/<org>/<name>/config.json, and its `hf_quant_config.json` where the release has one (a ModelOpt
+# export states its quantization there): the configurations `model_hf_intake_lock` reads without their weights
 # (`HfCheckpoint::read_configuration`), each read or refused by name. Gated repositories are read through their public
-# mirrors (unsloth). Idempotent: a configuration present is left alone. Writes external/hf-configs/SHA256SUMS.
+# mirrors (unsloth). Idempotent: a configuration present, or probed and absent, is left alone. Writes
+# external/hf-configs/SHA256SUMS.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 DEST="${1:-$ROOT/external/hf-configs}"
@@ -116,17 +118,42 @@ REPOS=(
     google/gemma-4-E4B-it
     google/gemma-4-26B-A4B-it
     google/gemma-4-31B-it
+    Qwen/Qwen2.5-7B-Instruct-AWQ
+    Qwen/Qwen2.5-72B-Instruct-AWQ
+    Qwen/Qwen2.5-7B-Instruct-GPTQ-Int4
+    Qwen/Qwen2.5-7B-Instruct-GPTQ-Int8
+    Qwen/Qwen3-8B-AWQ
+    Qwen/Qwen3-32B-AWQ
+    Qwen/Qwen3-8B-FP8
+    RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic
+    RedHatAI/Meta-Llama-3.1-8B-Instruct-quantized.w4a16
+    RedHatAI/Meta-Llama-3.1-8B-Instruct-quantized.w8a8
+    RedHatAI/Qwen2.5-7B-Instruct-quantized.w8a8
+    nvidia/Llama-3.1-8B-Instruct-FP8
+    nvidia/Llama-3.3-70B-Instruct-FP8
+    nvidia/Llama-3.3-70B-Instruct-FP4
+    nvidia/DeepSeek-R1-0528-FP4
+    nvidia/Qwen3-235B-A22B-FP4
 )
 
 for repo in "${REPOS[@]}"; do
     mkdir -p "$DEST/$repo"
-    if [ -s "$DEST/$repo/config.json" ]; then
-        continue
+    if [ ! -s "$DEST/$repo/config.json" ]; then
+        echo "  fetching $repo/config.json"
+        curl -sSfL --max-time 120 -o "$DEST/$repo/config.json.part" "https://huggingface.co/$repo/resolve/main/config.json"
+        mv "$DEST/$repo/config.json.part" "$DEST/$repo/config.json"
     fi
-    echo "  fetching $repo/config.json"
-    curl -sSfL --max-time 120 -o "$DEST/$repo/config.json.part" "https://huggingface.co/$repo/resolve/main/config.json"
-    mv "$DEST/$repo/config.json.part" "$DEST/$repo/config.json"
+    if [ ! -e "$DEST/$repo/hf_quant_config.json" ] && [ ! -e "$DEST/$repo/.no_hf_quant_config" ]; then
+        code=$(curl -sSL --max-time 120 -o "$DEST/$repo/hf_quant_config.json.part" -w '%{http_code}' \
+            "https://huggingface.co/$repo/resolve/main/hf_quant_config.json")
+        case "$code" in
+            200) mv "$DEST/$repo/hf_quant_config.json.part" "$DEST/$repo/hf_quant_config.json"
+                 echo "  fetched $repo/hf_quant_config.json" ;;
+            404) rm -f "$DEST/$repo/hf_quant_config.json.part"; touch "$DEST/$repo/.no_hf_quant_config" ;;
+            *) rm -f "$DEST/$repo/hf_quant_config.json.part"; echo "$repo/hf_quant_config.json: HTTP $code" >&2; exit 1 ;;
+        esac
+    fi
 done
 
-(cd "$DEST" && find . -name config.json | sort | xargs sha256sum > SHA256SUMS)
+(cd "$DEST" && find . \( -name config.json -o -name hf_quant_config.json \) | sort | xargs sha256sum > SHA256SUMS)
 echo "configurations → $DEST"

@@ -313,6 +313,49 @@ Show \"two to the eighty is {x}.\".
 }
 
 #[test]
+fn arithmetic_on_an_element_is_shown_past_the_word() {
+    exact_everywhere(
+        "## Main
+Let xs be [9223372036854775807, -9223372036854775808].
+Show (item 1 of xs) + 1.
+Show (item 1 of xs) * 2 - 1.
+Show (item 2 of xs) - 1.
+Show (item 2 of xs) * (item 2 of xs).
+Show \"{(item 1 of xs) + 1}\".
+",
+    );
+}
+
+#[test]
+fn arithmetic_on_an_element_compares_past_the_word() {
+    exact_everywhere(
+        "## Main
+Let xs be [9223372036854775807, 9223372036854775807, -1].
+If (item 1 of xs) + 1 is greater than item 2 of xs:
+    Show \"greater\".
+If (item 1 of xs) * 2 equals (item 2 of xs) + (item 2 of xs):
+    Show \"equal\".
+If (item 1 of xs) + 1 is less than item 3 of xs:
+    Show \"wrapped\".
+",
+    );
+}
+
+#[test]
+fn arithmetic_on_a_call_result_is_shown_past_the_word() {
+    exact_everywhere(
+        "## To top (xs: Seq of Int) -> Int:
+    Return item 1 of xs.
+
+## Main
+Let xs be [9223372036854775807].
+Show top(xs) + top(xs).
+Show top(xs) * 3.
+",
+    );
+}
+
+#[test]
 fn an_exact_value_that_fits_indexes_a_list() {
     exact_everywhere(
         "## Main
@@ -648,4 +691,251 @@ fn both_javascript_hosts_carry_the_one_exact_integer_host() {
             "{host} must hand the module every exact-integer import"
         );
     }
+}
+
+/// The one quotient of two machine words that leaves the word: the bottom of the word divided by -1, truncating or
+/// flooring, is 2^63. The operands come from text, so no tier knows them before the run.
+#[test]
+fn the_bottom_of_the_word_divided_by_minus_one_is_exact() {
+    exact_everywhere(
+        "## To native parseInt (s: Text) -> Int
+
+## Main
+Let x be parseInt(\"-9223372036854775808\").
+Let m be parseInt(\"-1\").
+Show x / m.
+Show x // m.
+Show x % m.
+Let q be x / m.
+Show q - 1.
+Show \"{x / m}\".
+If x / m is greater than 9223372036854775807:
+    Show \"past the word\".
+Show (x + 1) / m.
+",
+    );
+}
+
+/// The same quotient over constants the optimizer knows: its range oracle holds no i64 for it, so no tier folds it to
+/// the wrapped word.
+#[test]
+fn the_bottom_of_the_word_divided_by_minus_one_is_exact_over_constants() {
+    exact_everywhere(
+        "## Main
+Let x be 0 - 9223372036854775807 - 1.
+Let m be 0 - 1.
+Show x / m.
+Show x // m.
+Let q be x / m.
+Show q - 1.
+",
+    );
+}
+
+/// A product that leaves the word before a quotient brings it back: `a * b` is 3·2^63 before it is divided, and only
+/// its exact value divides to the low bits the reference keeps.
+#[test]
+fn a_product_past_the_word_divided_back_within_it() {
+    exact_everywhere(
+        "## To lowWord (a: Int) and (b: Int) and (c: Int) -> Int:
+    Return ((a * b) / c) % 65536.
+
+## Main
+Show lowWord(6917529027641081856, 4, 1125899906842624).
+Show lowWord(1000, 3, 7).
+",
+    );
+}
+
+/// A sum of machine words that leaves the word, bound, reassigned and returned: each holds its exact value.
+#[test]
+fn a_sum_of_words_past_the_word_is_bound_reassigned_and_returned_exactly() {
+    exact_everywhere(
+        "## To native parseInt (s: Text) -> Int
+
+## To bump (n: Int) -> Int:
+    Return n + 1.
+
+## Main
+Let a be parseInt(\"9223372036854775807\").
+Let b be a + 1.
+Show b.
+Let mutable c be 0.
+Set c to a + 2.
+Show c.
+Show bump(a).
+",
+    );
+}
+
+/// A sum of machine words that leaves the word, handed to a parameter, stored in a field and pushed onto a list: each
+/// holds its exact value, as every value the reference holds does.
+#[test]
+fn a_sum_of_words_past_the_word_reaches_a_parameter_a_field_and_a_list() {
+    exact_everywhere(
+        "## To native parseInt (s: Text) -> Int
+
+## A Box has:
+    A value: Int.
+
+## To twice (n: Int) -> Int:
+    Return n + n.
+
+## Main
+Let a be parseInt(\"9223372036854775807\").
+Show twice(a + 3).
+Let mutable bx be a new Box.
+Set bx's value to a + 4.
+Show bx's value.
+Let mutable xs be a new Seq of Int.
+Push a + 5 to xs.
+Show xs.
+",
+    );
+}
+
+/// `parseInt` reads every digit of the word, as the reference's `str::trim` then `str::parse::<i64>` read it.
+#[test]
+fn parse_int_reads_every_digit_of_the_word() {
+    exact_everywhere(
+        "## To native parseInt (s: Text) -> Int
+
+## Main
+Show parseInt(\"9223372036854775807\").
+Show parseInt(\"-9223372036854775808\").
+Show parseInt(\" +42\t\").
+Show parseInt(\"9007199254740993\").
+",
+    );
+}
+
+/// Text that is no `Int` — not a number, or one past the word — is refused in the reference's words.
+#[test]
+fn parse_int_refuses_text_that_is_no_int() {
+    for text in ["12x", "9223372036854775808", ""] {
+        fails_alike(&format!(
+            "## To native parseInt (s: Text) -> Int\n\n## Main\nShow \"before\".\nShow parseInt(\"{text}\").\n"
+        ));
+    }
+}
+
+/// A variable that may hold the bottom of the word, divided by -1: the optimizer's range of the quotient reaches past
+/// every i64, so no tier takes it for a word.
+#[test]
+fn a_range_reaching_the_bottom_of_the_word_divided_by_minus_one() {
+    exact_everywhere(
+        "## To native parseInt (s: Text) -> Int
+
+## Main
+Let mutable x be 0 - 9223372036854775807 - 1.
+If parseInt(\"1\") equals 1:
+    Set x to 5.
+Show x / (0 - 1).
+Let mutable y be 0 - 9223372036854775807 - 1.
+If parseInt(\"0\") equals 1:
+    Set y to 5.
+Show y / (0 - 1).
+",
+    );
+}
+
+#[test]
+fn a_step_past_the_word_under_a_remainder_or_a_quotient() {
+    exact_everywhere(
+        "## Main
+Let mutable x be 3074457345618258600.
+Let mutable i be 0.
+While i is less than 3:
+    Set x to x + 1.
+    Set i to i + 1.
+Show (x * 3) % 7.
+Show (x * 3) / 7.
+Show ((x * 3) % 7) + 1.
+Let r be (x * 3) % 7.
+Show r.
+Let q be ((x * 3) % 7) * ((x * 5) % 11).
+Show q.
+Let mutable y be 1.
+Set i to 0.
+While i is less than 32:
+    Set y to y * 2.
+    Set i to i + 1.
+Show (y * y) % 1000.
+Show ((y * y) + (x * 3)) % 1000003.
+Let mutable d be [9223372036854775807, 9].
+Set item 2 of d to ((item 1 of d) * 3) % 7.
+Show d.
+",
+    );
+}
+
+#[test]
+fn a_remainder_by_minus_one_at_the_bottom_of_the_word() {
+    exact_everywhere(
+        "## Main
+Let mutable x be 0.
+Let mutable i be 0.
+While i is less than 2:
+    Set x to x - 4611686018427387904.
+    Set i to i + 1.
+Show x.
+Show x % -1.
+Show x % (0 - 1).
+Show x / -1.
+Show (x % -1) + (x % 1).
+Let r be x % -1.
+Show r.
+Let mutable d be [5].
+Set item 1 of d to x % -1.
+Show d.
+",
+    );
+}
+
+#[test]
+fn a_nest_versioned_on_its_bound_where_a_step_passes_the_word() {
+    exact_everywhere(
+        "## Main
+Let n be 100.
+Let mutable total be 0.
+Let mutable i be 0.
+While i is less than n:
+    Let mutable j be 0.
+    While j is less than n:
+        Set total to total + ((i * j * 1000000000000000) % 7).
+        Set j to j + 1.
+    Set i to i + 1.
+Show total.
+",
+    );
+    assert_eq!(
+        tw_lines(
+            "## Main\nLet n be 100.\nLet mutable total be 0.\nLet mutable i be 0.\nWhile i is less than n:\n    \
+             Let mutable j be 0.\n    While j is less than n:\n        \
+             Set total to total + ((i * j * 1000000000000000) % 7).\n        Set j to j + 1.\n    Set i to i + 1.\n\
+             Show total.\n"
+        )
+        .lines,
+        ["25290"],
+        "the sum of (i * j * 10^15) mod 7 over a 100 by 100 nest"
+    );
+}
+
+#[test]
+fn a_counted_loop_walks_bounds_an_exact_binding_holds_past_the_word() {
+    exact_everywhere(
+        "## Main
+Let big be 9223372036854775807 + 1.
+Repeat for i from big to big + 2:
+    Show i.
+Let low be 0 - 9223372036854775807 - 3.
+Let mutable seen be 0.
+Repeat for j from low to low + 3:
+    Set seen to seen + 1.
+    Show j.
+Show seen.
+Repeat for k from big to big - 1:
+    Show k.
+",
+    );
 }

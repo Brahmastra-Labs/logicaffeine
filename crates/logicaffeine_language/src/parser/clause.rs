@@ -1910,7 +1910,12 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
                         crate::lexicon::lookup_presup_trigger(&s)
                             .expect("Lexicon mismatch: Verb flagged as trigger but lookup failed")
                     }
-                    _ => panic!("Expected presupposition trigger"),
+                    _ => {
+                        return Err(ParseError {
+                            kind: ParseErrorKind::ExpectedPresuppositionTrigger,
+                            span: self.current_span(),
+                        })
+                    }
                 };
                 let presupposition =
                     self.parse_presupposition_for_term(subject_term, presup_kind, false)?;
@@ -3035,7 +3040,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             }
 
             if self.check_verb() {
-                let verb = self.consume_verb();
+                let verb = self.consume_verb()?;
 
                 // Check for reflexive object: "shave themselves"
                 let roles = if self.check(&TokenType::Reflexive) {
@@ -3091,7 +3096,7 @@ impl<'a, 'ctx, 'int> ClauseParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int> {
             };
 
             if self.check_verb() {
-                let verb = self.consume_verb();
+                let verb = self.consume_verb()?;
 
                 // A STRANDED preposition ("the animal Eva works WITH", "the case Bob
                 // paid FOR") makes the GAP the object of that preposition, not the

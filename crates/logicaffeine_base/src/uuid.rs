@@ -500,14 +500,17 @@ mod x86_hex {
     #[target_feature(enable = "ssse3,sse2")]
     unsafe fn hex_ok(chars: core::arch::x86_64::__m128i) -> core::arch::x86_64::__m128i {
         use core::arch::x86_64::*;
+        // Digits are range-checked on the raw bytes. Only the letter check is case-folded: OR-ing
+        // 0x20 maps 'A'-'F' onto 'a'-'f', but it would also map the control bytes 0x10-0x19 onto
+        // '0'-'9', so the fold must never reach the digit range.
         let cf = _mm_or_si128(chars, _mm_set1_epi8(0x20)); // fold 'A'-'F' → 'a'-'f'
-        let clamp = |lo: i8, hi: i8| {
+        let within = |v: __m128i, lo: i8, hi: i8| {
             _mm_cmpeq_epi8(
-                _mm_min_epu8(_mm_max_epu8(cf, _mm_set1_epi8(lo)), _mm_set1_epi8(hi)),
-                cf,
+                _mm_min_epu8(_mm_max_epu8(v, _mm_set1_epi8(lo)), _mm_set1_epi8(hi)),
+                v,
             )
         };
-        _mm_or_si128(clamp(0x30, 0x39), clamp(0x61, 0x66))
+        _mm_or_si128(within(chars, 0x30, 0x39), within(cf, 0x61, 0x66))
     }
 
     /// The branch-free decode core shared by the single and bulk parsers. Two `pshufb` gathers strip the

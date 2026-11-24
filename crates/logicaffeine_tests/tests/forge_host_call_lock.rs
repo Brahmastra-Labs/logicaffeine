@@ -1,5 +1,6 @@
 //! Runtime helper calls preserve frame operands, live registers, and precise exits.
-#![cfg(all(target_arch = "x86_64", not(target_arch = "wasm32")))]
+// This suite tests the native tier alone, which exists only on x86_64 outside Windows.
+#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 
 use logicaffeine_forge::jit::{ChainOutcome, MicroOp};
 use logicaffeine_forge::regalloc::compile_function_regalloc_precise;

@@ -934,8 +934,18 @@ fn parse_theorem(input: &str) -> Result<ParsedTheorem, String> {
 #[derive(Debug, Clone)]
 pub struct TheoryTheoremResult {
     pub name: String,
+    /// Whether the claim holds: a `prove` theorem kernel-certified, or a `refute` theorem's formula falsified by a
+    /// re-verified countermodel.
     pub verified: bool,
+    /// Whether the claim is a refutation (`refute`) rather than a theorem to prove.
+    pub refuted: bool,
     pub error: Option<String>,
+    /// The re-checkable certificate of a proved theorem: its kernel proof term, its goal, and the axioms and cited
+    /// lemmas it assumed, disclosed as hypotheses. `None` for an unproved theorem and for a refutation.
+    pub certificate: Option<kernel::certificate::TheoremCertificate>,
+    /// The finite structure a verified refutation was checked in: every axiom, given and cited statement true in it,
+    /// the refuted formula false.
+    pub countermodel: Option<logicaffeine_proof::counterexample::FiniteModel>,
 }
 
 /// The result of compiling a program's formal development — its `## Axiom` declarations
@@ -965,12 +975,114 @@ impl TheoryCompileResult {
 
 /// Compile a program's formal development end to end: collect every `## Axiom` (a shared
 /// premise base) and every `## Theory` block's `Axiom`/`Theorem` declarations, then prove
-/// the theorems in citation order, each kernel-certified by the multi-theorem driver. This
-/// is the seam that turns a Tarski-style source file into a verified development.
+/// the theorems in citation order, each kernel-certified by the multi-theorem driver, and
+/// refute each `refute` theorem with a re-verified countermodel. The results are in source
+/// order. This is the seam that turns a Tarski-style source file into a verified development.
 pub fn compile_theory_for_ui(input: &str) -> TheoryCompileResult {
+    use logicaffeine_proof::development::Claim;
+    use logicaffeine_proof::verify::{prove_library_with_axioms, refute_library_with_axioms};
+
+    let development = match theory_development(input) {
+        Ok(d) => d,
+        Err(e) => {
+            return TheoryCompileResult {
+                theory_name: e.partial.theory_name,
+                axiom_count: e.partial.axioms.len(),
+                axiom_names: e.partial.axioms.into_iter().map(|(n, _)| n).collect(),
+                theorems: Vec::new(),
+                parse_error: Some(e.message),
+            }
+        }
+    };
+    let axioms: Vec<ProofExpr> = development.axioms.iter().map(|(_, e)| e.clone()).collect();
+    let mut proved: Vec<Option<TheoryTheoremResult>> = development
+        .theorems
+        .iter()
+        .zip(prove_library_with_axioms(&axioms, &development.theorems))
+        .map(|(t, r)| {
+            Some(TheoryTheoremResult {
+                name: t.name.clone(),
+                verified: r.verified,
+                refuted: false,
+                error: r.verification_error,
+                certificate: r.proof.map(|(term, ctx)| build_theorem_certificate(&t.name, term, &ctx)),
+                countermodel: None,
+            })
+        })
+        .collect();
+    let mut refuted: Vec<Option<TheoryTheoremResult>> =
+        refute_library_with_axioms(&development.axioms, &development.theorems, &development.refutations)
+            .into_iter()
+            .map(|r| {
+                Some(TheoryTheoremResult {
+                    name: r.name,
+                    verified: r.refuted,
+                    refuted: true,
+                    error: r.error,
+                    certificate: None,
+                    countermodel: r.countermodel,
+                })
+            })
+            .collect();
+    let theorem_results = development
+        .claims
+        .iter()
+        .map(|claim| {
+            match *claim {
+                Claim::Theorem(i) => proved[i].take(),
+                Claim::Refutation(i) => refuted[i].take(),
+            }
+            .expect("each claim names one theorem or refutation, once")
+        })
+        .collect();
+
+    TheoryCompileResult {
+        theory_name: development.theory_name,
+        axiom_count: axioms.len(),
+        axiom_names: development.axioms.into_iter().map(|(n, _)| n).collect(),
+        theorems: theorem_results,
+        parse_error: None,
+    }
+}
+
+/// A program's formal development: its standalone `## Axiom` blocks and the `Axiom`/`Theorem` declarations of its
+/// `## Theory` bodies, in source order.
+#[derive(Debug, Clone, Default)]
+pub struct TheoryDevelopment {
+    /// The first `## Theory` block's name.
+    pub theory_name: Option<String>,
+    /// Every axiom, with its name.
+    pub axioms: Vec<(String, ProofExpr)>,
+    /// Every theorem, with its premises, goal and citations.
+    pub theorems: Vec<logicaffeine_proof::verify::LibraryTheorem>,
+    /// Every refutation, with its premises, the formula it refutes and its citations.
+    pub refutations: Vec<logicaffeine_proof::verify::LibraryRefutation>,
+    /// Every theorem and refutation in source order, indexing `theorems` and `refutations`.
+    pub claims: Vec<logicaffeine_proof::development::Claim>,
+}
+
+/// Why a program's development could not be read, with what had been collected before the failure.
+#[derive(Debug, Clone)]
+pub struct TheoryDevelopmentError {
+    /// The development up to the declaration that failed.
+    pub partial: TheoryDevelopment,
+    /// What failed.
+    pub message: String,
+}
+
+impl std::fmt::Display for TheoryDevelopmentError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for TheoryDevelopmentError {}
+
+/// Read a program's formal development: parse the program, then collect every `## Axiom` block and every `## Theory`
+/// body's declarations. [`compile_theory_for_ui`] proves its theorems; `largo datalog` evaluates its axioms bottom-up.
+pub fn theory_development(input: &str) -> Result<TheoryDevelopment, TheoryDevelopmentError> {
     use logicaffeine_proof::development::parse_development;
     use logicaffeine_proof::formula::parse_formula;
-    use logicaffeine_proof::verify::{prove_library_with_axioms, LibraryTheorem};
 
     // Parse the program with the same wiring as `parse_theorem`.
     let mut interner = Interner::new();
@@ -998,64 +1110,42 @@ pub fn compile_theory_for_ui(input: &str) -> TheoryCompileResult {
     );
     let mut world_state = drs::WorldState::new();
     let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
-    let statements = match parser.parse_program() {
-        Ok(s) => s,
-        Err(e) => {
-            return TheoryCompileResult {
-                theory_name: None,
-                axiom_count: 0,
-                axiom_names: Vec::new(),
-                theorems: Vec::new(),
-                parse_error: Some(format!(
-                    "Parse error: {}",
-                    socratic_explanation(&e, &Interner::new())
-                )),
-            }
-        }
-    };
+    let statements = parser.parse_program().map_err(|e| TheoryDevelopmentError {
+        partial: TheoryDevelopment::default(),
+        message: format!("Parse error: {}", socratic_explanation(&e, &Interner::new())),
+    })?;
 
-    // Collect the development: standalone `## Axiom` blocks + `## Theory` bodies.
-    let mut axioms: Vec<ProofExpr> = Vec::new();
-    let mut axiom_names: Vec<String> = Vec::new();
-    let mut theorems: Vec<LibraryTheorem> = Vec::new();
-    let mut theory_name: Option<String> = None;
-
+    let mut development = TheoryDevelopment::default();
     for stmt in &statements {
         match stmt {
             ast::Stmt::Axiom(a) => match parse_formula(&a.formula) {
-                Ok(expr) => {
-                    axioms.push(expr);
-                    axiom_names.push(a.name.clone());
-                }
+                Ok(expr) => development.axioms.push((a.name.clone(), expr)),
                 Err(e) => {
-                    return TheoryCompileResult {
-                        theory_name,
-                        axiom_count: axioms.len(),
-                        axiom_names,
-                        theorems: Vec::new(),
-                        parse_error: Some(format!("Axiom '{}': {}", a.name, e)),
-                    }
+                    let message = format!("Axiom '{}': {}", a.name, e);
+                    return Err(TheoryDevelopmentError { partial: development, message });
                 }
             },
             ast::Stmt::Theory(t) => {
-                if theory_name.is_none() {
-                    theory_name = Some(t.name.clone());
+                if development.theory_name.is_none() {
+                    development.theory_name = Some(t.name.clone());
                 }
                 if !t.body.trim().is_empty() {
                     match parse_development(&t.body) {
                         Ok(dev) => {
-                            axiom_names.extend(dev.axioms.iter().map(|(n, _)| n.clone()));
-                            axioms.extend(dev.axiom_exprs());
-                            theorems.extend(dev.theorems);
+                            use logicaffeine_proof::development::Claim;
+                            let (theorems, refutations) =
+                                (development.theorems.len(), development.refutations.len());
+                            development.claims.extend(dev.claims.iter().map(|claim| match *claim {
+                                Claim::Theorem(i) => Claim::Theorem(theorems + i),
+                                Claim::Refutation(i) => Claim::Refutation(refutations + i),
+                            }));
+                            development.axioms.extend(dev.axioms);
+                            development.theorems.extend(dev.theorems);
+                            development.refutations.extend(dev.refutations);
                         }
                         Err(e) => {
-                            return TheoryCompileResult {
-                                theory_name,
-                                axiom_count: axioms.len(),
-                                axiom_names,
-                                theorems: Vec::new(),
-                                parse_error: Some(format!("Theory '{}': {}", t.name, e)),
-                            }
+                            let message = format!("Theory '{}': {}", t.name, e);
+                            return Err(TheoryDevelopmentError { partial: development, message });
                         }
                     }
                 }
@@ -1063,25 +1153,7 @@ pub fn compile_theory_for_ui(input: &str) -> TheoryCompileResult {
             _ => {}
         }
     }
-
-    let results = prove_library_with_axioms(&axioms, &theorems);
-    let theorem_results = theorems
-        .iter()
-        .zip(results)
-        .map(|(t, r)| TheoryTheoremResult {
-            name: t.name.clone(),
-            verified: r.verified,
-            error: r.verification_error,
-        })
-        .collect();
-
-    TheoryCompileResult {
-        theory_name,
-        axiom_count: axioms.len(),
-        axiom_names,
-        theorems: theorem_results,
-        parse_error: None,
-    }
+    Ok(development)
 }
 
 /// The GROUNDED, quantifier-free grid problem `(solver_input, goal)` for an `Auto` grid
@@ -1424,12 +1496,22 @@ pub fn generate_rust_code_with_proven(
 // Interpreter (async)
 // ═══════════════════════════════════════════════════════════════════
 
-/// Interpret LOGOS imperative code and return output lines.
-///
-/// Same engine dispatch as [`interpret_for_ui_sync`]: the bytecode VM runs
-/// synchronous programs (with the tree-walker as the debug shadow oracle);
-/// programs needing async (file I/O, sleep, mount) run on the tree-walker's
-/// async executor.
+/// The program as written refused, packaged as a ready rejection — or `None` when it is well-formed.
+/// [`crate::compile::check_as_written`] is the one judgment every compile and every run path makes on
+/// the freshly-parsed statements (a value escaping its zone, a value used after it was given away), so
+/// a run started here refuses exactly the programs `largo check` and every backend refuse.
+fn as_written_rejection(
+    stmts: &[logicaffeine_language::ast::stmt::Stmt],
+    interner: &Interner,
+) -> Option<InterpreterResult> {
+    crate::compile::check_as_written(stmts, interner)
+        .err()
+        .map(|why| InterpreterResult {
+            lines: Vec::new(),
+            error: Some(socratic_explanation(&why, interner)),
+        })
+}
+
 /// The first Send/escape-analysis violation in `stmts`, packaged as a ready
 /// rejection — or `None` if the program respects the message-passing + CRDT
 /// memory model. This is the static concurrency gate (Phase 4): a program whose
@@ -1462,6 +1544,12 @@ fn send_dimension_rejection(
         })
 }
 
+/// Interpret LOGOS imperative code and return output lines.
+///
+/// Same engine dispatch as [`interpret_for_ui_sync`]: the bytecode VM runs
+/// synchronous programs (with the tree-walker as the debug shadow oracle);
+/// programs needing async (file I/O, sleep, mount) run on the tree-walker's
+/// async executor.
 pub async fn interpret_for_ui(input: &str) -> InterpreterResult {
     interpret_for_ui_with_args(input, &[]).await
 }
@@ -1485,8 +1573,45 @@ fn in_a_document_of_its_own<T>(run: impl FnOnce() -> T) -> T {
 
 /// Like [`interpret_for_ui`], but supplies the program's argument vector to the
 /// `args()` system native. `program_args` is the full argv (index 0 is the
-/// program name), matching the compiled binary's `env::args()`.
+/// program name), matching the compiled binary's `env::args()`. File statements
+/// reach no disk ([`Files::Memory`]).
 pub async fn interpret_for_ui_with_args(input: &str, program_args: &[String]) -> InterpreterResult {
+    interpret_for_ui_with_files(input, program_args, Files::Memory).await
+}
+
+/// Where a run's file statements (`Write … to file …`, `Read … from file …`, `Mount … at …`) reach.
+/// The caller says which; nothing in the environment can widen it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Files {
+    /// The host's filesystem, a path resolving against the working directory exactly as a compiled
+    /// program's does ([`logicaffeine_system::fs::get_platform_vfs`]): what `largo run --interpret` reaches.
+    #[cfg(not(target_arch = "wasm32"))]
+    Host,
+    /// No disk: the sealed test world's files where `largo test` installs one, and nowhere outside it
+    /// ([`logicaffeine_system::fs::MemVfs`]) — what every library run and the MCP sandbox reach.
+    Memory,
+}
+
+impl Files {
+    fn vfs(self) -> std::sync::Arc<dyn logicaffeine_system::fs::Vfs> {
+        match self {
+            #[cfg(not(target_arch = "wasm32"))]
+            Files::Host => {
+                let host: std::sync::Arc<dyn logicaffeine_system::fs::Vfs + Send + Sync> =
+                    std::sync::Arc::from(logicaffeine_system::fs::get_platform_vfs());
+                host
+            }
+            Files::Memory => std::sync::Arc::new(logicaffeine_system::fs::MemVfs::new()),
+        }
+    }
+}
+
+/// [`interpret_for_ui_with_args`], with the run's file statements reaching `files`.
+pub async fn interpret_for_ui_with_files(
+    input: &str,
+    program_args: &[String],
+    files: Files,
+) -> InterpreterResult {
     begin_ui_run();
     // The synchronous dispatcher covers every non-async program; for async
     // ones it uses block_on, which would nest inside this future — so handle
@@ -1495,19 +1620,9 @@ pub async fn interpret_for_ui_with_args(input: &str, program_args: &[String]) ->
         Ok((stmts, _, _)) => crate::interpreter::needs_async(stmts, interner),
         Err(_) => false,
     });
-    if needs_async && matches!(engine(), Engine::Jit | Engine::Vm) {
-        if std::env::var_os("LOGOS_ENGINE_TRACE").is_some() {
-            eprintln!("logos-engine: refused");
-        }
-        return InterpreterResult {
-            lines: Vec::new(),
-            error: Some(
-                "the selected VM/JIT tier is sync-only; this program requires async execution"
-                    .to_string(),
-            ),
-        };
-    }
-    if !needs_async {
+    // The VM and the JIT never take the async executor: the synchronous dispatcher runs what the
+    // deterministic scheduler serves and refuses what waits on the host.
+    if !needs_async || matches!(engine(), Engine::Jit | Engine::Vm) {
         return interpret_for_ui_sync_with_args(input, program_args);
     }
 
@@ -1572,6 +1687,9 @@ pub async fn interpret_for_ui_with_args(input: &str, program_args: &[String]) ->
 
     match parsed {
         Ok(stmts) => {
+            if let Some(rejection) = as_written_rejection(&stmts, &interner) {
+                return rejection;
+            }
             let mut run_cfg =
                 crate::optimization::OptimizationConfig::from_env().merged(&opt_flags);
             run_cfg.normalize();
@@ -1605,17 +1723,18 @@ pub async fn interpret_for_ui_with_args(input: &str, program_args: &[String]) ->
                     policy_registry,
                     &interner,
                     program_args,
+                    Some(files.vfs()),
                     None,
                     None,
-                    None,
-                    0,
+                    logicaffeine_runtime::SchedSeed::from_env().0,
                 )
                 .await;
             }
             let mut interp = crate::interpreter::Interpreter::new(&interner)
                 .with_type_registry(&type_registry_for_interp)
                 .with_policies(policy_registry)
-                .with_program_args(program_args.to_vec());
+                .with_program_args(program_args.to_vec())
+                .with_vfs(files.vfs());
             let run_result = interp.run(&stmts).await;
             let unhandled = interp.take_page_failure();
             InterpreterResult {
@@ -1633,20 +1752,6 @@ pub async fn interpret_for_ui_with_args(input: &str, program_args: &[String]) ->
     }
 }
 
-/// The execution front-end shared by every engine: lex → MWE → discovery →
-/// parse. The tree-walker and the bytecode VM MUST both come through here so
-/// they see the identical token stream, type registry, and policies — a
-/// differential test that parses differently per engine is comparing two
-/// different programs.
-///
-/// Parsed statements borrow stack-local arenas, so they are handed to the
-/// closure rather than returned. A parse failure is delivered as
-/// `Err(socratic advice text)` — also identical for both engines.
-///
-/// This private core also installs the file's `## No <opt>` decorators as the active config
-/// (so the VM compiler's opt gates honor them) and hands the closure the `## Require` demands
-/// so a Result-returning caller can enforce them. The public [`with_parsed_program`] /
-/// [`with_parsed_program_checked`] wrappers select whether `## Require` is verified.
 /// [`parse_seam_e`], with the failure already rendered as its Socratic message.
 ///
 /// The overwhelming majority of callers want the sentence and nothing else. The few that need to
@@ -1744,15 +1849,50 @@ fn parse_seam_e<R>(
         ParseFacts,
     ) -> R,
 ) -> R {
-    parse_seam_with(input, None, body)
+    parse_seam_with(input, Front::default(), body)
 }
 
-/// [`parse_seam_e`], and — under `mono` — the program handed on is the monomorphic one
-/// ([`crate::monomorphize`]): every generic function and applied generic type made concrete, for
-/// a backend that lowers only concrete code.
+/// What the front end makes of a parsed program before an engine or a backend receives it. The
+/// default is the program as written, resolved: the form the differential seams hold the
+/// optimizer against.
+#[derive(Clone, Copy, Default)]
+struct Front<'s> {
+    /// The program as its concrete instances ([`crate::monomorphize`]): every generic function and
+    /// applied generic type made concrete, for a backend that lowers only concrete code.
+    mono: Option<crate::monomorphize::Options>,
+    /// The run-path optimizer at this hotness tier ([`crate::optimize::optimize_for_run_tiered`]),
+    /// the program's `## No` and `## Tier` decorators applied.
+    optimize: Option<crate::optimization::Tier>,
+    /// The assembled project's per-file scope, which the parsed program must respect.
+    scope: Option<&'s crate::analysis::ScopeInfo>,
+}
+
+impl Front<'_> {
+    /// The run-path optimizer at the tier the environment selects (default `Eager`, every admitted
+    /// pass): the program the live engines run.
+    fn optimized() -> Self {
+        Front {
+            optimize: Some(crate::optimization::HotswapConfig::from_env().run_tier()),
+            ..Front::default()
+        }
+    }
+}
+
+/// The front end shared by every engine and every backend that lowers the bytecode IR: lex → MWE
+/// → discovery → parse, then the judgments of the program as written, then what `front` asks for.
+/// The tree-walker, the VM, the JIT and the WebAssembly backend all come through here, so they see
+/// the identical token stream, type registry and policies, and refuse the identical programs — a
+/// differential test that parses differently per engine is comparing two different programs.
+///
+/// Parsed statements borrow stack-local arenas, so they are handed to the closure rather than
+/// returned. It also installs the file's `## No <opt>` decorators as the active config (so the VM
+/// compiler's opt gates honor them) and hands the closure the `## Require` demands in its
+/// [`ParseFacts`], so a Result-returning caller can enforce them. The public
+/// [`with_parsed_program`] / [`with_parsed_program_checked`] wrappers select whether `## Require`
+/// is verified.
 fn parse_seam_with<R>(
     input: &str,
-    mono: Option<crate::monomorphize::Options>,
+    front: Front<'_>,
     body: impl for<'a> FnOnce(
         Result<
             (
@@ -1828,10 +1968,11 @@ fn parse_seam_with<R>(
     );
 
     let mut world_state = drs::WorldState::new();
-    let (parsed, opt_flags, facts, type_registry_for_engines) = {
+    let (parsed, opt_flags, tier_pins, facts, type_registry_for_engines) = {
         let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
         let stmts = parser.parse_program();
         let flags = parser.program_opt_flags();
+        let pins = parser.program_tier_pins();
         let findings = parser
             .lgx_findings()
             .iter()
@@ -1867,21 +2008,31 @@ fn parse_seam_with<R>(
             copy_findings,
             user_text,
         };
-        (stmts, flags, facts, parser.into_type_registry())
+        (stmts, flags, pins, facts, parser.into_type_registry())
     };
 
-    let parsed =
-        parsed.and_then(
-            |stmts| match crate::analysis::refuse_retired_calls(&stmts, &interner) {
-                Ok(()) => Ok(stmts),
-                Err(refusal) => Err(logicaffeine_language::error::ParseError {
-                    kind: logicaffeine_language::error::ParseErrorKind::Custom(refusal),
-                    span: logicaffeine_language::token::Span::default(),
-                }),
-            },
-        );
-    // Under `mono`, the program as its concrete instances (see `parse_seam_with`).
-    let parsed = match (parsed, mono) {
+    fn refusal(why: String) -> logicaffeine_language::error::ParseError {
+        logicaffeine_language::error::ParseError {
+            kind: logicaffeine_language::error::ParseErrorKind::Custom(why),
+            span: logicaffeine_language::token::Span::default(),
+        }
+    }
+    let parsed = parsed.and_then(|stmts| {
+        crate::analysis::refuse_retired_calls(&stmts, &interner)
+            .map(|()| stmts)
+            .map_err(refusal)
+    });
+    let parsed = match (parsed, front.scope) {
+        (Ok(stmts), Some(scope)) => crate::analysis::check_scopes(&stmts, scope, &interner)
+            .map(|()| stmts)
+            .map_err(refusal),
+        (parsed, _) => parsed,
+    };
+    // The program as written is judged here, once, for every engine this seam feeds — a value
+    // escaping its zone, a value used after it was given away — exactly as every compile judges it.
+    let parsed = parsed
+        .and_then(|stmts| crate::compile::check_as_written(&stmts, &interner).map(|()| stmts));
+    let parsed = match (parsed, front.mono) {
         (Ok(stmts), Some(opts)) => crate::monomorphize::monomorphize(
             &stmts,
             &type_registry_for_engines,
@@ -1894,30 +2045,25 @@ fn parse_seam_with<R>(
             opts,
         )
         .map(|m| (m.stmts, Some(m.registry)))
-        .map_err(|message| logicaffeine_language::error::ParseError {
-            kind: logicaffeine_language::error::ParseErrorKind::Custom(message),
-            span: logicaffeine_language::token::Span::default(),
-        }),
+        .map_err(refusal),
         (Ok(stmts), None) => Ok((stmts, None)),
         (Err(e), _) => Err(e),
     };
     match parsed {
         Ok((stmts, mono_registry)) => {
             let type_registry_for_engines = mono_registry.unwrap_or(type_registry_for_engines);
-            // Strength-reduce accumulator recursion to a constant-stack `while`
-            // loop so the VM and tree-walker match the AOT (and never hit the
-            // call-depth limit on `Return n + f(n-1)`-shaped recursion).
-            // Type-directed division: rewrite `Divide → ExactDivide` in Rational
-            // contexts (default stays floor), then accumulator-TCO the resolved AST.
-            // The constant Rational fold honors the `Opt::Comptime` toggle (env +
-            // in-source `## No comptime`), consistent with the AOT and tiered paths.
+            // The constant Rational fold honors the `Opt::Comptime` toggle (env + in-source
+            // `## No comptime`), consistent with the AOT path.
             let mut run_cfg =
                 crate::optimization::OptimizationConfig::from_env().merged(&opt_flags);
             run_cfg.normalize();
             // Install `## No` as the active config so the VM compiler's opt gates
             // (`NarrowVm`/`FastDiv`/`Borrow`) honor it too — the AOT path gets this via
-            // `optimize_program`; the raw VM/wasm/isa seam needs it explicitly.
+            // `optimize_program`.
             crate::optimize::set_active_config(run_cfg);
+            // Type-directed division: rewrite `Divide → ExactDivide` in Rational contexts (the
+            // default stays floor) BEFORE optimization, so the optimizer sees `ExactDivide`
+            // (opaque, never floor-folded), not a bare `7 / 2` it would fold to `3`.
             let resolved = crate::resolve_program::resolve_program(
                 &stmts,
                 crate::ast_map::Arenas {
@@ -1930,6 +2076,30 @@ fn parse_seam_with<R>(
                 library.functions(),
             );
             let pre = resolved.unwrap_or(stmts.as_slice());
+            let optimized;
+            let pre = match front.optimize {
+                Some(tier) => {
+                    // Tiered-optimizer pins: ambient env (`LOGOS_TIER_PIN`) overlaid by the
+                    // program's in-source `## Tier` decorators (the decorator wins).
+                    let mut hotswap = crate::optimization::HotswapConfig::from_env();
+                    hotswap.pins.overlay(&tier_pins);
+                    optimized = crate::optimize::optimize_for_run_tiered(
+                        pre.to_vec(),
+                        &imperative_expr_arena,
+                        &stmt_arena,
+                        &mut interner,
+                        &run_cfg,
+                        &hotswap,
+                        tier,
+                    );
+                    optimized.as_slice()
+                }
+                None => pre,
+            };
+            // Strength-reduce accumulator recursion to a constant-stack `while` loop, so every
+            // engine matches the AOT and never hits the call-depth limit on
+            // `Return n + f(n-1)`-shaped recursion. A language semantic, not an optimization: it
+            // runs whatever `front` asks for.
             match crate::tail_call::rewrite_accumulators(
                 pre,
                 &stmt_arena,
@@ -2053,9 +2223,12 @@ pub fn with_parsed_program_checked<T>(
     })
 }
 
-/// [`with_parsed_program`] over the program's monomorphic form ([`crate::monomorphize`]) — every
-/// generic function and applied generic type made concrete — for a backend that lowers only
-/// concrete code.
+/// The program a backend that lowers only concrete code compiles: the program the live engines
+/// run ([`with_optimized_program`]: the run-path optimizer, the program's decorators applied), as
+/// its monomorphic form ([`crate::monomorphize`]) — every generic function and applied generic type
+/// made concrete. The WebAssembly backend lowers it, so a module computes what the VM computes by
+/// the same route: a call the optimizer specializes into a closed form is one there too, never a
+/// recursion deep enough to exhaust the host's stack.
 pub fn with_monomorphic_program<R>(
     input: &str,
     options: crate::monomorphize::Options,
@@ -2071,7 +2244,11 @@ pub fn with_monomorphic_program<R>(
         &'a Interner,
     ) -> R,
 ) -> R {
-    parse_seam_with(input, Some(options), |parsed, interner, _facts| {
+    let front = Front {
+        mono: Some(options),
+        ..Front::optimized()
+    };
+    parse_seam_with(input, front, |parsed, interner, _facts| {
         f(
             parsed.map_err(|e| socratic_explanation(&e, interner)),
             interner,
@@ -2079,9 +2256,8 @@ pub fn with_monomorphic_program<R>(
     })
 }
 
-/// [`with_parsed_program_checked`] over the program's monomorphic form ([`crate::monomorphize`]) —
-/// every generic function and applied generic type made concrete — for a backend that lowers only
-/// concrete code.
+/// [`with_monomorphic_program`], with the program's `## Require` demands verified as
+/// [`with_parsed_program_checked`] verifies them.
 pub fn with_monomorphic_program_checked<T>(
     input: &str,
     options: crate::monomorphize::Options,
@@ -2097,7 +2273,11 @@ pub fn with_monomorphic_program_checked<T>(
         &'a Interner,
     ) -> Result<T, crate::error::ParseError>,
 ) -> Result<T, crate::error::ParseError> {
-    parse_seam_with(input, Some(options), |parsed, interner, facts| {
+    let front = Front {
+        mono: Some(options),
+        ..Front::optimized()
+    };
+    parse_seam_with(input, front, |parsed, interner, facts| {
         let gate = crate::optimize::DecoratorGate::for_required(facts.required);
         let user_text = facts.user_text;
         match f(parsed, interner) {
@@ -2269,135 +2449,17 @@ fn with_optimized_program_tiered_scoped<R>(
         &'a Interner,
     ) -> R,
 ) -> R {
-    use logicaffeine_language::ast::stmt::{Expr, Stmt, TypeExpr};
-
-    // A bare script (no `##` headers, imperative opening) runs as `## Main`.
-    let implicit = implicit_main(input);
-    let input = implicit.as_deref().unwrap_or(input);
-
-    // Phase 10: auto-prepend the stdlib modules the program references (no-op when
-    // it uses no stdlib vocabulary, so such programs stay byte-identical).
-    let prelude_src = crate::loader::apply_prelude(input);
-    let input = prelude_src.as_ref();
-    let library = crate::loader::LibraryProvenance::of(input);
-
-    let mut interner = Interner::new();
-    let mut lexer = Lexer::new(input, &mut interner);
-    let tokens = lexer.tokenize();
-
-    let mwe_trie = mwe::build_mwe_trie();
-    let mut tokens = mwe::apply_mwe_pipeline(tokens, &mwe_trie, &mut interner);
-
-    // Resolve the qualified escape hatch for cross-module calls (`Alias::fn` →
-    // bare `fn`); no-op for single-file programs. Feeds the VM, JIT, wasm, isa,
-    // and sync-interpreter tiers that share this seam.
-    let functions = crate::analysis::assemble::defined_function_names(input);
-    crate::analysis::assemble::resolve_qualified_names(&mut tokens, &mut interner, &functions);
-
-    let (type_registry, policy_registry) = {
-        let mut discovery = DiscoveryPass::new(&tokens, &mut interner);
-        let result = discovery.run_full();
-        (result.types, result.policies)
+    let front = Front {
+        optimize: Some(tier),
+        scope,
+        ..Front::default()
     };
-
-    let expr_arena = Arena::new();
-    let term_arena = Arena::new();
-    let np_arena = Arena::new();
-    let sym_arena = Arena::new();
-    let role_arena = Arena::new();
-    let pp_arena = Arena::new();
-    let stmt_arena: Arena<Stmt> = Arena::new();
-    let _compile_facts = crate::optimize::facts::scope();
-    let imperative_expr_arena: Arena<Expr> = Arena::new();
-    let type_expr_arena: Arena<TypeExpr> = Arena::new();
-
-    let ctx = AstContext::with_types(
-        &expr_arena,
-        &term_arena,
-        &np_arena,
-        &sym_arena,
-        &role_arena,
-        &pp_arena,
-        &stmt_arena,
-        &imperative_expr_arena,
-        &type_expr_arena,
-    );
-
-    let mut world_state = drs::WorldState::new();
-    let (parsed, opt_flags, tier_pins, type_registry_for_engines) = {
-        let mut parser = Parser::new(tokens, &mut world_state, &mut interner, ctx, type_registry);
-        let stmts = parser.parse_program();
-        let flags = parser.program_opt_flags();
-        let pins = parser.program_tier_pins();
-        (stmts, flags, pins, parser.into_type_registry())
-    };
-
-    match parsed {
-        Ok(stmts) => {
-            if let Some(scope) = scope {
-                if let Err(why) = crate::analysis::check_scopes(&stmts, scope, &interner) {
-                    return f(Err(why), &interner);
-                }
-            }
-            // Respect file-level `## No <opt>` decorators on the run path too, so
-            // optimization toggles behave consistently with the AOT compile.
-            let mut run_cfg =
-                crate::optimization::OptimizationConfig::from_env().merged(&opt_flags);
-            run_cfg.normalize();
-            // Tiered-optimizer pins: ambient env (`LOGOS_TIER_PIN`) overlaid by the
-            // program's in-source `## Tier` decorators (the decorator wins).
-            let mut hotswap = crate::optimization::HotswapConfig::from_env();
-            hotswap.pins.overlay(&tier_pins);
-            // Type-directed division (Divide → ExactDivide in Rational contexts) runs
-            // BEFORE optimization so the optimizer sees ExactDivide (opaque, never
-            // floor-folded), not a bare `7 / 2` it would fold to `3`.
-            let resolved = crate::resolve_program::resolve_program(
-                &stmts,
-                crate::ast_map::Arenas {
-                    exprs: &imperative_expr_arena,
-                    stmts: &stmt_arena,
-                    types: &type_expr_arena,
-                },
-                &mut interner,
-                run_cfg.is_on(crate::optimization::Opt::Comptime),
-                library.functions(),
-            );
-            let pre: Vec<_> = match resolved {
-                Some(rw) => rw.to_vec(),
-                None => stmts,
-            };
-            let optimized = crate::optimize::optimize_for_run_tiered(
-                pre,
-                &imperative_expr_arena,
-                &stmt_arena,
-                &mut interner,
-                &run_cfg,
-                &hotswap,
-                tier,
-            );
-            // Accumulator recursion → constant-stack loop (matches the AOT and
-            // the raw-parse engines).
-            match crate::tail_call::rewrite_accumulators(
-                &optimized,
-                &stmt_arena,
-                &imperative_expr_arena,
-                &mut interner,
-            ) {
-                Some(rw) => f(
-                    Ok((rw, &type_registry_for_engines, policy_registry)),
-                    &interner,
-                ),
-                None => f(
-                    Ok((&optimized, &type_registry_for_engines, policy_registry)),
-                    &interner,
-                ),
-            }
-        }
-        Err(e) => {
-            let advice = socratic_explanation(&e, &interner);
-            f(Err(advice), &interner)
-        }
-    }
+    parse_seam_with(input, front, |parsed, interner, _facts| {
+        f(
+            parsed.map_err(|e| socratic_explanation(&e, interner)),
+            interner,
+        )
+    })
 }
 
 /// Like [`with_optimized_program`], but the program runs through the
@@ -2694,17 +2756,46 @@ fn interpret_for_ui_sync_with_args_impl(
             let needs_async = crate::interpreter::needs_async(stmts, interner);
             let needs_scheduler = crate::concurrency::uses_scheduler(stmts);
             if needs_async || needs_scheduler {
-                if !matches!(engine(), Engine::Auto | Engine::TreeWalker) {
-                    let why = if needs_async {
-                        "the selected VM/JIT tier is sync-only; this program requires async execution"
-                    } else {
-                        "the selected VM/JIT tier has no scheduler driver; this program requires the tree-walker scheduler"
+                if matches!(engine(), Engine::Vm | Engine::Jit) {
+                    // The VM and the JIT run what the deterministic scheduler serves — tasks, pipes,
+                    // selects and the logical clock — at the run's seed, exactly as the tree-walker
+                    // schedules it. A program that waits on the host needs a reactor the scheduler
+                    // does not drive.
+                    if crate::interpreter::needs_host(stmts, interner) {
+                        trace("refused");
+                        return InterpreterResult {
+                            lines: Vec::new(),
+                            error: Some(VM_CANNOT_REACH_THE_HOST.to_string()),
+                        };
+                    }
+                    let native = match engine() {
+                        Engine::Jit => match crate::vm::installed_native_tier() {
+                            Some(tier) => Some(tier),
+                            None => {
+                                trace("refused");
+                                return InterpreterResult {
+                                    lines: Vec::new(),
+                                    error: Some(
+                                        "the selected JIT tier is unavailable on this build or platform"
+                                            .to_string(),
+                                    ),
+                                };
+                            }
+                        },
+                        _ => None,
                     };
-                    trace("refused");
-                    return InterpreterResult {
-                        lines: Vec::new(),
-                        error: Some(why.to_string()),
-                    };
+                    trace(if native.is_some() { "vm+jit (scheduler)" } else { "vm (scheduler)" });
+                    return run_vm_scheduled(
+                        stmts,
+                        type_registry,
+                        &policies,
+                        interner,
+                        program_args,
+                        native,
+                        logicaffeine_runtime::SchedulerConfig::default(),
+                        logicaffeine_runtime::SchedSeed::from_env(),
+                    )
+                    .0;
                 }
                 trace("treewalker (async)");
                 return run_treewalker(
@@ -2713,17 +2804,6 @@ fn interpret_for_ui_sync_with_args_impl(
                     policies,
                     interner,
                     true,
-                    program_args,
-                );
-            }
-            if engine() == Engine::TreeWalker {
-                trace("treewalker");
-                return run_treewalker(
-                    stmts,
-                    type_registry,
-                    policies,
-                    interner,
-                    false,
                     program_args,
                 );
             }
@@ -3055,8 +3135,6 @@ pub fn interpret_for_ui_baseline_sync_with_args(
     })
 }
 
-/// Run a parsed program on the TREE-WALKER (the oracle engine). `force_async`
-/// selects the async executor; otherwise the sync path is used.
 /// Run a concurrent program on the deterministic scheduler: spawn the main block
 /// as a task (which may spawn more), drive the scheduler to quiescence, and
 /// collect the output merged through a shared callback.
@@ -3343,70 +3421,98 @@ pub fn run_vm_concurrent_traced_with_config(
     config: logicaffeine_runtime::SchedulerConfig,
     seed: u64,
 ) -> (InterpreterResult, logicaffeine_runtime::SchedTrace) {
+    with_parsed_program(input, |parsed, interner| match parsed {
+        Ok((stmts, type_registry, policies)) => {
+            #[cfg(not(target_arch = "wasm32"))]
+            let native = crate::vm::installed_native_tier();
+            #[cfg(target_arch = "wasm32")]
+            let native = None;
+            run_vm_scheduled(
+                stmts,
+                type_registry,
+                &policies,
+                interner,
+                &[],
+                native,
+                config,
+                logicaffeine_runtime::SchedSeed(seed),
+            )
+        }
+        Err(advice) => (
+            InterpreterResult {
+                lines: vec![],
+                error: Some(advice),
+            },
+            logicaffeine_runtime::SchedTrace {
+                seed: logicaffeine_runtime::SchedSeed(seed),
+                choices: Vec::new(),
+            },
+        ),
+    })
+}
+
+/// Why `--engine vm` and `--engine jit` refuse a program that waits on the host.
+const VM_CANNOT_REACH_THE_HOST: &str = "the selected VM/JIT tier runs on the deterministic scheduler, \
+     which serves tasks, pipes and the clock but not the host; this program reads or writes files, \
+     networks or serves — run it on the tree-walker (`--engine tree`)";
+
+/// Run `stmts` on the bytecode VM under the deterministic scheduler at `seed`, returning the run and
+/// its recorded scheduling trace. The main program is one [`VmTask`](crate::concurrency::vm_driver::VmTask),
+/// each launched task another, and the scheduler's logical clock serves `Sleep` — the VM analog of
+/// [`run_program_concurrent`]. With a `native` tier, a hot integer loop inside any task JIT-compiles
+/// exactly as in the main program: concurrency ops are JIT-ineligible (never region-selected), so a
+/// tiered region is yield-free and a task only ever suspends on the bytecode path. Spawned children
+/// inherit the tier via `spawn_task_vm`.
+fn run_vm_scheduled<'a>(
+    stmts: &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
+    type_registry: &logicaffeine_language::analysis::TypeRegistry,
+    policies: &logicaffeine_language::analysis::PolicyRegistry,
+    interner: &'a Interner,
+    program_args: &[String],
+    native: Option<&'static (dyn crate::vm::NativeTier + 'static)>,
+    config: logicaffeine_runtime::SchedulerConfig,
+    seed: logicaffeine_runtime::SchedSeed,
+) -> (InterpreterResult, logicaffeine_runtime::SchedTrace) {
     use crate::concurrency::vm_driver::VmTask;
-    use logicaffeine_runtime::{run_with_seed, RunOutcome, SchedSeed};
+    use logicaffeine_runtime::{run_with_seed, RunOutcome};
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    with_parsed_program(input, |parsed, interner| match parsed {
-        Ok((stmts, type_registry, policies)) => {
-            let empty_trace = || logicaffeine_runtime::SchedTrace {
-                seed: SchedSeed(seed),
-                choices: Vec::new(),
-            };
-            let program =
-                match crate::vm::Compiler::compile_with_types(stmts, interner, Some(type_registry))
-                {
-                    Ok(p) => p,
-                    Err(e) => {
-                        return (
-                            InterpreterResult {
-                                lines: vec![],
-                                error: Some(e),
-                            },
-                            empty_trace(),
-                        )
-                    }
-                };
-            let output: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
-            let err_sink: crate::concurrency::driver::ErrSink = Rc::new(RefCell::new(None));
-            let mut vm = crate::vm::Vm::new(&program).with_policy_ctx(&policies, interner);
-            // Task bodies tier exactly like the main program: a hot integer loop
-            // inside a task JIT-compiles. Concurrency ops are JIT-ineligible (not
-            // integer ops ⇒ never region-selected), so a tiered region is
-            // yield-free and a task only ever suspends on the bytecode path.
-            // Spawned children inherit this tier via `spawn_task_vm`.
-            #[cfg(not(target_arch = "wasm32"))]
-            if let Some(tier) = crate::vm::installed_native_tier() {
-                vm = vm.with_native_tier(tier);
-            }
-            let main_task = VmTask::new(vm, output.clone(), Some(err_sink.clone()));
-            let (outcome, trace) = run_with_seed(config, SchedSeed(seed), move |sched| {
-                sched.spawn_main(Box::new(main_task));
-            });
-            let mut error = err_sink.borrow().clone();
-            if error.is_none() {
-                if let RunOutcome::Deadlock = outcome {
-                    error = Some("deadlock: every task is blocked waiting".to_string());
-                }
-            }
-            let lines = output.borrow().clone();
-            (InterpreterResult { lines, error }, trace)
-        }
-        Err(advice) => {
-            let trace = logicaffeine_runtime::SchedTrace {
-                seed: logicaffeine_runtime::SchedSeed(seed),
-                choices: Vec::new(),
-            };
-            (
+    let program = match crate::vm::Compiler::compile_with_types(stmts, interner, Some(type_registry)) {
+        Ok(p) => p,
+        Err(e) => {
+            return (
                 InterpreterResult {
                     lines: vec![],
-                    error: Some(advice),
+                    error: Some(e),
                 },
-                trace,
+                logicaffeine_runtime::SchedTrace {
+                    seed,
+                    choices: Vec::new(),
+                },
             )
         }
-    })
+    };
+    let output: Rc<RefCell<Vec<String>>> = Rc::new(RefCell::new(Vec::new()));
+    let err_sink: crate::concurrency::driver::ErrSink = Rc::new(RefCell::new(None));
+    let mut vm = crate::vm::Vm::new(&program)
+        .with_policy_ctx(policies, interner)
+        .with_program_args(program_args.to_vec());
+    if let Some(tier) = native {
+        vm = vm.with_native_tier(tier);
+    }
+    let main_task = VmTask::new(vm, output.clone(), Some(err_sink.clone()));
+    let (outcome, trace) = run_with_seed(config, seed, move |sched| {
+        sched.spawn_main(Box::new(main_task));
+    });
+    let mut error = err_sink.borrow().clone();
+    if error.is_none() {
+        if let RunOutcome::Deadlock = outcome {
+            error = Some("deadlock: every task is blocked waiting".to_string());
+        }
+    }
+    let lines = output.borrow().clone();
+    (InterpreterResult { lines, error }, trace)
 }
 
 /// One cooperative poll interval for the VM net runner — a short async sleep so the relay delivers
@@ -3861,6 +3967,9 @@ pub async fn run_vm_io_async(input: &str) -> InterpreterResult {
     };
     let opt_flags = parser.program_opt_flags();
     let type_registry_for_vm = parser.into_type_registry();
+    if let Some(rejection) = as_written_rejection(&stmts, &interner) {
+        return rejection;
+    }
     let mut run_cfg =
         crate::optimization::OptimizationConfig::from_env().merged(&opt_flags);
     run_cfg.normalize();
@@ -4081,6 +4190,9 @@ pub fn repl_global_bindings(
     })
 }
 
+/// Run a parsed program on the TREE-WALKER (the oracle engine). A program that uses the scheduler
+/// runs on it at the run's seed ([`SchedSeed::from_env`](logicaffeine_runtime::SchedSeed::from_env));
+/// otherwise `force_async` selects the async executor over the sync path.
 pub(crate) fn run_treewalker<'a>(
     stmts: &'a [logicaffeine_language::ast::stmt::Stmt<'a>],
     type_registry: &logicaffeine_language::analysis::TypeRegistry,
@@ -4098,7 +4210,7 @@ pub(crate) fn run_treewalker<'a>(
             program_args,
             Some(std::sync::Arc::new(logicaffeine_system::fs::MemVfs::new())),
             None,
-            0,
+            logicaffeine_runtime::SchedSeed::from_env().0,
         );
     }
     let mut interp = crate::interpreter::Interpreter::new(interner)
@@ -4247,6 +4359,9 @@ where
 
     match parsed {
         Ok(stmts) => {
+            if let Some(rejection) = as_written_rejection(&stmts, &interner) {
+                return rejection;
+            }
             let mut run_cfg =
                 crate::optimization::OptimizationConfig::from_env().merged(&opt_flags);
             run_cfg.normalize();
@@ -4289,7 +4404,7 @@ where
                     vfs,
                     Some(callback),
                     observer,
-                    0,
+                    logicaffeine_runtime::SchedSeed::from_env().0,
                 )
                 .await;
             }

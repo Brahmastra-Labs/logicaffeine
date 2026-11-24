@@ -357,6 +357,28 @@ fn eval(state: &mut State, expr: &Expr, interner: &Interner) -> Result<SymValue,
                 .cloned()
                 .ok_or_else(|| Unsupported(format!("reference to unbound variable '{name}'")))
         }
+        Expr::BinaryOp {
+            op: op @ (BinaryOpKind::And | BinaryOpKind::Or),
+            left,
+            right,
+        } => {
+            // Truthiness in, Bool out, as `binary_op` and the VM's short circuit take it: the right operand runs only
+            // when the left does not decide, so its errors count only then.
+            let lt = truth(&eval(state, left, interner)?)?;
+            let before = state.errored.clone();
+            let rt = truth(&eval(state, right, interner)?)?;
+            let is_and = matches!(op, BinaryOpKind::And);
+            let decided = if is_and { VerifyExpr::not(lt.clone()) } else { lt.clone() };
+            state.errored = VerifyExpr::or(
+                before,
+                VerifyExpr::and(VerifyExpr::not(decided), state.errored.clone()),
+            );
+            Ok(SymValue::Bool(if is_and {
+                VerifyExpr::and(lt, rt)
+            } else {
+                VerifyExpr::or(lt, rt)
+            }))
+        }
         Expr::BinaryOp { op, left, right } => {
             let l = eval(state, left, interner)?;
             let r = eval(state, right, interner)?;
@@ -400,6 +422,19 @@ fn eval(state: &mut State, expr: &Expr, interner: &Interner) -> Result<SymValue,
     }
 }
 
+/// Whether a value counts as true where the runtime branches on it: a Bool itself, an Int when it is not zero.
+fn truth(v: &SymValue) -> Result<VerifyExpr, Unsupported> {
+    match v {
+        SymValue::Bool(b) => Ok(b.clone()),
+        SymValue::Int(n) => Ok(VerifyExpr::not(VerifyExpr::bv_binary(
+            BitVecOp::Eq,
+            n.clone(),
+            VerifyExpr::bv_const(INT_WIDTH, 0),
+        ))),
+        SymValue::Chan(_) => unsupported("the truth of a channel"),
+    }
+}
+
 fn apply_binop(op: BinaryOpKind, l: SymValue, r: SymValue) -> Result<SymValue, Unsupported> {
     use BinaryOpKind::*;
     use SymValue::{Bool, Int};
@@ -425,11 +460,6 @@ fn apply_binop(op: BinaryOpKind, l: SymValue, r: SymValue) -> Result<SymValue, U
         )))),
         (NotEq, Bool(a), Bool(b)) => Ok(Bool(VerifyExpr::not(VerifyExpr::iff(a, b)))),
 
-        // ---- And / Or (logical on Bool, bitwise on Int — matches the interpreter) ----
-        (And, Bool(a), Bool(b)) => Ok(Bool(VerifyExpr::and(a, b))),
-        (And, Int(a), Int(b)) => Ok(Int(VerifyExpr::bv_binary(BitVecOp::And, a, b))),
-        (Or, Bool(a), Bool(b)) => Ok(Bool(VerifyExpr::or(a, b))),
-        (Or, Int(a), Int(b)) => Ok(Int(VerifyExpr::bv_binary(BitVecOp::Or, a, b))),
 
         (op, _, _) => unsupported(format!("operator {op:?} on these operand types")),
     }

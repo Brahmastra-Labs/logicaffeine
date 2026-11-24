@@ -71,6 +71,16 @@ pub(super) fn body_has_top_level_tail_pair(
         .any(|w| crate::tail_call::tail_pair_args(&w[0], &w[1], func_name, param_count).is_some())
 }
 
+/// `let __tce_{at}: T = value;`, the next value of the parameter `param`, under the Rust type the body registered for it.
+fn loopback_temp(indent_str: &str, at: usize, param: Option<&Symbol>, value: &str, ctx: &RefinementContext) -> String {
+    let typed = param
+        .and_then(|p| ctx.get_variable_types().get(p))
+        .filter(|t| !t.contains('|') && !t.contains("/*") && !t.contains("impl "))
+        .map(|t| format!(": {t}"))
+        .unwrap_or_default();
+    format!("{indent_str}    let __tce_{at}{typed} = {};\n", super::precedence::standalone(value))
+}
+
 /// Emit the TCE loop-back for a self-tail-call: evaluate the call's args into
 /// temporaries (so reassigning one param can't perturb another's source), assign
 /// them to the parameters, and `continue` the function's wrapping `loop`. Shared
@@ -89,16 +99,34 @@ pub(super) fn codegen_tce_loopback<'a>(
     let mut output = String::new();
     writeln!(output, "{}{{", indent_str).unwrap();
     for (i, arg) in args.iter().enumerate() {
+        super::expr::set_movable_last_use(moves_into(args, i, param_names, ctx));
         let arg_str = loopback_argument(arg, param_names.get(i), interner, ctx, synced_vars, async_functions);
-        writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str).unwrap();
+        super::expr::set_movable_last_use(None);
+        output.push_str(&loopback_temp(&indent_str, i, param_names.get(i), &arg_str, ctx));
     }
     for (i, param_sym) in param_names.iter().enumerate() {
-        let param_name = interner.resolve(*param_sym);
+        let param_name = RustNames::new(interner).ident(*param_sym);
         writeln!(output, "{}    {} = __tce_{};", indent_str, param_name, i).unwrap();
     }
     writeln!(output, "{}    continue;", indent_str).unwrap();
     writeln!(output, "{}}}", indent_str).unwrap();
     output
+}
+
+/// The parameter argument `at` of a loop-back may move rather than copy: one held exact (no `Copy`), read exactly
+/// once by that argument and by none after it. Every parameter is reassigned once the arguments are evaluated, so
+/// that read is its last.
+fn moves_into(args: &[&Expr], at: usize, params: &[Symbol], ctx: &RefinementContext) -> Option<Symbol> {
+    fn reads(e: &Expr, sym: Symbol) -> usize {
+        let own = matches!(e, Expr::Identifier(s) if *s == sym) as usize;
+        own + logicaffeine_language::ast_depth::expr_children(e).into_iter().map(|c| reads(c, sym)).sum::<usize>()
+    }
+    params.iter().copied().find(|p| {
+        ctx.get_variable_types().get(p).is_some_and(|t| t.contains("__bigint"))
+            && !matches!(args[at], Expr::Closure { .. })
+            && reads(args[at], *p) == 1
+            && args[at + 1..].iter().all(|a| !crate::optimize::expr_touches(a, *p))
+    })
 }
 
 /// The value a tail call passes to `param` on the way back round the loop: converted to the
@@ -119,7 +147,67 @@ fn loopback_argument(
     if reached {
         return super::tower::bare_value(arg, interner, synced_vars, async_functions, ctx.get_variable_types());
     }
+    // A parameter held exact takes the exact value of its next argument, never one narrowed into the word.
+    let exact = param.is_some_and(|p| ctx.get_variable_types().get(p).is_some_and(|t| t.contains("__bigint")));
+    if exact {
+        return exact_value(arg, interner, synced_vars, async_functions, ctx);
+    }
     codegen_expr_with_async(arg, interner, synced_vars, async_functions, ctx.get_variable_types())
+}
+
+/// `e` as the exact `LogosInt` it is: computed without narrowing, a machine word widened.
+fn exact_value(
+    e: &Expr,
+    interner: &Interner,
+    synced_vars: &HashSet<Symbol>,
+    async_functions: &HashSet<Symbol>,
+    ctx: &RefinementContext,
+) -> String {
+    let ecx = super::expr::ExprCtx {
+        variable_types: ctx.get_variable_types(),
+        async_functions,
+        int_exact_tolerant: true,
+        ..super::expr::ExprCtx::bare(interner, synced_vars)
+    };
+    super::expr::as_logos_int(e, interner, ctx.get_variable_types(), || super::expr::codegen_expr_ctx(e, &ecx))
+}
+
+thread_local! {
+    /// The accumulator of the function being emitted holds an exact integer: its result is a `LogosInt`.
+    static EXACT_ACC: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Emit an accumulator function's body with its accumulator exact, for as long as the guard lives.
+pub(super) struct ExactAcc(bool);
+
+impl Drop for ExactAcc {
+    fn drop(&mut self) {
+        EXACT_ACC.with(|e| e.set(self.0));
+    }
+}
+
+pub(super) fn exact_accumulator(on: bool) -> ExactAcc {
+    ExactAcc(EXACT_ACC.with(|e| e.replace(on)))
+}
+
+/// `acc op value` on the exact accumulator.
+fn exact_accumulate(op: BinaryOpKind, acc: &str, value: &str) -> String {
+    let name = match op {
+        BinaryOpKind::Multiply => "mul",
+        BinaryOpKind::Subtract => "sub",
+        _ => "add",
+    };
+    format!("logos_{name}_exact({acc}, {value})")
+}
+
+/// `acc op value` on machine words, checked: one past the word stops the run with the overflow sentence, never wraps.
+fn word_accumulate(op: BinaryOpKind, acc: &str, value: &str) -> String {
+    let name = match op {
+        BinaryOpKind::Multiply => "mul",
+        BinaryOpKind::Subtract => "sub",
+        _ => "add",
+    };
+    format!("logos_{name}_i64({acc}, {value})")
 }
 
 // Accumulator-introduction DETECTION (`detect_accumulator_pattern`,
@@ -152,11 +240,6 @@ pub(super) fn codegen_stmt_acc<'a>(
     type_env: &crate::analysis::types::TypeEnv,
 ) -> String {
     let indent_str = "    ".repeat(indent);
-    let op_str = match acc_info.op {
-        BinaryOpKind::Add => "+",
-        BinaryOpKind::Multiply => "*",
-        _ => unreachable!(),
-    };
 
     match stmt {
         // Recursive return: BinaryOp(op, self_call, non_rec) or swapped
@@ -171,7 +254,10 @@ pub(super) fn codegen_stmt_acc<'a>(
                     let mut output = String::new();
                     writeln!(output, "{}{{", indent_str).unwrap();
                     let exact = super::tower::emitting_a_reached_function();
-                    let non_rec_str = if exact {
+                    let exact_int = EXACT_ACC.with(|e| e.get());
+                    let non_rec_str = if exact_int && !exact {
+                        exact_value(non_rec_expr, interner, synced_vars, async_functions, ctx)
+                    } else if exact {
                         super::tower::bare_value(
                             non_rec_expr,
                             interner,
@@ -180,13 +266,14 @@ pub(super) fn codegen_stmt_acc<'a>(
                             ctx.get_variable_types(),
                         )
                     } else {
-                        codegen_expr_with_async(
+                        let code = codegen_expr_with_async(
                             non_rec_expr,
                             interner,
                             synced_vars,
                             async_functions,
                             ctx.get_variable_types(),
-                        )
+                        );
+                        super::expr::into_word(non_rec_expr, code, ctx.get_variable_types())
                     };
                     writeln!(
                         output,
@@ -202,13 +289,12 @@ pub(super) fn codegen_stmt_acc<'a>(
                             super::tower::accumulate("__acc", acc_info.op, "__acc_expr")
                         )
                         .unwrap();
+                    } else if exact_int {
+                        writeln!(output, "{}    __acc = {};", indent_str, exact_accumulate(acc_info.op, "__acc", "__acc_expr"))
+                            .unwrap();
                     } else {
-                        writeln!(
-                            output,
-                            "{}    __acc = __acc {} __acc_expr;",
-                            indent_str, op_str
-                        )
-                        .unwrap();
+                        writeln!(output, "{}    __acc = {};", indent_str, word_accumulate(acc_info.op, "__acc", "__acc_expr"))
+                            .unwrap();
                     }
                     // Evaluate args into temporaries
                     for (i, arg) in args.iter().enumerate() {
@@ -220,12 +306,11 @@ pub(super) fn codegen_stmt_acc<'a>(
                             synced_vars,
                             async_functions,
                         );
-                        writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str)
-                            .unwrap();
+                        output.push_str(&loopback_temp(&indent_str, i, param_names.get(i), &arg_str, ctx));
                     }
                     // Assign temporaries to params
                     for (i, param_sym) in param_names.iter().enumerate() {
-                        let param_name = interner.resolve(*param_sym);
+                        let param_name = RustNames::new(interner).ident(*param_sym);
                         writeln!(output, "{}    {} = __tce_{};", indent_str, param_name, i)
                             .unwrap();
                     }
@@ -269,6 +354,10 @@ pub(super) fn codegen_stmt_acc<'a>(
                     super::tower::accumulate("__acc", acc_info.op, &val_str)
                 );
             }
+            if EXACT_ACC.with(|e| e.get()) {
+                let val_str = exact_value(expr, interner, synced_vars, async_functions, ctx);
+                return format!("{}return {};\n", indent_str, exact_accumulate(acc_info.op, "__acc", &val_str));
+            }
             let val_str = codegen_expr_with_async(
                 expr,
                 interner,
@@ -276,7 +365,8 @@ pub(super) fn codegen_stmt_acc<'a>(
                 async_functions,
                 ctx.get_variable_types(),
             );
-            format!("{}return __acc {} {};\n", indent_str, op_str, val_str)
+            let val_str = super::expr::into_word(expr, val_str, ctx.get_variable_types());
+            format!("{}return {};\n", indent_str, word_accumulate(acc_info.op, "__acc", &val_str))
         }
 
         Stmt::Return { value: None } => {
@@ -298,7 +388,7 @@ pub(super) fn codegen_stmt_acc<'a>(
             );
             let cond_str = super::stmt::truthy_cond_wrap(cond, cond_str, interner, ctx.get_variable_types());
             let mut output = String::new();
-            writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
+            writeln!(output, "{}if {} {{", indent_str, super::precedence::condition(&cond_str)).unwrap();
             ctx.push_scope();
             for s in *then_block {
                 output.push_str(&codegen_stmt_acc(
@@ -462,7 +552,15 @@ pub(super) fn detect_mutual_tce_pairs<'a>(
     // Find mutually tail-calling pairs
     let mut pairs = Vec::new();
     let mut used = HashSet::new();
-    let names: Vec<Symbol> = func_defs.keys().copied().collect();
+    // The functions in the order the program declares them, so the pairs and each pair's order are the program's.
+    let mut names: Vec<Symbol> = Vec::new();
+    for stmt in stmts {
+        if let Stmt::FunctionDef { name, .. } = stmt {
+            if !names.contains(name) {
+                names.push(*name);
+            }
+        }
+    }
 
     for i in 0..names.len() {
         for j in (i + 1)..names.len() {
@@ -539,6 +637,7 @@ pub(super) fn codegen_mutual_tce_pair<'a>(
     func_a: Symbol,
     func_b: Symbol,
     stmts: &'a [Stmt<'a>],
+    exact_params: bool,
     interner: &Interner,
     lww_fields: &HashSet<(String, String)>,
     mv_fields: &HashSet<(String, String)>,
@@ -574,16 +673,26 @@ pub(super) fn codegen_mutual_tce_pair<'a>(
     let b_name = names.ident(func_b);
     let merged_name = format!("__mutual_{}_{}", a_name, b_name);
 
+    // A pair the exactness decision makes exact (an exact-HOF pair: `isOdd(n - 1)` may leave the word) takes its
+    // integer parameters as exact integers, in the merged loop and in both wrappers.
+    let param_ty = |t: &TypeExpr| {
+        let ty = codegen_type_expr(t, interner);
+        if exact_params { super::program::exactify_rust_int_type(&ty) } else { ty }
+    };
+    let register_params = |ctx: &mut RefinementContext, params: &[(Symbol, &TypeExpr)]| {
+        if exact_params {
+            for (p, t) in params {
+                if codegen_type_expr(t, interner) == "i64" {
+                    ctx.register_variable_type(*p, "i64|__bigint".to_string());
+                }
+            }
+        }
+    };
+
     // Build param list (using func_a's param names, since types match)
     let params_str: Vec<String> = a_params
         .iter()
-        .map(|(p, t)| {
-            format!(
-                "mut {}: {}",
-                interner.resolve(*p),
-                codegen_type_expr(t, interner)
-            )
-        })
+        .map(|(p, t)| format!("mut {}: {}", interner.resolve(*p), param_ty(t)))
         .collect();
 
     // An omitted return type on a mutually-recursive pair: fall back to the
@@ -595,6 +704,10 @@ pub(super) fn codegen_mutual_tce_pair<'a>(
             .lookup_fn(func_a)
             .and_then(|sig| logos_return_type_to_rust(&sig.return_type, interner))
     });
+    // A pair whose result the exactness decision makes exact returns it exact, from the merged loop and both wrappers.
+    let returns_exact =
+        super::expr::is_bigint_returning_call(func_a) || super::expr::is_bigint_returning_call(func_b);
+    let ret_str = ret_str.map(|r| if returns_exact { super::program::exactify_rust_int_type(&r) } else { r });
 
     let mut output = String::new();
 
@@ -630,6 +743,8 @@ pub(super) fn codegen_mutual_tce_pair<'a>(
     writeln!(output, "            0 => {{").unwrap();
     let a_mutable = collect_mutable_vars(a_body);
     let mut a_ctx = RefinementContext::new();
+    a_ctx.set_returns_bigint(returns_exact);
+    register_params(&mut a_ctx, a_params);
     let mut a_synced = HashSet::new();
     let a_caps = HashMap::new();
     let a_pipes = HashSet::new();
@@ -663,6 +778,9 @@ pub(super) fn codegen_mutual_tce_pair<'a>(
     writeln!(output, "            1 => {{").unwrap();
     let b_mutable = collect_mutable_vars(b_body);
     let mut b_ctx = RefinementContext::new();
+    b_ctx.set_returns_bigint(returns_exact);
+    register_params(&mut b_ctx, a_params);
+    register_params(&mut b_ctx, b_params);
     let mut b_synced = HashSet::new();
     let b_caps = HashMap::new();
     let b_pipes = HashSet::new();
@@ -699,16 +817,8 @@ pub(super) fn codegen_mutual_tce_pair<'a>(
     writeln!(output, "}}\n").unwrap();
 
     // Wrapper for func_a
-    let wrapper_params_a: Vec<String> = a_params
-        .iter()
-        .map(|(p, t)| {
-            format!(
-                "{}: {}",
-                interner.resolve(*p),
-                codegen_type_expr(t, interner)
-            )
-        })
-        .collect();
+    let wrapper_params_a: Vec<String> =
+        a_params.iter().map(|(p, t)| format!("{}: {}", interner.resolve(*p), param_ty(t))).collect();
     let wrapper_args_a: Vec<String> = a_params
         .iter()
         .map(|(p, _)| interner.resolve(*p).to_string())
@@ -750,16 +860,8 @@ pub(super) fn codegen_mutual_tce_pair<'a>(
     }
 
     // Wrapper for func_b
-    let wrapper_params_b: Vec<String> = b_params
-        .iter()
-        .map(|(p, t)| {
-            format!(
-                "{}: {}",
-                interner.resolve(*p),
-                codegen_type_expr(t, interner)
-            )
-        })
-        .collect();
+    let wrapper_params_b: Vec<String> =
+        b_params.iter().map(|(p, t)| format!("{}: {}", interner.resolve(*p), param_ty(t))).collect();
     let wrapper_args_b: Vec<String> = b_params
         .iter()
         .map(|(p, _)| interner.resolve(*p).to_string())
@@ -832,18 +934,15 @@ pub(super) fn codegen_stmt_mutual_tce<'a>(
             if let Expr::Call { args, .. } = expr {
                 let mut output = String::new();
                 writeln!(output, "{}{{", indent_str).unwrap();
+                let args: Vec<&Expr> = args.iter().copied().collect();
                 for (i, arg) in args.iter().enumerate() {
-                    let arg_str = codegen_expr_with_async(
-                        arg,
-                        interner,
-                        synced_vars,
-                        async_functions,
-                        ctx.get_variable_types(),
-                    );
-                    writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str).unwrap();
+                    super::expr::set_movable_last_use(moves_into(&args, i, param_names, ctx));
+                    let arg_str = loopback_argument(arg, param_names.get(i), interner, ctx, synced_vars, async_functions);
+                    super::expr::set_movable_last_use(None);
+                    output.push_str(&loopback_temp(&indent_str, i, param_names.get(i), &arg_str, ctx));
                 }
                 for (i, param_sym) in param_names.iter().enumerate() {
-                    let param_name = interner.resolve(*param_sym);
+                    let param_name = RustNames::new(interner).ident(*param_sym);
                     writeln!(output, "{}    {} = __tce_{};", indent_str, param_name, i).unwrap();
                 }
                 writeln!(output, "{}    __tag = {};", indent_str, partner_tag).unwrap();
@@ -874,18 +973,15 @@ pub(super) fn codegen_stmt_mutual_tce<'a>(
             if let Expr::Call { args, .. } = expr {
                 let mut output = String::new();
                 writeln!(output, "{}{{", indent_str).unwrap();
+                let args: Vec<&Expr> = args.iter().copied().collect();
                 for (i, arg) in args.iter().enumerate() {
-                    let arg_str = codegen_expr_with_async(
-                        arg,
-                        interner,
-                        synced_vars,
-                        async_functions,
-                        ctx.get_variable_types(),
-                    );
-                    writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str).unwrap();
+                    super::expr::set_movable_last_use(moves_into(&args, i, param_names, ctx));
+                    let arg_str = loopback_argument(arg, param_names.get(i), interner, ctx, synced_vars, async_functions);
+                    super::expr::set_movable_last_use(None);
+                    output.push_str(&loopback_temp(&indent_str, i, param_names.get(i), &arg_str, ctx));
                 }
                 for (i, param_sym) in param_names.iter().enumerate() {
-                    let param_name = interner.resolve(*param_sym);
+                    let param_name = RustNames::new(interner).ident(*param_sym);
                     writeln!(output, "{}    {} = __tce_{};", indent_str, param_name, i).unwrap();
                 }
                 writeln!(output, "{}    continue;", indent_str).unwrap();
@@ -925,7 +1021,7 @@ pub(super) fn codegen_stmt_mutual_tce<'a>(
             );
             let cond_str = super::stmt::truthy_cond_wrap(cond, cond_str, interner, ctx.get_variable_types());
             let mut output = String::new();
-            writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
+            writeln!(output, "{}if {} {{", indent_str, super::precedence::condition(&cond_str)).unwrap();
             ctx.push_scope();
             for s in *then_block {
                 output.push_str(&codegen_stmt_mutual_tce(
@@ -1082,8 +1178,7 @@ pub(super) fn codegen_stmt_tce<'a>(
                                 async_functions,
                                 ctx.get_variable_types(),
                             );
-                            writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str)
-                                .unwrap();
+                            output.push_str(&loopback_temp(&indent_str, i, param_names.get(i), &arg_str, ctx));
                         } else {
                             let arg_str = codegen_expr_with_async(
                                 arg,
@@ -1092,13 +1187,12 @@ pub(super) fn codegen_stmt_tce<'a>(
                                 async_functions,
                                 ctx.get_variable_types(),
                             );
-                            writeln!(output, "{}    let __tce_{} = {};", indent_str, i, arg_str)
-                                .unwrap();
+                            output.push_str(&loopback_temp(&indent_str, i, param_names.get(i), &arg_str, ctx));
                         }
                     }
                     // Assign temporaries to params
                     for (i, param_sym) in param_names.iter().enumerate() {
-                        let param_name = interner.resolve(*param_sym);
+                        let param_name = RustNames::new(interner).ident(*param_sym);
                         writeln!(output, "{}    {} = __tce_{};", indent_str, param_name, i)
                             .unwrap();
                     }
@@ -1141,7 +1235,7 @@ pub(super) fn codegen_stmt_tce<'a>(
             );
             let cond_str = super::stmt::truthy_cond_wrap(cond, cond_str, interner, ctx.get_variable_types());
             let mut output = String::new();
-            writeln!(output, "{}if {} {{", indent_str, cond_str).unwrap();
+            writeln!(output, "{}if {} {{", indent_str, super::precedence::condition(&cond_str)).unwrap();
             ctx.push_scope();
             for s in *then_block {
                 output.push_str(&codegen_stmt_tce(

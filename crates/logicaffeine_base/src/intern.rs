@@ -82,6 +82,7 @@ impl Interner {
             vec: Vec::new(),
         };
         interner.vec.push(String::new());
+        interner.map.insert(String::new(), Symbol::EMPTY);
         interner
     }
 

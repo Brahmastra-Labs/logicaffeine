@@ -1156,6 +1156,41 @@ impl Reference {
         }
         Ok(names)
     }
+
+    /// Every `SOURCE_METADATA` disclosure the export's expressions require, recomputed from its raw
+    /// records without translating any of them: one `expression <id>: <key> = <value>` per metadata
+    /// key, and one `expression <id>: letE.nondep = true` per nondependent let (the elaborator-have
+    /// contract, [`metadata`](super::metadata)), sorted.
+    pub fn source_metadata(&self) -> Vec<String> {
+        let mut disclosures = Vec::new();
+        for (id, row) in &self.tables.exprs {
+            if let Some(data) = row
+                .get("mdata")
+                .and_then(|m| m.get("data"))
+                .and_then(Value::as_object)
+            {
+                for (key, value) in data {
+                    let value = value
+                        .as_str()
+                        .map_or_else(|| value.to_string(), str::to_string);
+                    disclosures.push(format!("expression {id}: {key} = {value}"));
+                }
+            }
+            if row
+                .get("letE")
+                .and_then(|l| l.get("nondep"))
+                .and_then(Value::as_bool)
+                == Some(true)
+            {
+                disclosures.push(format!(
+                    "expression {id}: {} = true",
+                    super::metadata::NONDEP_KEY
+                ));
+            }
+        }
+        disclosures.sort();
+        disclosures
+    }
 }
 
 /// The kernel spelling of a Lean name given as its hierarchical components.
@@ -1239,7 +1274,11 @@ fn primitive_identity(raw: &str) -> String {
 #[derive(Clone)]
 struct Name {
     raw: String,
+    /// The name as Lean prints it: a component that is not an identifier written `«…»`.
     lean: String,
+    /// Its components joined by `.` with no escaping. Two distinct names can share it (`A.B` and
+    /// `«A.B»`), so a lookup by Lean spelling also matches it and refuses the ambiguity it creates.
+    dotted: String,
 }
 
 /// External mixed-name convenience APIs keep their existing ambiguity rejection.
@@ -1261,13 +1300,10 @@ struct Tables {
 }
 
 /// The constant a Lean release applies to a string literal's `List Char`, as each release's own
-/// `Init.Prelude` defines `String`. `None`: no reading is pinned for that release.
+/// `Init.Prelude` defines `String` ([`profile::RELEASES`](super::profile::RELEASES), facts about
+/// each release, not translation code). `None`: no reading is pinned for that release.
 fn string_literal_packing(release: Option<&str>) -> Option<&'static str> {
-    match release? {
-        "4.14.0" => Some("/s:\"String\"/s:\"mk\""),
-        "4.29.1" | "4.30.0" | "4.33.0" => Some("/s:\"String\"/s:\"ofList\""),
-        _ => None,
-    }
+    super::profile::release(release?).map(|r| r.string_literals.packing_constant())
 }
 
 fn id(v: &Value) -> Result<u64> {
@@ -1292,6 +1328,7 @@ impl Tables {
                 Name {
                     raw: String::new(),
                     lean: String::new(),
+                    dotted: String::new(),
                 },
             )]),
             levels: HashMap::new(),
@@ -1306,7 +1343,9 @@ impl Tables {
                 .map_err(|e| malformed(format!("line {}: {e}", at + 2)))?;
             if let Some(index) = record.get("in") {
                 let index = id(index)?;
-                let (tag, part) = if let Some(x) = record.get("str") {
+                // The Lean spelling is Lean's own: a component that is not an identifier is
+                // written `«…»`, as `intake::print_lean_name` writes every name.
+                let (tag, part, plain) = if let Some(x) = record.get("str") {
                     let s = x["str"]
                         .as_str()
                         .ok_or_else(|| malformed("string name component"))?;
@@ -1314,12 +1353,15 @@ impl Tables {
                         "s",
                         (
                             serde_json::to_string(s).expect("a string serializes"),
-                            s.to_string(),
+                            super::intake::print_lean_name(&[super::intake::Component::Str(
+                                s.to_string(),
+                            )]),
                         ),
+                        s.to_string(),
                     )
                 } else if let Some(x) = record.get("num") {
                     let n = id(&x["i"])?;
-                    ("n", (n.to_string(), n.to_string()))
+                    ("n", (n.to_string(), n.to_string()), n.to_string())
                 } else {
                     return Err(malformed("unknown name record"));
                 };
@@ -1337,9 +1379,15 @@ impl Tables {
                 } else {
                     format!("{}.{}", prefix.lean, part.1)
                 };
+                let dotted = if prefix.dotted.is_empty() {
+                    plain
+                } else {
+                    format!("{}.{plain}", prefix.dotted)
+                };
                 let name = Name {
                     raw: format!("{}/{tag}:{}", prefix.raw, part.0),
                     lean,
+                    dotted,
                 };
                 if tables.names.insert(index, name).is_some() {
                     return Err(malformed("duplicate name index"));
@@ -1425,11 +1473,12 @@ impl Tables {
             let matches = match lookup {
                 Lookup::Mixed => {
                     name.lean == declaration
+                        || name.dotted == declaration
                         || name.raw == declaration
                         || primitive_identity(&name.raw) == declaration
                 }
                 Lookup::Kernel => primitive_identity(&name.raw) == declaration,
-                Lookup::Lean => name.lean == declaration,
+                Lookup::Lean => name.lean == declaration || name.dotted == declaration,
             };
             if matches {
                 found.push((record, kind));

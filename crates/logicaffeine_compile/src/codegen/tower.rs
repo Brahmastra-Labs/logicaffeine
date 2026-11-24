@@ -77,6 +77,11 @@ pub(crate) fn binding(sym: Symbol) -> bool {
     with(|t| t.binding(scope, sym)).unwrap_or(false)
 }
 
+/// Whether `sym`, named in the body `scope` names (`None` is the program's root), holds a `LogosValue`.
+pub(crate) fn binding_in(scope: Scope, sym: Symbol) -> bool {
+    with(|t| t.binding(scope, sym)).unwrap_or(false)
+}
+
 /// Whether parameter `param` of function `f` is a `LogosValue`.
 pub(crate) fn param(f: Symbol, param: Symbol) -> bool {
     with(|t| t.binding(Some(f), param)).unwrap_or(false)

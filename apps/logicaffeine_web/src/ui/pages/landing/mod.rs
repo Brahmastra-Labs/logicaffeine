@@ -733,7 +733,7 @@ fn CopyInstructions() -> Element {
             }
         }
         div { class: "landing-actions",
-            Link { to: Route::Studio { file: None }, class: "landing-secondary", "Open Studio" }
+            Link { to: "/studio", class: "landing-secondary", "Open Studio" }
             Link { to: Route::Learn { module: String::new() }, class: "landing-secondary", "Learn" }
             Link { to: Route::Contact { section: String::new() }, class: "landing-secondary", "Contact" }
         }

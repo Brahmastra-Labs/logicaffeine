@@ -95,7 +95,7 @@ async function startServer(context: ExtensionContext, outputChannel: OutputChann
   const clientOptions: LanguageClientOptions = {
     documentSelector: [{ scheme: "file", language: LANGUAGE_ID }],
     synchronize: {
-      fileEvents: workspace.createFileSystemWatcher("**/*.{lg,md}"),
+      fileEvents: workspace.createFileSystemWatcher("**/*.{logos,lg,md}"),
       // Forward logicaffeine.* changes so the server picks up the flycheck
       // toggle (and future settings) live.
       configurationSection: "logicaffeine",

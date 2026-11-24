@@ -1274,3 +1274,78 @@ fn every_cache_scheme_declares_its_bound() {
         hold_keep(c.cache);
     }
 }
+
+/// The lane's half-precision recurrent memory declares its bound and is held to it (PARITY-GDN-HALF-STATE): each
+/// `recurrent_state` the lane's contract names keeps every value within its range inside its bound, its range the
+/// format's — f32's largest, and bfloat16's largest finite value; bfloat16 keeps every value as the model's own
+/// conversion does, at each of the 65536 bfloat16 values, at every midpoint between two of them and either side of it,
+/// and at every 256th `f32` bit pattern; the reference the lane's bf16 memory is held against keeps every one of those
+/// values as the contract declares; and the device holds it, by the suites this lock names — the kernels' rounding
+/// against the model's bit for bit, every form of the step against the reference keeping its memory alike, every
+/// gated-delta architecture and a run of 4096 steps against it, and a real checkpoint against its bar.
+#[test]
+fn a_half_precision_state_declares_and_meets_its_bound() {
+    use logicaffeine_compile::model::quant::{bf16_to_f32, f32_to_bf16};
+    use logicaffeine_compile::model::reference::StateStorage;
+    for (recurrent_state, keep, range) in
+        [(StatePrecision::F32, Keep::F32, f64::from(f32::MAX)), (StatePrecision::Bf16, Keep::Bf16, f64::from(f32::from_bits(0x7f7f_0000)))]
+    {
+        let knobs = CudaKnobs { recurrent_state, ..CudaKnobs::default() };
+        let c = LaneShim { knobs, batch: false, held: Vec::new() }.numerics().expect("the lane declares its contract");
+        assert_eq!(c.state, keep, "{recurrent_state:?}: the memory the lane keeps");
+        assert_eq!(c.state.range(), range, "{recurrent_state:?}: the format's range");
+        hold_keep(c.state);
+    }
+    let same = |a: f64, b: f64| a.to_bits() == b.to_bits() || (a.is_nan() && b.is_nan());
+    let mut xs: Vec<f32> = (0..1u32 << 24).map(|i| f32::from_bits(i << 8 | (i & 0xff))).collect();
+    for h in 0..=u16::MAX {
+        let mid = u32::from(h) << 16 | 0x8000;
+        xs.extend([bf16_to_f32(h), f32::from_bits(mid - 1), f32::from_bits(mid), f32::from_bits(mid + 1)]);
+    }
+    for x in xs {
+        let model = f64::from(bf16_to_f32(f32_to_bf16(x)));
+        let kept = Keep::Bf16.keep(f64::from(x)).expect("bfloat16 keeps a value at a time");
+        assert!(same(kept, model), "{x:e} ({:#010x}): the contract keeps {kept:e}, the model's conversion {model:e}", x.to_bits());
+        let reference = StateStorage::Bf16.keep(f64::from(x));
+        assert!(same(reference, kept), "{x:e} ({:#010x}): the reference keeps {reference:e}, the contract {kept:e}", x.to_bits());
+    }
+    let suite = std::fs::read_to_string(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/cuda_lane_lock.rs")).expect("the lane's suite");
+    for (test, holds) in [
+        ("the_lanes_bf16_memory_rounds_as_the_model_rounds", "f32_to_bf16"),
+        ("a_bf16_recurrent_state_decodes_alike_in_every_form_and_near_its_reference", "StateStorage::Bf16"),
+        ("a_bf16_memory_keeps_its_error_bounded_over_a_long_run", "StateStorage::Bf16"),
+        ("every_gated_delta_architecture_keeps_a_bf16_memory_near_its_reference", "StateStorage::Bf16"),
+        ("qwen3_5_0_8b_meets_its_bar_with_a_half_precision_state", "StatePrecision::Bf16"),
+        ("qwen3_5_0_8b_meets_its_bar_with_a_half_precision_state_on_long_prompts", "StatePrecision::Bf16"),
+    ] {
+        assert!(suite.contains(&format!("#[test]\nfn {test}()")), "cuda_lane_lock::{test} is a test");
+        let runs = reached_from(&suite, test);
+        assert!(runs.contains("require_gpu()"), "cuda_lane_lock::{test} runs on the device");
+        assert!(runs.contains(holds), "cuda_lane_lock::{test} holds the bf16 memory (`{holds}`)");
+    }
+}
+
+/// The text a function of `suite` runs: its own body and, transitively, the body of every function of the suite it
+/// calls.
+fn reached_from(suite: &str, f: &str) -> String {
+    let body = |name: &str| -> Option<&str> {
+        let at = suite.find(&format!("\nfn {name}("))? + 1;
+        Some(&suite[at..suite[at..].find("\n}\n").map_or(suite.len(), |e| at + e + 3)])
+    };
+    let (mut seen, mut todo, mut text) = (BTreeSet::new(), vec![f.to_string()], String::new());
+    while let Some(name) = todo.pop() {
+        if !seen.insert(name.clone()) {
+            continue;
+        }
+        let b = body(&name).unwrap_or_else(|| panic!("`{name}` is a function of the suite"));
+        for (open, _) in b.match_indices('(') {
+            let start = b[..open].rfind(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).map_or(0, |i| i + 1);
+            let callee = &b[start..open];
+            if !callee.is_empty() && !seen.contains(callee) && body(callee).is_some() {
+                todo.push(callee.to_string());
+            }
+        }
+        text.push_str(b);
+    }
+    text
+}

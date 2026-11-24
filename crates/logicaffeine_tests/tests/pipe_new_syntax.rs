@@ -9,6 +9,12 @@
 
 use logicaffeine_compile::compile_to_rust;
 
+/// The `--threads` build, whose concurrency is tokio's: the replay executor is the default, and tokio's shape, which
+/// these rows read, is the opt-in.
+fn compile_threaded(source: &str) -> Result<String, logicaffeine_compile::ParseError> {
+    logicaffeine_compile::compile::compile_program_full_threaded(source).map(|out| out.rust_code)
+}
+
 #[test]
 fn new_pipe_construction_parses_and_compiles() {
     let src = r#"## Main
@@ -16,7 +22,7 @@ Let messages be a new Pipe of Int.
 Send 42 into messages.
 Receive x from messages.
 Show x."#;
-    let rust = compile_to_rust(src)
+    let rust = compile_threaded(src)
         .expect("`a new Pipe of Int` must parse and compile (the documented channel syntax)");
     // A channel must actually be created in the generated Rust.
     assert!(

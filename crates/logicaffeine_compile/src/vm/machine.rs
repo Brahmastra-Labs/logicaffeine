@@ -582,6 +582,8 @@ pub struct Vm<'p> {
     accel_pbkdf2: Option<FuncIdx>,
     /// Per-function call counts (profiling toward the tier threshold).
     hot: Vec<u32>,
+    /// Per function, per parameter: what the calls of its warm-up passed (empty until its first call).
+    entry_values: Vec<Vec<super::native_tier::EntryValue>>,
     /// Per-function native state.
     native: Vec<super::native_tier::NativeSlot>,
     /// Back-edge counts for MAIN loops (keyed by loop-head pc). FxHash: this
@@ -590,6 +592,24 @@ pub struct Vm<'p> {
     region_hot: rustc_hash::FxHashMap<usize, u32>,
     /// Compiled Main-loop regions (keyed by loop-head pc; same probe rate).
     regions: rustc_hash::FxHashMap<usize, super::native_tier::RegionSlot>,
+    /// Loop heads whose value-specialized region kept missing its value guards:
+    /// they recompile with no values to specialize on (the generic region).
+    region_generic: rustc_hash::FxHashSet<usize>,
+    /// Per loop head: the values the guarded registers held when an entry missed a value-specialized region that has
+    /// no generic region to run instead. While they still hold them, the entry is the same one and is not retried.
+    region_value_misses: rustc_hash::FxHashMap<usize, Vec<(u16, Option<super::native_tier::ScalarValue>)>>,
+    /// Set by `run_ready_region` when the region it ran failed a value guard (as opposed to a kind guard or a side
+    /// exit); read and cleared by `try_region`.
+    region_value_missed: bool,
+    /// Per loop head: the registers whose kinds missed its region's guards at an entry, with the kinds they held.
+    /// While they still hold them, the entry is the same one and is not retried, so it is one miss.
+    region_kind_misses: rustc_hash::FxHashMap<usize, Vec<(u16, std::mem::Discriminant<crate::interpreter::RuntimeValue>)>>,
+    /// Set by `run_ready_region` to the registers whose kinds missed the region it ran; taken by `try_region`.
+    region_kind_missed: Vec<(u16, std::mem::Discriminant<crate::interpreter::RuntimeValue>)>,
+    /// Per loop head whose miss is remembered: the loop's exit pc and the call depth of the entry that missed. The
+    /// entry ends when a jump lands on that exit at that depth or its frame returns, and its miss is forgotten with
+    /// it, so the next entry's first crossing is checked, and counted, afresh.
+    region_miss_exits: rustc_hash::FxHashMap<usize, (usize, usize)>,
     /// Per-region (loop-head pc) collection registers this region mutates IN
     /// PLACE. Under value semantics these are copy-on-write'd at region ENTRY
     /// (`ensure_reg_owned`) so the native code's in-place writes cannot alias a
@@ -605,6 +625,9 @@ pub struct Vm<'p> {
     /// case and pay only this O(1) check after the first failure. Indexed by
     /// loop-head pc; sized to the code length.
     region_blacklist: Vec<bool>,
+    /// Per pc: how often its conditional branch fell through and how often it jumped (`[not taken, taken]`), counted
+    /// while a native tier is attached, so a loop region compiles knowing which of its paths ran while it warmed.
+    branch_profile: Vec<[u32; 2]>,
     /// Program arguments for the `args()` system native — full argv, index 0 is
     /// the program name (mirrors the compiled binary's `env::args()`). Empty
     /// when none were supplied.
@@ -737,13 +760,21 @@ impl<'p> Vm<'p> {
             tier: None,
             accel_pbkdf2: None,
             hot: vec![0; program.functions.len()],
+            entry_values: vec![Vec::new(); program.functions.len()],
             native: (0..program.functions.len())
                 .map(|_| super::native_tier::NativeSlot::Untried)
                 .collect(),
             region_hot: rustc_hash::FxHashMap::default(),
             regions: rustc_hash::FxHashMap::default(),
+            region_generic: rustc_hash::FxHashSet::default(),
+            region_value_misses: rustc_hash::FxHashMap::default(),
+            region_value_missed: false,
+            region_kind_misses: rustc_hash::FxHashMap::default(),
+            region_kind_missed: Vec::new(),
+            region_miss_exits: rustc_hash::FxHashMap::default(),
             region_cow_regs: rustc_hash::FxHashMap::default(),
             region_blacklist: vec![false; program.code.len()],
+            branch_profile: vec![[0, 0]; program.code.len()],
             program_args: crate::semantics::argv_with_program_name(Vec::new()),
             native_ctx: super::native_tier::NativeCtx {
                 table: std::sync::Arc::new(super::native_tier::FnTable::new(
@@ -1110,7 +1141,7 @@ impl<'p> Vm<'p> {
         depth_now: usize,
         cur_func: Option<u16>,
     ) -> Option<RegionExit> {
-        use super::native_tier::{RegionSlot, REGION_TIER_THRESHOLD};
+        use super::native_tier::{RegionFallback, RegionSlot, REGION_TIER_THRESHOLD};
         let tier = self.tier?;
         match self.regions.get(&head) {
             Some(RegionSlot::Failed) => return None,
@@ -1121,276 +1152,543 @@ impl<'p> Vm<'p> {
                 if *n < REGION_TIER_THRESHOLD {
                     return None;
                 }
-                // Region extent: every jump leaving [head, back_pc] must
-                // agree on ONE exit pc.
-                let body = &self.program.code[head..=back_pc];
-                let mut exit: Option<usize> = None;
-                for op in body {
-                    if let Op::Jump { target }
-                    | Op::JumpIfFalse { target, .. }
-                    | Op::JumpIfTrue { target, .. } = *op
-                    {
-                        if !(head..=back_pc).contains(&target) {
-                            match exit {
-                                None => exit = Some(target),
-                                Some(e) if e == target => {}
-                                _ => {
-                                    self.mark_region_failed(head);
-                                    return None;
-                                }
-                            }
-                        }
-                    }
-                }
-                let Some(exit_pc) = exit else {
+                let specialize = !self.region_generic.contains(&head);
+                let Some((rf, exit_pc, cow_regs)) =
+                    self.compile_region_at(tier, head, back_pc, named, frame_regs, cur_func, specialize)
+                else {
                     self.mark_region_failed(head);
                     return None;
                 };
-                // Value semantics: a region that mutates a collection IN PLACE
-                // may be writing a SHARED (aliased) allocation — native code
-                // writes through the `Rc` directly, a reference-semantics
-                // miscompile. We tier it soundly by copy-on-write'ing each
-                // mutated collection at region ENTRY (isolating it), PROVIDED no
-                // mutated collection escapes the region (then entry-COW is not
-                // enough — decline, run on the value-semantic VM). A `mutable`
-                // param is intentionally shared with the caller, so its in-place
-                // mutation is correct and it is NOT COW'd.
-                let mut cow_regs: Vec<u16> = Vec::new();
-                if crate::semantics::collections::value_semantics_enabled() {
-                    let mut mutated = Self::region_mutated_collection_regs(body);
-                    // A collection created FRESH in-region (its `NewEmpty` dominates
-                    // every mutation) is uniquely owned by construction: it needs no
-                    // entry-COW, and its register's earlier recycled-scratch uses no
-                    // longer read as a spurious alias-escape (the fannkuch `perm`
-                    // whose slot a `Set r to r-1` scratch reused before `perm` exists).
-                    for r in Self::region_fresh_collection_regs(body, head) {
-                        mutated.remove(&r);
-                    }
-                    if !mutated.is_empty() {
-                        if Self::region_mutation_escapes(body, &mutated) {
-                            self.mark_region_failed(head);
-                            return None;
-                        }
-                        let mutable_params = cur_func
-                            .and_then(|fi| self.program.functions.get(fi as usize))
-                            .map(|f| f.cow_exempt_regs.as_slice())
-                            .unwrap_or(&[]);
-                        cow_regs = mutated
-                            .into_iter()
-                            .filter(|r| !mutable_params.contains(r))
-                            .collect();
-                    }
-                }
-                let reg_count = u16::try_from(frame_regs).ok()?;
-                // Speculation seed: the kinds sitting in this frame's
-                // registers RIGHT NOW. The adapter compiles against them;
-                // the guard set re-checks them on every entry.
-                let observed: Vec<super::native_tier::ObservedKind> = (0..frame_regs)
-                    .map(|r| {
-                        use super::native_tier::ObservedKind;
-                        use crate::interpreter::{ListRepr, RuntimeValue};
-                        let rt = self.registers.get(self.base + r).map(|v| v.as_runtime());
-                        match rt.as_deref() {
-                            Some(RuntimeValue::Int(_)) => ObservedKind::Int,
-                            // A BigInt is a promoted (overflowed) integer — still an
-                            // integer kind, so the region tiers the slot as Int. The
-                            // entry guard re-checks the representation: a real BigInt in
-                            // an Int-guarded slot fails the guard and stays in the exact
-                            // VM, so the native i64 fast path is never entered with a box.
-                            Some(RuntimeValue::BigInt(_)) => ObservedKind::Int,
-                            Some(RuntimeValue::Float(_)) => ObservedKind::Float,
-                            Some(RuntimeValue::Bool(_)) => ObservedKind::Bool,
-                            Some(RuntimeValue::List(rc)) => match &*rc.borrow() {
-                                ListRepr::Ints(_) => ObservedKind::IntList,
-                                ListRepr::IntsI32(_) => ObservedKind::IntListI32,
-                                // A packed `Word32` list pins with the IntList buffer machinery (its masked
-                                // values are `i64`s); the forge tags an indexed read `Word32`.
-                                ListRepr::Words32(_) => ObservedKind::Word32List,
-                                ListRepr::Floats(_) => ObservedKind::FloatList,
-                                ListRepr::Bools(_) => ObservedKind::BoolList,
-                                ListRepr::Boxed(_)
-                                | ListRepr::Strings { .. }
-                                | ListRepr::Structs { .. }
-                                | ListRepr::Inductives { .. }
-                                | ListRepr::WireStructs { .. }
-                                | ListRepr::WireColumn { .. } => ObservedKind::Other,
-                            },
-                            Some(RuntimeValue::Map(_)) => ObservedKind::Map,
-                            // An ASCII Text rides the byte-pin lane (char index ==
-                            // byte index, char count == byte length). The metrics
-                            // cache makes the ASCII test O(1) per crossing. A
-                            // non-ASCII Text stays Other → the region bails and the
-                            // per-char decode path runs, so the JIT never diverges.
-                            Some(RuntimeValue::Text(rc))
-                                if crate::semantics::collections::text_is_ascii(rc) =>
-                            {
-                                ObservedKind::TextBytes
-                            }
-                            // A Word ring value carried unboxed as a masked i64 — lets a loop-carried Word
-                            // (a hash word `h0..h7`) enter the region as state. A narrow word's ring is
-                            // not a lane's: the region would wrap it at 2³², so it never enters unboxed.
-                            Some(RuntimeValue::Word(w)) => match w {
-                                logicaffeine_base::WordVal::W64(_) => ObservedKind::Word64,
-                                logicaffeine_base::WordVal::W32(_) => ObservedKind::Word32,
-                                logicaffeine_base::WordVal::W8(_)
-                                | logicaffeine_base::WordVal::W16(_) => ObservedKind::Other,
-                            },
-                            _ => ObservedKind::Other,
-                        }
-                    })
-                    .collect();
-                let callees: Vec<super::native_tier::CalleeSig> = {
-                    let prog = &self.program;
-                    let code_len = prog.code.len();
-                    prog.functions
-                        .iter()
-                        .map(|f| {
-                            let end = prog
-                                .functions
-                                .iter()
-                                .map(|h| h.entry_pc)
-                                .filter(|&pc| pc > f.entry_pc)
-                                .min()
-                                .unwrap_or(code_len);
-                            let (list_params_stable, returns_list_param) = analyze_list_call_safety(
-                                &prog.code[f.entry_pc..end],
-                                f.param_count,
-                                &f.param_kinds,
-                                f.register_count,
-                            );
-                            super::native_tier::CalleeSig {
-                                param_kinds: f.param_kinds.clone(),
-                                inout_params: f
-                                    .mutable_param_regs
-                                    .iter()
-                                    .copied()
-                                    .filter(|r| !f.cow_exempt_regs.contains(r))
-                                    .collect(),
-                                ret: f.ret_kind,
-                                list_ret: native_list_return(f.return_type.as_ref()),
-                                list_params_stable,
-                                returns_list_param,
-                            }
-                        })
-                        .collect()
-                };
-                // A fresh-list return normally REBINDS `dst`. The native
-                // region adopts its contents into the destination's pinned
-                // buffer, so isolate that buffer at entry like any other
-                // in-place mutation to preserve value semantics for aliases.
-                if crate::semantics::collections::value_semantics_enabled() {
-                    for op in body {
-                        let Op::Call { dst, func, .. } = *op else {
-                            continue;
-                        };
-                        if callees
-                            .get(func as usize)
-                            .is_some_and(|sig| sig.list_ret.is_some() && !sig.returns_list_param)
-                            && !cow_regs.contains(&dst)
-                        {
-                            cow_regs.push(dst);
-                        }
-                    }
-                }
-                // PRECISE REGION LIVE-OUT: a name bound INSIDE this loop is
-                // lexically dead at the loop exit, so it must NOT be written
-                // back — dropping it from `named` lets the JIT's copy-prop / CSE
-                // / fusion treat it as true scratch. `loop_locals[head]` is the
-                // compiler's exact per-loop set; absent (no loop record) keeps
-                // the conservative full `named`.
-                let liveout_off = std::env::var("LOGOS_LIVEOUT").as_deref() == Ok("0");
-                if std::env::var_os("LOGOS_LIVEOUT_TRACE").is_some() {
-                    let ll = self.program.loop_locals.get(&head);
-                    let nnamed = named.iter().filter(|&&n| n).count();
-                    let freed = ll.map_or(0, |m| {
-                        named
-                            .iter()
-                            .enumerate()
-                            .filter(|(r, &n)| n && m.get(*r).copied().unwrap_or(false))
-                            .count()
-                    });
-                    eprintln!(
-                        "liveout-trace: head={head} named={nnamed} loop_locals={} freed={freed}",
-                        ll.is_some()
-                    );
-                }
-                let region_named: Vec<bool> = match self.program.loop_locals.get(&head) {
-                    Some(locals) if !liveout_off => named
-                        .iter()
-                        .enumerate()
-                        .map(|(r, &n)| n && !locals.get(r).copied().unwrap_or(false))
-                        .collect(),
-                    _ => named.to_vec(),
-                };
-                match tier.compile_region(
-                    body,
+                self.regions.insert(
                     head,
-                    exit_pc,
-                    &self.program.constants,
-                    reg_count,
-                    &region_named,
-                    &observed,
-                    &self.native_ctx,
-                    &callees,
-                ) {
-                    Some(rf) => {
-                        #[cfg(not(target_arch = "wasm32"))]
-                        if super::perf_map::observed() {
-                            let enclosing = cur_func
-                                .map(|fi| self.fn_name(fi as usize))
-                                .unwrap_or_default();
-                            super::perf_map::record_code(
-                                &rf.code_extents(),
-                                &super::perf_map::region_symbol(&enclosing, head),
-                            );
-                        }
-                        self.regions.insert(
-                            head,
-                            RegionSlot::Ready {
-                                rf,
-                                exit_pc,
-                                misses: 0,
-                            },
-                        );
-                        if !cow_regs.is_empty() {
-                            self.region_cow_regs.insert(head, cow_regs);
-                        }
+                    RegionSlot::Ready {
+                        rf,
+                        exit_pc,
+                        misses: 0,
+                        completions: 0,
+                        hits: 0,
+                        value_misses: 0,
+                        fallback: RegionFallback::Untried,
+                    },
+                );
+                if !cow_regs.is_empty() {
+                    self.region_cow_regs.insert(head, cow_regs);
+                }
+            }
+        }
+        // An entry whose values already missed a specialized region that has no generic one to run instead stays on
+        // bytecode until it ends: the values cannot change inside it, so retrying at every crossing would only count
+        // the same miss again.
+        if let Some(missed) = self.region_value_misses.get(&head) {
+            if missed.iter().all(|&(r, v)| self.scalar_in(r) == v) {
+                return None;
+            }
+            self.region_value_misses.remove(&head);
+        }
+        // Likewise an entry whose kinds missed: while the registers that missed still hold those kinds, the guard
+        // would miss again.
+        if let Some(missed) = self.region_kind_misses.get(&head) {
+            if missed.iter().all(|&(r, kind)| self.kind_in(r) == Some(kind)) {
+                return None;
+            }
+            self.region_kind_misses.remove(&head);
+        }
+        self.region_value_missed = false;
+        self.region_kind_missed.clear();
+        if let Some(exit) = self.run_ready_region(head, depth_now, cur_func, false) {
+            let mut cold_demote = false;
+            if let Some(RegionSlot::Ready { rf, hits, misses, completions, .. }) = self.regions.get_mut(&head) {
+                if !rf.value_guards().is_empty() {
+                    *hits += 1;
+                }
+                *completions += 1;
+                super::native_tier::windowed(misses, completions);
+                if let Some((exits, iterations)) = rf.cold_runs() {
+                    cold_demote = exits >= u64::from(super::native_tier::REGION_DEMOTE_AFTER)
+                        && exits * super::native_tier::COLD_EXIT_SHARE > iterations;
+                    if cold_demote {
+                        rf.note_demoted();
                     }
-                    None => {
-                        self.mark_region_failed(head);
-                        return None;
+                }
+            }
+            if cold_demote {
+                self.mark_region_failed(head);
+                self.region_kind_misses.remove(&head);
+            }
+            return Some(exit);
+        }
+        if self.region_value_missed {
+            return self.run_value_miss(tier, head, back_pc, named, frame_regs, depth_now, cur_func);
+        }
+        if !self.region_kind_missed.is_empty() {
+            let missed = std::mem::take(&mut self.region_kind_missed);
+            self.region_kind_misses.insert(head, missed);
+            self.remember_entry(head, depth_now);
+        }
+        // A kind guard failed or the region side-exited: count it. A region whose misses reach the threshold and
+        // outnumber the entries it ran re-runs work on most entries: a value-specialized region gives way to the
+        // generic one, a generic region demotes to bytecode.
+        let mut demote = None;
+        if let Some(RegionSlot::Ready { rf, misses, completions, .. }) = self.regions.get_mut(&head) {
+            *misses += 1;
+            if *misses >= super::native_tier::REGION_DEMOTE_AFTER && *misses > *completions {
+                demote = Some(!rf.value_guards().is_empty());
+            }
+            super::native_tier::windowed(misses, completions);
+        }
+        if demote.is_some() {
+            self.region_kind_misses.remove(&head);
+        }
+        match demote {
+            Some(true) => {
+                if !self.retire_specialized(head) {
+                    if let Some(RegionSlot::Ready { rf, .. }) = self.regions.remove(&head) {
+                        rf.note_retired();
+                    }
+                    self.region_cow_regs.remove(&head);
+                    self.region_value_misses.remove(&head);
+                    self.region_generic.insert(head);
+                    self.region_hot.insert(head, REGION_TIER_THRESHOLD - 1);
+                }
+            }
+            Some(false) => {
+                if let Some(RegionSlot::Ready { rf, .. }) = self.regions.get(&head) {
+                    rf.note_demoted();
+                }
+                self.mark_region_failed(head);
+            }
+            None => {}
+        }
+        None
+    }
+
+    /// An entry whose values a value-specialized region does not hold: one miss for the whole entry. The loop's generic
+    /// region runs it instead, compiled the first time an entry needs it; when there is none (the loop cannot run native
+    /// unspecialized), the entry stays on bytecode and the values that missed are kept, so the crossings left in the
+    /// entry are not retried. The specialized region is retired for the generic one once its misses reach the demotion
+    /// threshold and outnumber the entries it ran.
+    #[allow(clippy::too_many_arguments)]
+    fn run_value_miss(
+        &mut self,
+        tier: &'p dyn super::native_tier::NativeTier,
+        head: usize,
+        back_pc: usize,
+        named: &[bool],
+        frame_regs: usize,
+        depth_now: usize,
+        cur_func: Option<u16>,
+    ) -> Option<RegionExit> {
+        use super::native_tier::{RegionFallback, RegionSlot};
+        let untried = match self.regions.get_mut(&head) {
+            Some(RegionSlot::Ready { value_misses, fallback, .. }) => {
+                *value_misses += 1;
+                matches!(fallback, RegionFallback::Untried)
+            }
+            _ => return None,
+        };
+        if untried {
+            let compiled = self.compile_region_at(tier, head, back_pc, named, frame_regs, cur_func, false);
+            if let Some(RegionSlot::Ready { fallback, .. }) = self.regions.get_mut(&head) {
+                *fallback = match compiled {
+                    Some((rf, _, _)) => RegionFallback::Ready { rf, misses: 0 },
+                    None => RegionFallback::Failed,
+                };
+            }
+        }
+        let has_generic = matches!(
+            self.regions.get(&head),
+            Some(RegionSlot::Ready { fallback: RegionFallback::Ready { .. }, .. })
+        );
+        if !has_generic {
+            let missed: Vec<(u16, Option<super::native_tier::ScalarValue>)> = match self.regions.get(&head) {
+                Some(RegionSlot::Ready { rf, .. }) => {
+                    rf.value_guards().iter().map(|&(r, _)| (r, self.scalar_in(r))).collect()
+                }
+                _ => Vec::new(),
+            };
+            self.region_value_misses.insert(head, missed);
+            self.remember_entry(head, depth_now);
+            return None;
+        }
+        let result = self.run_ready_region(head, depth_now, cur_func, true);
+        if result.is_some() {
+            if let Some(RegionSlot::Ready { rf, .. }) = self.regions.get(&head) {
+                rf.note_fallback_entry();
+            }
+        } else {
+            if let Some(RegionSlot::Ready { fallback, .. }) = self.regions.get_mut(&head) {
+                if let RegionFallback::Ready { misses, .. } = fallback {
+                    *misses += 1;
+                    if *misses >= super::native_tier::REGION_DEMOTE_AFTER {
+                        *fallback = RegionFallback::Failed;
                     }
                 }
             }
         }
-        let result = self.run_ready_region(head, depth_now, cur_func);
-        if result.is_none() {
-            // Guard failure or side exit: count it; a region that keeps
-            // missing re-runs work every entry — demote to pure bytecode.
-            let mut demote = false;
-            if let Some(RegionSlot::Ready { misses, .. }) = self.regions.get_mut(&head) {
-                *misses += 1;
-                if *misses >= super::native_tier::REGION_DEMOTE_AFTER {
-                    demote = true;
-                }
-            }
-            if demote {
-                self.mark_region_failed(head);
-            }
+        let retire = matches!(
+            self.regions.get(&head),
+            Some(RegionSlot::Ready { hits, value_misses, .. })
+                if *value_misses >= super::native_tier::REGION_DEMOTE_AFTER && value_misses > hits
+        );
+        if retire {
+            self.retire_specialized(head);
         }
         result
     }
 
+    /// Replace the value-specialized region at `head` by its compiled generic one, if it has one. Returns whether it
+    /// did.
+    fn retire_specialized(&mut self, head: usize) -> bool {
+        use super::native_tier::{RegionFallback, RegionSlot};
+        let Some(RegionSlot::Ready { rf, misses, completions, hits, value_misses, fallback, .. }) = self.regions.get_mut(&head) else {
+            return false;
+        };
+        let RegionFallback::Ready { rf: generic, misses: generic_misses } =
+            std::mem::replace(fallback, RegionFallback::Failed)
+        else {
+            return false;
+        };
+        let specialized = std::mem::replace(rf, generic);
+        specialized.note_retired();
+        *misses = generic_misses;
+        *completions = 0;
+        *hits = 0;
+        *value_misses = 0;
+        self.region_value_misses.remove(&head);
+        self.region_generic.insert(head);
+        true
+    }
+
+    /// The `Int` or `Bool` register `r` of the current frame holds, if it holds one.
+    /// Tie the miss just remembered for the loop at `head` to the entry at call depth `depth`.
+    fn remember_entry(&mut self, head: usize, depth: usize) {
+        if let Some(super::native_tier::RegionSlot::Ready { exit_pc, .. }) = self.regions.get(&head) {
+            self.region_miss_exits.insert(head, (*exit_pc, depth));
+        }
+    }
+
+    /// Control reached `target` by a jump at call depth `depth`, or (with `target` past every pc) left a frame for
+    /// depth `depth`: every loop entry with a remembered miss that this ends forgets it.
+    fn end_missed_entries(&mut self, target: usize, depth: usize) {
+        let (values, kinds) = (&mut self.region_value_misses, &mut self.region_kind_misses);
+        self.region_miss_exits.retain(|head, &mut (exit, at)| {
+            let ended = at > depth || (exit == target && at == depth);
+            if ended {
+                values.remove(head);
+                kinds.remove(head);
+            }
+            !ended
+        });
+    }
+
+    /// The kind of value register `r` of the current frame holds.
+    fn kind_in(&self, r: u16) -> Option<std::mem::Discriminant<crate::interpreter::RuntimeValue>> {
+        let v = self.registers.get(self.base + r as usize)?;
+        Some(std::mem::discriminant(&*v.as_runtime()))
+    }
+
+    fn scalar_in(&self, r: u16) -> Option<super::native_tier::ScalarValue> {
+        use super::native_tier::ScalarValue;
+        use crate::interpreter::RuntimeValue;
+        let v = self.registers.get(self.base + r as usize)?;
+        match &*v.as_runtime() {
+            RuntimeValue::Int(n) => Some(ScalarValue::Int(*n)),
+            RuntimeValue::Bool(b) => Some(ScalarValue::Bool(*b)),
+            _ => None,
+        }
+    }
+
+    /// Compile the loop region at `head`: its extent (every jump out of it must agree on one exit pc), the collections
+    /// it must copy on entry, and the native code, specialized on the values its registers hold now when `specialize`
+    /// is set and generic otherwise. `None` when the loop cannot run native.
+    #[allow(clippy::too_many_arguments)]
+    fn compile_region_at(
+        &mut self,
+        tier: &'p dyn super::native_tier::NativeTier,
+        head: usize,
+        back_pc: usize,
+        named: &[bool],
+        frame_regs: usize,
+        cur_func: Option<u16>,
+        specialize: bool,
+    ) -> Option<(Box<dyn super::native_tier::RegionFn>, usize, Vec<u16>)> {
+        // Region extent: every jump leaving [head, back_pc] must
+        // agree on ONE exit pc.
+        let body = &self.program.code[head..=back_pc];
+        let mut exit: Option<usize> = None;
+        for op in body {
+            if let Op::Jump { target }
+            | Op::JumpIfFalse { target, .. }
+            | Op::JumpIfTrue { target, .. } = *op
+            {
+                if !(head..=back_pc).contains(&target) {
+                    match exit {
+                        None => exit = Some(target),
+                        Some(e) if e == target => {}
+                        _ => {
+                            return None;
+                        }
+                    }
+                }
+            }
+        }
+        let Some(exit_pc) = exit else {
+            return None;
+        };
+        // Value semantics: a region that mutates a collection IN PLACE
+        // may be writing a SHARED (aliased) allocation — native code
+        // writes through the `Rc` directly, a reference-semantics
+        // miscompile. We tier it soundly by copy-on-write'ing each
+        // mutated collection at region ENTRY (isolating it), PROVIDED no
+        // mutated collection escapes the region (then entry-COW is not
+        // enough — decline, run on the value-semantic VM). A `mutable`
+        // param is intentionally shared with the caller, so its in-place
+        // mutation is correct and it is NOT COW'd.
+        let mut cow_regs: Vec<u16> = Vec::new();
+        if crate::semantics::collections::value_semantics_enabled() {
+            let mut mutated = Self::region_mutated_collection_regs(body);
+            // A collection created FRESH in-region (its `NewEmpty` dominates
+            // every mutation) is uniquely owned by construction: it needs no
+            // entry-COW, and its register's earlier recycled-scratch uses no
+            // longer read as a spurious alias-escape (the fannkuch `perm`
+            // whose slot a `Set r to r-1` scratch reused before `perm` exists).
+            for r in Self::region_fresh_collection_regs(body, head) {
+                mutated.remove(&r);
+            }
+            if !mutated.is_empty() {
+                if Self::region_mutation_escapes(body, &mutated) {
+                    return None;
+                }
+                let mutable_params = cur_func
+                    .and_then(|fi| self.program.functions.get(fi as usize))
+                    .map(|f| f.cow_exempt_regs.as_slice())
+                    .unwrap_or(&[]);
+                cow_regs = mutated
+                    .into_iter()
+                    .filter(|r| !mutable_params.contains(r))
+                    .collect();
+            }
+        }
+        let reg_count = u16::try_from(frame_regs).ok()?;
+        // Speculation seed: the kinds sitting in this frame's
+        // registers RIGHT NOW. The adapter compiles against them;
+        // the guard set re-checks them on every entry.
+        let observed: Vec<super::native_tier::ObservedKind> = (0..frame_regs)
+            .map(|r| {
+                use super::native_tier::ObservedKind;
+                use crate::interpreter::{ListRepr, RuntimeValue};
+                let rt = self.registers.get(self.base + r).map(|v| v.as_runtime());
+                match rt.as_deref() {
+                    Some(RuntimeValue::Int(_)) => ObservedKind::Int,
+                    // A BigInt is a promoted (overflowed) integer — still an
+                    // integer kind, so the region tiers the slot as Int. The
+                    // entry guard re-checks the representation: a real BigInt in
+                    // an Int-guarded slot fails the guard and stays in the exact
+                    // VM, so the native i64 fast path is never entered with a box.
+                    Some(RuntimeValue::BigInt(_)) => ObservedKind::Int,
+                    Some(RuntimeValue::Float(_)) => ObservedKind::Float,
+                    Some(RuntimeValue::Bool(_)) => ObservedKind::Bool,
+                    Some(RuntimeValue::List(rc)) => match &*rc.borrow() {
+                        ListRepr::Ints(_) => ObservedKind::IntList,
+                        ListRepr::IntsI32(_) => ObservedKind::IntListI32,
+                        // A packed `Word32` list pins with the IntList buffer machinery (its masked
+                        // values are `i64`s); the forge tags an indexed read `Word32`.
+                        ListRepr::Words32(_) => ObservedKind::Word32List,
+                        ListRepr::Floats(_) => ObservedKind::FloatList,
+                        ListRepr::Bools(_) => ObservedKind::BoolList,
+                        ListRepr::Boxed(_)
+                        | ListRepr::Strings { .. }
+                        | ListRepr::Structs { .. }
+                        | ListRepr::Inductives { .. }
+                        | ListRepr::WireStructs { .. }
+                        | ListRepr::WireColumn { .. } => ObservedKind::Other,
+                    },
+                    Some(RuntimeValue::Map(_)) => ObservedKind::Map,
+                    // An ASCII Text rides the byte-pin lane (char index ==
+                    // byte index, char count == byte length). The metrics
+                    // cache makes the ASCII test O(1) per crossing. A
+                    // non-ASCII Text stays Other → the region bails and the
+                    // per-char decode path runs, so the JIT never diverges.
+                    Some(RuntimeValue::Text(rc))
+                        if crate::semantics::collections::text_is_ascii(rc) =>
+                    {
+                        ObservedKind::TextBytes
+                    }
+                    // A Word ring value carried unboxed as a masked i64 — lets a loop-carried Word
+                    // (a hash word `h0..h7`) enter the region as state. A narrow word's ring is
+                    // not a lane's: the region would wrap it at 2³², so it never enters unboxed.
+                    Some(RuntimeValue::Word(w)) => match w {
+                        logicaffeine_base::WordVal::W64(_) => ObservedKind::Word64,
+                        logicaffeine_base::WordVal::W32(_) => ObservedKind::Word32,
+                        logicaffeine_base::WordVal::W8(_)
+                        | logicaffeine_base::WordVal::W16(_) => ObservedKind::Other,
+                    },
+                    _ => ObservedKind::Other,
+                }
+            })
+            .collect();
+        // Value seed: each register's `Int` or `Bool` at this crossing, for a
+        // region that specializes on a value its loop never changes.
+        let values: Vec<Option<super::native_tier::ScalarValue>> = if !specialize {
+            vec![None; frame_regs]
+        } else {
+            (0..frame_regs)
+                .map(|r| {
+                    use super::native_tier::ScalarValue;
+                    use crate::interpreter::RuntimeValue;
+                    let rt = self.registers.get(self.base + r).map(|v| v.as_runtime());
+                    match rt.as_deref() {
+                        Some(RuntimeValue::Int(n)) => Some(ScalarValue::Int(*n)),
+                        Some(RuntimeValue::Bool(b)) => Some(ScalarValue::Bool(*b)),
+                        _ => None,
+                    }
+                })
+                .collect()
+        };
+        let callees: Vec<super::native_tier::CalleeSig> = {
+            let prog = &self.program;
+            let code_len = prog.code.len();
+            prog.functions
+                .iter()
+                .map(|f| {
+                    let end = prog
+                        .functions
+                        .iter()
+                        .map(|h| h.entry_pc)
+                        .filter(|&pc| pc > f.entry_pc)
+                        .min()
+                        .unwrap_or(code_len);
+                    let (list_params_stable, returns_list_param) = analyze_list_call_safety(
+                        &prog.code[f.entry_pc..end],
+                        f.param_count,
+                        &f.param_kinds,
+                        f.register_count,
+                    );
+                    super::native_tier::CalleeSig {
+                        param_kinds: f.param_kinds.clone(),
+                        inout_params: f
+                            .mutable_param_regs
+                            .iter()
+                            .copied()
+                            .filter(|r| !f.cow_exempt_regs.contains(r))
+                            .collect(),
+                        ret: f.ret_kind,
+                        list_ret: native_list_return(f.return_type.as_ref()),
+                        list_params_stable,
+                        returns_list_param,
+                    }
+                })
+                .collect()
+        };
+        // A fresh-list return normally REBINDS `dst`. The native
+        // region adopts its contents into the destination's pinned
+        // buffer, so isolate that buffer at entry like any other
+        // in-place mutation to preserve value semantics for aliases.
+        if crate::semantics::collections::value_semantics_enabled() {
+            for op in body {
+                let Op::Call { dst, func, .. } = *op else {
+                    continue;
+                };
+                if callees
+                    .get(func as usize)
+                    .is_some_and(|sig| sig.list_ret.is_some() && !sig.returns_list_param)
+                    && !cow_regs.contains(&dst)
+                {
+                    cow_regs.push(dst);
+                }
+            }
+        }
+        // PRECISE REGION LIVE-OUT: a name bound INSIDE this loop is
+        // lexically dead at the loop exit, so it must NOT be written
+        // back — dropping it from `named` lets the JIT's copy-prop / CSE
+        // / fusion treat it as true scratch. `loop_locals[head]` is the
+        // compiler's exact per-loop set; absent (no loop record) keeps
+        // the conservative full `named`.
+        let liveout_off = std::env::var("LOGOS_LIVEOUT").as_deref() == Ok("0");
+        if std::env::var_os("LOGOS_LIVEOUT_TRACE").is_some() {
+            let ll = self.program.loop_locals.get(&head);
+            let nnamed = named.iter().filter(|&&n| n).count();
+            let freed = ll.map_or(0, |m| {
+                named
+                    .iter()
+                    .enumerate()
+                    .filter(|(r, &n)| n && m.get(*r).copied().unwrap_or(false))
+                    .count()
+            });
+            eprintln!(
+                "liveout-trace: head={head} named={nnamed} loop_locals={} freed={freed}",
+                ll.is_some()
+            );
+        }
+        let region_named: Vec<bool> = match self.program.loop_locals.get(&head) {
+            Some(locals) if !liveout_off => named
+                .iter()
+                .enumerate()
+                .map(|(r, &n)| n && !locals.get(r).copied().unwrap_or(false))
+                .collect(),
+            _ => named.to_vec(),
+        };
+        let cold = super::native_tier::cold_paths(
+            body,
+            head,
+            &self.branch_profile[head..=back_pc],
+            &region_named,
+            &self.program.functions,
+        );
+        let rf = tier.compile_region(
+            body,
+            head,
+            exit_pc,
+            &self.program.constants,
+            reg_count,
+            &region_named,
+            &observed,
+            &values,
+            &cold,
+            &self.native_ctx,
+            &callees,
+        )?;
+        // A region compiled without its cold code resumes the VM mid-iteration, and the cold code may keep a list the
+        // region refills in place (`NewList`/`NewEmptyList` lower as clear-and-refill of the pinned buffer), with no
+        // fresh definition before the next entry: that entry copies every such list anything else holds.
+        if rf.cold_runs().is_some() {
+            let built: Vec<u16> = body
+                .iter()
+                .filter_map(|op| match *op {
+                    Op::NewList { dst, .. } | Op::NewEmptyList { dst } | Op::NewEmptyListFixed { dst, .. } => Some(dst),
+                    _ => None,
+                })
+                .collect();
+            let copies = body.iter().filter_map(|op| match *op {
+                Op::Move { dst, src } if built.contains(&src) => Some(dst),
+                _ => None,
+            });
+            for reg in built.iter().copied().chain(copies) {
+                if !cow_regs.contains(&reg) {
+                    cow_regs.push(reg);
+                }
+            }
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if super::perf_map::observed() {
+            let enclosing = cur_func.map(|fi| self.fn_name(fi as usize)).unwrap_or_default();
+            super::perf_map::record_code(&rf.code_extents(), &super::perf_map::region_symbol(&enclosing, head));
+        }
+        Some((rf, exit_pc, cow_regs))
+    }
+
     /// The Ready-path body of [`Vm::try_region`]: guards, pinning, the native
-    /// run, and write-back. None = guard failure or side exit (the caller
-    /// counts misses).
+    /// run, and write-back, of the slot's region or, with `fallback`, of its
+    /// generic one. None = guard failure or side exit (the caller counts
+    /// misses); a value-guard failure also sets `region_value_missed`.
     fn run_ready_region(
         &mut self,
         head: usize,
         depth_now: usize,
         cur_func: Option<u16>,
+        fallback: bool,
     ) -> Option<RegionExit> {
-        use super::native_tier::RegionSlot;
+        use super::native_tier::{RegionFallback, RegionSlot};
         // Region-entry copy-on-write: isolate each collection this region mutates
         // in place, so the native code's in-place writes cannot leak through a
         // shared `Rc`. A no-op when already uniquely owned; a one-time deep clone
@@ -1401,14 +1699,20 @@ impl<'p> Vm<'p> {
                 self.ensure_reg_owned(r, head, cur_func);
             }
         }
-        let Some(RegionSlot::Ready { rf, exit_pc, .. }) = self.regions.get(&head) else {
-            unreachable!()
+        let (rf, exit_pc) = match self.regions.get(&head) {
+            Some(RegionSlot::Ready { rf, exit_pc, fallback: generic, .. }) => match (fallback, generic) {
+                (false, _) => (rf, exit_pc),
+                (true, RegionFallback::Ready { rf, .. }) => (rf, exit_pc),
+                (true, _) => unreachable!("a fallback runs only once compiled"),
+            },
+            _ => unreachable!(),
         };
         // Guard: every live-in slot must hold exactly the kind the region
         // speculated on; copy the raw representation in (floats as bits).
         {
             use super::native_tier::SlotKind;
             use crate::interpreter::RuntimeValue;
+            let mut missed = Vec::new();
             for &(r, kind) in rf.guard_set() {
                 let v = self.registers.get(self.base + r as usize)?;
                 match (kind, &*v.as_runtime()) {
@@ -1417,7 +1721,25 @@ impl<'p> Vm<'p> {
                     (SlotKind::Bool, RuntimeValue::Bool(_)) => {}
                     (SlotKind::Word32, RuntimeValue::Word(logicaffeine_base::WordVal::W32(_))) => {}
                     (SlotKind::Word64, RuntimeValue::Word(logicaffeine_base::WordVal::W64(_))) => {}
-                    _ => return None,
+                    (_, held) => missed.push((r, std::mem::discriminant(held))),
+                }
+            }
+            if !missed.is_empty() {
+                rf.note_guard_miss();
+                self.region_kind_missed = missed;
+                return None;
+            }
+            for &(r, value) in rf.value_guards() {
+                use super::native_tier::ScalarValue;
+                let v = self.registers.get(self.base + r as usize)?;
+                match (value, &*v.as_runtime()) {
+                    (ScalarValue::Int(want), RuntimeValue::Int(n)) if *n == want => {}
+                    (ScalarValue::Bool(want), RuntimeValue::Bool(b)) if *b == want => {}
+                    _ => {
+                        rf.note_value_guard_miss();
+                        self.region_value_missed = true;
+                        return None;
+                    }
                 }
             }
         }
@@ -2408,6 +2730,29 @@ impl<'p> Vm<'p> {
         Ok(())
     }
 
+    /// Fold one call's arguments into its function's warm-up profile: an [`EntryValue`] per `Int` or `Bool`
+    /// parameter.
+    ///
+    /// [`EntryValue`]: super::native_tier::EntryValue
+    fn observe_entry(&mut self, fi: usize, args_start: super::instruction::Reg, arg_count: u16) {
+        use super::native_tier::{EntryValue, ParamKind, ScalarValue, SlotKind};
+        let kinds = &self.program.functions[fi].param_kinds;
+        let base = self.base + args_start as usize;
+        let profile = &mut self.entry_values[fi];
+        if profile.is_empty() {
+            profile.resize(kinds.len(), EntryValue::Unseen);
+        }
+        for (k, kind) in kinds.iter().enumerate().take(arg_count as usize) {
+            let argument = self.registers.get(base + k);
+            let seen = match kind {
+                Some(ParamKind::Scalar(SlotKind::Int)) => argument.and_then(Value::as_int).map(ScalarValue::Int),
+                Some(ParamKind::Scalar(SlotKind::Bool)) => argument.and_then(Value::as_bool).map(ScalarValue::Bool),
+                _ => continue,
+            };
+            profile[k].observe(seen);
+        }
+    }
+
     fn try_native(
         &mut self,
         func: u16,
@@ -2431,6 +2776,7 @@ impl<'p> Vm<'p> {
         }
         if matches!(self.native[fi], NativeSlot::Untried) {
             self.hot[fi] += 1;
+            self.observe_entry(fi, args_start, arg_count);
             if self.hot[fi] < NATIVE_TIER_THRESHOLD {
                 return NativeDisposition::Interpret;
             }
@@ -2507,6 +2853,10 @@ impl<'p> Vm<'p> {
                     })
                     .collect()
             };
+            let values: Vec<Option<super::native_tier::ScalarValue>> = std::mem::take(&mut self.entry_values[fi])
+                .into_iter()
+                .map(super::native_tier::EntryValue::held)
+                .collect();
             // With a background compiler, ship the compile off-thread and keep
             // running bytecode (HOTSWAP §6); the result is drained + published on a
             // later call. Without one (a borrowed `&'p` tier, or wasm), compile
@@ -2523,6 +2873,7 @@ impl<'p> Vm<'p> {
                         param_count: f.param_count,
                         register_count: f.register_count as u16,
                         param_kinds: f.param_kinds.clone(),
+                        values,
                         cow_exempt_regs: f.cow_exempt_regs.clone(),
                         ret_kind: f.ret_kind,
                         callees,
@@ -2542,6 +2893,7 @@ impl<'p> Vm<'p> {
                 f.register_count as u16,
                 func,
                 &f.param_kinds,
+                &values,
                 &f.cow_exempt_regs,
                 f.ret_kind,
                 &self.native_ctx,
@@ -4640,6 +4992,9 @@ impl<'p> Vm<'p> {
                                 // actual function return, exactly like the
                                 // Op::Return arm.
                                 let frame = call_stack.pop().ok_or("vm: return with no caller")?;
+                                if !self.region_miss_exits.is_empty() {
+                                    self.end_missed_entries(usize::MAX, call_stack.len());
+                                }
                                 self.iter_stack.truncate(frame.iter_depth);
                                 self.registers.truncate(frame.restore_len);
                                 self.base = frame.caller_base;
@@ -4651,17 +5006,36 @@ impl<'p> Vm<'p> {
                             None => {}
                         }
                     }
+                    if target > pc && !self.region_miss_exits.is_empty() {
+                        self.end_missed_entries(target, call_stack.len());
+                    }
                     pc = target;
                 }
                 Op::JumpIfFalse { cond, target } => {
-                    if !self.reg(cond).decided_truth()? {
+                    let taken = !self.reg(cond).decided_truth()?;
+                    if self.tier.is_some() {
+                        let runs = &mut self.branch_profile[pc][taken as usize];
+                        *runs = runs.saturating_add(1);
+                    }
+                    if taken {
+                        if !self.region_miss_exits.is_empty() {
+                            self.end_missed_entries(target, call_stack.len());
+                        }
                         pc = target;
                     } else {
                         pc += 1;
                     }
                 }
                 Op::JumpIfTrue { cond, target } => {
-                    if self.reg(cond).decided_truth()? {
+                    let taken = self.reg(cond).decided_truth()?;
+                    if self.tier.is_some() {
+                        let runs = &mut self.branch_profile[pc][taken as usize];
+                        *runs = runs.saturating_add(1);
+                    }
+                    if taken {
+                        if !self.region_miss_exits.is_empty() {
+                            self.end_missed_entries(target, call_stack.len());
+                        }
                         pc = target;
                     } else {
                         pc += 1;
@@ -4820,6 +5194,9 @@ impl<'p> Vm<'p> {
                 }
                 Op::Return { src } => {
                     let frame = call_stack.pop().ok_or("vm: return with no caller")?;
+                    if !self.region_miss_exits.is_empty() {
+                        self.end_missed_entries(usize::MAX, call_stack.len());
+                    }
                     let rv = self.reg(src).clone();
                     if RECORDING {
                         self.record_return(&frame);
@@ -4834,6 +5211,9 @@ impl<'p> Vm<'p> {
                 }
                 Op::ReturnNothing => {
                     let frame = call_stack.pop().ok_or("vm: return with no caller")?;
+                    if !self.region_miss_exits.is_empty() {
+                        self.end_missed_entries(usize::MAX, call_stack.len());
+                    }
                     if RECORDING {
                         self.record_return(&frame);
                     }
@@ -4987,11 +5367,14 @@ impl<'p> Vm<'p> {
                     pc += 1;
                 }
                 Op::NewRange { dst, start, end } => {
-                    let (lo, hi) = match (self.reg(start).as_int(), self.reg(end).as_int()) {
-                        (Some(lo), Some(hi)) => (lo, hi),
-                        _ => return Err("Range requires Int bounds".to_string()),
+                    let range = match (self.reg(start).as_int(), self.reg(end).as_int()) {
+                        (Some(lo), Some(hi)) => Value::int_range(lo, hi),
+                        _ => Value::from_runtime(crate::semantics::collections::range(
+                            &self.reg(start).as_runtime(),
+                            &self.reg(end).as_runtime(),
+                        )?),
                     };
-                    self.set(dst, Value::int_range(lo, hi));
+                    self.set(dst, range);
                     pc += 1;
                 }
                 Op::ListPush { list, value } => {
@@ -5650,6 +6033,9 @@ impl<'p> Vm<'p> {
                                     dst_old: Value::nothing(),
                                 });
                             }
+                        }
+                        if !self.region_miss_exits.is_empty() {
+                            self.end_missed_entries(exit, call_stack.len());
                         }
                         pc = exit;
                     }

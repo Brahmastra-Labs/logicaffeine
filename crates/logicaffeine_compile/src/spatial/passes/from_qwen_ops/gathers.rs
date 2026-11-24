@@ -186,8 +186,9 @@ pub fn from_row_gather(
 ///     own index — element `k` of `I`, `k` taken from a compile-time table holding it in tile `k` — and loads the row's
 ///     block through an [`IndirectTile`] over the guarded `I[k] − 1`, so exactly the gathered rows' tiles move.
 ///   · Rows narrower than a tile: one item gathers the block from the table held whole — one band of the output per
-///     row, each reading the table at its row's offset `(I[k] − 1)·cols` — refused by name when the table or the block
-///     is wider than a site's page.
+///     row, each reading the table at its row's offset `(I[k] − 1)·cols` — while the table and the block fit a site's
+///     page. Past it, rows whose width divides a tile take `narrow_rows_gather`, which moves only the tiles the
+///     gathered rows lie in; rows that straddle tiles are refused by name.
 pub fn from_rows_gather(
     spec: &RowsGatherSpec,
     names: &StageNames,
@@ -213,7 +214,10 @@ pub fn from_rows_gather(
     if tiles_of(tn, target) > row_block_tiles(target)
         || tiles_of(n * cols, target) > row_block_tiles(target)
     {
-        return Err(SpatialReject::NotLowered("a rows gather of rows narrower than a tile holds its table and its block whole, and this one is wider than a site's page"));
+        if target.tile.cols % cols == 0 {
+            return narrow_rows_gather(spec, names, float, target);
+        }
+        return Err(SpatialReject::NotLowered("a rows gather of rows narrower than a tile that straddle its tiles holds its table and its block whole, and this one is wider than a site's page"));
     }
     let mut b = FlatBuild::new(target)?;
     let (t_name, t_fill) = names.operand(0);
@@ -504,6 +508,220 @@ pub(super) fn tile_rows_gather(
         claim,
         target,
     )
+}
+
+/// [`from_rows_gather`] for rows NARROWER THAN A TILE whose width divides it, from a table wider than a site's page:
+/// a flat tile holds `per = tile / cols` whole rows, so row `r` lies in tile `⌊r / per⌋` at element `(r mod per)·cols`.
+/// Item `j` writes the `j`-th tile of `X`, rows `j·per …` of the gather: each slot `s` reads its index — the position
+/// `min(j·per + s, n − 1)` from a compile-time table, so a slot past the last index still reads one — and moves the one
+/// table tile its row lies in, through an [`IndirectTile`] that divides the guarded `r = I − 1` by `per`.
+///
+/// ★ THE DIVISION STAYS IN THE ADDRESS ([`DenseRow`]): the tile move divides by `per`, and the in-tile offset
+/// `(r − per·(r >> log₂ per))·cols` takes a shift, `per` being a power of two — every slot's in one stage, under the
+/// table's guard. Each tile move waits on its own copy of `r`. A slot past the last index writes zero: the item's count
+/// of written elements bounds the output's columns, read from a compile-time table as each item reads its own.
+///
+/// A slot holds its table tile and its index on the site, so a tile of the block holds `per` table tiles: rows so
+/// narrow that a site cannot hold them all are refused by name, as the tile pass would refuse the site.
+pub(super) fn narrow_rows_gather(
+    spec: &RowsGatherSpec,
+    names: &StageNames,
+    float: bool,
+    target: &SpatialTarget,
+) -> Result<SpatialProgram, SpatialReject> {
+    let (rows, cols, n) = (spec.rows, spec.cols, spec.count);
+    let tw = target.tile.cols;
+    let per = tw / cols;
+    let tn = rows * cols;
+    let items_n = n.div_ceil(per);
+    let (t_name, t_fill) = names.operand(0);
+    let dt = if float {
+        elem_precision(target)?
+    } else {
+        index_type(target, fill_abs_bound(t_fill).unwrap_or(0))?
+    };
+    let (i_name, i_fill) = names.operand(1);
+    let ix = index_type(target, index_space(rows.max(n).max(tw) as u64, 1, i_fill))?;
+    let mut t = Template::new(target)?;
+    let table = t.tensor(t_name, TensorRole::Input, 1, tn, dt, crate::spatial::passes::from_tensor_op::init_of(t_fill, tn));
+    let indices = t.tensor(i_name, TensorRole::Input, 1, n, ix, crate::spatial::passes::from_tensor_op::init_of(i_fill, n));
+    // One tile an item: its slots' positions in `I`, then the count of elements it writes.
+    let per_item = |t: &mut Template, what: &str, value: &dyn Fn(usize, usize) -> i64, width: usize| {
+        t.tensor(
+            &format!("{}__narrow_{what}", names.out),
+            TensorRole::Param,
+            1,
+            items_n * tw,
+            ix,
+            TensorInit::Values((0..items_n).flat_map(|j| (0..tw).map(move |e| if e < width { value(j, e) } else { 0 })).collect()),
+        )
+    };
+    let positions = per_item(&mut t, "position", &|j, s| (j * per + s).min(n - 1) as i64, per);
+    let written = per_item(&mut t, "written", &|j, _| ((n - j * per).min(per) * cols) as i64, 1);
+    let w1 = wide(1, target);
+    let scalar = |t: &mut Template, name: &str, ins: Vec<BufferId>, maps: Vec<ElemAccess>, body: TensorBody, out: BufferId| {
+        t.stage(
+            name,
+            StageKind::Compute(ComputeOp::Generic {
+                iters: flat_space(1),
+                ins: maps,
+                out: ident_map(w1),
+                body,
+            }),
+            ins,
+            vec![out],
+        )
+    };
+    let i_t = tiles_of(n, target);
+    let iin = t.buffer("in_indices", i_t, ix);
+    let li = t.load("load_indices", indices, vec![], i_t, iin);
+    let pin = t.buffer("in_positions", 1, ix);
+    let lp = t.load_block_at("load_positions", positions, 0, vec![(LV_ITEM_Y, 1)], 1, 1, 1, pin);
+    let win = t.buffer("in_written", 1, ix);
+    let lw = t.load_block_at("load_written", written, 0, vec![(LV_ITEM_Y, 1)], 1, 1, 1, win);
+    // `I[p_s] − 1` for every slot at once, `p_s` the slot's position.
+    let pick = ElemAccess {
+        base: 0,
+        terms: Vec::new(),
+        indirect: Some(IndirectTerm {
+            operand: 1,
+            stride: 1,
+            modulus: n,
+        }),
+    };
+    let biased = t.scratch_deep("slots_biased", 1, 1, ix);
+    let s_biased = t.stage(
+        "slots_biased",
+        StageKind::Compute(ComputeOp::Generic {
+            iters: flat_space(per),
+            ins: vec![pick, at(0)],
+            out: ident_map(w1),
+            body: *sub(op(0), konst(1.0)),
+        }),
+        vec![iin, pin],
+        vec![biased],
+    );
+    t.edge(li, iin, s_biased);
+    t.edge(lp, pin, s_biased);
+    // Every slot's row checked against the table's rows, and its in-tile offset `(r − per·(r >> log₂ per))·cols`.
+    let guard = |base: i64, terms: Vec<(LoopVar, i64)>| ElemAccess {
+        base,
+        terms,
+        indirect: Some(IndirectTerm {
+            operand: 0,
+            stride: 0,
+            modulus: rows,
+        }),
+    };
+    let offsets = t.scratch_deep("slots_offset", 1, 1, ix);
+    let s_offsets = t.stage(
+        "slots_offset",
+        StageKind::Compute(ComputeOp::Generic {
+            iters: flat_space(per),
+            ins: vec![guard(0, vec![(LV_GEN_COL, 1)])],
+            out: ident_map(w1),
+            body: *mul(
+                sub(op(0), mul(Box::new(TensorBody::Shr { arg: op(0), by: per.trailing_zeros() }), konst(per as f64))),
+                konst(cols as f64),
+            ),
+        }),
+        vec![biased],
+        vec![offsets],
+    );
+    t.edge(s_biased, biased, s_offsets);
+    // The banded output's operands: the item's count of written elements, then each slot's offset and table tile.
+    let mut slots = vec![win];
+    let mut maps = vec![fixed(0)];
+    let mut feeds: Vec<(StageId, BufferId)> = vec![(lw, win), (s_offsets, offsets)];
+    let mut bands = Vec::new();
+    for s in 0..per {
+        // Slot `s`'s row, its own copy for the tile move it addresses.
+        let r_tile = t.buffer(&format!("slot{s}_row"), 1, ix);
+        let s_tile = scalar(&mut t, &format!("slot{s}_row"), vec![biased], vec![guard(s as i64, Vec::new())], TensorBody::Operand(0), r_tile);
+        t.edge(s_biased, biased, s_tile);
+        let tile = t.buffer(&format!("slot{s}_table_tile"), 1, dt);
+        let l_tile = t.stage(
+            &format!("slot{s}_load_table_tile"),
+            StageKind::Load {
+                tensor: table,
+                pattern: AccessPattern {
+                    origin: TileAddr {
+                        base: 0,
+                        steps: Vec::new(),
+                        indirect: Some(IndirectTile {
+                            index: r_tile,
+                            tile_stride: 1,
+                            elems_per_tile: per,
+                            bound: (0, rows - 1),
+                        }),
+                    },
+                    block_h: 1,
+                    block_w: 1,
+                    stride_w: 1,
+                    stride_h: 1,
+                },
+                num_blocks: 1,
+                multicast: None,
+            },
+            vec![r_tile],
+            vec![tile],
+        );
+        t.edge(s_tile, r_tile, l_tile);
+        // Band `s`, output columns `[s·cols, (s + 1)·cols)`, reads the slot's tile at `c − s·cols + offset`.
+        slots.push(offsets);
+        maps.push(fixed(s as i64));
+        slots.push(tile);
+        maps.push(ElemAccess {
+            indirect: Some(IndirectTerm {
+                operand: slots.len() - 2,
+                stride: 1,
+                modulus: tw,
+            }),
+            ..at(-((s * cols) as i64))
+        });
+        feeds.push((l_tile, tile));
+        bands.push(((s + 1) * cols, TensorBody::Operand(slots.len() - 1)));
+    }
+    let out = t.buffer("rows", 1, dt);
+    let gather = t.stage(
+        "gather_rows",
+        StageKind::Compute(ComputeOp::Generic {
+            iters: flat_space(tw),
+            ins: maps,
+            out: ident_map(w1),
+            body: TensorBody::Select {
+                cond: Pred::AxisLt(LV_GEN_COL, PredRhs::Operand(0)),
+                then: Box::new(banded(bands)),
+                otherwise: Box::new(*konst(0.0)),
+            },
+        }),
+        slots,
+        vec![out],
+    );
+    for (st, buf) in feeds {
+        t.edge(st, buf, gather);
+    }
+    let x = t.tensor(&names.out, TensorRole::Output, 1, n * cols, dt, TensorInit::Zero);
+    let st = t.store(&format!("store_{}", names.out), x, vec![(LV_ITEM_Y, 1)], 1, out);
+    t.edge(gather, out, st);
+    let items: Vec<WorkItem> = (0..items_n)
+        .map(|j| WorkItem {
+            id: WorkItemId::new(j),
+            coord: (j, 0),
+            out: TileRect {
+                row0_t: 0,
+                col0_t: j,
+                h_t: 1,
+                w_t: 1,
+            },
+        })
+        .collect();
+    let claim = if float { approx("rows gather", dt) } else { NumericsClaim::Exact };
+    let p = t.finish(format!("rows_gather_narrow_{n}x{rows}x{cols}"), items, AccPolicy::F32, claim, target)?;
+    if !fits_a_site(&p, target) {
+        return Err(SpatialReject::NotLowered("a rows gather of rows so narrow that a tile of its block reads more of the table's tiles than a site holds"));
+    }
+    Ok(p)
 }
 
 /// The address of item `i`'s `blk`-tile block of a whole-tile row of a flat `rows × (row_t · tile)` table. A
@@ -2603,168 +2821,4 @@ pub(super) fn set_row_name(spec: &SetRowSpec, layout: &str) -> String {
         String::new()
     };
     format!("set_row_{}x{}{block}{layout}", spec.rows, spec.cols)
-}
-
-/// `Repeat for k from 1 to N: … Set row I[k] of T to …` — a scatter of rows ([`ScatterSpec`](crate::tensor_recognize::qwen::ScatterSpec)), lowered OWNER-COMPUTES as
-/// ONE rewrite of the carried table: every element `c` of `T` asks every turn whether it lands on `c`'s row, so no two
-/// writes ever race for one element and the turns' order is the fold's, not a schedule's.
-///
-/// Turn `k` lands on the elements `[lo_k, lo_k + cols)`, `lo_k = (I[k] − 1)·cols`, its index taken less one and read
-/// through a guard of stride zero against the table's rows — an index outside the table faults where every tier's check
-/// fails, and is never wrapped into another row.
-///   · KEPT (`Set row at of T to r`): the turns that land on `c` are folded by MAX over `key_k = n + k·cols − lo_k`, and a
-///     turn that misses `c` gives zero. Every turn landing on `c` lands on `c`'s own row, with one `lo`, so the largest
-///     key is the LAST such turn's, and `c + key − n` is where its source row holds `c`'s value. `T'[c]` reads that where
-///     a turn landed — `0 < key`, the flat space's one row being row 0 — and keeps `T[c]` where none did: pure movement,
-///     exact whatever the values.
-///   · SUMMED (`Let sum be old plus r`): `T'[c] = T[c] + Σ_k [c ∈ turn k]·X[k·cols + c − lo_k]`, the turns summed by the
-///     fold's own pool.
-///
-/// The table and the source are held whole: a turn may land anywhere, so where a site's page does not hold them the
-/// scatter is refused by name — a wider one takes its turns sorted by row first, which brings each row's turns together.
-pub fn from_scatter(
-    spec: &crate::tensor_recognize::qwen::ScatterSpec,
-    names: &StageNames,
-    float: bool,
-    target: &SpatialTarget,
-) -> Result<SpatialProgram, SpatialReject> {
-    use crate::tensor_recognize::ElementwiseOp;
-    let (rows, cols, count) = (spec.rows, spec.cols, spec.count);
-    if rows == 0 || cols == 0 || count == 0 || count > spec.source_rows || count > spec.index_len {
-        return Err(SpatialReject::NotLowered(
-            "a scatter into an empty table, or of more turns than its source has rows or its indices have entries",
-        ));
-    }
-    if spec.fold == Some(ElementwiseOp::Mul) {
-        return Err(SpatialReject::NotLowered(
-            "a scatter whose turns multiply into the rows they land on — a fold sums or keeps the largest, never multiplies",
-        ));
-    }
-    let (n, xn) = (rows * cols, spec.source_rows * cols);
-    if [n, xn, spec.index_len].into_iter().any(|len| row_needs_blocking(len, target)) {
-        return Err(SpatialReject::NotLowered(
-            "a scatter holds its table, its source and its indices whole, and one of them is wider than a site's page — a wider scatter takes its turns sorted by row",
-        ));
-    }
-    let mut b = FlatBuild::new(target)?;
-    let (t_name, t_fill) = names.operand(0);
-    let (x_name, x_fill) = names.operand(1);
-    let (i_name, i_fill) = names.operand(2);
-    // An integer table that sums its turns holds its own values and every turn's.
-    let dt = match (float, spec.fold) {
-        (false, Some(_)) => {
-            let turns = (count as u64).saturating_mul(fill_abs_bound(x_fill).unwrap_or(0));
-            index_type(target, fill_abs_bound(t_fill).unwrap_or(0).saturating_add(turns))?
-        }
-        _ => row_write_precision(&b, float, t_fill, x_fill, target)?,
-    };
-    let table = b.input_as(t_name, n, t_fill, dt, target);
-    let source = b.input_as(x_name, xn, x_fill, dt, target);
-    // A kept turn's key reaches `n + (count − 1)·cols`.
-    let ix = index_type(target, index_space((n + count * cols) as u64, cols as u64, i_fill))?;
-    let idx = b.input_as(i_name, spec.index_len, i_fill, ix, target);
-    let (turns_t, turns_w) = (tiles_of(count, target), wide(tiles_of(count, target), target));
-    let one_turn = |b: &mut FlatBuild, name: &str, slots: Vec<Slot>, body: TensorBody| {
-        let out = b.t.scratch(name, turns_t, ix);
-        (b.compute(name, flat_space(count), slots, ident_map(turns_w), body, out), out)
-    };
-    let (s0, biased) = one_turn(&mut b, "scatter_biased", vec![Slot { buf: idx, map: at(0) }], *sub(op(0), konst(1.0)));
-    let guard = ElemAccess {
-        base: 0,
-        terms: vec![(LV_GEN_COL, 1)],
-        indirect: Some(IndirectTerm {
-            operand: 0,
-            stride: 0,
-            modulus: rows,
-        }),
-    };
-    let (s1, guarded) = one_turn(&mut b, "scatter_guarded", vec![Slot { buf: biased, map: guard }], TensorBody::Operand(0));
-    let (s2, lo) = one_turn(&mut b, "scatter_lo", vec![Slot { buf: guarded, map: at(0) }], *mul(op(0), konst(cols as f64)));
-    let (s3, hi) = one_turn(&mut b, "scatter_hi", vec![Slot { buf: lo, map: at(0) }], *add(op(0), konst(cols as f64)));
-    // Turn `k` of a fold over the turns: the space's row is the turn.
-    let by_turn = ElemAccess {
-        base: 0,
-        terms: vec![(LV_GEN_ROW, 1)],
-        indirect: None,
-    };
-    // `value` where `c` lies in the turn's row — operands 0 and 1 its first element and one past its last — and 0 elsewhere.
-    let in_turn = |value: TensorBody| TensorBody::Select {
-        cond: Pred::AxisGe(LV_GEN_COL, PredRhs::Operand(0)),
-        then: Box::new(TensorBody::Select {
-            cond: Pred::AxisLt(LV_GEN_COL, PredRhs::Operand(1)),
-            then: Box::new(value),
-            otherwise: konst(0.0),
-        }),
-        otherwise: konst(0.0),
-    };
-    let bounds = || vec![Slot { buf: lo, map: by_turn.clone() }, Slot { buf: hi, map: by_turn.clone() }];
-    let out_buf = b.t.buffer("table", tiles_of(n, target), dt);
-    let mut chain = vec![s0, s1, s2, s3];
-    let kept = spec.fold.is_none();
-    if kept {
-        let turns = {
-            let values: Vec<i64> = (0..count).map(|k| (n + k * cols) as i64).collect();
-            let id = b.t.tensor(&format!("{t_name}__turns{count}x{cols}"), TensorRole::Param, 1, count, ix, TensorInit::Values(values));
-            let buf = b.t.buffer_deep(&format!("in_{t_name}__turns"), 1, turns_t, ix);
-            let l = b.t.load(&format!("load_{t_name}__turns"), id, vec![], turns_t, buf);
-            b.loads.push((l, buf));
-            buf
-        };
-        let (s4, key) = one_turn(
-            &mut b,
-            "scatter_key",
-            vec![Slot { buf: turns, map: at(0) }, Slot { buf: lo, map: at(0) }],
-            *sub(op(0), op(1)),
-        );
-        let last = b.t.scratch("scatter_last", tiles_of(n, target), ix);
-        let mut slots = bounds();
-        slots.push(Slot { buf: key, map: by_turn.clone() });
-        let s5 = b.fold("scatter_last", n, (count, ReducePool::Max), slots, in_turn(TensorBody::Operand(2)), last, target)?;
-        // Operand 0 the table, 1 the last turn's source row read at `c + key − n`, 2 the key.
-        let landed = ElemAccess {
-            base: -(n as i64),
-            terms: vec![(LV_GEN_COL, 1)],
-            indirect: Some(IndirectTerm {
-                operand: 2,
-                stride: 1,
-                modulus: n + count * cols,
-            }),
-        };
-        let body = TensorBody::Select {
-            cond: Pred::AxisLt(LV_GEN_ROW, PredRhs::Operand(2)),
-            then: op(1),
-            otherwise: op(0),
-        };
-        let slots = vec![Slot { buf: table, map: at(0) }, Slot { buf: source, map: landed }, Slot { buf: last, map: at(0) }];
-        let s6 = b.pointwise("scatter_rows", n, slots, body, out_buf, target)?;
-        chain.push(s4);
-        chain.extend(s5);
-        chain.extend(s6);
-    } else {
-        // Operand 2: the source row turn `k` lands, read at `k·cols + c − lo_k`.
-        let from_turn = ElemAccess {
-            base: 0,
-            terms: vec![(LV_GEN_COL, 1), (LV_GEN_ROW, cols as i64)],
-            indirect: Some(IndirectTerm {
-                operand: 0,
-                stride: -1,
-                modulus: n,
-            }),
-        };
-        let sums = if float { b.scratch("scatter_sums", tiles_of(n, target)) } else { b.t.scratch("scatter_sums", tiles_of(n, target), dt) };
-        let mut slots = bounds();
-        slots.push(Slot { buf: source, map: from_turn });
-        let s4 = b.fold("scatter_sums", n, (count, ReducePool::Sum), slots, in_turn(TensorBody::Operand(2)), sums, target)?;
-        let slots = vec![Slot { buf: table, map: at(0) }, Slot { buf: sums, map: at(0) }];
-        let s5 = b.pointwise("scatter_add", n, slots, *add(op(0), op(1)), out_buf, target)?;
-        chain.extend(s4);
-        chain.extend(s5);
-    }
-    let claim = if float {
-        approx("scatter", dt)
-    } else {
-        NumericsClaim::Exact
-    };
-    let form = if kept { "kept" } else { "summed" };
-    b.finish_fanned(t_name, n, chain, out_buf, format!("scatter_{form}_{count}x{rows}x{cols}"), claim, dt, target)
 }

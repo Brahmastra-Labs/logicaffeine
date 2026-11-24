@@ -1131,6 +1131,21 @@ impl<'a> Program<'a> {
         self.rotary_tables(None, true, ctx);
     }
 
+    /// The rotary caches of the rotations the layers `layers` turn by, `ctx` positions each, in the order the decode
+    /// step declares them.
+    fn span_rotary_tables(&mut self, layers: std::ops::Range<usize>, ctx: usize) {
+        let spec = self.spec;
+        for (rotation, rope) in rotations(spec).into_iter().enumerate() {
+            if !layers.clone().any(|l| rotation_of(spec, l) == Some(rotation)) {
+                continue;
+            }
+            for cos in [true, false] {
+                let name = RotaryTable { rotation, cached: true, cos }.name();
+                self.decl_f32(&name, ctx, rope.dims / 2);
+            }
+        }
+    }
+
     /// The stack's first hidden states: row `toks[k]` of the embedding table as row `k + 1` of `X`.
     fn batched_embed(&mut self, toks: &[usize]) {
         let (vocab, d) = (self.spec.vocab, self.spec.d);
@@ -1575,6 +1590,34 @@ pub fn decode_layer(spec: &ModelSpec, l: usize, dir: &str, ctx: usize, pos: usiz
     p.s.push_str(&format!("Let {input} be a 1 by {} tensor of Real.\n", hidden_width(spec)));
     p.rotary_tables(Some(l), true, ctx);
     p.layer(l, &input, AttnForm::Cached { ctx });
+    p.finish()
+}
+
+/// A decode step's layers `[from, to)` alone at position `pos` (1-based), as the step writes them: from the first layer,
+/// token `tok`'s embedding first; from any other, its incoming hidden state declared as an input. The rotary tables of
+/// the span's own layers, its attentions reading their caches of `ctx` positions; through the last layer, the head and
+/// the arg-max after — so spans laid end to end are the decode step.
+pub fn decode_span(spec: &ModelSpec, dir: &str, ctx: usize, from: usize, to: usize, tok: usize, pos: usize) -> Authored {
+    assert!(from <= to && to <= spec.layers.len(), "layers {from} to {to} of {}", spec.layers.len());
+    let mut p = Program::new(spec, dir);
+    let mut cur = layer_input(from);
+    if from == 0 {
+        p.s.push_str(&format!("Let tok be {tok}.\nLet pos be {pos}.\n"));
+        p.tokens = StepTokens::Scalar;
+        p.embed();
+    } else {
+        p.s.push_str(&format!("Let pos be {pos}.\n"));
+        p.s.push_str(&format!("Let {cur} be a 1 by {} tensor of Real.\n", hidden_width(spec)));
+    }
+    p.span_rotary_tables(from..to, ctx);
+    for l in from..to {
+        p.layer(l, &cur, AttnForm::Cached { ctx });
+        cur = format!("xo{l}");
+    }
+    if to == spec.layers.len() {
+        p.head(&cur);
+        p.next_token();
+    }
     p.finish()
 }
 
@@ -2477,4 +2520,121 @@ pub fn tp_stacked_layer(spec: &ModelSpec, l: usize, dir: &str, ctx: usize, poss:
     p.rotary_tables(Some(l), true, ctx);
     p.stacked_tp_layer(&mut m, l, &input, tp, ctx, bsz);
     Ok(p.finish_tp(m))
+}
+
+// ── An exported graph ──────────────────────────────────────────────────────────────────────────────────
+
+/// A tensor of an exported graph's program as a host meets it: the program's name for it, the graph's, and its rows
+/// and columns.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GraphPort {
+    pub var: String,
+    pub graph: String,
+    pub rows: usize,
+    pub cols: usize,
+}
+
+/// An exported graph written as a program: its text, every parameter it declares bound to the graph's parameter in
+/// the view the program reads it in, its input and its output.
+#[derive(Clone, Debug, PartialEq)]
+pub struct GraphProgram {
+    pub text: String,
+    pub params: Vec<(String, super::bind::Binding)>,
+    pub input: GraphPort,
+    pub output: GraphPort,
+}
+
+/// The `rows × cols` matrix a tensor of `sizes` is to a program: every dimension but the last its rows.
+fn graph_matrix(sizes: &[usize]) -> Result<(usize, usize), NotYet> {
+    match sizes.split_last() {
+        Some((&cols, lead)) if cols > 0 && lead.iter().all(|&d| d > 0) => Ok((lead.iter().product::<usize>().max(1), cols)),
+        _ => Err(NotYet("a scalar or empty tensor of an exported graph")),
+    }
+}
+
+/// AN EXPORTED GRAPH'S FORWARD, EACH OP THE SENTENCE THE LANGUAGE HAS FOR IT. The graph's input is `x`, `rows × in` as
+/// the graph takes it; a linear layer is `matmul` by its weight declared `in × out` (PyTorch's `out × in`, bound
+/// transposed) plus its bias row; an exact GELU is `0.5·(x + x·erf(x/√2))` through `erf of`, the tanh GELU `gelu of`,
+/// and ReLU, SiLU and sigmoid their own sentences; a sum is `plus` (its `alpha` a scale of the other operand), a product
+/// `hadamard`. Each op's result is `h<i>` for the op's place, a parameter `W<k>`/`B<k>` (weight, bias) at its first use.
+pub fn graph(g: &super::graph::Graph) -> Result<GraphProgram, NotYet> {
+    use super::bind::{Binding, View};
+    use super::graph::{GraphOp, Unary};
+    let shape = |t: &str| graph_matrix(g.sizes.get(t).map(Vec::as_slice).unwrap_or(&[]));
+    let (rows, cols) = graph_matrix(&g.input_sizes)?;
+    let mut s = String::from("## Main\n");
+    s.push_str(&format!("Let x be a {rows} by {cols} tensor of Real.\n"));
+    let mut var: HashMap<String, String> = HashMap::from([(g.input.clone(), "x".to_string())]);
+    let mut params: Vec<(String, Binding)> = Vec::new();
+    let mut declare = |s: &mut String, placeholder: &str, prefix: &str, view: View, r: usize, c: usize, var: &mut HashMap<String, String>| -> Result<String, NotYet> {
+        if let Some(v) = var.get(placeholder) {
+            return Ok(v.clone());
+        }
+        let p = g.params.get(placeholder).ok_or(NotYet("an op reading a tensor no earlier op wrote and no parameter holds"))?;
+        let v = format!("{prefix}{}", params.iter().filter(|(n, _)| n.starts_with(prefix)).count() + 1);
+        s.push_str(&format!("Let {v} be a {r} by {c} tensor of Real.\n"));
+        params.push((v.clone(), Binding { tensor: p.name.clone(), view }));
+        var.insert(placeholder.to_string(), v.clone());
+        Ok(v)
+    };
+    let read = |var: &HashMap<String, String>, t: &str| var.get(t).cloned().ok_or(NotYet("an op reading a tensor no earlier op wrote"));
+    for (i, op) in g.ops.iter().enumerate() {
+        let o = format!("h{}", i + 1);
+        match op {
+            GraphOp::Linear { out, input, weight, bias, in_features, out_features } => {
+                let x = read(&var, input)?;
+                if shape(input)?.1 != *in_features {
+                    return Err(NotYet("a linear layer whose input is not as wide as its weight's rows"));
+                }
+                let w = declare(&mut s, weight, "W", View::Transposed, *in_features, *out_features, &mut var)?;
+                match bias {
+                    Some(b) => {
+                        let b = declare(&mut s, b, "B", View::Same, 1, *out_features, &mut var)?;
+                        s.push_str(&format!("Let {o}r be {x} matmul {w}.\nLet {o} be {o}r plus {b}.\n"));
+                    }
+                    None => s.push_str(&format!("Let {o} be {x} matmul {w}.\n")),
+                }
+                var.insert(out.clone(), o);
+            }
+            GraphOp::Unary { out, input, op } => {
+                let x = read(&var, input)?;
+                match op {
+                    Unary::GeluExact => s.push_str(&format!(
+                        "Let {o}s be {x} scaled by {:?}.\nLet {o}e be erf of {o}s.\nLet {o}p be {x} hadamard {o}e.\nLet {o}q be {x} plus {o}p.\nLet {o} be {o}q scaled by 0.5.\n",
+                        std::f64::consts::FRAC_1_SQRT_2
+                    )),
+                    Unary::GeluTanh => s.push_str(&format!("Let {o} be gelu of {x}.\n")),
+                    Unary::Relu => s.push_str(&format!("Let {o} be relu of {x}.\n")),
+                    Unary::Silu => s.push_str(&format!("Let {o} be silu of {x}.\n")),
+                    Unary::Sigmoid => s.push_str(&format!("Let {o} be sigmoid of {x}.\n")),
+                }
+                var.insert(out.clone(), o);
+            }
+            GraphOp::Add { out, a, b, alpha } => {
+                let (x, y) = (read(&var, a)?, read(&var, b)?);
+                if *alpha == 1.0 {
+                    s.push_str(&format!("Let {o} be {x} plus {y}.\n"));
+                } else {
+                    s.push_str(&format!("Let {o}b be {y} scaled by {alpha:?}.\nLet {o} be {x} plus {o}b.\n"));
+                }
+                var.insert(out.clone(), o);
+            }
+            GraphOp::Mul { out, a, b } => {
+                let (x, y) = (read(&var, a)?, read(&var, b)?);
+                s.push_str(&format!("Let {o} be {x} hadamard {y}.\n"));
+                var.insert(out.clone(), o);
+            }
+        }
+    }
+    let out_var = match g.ops.last() {
+        Some(_) if g.output != g.input && !g.params.contains_key(&g.output) => read(&var, &g.output)?,
+        _ => return Err(NotYet("an exported graph whose output no op computes")),
+    };
+    let (orows, ocols) = shape(&g.output)?;
+    Ok(GraphProgram {
+        text: s,
+        params,
+        input: GraphPort { var: "x".into(), graph: g.input.clone(), rows, cols },
+        output: GraphPort { var: out_var, graph: g.output.clone(), rows: orows, cols: ocols },
+    })
 }

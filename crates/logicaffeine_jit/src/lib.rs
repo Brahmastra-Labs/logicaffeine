@@ -15,7 +15,7 @@ static REGION_ALLOC_RESETS: std::sync::atomic::AtomicU64 = std::sync::atomic::At
 use logicaffeine_compile::vm::{
     install_native_tier, ArrayPin, CalleeSig, Constant, EnumTypeDef, FnTable, HoistGuard,
     NativeCtx, NativeFn, NativeFrame, NativeOutcome, NativeRet, NativeTier, ObservedKind, Op,
-    ParamKind, PinElem, RegBox, RegionFn, RegionOutcome, SlotKind,
+    ParamKind, PinElem, RegBox, RegionFn, RegionOutcome, ScalarValue, SlotKind,
 };
 use logicaffeine_forge::jit::{
     compile_straightline_coded, compile_straightline_pinned_float, compile_straightline_with,
@@ -1943,6 +1943,8 @@ struct RegionPrecise {
     resume_on_return: bool,
     deopt_codes: Vec<i64>,
     kinds_by_pc: std::collections::HashMap<usize, Vec<Option<SlotKind>>>,
+    /// For a region compiled without its cold code, the frame slot counting its iterations.
+    count_slot: Option<u16>,
 }
 
 /// LIST-REGISTER discovery (shared by the adapter and the frame-size
@@ -3404,6 +3406,54 @@ fn const_pow2_div(ops: &[Op], rhs: u16, constants: &[Constant]) -> Option<u32> {
     k_found
 }
 
+/// The pinned register the list literal built at `at` ends in. `Let x be [a, b, …]` builds the list into a scratch
+/// register and copies it into `x`; when that copy is the scratch's only use, `x` is pinned and nothing between the
+/// two reads or writes `x`, the list is built straight into `x`'s buffer and the copy does nothing
+/// ([`is_list_literal_copy`]). A literal built into a pinned register directly is its own target.
+fn list_literal_target(ops: &[Op], at: usize, pins: &std::collections::HashMap<u16, PinSlots>) -> Option<u16> {
+    let Op::NewList { dst: scratch, .. } = ops[at] else {
+        return None;
+    };
+    if pins.contains_key(&scratch) {
+        return Some(scratch);
+    }
+    let mut copy = None;
+    for (j, op) in ops.iter().enumerate() {
+        if j == at {
+            continue;
+        }
+        let (uses, defs) = region_use_def(op)?;
+        if uses.contains(&scratch) {
+            match *op {
+                Op::Move { dst, src } if src == scratch && j > at && copy.is_none() && pins.contains_key(&dst) => {
+                    copy = Some((j, dst));
+                }
+                _ => return None,
+            }
+        } else if defs.contains(&scratch) {
+            return None;
+        }
+    }
+    let (j, target) = copy?;
+    let touched = ops[at + 1..j].iter().try_fold(false, |seen, op| {
+        let (uses, defs) = region_use_def(op)?;
+        Some(seen || uses.contains(&target) || defs.contains(&target))
+    })?;
+    (!touched).then_some(target)
+}
+
+/// The copy at `at` is the one a list literal's [`list_literal_target`] made redundant.
+fn is_list_literal_copy(ops: &[Op], at: usize, pins: &std::collections::HashMap<u16, PinSlots>) -> bool {
+    let Op::Move { dst, src } = ops[at] else {
+        return false;
+    };
+    src != dst
+        && ops[..at].iter().enumerate().any(|(k, op)| {
+            matches!(*op, Op::NewList { dst: scratch, .. } if scratch == src)
+                && list_literal_target(ops, k, pins) == Some(dst)
+        })
+}
+
 /// The use/def sets of one op from the adaptable subset, or None when the op
 /// is outside it. `AddAssign` reads AND writes its dst.
 fn region_use_def(op: &Op) -> Option<(Vec<u16>, Vec<u16>)> {
@@ -3907,6 +3957,7 @@ fn translate_op(
             }
             _ => return None,
         },
+        Op::Move { .. } if region && is_list_literal_copy(ops, i, pins) => {}
         Op::Move { dst, src } => micro.push(MicroOp::Move { dst, src }),
         Op::RevSwap { a, b } => {
             if a != b {
@@ -4429,6 +4480,64 @@ fn translate_op(
             // must also materialize the raw Vec handle into that register;
             // otherwise a later compiler-generated argument-stage Move would
             // copy the stale boxed/zero VM slot into the callee.
+            micro.push(MicroOp::Move {
+                dst,
+                src: p.vec_slot,
+            });
+        }
+        // In-region `Let x be [a, b, …]` on a PINNED array: the same clear-and-reuse as `NewEmptyList`, then one push
+        // per element, so a loop that builds a list every iteration keeps one buffer (the VM copies it on region
+        // entry when anything else holds it). The list is built into the register it ends in
+        // ([`list_literal_target`]). Each element must be of the buffer's kind; the alias gate is the one above.
+        Op::NewList { start, count, .. } if region => {
+            let dst = list_literal_target(ops, i, pins)?;
+            let p = pins.get(&dst)?;
+            let escapes = ops.iter().enumerate().any(|(j, o)| {
+                matches!(o, Op::Move { src, .. } if *src == dst)
+                    && matches!(
+                        kin[j].as_ref().map(|kk| kk[dst as usize]),
+                        Some(
+                            Kind::IntList
+                                | Kind::IntListI32
+                                | Kind::Word32List
+                                | Kind::FloatList
+                                | Kind::BoolList
+                                | Kind::IntMap
+                                | Kind::Mixed
+                        )
+                    )
+                    && !safe_list_stages.is_some_and(|safe| safe.contains(&(j, dst)))
+            });
+            if escapes {
+                return None;
+            }
+            let (clear, push, element) = match p.elem {
+                PinElem::Int => (crate::logos_rt_clear_i64 as usize, crate::logos_rt_push_i64 as usize, Kind::Int),
+                PinElem::Float => (crate::logos_rt_clear_f64 as usize, crate::logos_rt_push_f64 as usize, Kind::Float),
+                PinElem::Bool => (crate::logos_rt_clear_bool as usize, crate::logos_rt_push_bool as usize, Kind::Bool),
+                _ => return None,
+            };
+            let row = kin.get(i)?.as_ref()?;
+            if (start..start + count).any(|r| row.get(r as usize) != Some(&element)) {
+                return None;
+            }
+            micro.push(MicroOp::ListClear {
+                vec_slot: p.vec_slot,
+                ptr_slot: p.ptr_slot,
+                len_slot: p.len_slot,
+                helper_addr: clear as i64,
+            });
+            for r in start..start + count {
+                micro.push(MicroOp::ArrPush {
+                    src: r,
+                    vec_slot: p.vec_slot,
+                    ptr_slot: p.ptr_slot,
+                    len_slot: p.len_slot,
+                    helper_addr: push as i64,
+                    byte: p.elem == PinElem::Bool,
+                    narrow32: false,
+                });
+            }
             micro.push(MicroOp::Move {
                 dst,
                 src: p.vec_slot,
@@ -5471,6 +5580,7 @@ fn adapt_region(
     observed: &[ObservedKind],
     ctx: &NativeCtx,
     callees: &[logicaffeine_compile::vm::CalleeSig],
+    cold: &[logicaffeine_compile::vm::ColdEntry],
 ) -> Option<(
     Vec<MicroOp>,
     usize,
@@ -6312,7 +6422,8 @@ fn adapt_region(
     // success the following Host adopts into the stable destination handle.
     // Selecting precise mode lets the contiguous backend compile Call + Host
     // instead of falling back to the per-piece stencil tier.
-    let needs_precise = needs_precise || typed_exits || !adopted_call_dsts.is_empty();
+    // A region compiled without its cold code exits at each cold entry with the VM resuming there: precise too.
+    let needs_precise = needs_precise || typed_exits || !adopted_call_dsts.is_empty() || !cold.is_empty();
     let mut write_set: Vec<(u16, SlotKind)> = Vec::new();
     for &r in &writes {
         // Scratches are unobservable after the region — never written back,
@@ -6422,7 +6533,15 @@ fn adapt_region(
         + 2
         + 3 * array_pins.len()
         + if has_return { 2 } else { 0 }
+        + if cold.is_empty() { 0 } else { 2 }
         + if has_calls { 2 } else { 0 };
+    // A region without its cold code counts its iterations, in the two slots after the return pair: the count and a
+    // one to add to it.
+    let count_slots = (!cold.is_empty()).then(|| {
+        let base = ret_base + if has_return { 2 } else { 0 };
+        (base, base + 1)
+    });
+    let cold_at: std::collections::HashSet<usize> = cold.iter().map(|e| e.at).collect();
     // The arena-limit slot is LAST; callees window immediately past the
     // frame (region frames get real arena headroom when they call).
     let limit_slot = (frame_size - 1) as u16;
@@ -6524,14 +6643,34 @@ fn adapt_region(
     if let Some(dst) = call_site_slot {
         micro.push(MicroOp::LoadConst { dst, value: -1 });
     }
+    if let Some((_, one)) = count_slots {
+        micro.push(MicroOp::LoadConst { dst: one, value: 1 });
+    }
     let iteration_reset_micro = iteration_alloc_reset.then(|| {
         let at = micro.len();
         micro.push(host_call(conv.0, conv.0, 0, 0, logos_rt_region_alloc_reset));
         at
     });
+    let count_micro = count_slots.map(|(count, one)| {
+        let at = micro.len();
+        micro.push(MicroOp::Add {
+            dst: count,
+            lhs: count,
+            rhs: one,
+        });
+        at
+    });
 
     let mut i = 0usize;
     while i < ops.len() {
+        // A cold entry leaves the region: the VM resumes at its op and runs the cold code itself.
+        if cold_at.contains(&i) {
+            pc_to_micro.push(micro.len());
+            micro.push(host_call(conv.0, conv.0, 0, 0, logos_rt_side_exit));
+            micro.push(MicroOp::Return { src: conv.0 });
+            i += 1;
+            continue;
+        }
         // Region call: the callee windows at base + frame_size (disjoint
         // from registers, pins, return and limit slots), arguments copied
         // into the fresh window. Entry deopt (callee not yet compiled,
@@ -6646,7 +6785,7 @@ fn adapt_region(
         };
         i += advance;
     }
-    if let (Some(at), Some(first)) = (iteration_reset_micro, pc_to_micro.first_mut()) {
+    if let (Some(at), Some(first)) = (iteration_reset_micro.or(count_micro), pc_to_micro.first_mut()) {
         // Every backedge to the VM loop head must run the lifetime boundary;
         // the one-time frame prologue remains before it and is intentionally
         // skipped on internal iterations.
@@ -6701,8 +6840,19 @@ fn adapt_region(
     // mutations (`ListPush`/`SetIndex`) are USES of the handle, never defs, so
     // they never appear in `writes`; a genuine rebind does, and disqualifies.
     let array_reg_set: std::collections::HashSet<u16> = array_pins.iter().map(|a| a.reg).collect();
+    // A list literal built straight into its pinned target never writes its scratch register, which nothing reads
+    // after the copy it replaced.
+    let fused_scratch: std::collections::HashSet<u16> = ops
+        .iter()
+        .enumerate()
+        .filter_map(|(k, op)| match *op {
+            Op::NewList { dst, .. } if list_literal_target(ops, k, &pins).is_some_and(|t| t != dst) => Some(dst),
+            _ => None,
+        })
+        .collect();
     let rebinds_collection = writes.iter().any(|&r| {
         !array_reg_set.contains(&r)
+            && !fused_scratch.contains(&r)
             && matches!(
                 exit_kind[r as usize],
                 Kind::IntList | Kind::FloatList | Kind::BoolList | Kind::IntMap
@@ -6753,10 +6903,26 @@ fn adapt_region(
                 kinds_by_pc.insert(resume_pc, row);
             }
         }
+        // Each cold entry hands the VM the registers live there: every one the region writes must be one the exit
+        // re-boxes from the frame, or a pinned array the region changed in place.
+        for entry in cold {
+            let row = kinds_by_pc.get(&(head_pc + entry.at))?;
+            for &r in &entry.live {
+                let materialized = array_reg_set.contains(&r)
+                    || (write_set.iter().any(|&(w, _)| w == r) && row.get(r as usize).copied().flatten().is_some());
+                if writes.contains(&r) && !materialized {
+                    if std::env::var_os("LOGOS_RDIAG").is_some() {
+                        eprintln!("RDIAG-BAIL head_pc={head_pc} cold-entry-unmaterialized at={} reg={r}", entry.at);
+                    }
+                    return None;
+                }
+            }
+        }
         Some(RegionPrecise {
             resume_on_return: typed_exits,
             deopt_codes: codes,
             kinds_by_pc,
+            count_slot: count_slots.map(|(count, _)| count),
         })
     } else {
         None
@@ -7088,6 +7254,15 @@ pub static REGION_DEOPTS: std::sync::atomic::AtomicU64 = std::sync::atomic::Atom
 struct RegionChain {
     chain: CompiledChain,
     frame_size: usize,
+    /// The integer slots this chain was specialized on and the value each held
+    /// (see [`specialize_invariant_divisors`]).
+    value_guards: Vec<(u16, ScalarValue)>,
+    /// The tier's record of this specialization, counting its entries and misses; `None` for a generic region.
+    specialization: Option<std::sync::Arc<SpecializationRecord>>,
+    /// The tier's record of this region: its entries, how each ended, its guard misses.
+    record: std::sync::Arc<RegionRecord>,
+    /// For a region compiled without its cold code, the frame slot counting its iterations.
+    count_slot: Option<u16>,
     /// Set when the region CALLS functions: arena headroom for callee
     /// windows, the limit slot to plant, and the live depth cell.
     call_support: Option<(usize, u16, std::sync::Arc<std::sync::atomic::AtomicI64>)>,
@@ -7114,6 +7289,35 @@ impl RegionFn for RegionChain {
     }
     fn free_set(&self) -> &[u16] {
         &self.free
+    }
+    fn value_guards(&self) -> &[(u16, ScalarValue)] {
+        &self.value_guards
+    }
+    fn note_value_guard_miss(&self) {
+        if let Some(record) = &self.specialization {
+            record.misses.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    fn note_retired(&self) {
+        if let Some(record) = &self.specialization {
+            record.replaced.store(true, Ordering::Relaxed);
+        }
+    }
+    fn note_fallback_entry(&self) {
+        if let Some(record) = &self.specialization {
+            record.generic_entries.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    fn note_guard_miss(&self) {
+        self.record.guard_misses.fetch_add(1, Ordering::Relaxed);
+    }
+    fn note_demoted(&self) {
+        self.record.demoted.store(true, Ordering::Relaxed);
+    }
+    fn cold_runs(&self) -> Option<(u64, u64)> {
+        (!self.record.cold_entries.is_empty()).then(|| {
+            (self.record.cold_exits.load(Ordering::Relaxed), self.record.iterations.load(Ordering::Relaxed))
+        })
     }
     fn write_set(&self) -> &[(u16, SlotKind)] {
         &self.writes
@@ -7155,6 +7359,10 @@ impl RegionFn for RegionChain {
         self.stats
             .region_entries
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        if let Some(record) = &self.specialization {
+            record.entries.fetch_add(1, Ordering::Relaxed);
+        }
+        self.record.entries.fetch_add(1, Ordering::Relaxed);
         if let Some((_, limit_slot, depth_cell)) = &self.call_support {
             let arena_end = unsafe { frame.as_ptr().add(frame.len()) } as i64;
             frame[*limit_slot as usize] = arena_end;
@@ -7233,8 +7441,97 @@ impl RegionFn for RegionChain {
         // successful list results have already been adopted into VM pins.
         // Clear remaining scratch buffers on both completion and deopt.
         alloc_registry_drain();
+        let ended = match &outcome {
+            RegionOutcome::Completed => &self.record.completions,
+            RegionOutcome::Deopt => &self.record.deopts,
+            _ => &self.record.exits,
+        };
+        ended.fetch_add(1, Ordering::Relaxed);
+        if let RegionOutcome::DeoptAt { resume_pc } = &outcome {
+            if self.record.cold_entries.contains(resume_pc) {
+                self.record.cold_exits.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        if let Some(slot) = self.count_slot {
+            self.record.iterations.fetch_add(frame[slot as usize] as u64, Ordering::Relaxed);
+        }
         outcome
     }
+}
+
+/// A compiled loop region, as a trace reports it: how its entries ended and how often the VM could not enter it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegionReport {
+    /// The loop head's bytecode pc.
+    pub head_pc: usize,
+    /// Entries that passed the region's guards and ran native.
+    pub entries: u64,
+    /// Of those, the entries that ran the loop to its exit.
+    pub completions: u64,
+    /// The entries that left early and resumed the VM where they stopped (a precise exit).
+    pub exits: u64,
+    /// The entries that left early and replayed on the VM from the loop head (a side exit).
+    pub deopts: u64,
+    /// Entries whose registers held kinds the region was not compiled for, so they ran on bytecode.
+    pub guard_misses: u64,
+    /// Whether the VM gave the region up for bytecode because it kept missing.
+    pub demoted: bool,
+    /// The pcs of the cold code's entries: paths the loop's warm-up never ran, left to the VM.
+    pub cold_entries: Vec<usize>,
+    /// Of the exits, those at a cold entry: the times a cold path ran.
+    pub cold_exits: u64,
+}
+
+/// The tier's live record of one compiled loop region, shared with the region it describes.
+struct RegionRecord {
+    head_pc: usize,
+    entries: std::sync::atomic::AtomicU64,
+    completions: std::sync::atomic::AtomicU64,
+    exits: std::sync::atomic::AtomicU64,
+    deopts: std::sync::atomic::AtomicU64,
+    guard_misses: std::sync::atomic::AtomicU64,
+    demoted: std::sync::atomic::AtomicBool,
+    cold_entries: Vec<usize>,
+    cold_exits: std::sync::atomic::AtomicU64,
+    iterations: std::sync::atomic::AtomicU64,
+}
+
+/// A loop region specialized on values, as a trace reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValueSpecialization {
+    /// The loop head's bytecode pc.
+    pub head_pc: usize,
+    /// Each frame slot the region was specialized on, with its value.
+    pub guards: Vec<(u16, ScalarValue)>,
+    /// Entries that found the values and ran the specialized region.
+    pub entries: u64,
+    /// Entries that found another value.
+    pub misses: u64,
+    /// Of those, the entries the loop's generic region ran; the rest ran on bytecode.
+    pub generic_entries: u64,
+    /// Whether the loop's generic region replaced this one after it kept missing.
+    pub replaced: bool,
+}
+
+/// A function compiled specialized on the values its warm-up passed, as a trace reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionSpecialization {
+    /// The function's index in the program.
+    pub function: u16,
+    /// The bytecode pc of its entry.
+    pub entry_pc: usize,
+    /// Each parameter's register the function was specialized on, with its value.
+    pub guards: Vec<(u16, ScalarValue)>,
+}
+
+/// The tier's live record of one value-specialized region, shared with the region it describes.
+struct SpecializationRecord {
+    head_pc: usize,
+    guards: Vec<(u16, ScalarValue)>,
+    entries: std::sync::atomic::AtomicU64,
+    misses: std::sync::atomic::AtomicU64,
+    generic_entries: std::sync::atomic::AtomicU64,
+    replaced: std::sync::atomic::AtomicBool,
 }
 
 /// Runtime boundary counters shared by every ChainFn a tier produces.
@@ -7285,11 +7582,19 @@ pub enum JitOptimization {
     FusedSelfCall,
     /// Word rotate lowered to one native `rol`/`ror` instruction.
     RotateInstruction,
+    /// A loop region specialized on the value of a divisor it never changes:
+    /// `/` and `%` by it multiply by the divisor's magic reciprocal, under a
+    /// value guard.
+    ValueSpecializedRegion,
+    /// A function specialized on the values its warm-up passed for parameters
+    /// it never changes (the branches they decide taken, the divisions by them
+    /// reciprocals), versioned at its entry beside the generic code.
+    ValueSpecializedFunction,
 }
 
 impl JitOptimization {
     /// Every native optimization, in stable report order.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 16] = [
         Self::CopyPropagation,
         Self::ArrayReadModifyWrite,
         Self::TwoBufferLoad,
@@ -7304,6 +7609,8 @@ impl JitOptimization {
         Self::PinnedRegisters,
         Self::FusedSelfCall,
         Self::RotateInstruction,
+        Self::ValueSpecializedRegion,
+        Self::ValueSpecializedFunction,
     ];
 
     /// Stable machine-readable report name.
@@ -7323,6 +7630,8 @@ impl JitOptimization {
             Self::PinnedRegisters => "pinned_registers",
             Self::FusedSelfCall => "fused_self_call",
             Self::RotateInstruction => "rotate_instruction",
+            Self::ValueSpecializedRegion => "value_specialized_region",
+            Self::ValueSpecializedFunction => "value_specialized_function",
         }
     }
 }
@@ -7331,7 +7640,7 @@ impl JitOptimization {
 /// subtract to obtain that program's exact native-JIT optimization trace.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct JitOptimizationTrace {
-    counts: [u32; 14],
+    counts: [u32; JitOptimization::ALL.len()],
 }
 
 impl JitOptimizationTrace {
@@ -7358,7 +7667,7 @@ impl JitOptimizationTrace {
 
     /// Saturating per-optimization delta from an earlier snapshot.
     pub fn since(self, earlier: Self) -> Self {
-        let mut counts = [0; 14];
+        let mut counts = [0; JitOptimization::ALL.len()];
         for (i, count) in counts.iter_mut().enumerate() {
             *count = self.counts[i].saturating_sub(earlier.counts[i]);
         }
@@ -7406,6 +7715,16 @@ pub struct ForgeTier {
     pinned_register_compiles: AtomicU32,
     /// Native rotate instruction sites emitted by successful compilations.
     native_rotate_instructions: AtomicU32,
+    /// Regions compiled specialized on the value of a loop-invariant divisor.
+    value_specialized_regions: AtomicU32,
+    /// Every value-specialized region compiled, in compile order.
+    value_specialization_records: std::sync::Mutex<Vec<std::sync::Arc<SpecializationRecord>>>,
+    /// Functions compiled specialized on the values their warm-up passed.
+    value_specialized_functions: AtomicU32,
+    /// Every value-specialized function compiled, in compile order.
+    function_specialization_records: std::sync::Mutex<Vec<FunctionSpecialization>>,
+    /// Every loop region this tier compiled, in compile order.
+    region_records: std::sync::Mutex<Vec<std::sync::Arc<RegionRecord>>>,
     /// Stable, benchmark-visible explanations for every native compile that
     /// returned `None`.  A failed-attempt total on its own permits optimization
     /// drift to hide behind an undifferentiated fallback.
@@ -7456,7 +7775,7 @@ impl ForgeTier {
     /// compiled region. Counters are monotonic so callers can take a cheap
     /// before/after delta around one benchmark invocation.
     pub fn optimization_trace(&self) -> JitOptimizationTrace {
-        let mut counts = [0; 14];
+        let mut counts = [0; JitOptimization::ALL.len()];
         counts[JitOptimization::CopyPropagation as usize] =
             self.copy_propagations.load(Ordering::Relaxed);
         counts[JitOptimization::ArrayReadModifyWrite as usize] =
@@ -7484,7 +7803,58 @@ impl ForgeTier {
             self.pinned_self_calls.load(Ordering::Relaxed);
         counts[JitOptimization::RotateInstruction as usize] =
             self.native_rotate_instructions.load(Ordering::Relaxed);
+        counts[JitOptimization::ValueSpecializedRegion as usize] =
+            self.value_specialized_regions.load(Ordering::Relaxed);
+        counts[JitOptimization::ValueSpecializedFunction as usize] =
+            self.value_specialized_functions.load(Ordering::Relaxed);
         JitOptimizationTrace { counts }
+    }
+
+    /// Every function compiled specialized on values, and on what.
+    pub fn function_specializations(&self) -> Vec<FunctionSpecialization> {
+        self.function_specialization_records
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    }
+
+    /// Every loop compiled specialized on values: where, on what, how often it ran and missed, and whether the
+    /// generic region replaced it.
+    pub fn value_specializations(&self) -> Vec<ValueSpecialization> {
+        self.value_specialization_records
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|r| ValueSpecialization {
+                head_pc: r.head_pc,
+                guards: r.guards.clone(),
+                entries: r.entries.load(Ordering::Relaxed),
+                misses: r.misses.load(Ordering::Relaxed),
+                generic_entries: r.generic_entries.load(Ordering::Relaxed),
+                replaced: r.replaced.load(Ordering::Relaxed),
+            })
+            .collect()
+    }
+
+    /// Every loop region compiled, in compile order: its entries, how they ended, its guard misses and whether it
+    /// was demoted.
+    pub fn region_reports(&self) -> Vec<RegionReport> {
+        self.region_records
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .map(|r| RegionReport {
+                head_pc: r.head_pc,
+                entries: r.entries.load(Ordering::Relaxed),
+                completions: r.completions.load(Ordering::Relaxed),
+                exits: r.exits.load(Ordering::Relaxed),
+                deopts: r.deopts.load(Ordering::Relaxed),
+                guard_misses: r.guard_misses.load(Ordering::Relaxed),
+                demoted: r.demoted.load(Ordering::Relaxed),
+                cold_entries: r.cold_entries.clone(),
+                cold_exits: r.cold_exits.load(Ordering::Relaxed),
+            })
+            .collect()
     }
 
     /// (attempts, successes) for Main-loop REGION compiles.
@@ -7591,6 +7961,7 @@ fn micro_read_slots(op: &MicroOp) -> Vec<u16> {
         Move { src, .. }
         | DivPow2 { lhs: src, .. }
         | MagicDivU { lhs: src, .. }
+        | MagicDivS { lhs: src, .. }
         | NotInt { src, .. }
         | NotBool { src, .. }
         | Popcnt { src, .. }
@@ -7766,6 +8137,7 @@ fn micro_reads_mut(op: &mut MicroOp) -> Vec<&mut u16> {
         Move { src, .. }
         | DivPow2 { lhs: src, .. }
         | MagicDivU { lhs: src, .. }
+        | MagicDivS { lhs: src, .. }
         | NotInt { src, .. }
         | NotBool { src, .. }
         | Popcnt { src, .. }
@@ -7921,7 +8293,7 @@ fn micro_defs(op: &MicroOp) -> Vec<u16> {
     use MicroOp::*;
     match *op {
         LoadConst { dst, .. } | Move { dst, .. } | Add { dst, .. } | Sub { dst, .. } | Mul { dst, .. }
-        | Div { dst, .. } | DivPow2 { dst, .. } | MagicDivU { dst, .. } | Mod { dst, .. } | Lt { dst, .. } | Gt { dst, .. }
+        | Div { dst, .. } | DivPow2 { dst, .. } | MagicDivU { dst, .. } | MagicDivS { dst, .. } | Mod { dst, .. } | Lt { dst, .. } | Gt { dst, .. }
         | Eq { dst, .. } | LtEq { dst, .. } | GtEq { dst, .. } | Neq { dst, .. } | BitAnd { dst, .. }
         | BitOr { dst, .. } | BitXor { dst, .. } | Shl { dst, .. } | Shr { dst, .. } | Ushr { dst, .. } | Rotate { dst, .. } | NotInt { dst, .. }
         | Popcnt { dst, .. } | Lzcnt { dst, .. } | Tzcnt { dst, .. } | ChrGuard { dst, .. } | Utf8Len { dst, .. }
@@ -7945,6 +8317,69 @@ fn micro_defs(op: &MicroOp) -> Vec<u16> {
     }
 }
 
+/// Which entry value each slot holds before each op of a stream entered at op 0: `holds[i][s] == Some(p)` when, on
+/// every path from the entry to op `i`, slot `s` holds the value slot `p` held at the entry (`p` one of `sources`). A
+/// `Move` copies what its source holds, any other write holds nothing, and where paths meet a slot holds what it holds
+/// on all of them. A slot no op writes holds its entry value everywhere, and so does one that is only ever rewritten
+/// with a copy of it, as a self tail call rewrites a parameter it passes on unchanged. An op no path reaches holds
+/// nothing.
+fn entry_copies(micro: &[MicroOp], sources: &[u16]) -> Vec<Vec<Option<u16>>> {
+    let n = micro.len();
+    let slots = micro
+        .iter()
+        .flat_map(|op| micro_defs(op).into_iter().chain(micro_read_slots(op)))
+        .chain(sources.iter().copied())
+        .max()
+        .map_or(0, |top| top as usize + 1);
+    let mut holds: Vec<Option<Vec<Option<u16>>>> = vec![None; n];
+    if n == 0 {
+        return Vec::new();
+    }
+    let mut entry = vec![None; slots];
+    for &p in sources {
+        entry[p as usize] = Some(p);
+    }
+    holds[0] = Some(entry);
+    let mut work = vec![0usize];
+    while let Some(i) = work.pop() {
+        let mut out = holds[i].clone().expect("a queued op has a state");
+        let op = &micro[i];
+        let copied = match *op {
+            MicroOp::Move { dst, src } => Some((dst, out[src as usize])),
+            _ => None,
+        };
+        for slot in micro_defs(op) {
+            out[slot as usize] = None;
+        }
+        if let Some((dst, held)) = copied {
+            out[dst as usize] = held;
+        }
+        let jumps = micro_target_const(op);
+        let falls = !matches!(op, MicroOp::Jump { .. } | MicroOp::Return { .. });
+        for next in jumps.into_iter().chain(falls.then_some(i + 1)).filter(|&t| t < n) {
+            match &mut holds[next] {
+                None => {
+                    holds[next] = Some(out.clone());
+                    work.push(next);
+                }
+                Some(state) => {
+                    let mut narrowed = false;
+                    for (held, incoming) in state.iter_mut().zip(&out) {
+                        if held.is_some() && held != incoming {
+                            *held = None;
+                            narrowed = true;
+                        }
+                    }
+                    if narrowed {
+                        work.push(next);
+                    }
+                }
+            }
+        }
+    }
+    holds.into_iter().map(|state| state.unwrap_or_else(|| vec![None; slots])).collect()
+}
+
 /// A mutable reference to a micro-op's branch/jump TARGET (a micro index), if any.
 fn micro_target_mut(op: &mut MicroOp) -> Option<&mut usize> {
     use MicroOp::*;
@@ -7956,6 +8391,420 @@ fn micro_target_mut(op: &mut MicroOp) -> Option<&mut usize> {
         | JumpIfTrue { target, .. } => Some(target),
         _ => None,
     }
+}
+
+/// VALUE SPECIALIZATION of a region's branches. A conditional jump whose condition the loop never writes goes the same
+/// way on every iteration of an entry: a `Bool` live-in no op in the loop writes, or a comparison, in the same block, of
+/// such an `Int` or `Bool` with another or with a constant. Seeded with the values the VM saw at the hot crossing, each
+/// such jump inside the region becomes the unconditional jump it would take or a jump to the next op, and every op no
+/// longer reachable from the head becomes a jump back to it, so the side never taken is gone — whatever it held. Jumps
+/// that leave the region are kept. Returns the folded code and each live-in the folds read, with its value, the guards
+/// the VM checks on every entry; `None` when nothing folds.
+fn fold_invariant_branches(
+    code: &[Op],
+    head_pc: usize,
+    constants: &[Constant],
+    values: &[Option<ScalarValue>],
+) -> Option<(Vec<Op>, Vec<(u16, ScalarValue)>)> {
+    use std::collections::{HashMap, HashSet};
+    let n = code.len();
+    let local = |target: usize| (head_pc..head_pc + n).contains(&target).then(|| target - head_pc);
+    let mut written: HashSet<u16> = HashSet::new();
+    for op in code {
+        op.for_each_written_reg(|r| {
+            written.insert(r);
+        });
+    }
+    let live_in = |r: u16| -> Option<ScalarValue> {
+        if written.contains(&r) {
+            return None;
+        }
+        values.get(r as usize).copied().flatten()
+    };
+
+    let mut block_start = vec![false; n];
+    block_start[0] = true;
+    for (i, op) in code.iter().enumerate() {
+        let targets = logicaffeine_compile::vm::disasm::op_targets(op);
+        for t in targets.iter().filter_map(|&t| local(t)) {
+            block_start[t] = true;
+        }
+        if !targets.is_empty() && i + 1 < n {
+            block_start[i + 1] = true;
+        }
+    }
+
+    // What each register holds at this point of the block, and the live-ins that decided it.
+    let mut known: HashMap<u16, (ScalarValue, Vec<u16>)> = HashMap::new();
+    let mut folded = code.to_vec();
+    let mut guards: Vec<u16> = Vec::new();
+    let mut any = false;
+    for (i, op) in code.iter().enumerate() {
+        if block_start[i] {
+            known.clear();
+        }
+        let value_of = |known: &HashMap<u16, (ScalarValue, Vec<u16>)>, r: u16| -> Option<(ScalarValue, Vec<u16>)> {
+            known.get(&r).cloned().or_else(|| live_in(r).map(|v| (v, vec![r])))
+        };
+        match *op {
+            Op::JumpIfFalse { cond, target } | Op::JumpIfTrue { cond, target } => {
+                if let (Some((ScalarValue::Bool(b), deps)), Some(_)) = (value_of(&known, cond), local(target)) {
+                    let jumps = b == matches!(op, Op::JumpIfTrue { .. });
+                    folded[i] = Op::Jump { target: if jumps { target } else { head_pc + i + 1 } };
+                    guards.extend(deps);
+                    any = true;
+                }
+                continue;
+            }
+            Op::LoadConst { dst, idx } => {
+                match constants.get(idx as usize) {
+                    Some(Constant::Int(v)) => known.insert(dst, (ScalarValue::Int(*v), Vec::new())),
+                    Some(Constant::Bool(b)) => known.insert(dst, (ScalarValue::Bool(*b), Vec::new())),
+                    _ => known.remove(&dst),
+                };
+                continue;
+            }
+            Op::Move { dst, src } => {
+                match value_of(&known, src) {
+                    Some(v) => known.insert(dst, v),
+                    None => known.remove(&dst),
+                };
+                continue;
+            }
+            Op::Not { dst, src } => {
+                match value_of(&known, src) {
+                    Some((ScalarValue::Bool(b), deps)) => known.insert(dst, (ScalarValue::Bool(!b), deps)),
+                    _ => known.remove(&dst),
+                };
+                continue;
+            }
+            Op::Eq { dst, lhs, rhs }
+            | Op::NotEq { dst, lhs, rhs }
+            | Op::Lt { dst, lhs, rhs }
+            | Op::Gt { dst, lhs, rhs }
+            | Op::LtEq { dst, lhs, rhs }
+            | Op::GtEq { dst, lhs, rhs } => {
+                let decided = match (value_of(&known, lhs), value_of(&known, rhs)) {
+                    (Some((a, mut da)), Some((b, db))) => {
+                        let outcome = match (a, b, op) {
+                            (ScalarValue::Int(x), ScalarValue::Int(y), Op::Eq { .. }) => Some(x == y),
+                            (ScalarValue::Int(x), ScalarValue::Int(y), Op::NotEq { .. }) => Some(x != y),
+                            (ScalarValue::Int(x), ScalarValue::Int(y), Op::Lt { .. }) => Some(x < y),
+                            (ScalarValue::Int(x), ScalarValue::Int(y), Op::Gt { .. }) => Some(x > y),
+                            (ScalarValue::Int(x), ScalarValue::Int(y), Op::LtEq { .. }) => Some(x <= y),
+                            (ScalarValue::Int(x), ScalarValue::Int(y), Op::GtEq { .. }) => Some(x >= y),
+                            (ScalarValue::Bool(x), ScalarValue::Bool(y), Op::Eq { .. }) => Some(x == y),
+                            (ScalarValue::Bool(x), ScalarValue::Bool(y), Op::NotEq { .. }) => Some(x != y),
+                            _ => None,
+                        };
+                        da.extend(db);
+                        outcome.map(|o| (ScalarValue::Bool(o), da))
+                    }
+                    _ => None,
+                };
+                match decided {
+                    Some(v) => known.insert(dst, v),
+                    None => known.remove(&dst),
+                };
+                continue;
+            }
+            _ => {}
+        }
+        op.for_each_written_reg(|r| {
+            known.remove(&r);
+        });
+    }
+    if !any {
+        return None;
+    }
+
+    // What the folded code still reaches from the head; the rest is the side no entry takes.
+    let mut reached = vec![false; n];
+    let mut work = vec![0usize];
+    while let Some(i) = work.pop() {
+        if i >= n || std::mem::replace(&mut reached[i], true) {
+            continue;
+        }
+        let op = &folded[i];
+        work.extend(logicaffeine_compile::vm::disasm::op_targets(op).into_iter().filter_map(local));
+        if !matches!(op, Op::Jump { .. } | Op::Return { .. } | Op::ReturnNothing | Op::Halt) {
+            work.push(i + 1);
+        }
+    }
+    for (i, op) in folded.iter_mut().enumerate() {
+        if !reached[i] {
+            *op = Op::Jump { target: head_pc };
+        }
+    }
+    guards.sort_unstable();
+    guards.dedup();
+    let guards = guards
+        .into_iter()
+        .map(|r| (r, live_in(r).expect("a guard is a live-in with a seen value")))
+        .collect();
+    Some((folded, guards))
+}
+
+/// VALUE SPECIALIZATION of divisions, in a region or a function. A `/` or `%`
+/// whose divisor holds the entry value of an `Int` live-in ([`entry_copies`]:
+/// the live-in itself where no op writes it, or a copy of it) divides by one
+/// value for a whole entry; when the value seen is at least two, the op becomes
+/// the signed magic reciprocal (`MagicDivS`: a multiply-high, an add and two
+/// shifts in place of `idiv`, and no side exit, since the divisor is neither
+/// zero nor -1). Each live-in a division was specialized on is returned with
+/// its value: what the entry must find for the specialized code to run.
+fn specialize_invariant_divisors(
+    micro: &mut [MicroOp],
+    guard: &[(u16, SlotKind)],
+    values: &[Option<ScalarValue>],
+) -> Vec<(u16, ScalarValue)> {
+    let sources: Vec<u16> = guard
+        .iter()
+        .filter(|&&(slot, kind)| {
+            kind == SlotKind::Int && matches!(values.get(slot as usize), Some(Some(ScalarValue::Int(_))))
+        })
+        .map(|&(slot, _)| slot)
+        .collect();
+    let holds = entry_copies(micro, &sources);
+    let mut guards: Vec<(u16, ScalarValue)> = Vec::new();
+    for (i, op) in micro.iter_mut().enumerate() {
+        let (dst, lhs, rhs, remainder) = match *op {
+            MicroOp::Div { dst, lhs, rhs } => (dst, lhs, rhs, false),
+            MicroOp::Mod { dst, lhs, rhs } => (dst, lhs, rhs, true),
+            _ => continue,
+        };
+        let Some(live_in) = holds[i][rhs as usize] else {
+            continue;
+        };
+        let Some(&Some(ScalarValue::Int(divisor))) = values.get(live_in as usize) else {
+            continue;
+        };
+        let Some(reciprocal) = logicaffeine_base::reciprocal::SignedReciprocal::new(divisor) else {
+            continue;
+        };
+        *op = MicroOp::MagicDivS {
+            dst,
+            lhs,
+            magic: reciprocal.magic(),
+            shift: reciprocal.shift() as u8,
+            add: reciprocal.add(),
+            mul_back: if remainder { divisor } else { 0 },
+        };
+        if !guards.contains(&(live_in, ScalarValue::Int(divisor))) {
+            guards.push((live_in, ScalarValue::Int(divisor)));
+        }
+    }
+    guards
+}
+
+/// VALUE SPECIALIZATION of a function: its lowered stream, copied and folded on the values every call of its warm-up
+/// passed for the parameters no op of it writes (the branches they decide taken, the divisions by them reciprocals),
+/// versioned at the entry ahead of the generic stream ([`version_on_entry`]). Returns what the copy was specialized
+/// on, by register; empty, and the stream untouched, when the values decide nothing.
+fn specialize_function(
+    adapted: &mut AdaptedFn,
+    param_kinds: &[Option<ParamKind>],
+    values: &[Option<ScalarValue>],
+    scratch: u16,
+) -> Vec<(u16, ScalarValue)> {
+    if values.iter().all(Option::is_none) {
+        return Vec::new();
+    }
+    let mut specialized = adapted.micro.clone();
+    let mut guards = fold_known_branches(&mut specialized, values);
+    let ints: Vec<(u16, SlotKind)> = param_kinds
+        .iter()
+        .enumerate()
+        .filter(|(_, kind)| matches!(kind, Some(ParamKind::Scalar(SlotKind::Int))))
+        .map(|(p, _)| (p as u16, SlotKind::Int))
+        .collect();
+    for divisor in specialize_invariant_divisors(&mut specialized, &ints, values) {
+        if !guards.contains(&divisor) {
+            guards.push(divisor);
+        }
+    }
+    if guards.is_empty() {
+        return guards;
+    }
+    guards.sort_unstable_by_key(|&(slot, _)| slot);
+    adapted.micro = version_on_entry(&specialized, &adapted.micro, &guards, scratch);
+    if let Some(codes) = adapted.deopt_codes.as_mut() {
+        let generic = std::mem::take(codes);
+        *codes = std::iter::repeat(1)
+            .take(2 * guards.len())
+            .chain(generic.iter().copied())
+            .chain(generic.iter().copied())
+            .collect();
+    }
+    guards
+}
+
+/// VALUE SPECIALIZATION of a function's branches, on its lowered stream: the rule [`fold_invariant_branches`] applies
+/// to a region's bytecode. Where a slot holds a parameter's entry value ([`entry_copies`]), it holds the value the
+/// function's warm-up passed. Seeded with those values, each conditional jump they decide — on a `Bool` parameter, or
+/// on a comparison, in the same block, of such values with each other or with constants — becomes the jump it takes,
+/// and every op no longer reachable from the start becomes a jump to itself, so the side never taken is gone. Returns
+/// each parameter the folds read, with its value: what the call must pass for the folded stream to run.
+fn fold_known_branches(micro: &mut [MicroOp], values: &[Option<ScalarValue>]) -> Vec<(u16, ScalarValue)> {
+    use std::collections::HashMap;
+    let n = micro.len();
+    let sources: Vec<u16> = (0..values.len()).filter(|&p| values[p].is_some()).map(|p| p as u16).collect();
+    let holds = entry_copies(micro, &sources);
+    let parameter = |i: usize, slot: u16| -> Option<(i64, Vec<u16>)> {
+        let p = holds[i].get(slot as usize).copied().flatten()?;
+        values[p as usize].map(|value| (value.bits(), vec![p]))
+    };
+
+    let mut block_start = vec![false; n];
+    if n > 0 {
+        block_start[0] = true;
+    }
+    for (i, op) in micro.iter().enumerate() {
+        if let Some(target) = micro_target_const(op) {
+            if target < n {
+                block_start[target] = true;
+            }
+            if i + 1 < n {
+                block_start[i + 1] = true;
+            }
+        }
+    }
+
+    // What each slot holds at this point of the block, as its frame bits, and the parameters that decided it.
+    let mut known: HashMap<u16, (i64, Vec<u16>)> = HashMap::new();
+    let mut read: Vec<u16> = Vec::new();
+    let mut any = false;
+    for i in 0..n {
+        if block_start[i] {
+            known.clear();
+        }
+        let value_of = |known: &HashMap<u16, (i64, Vec<u16>)>, slot: u16| -> Option<(i64, Vec<u16>)> {
+            known.get(&slot).cloned().or_else(|| parameter(i, slot))
+        };
+        let both = |known: &HashMap<u16, (i64, Vec<u16>)>, lhs: u16, rhs: u16| -> Option<(i64, i64, Vec<u16>)> {
+            let (a, mut deps) = value_of(known, lhs)?;
+            let (b, more) = value_of(known, rhs)?;
+            deps.extend(more);
+            Some((a, b, deps))
+        };
+        let taken = match micro[i] {
+            MicroOp::Branch { cmp, lhs, rhs, target } => {
+                both(&known, lhs, rhs).map(|(a, b, deps)| (if cmp.eval(a, b) { i + 1 } else { target }, deps))
+            }
+            MicroOp::JumpIfFalse { cond, target } => {
+                value_of(&known, cond).map(|(c, deps)| (if c == 0 { target } else { i + 1 }, deps))
+            }
+            MicroOp::JumpIfTrue { cond, target } => {
+                value_of(&known, cond).map(|(c, deps)| (if c != 0 { target } else { i + 1 }, deps))
+            }
+            MicroOp::LoadConst { dst, value } => {
+                known.insert(dst, (value, Vec::new()));
+                continue;
+            }
+            MicroOp::Move { dst, src } => {
+                match value_of(&known, src) {
+                    Some(v) => known.insert(dst, v),
+                    None => known.remove(&dst),
+                };
+                continue;
+            }
+            MicroOp::NotBool { dst, src } => {
+                match value_of(&known, src) {
+                    Some((b, deps)) => known.insert(dst, (b ^ 1, deps)),
+                    None => known.remove(&dst),
+                };
+                continue;
+            }
+            MicroOp::Lt { dst, lhs, rhs }
+            | MicroOp::Gt { dst, lhs, rhs }
+            | MicroOp::LtEq { dst, lhs, rhs }
+            | MicroOp::GtEq { dst, lhs, rhs }
+            | MicroOp::Eq { dst, lhs, rhs }
+            | MicroOp::Neq { dst, lhs, rhs } => {
+                let cmp = match micro[i] {
+                    MicroOp::Lt { .. } => Cmp::Lt,
+                    MicroOp::Gt { .. } => Cmp::Gt,
+                    MicroOp::LtEq { .. } => Cmp::LtEq,
+                    MicroOp::GtEq { .. } => Cmp::GtEq,
+                    MicroOp::Eq { .. } => Cmp::Eq,
+                    _ => Cmp::NotEq,
+                };
+                match both(&known, lhs, rhs) {
+                    Some((a, b, deps)) => known.insert(dst, (i64::from(cmp.eval(a, b)), deps)),
+                    None => known.remove(&dst),
+                };
+                continue;
+            }
+            _ => None,
+        };
+        match taken {
+            Some((target, deps)) => {
+                micro[i] = MicroOp::Jump { target };
+                read.extend(deps);
+                any = true;
+            }
+            None => {
+                for slot in micro_defs(&micro[i]) {
+                    known.remove(&slot);
+                }
+            }
+        }
+    }
+    if !any {
+        return Vec::new();
+    }
+
+    let mut reached = vec![false; n];
+    let mut work = vec![0usize];
+    while let Some(i) = work.pop() {
+        if i >= n || std::mem::replace(&mut reached[i], true) {
+            continue;
+        }
+        let op = &micro[i];
+        work.extend(micro_target_const(op));
+        if !matches!(op, MicroOp::Jump { .. } | MicroOp::Return { .. }) {
+            work.push(i + 1);
+        }
+    }
+    for (i, op) in micro.iter_mut().enumerate() {
+        if !reached[i] {
+            *op = MicroOp::Jump { target: i };
+        }
+    }
+    read.sort_unstable();
+    read.dedup();
+    read.into_iter()
+        .map(|p| (p, values[p as usize].expect("a fold reads a parameter with a held value")))
+        .collect()
+}
+
+/// A function VERSIONED at its own entry: a check per value the specialized stream was folded on, then that stream,
+/// then the generic one. A call passing every value runs the first; any other runs the second. Native callers enter
+/// through the dispatch table and self-calls through the chain's base, so every caller is held to the check, as a call
+/// from the VM is. `scratch` is a slot no op reads before writing it.
+fn version_on_entry(
+    specialized: &[MicroOp],
+    generic: &[MicroOp],
+    guards: &[(u16, ScalarValue)],
+    scratch: u16,
+) -> Vec<MicroOp> {
+    let prefix = 2 * guards.len();
+    let generic_start = prefix + specialized.len();
+    let mut versioned = Vec::with_capacity(generic_start + generic.len());
+    for &(slot, value) in guards {
+        versioned.push(MicroOp::LoadConst { dst: scratch, value: value.bits() });
+        versioned.push(MicroOp::Branch { cmp: Cmp::Eq, lhs: slot, rhs: scratch, target: generic_start });
+    }
+    for (body, offset) in [(specialized, prefix), (generic, generic_start)] {
+        for &op in body {
+            let mut op = op;
+            if let Some(target) = micro_target_mut(&mut op) {
+                *target += offset;
+            }
+            versioned.push(op);
+        }
+    }
+    versioned
 }
 
 /// COPY PROPAGATION + dead-Move elimination over a region's micro stream — kills
@@ -9463,7 +10312,9 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
                     mark_float(s, &mut float_blocked);
                 }
             }
-            MicroOp::DivPow2 { dst, lhs, .. } | MicroOp::MagicDivU { dst, lhs, .. } => {
+            MicroOp::DivPow2 { dst, lhs, .. }
+            | MicroOp::MagicDivU { dst, lhs, .. }
+            | MicroOp::MagicDivS { dst, lhs, .. } => {
                 for s in [dst, lhs] {
                     mark_float(s, &mut float_blocked);
                 }
@@ -9683,7 +10534,9 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
             // DivPow2 is a single mem-form stencil (reads lhs, writes dst).
             // MagicDivU bails the pinned/function tier (no stencil), but its
             // operands still profit from residency on the regalloc path.
-            MicroOp::DivPow2 { dst, lhs, .. } | MicroOp::MagicDivU { dst, lhs, .. } => {
+            MicroOp::DivPow2 { dst, lhs, .. }
+            | MicroOp::MagicDivU { dst, lhs, .. }
+            | MicroOp::MagicDivS { dst, lhs, .. } => {
                 for s in [dst, lhs] {
                     bump(s, m, &mut profit);
                 }
@@ -10025,6 +10878,7 @@ fn select_pins(ops: &[MicroOp], register_count: u16, region: bool) -> (Vec<u16>,
                 | MicroOp::Div { .. }
                 | MicroOp::DivPow2 { .. }
                 | MicroOp::MagicDivU { .. }
+                | MicroOp::MagicDivS { .. }
                 | MicroOp::Mod { .. }
                 | MicroOp::Lt { .. }
                 | MicroOp::Gt { .. }
@@ -10176,6 +11030,7 @@ impl NativeTier for ForgeTier {
         register_count: u16,
         self_fi: u16,
         param_kinds: &[Option<ParamKind>],
+        values: &[Option<ScalarValue>],
         cow_exempt_regs: &[u16],
         ret_kind: Option<SlotKind>,
         ctx: &NativeCtx,
@@ -10237,7 +11092,7 @@ impl NativeTier for ForgeTier {
             table: ctx.table.as_ref(),
             callees,
         };
-        let Some(adapted) = adapt_function(
+        let Some(mut adapted) = adapt_function(
             code,
             entry_pc,
             constants,
@@ -10253,6 +11108,25 @@ impl NativeTier for ForgeTier {
         ) else {
             self.note_function_decline("unsupported-bytecode-shape");
             return None;
+        };
+        // Counted on the generic stream: a function versioned below runs one of its two copies per call.
+        let fused = adapted
+            .micro
+            .iter()
+            .filter(|op| matches!(op, MicroOp::CallSelfCopy { .. }))
+            .count() as u32;
+        let rotates = adapted
+            .micro
+            .iter()
+            .filter(|op| matches!(op, MicroOp::Rotate { .. }))
+            .count() as u32;
+        // VALUE SPECIALIZATION at the entry: the stream folded on the values every call of the warm-up passed, versioned
+        // ahead of the generic stream (the first conv slot holds each value for its check). `LOGOS_VALUE_SPEC=0` is the
+        // kill-switch.
+        let specialized_on = if std::env::var("LOGOS_VALUE_SPEC").as_deref() != Ok("0") {
+            specialize_function(&mut adapted, param_kinds, values, register_count)
+        } else {
+            Vec::new()
         };
         if std::env::var_os("LOGOS_JIT_TRACE_OPS").is_some() {
             eprintln!(
@@ -10309,11 +11183,12 @@ impl NativeTier for ForgeTier {
             // to the per-piece precise stencil tier, byte-identical to today.
             // `LOGOS_REGALLOC_PRECISE=0` is the targeted kill-switch.
             adapted.deopt_codes.as_deref().and_then(|codes| {
-                logicaffeine_forge::regalloc::compile_function_regalloc_precise(
+                logicaffeine_forge::regalloc::compile_function_regalloc_precise_framed(
                     &adapted.micro,
                     Some(ctx.status.clone()),
                     call_ctx.depth_addr,
                     codes,
+                    register_count,
                 )
             })
         } else {
@@ -10330,11 +11205,6 @@ impl NativeTier for ForgeTier {
             // tier did, so it remains the same observable. Count it (the
             // kill-switch path emits per-`Move` `CallSelf` instead, leaving this
             // at zero).
-            let fused = adapted
-                .micro
-                .iter()
-                .filter(|op| matches!(op, MicroOp::CallSelfCopy { .. }))
-                .count() as u32;
             if fused != 0 {
                 self.pinned_self_calls.fetch_add(fused, Ordering::SeqCst);
             }
@@ -10381,11 +11251,6 @@ impl NativeTier for ForgeTier {
                 self.note_function_decline("self-call-patch-failed");
                 return None;
             }
-            let fused = adapted
-                .micro
-                .iter()
-                .filter(|op| matches!(op, MicroOp::CallSelfCopy { .. }))
-                .count() as u32;
             if fused != 0 {
                 self.pinned_self_calls.fetch_add(fused, Ordering::SeqCst);
             }
@@ -10399,14 +11264,20 @@ impl NativeTier for ForgeTier {
             );
         }
         self.successes.fetch_add(1, Ordering::SeqCst);
-        let rotates = adapted
-            .micro
-            .iter()
-            .filter(|op| matches!(op, MicroOp::Rotate { .. }))
-            .count() as u32;
         if rotates != 0 {
             self.native_rotate_instructions
                 .fetch_add(rotates, Ordering::Relaxed);
+        }
+        if !specialized_on.is_empty() {
+            self.value_specialized_functions.fetch_add(1, Ordering::Relaxed);
+            self.function_specialization_records
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(FunctionSpecialization {
+                    function: self_fi,
+                    entry_pc,
+                    guards: specialized_on,
+                });
         }
         Some(Box::new(ChainFn {
             chain,
@@ -10433,11 +11304,45 @@ impl NativeTier for ForgeTier {
         register_count: u16,
         named: &[bool],
         observed: &[ObservedKind],
+        values: &[Option<ScalarValue>],
+        cold: &logicaffeine_compile::vm::ColdPaths,
         ctx: &NativeCtx,
         callees: &[logicaffeine_compile::vm::CalleeSig],
     ) -> Option<Box<dyn RegionFn>> {
         self.region_compiles.fetch_add(1, Ordering::SeqCst);
         let dbg = std::env::var_os("LOGOS_RDIAG").is_some();
+        // VALUE SPECIALIZATION, first on the bytecode: fold the branches the loop's
+        // invariant live-ins decide, so the side no entry takes is gone before the
+        // adapter looks for ops it cannot lower. `LOGOS_VALUE_SPEC=0` is the kill-switch.
+        let specialize = std::env::var("LOGOS_VALUE_SPEC").as_deref() != Ok("0");
+        let branch_folds = specialize
+            .then(|| fold_invariant_branches(code, head_pc, constants, values))
+            .flatten();
+        let (code, mut value_guards): (&[Op], Vec<(u16, ScalarValue)>) = match &branch_folds {
+            Some((folded, guards)) => (folded.as_slice(), guards.clone()),
+            None => (code, Vec::new()),
+        };
+        // PARTIAL COMPILATION (Whaley, OOPSLA 2001): a loop that lowers whole is compiled whole; one that does not,
+        // and whose warm-up left code cold, is compiled without that code, every cold op a placeholder no path runs
+        // and each cold entry an exit to the VM.
+        let adapt = |code: &[Op], cold: &[logicaffeine_compile::vm::ColdEntry]| {
+            adapt_region(code, head_pc, exit_pc, constants, register_count, named, observed, ctx, callees, cold)
+        };
+        let whole = adapt(code, &[]);
+        let cut_code: Vec<Op>;
+        let (code, adapted, cold_entries): (&[Op], _, Vec<usize>) = match whole {
+            Some(adapted) => (code, Some(adapted), Vec::new()),
+            None if !cold.is_empty() && cold.cold.len() == code.len() => {
+                cut_code = code
+                    .iter()
+                    .zip(&cold.cold)
+                    .map(|(&op, &is_cold)| if is_cold { Op::Jump { target: head_pc } } else { op })
+                    .collect();
+                let adapted = adapt(&cut_code, &cold.entries);
+                (cut_code.as_slice(), adapted, cold.entries.iter().map(|e| head_pc + e.at).collect())
+            }
+            None => (code, None, Vec::new()),
+        };
         let Some((
             mut micro,
             frame_size,
@@ -10448,17 +11353,7 @@ impl NativeTier for ForgeTier {
             region_return,
             hoist_guards,
             precise,
-        )) = adapt_region(
-            code,
-            head_pc,
-            exit_pc,
-            constants,
-            register_count,
-            named,
-            observed,
-            ctx,
-            callees,
-        )
+        )) = adapted
         else {
             let has_push = code.iter().any(|op| matches!(op, Op::ListPush { .. }));
             let has_call = code.iter().any(|op| matches!(op, Op::Call { .. }));
@@ -10487,6 +11382,17 @@ impl NativeTier for ForgeTier {
             }
             return None;
         };
+        // VALUE SPECIALIZATION runs first, on the raw lowered stream: it swaps
+        // one op for one op, so the precise deopt codes stay parallel to it and
+        // every later pass (and the contiguous backend's pre-fusion snapshot)
+        // sees the reciprocal. `LOGOS_VALUE_SPEC=0` is the kill-switch.
+        if specialize {
+            for divisor in specialize_invariant_divisors(&mut micro, &guard, values) {
+                if !value_guards.contains(&divisor) {
+                    value_guards.push(divisor);
+                }
+            }
+        }
         if std::env::var_os("LOGOS_JIT_TRACE_OPS").is_some() {
             eprintln!(
                 "jit-trace: region head={head_pc} exit={exit_pc} code={code:?} micro={micro:?}",
@@ -10928,12 +11834,53 @@ impl NativeTier for ForgeTier {
             self.native_rotate_instructions
                 .fetch_add(rotates, Ordering::Relaxed);
         }
+        let specialization = {
+            let mut records = self
+                .value_specialization_records
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if value_guards.is_empty() {
+                None
+            } else {
+                self.value_specialized_regions
+                    .fetch_add(1, Ordering::Relaxed);
+                let record = std::sync::Arc::new(SpecializationRecord {
+                    head_pc,
+                    guards: value_guards.clone(),
+                    entries: std::sync::atomic::AtomicU64::new(0),
+                    misses: std::sync::atomic::AtomicU64::new(0),
+                    generic_entries: std::sync::atomic::AtomicU64::new(0),
+                    replaced: std::sync::atomic::AtomicBool::new(false),
+                });
+                records.push(record.clone());
+                Some(record)
+            }
+        };
         self.region_successes.fetch_add(1, Ordering::SeqCst);
+        let record = std::sync::Arc::new(RegionRecord {
+            head_pc,
+            entries: std::sync::atomic::AtomicU64::new(0),
+            completions: std::sync::atomic::AtomicU64::new(0),
+            exits: std::sync::atomic::AtomicU64::new(0),
+            deopts: std::sync::atomic::AtomicU64::new(0),
+            guard_misses: std::sync::atomic::AtomicU64::new(0),
+            demoted: std::sync::atomic::AtomicBool::new(false),
+            cold_entries,
+            cold_exits: std::sync::atomic::AtomicU64::new(0),
+            iterations: std::sync::atomic::AtomicU64::new(0),
+        });
+        self.region_records
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(record.clone());
         let call_support =
             has_calls.then(|| (ARENA_SLOTS, (frame_size - 1) as u16, ctx.depth.clone()));
         Some(Box::new(RegionChain {
             chain,
             frame_size,
+            value_guards,
+            specialization,
+            record,
             call_support,
             call_sites: code
                 .iter()
@@ -10953,6 +11900,7 @@ impl NativeTier for ForgeTier {
             region_return,
             hoist_guards,
             resume_on_return: precise.as_ref().is_some_and(|p| p.resume_on_return),
+            count_slot: precise.as_ref().and_then(|p| p.count_slot),
             precise_kinds: precise.map(|p| p.kinds_by_pc),
             stats: self.runtime.clone(),
         }))
@@ -11050,6 +11998,12 @@ pub struct JitBackendOptimizationTrace {
     pub region_successes: u32,
     pub declines: String,
     pub execution: String,
+    /// Every loop compiled specialized on values (see [`ValueSpecialization`]).
+    pub value_specializations: Vec<ValueSpecialization>,
+    /// Every function compiled specialized on values (see [`FunctionSpecialization`]).
+    pub function_specializations: Vec<FunctionSpecialization>,
+    /// Every loop region compiled (see [`RegionReport`]).
+    pub regions: Vec<RegionReport>,
     pub outcome: logicaffeine_compile::compile::RunOutcome,
 }
 
@@ -11095,6 +12049,9 @@ pub fn optimization_trace_jit(
         region_successes,
         declines,
         execution,
+        value_specializations: tier.value_specializations(),
+        function_specializations: tier.function_specializations(),
+        regions: tier.region_reports(),
         outcome,
     }
 }
@@ -11149,3 +12106,7 @@ mod scalar_swap_tests;
 #[cfg(test)]
 #[path = "../../logicaffeine_tests/unit/logicaffeine_jit/capacity_hint_tests.rs"]
 mod capacity_hint_tests;
+
+#[cfg(test)]
+#[path = "../../logicaffeine_tests/unit/logicaffeine_jit/function_versioning_tests.rs"]
+mod function_versioning_tests;

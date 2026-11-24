@@ -105,16 +105,31 @@ fn the_math_layer_refuses_what_it_cannot_represent_and_says_which_construct_brok
          colon: {sorted}"
     );
 
-    // An ORDER between arithmetic terms has no production here yet.
-    let order = format!(
-        "{:?}",
-        compile("For all n, n plus 1 is greater than n.").unwrap_err()
-    );
-    assert!(
-        order.contains("equals"),
-        "an order between TERMS must be refused by naming the relation this surface DOES \
-         have: {order}"
-    );
+    // An ORDER between arithmetic terms lowers to the proof layer's own two Props, the
+    // converse words swapping the operands.
+    for (english, expected) in [
+        ("For all n, n plus 1 is greater than n.", "∀n(Lt(n, Add(n, 1)) = True)"),
+        ("For all n, n plus 1 is less than n.", "∀n(Lt(Add(n, 1), n) = True)"),
+        ("For all n, n is at most n plus 1.", "∀n(Le(n, Add(n, 1)) = True)"),
+        ("For all n, n plus 1 is at least n.", "∀n(Le(n, Add(n, 1)) = True)"),
+    ] {
+        let got = compile(english).unwrap_or_else(|e| panic!("`{english}` must compile: {e:?}"));
+        assert_eq!(got, expected, "`{english}` built the wrong order");
+    }
+
+    // An order word with NO production is still refused, by naming the relations this
+    // surface DOES have, never by reporting a missing content word.
+    for unsupported in [
+        "For all n, n plus 1 exceeds n.",
+        "For all n, n plus 1 is smaller than n.",
+    ] {
+        let order = format!("{:?}", compile(unsupported).unwrap_err());
+        assert!(
+            order.contains("equals") && order.contains("is at most") && order.contains("ORDERS"),
+            "`{unsupported}` must be refused by naming the relations this surface DOES have: \
+             {order}"
+        );
+    }
 }
 
 /// The production is strictly ADDITIVE. It rewinds unless it consumes the whole sentence, so

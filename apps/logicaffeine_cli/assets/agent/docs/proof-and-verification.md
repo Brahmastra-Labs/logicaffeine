@@ -16,8 +16,8 @@ The guide moves outward from the smallest trusted base:
 3. **Z3 verification**: an optional SMT/model-checking layer for static verification and hardware
    assertions, whose verdicts include Z3 in what you trust.
 4. **Translation validation** and **stencil synthesis**: the same solver turned on the compiler
-   itself. One proves a program's symbolic encoding agrees with the interpreter; the other checks
-   the JIT's stencils ahead of time.
+   itself. One proves, for every input, that the bytecode the VM runs computes what its source
+   computes; the other proves the JIT's integer stencils meet their specifications for every input.
 
 [The trust story](#the-trust-story) closes the guide with what each kind of verdict rests on.
 
@@ -287,7 +287,9 @@ and `linarith` declines it.
 ### Formal developments
 
 A `## Theory` block states axioms and theorems in the formal notation; a theorem `cites` the
-earlier theorems it uses, and the development is proved in citation order:
+earlier theorems it uses, and the development is proved in citation order. A citation brings in
+what the cited theorem states: its goal, under its `given` premises when it has any, so a lemma
+proved under a `given` helps only a theorem that can establish that `given` too:
 
 ```logos
 ## Theory Tarski
@@ -299,16 +301,41 @@ Theorem reflexivity: prove for all a b, Cong(a, b, a, b).
 Theorem symmetry cites reflexivity: prove for all a b c d, if Cong(a, b, c, d) then Cong(c, d, a, b).
 ```
 
+A theorem can `refute` a formula instead: it claims the formula does not follow from the axioms, its
+`given` premises and the statements of the theorems it cites. When those are ground facts and
+function-free Horn rules (negated body atoms allowed where they stratify), their least model is a
+finite structure in which every one of them holds, and the refutation holds when the formula is false
+there. That model is the certificate: it is re-checked premise by premise, over its finite domain,
+by an evaluator that shares nothing with the Datalog engine that built it. A refutation is not a
+kernel proof and has no proof term.
+
+```logos
+## Theory PointsTo
+
+Axiom new_a: VP0(A, H1).
+Axiom new_c: VP0(C, H2).
+Axiom copy_b: Assign(B, A).
+Axiom alloc: for all v h, if VP0(v, h) then VP(v, h).
+Axiom assign: for all v1 v2 h, if Assign(v1, v2) and VP(v2, h) then VP(v1, h).
+
+Theorem b_points_to_h1: prove VP(B, H1).
+Theorem c_stays_apart: refute VP(C, H1).
+```
+
 ### `largo prove`
 
 [`largo prove`](cli.md#prove) proves every `## Theory` development and English `## Theorem` in the
-assembled module closure of a file or of the project entry; every ✓ is kernel-certified. `--trace` renders
-each derivation; `--json` adds an `inventory` (each theorem `proved`/`unproved`, each axiom an
+assembled module closure of a file or of the project entry; every ✓ on a theorem is kernel-certified, and
+a ✓ on a refutation names the size of the countermodel that re-checked. `--trace` renders
+each derivation; `--json` adds an `inventory` (each theorem `proved`/`unproved`, each refutation
+`refuted`/`unrefuted` with its countermodel's size and never a proof, each axiom an
 assumption, never a proved fact) and a `summary`, and a name that is both a theorem and an axiom is
-refused. `--certificate` emits each English theorem's `TheoremCertificate` with the verdict of
-re-checking it against a rebuilt prelude (`rechecks`, `two_kernel_agreement`); a `## Theory`
-theorem is reported with `certificate: null` and the reason, since that path exposes no kernel
-term. `--kernel FILE` checks a kernel-vernacular document instead.
+refused. `--certificate` emits each proved theorem's `TheoremCertificate`, from a `## Theory`
+development or an English `## Theorem`, with the verdict of re-checking it against a rebuilt
+prelude (`rechecks`, `two_kernel_agreement`). A development's theorem discloses the axioms and the
+cited lemmas it assumed as hypotheses. An unproved goal is reported with `certificate: null` and the
+reason; a refutation with `certificate: null` and its countermodel, every element and every fact.
+`--kernel FILE` checks a kernel-vernacular document instead.
 
 ## Z3 verification (optional, the full build)
 
@@ -333,6 +360,25 @@ This backs the **English → SVA/PSL** path (the SVA code generator,
 verification. Verification errors are written as Socratic explanations with counter-examples. Run it
 with `largo verify` / `largo build --verify` (see [the CLI guide](cli.md)).
 
+On a program, `largo verify` proves that every `Assert` follows from what runs before it, that every
+refinement holds of its value, and that every `decreasing` variant is bounded below and shrinks on
+every iteration the loop condition admits. `Require` and `Assume` are enforced when the program runs,
+so execution continues past one only when it held: the verifier assumes them. It reads the program as
+facts about versions of its variables: an assignment makes a new version, a branch's facts hold under
+its condition and the two sides join after it, a loop forgets every name its body may write (and,
+unless the body can break out, knows the loop's exit condition after it), and an assertion is checked
+under the conditions it runs under. A call stands for its result only when the function is pure; any
+other call is a value the verifier does not know. Anything it does not model is forgotten, never
+guessed, so an `Assert` it cannot read is reported unproved rather than passed.
+
+```logos
+## Main
+Let mutable i be 0.
+While i is less than 10:
+    Set i to i + 1.
+Assert that i is at least 10.
+```
+
 Z3 is not a strictly stronger prover: the proof engine certifies by structural induction a
 `∀n:Nat` goal the Z3 oracle declines.
 
@@ -345,9 +391,29 @@ encoding agrees with the tree-walking interpreter on the full observable behavio
 `Show` outputs and whether an error was raised); a nondeterminate program is checked per seed
 against the seeded tree-walker. The fragment is straight-line `Int`/`Bool` code plus a determinate
 concurrency subset, `Int` encoded as a wrapping 64-bit bitvector; anything outside it is reported
-`Unsupported`, never as agreement. Only the source side has a symbolic executor: the
-source-to-emitted-Rust equivalence is not yet closed in code. It depends on both `compile` and
-`verify` and, like them, is opt-in.
+`Unsupported`, never as agreement. It depends on both `compile` and `verify` and, like them, is
+opt-in.
+
+`logicaffeine_tv::bytecode` validates the register VM's bytecode against its source. `validate`
+runs each function's source (a control-flow graph with the tree-walker's meaning) and the bytecode
+the VM runs for it (each op as its handler computes it) symbolically over exact integers. It runs
+both from the entry and from each loop head. Houdini infers which registers equal which variables
+at each head, and Z3 shows the two end alike on every pair of paths that can run together, having
+shown the same values. A loop is therefore proved for every trip count, not unrolled. An op is
+modeled on every operand, so a strength reduction that rests on a wrong fact is a disagreement, not
+an assumption: the reciprocal a constant division becomes, the mask a remainder becomes, the shift a
+power-of-two division becomes. Each reciprocal is decided exact for every 64-bit dividend by its
+error bound. A failed obligation is reported `Refuted` only with an input on which the two, run
+concretely, differ; otherwise it is `Unproven`. Validating the VM against its source this way found
+a `Repeat` whose bound had grown past 64 bits running on the VM where the tree-walker raised; a
+range now takes any Int on every engine.
+
+`logicaffeine_tv::rust` holds the Rust the AOT backend emits to its source the same way, the
+program parsed with `syn` and its operations taken as a release build computes them: `i64`
+arithmetic wraps, and the runtime's checked helpers stop with "Integer overflow" when a value
+leaves 64 bits. A function is proved to show what its source shows and end as it ends, or to stop
+loudly where the source holds a wider value, so it never computes a wrong answer; a silent wrap is
+refuted with the input that shows it.
 
 The tensor compiler's fusion rules are proven the same way. `tensor_graph::smt` states what a graph
 of the one tensor IR computes as terms over arrays: an op that moves values is the index map it is,
@@ -361,8 +427,12 @@ identities a chip computes a fused op by, at bounded shapes.
 ## Synthesis (EXODIA)
 
 [`logicaffeine_synth`](../crates/logicaffeine_synth/README.md) is offline tooling that uses Z3 to
-verify the EXODIA JIT's stencil specifications against witness inputs (`all_specs`,
-`check_spec_with_witnesses`). It also proves that each reversible VM opcode inverts with its
+prove the EXODIA JIT's integer stencils meet their specifications (`all_specs`) for every input.
+`stencil_proof` decodes each stencil's own machine code (a closed x86-64 subset that refuses
+anything outside it) and executes every path symbolically. It proves that the side exit is taken
+exactly when the specification's precondition fails, that the result lands where the specification
+says, that no divide can fault, and that the registers the stencil ABI pins survive. The witness
+harness (`check_spec_with_witnesses`) runs chosen inputs through the real code beside it. It also proves that each reversible VM opcode inverts with its
 declared inverse and that `RevSwap` is an involution (`all_rev_specs`, `prove_bijective`,
 `prove_swap_involution`). It never runs inside the language at runtime; it validates the JIT
 back-end ahead of time.
@@ -376,7 +446,11 @@ corroborates where its fragment reaches. Z3 verification and translation validat
 whose trust boundary includes Z3. Claims from outside the prover follow the same replay pattern:
 `interval_replay` re-derives analog range certificates by outward-rounded interval arithmetic,
 `relax_replay` and `thermal_replay` re-multiply settled linear-solve and thermal-map claims in
-exact rationals, and `revgate` certifies a reversible gate as a bijection. Each is the rule this
+exact rationals, and `revgate` certifies a reversible gate as a bijection. The optimizer's e-graph
+rewrites are each certified the same way: a ring identity by a kernel proof term, a Boolean one by
+case analysis, and a division, shift, copy or slice rule by a proof over definitions that the tests
+hold to the runtime's own operations. The kernel accepts each proof with nothing assumed; constant
+folding is checked against the kernel's own evaluation. Each is the rule this
 guide opened with: search can be heuristic, but acceptance is checked.
 
 ## See also
@@ -400,7 +474,8 @@ Every `logos` block above is compiled by `doc_examples`.
   `phase84_extraction`. Arithmetic sentences and `Proof:` lines: `L_language_extra`.
 - The tactic language: `tactic_script`, `T_tactics_extra`, `omega_tactic`.
 - Z3 verification, built with `--features verification`: `phase_verification`,
-  `phase_verification_refinement`, `phase_verification_floordiv`, and the hardware suites
+  `phase_verification_refinement`, `phase_verification_floordiv`, `verification_soundness_lock` (what a
+  program's facts may and may not prove), and the hardware suites
   `phase_hw_z3_equiv`, `phase_hw_e2e_z3`, `phase_hw_advanced_z3`, `phase_hw_cegar_z3`,
   `phase_hw_synthesis_z3` and `phase_hw_native_vs_z3`. `phase104_induction_vs_z3` holds the
   contrast between structural induction and the Z3 oracle.

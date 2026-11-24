@@ -336,21 +336,9 @@ pub fn qwen3_8b_checkpoint() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../models/qwen3-8b/Qwen_Qwen3-8B-Q8_0.gguf")
 }
 
-/// The checkpoint behind `tool_available("checkpoint:<name>")`: the GGUF `models/<dir>/<file>.gguf` names, or the
-/// one GGUF under `models/<dir>/`.
-pub fn checkpoint(name: &str) -> Option<PathBuf> {
-    let d = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../models").join(name);
-    if name.ends_with(".gguf") {
-        return d.is_file().then_some(d);
-    }
-    let mut found: Vec<PathBuf> = std::fs::read_dir(&d)
-        .ok()?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().is_some_and(|e| e == "gguf"))
-        .collect();
-    found.sort();
-    (found.len() == 1).then(|| found.remove(0))
-}
+pub mod checkpoints;
+/// The checkpoint behind `tool_available("checkpoint:<name>")`.
+pub use checkpoints::checkpoint;
 
 /// The pinned compute-sanitizer (tool 2025.1) under the gitignored `external/cuda-sanitizer/`
 /// (`scripts/accel/fetch-cuda-sanitizer.sh`): the race, barrier and memory checker the lane's `cp.async` kernels run
@@ -690,6 +678,10 @@ fn get_shared_target_dir() -> &'static PathBuf {
             "debug/deps",
             "debug/incremental",
             "debug/.fingerprint",
+            "release",
+            "release/deps",
+            "release/incremental",
+            "release/.fingerprint",
         ] {
             let Ok(rd) = std::fs::read_dir(dir.join(sub)) else {
                 continue;
@@ -700,6 +692,7 @@ fn get_shared_target_dir() -> &'static PathBuf {
                 let generated = n.starts_with("logos_e2e_")
                     || n.starts_with("logos_clink_")
                     || n.starts_with("logos_run_")
+                    || n.starts_with("logos_ir_")
                     || n.starts_with("liblogos_e2e_")
                     || n.starts_with("liblogos_clink_");
                 if !generated {
@@ -731,13 +724,18 @@ fn get_shared_target_dir() -> &'static PathBuf {
 /// hundreds of GB per shard across repeated suite runs.
 fn prune_project_artifacts(target: &std::path::Path, pkg_name: &str) {
     let stem = pkg_name.replace('-', "_");
-    let debug = target.join("debug");
-    let _ = std::fs::remove_file(debug.join(pkg_name));
-    let _ = std::fs::remove_file(debug.join(format!("{pkg_name}.d")));
-    let _ = std::fs::remove_file(debug.join(format!("lib{stem}.a")));
-    let _ = std::fs::remove_file(debug.join(format!("lib{stem}.so")));
+    for profile in ["debug", "release"] {
+        prune_profile_artifacts(&target.join(profile), pkg_name, &stem);
+    }
+}
+
+fn prune_profile_artifacts(profile: &std::path::Path, pkg_name: &str, stem: &str) {
+    let _ = std::fs::remove_file(profile.join(pkg_name));
+    let _ = std::fs::remove_file(profile.join(format!("{pkg_name}.d")));
+    let _ = std::fs::remove_file(profile.join(format!("lib{stem}.a")));
+    let _ = std::fs::remove_file(profile.join(format!("lib{stem}.so")));
     for sub in ["deps", "incremental", ".fingerprint", "build"] {
-        let Ok(rd) = std::fs::read_dir(debug.join(sub)) else {
+        let Ok(rd) = std::fs::read_dir(profile.join(sub)) else {
             continue;
         };
         for e in rd.flatten() {
@@ -820,6 +818,272 @@ fn format_user_deps(deps: &[logicaffeine_compile::CrateDependency]) -> String {
     out
 }
 
+// ============================================================
+// Generated Rust projects — one writer, a profile, a time limit, clippy
+// ============================================================
+
+/// The `Cargo.toml` every generated program builds under: the workspace's runtime crates as path dependencies,
+/// the crates the emitter may name, and the program's own declared dependencies.
+fn generated_manifest(
+    pkg_name: &str,
+    workspace_root: &std::path::Path,
+    profiles: &str,
+    user_deps: &str,
+) -> String {
+    format!(
+        r#"[package]
+name = "{pkg_name}"
+version = "0.1.0"
+edition = "2021"
+{profiles}
+[dependencies]
+logicaffeine-data = {{ path = "{root}/crates/logicaffeine_data" }}
+logicaffeine-system = {{ path = "{root}/crates/logicaffeine_system", features = ["full"] }}
+tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
+serde = {{ version = "1", features = ["derive"] }}
+rayon = "1"
+memchr = "2"
+{user_deps}"#,
+        root = workspace_root.display(),
+    )
+}
+
+fn workspace_root_dir() -> PathBuf {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| std::env::current_dir().unwrap());
+    manifest_dir.parent().unwrap().parent().unwrap().to_path_buf()
+}
+
+/// A Cargo profile a generated program is built under.
+#[allow(dead_code)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RustProfile {
+    Debug,
+    Release,
+}
+
+impl RustProfile {
+    #[allow(dead_code)]
+    fn target_subdir(self) -> &'static str {
+        match self {
+            RustProfile::Debug => "debug",
+            RustProfile::Release => "release",
+        }
+    }
+}
+
+/// A generated program built into a binary in the shared cache; dropping it prunes its artifacts.
+#[allow(dead_code)]
+pub struct BuiltProgram {
+    pub binary: PathBuf,
+    pkg_name: String,
+    _project: tempfile::TempDir,
+}
+
+impl Drop for BuiltProgram {
+    fn drop(&mut self) {
+        prune_project_artifacts(get_shared_target_dir(), &self.pkg_name);
+    }
+}
+
+/// `cargo` in a generated project against the shared cache: offline first, online if the cache is cold.
+fn generated_cargo(project_dir: &std::path::Path, args: &[&str]) -> std::process::Output {
+    let run = |offline: bool| {
+        let mut cmd = Command::new("cargo");
+        // `--offline` is cargo's own: it follows the subcommand, ahead of any `--` that hands the rest to the compiler.
+        let (subcommand, rest) = args.split_first().expect("a cargo subcommand");
+        cmd.arg(subcommand);
+        if offline {
+            cmd.arg("--offline");
+        }
+        cmd.args(rest);
+        cmd.current_dir(project_dir)
+            .env("CARGO_TARGET_DIR", get_shared_target_dir())
+            .output()
+            .expect("run cargo")
+    };
+    let output = run(true);
+    if !output.status.success() && String::from_utf8_lossy(&output.stderr).contains("--offline") {
+        run(false)
+    } else {
+        output
+    }
+}
+
+/// Build emitted Rust under `profile`: the binary, or cargo's error output.
+#[allow(dead_code)]
+pub fn build_generated(
+    rust_code: &str,
+    dependencies: &[logicaffeine_compile::CrateDependency],
+    profile: RustProfile,
+) -> Result<BuiltProgram, String> {
+    let project = tempfile::tempdir().expect("temp dir");
+    let pkg_name = format!(
+        "logos_e2e_{}_{}",
+        get_run_id(),
+        COMPILE_COUNTER.fetch_add(1, Ordering::SeqCst)
+    );
+    let root = workspace_root_dir();
+    std::fs::create_dir_all(project.path().join("src")).unwrap();
+    std::fs::write(
+        project.path().join("Cargo.toml"),
+        generated_manifest(&pkg_name, &root, "", &format_user_deps(dependencies)),
+    )
+    .unwrap();
+    std::fs::write(project.path().join("src/main.rs"), rust_code).unwrap();
+    seed_lockfile(&root, project.path());
+    let mut args = vec!["build", "--quiet"];
+    if profile == RustProfile::Release {
+        args.push("--release");
+    }
+    let output = generated_cargo(project.path(), &args);
+    if !output.status.success() {
+        prune_project_artifacts(get_shared_target_dir(), &pkg_name);
+        return Err(String::from_utf8_lossy(&output.stderr).into_owned());
+    }
+    Ok(BuiltProgram {
+        binary: get_shared_target_dir()
+            .join(profile.target_subdir())
+            .join(&pkg_name),
+        pkg_name,
+        _project: project,
+    })
+}
+
+/// What a program did within its time limit.
+#[allow(dead_code)]
+pub struct TimedRun {
+    pub stdout: String,
+    pub stderr: String,
+    pub success: bool,
+    pub timed_out: bool,
+}
+
+/// Run `binary` with `args`, killing it at `limit`.
+#[allow(dead_code)]
+pub fn run_within(binary: &std::path::Path, args: &[&str], limit: std::time::Duration) -> TimedRun {
+    use std::io::Read;
+    let mut child = Command::new(binary)
+        .args(args)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap_or_else(|e| panic!("run {}: {e}", binary.display()));
+    let drain = |mut pipe: Box<dyn Read + Send>| {
+        std::thread::spawn(move || {
+            let mut bytes = Vec::new();
+            let _ = pipe.read_to_end(&mut bytes);
+            String::from_utf8_lossy(&bytes).into_owned()
+        })
+    };
+    let stdout = drain(Box::new(child.stdout.take().unwrap()));
+    let stderr = drain(Box::new(child.stderr.take().unwrap()));
+    let start = std::time::Instant::now();
+    let (status, timed_out) = loop {
+        if let Some(status) = child.try_wait().expect("poll the program") {
+            break (Some(status), false);
+        }
+        if start.elapsed() >= limit {
+            let _ = child.kill();
+            let _ = child.wait();
+            break (None, true);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    TimedRun {
+        stdout: stdout.join().unwrap(),
+        stderr: stderr.join().unwrap(),
+        success: status.is_some_and(|s| s.success()),
+        timed_out,
+    }
+}
+
+/// One rustc or clippy diagnostic on a generated program.
+#[allow(dead_code)]
+#[derive(Debug)]
+pub struct GeneratedDiagnostic {
+    pub program: String,
+    pub level: String,
+    pub code: Option<String>,
+    pub rendered: String,
+}
+
+/// Every diagnostic `cargo clippy -- -D warnings` gives on `programs` (each `(name, emitted Rust)` one binary
+/// target of one project, so one cargo checks them all). A build that fails without saying why is one diagnostic.
+#[allow(dead_code)]
+pub fn clippy_generated(
+    programs: &[(String, String)],
+    dependencies: &[logicaffeine_compile::CrateDependency],
+) -> Vec<GeneratedDiagnostic> {
+    let project = tempfile::tempdir().expect("temp dir");
+    let pkg_name = format!(
+        "logos_e2e_{}_{}",
+        get_run_id(),
+        COMPILE_COUNTER.fetch_add(1, Ordering::SeqCst)
+    );
+    let root = workspace_root_dir();
+    std::fs::create_dir_all(project.path().join("src/bin")).unwrap();
+    std::fs::write(
+        project.path().join("Cargo.toml"),
+        generated_manifest(&pkg_name, &root, "", &format_user_deps(dependencies)),
+    )
+    .unwrap();
+    let bin_of = |program: &str| format!("{pkg_name}_{program}");
+    for (program, rust_code) in programs {
+        std::fs::write(
+            project.path().join(format!("src/bin/{}.rs", bin_of(program))),
+            rust_code,
+        )
+        .unwrap();
+    }
+    seed_lockfile(&root, project.path());
+    let output = generated_cargo(
+        project.path(),
+        &["clippy", "--bins", "--message-format=json", "--", "-D", "warnings"],
+    );
+    let mut found = Vec::new();
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let Ok(msg) = serde_json::from_str::<serde_json::Value>(line) else {
+            continue;
+        };
+        if msg["reason"] != "compiler-message" {
+            continue;
+        }
+        let target = msg["target"]["name"].as_str().unwrap_or_default();
+        let Some(program) = target.strip_prefix(&format!("{pkg_name}_")) else {
+            continue;
+        };
+        let level = msg["message"]["level"].as_str().unwrap_or_default();
+        if !matches!(level, "error" | "warning") {
+            continue;
+        }
+        let rendered = msg["message"]["rendered"].as_str().unwrap_or_default();
+        if rendered.starts_with("error: aborting due to") || rendered.contains("warnings emitted") {
+            continue;
+        }
+        found.push(GeneratedDiagnostic {
+            program: program.to_string(),
+            level: level.to_string(),
+            code: msg["message"]["code"]["code"].as_str().map(str::to_string),
+            rendered: rendered.to_string(),
+        });
+    }
+    if !output.status.success() && found.is_empty() {
+        found.push(GeneratedDiagnostic {
+            program: "(the project)".to_string(),
+            level: "error".to_string(),
+            code: None,
+            rendered: String::from_utf8_lossy(&output.stderr).into_owned(),
+        });
+    }
+    for (program, _) in programs {
+        prune_project_artifacts(get_shared_target_dir(), &bin_of(program));
+    }
+    prune_project_artifacts(get_shared_target_dir(), &pkg_name);
+    found
+}
+
 /// Compile LOGOS source to a binary without running it.
 /// Returns the path to the compiled binary.
 pub fn compile_logos(source: &str) -> CompileResult {
@@ -846,35 +1110,15 @@ pub fn compile_logos(source: &str) -> CompileResult {
     // 3. Write Cargo.toml with unique package name (includes run ID to avoid stale binary issues)
     let pkg_id = COMPILE_COUNTER.fetch_add(1, Ordering::SeqCst);
     let pkg_name = format!("logos_e2e_{}_{}", get_run_id(), pkg_id);
-    // CARGO_MANIFEST_DIR points to crates/logicaffeine_tests, go up twice to get workspace root
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::current_dir().unwrap());
-    let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
-    let cargo_toml = format!(
-        r#"[package]
-name = "{}"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-logicaffeine-data = {{ path = "{}/crates/logicaffeine_data" }}
-logicaffeine-system = {{ path = "{}/crates/logicaffeine_system", features = ["full"] }}
-tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
-serde = {{ version = "1", features = ["derive"] }}
-rayon = "1"
-memchr = "2"
-{}"#,
-        pkg_name,
-        workspace_root.display(),
-        workspace_root.display(),
-        user_deps
-    );
-
+    let workspace_root = workspace_root_dir();
     std::fs::create_dir_all(project_dir.join("src")).unwrap();
-    std::fs::write(project_dir.join("Cargo.toml"), cargo_toml).unwrap();
+    std::fs::write(
+        project_dir.join("Cargo.toml"),
+        generated_manifest(&pkg_name, &workspace_root, "", &user_deps),
+    )
+    .unwrap();
     std::fs::write(project_dir.join("src/main.rs"), &rust_code).unwrap();
-    seed_lockfile(workspace_root, project_dir);
+    seed_lockfile(&workspace_root, project_dir);
 
     // 4. Build (but don't run) - use shared target dir for caching
     //    Try --offline first, fall back to online if cache isn't warm.
@@ -923,37 +1167,20 @@ pub fn compile_logos_llvm_ir(source: &str) -> String {
 
     let pkg_id = COMPILE_COUNTER.fetch_add(1, Ordering::SeqCst);
     let pkg_name = format!("logos_ir_{}_{}", get_run_id(), pkg_id);
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::current_dir().unwrap());
-    let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
-    let cargo_toml = format!(
-        r#"[package]
-name = "{}"
-version = "0.1.0"
-edition = "2021"
-
-[profile.release]
-codegen-units = 1
-
-[dependencies]
-logicaffeine-data = {{ path = "{}/crates/logicaffeine_data" }}
-logicaffeine-system = {{ path = "{}/crates/logicaffeine_system", features = ["full"] }}
-tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
-serde = {{ version = "1", features = ["derive"] }}
-rayon = "1"
-memchr = "2"
-{}"#,
-        pkg_name,
-        workspace_root.display(),
-        workspace_root.display(),
-        user_deps
-    );
-
+    let workspace_root = workspace_root_dir();
     std::fs::create_dir_all(project_dir.join("src")).unwrap();
-    std::fs::write(project_dir.join("Cargo.toml"), cargo_toml).unwrap();
+    std::fs::write(
+        project_dir.join("Cargo.toml"),
+        generated_manifest(
+            &pkg_name,
+            &workspace_root,
+            "[profile.release]\ncodegen-units = 1\n",
+            &user_deps,
+        ),
+    )
+    .unwrap();
     std::fs::write(project_dir.join("src/main.rs"), &rust_code).unwrap();
-    seed_lockfile(workspace_root, project_dir);
+    seed_lockfile(&workspace_root, project_dir);
 
     let output = Command::new("cargo")
         .args([
@@ -1076,35 +1303,15 @@ pub fn run_rust_project(
     // Write Cargo.toml with unique package name (includes run ID to avoid stale binary issues)
     let pkg_id = COMPILE_COUNTER.fetch_add(1, Ordering::SeqCst);
     let pkg_name = format!("logos_e2e_{}_{}", get_run_id(), pkg_id);
-    // CARGO_MANIFEST_DIR points to crates/logicaffeine_tests, go up twice to get workspace root
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| std::env::current_dir().unwrap());
-    let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
-    let cargo_toml = format!(
-        r#"[package]
-name = "{}"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-logicaffeine-data = {{ path = "{}/crates/logicaffeine_data" }}
-logicaffeine-system = {{ path = "{}/crates/logicaffeine_system", features = ["full"] }}
-tokio = {{ version = "1", features = ["rt-multi-thread", "macros"] }}
-serde = {{ version = "1", features = ["derive"] }}
-rayon = "1"
-memchr = "2"
-{}"#,
-        pkg_name,
-        workspace_root.display(),
-        workspace_root.display(),
-        user_deps
-    );
-
+    let workspace_root = workspace_root_dir();
     std::fs::create_dir_all(project_dir.join("src")).unwrap();
-    std::fs::write(project_dir.join("Cargo.toml"), cargo_toml).unwrap();
+    std::fs::write(
+        project_dir.join("Cargo.toml"),
+        generated_manifest(&pkg_name, &workspace_root, "", &user_deps),
+    )
+    .unwrap();
     std::fs::write(project_dir.join("src/main.rs"), rust_code).unwrap();
-    seed_lockfile(workspace_root, project_dir);
+    seed_lockfile(&workspace_root, project_dir);
 
     // Run - use shared target dir for caching
     //    Try --offline first to avoid transient crates.io failures, fall back to online.
@@ -1323,6 +1530,11 @@ pub fn assert_panics(source: &str, expected_msg: &str) {
 #[allow(dead_code)]
 pub const C_RELEASE_FLAGS: &[&str] = &["-O3", "-march=native", "-flto", "-ffp-contract=off"];
 
+/// The dialect a C build compiles the generated C in (`largo build --emit c`): C17 with the GNU extensions it is
+/// written with.
+#[allow(dead_code)]
+pub const C_DIALECT_FLAGS: &[&str] = &["-std=gnu17"];
+
 /// The C compiler a build runs: `$CC`, else `cc`.
 #[allow(dead_code)]
 pub fn c_compiler() -> String {
@@ -1339,6 +1551,7 @@ pub fn build_c_release(
     bin: &std::path::Path,
 ) -> std::io::Result<std::process::Output> {
     std::process::Command::new(c_compiler())
+        .args(C_DIALECT_FLAGS)
         .args(C_RELEASE_FLAGS)
         .arg("-o")
         .arg(bin)
@@ -1772,7 +1985,9 @@ pub fn run_all_tiers(source: &str) -> TierAgreement {
     use logicaffeine_compile::optimization::Tier as OptimizerTier;
 
     let tw = tw_outcome(source);
-    #[cfg(not(target_arch = "wasm32"))]
+    // The native tier exists only where the forge JIT does (x86_64 System V); elsewhere the
+    // optimized VM runs with none, as the product runs there.
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let forge = logicaffeine_jit::ForgeTier::new();
     for tier in [Tier::TreeWalker, Tier::Vm, Tier::OptimizedVm, Tier::OptimizedVmNative] {
         // No wildcard arm — a new Tier variant makes this non-exhaustive and fails the build.
@@ -1781,9 +1996,9 @@ pub fn run_all_tiers(source: &str) -> TierAgreement {
             Tier::Vm => vm_outcome(source),
             Tier::OptimizedVm => vm_outcome_tiered(source, &[], OptimizerTier::T3, None),
             Tier::OptimizedVmNative => {
-                #[cfg(not(target_arch = "wasm32"))]
+                #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
                 let native: Option<&dyn logicaffeine_compile::vm::NativeTier> = Some(&forge);
-                #[cfg(target_arch = "wasm32")]
+                #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
                 let native: Option<&dyn logicaffeine_compile::vm::NativeTier> = None;
                 vm_outcome_tiered(source, &[], OptimizerTier::T3, native)
             }

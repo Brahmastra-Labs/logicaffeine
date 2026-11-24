@@ -399,11 +399,9 @@ impl LogosIndex<i64> for String {
         } else {
             resolve_logos_index(index, self.chars().count())
         };
-        match self.as_bytes().get(idx) {
-            Some(&b) if b.is_ascii() => {
-                // Fast path: ASCII byte
-                String::from(b as char)
-            }
+        match self.as_bytes().get(..=idx) {
+            // Fast path: every byte up to the index is ASCII, so the byte is the character.
+            Some(head) if head.is_ascii() => String::from(head[idx] as char),
             _ => {
                 // Slow path: Unicode or out of bounds
                 self.chars()
@@ -434,8 +432,8 @@ impl LogosGetChar for String {
         } else {
             resolve_logos_index(index, self.chars().count())
         };
-        match self.as_bytes().get(idx) {
-            Some(&b) if b.is_ascii() => b as char,
+        match self.as_bytes().get(..=idx) {
+            Some(head) if head.is_ascii() => head[idx] as char,
             _ => self
                 .chars()
                 .nth(idx)

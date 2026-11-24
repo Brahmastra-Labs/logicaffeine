@@ -554,21 +554,35 @@ fn a_let_fun_marker_is_never_silently_dropped() {
         .iter()
         .any(|m| m.expression == next as usize && m.key == "pp.analysis"));
 
-    // The later elaborator's `have` — a `nondep` let. viaLet's let is `nondep: false` and imports;
-    // flipping only that flag is declined, not imported as a transparent let.
+    // The later elaborator's `have` — a `nondep` let — under the elaborator-have contract. viaLet's
+    // let is `nondep: false` and imports; flipping only that flag imports the same checked terms,
+    // and the flag is disclosed at that let, exactly once, never dropped.
     let let_at = rows.iter().position(|r| r.get("letE").is_some()).unwrap();
     assert_eq!(rows[let_at]["letE"]["nondep"], json!(false));
-    adapter::check_str(HAVE).expect("the unmarked original");
+    let let_id = rows[let_at]["ie"].as_u64().unwrap() as usize;
+    let via_let = n("T00_019.viaLet");
+    let (original, original_report) =
+        adapter::import_audited_retaining_source(HAVE, &via_let).expect("the unmarked original");
     let mut nondep = rows.clone();
     nondep[let_at]["letE"]["nondep"] = json!(true);
-    let verdict = adapter::check_str(&text(&nondep)).unwrap_err();
-    assert!(matches!(verdict, Verdict::Decline(_)), "{verdict:?}");
-    assert_eq!(verdict.reason().code(), DiagnosticCode::UnsupportedFeature);
-    assert!(
-        verdict
-            .reason()
-            .message()
-            .starts_with(&format!("line {}: a nondep", let_at + 1)),
-        "{verdict:?}"
+    let flagged_text = text(&nondep);
+    let (flagged, flagged_report) =
+        adapter::import_audited_retaining_source(&flagged_text, &via_let)
+            .expect("a nondep let imports under the elaborator-have contract");
+    assert_eq!(
+        original.retained_source().map(|(_, ty, body)| (ty.clone(), body.clone())),
+        flagged.retained_source().map(|(_, ty, body)| (ty.clone(), body.clone())),
+        "the flag changes no checked term"
     );
+    let disclosed: Vec<_> = flagged_report
+        .metadata_losses
+        .iter()
+        .filter(|m| m.key == "letE.nondep")
+        .map(|m| (m.expression, m.value.as_str()))
+        .collect();
+    assert_eq!(disclosed, vec![(let_id, "true")], "disclosed at that let, once");
+    assert!(original_report
+        .metadata_losses
+        .iter()
+        .all(|m| m.key != "letE.nondep"));
 }

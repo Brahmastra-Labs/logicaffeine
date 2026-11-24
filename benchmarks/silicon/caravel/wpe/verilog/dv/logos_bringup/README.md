@@ -14,8 +14,8 @@ From this directory:
     vvp /tmp/tb.out        # expect: SHOW lines, three FRAME lines, PSRAM-VIOLATIONS 0, PASS
 
 The bench drives the fabricated top cell, `user_project_wrapper`, through its pins only: the host's UART
-on GPIO 8 and 9, the engine's clock on `user_clock2` (47.62 MHz), the management SoC's clock on `wb_clk_i`
-(40 MHz) and its reset, an idle Wishbone, and a pin-accurate model of the APS6404L-3SQN on GPIO 10–15. Every PSRAM pin reaches the part 10.12 ns after the macro drives it
+on GPIO 8 and 9, the engine's clock on `wb_clk_i` (20.83 MHz), which the management SoC shares, and its reset,
+an idle Wishbone, and a pin-accurate model of the APS6404L-3SQN on GPIO 10–15. Every PSRAM pin reaches the part 10.12 ns after the macro drives it
 (the harness's slowest `io_out` path, 9.12 ns, and 1 ns of board), `io_oeb` 10.32 ns after, and the part's
 data reaches `io_in` 5.55 ns after the part drives it. It fails the run on a pin driven the wrong way
 (`PIN-DIRECTION`), a received byte overwritten before the engine takes it (`UART-LOST`), a PSRAM rule

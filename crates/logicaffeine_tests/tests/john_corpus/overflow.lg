@@ -1,0 +1,13 @@
+## To next (xs: Seq of Int) -> Seq of Int:
+    Let mutable out be a new Seq of Int.
+    Push (item 1 of xs) + 1 to out.
+    Return out.
+
+## Main
+Let mutable state be a new Seq of Int.
+Push 9223372036854775557 to state.
+Let mutable i be 0.
+While i is less than 400:
+    Set state to next(state).
+    Set i to i + 1.
+Show item 1 of state.

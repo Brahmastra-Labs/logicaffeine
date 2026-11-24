@@ -7,8 +7,9 @@
 //! writes it — every key and every tensor bit for bit, nothing left unread — into a spec that carries every key of its
 //! configuration; the f64 reference's step reads every tensor but the draft block's; and the reference computes what
 //! transformers computes at positions of a prompt that crosses an end of document and outgrows the budget, run whole
-//! and a token at a time. Each of its parts the author does not write yet is refused by name, so no program computes
-//! Qwen3.5's model in its place.
+//! and a token at a time. Over a cache within QSA's dense limit the author writes it whole and `largo emit rdu` writes
+//! its SN50 bundle; what the author does not write is refused by name, so no program computes another model in its
+//! place.
 //!
 //! Run: `cargo nextest run -p logicaffeine-tests --cargo-profile test-opt --test qwen4_exp_intake_lock`
 
@@ -295,29 +296,17 @@ fn the_reference_equals_transformers_on_the_tiny_checkpoint() {
 fn every_part_the_author_does_not_write_is_refused_by_name() {
     let Some((dir, _)) = twin() else { return };
     let spec = ModelSpec::from_source(&*open_checkpoint(&dir).unwrap()).unwrap();
-    let silu = |s: &mut ModelSpec, gate: GateActivation| {
-        for layer in &mut s.layers {
-            if let Mixer::GatedDelta(g) = &mut layer.mixer {
-                g.gate = gate;
-            }
-        }
-    };
-    let mut bare = spec.clone();
-    (bare.hyper, bare.ple, bare.indexer) = (None, None, None);
-    silu(&mut bare, GateActivation::Silu);
-    author::check(&bare).unwrap_or_else(|e| panic!("without its own parts the twin is Qwen3.5's mixture, which the author writes: {e}"));
-    let parts: [(&str, Box<dyn Fn(&mut ModelSpec)>); 4] = [
-        ("hyper-connections", Box::new(|s| s.hyper = spec.hyper)),
-        ("n-gram embedding", Box::new(|s| s.ple = spec.ple.clone())),
-        ("(QSA)", Box::new(|s| s.indexer = spec.indexer.clone())),
-        ("gated other than by SiLU", Box::new(move |s| silu(s, GateActivation::Sigmoid))),
-    ];
-    for (named, add) in parts {
-        let mut one = bare.clone();
-        add(&mut one);
-        let refused = author::check(&one).expect_err(named).to_string();
-        assert!(refused.contains(named), "the author refuses {named} by name; it says: {refused}");
-    }
+    // The hyper-connected residual, the n-gram embedding on it, the sigmoid gate and QSA within its dense limit are
+    // written: over a cache of 4 positions the twin is a model the author writes whole.
+    author::check_at(&spec, 4).unwrap_or_else(|e| panic!("the twin over a cache of 4 positions is written whole: {e}"));
+    // What is not written is refused by name: an n-gram embedding off a hyper-connected residual, and QSA over a cache
+    // of no known length.
+    let mut unmixed = spec.clone();
+    unmixed.hyper = None;
+    let refused = author::check_at(&unmixed, 4).expect_err("an n-gram embedding without hyper-connections").to_string();
+    assert!(refused.contains("n-gram embedding"), "the author refuses the n-gram embedding by name; it says: {refused}");
+    let refused = author::check(&spec).expect_err("QSA over a cache of no known length").to_string();
+    assert!(refused.contains("(QSA)"), "the author refuses QSA by name; it says: {refused}");
 
     let out = tempfile::tempdir().unwrap();
     let bundle = out.path().join("bundle");
@@ -325,8 +314,6 @@ fn every_part_the_author_does_not_write_is_refused_by_name() {
         out.path(),
         &["emit", "rdu", "--chip", "sn50", "--model", dir.to_str().unwrap(), "--ctx", "4", "-o", bundle.to_str().unwrap()],
     );
-    assert_ne!(emitted.status.code(), Some(0), "largo emit rdu writes no bundle for the twin");
-    let said = cli::stderr(&emitted);
-    assert!(said.contains("hyper-connections"), "the refusal names the hyper-connections: {said}");
-    assert!(!bundle.join("manifest.json").exists(), "and leaves no manifest");
+    assert_eq!(emitted.status.code(), Some(0), "largo emit rdu writes the twin's bundle:\n{}", cli::stderr(&emitted));
+    assert!(bundle.join("manifest.json").exists(), "and its manifest");
 }

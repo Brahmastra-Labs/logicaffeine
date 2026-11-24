@@ -273,8 +273,8 @@ fn analyze_stmt<'a>(
                 clobber_callee_globals(
                     division,
                     &CalleeGlobals {
-                        symbols: HashSet::new(),
                         opaque: true,
+                        ..Default::default()
                     },
                 );
             } else {

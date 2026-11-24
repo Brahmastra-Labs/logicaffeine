@@ -10,6 +10,7 @@ pub mod exact;
 pub mod failure;
 pub mod fmt;
 pub mod indexing;
+pub mod int_vec;
 pub mod ops;
 pub mod opt;
 pub mod temporal;
@@ -28,7 +29,7 @@ pub use indexing::{
     LogosItems,
 };
 pub use ops::{
-    logos_add_exact, logos_add_i64, logos_approx_eq, logos_band_exact, logos_cmp_i64_f64,
+    logos_abs_i64, logos_exact_range, logos_add_exact, logos_add_i64, logos_approx_eq, logos_band_exact, logos_cmp_i64_f64,
     logos_cold_path, logos_div_exact, logos_div_i128, logos_div_i64, logos_floordiv_exact,
     logos_i64_eq_f64, logos_i64_key_of_f64, logos_mul_exact, logos_mul_i64, logos_narrow_i128,
     logos_pow_exact, logos_rem_exact, logos_rem_i128, logos_rem_i64, logos_sub_exact,
@@ -49,4 +50,5 @@ pub use types::{
     Unit, Value, VecCowNoop,
 };
 pub use exact::LogosValue;
+pub use int_vec::IntVec;
 pub use opt::LogosOpt;

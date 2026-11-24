@@ -250,6 +250,7 @@ fn the_schema_is_approved_before_the_first_row() {
     let l = ledger();
     assert!(l.rows.is_empty() || l.approved.is_some(), "the ledger holds rows before Tristen approved its schema");
     let mut unapproved = ledger_json();
+    unapproved["approved"] = Value::Null;
     unapproved["rows"] = json!([published("2024-10-31", 584.0)]);
     let unapproved: Ledger = serde_json::from_value(unapproved).unwrap();
     assert_refused(&unapproved, "before Tristen approved the schema");

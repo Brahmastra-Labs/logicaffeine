@@ -13,11 +13,11 @@ pub const ENDPOINT: &str = "https://api.logicaffeine.com/lead";
 /// The form's tag in every request, so the team can tell where a request came from.
 /// The page's tag on the wire. It keeps its old name: the lead worker is deployed on it, and a lead
 /// from the contact page is the same lead.
-pub const SOURCE: &str = "pricing";
+pub const SOURCE: &str = "contact";
 
 /// The action the form's Turnstile widget stamps on its token; the worker's siteverify check
 /// refuses a token that carries any other.
-pub const TURNSTILE_ACTION: &str = "pricing-lead";
+pub const TURNSTILE_ACTION: &str = "contact-lead";
 
 const MAX_EMAIL: usize = 254;
 const MAX_LOCAL: usize = 64;

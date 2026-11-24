@@ -2810,10 +2810,10 @@ endmodule
 // change at SCLK's falling edge; the part samples at its rising edge, and read data is taken at
 // the rising edge. Emitted by `cargo run -p logicaffeine-compile --example emit_psram_edge`.
 module psram_edge #(
-  parameter integer H = 2,
-  parameter integer POWERUP = 9375,
-  parameter integer CPH = 2,
-  parameter integer RSTGAP = 4
+  parameter integer H = 1,
+  parameter integer POWERUP = 7500,
+  parameter integer CPH = 1,
+  parameter integer RSTGAP = 3
 ) (
   input clk, input rst,
   input req_valid, output req_ready, input req_we, input [19:0] req_addr, input [7:0] req_len,
@@ -2915,8 +2915,8 @@ module psram_edge #(
 endmodule
 
 // wpe_user_project — the whole-program engine as a Caravel user macro (codegen_sva::wpe_caravel). UART rx/tx
-// on GPIO 8/9; PSRAM CE# 10, SCLK 11, SIO[3:0] 12..15; engine clock user_clock2 (21000 ps), 115200
-// baud (413 cycles per bit); the Wishbone slave on wb_clk_i.
+// on GPIO 8/9; PSRAM CE# 10, SCLK 11, SIO[3:0] 12..15; engine clock wb_clk_i (48000 ps), 115200
+// baud (181 cycles per bit); the Wishbone slave on wb_clk_i.
 module wpe_user_project (
 `ifdef USE_POWER_PINS
   inout         vccd1,
@@ -2944,14 +2944,14 @@ module wpe_user_project (
   wire uart_tx, psram_ce_n, psram_sclk;
   wire [3:0] psram_sio_out, psram_sio_oe;
   // The engine's reset: wb_rst_i, or probe 0 while the management SoC drives it, into the engine's clock
-  // domain through two flops, asserted at once and released on the second user_clock2 edge after it falls.
+  // domain through two flops, asserted at once and released on the second wb_clk_i edge after it falls.
   wire engine_rst_req = wb_rst_i | (la_data_in[0] & ~la_oenb[0]);
   reg [1:0] engine_rst;
-  always @(posedge user_clock2 or posedge engine_rst_req)
+  always @(posedge wb_clk_i or posedge engine_rst_req)
     if (engine_rst_req) engine_rst <= 2'b11;
     else engine_rst <= {engine_rst[0], 1'b0};
-  wpe_soc_caravel #(.CLKS_PER_BIT(413)) engine (
-    .clk(user_clock2), .rst(engine_rst[1]), .uart_rx(io_in[8]), .uart_tx(uart_tx),
+  wpe_soc_caravel #(.CLKS_PER_BIT(181)) engine (
+    .clk(wb_clk_i), .rst(engine_rst[1]), .uart_rx(io_in[8]), .uart_tx(uart_tx),
     .psram_ce_n(psram_ce_n), .psram_sclk(psram_sclk), .psram_sio_out(psram_sio_out), .psram_sio_oe(psram_sio_oe),
     .psram_sio_in({io_in[15], io_in[14], io_in[13], io_in[12]}));
   assign io_out = {1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, psram_sio_out[3], psram_sio_out[2], psram_sio_out[1], psram_sio_out[0], psram_sclk, psram_ce_n, uart_tx, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0, 1'b0};

@@ -266,7 +266,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             });
             (adj_pred, copula_time)
         } else {
-            let (verb, verb_time, _, _) = self.consume_verb_with_metadata();
+            let (verb, verb_time, _, _) = self.consume_verb_with_metadata()?;
             let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice([Term::Variable(var)]),
@@ -326,7 +326,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
     ) -> ParseResult<&'a LogicExpr<'a>> {
         let unknown = self.interner.intern("?");
         let complement_verb = if self.check_verb() {
-            Some(self.consume_verb())
+            Some(self.consume_verb()?)
         } else {
             None
         };
@@ -450,7 +450,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         subject: &NounPhrase<'a>,
     ) -> ParseResult<&'a LogicExpr<'a>> {
         if self.check_verb() {
-            let verb = self.consume_verb();
+            let verb = self.consume_verb()?;
 
             // Check for focused object: "eats only rice"
             if self.check_focus() {
@@ -578,7 +578,7 @@ impl<'a, 'ctx, 'int> PragmaticsParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             return Ok(self.ctx.exprs.alloc(LogicExpr::Scopal { operator, body }));
         }
 
-        let (verb, verb_time, _verb_aspect, _) = self.consume_verb_with_metadata();
+        let (verb, verb_time, _verb_aspect, _) = self.consume_verb_with_metadata()?;
 
         let predicate = self.ctx.exprs.alloc(LogicExpr::Predicate {
             name: verb,

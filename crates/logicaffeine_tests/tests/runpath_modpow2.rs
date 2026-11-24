@@ -23,6 +23,7 @@
 use logicaffeine_compile::compile::tw_outcome_with_args;
 use logicaffeine_compile::ui_bridge::with_optimized_program;
 use logicaffeine_compile::vm::{Compiler, NativeTier, Op};
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_jit::ForgeTier;
 
 fn norm(s: &str) -> String {
@@ -36,7 +37,12 @@ fn norm(s: &str) -> String {
 /// Run `src` through the REAL run path (`optimize_for_run` → Oracle → tiered
 /// VM), with a private tier so its compile counters stay isolated.
 fn runpath_vm_outcome(src: &str, argv: &[String]) -> (String, Option<String>) {
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
     with_optimized_program(src, |parsed, interner| match parsed {
         Ok((stmts, types, policies)) => logicaffeine_compile::vm::run_to_outcome_with_args(
             stmts,
@@ -44,7 +50,7 @@ fn runpath_vm_outcome(src: &str, argv: &[String]) -> (String, Option<String>) {
             Some(types),
             Some(&policies),
             argv,
-            Some(&tier as &dyn NativeTier),
+            native,
         ),
         Err(advice) => (String::new(), Some(advice)),
     })

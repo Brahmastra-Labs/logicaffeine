@@ -1,0 +1,12 @@
+## To native args () -> Seq of Text
+## To native parseInt (s: Text) -> Int
+
+## Main
+Let k be parseInt(item 2 of args()).
+Let n be parseInt(item 3 of args()).
+Let mutable sum be 0.
+Let mutable i be 0 - n.
+While i is less than n:
+    Set sum to sum + (i * 7919) % k.
+    Set i to i + 1.
+Show sum.

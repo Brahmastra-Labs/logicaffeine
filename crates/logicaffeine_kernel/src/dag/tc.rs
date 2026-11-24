@@ -580,7 +580,7 @@ impl Kernel {
             Node::StrLit(_) => {
                 if !infer_only
                     && !(self.env.contains(self.wk.char_of_nat)
-                        && self.env.contains(self.wk.string_of_list))
+                        && self.env.contains(self.wk.string_literal))
                 {
                     bail!(
                         self,
@@ -1223,7 +1223,7 @@ impl Kernel {
             let cell = self.s.app(cons, chr);
             list = self.s.app(cell, list);
         }
-        let of_list = self.s.cnst(self.wk.string_of_list, LevelsId::EMPTY);
+        let of_list = self.s.cnst(self.wk.string_literal, LevelsId::EMPTY);
         self.s.app(of_list, list)
     }
 
@@ -1918,7 +1918,7 @@ impl Kernel {
             return Ok(LBool::Undef);
         };
         match self.s.node(sf) {
-            Node::Const(n, ls) if n == self.wk.string_of_list && ls == LevelsId::EMPTY => {}
+            Node::Const(n, ls) if n == self.wk.string_literal && ls == LevelsId::EMPTY => {}
             _ => return Ok(LBool::Undef),
         }
         let x = self.str_lit_to_ctor(sid);

@@ -494,6 +494,10 @@ impl Algebraic {
 
     /// `self^e`; `None` only for zero to a negative power.
     pub fn pow(&self, e: i32) -> Option<Algebraic> {
+        // `-e` overflows for `i32::MIN`, so that one exponent is taken as the square of `x^(MIN/2)`.
+        if e == i32::MIN {
+            return self.pow(i32::MIN / 2)?.pow(2);
+        }
         if e < 0 {
             return self.recip()?.pow(-e);
         }

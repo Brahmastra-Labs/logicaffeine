@@ -109,10 +109,11 @@ pub use reverse::{reversibility, EffectKind, InverseSpec, JournalKind, RevClass}
 pub use instruction::CompiledFunction;
 pub(crate) use machine::RevCoop;
 pub use native_tier::{
-    install_native_tier, installed_native_tier, ArrayPin, CalleeSig, FnTable, HoistGuard,
+    cold_paths, install_native_tier, installed_native_tier, ArrayPin, CalleeSig, ColdEntry, ColdPaths, FnTable,
+    HoistGuard, COLD_EDGE_MIN_RUNS,
     NativeCtx, NativeFn, NativeFrame, NativeOutcome, NativeRet, NativeTier, NativeWriteback,
     ObservedKind, ParamKind, PinElem, RegBox, RegionFn, RegionOutcome, RegionReturn,
-    RegionReturnKind, SlotKind, NATIVE_TIER_THRESHOLD, REGION_TIER_THRESHOLD,
+    RegionReturnKind, ScalarValue, SlotKind, NATIVE_TIER_THRESHOLD, REGION_DEMOTE_AFTER, REGION_TIER_THRESHOLD,
 };
 pub use value::Value;
 

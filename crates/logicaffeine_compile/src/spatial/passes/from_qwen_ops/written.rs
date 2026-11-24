@@ -1,4 +1,6 @@
-//! Maps the program writes as loops: a counted loop, or a nest of two, whose every turn computes one element of a tensor
+//! Ops the program writes as loops. A counted loop whose turns each write a row of a table — a scatter of rows, its
+//! repeated rows kept or summed ([`crate::tensor_recognize::qwen::ScatterSpec`]) — lowered as one owner-computes rewrite
+//! of the table. A counted loop, or a nest of two, whose every turn computes one element of a tensor
 //! ([`crate::tensor_recognize::map`]) — lowered as one section of `Generic` stages; a recurrence along the outer loop,
 //! lowered turn by turn, or, linear in its carry, as a chunked scan.
 
@@ -579,6 +581,7 @@ impl MapSection<'_> {
                 match (f, a.as_slice()) {
                     (Fun::Exp, [x]) => *unary(SfpuKind::Exp, Box::new(x.clone())),
                     (Fun::Ln, [x]) => *unary(SfpuKind::Ln, Box::new(x.clone())),
+                    (Fun::Erf, [x]) => *unary(SfpuKind::Erf, Box::new(x.clone())),
                     (Fun::Sqrt, [x]) => *unary(SfpuKind::Recip, unary(SfpuKind::Rsqrt { eps_nano: 0, over: 1 }, Box::new(x.clone()))),
                     (Fun::Tanh, [x]) => {
                         let e2x = unary(SfpuKind::Exp, mul(konst(2.0), Box::new(x.clone())));
@@ -645,7 +648,7 @@ impl MapSection<'_> {
             real |= match x {
                 Term::Here(k) | Term::Fixed(k, _) => self.reals[*k],
                 Term::Real(_) | Term::Div(..) => true,
-                Term::Call(f, _) => matches!(f, Fun::Exp | Fun::Ln | Fun::Tanh | Fun::Sqrt),
+                Term::Call(f, _) => matches!(f, Fun::Exp | Fun::Ln | Fun::Tanh | Fun::Erf | Fun::Sqrt),
                 _ => false,
             }
         });
@@ -711,4 +714,168 @@ fn truncated(x: TensorBody, y: TensorBody) -> TensorBody {
     let up = TensorBody::FloorDiv(Box::new(TensorBody::Max(Box::new(x.clone()), konst(0.0))), Box::new(abs_y.clone()));
     let down = TensorBody::FloorDiv(Box::new(TensorBody::Max(mul(konst(-1.0), Box::new(x)), konst(0.0))), Box::new(abs_y));
     TensorBody::Mul(Box::new(sign_y), Box::new(TensorBody::Sub(Box::new(up), Box::new(down))))
+}
+
+/// `Repeat for k from 1 to N: … Set row I[k] of T to …` — a scatter of rows ([`ScatterSpec`](crate::tensor_recognize::qwen::ScatterSpec)), lowered OWNER-COMPUTES as
+/// ONE rewrite of the carried table: every element `c` of `T` asks every turn whether it lands on `c`'s row, so no two
+/// writes ever race for one element and the turns' order is the fold's, not a schedule's.
+///
+/// Turn `k` lands on the elements `[lo_k, lo_k + cols)`, `lo_k = (I[k] − 1)·cols`, its index taken less one and read
+/// through a guard of stride zero against the table's rows — an index outside the table faults where every tier's check
+/// fails, and is never wrapped into another row.
+///   · KEPT (`Set row at of T to r`): the turns that land on `c` are folded by MAX over `key_k = n + k·cols − lo_k`, and a
+///     turn that misses `c` gives zero. Every turn landing on `c` lands on `c`'s own row, with one `lo`, so the largest
+///     key is the LAST such turn's, and `c + key − n` is where its source row holds `c`'s value. `T'[c]` reads that where
+///     a turn landed — `0 < key`, the flat space's one row being row 0 — and keeps `T[c]` where none did: pure movement,
+///     exact whatever the values.
+///   · SUMMED (`Let sum be old plus r`): `T'[c] = T[c] + Σ_k [c ∈ turn k]·X[k·cols + c − lo_k]`, the turns summed by the
+///     fold's own pool.
+///
+/// The table and the source are held whole: a turn may land anywhere, so where a site's page does not hold them the
+/// scatter is refused by name — a wider one takes its turns sorted by row first, which brings each row's turns together.
+pub fn from_scatter(
+    spec: &crate::tensor_recognize::qwen::ScatterSpec,
+    names: &StageNames,
+    float: bool,
+    target: &SpatialTarget,
+) -> Result<SpatialProgram, SpatialReject> {
+    use crate::tensor_recognize::ElementwiseOp;
+    let (rows, cols, count) = (spec.rows, spec.cols, spec.count);
+    if rows == 0 || cols == 0 || count == 0 || count > spec.source_rows || count > spec.index_len {
+        return Err(SpatialReject::NotLowered(
+            "a scatter into an empty table, or of more turns than its source has rows or its indices have entries",
+        ));
+    }
+    if spec.fold == Some(ElementwiseOp::Mul) {
+        return Err(SpatialReject::NotLowered(
+            "a scatter whose turns multiply into the rows they land on — a fold sums or keeps the largest, never multiplies",
+        ));
+    }
+    let (n, xn) = (rows * cols, spec.source_rows * cols);
+    if [n, xn, spec.index_len].into_iter().any(|len| row_needs_blocking(len, target)) {
+        return Err(SpatialReject::NotLowered(
+            "a scatter holds its table, its source and its indices whole, and one of them is wider than a site's page — a wider scatter takes its turns sorted by row",
+        ));
+    }
+    let mut b = FlatBuild::new(target)?;
+    let (t_name, t_fill) = names.operand(0);
+    let (x_name, x_fill) = names.operand(1);
+    let (i_name, i_fill) = names.operand(2);
+    // An integer table that sums its turns holds its own values and every turn's.
+    let dt = match (float, spec.fold) {
+        (false, Some(_)) => {
+            let turns = (count as u64).saturating_mul(fill_abs_bound(x_fill).unwrap_or(0));
+            index_type(target, fill_abs_bound(t_fill).unwrap_or(0).saturating_add(turns))?
+        }
+        _ => row_write_precision(&b, float, t_fill, x_fill, target)?,
+    };
+    let table = b.input_as(t_name, n, t_fill, dt, target);
+    let source = b.input_as(x_name, xn, x_fill, dt, target);
+    // A kept turn's key reaches `n + (count − 1)·cols`.
+    let ix = index_type(target, index_space((n + count * cols) as u64, cols as u64, i_fill))?;
+    let idx = b.input_as(i_name, spec.index_len, i_fill, ix, target);
+    let (turns_t, turns_w) = (tiles_of(count, target), wide(tiles_of(count, target), target));
+    let one_turn = |b: &mut FlatBuild, name: &str, slots: Vec<Slot>, body: TensorBody| {
+        let out = b.t.scratch(name, turns_t, ix);
+        (b.compute(name, flat_space(count), slots, ident_map(turns_w), body, out), out)
+    };
+    let (s0, biased) = one_turn(&mut b, "scatter_biased", vec![Slot { buf: idx, map: at(0) }], *sub(op(0), konst(1.0)));
+    let guard = ElemAccess {
+        base: 0,
+        terms: vec![(LV_GEN_COL, 1)],
+        indirect: Some(IndirectTerm {
+            operand: 0,
+            stride: 0,
+            modulus: rows,
+        }),
+    };
+    let (s1, guarded) = one_turn(&mut b, "scatter_guarded", vec![Slot { buf: biased, map: guard }], TensorBody::Operand(0));
+    let (s2, lo) = one_turn(&mut b, "scatter_lo", vec![Slot { buf: guarded, map: at(0) }], *mul(op(0), konst(cols as f64)));
+    let (s3, hi) = one_turn(&mut b, "scatter_hi", vec![Slot { buf: lo, map: at(0) }], *add(op(0), konst(cols as f64)));
+    // Turn `k` of a fold over the turns: the space's row is the turn.
+    let by_turn = ElemAccess {
+        base: 0,
+        terms: vec![(LV_GEN_ROW, 1)],
+        indirect: None,
+    };
+    // `value` where `c` lies in the turn's row — operands 0 and 1 its first element and one past its last — and 0 elsewhere.
+    let in_turn = |value: TensorBody| TensorBody::Select {
+        cond: Pred::AxisGe(LV_GEN_COL, PredRhs::Operand(0)),
+        then: Box::new(TensorBody::Select {
+            cond: Pred::AxisLt(LV_GEN_COL, PredRhs::Operand(1)),
+            then: Box::new(value),
+            otherwise: konst(0.0),
+        }),
+        otherwise: konst(0.0),
+    };
+    let bounds = || vec![Slot { buf: lo, map: by_turn.clone() }, Slot { buf: hi, map: by_turn.clone() }];
+    let out_buf = b.t.buffer("table", tiles_of(n, target), dt);
+    let mut chain = vec![s0, s1, s2, s3];
+    let kept = spec.fold.is_none();
+    if kept {
+        let turns = {
+            let values: Vec<i64> = (0..count).map(|k| (n + k * cols) as i64).collect();
+            let id = b.t.tensor(&format!("{t_name}__turns{count}x{cols}"), TensorRole::Param, 1, count, ix, TensorInit::Values(values));
+            let buf = b.t.buffer_deep(&format!("in_{t_name}__turns"), 1, turns_t, ix);
+            let l = b.t.load(&format!("load_{t_name}__turns"), id, vec![], turns_t, buf);
+            b.loads.push((l, buf));
+            buf
+        };
+        let (s4, key) = one_turn(
+            &mut b,
+            "scatter_key",
+            vec![Slot { buf: turns, map: at(0) }, Slot { buf: lo, map: at(0) }],
+            *sub(op(0), op(1)),
+        );
+        let last = b.t.scratch("scatter_last", tiles_of(n, target), ix);
+        let mut slots = bounds();
+        slots.push(Slot { buf: key, map: by_turn.clone() });
+        let s5 = b.fold("scatter_last", n, (count, ReducePool::Max), slots, in_turn(TensorBody::Operand(2)), last, target)?;
+        // Operand 0 the table, 1 the last turn's source row read at `c + key − n`, 2 the key.
+        let landed = ElemAccess {
+            base: -(n as i64),
+            terms: vec![(LV_GEN_COL, 1)],
+            indirect: Some(IndirectTerm {
+                operand: 2,
+                stride: 1,
+                modulus: n + count * cols,
+            }),
+        };
+        let body = TensorBody::Select {
+            cond: Pred::AxisLt(LV_GEN_ROW, PredRhs::Operand(2)),
+            then: op(1),
+            otherwise: op(0),
+        };
+        let slots = vec![Slot { buf: table, map: at(0) }, Slot { buf: source, map: landed }, Slot { buf: last, map: at(0) }];
+        let s6 = b.pointwise("scatter_rows", n, slots, body, out_buf, target)?;
+        chain.push(s4);
+        chain.extend(s5);
+        chain.extend(s6);
+    } else {
+        // Operand 2: the source row turn `k` lands, read at `k·cols + c − lo_k`.
+        let from_turn = ElemAccess {
+            base: 0,
+            terms: vec![(LV_GEN_COL, 1), (LV_GEN_ROW, cols as i64)],
+            indirect: Some(IndirectTerm {
+                operand: 0,
+                stride: -1,
+                modulus: n,
+            }),
+        };
+        let sums = if float { b.scratch("scatter_sums", tiles_of(n, target)) } else { b.t.scratch("scatter_sums", tiles_of(n, target), dt) };
+        let mut slots = bounds();
+        slots.push(Slot { buf: source, map: from_turn });
+        let s4 = b.fold("scatter_sums", n, (count, ReducePool::Sum), slots, in_turn(TensorBody::Operand(2)), sums, target)?;
+        let slots = vec![Slot { buf: table, map: at(0) }, Slot { buf: sums, map: at(0) }];
+        let s5 = b.pointwise("scatter_add", n, slots, *add(op(0), op(1)), out_buf, target)?;
+        chain.extend(s4);
+        chain.extend(s5);
+    }
+    let claim = if float {
+        approx("scatter", dt)
+    } else {
+        NumericsClaim::Exact
+    };
+    let form = if kept { "kept" } else { "summed" };
+    b.finish_fanned(t_name, n, chain, out_buf, format!("scatter_{form}_{count}x{rows}x{cols}"), claim, dt, target)
 }

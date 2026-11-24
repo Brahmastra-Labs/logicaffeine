@@ -9,7 +9,8 @@
 //! result could become OBSERVABLE (the VM shows `true`; the JIT computes 1) —
 //! comparisons may only feed branches and other comparisons.
 
-#![cfg(not(target_arch = "wasm32"))]
+// This suite tests the native tier alone, which exists only on x86_64 outside Windows.
+#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 
 use logicaffeine_compile::compile::vm_outcome;
 use logicaffeine_compile::ui_bridge::with_parsed_program;

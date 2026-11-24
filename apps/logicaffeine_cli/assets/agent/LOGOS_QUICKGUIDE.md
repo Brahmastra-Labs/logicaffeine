@@ -322,12 +322,14 @@ residual's lanes) refuses it by name.
 | Products | `A matmul B` · `X matmul W across H heads` | the second multiplies each head's slice of `X` by its own block of `W` |
 | Elementwise | `A plus B` · `A hadamard B` · `X scaled by C` · `X capped at C` | a one-row `B` combines with every row of `A`; a cap is `C·tanh(x/C)` |
 | Norms | `rmsnorm of X with weight W` · `layernorm of X with weight W and bias B` · `l2norm of X` | `with epsilon E` names the model's epsilon |
-| Activations | `silu of X` · `sigmoid of X` · `gelu of X` · `swiglu of G and U` | |
+| Activations | `silu of X` · `sigmoid of X` · `gelu of X` · `erf of X` · `swiglu of G and U` | |
 | Rotation | `rope of Q with cos C and sin S across H heads` | `from position P` reads a cache of angles |
-| Attention | `attention of Q over K and V with H heads KV groups up to P` · `causal attention of Q over K and V with H heads KV groups from P` | then `within a window of W`, `scaled by S`, `capped at C`, `with sinks S`; values may be narrower or wider than keys |
-| Heads | `the first K of every N of X` · `the last K of every N of X` · `A joined with B across H heads` | one part of every head; each head's parts side by side |
+| Attention | `attention of Q over K and V with H heads KV groups up to P` · `causal attention of Q over K and V with H heads KV groups from P` | then `within a window of W`, `scaled by S`, `capped at C`, `with sinks S`, `with linear biases M`, `with a bidirectional prefix of P`, `with rows starting at R`; values may be narrower or wider than keys |
+| Heads | `the first K of every N of X` · `the last K of every N of X` · `the K after the first F of every N of X` · `A joined with B across H heads` | one part of every head; each head's parts side by side |
+| Lanes | `rmsnorm of H with weight W in L lanes` · `the mean of X over L lanes` · `O spread over L lanes by S` · `the lane sums of X over L lanes` · `the signed root of X` | a hyper-connected residual's lanes: each normed by its own row of `W`, averaged into one row, a row laid in every lane by its share; each lane summed; each element's square root, signed, floored at `E` |
+| N-grams | `the ngram ids of T after R by M modulo V from O ending at E` | the hashed table's rows each token's n-grams name; `R` the token rows before, carried |
 | Mixture | `moe of X with router Wr gate Wg up Wu down Wd choosing K of E` | `plus B` after a weight; `without renormalizing`; `using a swiglu clamped at L with slope A` |
-| Rows | `row i of T` · `rows I of T` · `Set row i of T to V.` · `Set rows from P of T to X.` | a lookup and a cache write, checked at run time |
+| Rows | `row i of T` · `rows I of T` · `rows I of T side by side` · `Set row i of T to V.` · `Set rows from P of T to X.` | a lookup and a cache write, checked at run time; side by side, a row of `I`'s rows joined into one |
 | Recurrence | `causal conv of X with weight WC state CS over T taps` · `gated delta of Q over K and V with …` · `decay of Ar with bias Dt rate R` | carried state |
 | Other | `softmax of X` · `argmax of X` · `transpose of X` · `full attention of Q over K and V with H heads` | |
 | Integer | `X times M shifted right by S` · `X clamped between LO and HI` · `relu of X` · `lut attention of Q over K and V with H heads KV groups up to P with table E and scale M shifted right by S` | an int8 model's requant (an arithmetic shift), saturation, ReLU and table-softmax attention, every operand `Int` |

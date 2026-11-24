@@ -1,0 +1,9 @@
+## Main
+Let s be a new Set of (Real, Int).
+Add (0.0, 1) to s.
+Show s contains (-0.0, 1).
+Add (-0.0, 1) to s.
+Show the count of s.
+Add (2.5, 1) to s.
+Show s contains (2.5, 1).
+Show s contains (2.5, 2).

@@ -25,6 +25,7 @@ use common::{
 };
 use logicaffeine_compile::compile::{tw_outcome_with_args, vm_outcome_with_args};
 use logicaffeine_compile::vm::NativeTier;
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_jit::ForgeTier;
 
 /// Enable value semantics for THIS test's process (nextest isolates processes).
@@ -198,6 +199,27 @@ fn vs_aot_copies_of_a_record_are_records_of_their_own() {
     assert_all_tiers(&src, "[1, 9]\n[1]\n[1]\n3");
 }
 
+/// A store into a list built by `n copies of` changes that list: a copy of it taken before the store keeps the value
+/// it had.
+#[test]
+fn vs_aot_a_store_into_a_list_of_copies_leaves_a_copy_of_it_alone() {
+    vs();
+    let src = "## Main\nLet mutable row be 4 copies of 0.\nLet saved be row.\nSet item 2 of row to 5.\nShow row.\nShow saved.\n";
+    assert_compiled_equals_interpreted_eq(src, "[0, 5, 0, 0]\n[0, 0, 0, 0]");
+    assert_all_tiers(src, "[0, 5, 0, 0]\n[0, 0, 0, 0]");
+}
+
+/// A store into a row of a grid built by `n copies of` changes that row of that grid: a copy of the grid taken before
+/// the store keeps every row it had.
+#[test]
+fn vs_aot_a_store_into_a_row_of_copies_leaves_a_copy_of_the_grid_alone() {
+    vs();
+    let src = "## Main\nLet mutable grid be 3 copies of (2 copies of 0).\nLet saved be grid.\n\
+               Set item 1 of (item 2 of grid) to 9.\nShow grid.\nShow saved.\n";
+    assert_compiled_equals_interpreted_eq(src, "[[0, 0], [9, 0], [0, 0]]\n[[0, 0], [0, 0], [0, 0]]");
+    assert_all_tiers(src, "[[0, 0], [9, 0], [0, 0]]\n[[0, 0], [0, 0], [0, 0]]");
+}
+
 /// Text is built left to right: a field read before a call that writes the record through a
 /// `mutable` parameter shows the field from before the call.
 #[test]
@@ -330,8 +352,13 @@ fn vs_jit_aliased_array_isolates() {
         \x20   Set i to i + 1.\n\
         Show item 500 of b.\n\
         Show item 1 of a.\n";
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
-    let vm = vm_outcome_with_args(src, &[], Some(&tier as &dyn NativeTier));
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
+    let vm = vm_outcome_with_args(src, &[], native);
     let tw = tw_outcome_with_args(src, &[]);
     assert_eq!(vm.error, None, "JIT-tiered VM errored");
     assert_eq!(

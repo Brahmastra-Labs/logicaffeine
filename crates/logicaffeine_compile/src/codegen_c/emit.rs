@@ -234,7 +234,7 @@ fn opt_stored(value: &Expr, ty: &CType, target: Symbol, stmt: &Stmt, ctx: &CCont
     let value_ty = infer_expr_type(value, ctx);
     let plain = match (&element, &value_ty) {
         (CType::BigInt, from) if *from != CType::BigInt => {
-            format!("lint_of((int64_t)({}))", codegen_expr(value, ctx))
+            exact_int_of(value, &codegen_expr(value, ctx), ctx)
         }
         (CType::Rational | CType::Decimal, from) if !matches!(from, CType::Rational | CType::Decimal) => {
             codegen_expr_as_rational(value, ctx)
@@ -301,7 +301,7 @@ fn opt_item(value: &Expr, ty: &CType, ctx: &CContext) -> String {
     let element = opt_element(ty);
     let plain = match (&element, infer_expr_type(value, ctx)) {
         (CType::BigInt, from) if from != CType::BigInt => {
-            format!("lint_of((int64_t)({}))", codegen_expr(value, ctx))
+            exact_int_of(value, &codegen_expr(value, ctx), ctx)
         }
         (CType::Rational | CType::Decimal, from) if !matches!(from, CType::Rational | CType::Decimal) => {
             codegen_expr_as_rational(value, ctx)
@@ -475,13 +475,6 @@ fn exact_operation(
     Some(format!("{f}({lc}, {rc})"))
 }
 
-/// Whether `ty` is a sequence the C tier holds as a `Seq_*` family.
-fn is_sequence(ty: &CType) -> bool {
-    matches!(
-        ty,
-        CType::SeqI64(_) | CType::SeqBool | CType::SeqStr | CType::SeqF64 | CType::SeqValue(_) | CType::SeqSeq(_)
-    )
-}
 
 /// Narrow an exact index to the machine word it fits: an `LInt`, failing past a word with the reference tier's refusal
 /// of such an index (`why`'s sentence, `semantics::failcode::message`), or a rational, whole and within a word, else
@@ -560,6 +553,58 @@ pub(super) fn narrow_i64_sink(expr: &Expr, rendered: String, ctx: &CContext) -> 
     }
 }
 
+/// Whether `e` reads an element of a list that may promote ([`CContext::seq_may_promote`]).
+fn reads_a_promotable_element(e: &Expr, ctx: &CContext) -> bool {
+    matches!(e, Expr::Index { collection, .. }
+        if ctx.seq_may_promote(collection) && infer_expr_type(collection, ctx) == CType::SeqI64(Ints::Int))
+}
+
+/// The element `item k of xs` of a list that may promote, as the exact `LInt` it is.
+fn promotable_element_lint(e: &Expr, ctx: &CContext) -> String {
+    let Expr::Index { collection, index } = e else {
+        unreachable!("only an item read is a promotable element")
+    };
+    let idx = narrow_index(
+        index,
+        codegen_expr(index, ctx),
+        ctx,
+        crate::semantics::failcode::FailCode::ListIndexTooWide,
+    );
+    match collection {
+        Expr::Identifier(_) => format!("seq_i64_get_lint(&{}, {idx})", codegen_expr(collection, ctx)),
+        _ => format!("({{ Seq_i64 __read = {}; seq_i64_get_lint(&__read, {idx}); }})", codegen_expr(collection, ctx)),
+    }
+}
+
+/// The `Int` expression `value` as the exact `LInt` it is: a chain that can leave the word computed exactly from the
+/// first step that leaves it, an element of a list that may promote read exactly, an exact value as it stands, and any
+/// other word promoted.
+fn exact_lint_value(value: &Expr, ctx: &CContext) -> String {
+    if infer_expr_type(value, ctx) == CType::BigInt {
+        return codegen_expr(value, ctx);
+    }
+    exact_int_of(value, &codegen_expr(value, ctx), ctx)
+}
+
+/// The statement storing the `Int` expression `value` into a list that may promote: `word` makes the store of a
+/// machine word, `exact` the store of an exact `LInt` (which promotes the list when the value is past the word). A
+/// chain that can leave the word stores its word and, from the first step that leaves it, its exact value; an exact
+/// value or an element of another list that may promote is stored exactly; any other word as a word.
+fn promoting_store(
+    value: &Expr,
+    ctx: &CContext,
+    word: impl FnOnce(&str) -> String,
+    exact: impl FnOnce(&str) -> String,
+) -> String {
+    if infer_expr_type(value, ctx) == CType::Int64 && !reads_a_promotable_element(value, ctx) {
+        if let Some(s) = speculation(value, ctx) {
+            return s.branch(word, exact);
+        }
+        return word(&codegen_expr(value, ctx));
+    }
+    exact(&exact_lint_value(value, ctx))
+}
+
 /// `rendered`, the C value of `value`, as field `field` of `owner` (a record, or an enum variant) holds it: a
 /// machine-word integer stored into a field the program made exact (`LInt`, see `exact`) is promoted, and an
 /// exact value stored into a proven machine-word field is narrowed at that typed boundary.
@@ -586,9 +631,7 @@ fn as_field_value(
         // A rational field holds an integer as the rational it equals.
         (Some(CType::Rational), CType::Int64) => format!("ldec_from_i64((int64_t)({}))", rendered),
         (Some(CType::Rational), CType::BigInt) => format!("ldec_from_lint({})", rendered),
-        (Some(CType::BigInt), from) if from != CType::BigInt => {
-            format!("lint_of((int64_t)({}))", rendered)
-        }
+        (Some(CType::BigInt), from) if from != CType::BigInt => exact_int_of(value, &rendered, ctx),
         (Some(CType::Int64), CType::BigInt) => format!("lint_expect_i64({})", rendered),
         _ => rendered,
     }
@@ -656,25 +699,203 @@ fn bounded_operation(
             if !is_word_chain(x, ctx) {
                 return None;
             }
-            if proven_in_word(x, ctx) {
-                return Some(word(&raw_word_chain(x, ctx)));
+            if !is_word_chain(x, ctx) {
+                return None;
             }
-            let n = ctx.select_ctr.get();
-            ctx.select_ctr.set(n + 1);
-            let mut cells = String::new();
-            let mut leaves = 0usize;
-            let checked = word_chain(x, n, &mut cells, &mut leaves, ctx, true);
-            let mut ignored = String::new();
-            let mut again = 0usize;
-            let exact_chain = word_chain(x, n, &mut ignored, &mut again, ctx, false);
-            Some(format!(
-                "({{ {cells}int __over{n} = 0; int64_t __word{n} = {checked}; __builtin_expect(__over{n}, 0) ? {} : {}; }})",
-                exact(&exact_chain),
-                word(&format!("__word{n}"))
-            ))
+            match chain_speculation(x, ctx) {
+                Some(s) => Some(s.either(word, exact)),
+                None => Some(word(&raw_word_chain(x, ctx))),
+            }
         }
         _ => None,
     }
+}
+
+/// A sum, difference or product of machine words (see [`word_chain`]) that nothing proves stays within one, computed
+/// as the reference tier computes it: on machine words, every step checked and every leaf computed once, left to
+/// right; and exactly, over the same leaves, from the first step that leaves the word.
+struct Speculation {
+    /// The leaves' cells, then `__over{n}` and the checked word `__word{n}`.
+    prelude: String,
+    n: usize,
+    /// The chain as an exact `LInt` over the leaves' cells.
+    exact: String,
+}
+
+impl Speculation {
+    /// The value `word` makes of the machine word, or `exact` of the exact value once a step has left the word.
+    fn either(&self, word: impl FnOnce(&str) -> String, exact: impl FnOnce(&str) -> String) -> String {
+        let n = self.n;
+        format!(
+            "({{ {}__builtin_expect(__over{n}, 0) ? {} : {}; }})",
+            self.prelude,
+            exact(&self.exact),
+            word(&format!("__word{n}"))
+        )
+    }
+
+    /// The statement `word` makes of the machine word, or `exact` of the exact value once a step has left the word.
+    fn branch(&self, word: impl FnOnce(&str) -> String, exact: impl FnOnce(&str) -> String) -> String {
+        let n = self.n;
+        format!(
+            "{{ {}if (__builtin_expect(__over{n}, 0)) {{ {} }} else {{ {} }} }}",
+            self.prelude,
+            exact(&self.exact),
+            word(&format!("__word{n}"))
+        )
+    }
+}
+
+/// `expr` as a [`Speculation`]: an `Int` computed by a chain of machine words that the shared decision says can
+/// outgrow one ([`super::exact::ExactSlots::exprs`]) and nothing here proves stays within one. A chain over a
+/// variable the decision makes exact is not one: such a variable is a machine word only inside a guarded fast path,
+/// whose guard bounds what it computes.
+fn speculation(expr: &Expr, ctx: &CContext) -> Option<Speculation> {
+    let at = expr as *const Expr as usize;
+    if let Some((n, exact)) = ctx.speculated.borrow().get(&at) {
+        return Some(Speculation {
+            prelude: String::new(),
+            n: *n,
+            exact: exact.clone(),
+        });
+    }
+    if !ctx.exact.exprs.contains(&at)
+        || !is_word_chain(expr, ctx)
+        || infer_expr_type(expr, ctx) != CType::Int64
+        || reads_an_exact_variable(expr, ctx)
+    {
+        return None;
+    }
+    chain_speculation(expr, ctx)
+}
+
+/// The exact `LInt` of the `Int` expression `expr`, whose machine-word C is `rendered`: a chain of machine words that
+/// can leave the word computed exactly from the first step that leaves it ([`speculation`]), and any other word
+/// promoted as it stands.
+fn exact_int_of(expr: &Expr, rendered: &str, ctx: &CContext) -> String {
+    if reads_a_promotable_element(expr, ctx) {
+        return promotable_element_lint(expr, ctx);
+    }
+    match speculation(expr, ctx) {
+        Some(s) => s.either(|w| format!("lint_of({w})"), |x| x.to_string()),
+        None => format!("lint_of((int64_t)({rendered}))"),
+    }
+}
+
+/// Whether a leaf of the chain `expr` names a variable the current body's decision makes exact.
+fn reads_an_exact_variable(expr: &Expr, ctx: &CContext) -> bool {
+    match expr {
+        Expr::BinaryOp { op, left, right } if chain_operator(*op) => {
+            reads_an_exact_variable(left, ctx) || reads_an_exact_variable(right, ctx)
+        }
+        Expr::Identifier(sym) => ctx.exact_vars.contains(sym),
+        _ => false,
+    }
+}
+
+/// The chain of machine words `expr` (see [`is_word_chain`]) as a [`Speculation`], whatever exactness its own type
+/// would take; `None` when it is proven to stay within a word.
+fn chain_speculation(expr: &Expr, ctx: &CContext) -> Option<Speculation> {
+    if proven_in_word(expr, ctx) {
+        return None;
+    }
+    let n = ctx.select_ctr.get();
+    ctx.select_ctr.set(n + 1);
+    let mut cells = String::new();
+    let mut leaves = 0usize;
+    let checked = word_chain(expr, n, &mut cells, &mut leaves, ctx, true);
+    let mut ignored = String::new();
+    let mut again = 0usize;
+    let exact = word_chain(expr, n, &mut ignored, &mut again, ctx, false);
+    Some(Speculation {
+        prelude: format!("int __over{n} = 0; {cells}int64_t __word{n} = {checked}; "),
+        n,
+        exact,
+    })
+}
+
+/// Two machine-word operands of a comparison, either of them a [`Speculation`]: compared as words while both are,
+/// and as the exact values they are once either has left the word. `None` when neither operand speculates.
+fn speculative_comparison(left: &Expr, right: &Expr, relation: &str, ctx: &CContext) -> Option<String> {
+    let [l, r] = speculative_operands(left, right, ctx)?;
+    Some(format!(
+        "({{ {}{}__builtin_expect({} || {}, 0) ? (logos_lint_cmp({}, {}) {relation} 0) : ({} {relation} {}); }})",
+        l.prelude, r.prelude, l.over, r.over, l.exact, r.exact, l.word, r.word
+    ))
+}
+
+/// One operand of an operation over machine words, computed once: the statements that compute it, and the C of it as
+/// a word, as an exact `LInt`, and of whether it has left the word.
+struct SpeculativeOperand {
+    prelude: String,
+    word: String,
+    exact: String,
+    over: String,
+}
+
+/// The operands `left` and `right` of an operation over machine words when either is a [`Speculation`], each computed
+/// once, left to right. `None` when neither operand speculates.
+fn speculative_operands(left: &Expr, right: &Expr, ctx: &CContext) -> Option<[SpeculativeOperand; 2]> {
+    let (ls, rs) = (speculation(left, ctx), speculation(right, ctx));
+    if ls.is_none() && rs.is_none() {
+        return None;
+    }
+    let side = |s: Option<Speculation>, e: &Expr| match s {
+        Some(s) => SpeculativeOperand {
+            prelude: s.prelude,
+            word: format!("__word{}", s.n),
+            exact: s.exact,
+            over: format!("__over{}", s.n),
+        },
+        None => {
+            let n = ctx.select_ctr.get();
+            ctx.select_ctr.set(n + 1);
+            SpeculativeOperand {
+                prelude: format!("int64_t __side{n} = {}; ", codegen_expr(e, ctx)),
+                word: format!("__side{n}"),
+                exact: format!("lint_of(__side{n})"),
+                over: "0".to_string(),
+            }
+        }
+    };
+    let l = side(ls, left);
+    let r = side(rs, right);
+    Some([l, r])
+}
+
+/// A bitwise operation or a remainder over two machine-word operands, either of them a [`Speculation`]: the machine's
+/// operator while both are words, and the exact runtime's once either has left the word — which answers within the
+/// word where the VM does (a low-bit mask of a big integer, a remainder by a word) and refuses in its words where it
+/// refuses. `None` for any other operator, and when neither operand speculates.
+fn speculative_word_operation(op: BinaryOpKind, left: &Expr, right: &Expr, ctx: &CContext) -> Option<String> {
+    let exact_fn = match op {
+        BinaryOpKind::BitAnd => "lint_bitand",
+        BinaryOpKind::BitOr => "lint_bitor",
+        BinaryOpKind::BitXor => "lint_bitxor",
+        BinaryOpKind::Shl => "lint_shl",
+        BinaryOpKind::Shr => "lint_shr",
+        BinaryOpKind::Modulo => "logos_lint_mod",
+        _ => return None,
+    };
+    let [l, r] = speculative_operands(left, right, ctx)?;
+    let (lw, rw) = (&l.word, &r.word);
+    let word = match op {
+        BinaryOpKind::BitAnd => format!("({lw} & {rw})"),
+        BinaryOpKind::BitOr => format!("({lw} | {rw})"),
+        BinaryOpKind::BitXor => format!("({lw} ^ {rw})"),
+        BinaryOpKind::Shl => format!("((int64_t)((uint64_t)({lw}) << ((uint32_t)({rw}) & 63u)))"),
+        BinaryOpKind::Shr => format!("((int64_t)({lw}) >> ((uint32_t)({rw}) & 63u))"),
+        _ => format!("logos_imod({lw}, {rw})"),
+    };
+    let exact = if op == BinaryOpKind::Modulo {
+        format!("lint_expect_i64({exact_fn}({}, {}, {}))", l.exact, r.exact, zero_divisor_refusal(op))
+    } else {
+        format!("{exact_fn}({}, {})", l.exact, r.exact)
+    };
+    Some(format!(
+        "({{ {}{}__builtin_expect({} || {}, 0) ? {exact} : {word}; }})",
+        l.prelude, r.prelude, l.over, r.over
+    ))
 }
 
 /// Whether the body's word ranges (or, outside a body's ownership plan, the range oracle) prove `x` stays within a
@@ -760,45 +981,58 @@ fn c_low_bits(chain: &crate::codegen::lowbits::LowBits, ctx: &CContext) -> Strin
     }
 }
 
-/// Whether `expr` is a sum, difference or product whose leaves (see [`word_chain`]) are machine words.
+/// The operators a chain of machine words is made of: a sum, a difference, a product, and a quotient, which leaves the
+/// word only at the bottom of the word divided by -1.
+fn chain_operator(op: BinaryOpKind) -> bool {
+    matches!(
+        op,
+        BinaryOpKind::Add
+            | BinaryOpKind::Subtract
+            | BinaryOpKind::Multiply
+            | BinaryOpKind::Divide
+            | BinaryOpKind::FloorDivide
+    )
+}
+
+/// The VM's words for `op` (a quotient) by a zero divisor, as a C string literal.
+fn zero_divisor_refusal(op: BinaryOpKind) -> String {
+    let (one, zero) = (
+        crate::interpreter::RuntimeValue::Int(1),
+        crate::interpreter::RuntimeValue::Int(0),
+    );
+    let refused = match op {
+        BinaryOpKind::FloorDivide => crate::semantics::arith::floor_divide(one, zero),
+        BinaryOpKind::Modulo => crate::semantics::arith::modulo(one, zero),
+        _ => crate::semantics::arith::divide(one, zero),
+    };
+    c_string_literal(&refused.err().unwrap_or_default())
+}
+
+/// Whether `expr` is a sum, difference, product or quotient whose leaves (see [`word_chain`]) are machine words.
 fn is_word_chain(expr: &Expr, ctx: &CContext) -> bool {
     fn leaves_are_words(e: &Expr, ctx: &CContext) -> bool {
         match e {
-            Expr::BinaryOp {
-                op: BinaryOpKind::Add | BinaryOpKind::Subtract | BinaryOpKind::Multiply,
-                left,
-                right,
-            } => leaves_are_words(left, ctx) && leaves_are_words(right, ctx),
-            leaf => infer_expr_type(leaf, ctx) == CType::Int64,
+            Expr::BinaryOp { op, left, right } if chain_operator(*op) => {
+                leaves_are_words(left, ctx) && leaves_are_words(right, ctx)
+            }
+            leaf => infer_expr_type(leaf, ctx) == CType::Int64 && opt_var(leaf, ctx).is_none(),
         }
     }
-    matches!(
-        expr,
-        Expr::BinaryOp {
-            op: BinaryOpKind::Add | BinaryOpKind::Subtract | BinaryOpKind::Multiply,
-            ..
-        }
-    ) && leaves_are_words(expr, ctx)
+    matches!(expr, Expr::BinaryOp { op, .. } if chain_operator(*op)) && leaves_are_words(expr, ctx)
 }
 
 /// The C of the machine-word chain `expr` in plain machine-word operators, for a chain proven to stay within a word.
 fn raw_word_chain(expr: &Expr, ctx: &CContext) -> String {
     match expr {
-        Expr::BinaryOp {
-            op: op @ (BinaryOpKind::Add | BinaryOpKind::Subtract | BinaryOpKind::Multiply),
-            left,
-            right,
-        } => {
-            let symbol = match op {
-                BinaryOpKind::Add => "+",
-                BinaryOpKind::Subtract => "-",
-                _ => "*",
-            };
-            format!(
-                "({} {symbol} {})",
-                raw_word_chain(left, ctx),
-                raw_word_chain(right, ctx)
-            )
+        Expr::BinaryOp { op, left, right } if chain_operator(*op) => {
+            let (l, r) = (raw_word_chain(left, ctx), raw_word_chain(right, ctx));
+            match op {
+                BinaryOpKind::Add => format!("({l} + {r})"),
+                BinaryOpKind::Subtract => format!("({l} - {r})"),
+                BinaryOpKind::Multiply => format!("({l} * {r})"),
+                BinaryOpKind::Divide => format!("logos_idiv({l}, {r})"),
+                _ => format!("logos_floordiv({l}, {r}, {})", zero_divisor_refusal(*op)),
+            }
         }
         leaf => codegen_expr(leaf, ctx),
     }
@@ -816,13 +1050,27 @@ fn word_chain(
     checked: bool,
 ) -> String {
     match expr {
-        Expr::BinaryOp {
-            op: op @ (BinaryOpKind::Add | BinaryOpKind::Subtract | BinaryOpKind::Multiply),
-            left,
-            right,
-        } => {
+        Expr::BinaryOp { op, left, right } if chain_operator(*op) => {
             let l = word_chain(left, n, cells, leaves, ctx, checked);
             let r = word_chain(right, n, cells, leaves, ctx, checked);
+            if matches!(op, BinaryOpKind::Divide | BinaryOpKind::FloorDivide) {
+                // A quotient can fail, so its word is computed where the reference computes it: after its operands
+                // and before any operand to its right, into a cell of its own (the exact form skips that cell).
+                let i = *leaves;
+                *leaves += 1;
+                let (ck, ex) = if *op == BinaryOpKind::Divide {
+                    ("logos_ck_div", "logos_lint_div")
+                } else {
+                    ("logos_ck_floordiv", "logos_lint_floordiv")
+                };
+                let refusal = zero_divisor_refusal(*op);
+                if !checked {
+                    return format!("{ex}({l}, {r}, {refusal})");
+                }
+                let cell = format!("__leaf{n}_{i}");
+                write!(cells, "int64_t {cell} = {ck}({l}, {r}, &__over{n}, {refusal}); ").unwrap();
+                return cell;
+            }
             let (ck, ex) = match op {
                 BinaryOpKind::Add => ("logos_ck_add", "lint_add"),
                 BinaryOpKind::Subtract => ("logos_ck_sub", "lint_sub"),
@@ -832,6 +1080,31 @@ fn word_chain(
                 format!("{ck}({l}, {r}, &__over{n})")
             } else {
                 format!("{ex}({l}, {r})")
+            }
+        }
+        // An element of a list that may promote: its word while the list holds words; once the list has promoted,
+        // the chain leaves the word path (`seq_i64_get_ck`) and its exact form reads the element exactly.
+        Expr::Index { collection, index } if reads_a_promotable_element(expr, ctx) => {
+            let i = *leaves;
+            *leaves += 1;
+            let (list, at, cell) = (format!("__list{n}_{i}"), format!("__at{n}_{i}"), format!("__leaf{n}_{i}"));
+            if checked {
+                let idx = narrow_index(
+                    index,
+                    codegen_expr(index, ctx),
+                    ctx,
+                    crate::semantics::failcode::FailCode::ListIndexTooWide,
+                );
+                // A named list is read in place; any other is held once in a cell of its own.
+                let held = match collection {
+                    Expr::Identifier(_) => format!("Seq_i64 *{list} = &{}; ", codegen_expr(collection, ctx)),
+                    _ => format!("Seq_i64 {list}_v = {}; Seq_i64 *{list} = &{list}_v; ", codegen_expr(collection, ctx)),
+                };
+                write!(cells, "{held}int64_t {at} = {idx}; int64_t {cell} = seq_i64_get_ck({list}, {at}, &__over{n}); ")
+                    .unwrap();
+                cell
+            } else {
+                format!("seq_i64_get_lint({list}, {at})")
             }
         }
         leaf => {
@@ -1014,7 +1287,7 @@ pub(super) fn as_returned(val: &Expr, rendered: String, ctx: &CContext) -> Strin
         return widened;
     }
     if *returns == CType::BigInt && from != CType::BigInt {
-        return format!("lint_of((int64_t)({rendered}))");
+        return exact_int_of(val, &rendered, ctx);
     }
     let components = |t: &CType| match t {
         CType::Tuple(elems) => Some(elems.clone()),
@@ -1159,7 +1432,7 @@ fn as_param_value(
     let exact = declared == Some(&CType::BigInt);
     let arg_exact = infer_expr_type(arg, ctx) == CType::BigInt;
     if exact && !arg_exact {
-        format!("lint_of((int64_t)({}))", rendered)
+        exact_int_of(arg, &rendered, ctx)
     } else if arg_exact && declared == Some(&CType::Float64) {
         // An exact integer handed to a Real widens to the nearest double, as the reference tier widens an Int.
         format!("lint_to_f64({})", rendered)
@@ -1179,6 +1452,9 @@ fn stringify_num(expr: &Expr, ctx: &CContext) -> String {
     }
     if let Some((var, ty)) = opt_var(expr, ctx) {
         return c_text_of(&ty, &var, ctx);
+    }
+    if let Some(s) = speculation(expr, ctx) {
+        return s.either(|w| format!("i64_to_str({w})"), |x| format!("lint_to_string({x})"));
     }
     let s = codegen_expr(expr, ctx);
     match infer_expr_type(expr, ctx) {
@@ -1379,6 +1655,13 @@ pub(super) fn codegen_expr(expr: &Expr, ctx: &CContext) -> String {
             ..
         }
         | Expr::Closure { .. } => codegen_expr_node(expr, ctx),
+        // A speculation computes its leaves into cells itself, left to right.
+        _ if is_word_chain(expr, ctx)
+            && infer_expr_type(expr, ctx) == CType::Int64
+            && !proven_in_word(expr, ctx) =>
+        {
+            codegen_expr_node(expr, ctx)
+        }
         _ => sequenced(
             &logicaffeine_language::ast_depth::expr_children(expr),
             ctx,
@@ -1462,9 +1745,17 @@ fn sequenced(operands: &[&Expr], ctx: &CContext, build: impl FnOnce() -> String)
     ctx.select_ctr.set(n + 1);
     let mut prelude = String::new();
     let mut keys = Vec::new();
+    let mut speculated = Vec::new();
     for (i, operand) in acting[..acting.len() - 1].iter().enumerate() {
         let ty = infer_expr_type(operand, ctx);
         if ty == CType::Void {
+            continue;
+        }
+        let key = *operand as *const Expr as usize;
+        if let Some(s) = speculation(operand, ctx) {
+            prelude.push_str(&s.prelude);
+            ctx.speculated.borrow_mut().insert(key, (s.n, s.exact));
+            speculated.push(key);
             continue;
         }
         let cell = format!("__seq{n}_{i}");
@@ -1475,13 +1766,15 @@ fn sequenced(operands: &[&Expr], ctx: &CContext, build: impl FnOnce() -> String)
             codegen_expr(operand, ctx)
         )
         .unwrap();
-        let key = *operand as *const Expr as usize;
         ctx.precomputed.borrow_mut().insert(key, cell);
         keys.push(key);
     }
     let body = build();
     for key in keys {
         ctx.precomputed.borrow_mut().remove(&key);
+    }
+    for key in speculated {
+        ctx.speculated.borrow_mut().remove(&key);
     }
     format!("({{ {prelude}{body}; }})")
 }
@@ -1509,10 +1802,16 @@ fn sequence_operands(
         if ty == CType::Void {
             continue;
         }
+        let key = *operand as *const Expr as usize;
+        if let Some(s) = speculation(operand, ctx) {
+            writeln!(output, "{pad}{}", s.prelude.trim_end()).unwrap();
+            ctx.speculated.borrow_mut().insert(key, (s.n, s.exact));
+            keys.push(key);
+            continue;
+        }
         let value = codegen_expr(operand, ctx);
         let cell = ctx.temp("__operand", ty.clone());
         writeln!(output, "{pad}{} = {value};", ctx.decl_head(&ty, &cell)).unwrap();
-        let key = *operand as *const Expr as usize;
         ctx.precomputed.borrow_mut().insert(key, cell);
         keys.push(key);
     }
@@ -1522,9 +1821,18 @@ fn sequence_operands(
 fn forget_operands(keys: Vec<usize>, ctx: &CContext) {
     for key in keys {
         ctx.precomputed.borrow_mut().remove(&key);
+        ctx.speculated.borrow_mut().remove(&key);
     }
 }
 
+/// One expression's C, by its kind: each wide arm in a frame of its own.
+///
+/// A compile recurses once per nesting level of the program, and the levels the emitter walks are not only the
+/// source's: memoization and the recursive inliner nest what they generate. In a debug build every arm's locals
+/// share the enclosing function's frame, so the widest arms set the stack cost of EVERY level, including levels
+/// that never run them: kept inline they came to tens of KiB a level, and memoized `fib` overflowed a 2 MiB
+/// thread. Each wide arm is a function of its own (`#[inline(never)]`), as the Rust emitter's `codegen_stmt` keeps
+/// its own (`compiler_stack_safety_lock`).
 fn codegen_expr_node(expr: &Expr, ctx: &CContext) -> String {
     if let Some(exact) = super::tower::emit(expr, ctx) {
         return exact;
@@ -1543,1637 +1851,25 @@ fn codegen_expr_node(expr: &Expr, ctx: &CContext) -> String {
         Expr::Identifier(sym) if matches!(ctx.interner.resolve(*sym), "today") => {
             "logos_today()".to_string()
         }
-        Expr::Identifier(_) if opt_var(expr, ctx).is_some() => {
-            let (var, ty) = opt_var(expr, ctx).expect("a value-or-nothing variable");
-            super::types::opt_unpack(
-                &opt_element(&ty),
-                &format!("logos_opt_int({var})"),
-                ctx.interner,
-            )
-        }
+        Expr::Identifier(..) if opt_var(expr, ctx).is_some() => codegen_identifier_optional_expr(expr, ctx),
         // A name nothing binds fails when it is read, as on the VM — a function's name included, since a
         // function is called, never held as a value.
-        Expr::Identifier(sym)
-            if !ctx.vars.contains_key(sym) && !ctx.program_statics.contains(sym) =>
-        {
-            let failure = format!("Undefined variable: {}", ctx.interner.resolve(*sym));
-            format!(
-                "({{ {} (int64_t)0; }})",
-                ctx.fail_stmt(&c_string_literal(&failure))
-            )
+        Expr::Identifier(sym) if !ctx.vars.contains_key(sym) && !ctx.program_statics.contains(sym) => {
+            codegen_identifier_undeclared_expr(expr, ctx)
         }
         Expr::Identifier(sym) => ctx.resolve(*sym).to_string(),
-        Expr::BinaryOp { op, left, right } => {
-            // `a is b` where either side may be `nothing`: equal when both are nothing or both hold equal values,
-            // as the VM compares them (`equality`) — never a read of `nothing` as an Int.
-            let optional = |e: &Expr| {
-                opt_var(e, ctx).is_some() || matches!(infer_expr_type(e, ctx), CType::Opt(_))
-            };
-            if matches!(op, BinaryOpKind::Eq | BinaryOpKind::NotEq) && (optional(left) || optional(right)) {
-                let side = |e: &Expr| match opt_var(e, ctx) {
-                    Some((var, ty)) => (ty, var),
-                    None if matches!(e, Expr::Literal(Literal::Nothing)) => (CType::Void, String::new()),
-                    None => (infer_expr_type(e, ctx), codegen_expr(e, ctx)),
-                };
-                let ((lt, l), (rt, r)) = (side(left), side(right));
-                let eq = super::equality::value_equal(&lt, &l, &rt, &r, ctx).unwrap_or_else(|| {
-                    c_refuse_expr(&format!("`is equal to` between a {lt:?} and a {rt:?}"))
-                });
-                return if *op == BinaryOpKind::NotEq {
-                    format!("(!{})", eq)
-                } else {
-                    eq
-                };
-            }
-            // `and`/`or` read each side's truth, the right only when the left does not decide.
-            if matches!(op, BinaryOpKind::And | BinaryOpKind::Or) {
-                let joint = if *op == BinaryOpKind::And { "&&" } else { "||" };
-                return format!("({} {joint} {})", c_truthy(left, ctx), c_truthy(right, ctx));
-            }
-            if let Some(code) = opt_operand_binary(expr, *op, left, right, ctx) {
-                return code;
-            }
-            let lt = infer_expr_type(left, ctx);
-            let rt = infer_expr_type(right, ctx);
-            // Operands of kinds the operator does not combine: the VM computes both, then fails in the words
-            // its arithmetic gives.
-            if let Some(failure) = static_binary_failure(*op, &lt, &rt) {
-                let zero = c_zero_of(&infer_expr_type(expr, ctx), ctx);
-                return format!(
-                    "({{ (void)({}); (void)({}); {} {zero}; }})",
-                    codegen_expr(left, ctx),
-                    codegen_expr(right, ctx),
-                    ctx.fail_stmt(&c_string_literal(&failure))
-                );
-            }
-            if let Some(code) = temporal_binary(*op, &lt, &rt, left, right, ctx) {
-                return code;
-            }
-            if let Some(code) = word_binary(*op, &lt, &rt, left, right, ctx) {
-                return code;
-            }
-            // A constructing optimizer can version an exact-integer expression behind a
-            // guard and attach RawIntOp to the fresh node. Rust already consumes this
-            // proof; direct C must do the same or it reconstructs LInt arithmetic inside
-            // the proven-word branch. Narrow exact operands at that guarded boundary and
-            // emit the operation itself raw. The cold sibling retains the original exact
-            // nodes and therefore the arbitrary-precision fallback.
-            if crate::optimize::facts::holds_expr(crate::optimize::facts::Fact::RawIntOp, expr) {
-                let symbol = match op {
-                    BinaryOpKind::Add => Some("+"),
-                    BinaryOpKind::Subtract => Some("-"),
-                    BinaryOpKind::Multiply => Some("*"),
-                    _ => None,
-                };
-                if let Some(symbol) = symbol {
-                    let l = codegen_expr(left, ctx);
-                    let r = codegen_expr(right, ctx);
-                    let l = if lt == CType::BigInt {
-                        format!("lint_expect_i64({l})")
-                    } else {
-                        l
-                    };
-                    let r = if rt == CType::BigInt {
-                        format!("lint_expect_i64({r})")
-                    } else {
-                        r
-                    };
-                    return format!("(({l}) {symbol} ({r}))");
-                }
-            }
-            if let Some(code) = mask_narrow(expr, ctx) {
-                return code;
-            }
-            // Consume the exact same whole-body non-negativity proof as the
-            // Rust emitter: x % 2^k is a mask and x / 2^k is a shift. Exact
-            // LInt values keep a guarded small fast path and fall back to the
-            // original arbitrary-precision operation for a big (or defensive
-            // negative) value.
-            if matches!(op, BinaryOpKind::Modulo | BinaryOpKind::Divide)
-                && matches!(lt, CType::Int64 | CType::BigInt)
-                && crate::optimize::active_config()
-                    .is_on(crate::optimization::Opt::StrengthReducePow2)
-            {
-                if let Expr::Literal(Literal::Number(divisor)) = right {
-                    if *divisor > 0
-                        && (*divisor as u64).is_power_of_two()
-                        && crate::codegen::expr::expr_is_nonnegative(left, &ctx.nonnegative_vars)
-                    {
-                        crate::optimize::mark_fired(crate::optimization::Opt::StrengthReducePow2);
-                        let value = codegen_expr(left, ctx);
-                        return match (*op, &lt) {
-                            (BinaryOpKind::Modulo, CType::BigInt) => {
-                                format!("logos_lint_mod_pow2_nonnegative({value}, {divisor}LL)")
-                            }
-                            (BinaryOpKind::Modulo, _) => {
-                                format!("(({value}) & {}LL)", divisor - 1)
-                            }
-                            (BinaryOpKind::Divide, CType::BigInt) => format!(
-                                "logos_lint_div_pow2_nonnegative({value}, {divisor}LL, {})",
-                                divisor.trailing_zeros()
-                            ),
-                            (BinaryOpKind::Divide, _) => {
-                                format!("(({value}) >> {})", divisor.trailing_zeros())
-                            }
-                            _ => unreachable!(),
-                        };
-                    }
-                }
-            }
-            // Opt::ModWrap: a remainder by a constant of a word bounded below twice it is one conditional
-            // subtraction, or the word itself below the constant (see `crate::optimize::modwrap`).
-            if *op == BinaryOpKind::Modulo
-                && lt == CType::Int64
-                && crate::optimize::active_config().is_on(crate::optimization::Opt::ModWrap)
-            {
-                if let Expr::Literal(Literal::Number(m)) = right {
-                    if let Some(wrap) = crate::optimize::modwrap::mod_wrap(*m, int_range(left, ctx)) {
-                        crate::optimize::mark_fired(crate::optimization::Opt::ModWrap);
-                        let value = codegen_expr(left, ctx);
-                        return match wrap {
-                            crate::optimize::modwrap::ModWrap::Identity => format!("({value})"),
-                            crate::optimize::modwrap::ModWrap::Once => format!(
-                                "({{ int64_t __wrap = ({value}); __wrap >= {m}LL ? __wrap - {m}LL : __wrap; }})"
-                            ),
-                        };
-                    }
-                }
-            }
-            if let Some(code) = bounded_operation(expr, *op, left, right, &lt, &rt, ctx) {
-                return code;
-            }
-
-            // A text joined by `+` or `combined with`, however many parts: one allocation.
-            if is_text_join(expr, ctx) {
-                return c_text_join(expr, ctx);
-            }
-
-            if *op == BinaryOpKind::SeqConcat {
-                return c_seq_concat(expr, left, right, ctx);
-            }
-
-            // Two sequences are equal when their items are, in order, and two maps or sets when their entries are,
-            // as the VM compares them.
-            if (*op == BinaryOpKind::Eq || *op == BinaryOpKind::NotEq)
-                && (is_sequence(&lt) || super::equality::table_parts(&lt).is_some())
-            {
-                let (l, r) = (codegen_expr(left, ctx), codegen_expr(right, ctx));
-                if let Some(same) = super::equality::value_equal(&lt, &l, &rt, &r, ctx) {
-                    return if *op == BinaryOpKind::Eq { same } else { format!("(!{same})") };
-                }
-            }
-            // String comparison
-            if (*op == BinaryOpKind::Eq || *op == BinaryOpKind::NotEq)
-                && (lt == CType::String || rt == CType::String)
-            {
-                let l = codegen_expr(left, ctx);
-                let r = codegen_expr(right, ctx);
-                if *op == BinaryOpKind::Eq {
-                    return format!("str_equals({}, {})", l, r);
-                } else {
-                    return format!("(!str_equals({}, {}))", l, r);
-                }
-            }
-
-            // An exact quotient of integers is the fraction it denotes.
-            if *op == BinaryOpKind::ExactDivide
-                && !matches!(lt, CType::Rational | CType::Decimal)
-                && !matches!(rt, CType::Rational | CType::Decimal)
-                && infer_expr_type(expr, ctx) == CType::Rational
-            {
-                return codegen_expr_as_rational(expr, ctx);
-            }
-            let mut l = codegen_expr(left, ctx);
-            let mut r = codegen_expr(right, ctx);
-            // An integer and a real compare as the numbers do, however far past 2^53 the integer is: the left's
-            // order against the right is -1 below, 0 at, 1 above, 2 for a real that is not a number, which nothing
-            // is below, above or equal to.
-            let holds = match op {
-                BinaryOpKind::Eq => Some("__order{n} == 0"),
-                BinaryOpKind::NotEq => Some("__order{n} != 0"),
-                BinaryOpKind::Lt => Some("__order{n} == -1"),
-                BinaryOpKind::LtEq => Some("(__order{n} == -1 || __order{n} == 0)"),
-                BinaryOpKind::Gt => Some("__order{n} == 1"),
-                BinaryOpKind::GtEq => Some("(__order{n} == 1 || __order{n} == 0)"),
-                _ => None,
-            };
-            if let Some(holds) = holds {
-                if let Some(order) = super::equality::mixed_order(&lt, &l, &rt, &r, ctx) {
-                    let n = ctx.select_ctr.get();
-                    ctx.select_ctr.set(n + 1);
-                    let holds = holds.replace("{n}", &n.to_string());
-                    return format!("({{ int __order{n} = {order}; {holds}; }})");
-                }
-            }
-            // A BigInt (`LInt`) operand mixed with a Float64 operand is FLOATING-POINT arithmetic,
-            // not bignum: convert the LInt side to `double` (`lint_to_f64`) so it flows through the C
-            // float operators / `pow` below. `infer_expr_type` already types such a mix as `Float64`
-            // (its `Float64` arm precedes the `BigInt` arm), so the sink is a `double`; without this
-            // the bignum branch would coerce the FLOAT operand to an `LInt` (`lint_of((int64_t)f)`, a
-            // silent truncation) and yield an `LInt` value — a type error at the `double` sink (a
-            // loop-carried `state * 1.0`) and a wrong result for `bigval * 0.5`.
-            let bigint_float_mix = (lt == CType::BigInt && rt == CType::Float64)
-                || (lt == CType::Float64 && rt == CType::BigInt);
-            if bigint_float_mix {
-                if lt == CType::BigInt {
-                    l = format!("lint_to_f64({})", l);
-                }
-                if rt == CType::BigInt {
-                    r = format!("lint_to_f64({})", r);
-                }
-            }
-            // Exact modular arithmetic — `+ − × ÷` in the ring/field ℤ/nℤ (`LMod`), and ONLY between
-            // two same-ring `Modular` values: the interpreter deliberately rejects `Modular + Int` and
-            // the `Modular ** Int` operator ("needs two ℤ/nℤ values of the same modulus"), so a mixed
-            // or `**` form is left to fall through and fail loudly at gcc rather than silently compute
-            // a value the spec refuses. `÷` multiplies by the divisor's modular inverse (`mod_div`).
-            if lt == CType::Modular
-                && rt == CType::Modular
-                && matches!(
-                    op,
-                    BinaryOpKind::Add
-                        | BinaryOpKind::Subtract
-                        | BinaryOpKind::Multiply
-                        | BinaryOpKind::Divide
-                        | BinaryOpKind::ExactDivide
-                )
-            {
-                let f = match op {
-                    BinaryOpKind::Add => "mod_add",
-                    BinaryOpKind::Subtract => "mod_sub",
-                    BinaryOpKind::Multiply => "mod_mul",
-                    _ => "mod_div",
-                };
-                return format!("{}({}, {})", f, l, r);
-            }
-            // Money arithmetic — same-currency `+ −`, a dimensionless `÷` ratio, and `× k` scaling.
-            if lt == CType::Money
-                && rt == CType::Money
-                && matches!(op, BinaryOpKind::Add | BinaryOpKind::Subtract)
-            {
-                let f = if matches!(op, BinaryOpKind::Add) {
-                    "money_add"
-                } else {
-                    "money_sub"
-                };
-                return format!("{}({}, {})", f, l, r);
-            }
-            if lt == CType::Money
-                && rt == CType::Money
-                && matches!(op, BinaryOpKind::Divide | BinaryOpKind::ExactDivide)
-            {
-                return format!("money_ratio({}, {})", l, r);
-            }
-            if matches!(op, BinaryOpKind::Multiply) && (lt == CType::Money) != (rt == CType::Money)
-            {
-                let (money, k) = if lt == CType::Money {
-                    (&l, &r)
-                } else {
-                    (&r, &l)
-                };
-                return format!("money_scale({}, (int64_t)({}))", money, k);
-            }
-            // Quantity arithmetic — same-dimension `+ −`, dimension-combining `× ÷` (synthetic unit),
-            // and scalar scaling (`q × k`, `k × q`, `q ÷ k`) which preserves the quantity's unit.
-            if lt == CType::Quantity && rt == CType::Quantity {
-                let f = match op {
-                    BinaryOpKind::Add => Some("quant_add"),
-                    BinaryOpKind::Subtract => Some("quant_sub"),
-                    BinaryOpKind::Multiply => Some("quant_mul"),
-                    BinaryOpKind::Divide | BinaryOpKind::ExactDivide => Some("quant_div"),
-                    _ => None,
-                };
-                if let Some(f) = f {
-                    return format!("{}({}, {})", f, l, r);
-                }
-            }
-            if (lt == CType::Quantity) != (rt == CType::Quantity)
-                && matches!(
-                    op,
-                    BinaryOpKind::Multiply | BinaryOpKind::Divide | BinaryOpKind::ExactDivide
-                )
-            {
-                let q_left = lt == CType::Quantity;
-                let (q, k) = if q_left { (&l, &r) } else { (&r, &l) };
-                if matches!(op, BinaryOpKind::Multiply) {
-                    // `q × k` or `k × q` — scale, preserving the unit.
-                    return format!("quant_scale_mul({}, rat_from_i64((int64_t)({})))", q, k);
-                } else if q_left {
-                    // `q ÷ k` — scalar division (scalar-on-the-left `k ÷ q` falls through, failing loud).
-                    return format!("quant_scale_div({}, rat_from_i64((int64_t)({})))", q, k);
-                }
-            }
-            // `uuid == uuid` / `uuid != uuid` — a 16-byte compare (`uuid_eq`) yielding a C bool.
-            if lt == CType::Uuid
-                && rt == CType::Uuid
-                && matches!(op, BinaryOpKind::Eq | BinaryOpKind::NotEq)
-            {
-                let call = format!("uuid_eq({}, {})", l, r);
-                return if matches!(op, BinaryOpKind::NotEq) {
-                    format!("(!{})", call)
-                } else {
-                    call
-                };
-            }
-            // Exact complex arithmetic — `+ − × ÷` over `LComplex`; a bare integer operand promotes to
-            // the real `re + 0i` (`cplx_ints`), mirroring the interpreter's `LogosComplex::from_i64`.
-            if (lt == CType::Complex || rt == CType::Complex)
-                && matches!(
-                    op,
-                    BinaryOpKind::Add
-                        | BinaryOpKind::Subtract
-                        | BinaryOpKind::Multiply
-                        | BinaryOpKind::Divide
-                        | BinaryOpKind::ExactDivide
-                )
-            {
-                let lc = if lt == CType::Complex {
-                    l.clone()
-                } else {
-                    format!("cplx_ints((int64_t)({}), 0)", l)
-                };
-                let rc = if rt == CType::Complex {
-                    r.clone()
-                } else {
-                    format!("cplx_ints((int64_t)({}), 0)", r)
-                };
-                let f = match op {
-                    BinaryOpKind::Add => "cplx_add",
-                    BinaryOpKind::Subtract => "cplx_sub",
-                    BinaryOpKind::Multiply => "cplx_mul",
-                    _ => "cplx_div",
-                };
-                return format!("{}({}, {})", f, lc, rc);
-            }
-            // Exact arithmetic on an `LDec`, both operands re-emitted in rational context. A rational is the VM's
-            // exact number: `/` truncates two whole values and divides anything else exactly, `//` floors, `%`
-            // takes two whole values' integer remainder, `**` gives a whole base an integer's power, and the bitwise
-            // operators take two whole values as integers (the runtime's `ldec_*` rules). A decimal keeps its digits
-            // through `+ − ×` and divides exactly. A real operand makes the operation a real one, as the VM's.
-            if let Some(exact) = exact_operation(*op, left, right, &lt, &rt, ctx) {
-                return exact;
-            }
-            // Bitwise operations are machine-word operations in every runtime tier. Exact `LInt`
-            // operands therefore narrow at this boundary before the raw operator is emitted. The
-            // enclosing exact sink promotes the word result again when it must remain an `LInt`.
-            // Without this boundary, exactness inference could emit illegal C such as `LInt | LInt`
-            // or `8LL << LInt` (the N-Queens and Ackermann benchmark specializations).
-            if matches!(
-                op,
-                BinaryOpKind::BitAnd
-                    | BinaryOpKind::BitOr
-                    | BinaryOpKind::BitXor
-                    | BinaryOpKind::Shl
-                    | BinaryOpKind::Shr
-            ) && (lt == CType::BigInt || rt == CType::BigInt)
-            {
-                let lc = if lt == CType::BigInt {
-                    format!("lint_expect_i64({})", l)
-                } else {
-                    l
-                };
-                let rc = if rt == CType::BigInt {
-                    format!("lint_expect_i64({})", r)
-                } else {
-                    r
-                };
-                let symbol = match op {
-                    BinaryOpKind::BitAnd => "&",
-                    BinaryOpKind::BitOr => "|",
-                    BinaryOpKind::BitXor => "^",
-                    BinaryOpKind::Shl => "<<",
-                    BinaryOpKind::Shr => ">>",
-                    _ => unreachable!("matches! guards the five bitwise operators"),
-                };
-                return format!("({} {} {})", lc, symbol, rc);
-            }
-            // Exact arbitrary-precision integer (`LInt`) — arithmetic promotes any raw int64 operand
-            // via `lint_of`, comparisons go through `lint_cmp`. Triggered by a BigInt operand OR a
-            // provably-overflowing all-literal expression (`10000000000 * 10000000000`).
-            if (lt == CType::BigInt || rt == CType::BigInt || int_exceeds_i64(expr))
-                && !bigint_float_mix
-            {
-                let lc = if lt == CType::BigInt {
-                    l.clone()
-                } else {
-                    format!("lint_of((int64_t)({}))", l)
-                };
-                let rc = if rt == CType::BigInt {
-                    r.clone()
-                } else {
-                    format!("lint_of((int64_t)({}))", r)
-                };
-                if let Some(f) = match op {
-                    BinaryOpKind::Add => Some("logos_lint_add"),
-                    BinaryOpKind::Subtract => Some("logos_lint_sub"),
-                    BinaryOpKind::Multiply => Some("logos_lint_mul"),
-                    _ => None,
-                } {
-                    return format!("{}({}, {})", f, lc, rc);
-                }
-                // A zero divisor fails in the words the VM's arithmetic gives it.
-                if let Some((f, refusal)) = match op {
-                    BinaryOpKind::Divide | BinaryOpKind::ExactDivide => Some((
-                        "logos_lint_div",
-                        crate::semantics::arith::divide(
-                            crate::interpreter::RuntimeValue::Int(1),
-                            crate::interpreter::RuntimeValue::Int(0),
-                        ),
-                    )),
-                    BinaryOpKind::Modulo => Some((
-                        "logos_lint_mod",
-                        crate::semantics::arith::modulo(
-                            crate::interpreter::RuntimeValue::Int(1),
-                            crate::interpreter::RuntimeValue::Int(0),
-                        ),
-                    )),
-                    BinaryOpKind::FloorDivide => Some((
-                        "logos_lint_floordiv",
-                        crate::semantics::arith::floor_divide(
-                            crate::interpreter::RuntimeValue::Int(1),
-                            crate::interpreter::RuntimeValue::Int(0),
-                        ),
-                    )),
-                    _ => None,
-                } {
-                    let refusal = refusal.err().unwrap_or_default();
-                    let exact = format!("{}({}, {}, {})", f, lc, rc, c_string_literal(&refusal));
-                    // A remainder by a machine-word divisor is a machine word (see `infer_expr_type`).
-                    return if *op == BinaryOpKind::Modulo && rt == CType::Int64 {
-                        format!("lint_expect_i64({exact})")
-                    } else {
-                        exact
-                    };
-                }
-                if let Some(cmp) = match op {
-                    BinaryOpKind::Eq => Some("=="),
-                    BinaryOpKind::NotEq => Some("!="),
-                    BinaryOpKind::Lt => Some("<"),
-                    BinaryOpKind::LtEq => Some("<="),
-                    BinaryOpKind::Gt => Some(">"),
-                    BinaryOpKind::GtEq => Some(">="),
-                    _ => None,
-                } {
-                    return format!("(logos_lint_cmp({}, {}) {} 0)", lc, rc, cmp);
-                }
-            }
-            // Tolerant comparison — the shared isclose semantics
-            // (`logos_approx_eq`), self-contained C (fabs/fmax from math.h).
-            if matches!(op, BinaryOpKind::ApproxEq) {
-                return format!(
-                    "(({l}) == ({r}) || fabs(({l}) - ({r})) <= fmax(1e-9 * fmax(fabs({l}), fabs({r})), 1e-12))",
-                    l = l, r = r
-                );
-            }
-            // `**` has no C operator. A Float operand uses libm `pow`. Integer exponentiation is
-            // EXACT and unbounded — it raises the base through the arbitrary-precision runtime
-            // (`lint_pow` → `lbig_pow` + `lint_norm`), which downsizes a fitting result to a fast
-            // small (`2 ** 10 → 1024`) and promotes an overflow to the exact BigInt (`2 ** 100`),
-            // byte-for-byte the tree-walker/VM. A negative exponent aborts loudly inside `lint_pow`.
-            if matches!(op, BinaryOpKind::Pow) {
-                if lt == CType::Float64 || rt == CType::Float64 {
-                    return format!("pow((double)({}), (double)({}))", l, r);
-                }
-                if matches!(lt, CType::Int64 | CType::BigInt)
-                    && matches!(rt, CType::Int64 | CType::BigInt)
-                {
-                    let base = if lt == CType::BigInt {
-                        l.clone()
-                    } else {
-                        format!("lint_of((int64_t)({}))", l)
-                    };
-                    let exp = if rt == CType::BigInt {
-                        format!("lint_expect_i64({})", r)
-                    } else {
-                        format!("(int64_t)({})", r)
-                    };
-                    return format!("lint_pow({}, {})", base, exp);
-                }
-                return format!("((int64_t)llround(pow((double)({}), (double)({}))))", l, r);
-            }
-            // `//` floors toward negative infinity; C's `/` truncates toward zero, so the
-            // integer case corrects by one when the operands differ in sign and the
-            // remainder is nonzero. A Float operand floors the double quotient.
-            if matches!(op, BinaryOpKind::FloorDivide) {
-                if lt == CType::Float64 || rt == CType::Float64 {
-                    return format!("floor(logos_rdiv((double)({}), (double)({})))", l, r);
-                }
-                return format!(
-                    "(logos_idiv({l}, {r}) - (((logos_imod({l}, {r}) != 0) && ((logos_imod({l}, {r}) < 0) != (({r}) < 0))) ? 1 : 0))",
-                    l = l, r = r
-                );
-            }
-            // `/` and `%` fail on a zero divisor with the interpreter's words, where C's would trap or give `inf`.
-            if matches!(op, BinaryOpKind::Divide | BinaryOpKind::Modulo) {
-                let real = lt == CType::Float64 || rt == CType::Float64;
-                let int = matches!(lt, CType::Int64 | CType::Bool)
-                    && matches!(rt, CType::Int64 | CType::Bool);
-                let checked = match (op, real, int) {
-                    (BinaryOpKind::Divide, true, _) => Some(("logos_rdiv", "double")),
-                    (BinaryOpKind::Divide, false, true) => Some(("logos_idiv", "int64_t")),
-                    (BinaryOpKind::Modulo, false, true) => Some(("logos_imod", "int64_t")),
-                    _ => None,
-                };
-                if let Some((f, ty)) = checked {
-                    return format!("{f}(({ty})({l}), ({ty})({r}))");
-                }
-            }
-            let op_str = match op {
-                BinaryOpKind::Add => "+",
-                BinaryOpKind::Subtract => "-",
-                BinaryOpKind::Multiply => "*",
-                BinaryOpKind::Divide | BinaryOpKind::ExactDivide => "/",
-                BinaryOpKind::Modulo => "%",
-                BinaryOpKind::Eq => "==",
-                BinaryOpKind::NotEq => "!=",
-                BinaryOpKind::Lt => "<",
-                BinaryOpKind::LtEq => "<=",
-                BinaryOpKind::Gt => ">",
-                BinaryOpKind::GtEq => ">=",
-                BinaryOpKind::And | BinaryOpKind::Or => unreachable!("handled above"),
-                BinaryOpKind::Concat => "+",
-                BinaryOpKind::SeqConcat => unreachable!("handled above"),
-                BinaryOpKind::ApproxEq => unreachable!("handled above"),
-                BinaryOpKind::Pow => unreachable!("handled above"),
-                BinaryOpKind::FloorDivide => unreachable!("handled above"),
-                BinaryOpKind::BitAnd => "&",
-                BinaryOpKind::BitOr => "|",
-                BinaryOpKind::BitXor => "^",
-                BinaryOpKind::Shl => "<<",
-                BinaryOpKind::Shr => ">>",
-            };
-            format!("({} {} {})", l, op_str, r)
-        }
-        Expr::Call { function, args } => {
-            let raw_name = ctx.interner.resolve(*function);
-            // "Declarer wins": a function the program defines (`funcs` holds every `## To` with a
-            // body) is called as written — no builtin arm below may take its name.
-            let defined_here =
-                ctx.funcs.contains_key(function) && !ctx.native_funcs.contains(function);
-            let builtin = if defined_here { "" } else { raw_name };
-            match builtin {
-                "args" => "logos_args()".to_string(),
-                "randomInt" if args.len() == 2 => {
-                    let lo = codegen_expr(args[0], ctx);
-                    let hi = codegen_expr(args[1], ctx);
-                    let lo = narrow_i64_sink(args[0], lo, ctx);
-                    let hi = narrow_i64_sink(args[1], hi, ctx);
-                    format!("lc_random_int({lo}, {hi})")
-                }
-                // env.lg's `get(name)`: the variable in the process environment, `some` of its text or
-                // `none` when it is unset, built as the program's own `Option of Text`.
-                "get" if args.len() == 1 => {
-                    let name = codegen_expr(args[0], ctx);
-                    let opt = c_type_str_resolved(&infer_expr_type(expr, ctx), ctx.interner);
-                    format!(
-                        "({{ const char *__env = getenv({name}); __env ? ({opt}){{.tag = {opt}_Some, \
-                         .data.Some = {{.value = lc_gc_strdup(__env)}}}} : ({opt}){{.tag = {opt}_None}}; }})"
-                    )
-                }
-                // time.lg's `now()`: the Unix time in milliseconds, not the moment the bare `now` names.
-                "now" if args.is_empty() => "logos_time_now()".to_string(),
-
-                // `format(x)` — the value's text exactly as `Show` prints it.
-                "format" if args.len() == 1 => c_format_builtin(args[0], ctx),
-                // The call spellings of `length of x`, `copy of x` and `x contains y`: each emits exactly what
-                // its dedicated node emits.
-                "length" if args.len() == 1 => codegen_expr(
-                    &Expr::Length {
-                        collection: args[0],
-                    },
-                    ctx,
-                ),
-                "contains" if args.len() == 2 => c_contains(args[0], args[1], ctx),
-                "copy" if args.len() == 1 => codegen_expr(&Expr::Copy { expr: args[0] }, ctx),
-                "text_bytes" => {
-                    let a = args
-                        .first()
-                        .map(|a| codegen_expr(a, ctx))
-                        .unwrap_or_else(|| "\"\"".to_string());
-                    format!("logos_text_bytes({})", a)
-                }
-                "text_from_bytes" => {
-                    let a = args
-                        .first()
-                        .map(|a| codegen_expr(a, ctx))
-                        .unwrap_or_else(|| "seq_i64_new()".to_string());
-                    format!("logos_text_from_bytes({})", a)
-                }
-                "chr" => {
-                    let a = args
-                        .first()
-                        .map(|a| codegen_expr(a, ctx))
-                        .unwrap_or_else(|| "0".to_string());
-                    format!("logos_chr({})", a)
-                }
-                "parseInt" => {
-                    let arg = if let Some(a) = args.first() {
-                        codegen_expr(a, ctx)
-                    } else {
-                        "\"0\"".to_string()
-                    };
-                    format!("logos_parseInt({})", arg)
-                }
-                "parseFloat" => {
-                    let arg = if let Some(a) = args.first() {
-                        codegen_expr(a, ctx)
-                    } else {
-                        "\"0\"".to_string()
-                    };
-                    format!("atof({})", arg)
-                }
-                "readReals" => {
-                    let arg = args.first().map(|a| codegen_expr(a, ctx)).unwrap_or_else(|| "\"\"".to_string());
-                    format!("logos_read_reals({arg})")
-                }
-                "sqrt" => {
-                    let arg = if let Some(a) = args.first() {
-                        codegen_expr(a, ctx)
-                    } else {
-                        "0.0".to_string()
-                    };
-                    format!("sqrt({})", arg)
-                }
-                // Fixed-width UNSIGNED wrap (word8/16/32/64): mask the argument to the width as an
-                // unsigned value held in an i64 — the VM/RISC-V `arg_wrapping` semantics. Without these
-                // arms the C backend emitted an undeclared `word32(...)` call (e.g. sha256).
-                "word8" | "word16" | "word32" | "word64" => {
-                    let arg = args
-                        .first()
-                        .map(|a| {
-                            let value = codegen_expr(a, ctx);
-                            if infer_expr_type(a, ctx) == CType::BigInt {
-                                format!("lint_word_bits({value})")
-                            } else {
-                                narrow_i64_sink(a, value, ctx)
-                            }
-                        })
-                        .unwrap_or_else(|| "0".to_string());
-                    let cast = match raw_name {
-                        "word8" => "uint8_t",
-                        "word16" => "uint16_t",
-                        "word32" => "uint32_t",
-                        _ => "uint64_t",
-                    };
-                    format!("((int64_t)({cast})({arg}))")
-                }
-                // 32-bit unsigned shifts + rotates (the sha256 word32 bit-op family). Standard 32-bit
-                // semantics with the shift amount masked to 5 bits (matches the VM/RISC-V builtins).
-                "word32Shr" | "word32Shl" | "rotr" | "rotl" if args.len() == 2 => {
-                    let x = codegen_expr(&args[0], ctx);
-                    let n = codegen_expr(&args[1], ctx);
-                    match raw_name {
-                        "word32Shr" => format!("((int64_t)((uint32_t)({x}) >> (({n}) & 31)))"),
-                        "word32Shl" => format!("((int64_t)(uint32_t)((uint32_t)({x}) << (({n}) & 31)))"),
-                        "rotr" => format!(
-                            "((int64_t)(uint32_t)(((uint32_t)({x}) >> (({n}) & 31)) | ((uint32_t)({x}) << ((32 - (({n}) & 31)) & 31))))"
-                        ),
-                        _ => format!(
-                            "((int64_t)(uint32_t)(((uint32_t)({x}) << (({n}) & 31)) | ((uint32_t)({x}) >> ((32 - (({n}) & 31)) & 31))))"
-                        ),
-                    }
-                }
-                // 32-bit unsigned bitwise logic (word_and/or/xor) — two operands, unsigned-32 result.
-                "word_and" | "word_or" | "word_xor" if args.len() == 2 => {
-                    let a = codegen_expr(&args[0], ctx);
-                    let b = codegen_expr(&args[1], ctx);
-                    let op = match raw_name {
-                        "word_and" => "&",
-                        "word_or" => "|",
-                        _ => "^",
-                    };
-                    format!("((int64_t)((uint32_t)({a}) {op} (uint32_t)({b})))")
-                }
-                // word_not = 32-bit bitwise complement; intOfWord32 reinterprets a word32 as a
-                // non-negative int (both mask to 32 bits, held in an i64).
-                "word_not" => {
-                    let a = args
-                        .first()
-                        .map(|x| codegen_expr(x, ctx))
-                        .unwrap_or_else(|| "0".to_string());
-                    format!("((int64_t)(uint32_t)(~(uint32_t)({a})))")
-                }
-                // A word's value as an Int, as the VM reads it: the narrow widths as their unsigned value,
-                // a `Word64` as the signed integer its 64 bits spell.
-                "intOfWord8" | "intOfWord16" | "intOfWord32" | "intOfWord64" => {
-                    let a = args
-                        .first()
-                        .map(|x| codegen_expr(x, ctx))
-                        .unwrap_or_else(|| "0".to_string());
-                    match raw_name {
-                        "intOfWord8" => format!("((int64_t)(uint8_t)({a}))"),
-                        "intOfWord16" => format!("((int64_t)(uint16_t)({a}))"),
-                        "intOfWord32" => format!("((int64_t)(uint32_t)({a}))"),
-                        _ => format!("((int64_t)({a}))"),
-                    }
-                }
-                "complex"
-                    if args.len() == 2
-                        && infer_expr_type(&args[0], ctx) != CType::Float64
-                        && infer_expr_type(&args[1], ctx) != CType::Float64 =>
-                {
-                    // exact int-part complex → LComplex (the C mirror of LogosComplex).
-                    format!(
-                        "cplx_ints({}, {})",
-                        codegen_expr(&args[0], ctx),
-                        codegen_expr(&args[1], ctx)
-                    )
-                }
-                // float-part complex → LComplex over exact dyadic rationals (mirrors LogosComplexF).
-                "complex" if args.len() == 2 => {
-                    format!(
-                        "cplx_reals((double)({}), (double)({}))",
-                        codegen_expr(&args[0], ctx),
-                        codegen_expr(&args[1], ctx)
-                    )
-                }
-                // Real / imaginary part of a complex, extracted by value as an f64.
-                "re" if args.len() == 1 && infer_expr_type(&args[0], ctx) == CType::Complex => {
-                    format!("cplx_re_f64({})", codegen_expr(&args[0], ctx))
-                }
-                "re" if args.len() == 1 => format!("((double)({}))", codegen_expr(&args[0], ctx)),
-                "im" if args.len() == 1 && infer_expr_type(&args[0], ctx) == CType::Complex => {
-                    format!("cplx_im_f64({})", codegen_expr(&args[0], ctx))
-                }
-                "im" if args.len() == 1 => {
-                    let _ = codegen_expr(&args[0], ctx);
-                    "0.0".to_string()
-                }
-                "abs"
-                    if args
-                        .first()
-                        .map_or(false, |a| infer_expr_type(a, ctx) == CType::Complex) =>
-                {
-                    format!("cplx_abs_f64({})", codegen_expr(&args[0], ctx))
-                }
-                // |x| of an exact Rational/Decimal stays exact (`LDec`, sign cleared).
-                "abs"
-                    if args
-                        .first()
-                        .is_some_and(|a| matches!(infer_expr_type(a, ctx), CType::Rational | CType::Decimal)) =>
-                {
-                    format!("ldec_abs({})", codegen_expr(&args[0], ctx))
-                }
-                // `decimal("1.50")` — scale-aware Decimal parsed from its digit string (`LDec`).
-                "decimal" if args.len() == 1 && infer_expr_type(&args[0], ctx) == CType::String => {
-                    format!("ldec_from_text({})", codegen_expr(&args[0], ctx))
-                }
-                "decimal" if args.len() == 1 => {
-                    // scale-0 decimal (`LDec`) — the C mirror of LOGOS `decimal(n)`.
-                    format!("ldec_from_i64((int64_t)({}))", codegen_expr(&args[0], ctx))
-                }
-                "modular"
-                    if args.len() == 2
-                        && infer_expr_type(&args[0], ctx) != CType::Float64
-                        && infer_expr_type(&args[1], ctx) != CType::Float64 =>
-                {
-                    // exact ℤ/nℤ → LMod (the C mirror of logicaffeine_base::Modular).
-                    format!(
-                        "mod_ints((int64_t)({}), (int64_t)({}))",
-                        codegen_expr(&args[0], ctx),
-                        codegen_expr(&args[1], ctx)
-                    )
-                }
-                // UUID (the C mirror of logicaffeine_base::Uuid): parse/constants/version/bytes.
-                "uuid" if args.len() == 1 => format!("uuid_parse({})", codegen_expr(&args[0], ctx)),
-                "uuid_nil" if args.is_empty() => "uuid_nil()".to_string(),
-                "uuid_max" if args.is_empty() => "uuid_max()".to_string(),
-                "uuid_dns" if args.is_empty() => "uuid_dns()".to_string(),
-                "uuid_url" if args.is_empty() => "uuid_url()".to_string(),
-                "uuid_oid" if args.is_empty() => "uuid_oid()".to_string(),
-                "uuid_x500" if args.is_empty() => "uuid_x500()".to_string(),
-                "uuid_version" if args.len() == 1 => {
-                    format!("uuid_version({})", codegen_expr(&args[0], ctx))
-                }
-                "uuid_bytes" if args.len() == 1 => {
-                    format!("uuid_bytes({})", codegen_expr(&args[0], ctx))
-                }
-                "uuid_from_bytes" if args.len() == 1 => {
-                    format!("uuid_from_bytes({})", codegen_expr(&args[0], ctx))
-                }
-                // `quantity(v, "unit")` → `LQuant`; the unit resolves to its exact scale/offset/dimension
-                // at codegen time. An unresolvable (non-literal or unknown) unit fails loud at gcc.
-                "quantity" if args.len() == 2 => {
-                    match quantity_unit_literal(&args[1], ctx)
-                        .and_then(|n| resolve_quantity_unit(&n))
-                    {
-                        Some((scale, offset, dnums, ddens, sym)) => format!(
-                            "quant_of(rat_from_i64((int64_t)({})), {}, {}, {}, {}, {})",
-                            codegen_expr(&args[0], ctx),
-                            scale,
-                            offset,
-                            dnums,
-                            ddens,
-                            sym
-                        ),
-                        None => {
-                            format!("quantity_unresolved_unit({})", codegen_expr(&args[0], ctx))
-                        }
-                    }
-                }
-                // `convert(q, "unit")` (and the `X in unit` surface) → re-express in a same-dimension unit.
-                "convert" if args.len() == 2 => {
-                    match quantity_unit_literal(&args[1], ctx)
-                        .and_then(|n| resolve_quantity_unit(&n))
-                    {
-                        Some((scale, offset, dnums, ddens, sym)) => format!(
-                            "quant_convert({}, {}, {}, {}, {}, {})",
-                            codegen_expr(&args[0], ctx),
-                            scale,
-                            offset,
-                            dnums,
-                            ddens,
-                            sym
-                        ),
-                        None => {
-                            format!("quantity_unresolved_unit({})", codegen_expr(&args[0], ctx))
-                        }
-                    }
-                }
-                // `money(amount, "USD")` → `LMoney`; a bare integer amount promotes to a scale-0 decimal.
-                "money" if args.len() == 2 => {
-                    let amt = if matches!(infer_expr_type(&args[0], ctx), CType::Rational | CType::Decimal) {
-                        codegen_expr(&args[0], ctx)
-                    } else {
-                        format!("ldec_from_i64((int64_t)({}))", codegen_expr(&args[0], ctx))
-                    };
-                    format!("money_of({}, {})", amt, codegen_expr(&args[1], ctx))
-                }
-                "abs" => {
-                    let arg = if let Some(a) = args.first() {
-                        codegen_expr(a, ctx)
-                    } else {
-                        "0".to_string()
-                    };
-                    format!("fabs({})", arg)
-                }
-                "count_ones" => {
-                    // Population count over the value's u64 bit pattern — matches the
-                    // AOT-Rust `(x as u64).count_ones()` and the interpreter/VM.
-                    let arg = args.first().map_or_else(
-                        || "0".to_string(),
-                        |a| narrow_i64_sink(a, codegen_expr(a, ctx), ctx),
-                    );
-                    format!(
-                        "(int64_t)__builtin_popcountll((unsigned long long)({}))",
-                        arg
-                    )
-                }
-                "leading_zeros" => {
-                    // High zero bits; `__builtin_clzll(0)` is UB, so match Rust's
-                    // `(0u64).leading_zeros() == 64` explicitly.
-                    let arg = args.first().map_or_else(
-                        || "0".to_string(),
-                        |a| narrow_i64_sink(a, codegen_expr(a, ctx), ctx),
-                    );
-                    format!("((unsigned long long)({0})==0ULL?(int64_t)64:(int64_t)__builtin_clzll((unsigned long long)({0})))", arg)
-                }
-                "trailing_zeros" => {
-                    // Low zero bits; `__builtin_ctzll(0)` is UB → Rust's
-                    // `(0u64).trailing_zeros() == 64`.
-                    let arg = args.first().map_or_else(
-                        || "0".to_string(),
-                        |a| narrow_i64_sink(a, codegen_expr(a, ctx), ctx),
-                    );
-                    format!("((unsigned long long)({0})==0ULL?(int64_t)64:(int64_t)__builtin_ctzll((unsigned long long)({0})))", arg)
-                }
-                // `floor`/`ceil`/`round` of an exact Rational/Decimal yield the exact integer (`lint_norm`
-                // downsizes it to a fast small when it fits). `round` is HALF-AWAY-FROM-ZERO, matching the
-                // interpreter's `Rational::round`. A float argument keeps the libm form below.
-                "floor"
-                    if args
-                        .first()
-                        .is_some_and(|a| matches!(infer_expr_type(a, ctx), CType::Rational | CType::Decimal)) =>
-                {
-                    format!("lint_norm(ldec_floor({}))", codegen_expr(&args[0], ctx))
-                }
-                "ceil"
-                    if args
-                        .first()
-                        .is_some_and(|a| matches!(infer_expr_type(a, ctx), CType::Rational | CType::Decimal)) =>
-                {
-                    format!("lint_norm(ldec_ceil({}))", codegen_expr(&args[0], ctx))
-                }
-                "round"
-                    if args
-                        .first()
-                        .is_some_and(|a| matches!(infer_expr_type(a, ctx), CType::Rational | CType::Decimal)) =>
-                {
-                    format!("lint_norm(ldec_round({}))", codegen_expr(&args[0], ctx))
-                }
-                "floor" => {
-                    let arg = if let Some(a) = args.first() {
-                        codegen_expr(a, ctx)
-                    } else {
-                        "0.0".to_string()
-                    };
-                    format!("(int64_t)floor({})", arg)
-                }
-                "ceil" => {
-                    let arg = if let Some(a) = args.first() {
-                        codegen_expr(a, ctx)
-                    } else {
-                        "0.0".to_string()
-                    };
-                    format!("(int64_t)ceil({})", arg)
-                }
-                "round" => {
-                    let arg = if let Some(a) = args.first() {
-                        codegen_expr(a, ctx)
-                    } else {
-                        "0.0".to_string()
-                    };
-                    format!("(int64_t)round({})", arg)
-                }
-                // Modular exponentiation: `pow(m, e)` where the base is a ℤ/nℤ element — the C mirror
-                // of the interpreter's `Modular::pow` (square-and-multiply in the ring, exponent ≥ 0).
-                "pow" if args.len() == 2 && infer_expr_type(&args[0], ctx) == CType::Modular => {
-                    format!(
-                        "mod_pow({}, (int64_t)({}))",
-                        codegen_expr(&args[0], ctx),
-                        codegen_expr(&args[1], ctx)
-                    )
-                }
-                "pow" => {
-                    let base_arg = args.first();
-                    let exp_arg = args.get(1);
-                    let base = base_arg
-                        .map(|a| codegen_expr(a, ctx))
-                        .unwrap_or_else(|| "0.0".to_string());
-                    let exp = exp_arg
-                        .map(|a| codegen_expr(a, ctx))
-                        .unwrap_or_else(|| "1.0".to_string());
-                    // Integer pow is EXACT and promotes on overflow (matching the interpreter), not a
-                    // lossy float `pow` nor a wrapping `uint64_t`. When both operands are integer-typed,
-                    // raise the base through the arbitrary-precision runtime (`lint_pow`), which
-                    // downsizes a fitting result and promotes an overflow to the exact BigInt.
-                    let is_int_pow = matches!(
-                        (base_arg, exp_arg),
-                        (Some(b), Some(e))
-                            if !matches!(infer_expr_type(b, ctx), CType::Float64)
-                                && !matches!(infer_expr_type(e, ctx), CType::Float64)
-                    );
-                    if is_int_pow {
-                        let bt = base_arg
-                            .map(|a| infer_expr_type(a, ctx))
-                            .unwrap_or(CType::Int64);
-                        let et = exp_arg
-                            .map(|a| infer_expr_type(a, ctx))
-                            .unwrap_or(CType::Int64);
-                        let base_l = if bt == CType::BigInt {
-                            base
-                        } else {
-                            format!("lint_of((int64_t)({}))", base)
-                        };
-                        let exp_i = if et == CType::BigInt {
-                            format!("lint_expect_i64({})", exp)
-                        } else {
-                            format!("(int64_t)({})", exp)
-                        };
-                        format!("lint_pow({}, {})", base_l, exp_i)
-                    } else {
-                        format!("pow((double)({}), (double)({}))", base, exp)
-                    }
-                }
-                "min" | "max" => {
-                    let operand = |k: usize| {
-                        args.get(k).map_or_else(
-                            || ("0".to_string(), CType::Int64),
-                            |a| (codegen_expr(a, ctx), infer_expr_type(a, ctx)),
-                        )
-                    };
-                    let ((a, at), (b, bt)) = (operand(0), operand(1));
-                    let order = if raw_name == "min" { "<" } else { ">" };
-                    let exact = (at == CType::BigInt || bt == CType::BigInt)
-                        && at != CType::Float64
-                        && bt != CType::Float64;
-                    if exact {
-                        // The VM's `min`/`max` choose between two machine-word Ints and refuse anything else,
-                        // a big one included, in its own words.
-                        let big = crate::interpreter::RuntimeValue::from_bigint(
-                            logicaffeine_base::BigInt::from_i64(i64::MIN)
-                                .mul(&logicaffeine_base::BigInt::from_i64(2)),
-                        );
-                        let builtin = if raw_name == "min" {
-                            crate::semantics::builtins::BuiltinId::Min
-                        } else {
-                            crate::semantics::builtins::BuiltinId::Max
-                        };
-                        let refusal = crate::semantics::builtins::call_builtin(
-                            builtin,
-                            vec![big, crate::interpreter::RuntimeValue::Int(0)],
-                        )
-                        .err()
-                        .unwrap_or_default();
-                        let lint = |v: &str, t: &CType| {
-                            if *t == CType::BigInt {
-                                v.to_string()
-                            } else {
-                                format!("lint_of((int64_t)({v}))")
-                            }
-                        };
-                        format!(
-                            "({{ LInt __lhs = {}; LInt __rhs = {}; if (__lhs.big || __rhs.big) {{ {} }} lint_of(__lhs.small {order} __rhs.small ? __lhs.small : __rhs.small); }})",
-                            lint(&a, &at),
-                            lint(&b, &bt),
-                            ctx.fail_stmt(&c_string_literal(&refusal))
-                        )
-                    } else if at == CType::Float64 || bt == CType::Float64 {
-                        // A Real on either side: the language's own `min`/`max` of reals, which decides the
-                        // sign of equal zeros and a NaN as every other tier does.
-                        format!("logos_{raw_name}_f64((double)({a}), (double)({b}))")
-                    } else {
-                        // Evaluate each argument EXACTLY once (a plain ternary double-evaluates the selected
-                        // operand, duplicating any side effects). A GCC statement expression with __typeof__
-                        // binds each operand to a temp first.
-                        format!(
-                            "({{ __typeof__({a}) __lhs = ({a}); __typeof__({b}) __rhs = ({b}); __lhs {order} __rhs ? __lhs : __rhs; }})"
-                        )
-                    }
-                }
-                // Temporal tower → the C runtime (codegen_c/runtime.rs). One-argument builtins:
-                "parse_timestamp" | "format_timestamp" | "year_of" | "month_of" | "day_of"
-                | "hour_of" | "minute_of" | "second_of" | "weekday_of" | "week_of"
-                | "quarter_of" | "date_of" | "time_of" => {
-                    let cfn = match raw_name {
-                        "parse_timestamp" => "logos_parse_timestamp",
-                        "format_timestamp" => "logos_format_rfc3339",
-                        "year_of" => "logos_year_of",
-                        "month_of" => "logos_month_of",
-                        "day_of" => "logos_day_of",
-                        "hour_of" => "logos_hour_of",
-                        "minute_of" => "logos_minute_of",
-                        "second_of" => "logos_second_of",
-                        "weekday_of" => "logos_weekday_of",
-                        "week_of" => "logos_week_of",
-                        "quarter_of" => "logos_quarter_of",
-                        "date_of" => "logos_date_of",
-                        "time_of" => "logos_time_of",
-                        _ => unreachable!(),
-                    };
-                    let a = args
-                        .first()
-                        .map(|a| codegen_expr(a, ctx))
-                        .unwrap_or_else(|| "0".to_string());
-                    // A `Date` is days-since-epoch; the Moment-based extractors expect nanos, so feed a
-                    // Date through a midnight-UTC conversion (`date_of` stays identity via the round-trip:
-                    // `(days*NANOS_PER_DAY) / NANOS_PER_DAY == days`). A `Moment` is already nanos, and
-                    // `parse_timestamp`/`format_timestamp` take a Text/Moment (never a Date) — unchanged.
-                    let arg_is_date = args
-                        .first()
-                        .map(|e| infer_expr_type(e, ctx) == CType::Date)
-                        .unwrap_or(false);
-                    if arg_is_date {
-                        format!("{}(({}) * LOGOS_NANOS_PER_DAY)", cfn, a)
-                    } else {
-                        format!("{}({})", cfn, a)
-                    }
-                }
-                // Civil-component constructors (3-arg Date, 6-arg Moment).
-                "makeDate" if args.len() == 3 => {
-                    let a: Vec<String> = args.iter().map(|e| codegen_expr(e, ctx)).collect();
-                    format!("logos_make_date({}, {}, {})", a[0], a[1], a[2])
-                }
-                "makeMoment" if args.len() == 6 => {
-                    let a: Vec<String> = args.iter().map(|e| codegen_expr(e, ctx)).collect();
-                    format!(
-                        "logos_make_moment({}, {}, {}, {}, {}, {})",
-                        a[0], a[1], a[2], a[3], a[4], a[5]
-                    )
-                }
-                // Two-argument temporal builtins.
-                "seconds_between" | "add_seconds" | "months_between" | "years_between" => {
-                    let cfn = match raw_name {
-                        "seconds_between" => "logos_seconds_between",
-                        "months_between" => "logos_months_between",
-                        "years_between" => "logos_years_between",
-                        _ => "logos_add_seconds",
-                    };
-                    let a = args
-                        .first()
-                        .map(|a| codegen_expr(a, ctx))
-                        .unwrap_or_else(|| "0".to_string());
-                    let b = args
-                        .get(1)
-                        .map(|a| codegen_expr(a, ctx))
-                        .unwrap_or_else(|| "0".to_string());
-                    format!("{}({}, {})", cfn, a, b)
-                }
-                _ => {
-                    let fname = escape_c_ident(raw_name);
-                    // Two exact-integer promotions: (a) calling a scalar EXACT-HOF — re-codegen its closure arg
-                    // as exact + promote an i64 scalar arg to `LInt`; (b) calling a fn-typed PARAM `f` whose
-                    // params are exact — promote an i64 arg (`f(i64::MAX)` inside a HOF body).
-                    let exact_hof = ctx.exact_hofs.contains(function);
-                    let fnptr_params: Vec<CType> = match ctx.vars.get(function) {
-                        Some(CType::FnPtr { params, .. }) => params.clone(),
-                        _ => Vec::new(),
-                    };
-                    let args_str: Vec<String> = args
-                        .iter()
-                        .enumerate()
-                        .map(|(i, a)| {
-                            if exact_hof {
-                                if let Expr::Closure {
-                                    params,
-                                    body,
-                                    return_type,
-                                } = a
-                                {
-                                    return codegen_closure(params, body, *return_type, ctx);
-                                }
-                                let ac = codegen_expr(a, ctx);
-                                if matches!(infer_expr_type(a, ctx), CType::Int64) {
-                                    return format!("lint_of((int64_t)({}))", ac);
-                                }
-                                return ac;
-                            }
-                            let ac = codegen_expr(a, ctx);
-                            if fnptr_params.get(i) == Some(&CType::BigInt)
-                                && infer_expr_type(a, ctx) != CType::BigInt
-                            {
-                                format!("lint_of((int64_t)({}))", ac)
-                            } else {
-                                as_param_value(ac, a, *function, i, ctx)
-                            }
-                        })
-                        .collect();
-                    // A variable holding a function value is called through it.
-                    if let Some(CType::FnPtr { ret, params }) = ctx.vars.get(function) {
-                        return closure_call(
-                            &ctx.resolve(*function),
-                            true,
-                            ret,
-                            params,
-                            &args_str,
-                            ctx,
-                        );
-                    }
-                    format!("{}({})", fname, args_str.join(", "))
-                }
-            }
-        }
+        Expr::BinaryOp { .. } => codegen_binary_op_expr(expr, ctx),
+        Expr::Call { .. } => codegen_call_expr(expr, ctx),
         // A tuple / record literal → a compound-literal `(LTuple_…){a, b}`; the typedef was emitted from the
         // enclosing function's signature. Element C types are inferred to name the struct.
-        Expr::Tuple(items) => {
-            let elems: Vec<CType> = items.iter().map(|e| infer_expr_type(e, ctx)).collect();
-            let name = tuple_c_name(&elems, ctx.interner);
-            let vals: Vec<String> = items
-                .iter()
-                .map(|e| stored(e, codegen_expr(e, ctx), ctx))
-                .collect();
-            format!("({}){{{}}}", name, vals.join(", "))
-        }
-        Expr::Index { collection, index } => {
-            // One rule for every collection: its type, then its accessor. Only a named variable is
-            // addressable (`seq_*_get(&xs, i)`); any other collection — a field, a call's result —
-            // is bound to a statement-expression temporary first, since `&rvalue` is illegal C.
-            // A value-or-nothing variable is the collection it holds; the index is computed before the VM finds
-            // that it holds nothing.
-            let (coll, ty, addressable, absent) = match collection {
-                _ if operand_place(collection, ctx) => {
-                    let operand = collection_operand(
-                        collection,
-                        || {
-                            use crate::interpreter::RuntimeValue;
-                            crate::semantics::collections::index_get(&RuntimeValue::Nothing, &RuntimeValue::Int(1))
-                                .map(|_| ())
-                        },
-                        ctx,
-                    );
-                    let ty = operand.ty.clone().unwrap_or(CType::SeqI64(Ints::Int));
-                    (operand.place, ty, true, operand.absent)
-                }
-                _ => (
-                    codegen_expr(collection, ctx),
-                    infer_expr_type(collection, ctx),
-                    false,
-                    None,
-                ),
-            };
-            let rendered = codegen_expr(index, ctx);
-            let idx = match &ty {
-                CType::String => narrow_index(
-                    index,
-                    rendered,
-                    ctx,
-                    crate::semantics::failcode::FailCode::TextIndexTooWide,
-                ),
-                CType::MapI64I64(_, _)
-                | CType::MapStrI64(_)
-                | CType::MapStrStr
-                | CType::MapI64Str(_)
-                | CType::MapStrValue(_)
-                | CType::MapI64Value(_) => narrow_i64_sink(index, rendered, ctx),
-                _ => narrow_index(
-                    index,
-                    rendered,
-                    ctx,
-                    crate::semantics::failcode::FailCode::ListIndexTooWide,
-                ),
-            };
-            let (idx, computed) = match &absent {
-                None => (idx, None),
-                Some(_) => ("__index".to_string(), Some(idx)),
-            };
-            let read = (|| {
-            if let Expr::Identifier(sym) = collection {
-                if ctx.text_bytes_views.contains_key(sym) {
-                    return format!(
-                        "(int64_t)((const unsigned char *){coll})[logos_idx0({idx}, strlen((const char *){coll}))]"
-                    );
-                }
-            }
-
-            match &ty {
-                // `item N of t` on a tuple (1-based) → its field `f{N-1}` (the index is a constant).
-                CType::Tuple(elems) => tuple_item(&coll, elems, index, ctx),
-                CType::Record(fields) => {
-                    let elems: Vec<CType> = fields.iter().map(|(_, t)| t.clone()).collect();
-                    tuple_item(&coll, &elems, index, ctx)
-                }
-                // `item k of <Text>` → its k-th character, counted from the end for a negative k.
-                CType::String => match collection {
-                    Expr::Identifier(sym) if is_text_builder(*sym, ctx) => {
-                        format!("logos_text_builder_char_at({coll}, {idx})")
-                    }
-                    _ => format!("logos_text_char_at({coll}, {idx})"),
-                },
-                _ => {
-                    // The versioning pass records `InBounds` only on the fast clone whose
-                    // hoisted guard proves this exact 1-based access names an element.  Rust
-                    // consumes that fact with unchecked indexing; consume it here too instead
-                    // of silently putting `logos_idx0` back into every C hot-loop load.
-                    let proven_direct = crate::optimize::active_config()
-                        .is_on(crate::optimization::Opt::Unchecked)
-                        && crate::optimize::facts::holds_expr(
-                            crate::optimize::facts::Fact::InBounds,
-                            index,
-                        )
-                        && addressable
-                        && matches!(
-                            &ty,
-                            CType::SeqI64(_)
-                                | CType::SeqBool
-                                | CType::SeqStr
-                                | CType::SeqF64
-                                | CType::SeqStruct(_)
-                                | CType::SeqTuple(_)
-                                | CType::SeqSeq(_)
-                                | CType::SeqValue(_)
-                        );
-                    if proven_direct {
-                        crate::optimize::mark_fired(crate::optimization::Opt::Unchecked);
-                        return format!("({coll}).data[(size_t)(({idx}) - 1LL)]");
-                    }
-                    let getfn = match &ty {
-                        CType::MapI64I64(_, _) => "map_i64_i64_get".to_string(),
-                        CType::MapStrI64(_) => "map_str_i64_get".to_string(),
-                        CType::MapStrStr => "map_str_str_get".to_string(),
-                        CType::MapI64Str(_) => "map_i64_str_get".to_string(),
-                        CType::MapStrValue(inner) => {
-                            format!("map_str_{}_get", c_type_str_resolved(inner, ctx.interner))
-                        }
-                        CType::MapI64Value(inner) => {
-                            format!("map_i64_{}_get", c_type_str_resolved(inner, ctx.interner))
-                        }
-                        CType::SeqBool
-                        | CType::SeqStr
-                        | CType::SeqF64
-                        | CType::SeqStruct(_)
-                        | CType::SeqTuple(_)
-                        | CType::SeqSeq(_)
-                        | CType::SeqValue(_) => {
-                            let seq = c_type_str_resolved(&ty, ctx.interner);
-                            format!("seq_{}_get", seq.strip_prefix("Seq_").unwrap_or(&seq))
-                        }
-                        _ => "seq_i64_get".to_string(),
-                    };
-                    if addressable {
-                        format!("{}(&{}, {})", getfn, coll, idx)
-                    } else {
-                        let cty = match &ty {
-                            CType::MapI64I64(_, _)
-                            | CType::MapStrI64(_)
-                            | CType::MapStrStr
-                            | CType::MapI64Str(_)
-                            | CType::MapStrValue(_)
-                            | CType::MapI64Value(_)
-                            | CType::SeqBool
-                            | CType::SeqStr
-                            | CType::SeqF64
-                            | CType::SeqStruct(_)
-                            | CType::SeqTuple(_)
-                            | CType::SeqSeq(_)
-                            | CType::SeqValue(_) => c_type_str_resolved(&ty, ctx.interner),
-                            _ => "Seq_i64".to_string(),
-                        };
-                        format!(
-                            "({{ {} __idx_tmp = {}; {}(&__idx_tmp, {}); }})",
-                            cty, coll, getfn, idx
-                        )
-                    }
-                }
-            }
-            })();
-            match (absent, computed) {
-                (Some(check), Some(index)) => format!("({{ __auto_type __index = {index}; {check} {read}; }})"),
-                _ => read,
-            }
-        }
-        Expr::Length { collection } => {
-            if let Expr::Identifier(sym) = collection {
-                if ctx.text_bytes_views.contains_key(sym) {
-                    let coll = ctx.resolve(*sym);
-                    return format!("(int64_t)strlen((const char *){coll})");
-                }
-            }
-            if operand_place(collection, ctx) {
-                let operand = collection_operand(
-                    collection,
-                    || crate::semantics::collections::length_of(&crate::interpreter::RuntimeValue::Nothing).map(|_| ()),
-                    ctx,
-                );
-                let coll = operand.place.clone();
-                operand.read(match operand.ty.as_ref() {
-                    Some(CType::SeqI64(_)) => format!("seq_i64_len(&{})", coll),
-                    Some(CType::SeqBool) => format!("seq_bool_len(&{})", coll),
-                    Some(CType::SeqStr) => format!("seq_str_len(&{})", coll),
-                    Some(CType::SeqF64) => format!("seq_f64_len(&{})", coll),
-                    Some(CType::String) if matches!(collection, Expr::Identifier(sym) if is_text_builder(*sym, ctx)) => {
-                        format!("(int64_t)logos_text_builder_len({coll})")
-                    }
-                    Some(CType::String) => format!("str_len({})", coll),
-                    Some(CType::SetI64(_)) => format!("set_i64_len(&{})", coll),
-                    Some(CType::SetStr) => format!("set_str_len(&{})", coll),
-                    // `length of <map>` is the distinct-entry count (the struct's `len` field, bumped once per
-                    // new key). Without this a Map fell to the `seq_i64_len` default and read a garbage field.
-                    Some(CType::MapI64I64(_, _))
-                    | Some(CType::MapStrI64(_))
-                    | Some(CType::MapStrStr)
-                    | Some(CType::MapI64Str(_))
-                    | Some(CType::MapStrValue(_))
-                    | Some(CType::MapI64Value(_)) => format!("(int64_t)({}).len", coll),
-                    Some(CType::SeqStruct(s)) => {
-                        format!("{}(&{})", seq_struct_fn(*s, "len", ctx.interner), coll)
-                    }
-                    Some(CType::SeqValue(inner)) => {
-                        format!("seq_{}_len(&{})", c_type_str(inner), coll)
-                    }
-                    // A nested `Seq of Seq of …` uses the `seq_Seq_<inner>_len` family (matching the
-                    // SeqSeq get at the top of this match), not the flat `seq_i64_len` default.
-                    Some(CType::SeqSeq(inner)) => format!(
-                        "seq_{}_len(&{})",
-                        c_type_str_resolved(inner, ctx.interner),
-                        coll
-                    ),
-                    _ => format!("seq_i64_len(&{})", coll),
-                })
-            } else {
-                let coll = codegen_expr(collection, ctx);
-                let ty = infer_expr_type(collection, ctx);
-                if ty == CType::String {
-                    return format!("str_len({})", coll);
-                }
-                if let CType::SeqStruct(s) = ty {
-                    return format!(
-                        "({{ {} __len_tmp = {}; {}(&__len_tmp); }})",
-                        seq_struct_type(s, ctx.interner),
-                        coll,
-                        seq_struct_fn(s, "len", ctx.interner)
-                    );
-                }
-                if let CType::SeqValue(inner) = &ty {
-                    let e = c_type_str(inner);
-                    return format!(
-                        "({{ Seq_{e} __len_tmp = {}; seq_{e}_len(&__len_tmp); }})",
-                        coll
-                    );
-                }
-                // The `*_len` helpers take a pointer, but the collection here may be an rvalue (a
-                // call result like `length of split(…)`), and `&rvalue` is illegal C. Bind it in a
-                // GCC statement-expression first (the backend already uses this form elsewhere).
-                let (cty, lenfn) = match ty {
-                    CType::SeqBool => ("Seq_bool", "seq_bool_len"),
-                    CType::SeqStr => ("Seq_str", "seq_str_len"),
-                    CType::SeqF64 => ("Seq_f64", "seq_f64_len"),
-                    CType::SetI64(_) => ("Set_i64", "set_i64_len"),
-                    CType::SetStr => ("Set_str", "set_str_len"),
-                    _ => ("Seq_i64", "seq_i64_len"),
-                };
-                format!(
-                    "({{ {} __len_tmp = {}; {}(&__len_tmp); }})",
-                    cty, coll, lenfn
-                )
-            }
-        }
+        Expr::Tuple(..) => codegen_tuple_expr(expr, ctx),
+        Expr::Index { .. } => codegen_index_expr(expr, ctx),
+        Expr::Length { .. } => codegen_length_expr(expr, ctx),
         Expr::Contains { collection, value } => c_contains(collection, value, ctx),
-        Expr::New {
-            type_name,
-            type_args,
-            init_fields,
-            ..
-        } => {
-            let name = ctx.interner.resolve(*type_name);
-            match name {
-                // The sequence's own family, named after its type exactly as `infer_expr_type` types it
-                // (`seq_of` the element): a user record or enum, a tuple, a nested sequence, a value type.
-                "Seq" | "List" => {
-                    let elem = type_args
-                        .first()
-                        .map(|arg| {
-                            resolve_type_expr_with_registry(arg, ctx.interner, Some(ctx.registry))
-                        })
-                        .unwrap_or(CType::Int64);
-                    let seq = seq_of(elem);
-                    if seq == CType::Tower {
-                        return "ltower_list(0, NULL)".to_string();
-                    }
-                    format!(
-                        "{}()",
-                        seq_fn(&seq, "new", ctx.interner)
-                            .unwrap_or_else(|| "seq_i64_new".to_string())
-                    )
-                }
-                "Map" => {
-                    let key_type = type_args
-                        .first()
-                        .map(|p| resolve_type_expr(p, ctx.interner))
-                        .unwrap_or(CType::Int64);
-                    let val_type = type_args
-                        .get(1)
-                        .map(|p| resolve_type_expr(p, ctx.interner))
-                        .unwrap_or(CType::Int64);
-                    map_new(&map_ctype(&key_type, &val_type), ctx.interner)
-                        .expect("a map type has a constructor")
-                }
-                "Set" => {
-                    if let Some(arg) = type_args.first() {
-                        match resolve_type_expr(arg, ctx.interner) {
-                            CType::String => "set_str_new()".to_string(),
-                            _ => "set_i64_new()".to_string(),
-                        }
-                    } else {
-                        "set_i64_new()".to_string()
-                    }
-                }
-                _ => {
-                    // Check if this is a user-defined struct
-                    if let Some(crate::analysis::TypeDef::Struct { .. }) =
-                        ctx.registry.get(*type_name)
-                    {
-                        let escaped = escape_c_ident(name);
-                        // Every counter-CRDT field of this struct is seeded with a fresh per-replica map
-                        // handle (`logos_crdt_new()`), stored in its `int64_t` cell as a cast pointer. A
-                        // plain `New` (no init fields) still needs these — a zero cell would be a null
-                        // handle. Explicit inits for non-counter fields are honored as before.
-                        let counter_inits: Vec<String> = ctx
-                            .counter_fields
-                            .iter()
-                            .filter(|(s, _)| *s == *type_name)
-                            .map(|(_, fsym)| {
-                                let fn_str = escape_c_ident(ctx.interner.resolve(*fsym));
-                                format!(".{} = (int64_t)(intptr_t)logos_crdt_new()", fn_str)
-                            })
-                            .collect();
-                        let declared = match ctx.registry.get(*type_name) {
-                            Some(crate::analysis::TypeDef::Struct { fields, .. }) => {
-                                fields.as_slice()
-                            }
-                            _ => &[],
-                        };
-                        let mut fields_str: Vec<String> = init_fields
-                            .iter()
-                            .map(|(fname, fexpr)| {
-                                let fn_str = escape_c_ident(ctx.interner.resolve(*fname));
-                                let fd = declared.iter().find(|f| f.name == *fname);
-                                let val = as_field_value(
-                                    stored(fexpr, codegen_expr(fexpr, ctx), ctx),
-                                    fexpr,
-                                    *type_name,
-                                    fd,
-                                    ctx,
-                                );
-                                format!(".{} = {}", fn_str, val)
-                            })
-                            .collect();
-                        fields_str.extend(counter_inits);
-                        // A field the construction leaves out holds its type's empty value, as the VM fills it: an
-                        // empty text, set or map (a zeroed list is already an empty one, and a zero a number).
-                        for fd in declared
-                            .iter()
-                            .filter(|fd| !init_fields.iter().any(|(n, _)| *n == fd.name))
-                        {
-                            let fty = super::exact::field_ctype(
-                                *type_name,
-                                fd,
-                                ctx.interner,
-                                ctx.registry,
-                                &ctx.field_facts(),
-                            );
-                            let empty = match &fty {
-                                // The VM holds nothing in a rational field a record is built without, which a C
-                                // rational cannot hold.
-                                CType::Rational => {
-                                    return c_refuse_expr(&format!(
-                                        "a `{name}` built without its field `{}`, a rational: a C rational holds no \
-                                         nothing",
-                                        ctx.interner.resolve(fd.name)
-                                    ))
-                                }
-                                CType::String => Some("(char *)\"\"".to_string()),
-                                // An exact field starts at nothing, as the VM's does.
-                                CType::Tower => Some("ltower_nothing()".to_string()),
-                                // A field a stored `nothing` reaches starts present with its type's empty value, or
-                                // absent where the VM leaves it nothing (a rational).
-                                CType::Opt(inner) => Some(match &**inner {
-                                    CType::Rational | CType::Decimal => "((logos_opt){0, 0})".to_string(),
-                                    held => {
-                                        let empty = match held {
-                                            CType::String => "(char *)\"\"".to_string(),
-                                            CType::SetI64(_) => "set_i64_new()".to_string(),
-                                            CType::SetStr => "set_str_new()".to_string(),
-                                            held => map_new(held, ctx.interner).unwrap_or_else(|| {
-                                                format!("({}){{0}}", c_type_str_resolved(held, ctx.interner))
-                                            }),
-                                        };
-                                        format!("((logos_opt){{1, {}}})", opt_pack(held, &empty, ctx))
-                                    }
-                                }),
-                                CType::SetI64(_) => Some("set_i64_new()".to_string()),
-                                CType::SetStr => Some("set_str_new()".to_string()),
-                                map => map_new(map, ctx.interner),
-                            };
-                            if let Some(empty) = empty {
-                                fields_str.push(format!(
-                                    ".{} = {empty}",
-                                    escape_c_ident(ctx.interner.resolve(fd.name))
-                                ));
-                            }
-                        }
-                        if fields_str.is_empty() {
-                            format!("({}){{0}}", escaped)
-                        } else {
-                            format!("({}){{{}}}", escaped, fields_str.join(", "))
-                        }
-                    } else {
-                        format!("/* unsupported new {} */0", name)
-                    }
-                }
-            }
-        }
-        Expr::WithCapacity { value, capacity } => {
-            let cap = codegen_expr(capacity, ctx);
-            let ty = infer_expr_type(value, ctx);
-            match ty {
-                CType::MapI64I64(_, _) => format!("map_i64_i64_with_capacity({})", cap),
-                CType::MapStrI64(_) => format!("map_str_i64_with_capacity({})", cap),
-                CType::MapStrStr => format!("map_str_str_with_capacity({})", cap),
-                CType::MapI64Str(_) => format!("map_i64_str_with_capacity({})", cap),
-                CType::SeqI64(_) => format!("seq_i64_with_capacity({})", cap),
-                CType::SeqBool => format!("seq_bool_with_capacity({})", cap),
-                CType::SeqStr => format!("seq_str_with_capacity({})", cap),
-                CType::SeqF64 => format!("seq_f64_with_capacity({})", cap),
-                // A text's capacity is a hint to a text built in place (see `text_builder_of`); here it is read
-                // for its effects and the text is itself.
-                CType::String => format!("({{ (void)({}); {}; }})", cap, codegen_expr(value, ctx)),
-                _ => codegen_expr(value, ctx),
-            }
-        }
+        Expr::New { .. } => codegen_new_expr(expr, ctx),
+        Expr::WithCapacity { .. } => codegen_with_capacity_expr(expr, ctx),
         Expr::List(elems) if mixed_kinds(elems, ctx) => c_refuse_expr(MIXED_LIST),
-        Expr::List(elems) => {
-            let elem_type = super::types::list_item_type(elems, ctx);
-            if elem_type == CType::Rational {
-                let seq = crate::codegen_c::types::seq_of(CType::Rational);
-                return literal_as(elems, &seq, &CType::Rational, ctx);
-            }
-            // The literal's sequence type is `seq_of` its first element's — the one mapping every
-            // `Seq of X` is typed through — and every sequence family is spelled from its type's
-            // name: `Seq_<key>` with `seq_<key>_new` / `seq_<key>_push` (a scalar's runtime family,
-            // a record's or enum's, a tuple's, a value type's, a nested sequence's alike).
-            let cty =
-                c_type_str_resolved(&crate::codegen_c::types::seq_of(elem_type), ctx.interner);
-            let key = cty.strip_prefix("Seq_").unwrap_or(&cty);
-            let (new_fn, push_fn) = (format!("seq_{key}_new"), format!("seq_{key}_push"));
-            if elems.is_empty() {
-                return format!("{}()", new_fn);
-            }
-            // Materialize the literal in a GCC statement-expression so it works in ANY position —
-            // an argument (`sumSeq([1,2,3])`), a return, etc. The old form emitted an empty seq
-            // with the elements only in a comment, so every literal passed by value was empty.
-            let mut s = format!("({{ {} __lit = {}(); ", cty, new_fn);
-            for e in elems {
-                // An exact (`LInt`) element of a `Seq of Int` narrows into its `Seq_i64` slot, as `Push` does.
-                let value = if key == "i64" {
-                    narrow_i64_sink(e, codegen_expr(e, ctx), ctx)
-                } else {
-                    stored(e, codegen_expr(e, ctx), ctx)
-                };
-                s.push_str(&format!("{}(&__lit, {}); ", push_fn, value));
-            }
-            s.push_str("__lit; })");
-            s
-        }
+        Expr::List(..) => codegen_list_expr(expr, ctx),
         // `copy of x`: a value sharing nothing with `x`, as the VM's deep clone.
         Expr::Copy { expr: inner } => {
             let ty = infer_expr_type(inner, ctx);
@@ -3185,144 +1881,10 @@ fn codegen_expr_node(expr: &Expr, ctx: &CContext) -> String {
         Expr::Not { operand } => format!("(!{})", c_truthy(operand, ctx)),
         // Set union / intersection — `a union b` / `a intersection b`. Operands are `Let`-bound sets (lvalues),
         // so `&a`/`&b` are taken directly; the result is a fresh `Set_*` bound by the enclosing `Let`.
-        Expr::Union { left, right } => {
-            let (l, r) = (codegen_expr(left, ctx), codegen_expr(right, ctx));
-            match infer_expr_type(left, ctx) {
-                CType::SetStr => format!("set_str_union(&{}, &{})", l, r),
-                _ => format!("set_i64_union(&{}, &{})", l, r),
-            }
-        }
-        Expr::Intersection { left, right } => {
-            let (l, r) = (codegen_expr(left, ctx), codegen_expr(right, ctx));
-            match infer_expr_type(left, ctx) {
-                CType::SetStr => format!("set_str_intersect(&{}, &{})", l, r),
-                _ => format!("set_i64_intersect(&{}, &{})", l, r),
-            }
-        }
-        Expr::FieldAccess { object, field } => {
-            let obj = codegen_expr(object, ctx);
-            let obj_ty = infer_expr_type(object, ctx);
-            // A named-record field `r's quotient` → the positional `.fN` of the shared tuple struct.
-            if let CType::Record(fields) = &obj_ty {
-                if let Some(idx) = fields.iter().position(|(n, _)| n == field) {
-                    return format!("{}.f{}", obj, idx);
-                }
-            }
-            let fname = escape_c_ident(ctx.interner.resolve(*field));
-            // A counter-CRDT field (`c's points`) holds a `logos_crdt*` handle in its `int64_t` cell; its
-            // OBSERVABLE is the SUM of the per-replica map — project it exactly as the VM/tree-walker does.
-            if let CType::Struct(sym) = &obj_ty {
-                if ctx.is_counter_field(*sym, *field) {
-                    return format!(
-                        "logos_crdt_sum((logos_crdt *)(intptr_t)({}.{}))",
-                        obj, fname
-                    );
-                }
-            }
-            format!("{}.{}", obj, fname)
-        }
-        Expr::NewVariant {
-            enum_name,
-            variant,
-            fields,
-        } => {
-            let ename = escape_c_ident(ctx.interner.resolve(*enum_name));
-            let vname = escape_c_ident(ctx.interner.resolve(*variant));
-            if fields.is_empty() {
-                format!("({}){{{}.tag = {}_{}}}", ename, "", ename, vname)
-            } else {
-                // Check which fields are recursive (self-referencing pointer)
-                let variant_def_fields = ctx.registry.get(*enum_name).and_then(|td| {
-                    if let crate::analysis::TypeDef::Enum { variants, .. } = td {
-                        variants
-                            .iter()
-                            .find(|v| v.name == *variant)
-                            .map(|v| &v.fields)
-                    } else {
-                        None
-                    }
-                });
-
-                let recursive_fields: Vec<bool> = fields
-                    .iter()
-                    .map(|(fname, _)| {
-                        variant_def_fields
-                            .and_then(|vfields| vfields.iter().find(|f| f.name == *fname))
-                            .is_some_and(|f| {
-                                matches!(&f.ty, crate::analysis::FieldType::Named(fsym) if *fsym == *enum_name)
-                            })
-                    })
-                    .collect();
-                let recursive_count = recursive_fields
-                    .iter()
-                    .filter(|&&recursive| recursive)
-                    .count();
-                // Recursive payload pointers are never freed independently: they are immutable
-                // value children owned by the containing enum. Put sibling children in one block
-                // so a binary node pays for one allocator round trip instead of two.
-                let batch_recursive = recursive_count > 1
-                    && crate::optimize::active_config().is_on(crate::optimization::Opt::Scalarize);
-                let recursive_storage =
-                    batch_recursive.then(|| ctx.fresh_temporary("recursive_fields"));
-                let mut recursive_index = 0usize;
-                let mut recursive_assignments = Vec::with_capacity(recursive_count);
-                let field_inits: Vec<String> = fields
-                    .iter()
-                    .zip(&recursive_fields)
-                    .map(|((fname, fexpr), &is_recursive)| {
-                        let fn_str = escape_c_ident(ctx.interner.resolve(*fname));
-                        let fd = variant_def_fields
-                            .and_then(|vfields| vfields.iter().find(|f| f.name == *fname));
-                        let val = as_field_value(
-                            stored(fexpr, codegen_expr(fexpr, ctx), ctx),
-                            fexpr,
-                            *variant,
-                            fd,
-                            ctx,
-                        );
-
-                        if is_recursive && batch_recursive {
-                            let index = recursive_index;
-                            recursive_index += 1;
-                            let storage = recursive_storage
-                                .as_deref()
-                                .expect("batched recursive storage");
-                            recursive_assignments.push(format!("{storage}[{index}] = {val};"));
-                            format!(".{fn_str} = &{storage}[{index}]")
-                        } else if is_recursive {
-                            // Heap-allocate recursive field: ({Type *__p = lc_gc_alloc(sizeof(Type)); *__p = val; __p;})
-                            format!(
-                                ".{} = ({{{}* __p = ({}*)lc_gc_alloc(sizeof({})); *__p = {}; __p;}})",
-                                fn_str, ename, ename, ename, val
-                            )
-                        } else {
-                            format!(".{} = {}", fn_str, val)
-                        }
-                    })
-                    .collect();
-                let value = format!(
-                    "({}){{{}.tag = {}_{}, .data.{} = {{{}}}}}",
-                    ename,
-                    "",
-                    ename,
-                    vname,
-                    vname,
-                    field_inits.join(", ")
-                );
-                if batch_recursive {
-                    crate::optimize::mark_fired(crate::optimization::Opt::Scalarize);
-                    let storage = recursive_storage
-                        .as_deref()
-                        .expect("batched recursive storage");
-                    format!(
-                        "({{ {ename} *{storage} = ({ename} *)lc_gc_alloc({recursive_count} * sizeof({ename})); {} {value}; }})",
-                        recursive_assignments.join(" ")
-                    )
-                } else {
-                    value
-                }
-            }
-        }
+        Expr::Union { .. } => codegen_union_expr(expr, ctx),
+        Expr::Intersection { .. } => codegen_intersection_expr(expr, ctx),
+        Expr::FieldAccess { .. } => codegen_field_access_expr(expr, ctx),
+        Expr::NewVariant { .. } => codegen_new_variant_expr(expr, ctx),
         Expr::Slice {
             collection,
             start,
@@ -3340,57 +1902,15 @@ fn codegen_expr_node(expr: &Expr, ctx: &CContext) -> String {
         }
         // Lambda-lifting: a closure argument becomes a top-level `static` C function; the value
         // here is that function's name (a function pointer the higher-order callee invokes).
-        Expr::Closure {
-            params,
-            body,
-            return_type,
-        } => {
-            // Generic closure position (not an exact-HOF arg) — plain i64 integers; the exact-HOF call site
-            // re-codegens its closure arg with `exact = true`.
-            codegen_closure(params, body, *return_type, ctx)
-        }
+        Expr::Closure { .. } => codegen_closure_expr(expr, ctx),
         // Calling a value (a function-pointer variable / closure param): `f(x)`.
-        Expr::CallExpr { callee, args } => {
-            let f = codegen_expr(callee, ctx);
-            // The callee's function type says which params are exact `LInt` — promote an i64 argument there, so
-            // `f(i64::MAX)` (a function-typed param inside an exact-HOF body) doesn't truncate.
-            let (ret, param_tys): (CType, Vec<CType>) = match infer_expr_type(callee, ctx) {
-                CType::FnPtr { ret, params } => (*ret, params),
-                _ => (CType::Int64, Vec::new()),
-            };
-            let a: Vec<String> = args
-                .iter()
-                .enumerate()
-                .map(|(i, x)| {
-                    let xc = codegen_expr(x, ctx);
-                    if param_tys.get(i) == Some(&CType::BigInt)
-                        && infer_expr_type(x, ctx) != CType::BigInt
-                    {
-                        format!("lint_of((int64_t)({}))", xc)
-                    } else {
-                        xc
-                    }
-                })
-                .collect();
-            let is_variable = matches!(callee, Expr::Identifier(sym) if ctx.vars.contains_key(sym));
-            closure_call(&f, is_variable, &ret, &param_tys, &a, ctx)
-        }
+        Expr::CallExpr { .. } => codegen_closure_call_expr(expr, ctx),
         // Kinds this backend does not lower refuse at generation, naming the construct; a value it
         // cannot compute is never a stand-in `0`. (`some`/`none` reach C as core's `Option` enum
         // after monomorphization, so the two arms below fire only on a path that skipped it.)
         // A range used as a value is the list of the Ints from its start to its end. The walk stops AT the
         // end, never past it, so a range ending at the largest Int ends.
-        Expr::Range { start, end } => {
-            let n = ctx.select_ctr.get();
-            ctx.select_ctr.set(n + 1);
-            format!(
-                "({{ int64_t __lo{n} = {}; int64_t __hi{n} = {}; Seq_i64 __r{n} = seq_i64_new(); \
-                 if (__lo{n} <= __hi{n}) for (int64_t __logos_k{n} = __lo{n}; ; __logos_k{n}++) {{ seq_i64_push(&__r{n}, __logos_k{n}); \
-                 if (__logos_k{n} == __hi{n}) break; }} __r{n}; }})",
-                range_bound(start, ctx),
-                range_bound(end, ctx),
-            )
-        }
+        Expr::Range { .. } => codegen_range_expr(expr, ctx),
         // A wire chunk is nothing on the VM, its operands never read.
         Expr::ChunkAt { .. } => "((logos_opt){0, 0})".to_string(),
         // A zone's manifest is the empty list on the VM, its zone never read.
@@ -3400,6 +1920,1987 @@ fn codegen_expr_node(expr: &Expr, ctx: &CContext) -> String {
         Expr::OptionSome { .. } => c_refuse_expr("`some` outside a monomorphized program"),
         Expr::OptionNone => c_refuse_expr("`none` outside a monomorphized program"),
     }
+}
+
+/// The `Identifier` arm of [`codegen_expr_node`] (when `opt_var(expr, ctx).is_some()`), in a frame of its own — see
+/// [`codegen_expr_node`].
+#[inline(never)]
+fn codegen_identifier_optional_expr(expr: &Expr, ctx: &CContext) -> String {
+    let (var, ty) = opt_var(expr, ctx).expect("a value-or-nothing variable");
+    super::types::opt_unpack(
+        &opt_element(&ty),
+        &format!("logos_opt_int({var})"),
+        ctx.interner,
+    )
+}
+
+/// The `Identifier` arm of [`codegen_expr_node`] (when `!ctx.vars.contains_key(sym) &&
+/// !ctx.program_statics.contains(sym)`), in a frame of its own — see [`codegen_expr_node`].
+#[inline(never)]
+fn codegen_identifier_undeclared_expr(expr: &Expr, ctx: &CContext) -> String {
+    let Expr::Identifier(sym) = expr else {
+        unreachable!("codegen_identifier_undeclared_expr is called on the arm it was taken from")
+    };
+    let failure = format!("Undefined variable: {}", ctx.interner.resolve(*sym));
+    format!(
+        "({{ {} (int64_t)0; }})",
+        ctx.fail_stmt(&c_string_literal(&failure))
+    )
+}
+
+/// The `BinaryOp` arm of [`codegen_expr_node`], in a frame of its own — see [`codegen_expr_node`].
+#[inline(never)]
+fn codegen_binary_op_expr(expr: &Expr, ctx: &CContext) -> String {
+    let Expr::BinaryOp { op, left, right } = expr else {
+        unreachable!("codegen_binary_op_expr is called on the arm it was taken from")
+    };
+    // `a is b` where either side may be `nothing`: equal when both are nothing or both hold equal values,
+    // as the VM compares them (`equality`) — never a read of `nothing` as an Int.
+    let optional = |e: &Expr| {
+        opt_var(e, ctx).is_some() || matches!(infer_expr_type(e, ctx), CType::Opt(_) | CType::Void)
+    };
+    if matches!(op, BinaryOpKind::Eq | BinaryOpKind::NotEq) && (optional(left) || optional(right)) {
+        let side = |e: &Expr| match opt_var(e, ctx) {
+            Some((var, ty)) => (ty, var),
+            None if matches!(e, Expr::Literal(Literal::Nothing)) => (CType::Void, String::new()),
+            None => (infer_expr_type(e, ctx), codegen_expr(e, ctx)),
+        };
+        let ((lt, l), (rt, r)) = (side(left), side(right));
+        let eq = super::equality::value_equal(&lt, &l, &rt, &r, ctx).unwrap_or_else(|| {
+            c_refuse_expr(&format!("`is equal to` between a {lt:?} and a {rt:?}"))
+        });
+        return if *op == BinaryOpKind::NotEq { super::equality::unequal(eq) } else { eq };
+    }
+    // `x is none` of an `Option` the program monomorphized (`Option__Int`): whether `x` holds that enum's `None`
+    // variant, the tag `Inspect` tests. Monomorphization lowers a `none` it records a construction for; one a
+    // comparison reads reaches here as itself.
+    if matches!(op, BinaryOpKind::Eq | BinaryOpKind::NotEq) {
+        let held = match (&**left, &**right) {
+            (x, Expr::OptionNone) | (Expr::OptionNone, x) => Some(x),
+            _ => None,
+        };
+        if let Some((x, CType::Enum(option))) = held.map(|x| (x, infer_expr_type(x, ctx))) {
+            let has_none = matches!(
+                ctx.registry.get(option),
+                Some(crate::analysis::TypeDef::Enum { variants, .. })
+                    if variants.iter().any(|v| ctx.interner.resolve(v.name) == "None")
+            );
+            if has_none {
+                let test = if *op == BinaryOpKind::Eq { "==" } else { "!=" };
+                let held = codegen_expr(x, ctx);
+                let held = if held.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                    held
+                } else {
+                    format!("({held})")
+                };
+                return format!("({held}.tag {test} {}_None)", escape_c_ident(ctx.interner.resolve(option)));
+            }
+        }
+    }
+    // `and`/`or` read each side's truth, the right only when the left does not decide.
+    if matches!(op, BinaryOpKind::And | BinaryOpKind::Or) {
+        let joint = if *op == BinaryOpKind::And { "&&" } else { "||" };
+        let (l, r) = (c_truthy(left, ctx), c_truthy(right, ctx));
+        return format!("({} {joint} {})", operand(&l, joint, false), operand(&r, joint, true));
+    }
+    if let Some(code) = opt_operand_binary(expr, *op, left, right, ctx) {
+        return code;
+    }
+    let lt = infer_expr_type(left, ctx);
+    let rt = infer_expr_type(right, ctx);
+    // Operands of kinds the operator does not combine: the VM computes both, then fails in the words
+    // its arithmetic gives.
+    if let Some(failure) = static_binary_failure(*op, &lt, &rt) {
+        let zero = c_zero_of(&infer_expr_type(expr, ctx), ctx);
+        return format!(
+            "({{ (void)({}); (void)({}); {} {zero}; }})",
+            codegen_expr(left, ctx),
+            codegen_expr(right, ctx),
+            ctx.fail_stmt(&c_string_literal(&failure))
+        );
+    }
+    if let Some(code) = temporal_binary(*op, &lt, &rt, left, right, ctx) {
+        return code;
+    }
+    if let Some(code) = word_binary(*op, &lt, &rt, left, right, ctx) {
+        return code;
+    }
+    // A constructing optimizer can version an exact-integer expression behind a
+    // guard and attach RawIntOp to the fresh node. Rust already consumes this
+    // proof; direct C must do the same or it reconstructs LInt arithmetic inside
+    // the proven-word branch. Narrow exact operands at that guarded boundary and
+    // emit the operation itself raw. The cold sibling retains the original exact
+    // nodes and therefore the arbitrary-precision fallback.
+    if crate::optimize::facts::holds_expr(crate::optimize::facts::Fact::RawIntOp, expr) {
+        let symbol = match op {
+            BinaryOpKind::Add => Some("+"),
+            BinaryOpKind::Subtract => Some("-"),
+            BinaryOpKind::Multiply => Some("*"),
+            _ => None,
+        };
+        if let Some(symbol) = symbol {
+            let l = codegen_expr(left, ctx);
+            let r = codegen_expr(right, ctx);
+            let l = if lt == CType::BigInt {
+                format!("lint_expect_i64({l})")
+            } else {
+                l
+            };
+            let r = if rt == CType::BigInt {
+                format!("lint_expect_i64({r})")
+            } else {
+                r
+            };
+            return format!("(({l}) {symbol} ({r}))");
+        }
+    }
+    if let Some(code) = mask_narrow(expr, ctx) {
+        return code;
+    }
+    // Consume the exact same whole-body non-negativity proof as the
+    // Rust emitter: x % 2^k is a mask and x / 2^k is a shift. Exact
+    // LInt values keep a guarded small fast path and fall back to the
+    // original arbitrary-precision operation for a big (or defensive
+    // negative) value.
+    if matches!(op, BinaryOpKind::Modulo | BinaryOpKind::Divide)
+        && matches!(lt, CType::Int64 | CType::BigInt)
+        && crate::optimize::active_config()
+            .is_on(crate::optimization::Opt::StrengthReducePow2)
+    {
+        if let Expr::Literal(Literal::Number(divisor)) = right {
+            if *divisor > 0
+                && (*divisor as u64).is_power_of_two()
+                && crate::codegen::expr::expr_is_nonnegative(left, &ctx.nonnegative_vars)
+            {
+                crate::optimize::mark_fired(crate::optimization::Opt::StrengthReducePow2);
+                let value = codegen_expr(left, ctx);
+                return match (*op, &lt) {
+                    (BinaryOpKind::Modulo, CType::BigInt) => {
+                        format!("logos_lint_mod_pow2_nonnegative({value}, {divisor}LL)")
+                    }
+                    (BinaryOpKind::Modulo, _) => {
+                        format!("(({value}) & {}LL)", divisor - 1)
+                    }
+                    (BinaryOpKind::Divide, CType::BigInt) => format!(
+                        "logos_lint_div_pow2_nonnegative({value}, {divisor}LL, {})",
+                        divisor.trailing_zeros()
+                    ),
+                    (BinaryOpKind::Divide, _) => {
+                        format!("(({value}) >> {})", divisor.trailing_zeros())
+                    }
+                    _ => unreachable!(),
+                };
+            }
+        }
+    }
+    // Opt::ModWrap: a remainder by a constant of a word bounded below twice it is one conditional
+    // subtraction, or the word itself below the constant (see `crate::optimize::modwrap`).
+    if *op == BinaryOpKind::Modulo
+        && lt == CType::Int64
+        && crate::optimize::active_config().is_on(crate::optimization::Opt::ModWrap)
+    {
+        if let Expr::Literal(Literal::Number(m)) = right {
+            if let Some(wrap) = crate::optimize::modwrap::mod_wrap(*m, int_range(left, ctx)) {
+                crate::optimize::mark_fired(crate::optimization::Opt::ModWrap);
+                let value = codegen_expr(left, ctx);
+                return match wrap {
+                    crate::optimize::modwrap::ModWrap::Identity => format!("({value})"),
+                    crate::optimize::modwrap::ModWrap::Once => format!(
+                        "({{ int64_t __wrap = ({value}); __wrap >= {m}LL ? __wrap - {m}LL : __wrap; }})"
+                    ),
+                };
+            }
+        }
+    }
+    if let Some(code) = bounded_operation(expr, *op, left, right, &lt, &rt, ctx) {
+        return code;
+    }
+    if lt == CType::Int64 && rt == CType::Int64 {
+        if chain_operator(*op) && infer_expr_type(expr, ctx) == CType::Int64 {
+            if let Some(s) = speculation(expr, ctx) {
+                return s.either(|w| w.to_string(), |x| format!("lint_expect_i64({x})"));
+            }
+        }
+        let relation = match op {
+            BinaryOpKind::Eq => Some("=="),
+            BinaryOpKind::NotEq => Some("!="),
+            BinaryOpKind::Lt => Some("<"),
+            BinaryOpKind::LtEq => Some("<="),
+            BinaryOpKind::Gt => Some(">"),
+            BinaryOpKind::GtEq => Some(">="),
+            _ => None,
+        };
+        if let Some(code) = relation.and_then(|rel| speculative_comparison(left, right, rel, ctx)) {
+            return code;
+        }
+        if let Some(code) = speculative_word_operation(*op, left, right, ctx) {
+            return code;
+        }
+    }
+
+    // A text joined by `+` or `combined with`, however many parts: one allocation.
+    if is_text_join(expr, ctx) {
+        return c_text_join(expr, ctx);
+    }
+
+    if *op == BinaryOpKind::SeqConcat {
+        return c_seq_concat(expr, left, right, ctx);
+    }
+
+    // Two sequences are equal when their items are, in order, two maps or sets when their entries are, two records
+    // or tuples when their fields are, and two values of an enum when they are the same variant with equal fields, as
+    // the VM compares them.
+    if (*op == BinaryOpKind::Eq || *op == BinaryOpKind::NotEq)
+        && (super::equality::is_structured(&lt, ctx) || super::equality::is_structured(&rt, ctx))
+    {
+        let (l, r) = (codegen_expr(left, ctx), codegen_expr(right, ctx));
+        if let Some(same) = super::equality::value_equal(&lt, &l, &rt, &r, ctx) {
+            return if *op == BinaryOpKind::Eq { same } else { super::equality::unequal(same) };
+        }
+    }
+    // String comparison
+    if (*op == BinaryOpKind::Eq || *op == BinaryOpKind::NotEq)
+        && (lt == CType::String || rt == CType::String)
+    {
+        let l = codegen_expr(left, ctx);
+        let r = codegen_expr(right, ctx);
+        if *op == BinaryOpKind::Eq {
+            return format!("str_equals({}, {})", l, r);
+        } else {
+            return format!("(!str_equals({}, {}))", l, r);
+        }
+    }
+
+    // An exact quotient of integers is the fraction it denotes.
+    if *op == BinaryOpKind::ExactDivide
+        && !matches!(lt, CType::Rational | CType::Decimal)
+        && !matches!(rt, CType::Rational | CType::Decimal)
+        && infer_expr_type(expr, ctx) == CType::Rational
+    {
+        return codegen_expr_as_rational(expr, ctx);
+    }
+    let mut l = codegen_expr(left, ctx);
+    let mut r = codegen_expr(right, ctx);
+    // An integer and a real compare as the numbers do, however far past 2^53 the integer is: the left's
+    // order against the right is -1 below, 0 at, 1 above, 2 for a real that is not a number, which nothing
+    // is below, above or equal to.
+    let holds = match op {
+        BinaryOpKind::Eq => Some("__order{n} == 0"),
+        BinaryOpKind::NotEq => Some("__order{n} != 0"),
+        BinaryOpKind::Lt => Some("__order{n} == -1"),
+        BinaryOpKind::LtEq => Some("(__order{n} == -1 || __order{n} == 0)"),
+        BinaryOpKind::Gt => Some("__order{n} == 1"),
+        BinaryOpKind::GtEq => Some("(__order{n} == 1 || __order{n} == 0)"),
+        _ => None,
+    };
+    if let Some(holds) = holds {
+        if let Some(order) = super::equality::mixed_order(&lt, &l, &rt, &r, ctx) {
+            let n = ctx.select_ctr.get();
+            ctx.select_ctr.set(n + 1);
+            let holds = holds.replace("{n}", &n.to_string());
+            return format!("({{ int __order{n} = {order}; {holds}; }})");
+        }
+    }
+    // A BigInt (`LInt`) operand mixed with a Float64 operand is FLOATING-POINT arithmetic,
+    // not bignum: convert the LInt side to `double` (`lint_to_f64`) so it flows through the C
+    // float operators / `pow` below. `infer_expr_type` already types such a mix as `Float64`
+    // (its `Float64` arm precedes the `BigInt` arm), so the sink is a `double`; without this
+    // the bignum branch would coerce the FLOAT operand to an `LInt` (`lint_of((int64_t)f)`, a
+    // silent truncation) and yield an `LInt` value — a type error at the `double` sink (a
+    // loop-carried `state * 1.0`) and a wrong result for `bigval * 0.5`.
+    let bigint_float_mix = (lt == CType::BigInt && rt == CType::Float64)
+        || (lt == CType::Float64 && rt == CType::BigInt);
+    if bigint_float_mix {
+        if lt == CType::BigInt {
+            l = format!("lint_to_f64({})", l);
+        }
+        if rt == CType::BigInt {
+            r = format!("lint_to_f64({})", r);
+        }
+    }
+    // Exact modular arithmetic — `+ − × ÷` in the ring/field ℤ/nℤ (`LMod`), and ONLY between
+    // two same-ring `Modular` values: the interpreter deliberately rejects `Modular + Int` and
+    // the `Modular ** Int` operator ("needs two ℤ/nℤ values of the same modulus"), so a mixed
+    // or `**` form is left to fall through and fail loudly at gcc rather than silently compute
+    // a value the spec refuses. `÷` multiplies by the divisor's modular inverse (`mod_div`).
+    if lt == CType::Modular
+        && rt == CType::Modular
+        && matches!(
+            op,
+            BinaryOpKind::Add
+                | BinaryOpKind::Subtract
+                | BinaryOpKind::Multiply
+                | BinaryOpKind::Divide
+                | BinaryOpKind::ExactDivide
+        )
+    {
+        let f = match op {
+            BinaryOpKind::Add => "mod_add",
+            BinaryOpKind::Subtract => "mod_sub",
+            BinaryOpKind::Multiply => "mod_mul",
+            _ => "mod_div",
+        };
+        return format!("{}({}, {})", f, l, r);
+    }
+    // Money arithmetic — same-currency `+ −`, a dimensionless `÷` ratio, and `× k` scaling.
+    if lt == CType::Money
+        && rt == CType::Money
+        && matches!(op, BinaryOpKind::Add | BinaryOpKind::Subtract)
+    {
+        let f = if matches!(op, BinaryOpKind::Add) {
+            "money_add"
+        } else {
+            "money_sub"
+        };
+        return format!("{}({}, {})", f, l, r);
+    }
+    if lt == CType::Money
+        && rt == CType::Money
+        && matches!(op, BinaryOpKind::Divide | BinaryOpKind::ExactDivide)
+    {
+        return format!("money_ratio({}, {})", l, r);
+    }
+    if matches!(op, BinaryOpKind::Multiply) && (lt == CType::Money) != (rt == CType::Money)
+    {
+        let (money, k) = if lt == CType::Money {
+            (&l, &r)
+        } else {
+            (&r, &l)
+        };
+        return format!("money_scale({}, (int64_t)({}))", money, k);
+    }
+    // Quantity arithmetic — same-dimension `+ −`, dimension-combining `× ÷` (synthetic unit),
+    // and scalar scaling (`q × k`, `k × q`, `q ÷ k`) which preserves the quantity's unit.
+    if lt == CType::Quantity && rt == CType::Quantity {
+        let f = match op {
+            BinaryOpKind::Add => Some("quant_add"),
+            BinaryOpKind::Subtract => Some("quant_sub"),
+            BinaryOpKind::Multiply => Some("quant_mul"),
+            BinaryOpKind::Divide | BinaryOpKind::ExactDivide => Some("quant_div"),
+            _ => None,
+        };
+        if let Some(f) = f {
+            return format!("{}({}, {})", f, l, r);
+        }
+    }
+    if (lt == CType::Quantity) != (rt == CType::Quantity)
+        && matches!(
+            op,
+            BinaryOpKind::Multiply | BinaryOpKind::Divide | BinaryOpKind::ExactDivide
+        )
+    {
+        let q_left = lt == CType::Quantity;
+        let (q, k) = if q_left { (&l, &r) } else { (&r, &l) };
+        if matches!(op, BinaryOpKind::Multiply) {
+            // `q × k` or `k × q` — scale, preserving the unit.
+            return format!("quant_scale_mul({}, rat_from_i64((int64_t)({})))", q, k);
+        } else if q_left {
+            // `q ÷ k` — scalar division (scalar-on-the-left `k ÷ q` falls through, failing loud).
+            return format!("quant_scale_div({}, rat_from_i64((int64_t)({})))", q, k);
+        }
+    }
+    // `uuid == uuid` / `uuid != uuid` — a 16-byte compare (`uuid_eq`) yielding a C bool.
+    if lt == CType::Uuid
+        && rt == CType::Uuid
+        && matches!(op, BinaryOpKind::Eq | BinaryOpKind::NotEq)
+    {
+        let call = format!("uuid_eq({}, {})", l, r);
+        return if matches!(op, BinaryOpKind::NotEq) {
+            format!("(!{})", call)
+        } else {
+            call
+        };
+    }
+    // Exact complex arithmetic — `+ − × ÷` over `LComplex`; a bare integer operand promotes to
+    // the real `re + 0i` (`cplx_ints`), mirroring the interpreter's `LogosComplex::from_i64`.
+    if (lt == CType::Complex || rt == CType::Complex)
+        && matches!(
+            op,
+            BinaryOpKind::Add
+                | BinaryOpKind::Subtract
+                | BinaryOpKind::Multiply
+                | BinaryOpKind::Divide
+                | BinaryOpKind::ExactDivide
+        )
+    {
+        let lc = if lt == CType::Complex {
+            l.clone()
+        } else {
+            format!("cplx_ints((int64_t)({}), 0)", l)
+        };
+        let rc = if rt == CType::Complex {
+            r.clone()
+        } else {
+            format!("cplx_ints((int64_t)({}), 0)", r)
+        };
+        let f = match op {
+            BinaryOpKind::Add => "cplx_add",
+            BinaryOpKind::Subtract => "cplx_sub",
+            BinaryOpKind::Multiply => "cplx_mul",
+            _ => "cplx_div",
+        };
+        return format!("{}({}, {})", f, lc, rc);
+    }
+    // Exact arithmetic on an `LDec`, both operands re-emitted in rational context. A rational is the VM's
+    // exact number: `/` truncates two whole values and divides anything else exactly, `//` floors, `%`
+    // takes two whole values' integer remainder, `**` gives a whole base an integer's power, and the bitwise
+    // operators take two whole values as integers (the runtime's `ldec_*` rules). A decimal keeps its digits
+    // through `+ − ×` and divides exactly. A real operand makes the operation a real one, as the VM's.
+    if let Some(exact) = exact_operation(*op, left, right, &lt, &rt, ctx) {
+        return exact;
+    }
+    // Bitwise operations are machine-word operations in every runtime tier. An exact `LInt`
+    // operand meets the runtime's `lint_bit*`/`lint_sh*`, which answer as the machine does within
+    // the word and as the VM does past it: a low-bit mask keeps a big integer's low bits, and any
+    // other operand past the word is refused in the operator's words. The enclosing exact sink
+    // promotes the word result again when it must remain an `LInt`.
+    if matches!(
+        op,
+        BinaryOpKind::BitAnd
+            | BinaryOpKind::BitOr
+            | BinaryOpKind::BitXor
+            | BinaryOpKind::Shl
+            | BinaryOpKind::Shr
+    ) && (lt == CType::BigInt || rt == CType::BigInt)
+    {
+        let exact = |side: String, ty: &CType| {
+            if *ty == CType::BigInt {
+                side
+            } else {
+                format!("lint_of((int64_t)({side}))")
+            }
+        };
+        let f = match op {
+            BinaryOpKind::BitAnd => "lint_bitand",
+            BinaryOpKind::BitOr => "lint_bitor",
+            BinaryOpKind::BitXor => "lint_bitxor",
+            BinaryOpKind::Shl => "lint_shl",
+            BinaryOpKind::Shr => "lint_shr",
+            _ => unreachable!("matches! guards the five bitwise operators"),
+        };
+        return format!("{f}({}, {})", exact(l, &lt), exact(r, &rt));
+    }
+    // Exact arbitrary-precision integer (`LInt`) — arithmetic promotes any raw int64 operand
+    // via `lint_of`, comparisons go through `lint_cmp`. Triggered by a BigInt operand OR a
+    // provably-overflowing all-literal expression (`10000000000 * 10000000000`).
+    if (lt == CType::BigInt || rt == CType::BigInt || int_exceeds_i64(expr))
+        && !bigint_float_mix
+    {
+        let lc = if lt == CType::BigInt {
+            l.clone()
+        } else {
+            format!("lint_of((int64_t)({}))", l)
+        };
+        let rc = if rt == CType::BigInt {
+            r.clone()
+        } else {
+            format!("lint_of((int64_t)({}))", r)
+        };
+        if let Some(f) = match op {
+            BinaryOpKind::Add => Some("logos_lint_add"),
+            BinaryOpKind::Subtract => Some("logos_lint_sub"),
+            BinaryOpKind::Multiply => Some("logos_lint_mul"),
+            _ => None,
+        } {
+            return format!("{}({}, {})", f, lc, rc);
+        }
+        // A zero divisor fails in the words the VM's arithmetic gives it.
+        if let Some((f, refusal)) = match op {
+            BinaryOpKind::Divide | BinaryOpKind::ExactDivide => Some((
+                "logos_lint_div",
+                crate::semantics::arith::divide(
+                    crate::interpreter::RuntimeValue::Int(1),
+                    crate::interpreter::RuntimeValue::Int(0),
+                ),
+            )),
+            BinaryOpKind::Modulo => Some((
+                "logos_lint_mod",
+                crate::semantics::arith::modulo(
+                    crate::interpreter::RuntimeValue::Int(1),
+                    crate::interpreter::RuntimeValue::Int(0),
+                ),
+            )),
+            BinaryOpKind::FloorDivide => Some((
+                "logos_lint_floordiv",
+                crate::semantics::arith::floor_divide(
+                    crate::interpreter::RuntimeValue::Int(1),
+                    crate::interpreter::RuntimeValue::Int(0),
+                ),
+            )),
+            _ => None,
+        } {
+            let refusal = refusal.err().unwrap_or_default();
+            let exact = format!("{}({}, {}, {})", f, lc, rc, c_string_literal(&refusal));
+            // A remainder by a machine-word divisor is a machine word (see `infer_expr_type`).
+            return if *op == BinaryOpKind::Modulo && rt == CType::Int64 {
+                format!("lint_expect_i64({exact})")
+            } else {
+                exact
+            };
+        }
+        if let Some(cmp) = match op {
+            BinaryOpKind::Eq => Some("=="),
+            BinaryOpKind::NotEq => Some("!="),
+            BinaryOpKind::Lt => Some("<"),
+            BinaryOpKind::LtEq => Some("<="),
+            BinaryOpKind::Gt => Some(">"),
+            BinaryOpKind::GtEq => Some(">="),
+            _ => None,
+        } {
+            return format!("(logos_lint_cmp({}, {}) {} 0)", lc, rc, cmp);
+        }
+    }
+    // Tolerant comparison — the shared isclose semantics
+    // (`logos_approx_eq`), self-contained C (fabs/fmax from math.h).
+    if matches!(op, BinaryOpKind::ApproxEq) {
+        return format!(
+            "(({l}) == ({r}) || fabs(({l}) - ({r})) <= fmax(1e-9 * fmax(fabs({l}), fabs({r})), 1e-12))",
+            l = l, r = r
+        );
+    }
+    // `**` has no C operator. A Float operand uses libm `pow`. Integer exponentiation is
+    // EXACT and unbounded — it raises the base through the arbitrary-precision runtime
+    // (`lint_pow` → `lbig_pow` + `lint_norm`), which downsizes a fitting result to a fast
+    // small (`2 ** 10 → 1024`) and promotes an overflow to the exact BigInt (`2 ** 100`),
+    // byte-for-byte the tree-walker/VM. A negative exponent aborts loudly inside `lint_pow`.
+    if matches!(op, BinaryOpKind::Pow) {
+        if lt == CType::Float64 || rt == CType::Float64 {
+            return format!("pow((double)({}), (double)({}))", l, r);
+        }
+        if matches!(lt, CType::Int64 | CType::BigInt)
+            && matches!(rt, CType::Int64 | CType::BigInt)
+        {
+            let base = if lt == CType::BigInt {
+                l.clone()
+            } else {
+                format!("lint_of((int64_t)({}))", l)
+            };
+            let exp = if rt == CType::BigInt {
+                format!("lint_expect_i64({})", r)
+            } else {
+                format!("(int64_t)({})", r)
+            };
+            return format!("lint_pow({}, {})", base, exp);
+        }
+        return format!("((int64_t)llround(pow((double)({}), (double)({}))))", l, r);
+    }
+    // `//` floors toward negative infinity; C's `/` truncates toward zero, so the
+    // integer case corrects by one when the operands differ in sign and the
+    // remainder is nonzero. A Float operand floors the double quotient.
+    if matches!(op, BinaryOpKind::FloorDivide) {
+        if lt == CType::Float64 || rt == CType::Float64 {
+            return format!("floor(logos_rdiv((double)({}), (double)({})))", l, r);
+        }
+        return format!(
+            "logos_floordiv((int64_t)({l}), (int64_t)({r}), {})",
+            zero_divisor_refusal(*op)
+        );
+    }
+    // `/` and `%` fail on a zero divisor with the interpreter's words, where C's would trap or give `inf`.
+    if matches!(op, BinaryOpKind::Divide | BinaryOpKind::Modulo) {
+        let real = lt == CType::Float64 || rt == CType::Float64;
+        let int = matches!(lt, CType::Int64 | CType::Bool)
+            && matches!(rt, CType::Int64 | CType::Bool);
+        let checked = match (op, real, int) {
+            (BinaryOpKind::Divide, true, _) => Some(("logos_rdiv", "double")),
+            (BinaryOpKind::Divide, false, true) => Some(("logos_idiv", "int64_t")),
+            (BinaryOpKind::Modulo, false, true) => Some(("logos_imod", "int64_t")),
+            _ => None,
+        };
+        if let Some((f, ty)) = checked {
+            return format!("{f}(({ty})({l}), ({ty})({r}))");
+        }
+    }
+    // A shift takes its count modulo the word's 64 bits, as the VM's `wrapping_shl`/`wrapping_shr` take
+    // the count as a `u32`: C's `<<` and `>>` by 64 or more, by a negative count, or into the sign bit are
+    // undefined.
+    if matches!(op, BinaryOpKind::Shl) {
+        return format!("((int64_t)((uint64_t)({l}) << ((uint32_t)({r}) & 63u)))");
+    }
+    if matches!(op, BinaryOpKind::Shr) {
+        return format!("((int64_t)({l}) >> ((uint32_t)({r}) & 63u))");
+    }
+    let op_str = match op {
+        BinaryOpKind::Add => "+",
+        BinaryOpKind::Subtract => "-",
+        BinaryOpKind::Multiply => "*",
+        BinaryOpKind::Divide | BinaryOpKind::ExactDivide => "/",
+        BinaryOpKind::Modulo => "%",
+        BinaryOpKind::Eq => "==",
+        BinaryOpKind::NotEq => "!=",
+        BinaryOpKind::Lt => "<",
+        BinaryOpKind::LtEq => "<=",
+        BinaryOpKind::Gt => ">",
+        BinaryOpKind::GtEq => ">=",
+        BinaryOpKind::And | BinaryOpKind::Or => unreachable!("handled above"),
+        BinaryOpKind::Concat => "+",
+        BinaryOpKind::SeqConcat => unreachable!("handled above"),
+        BinaryOpKind::ApproxEq => unreachable!("handled above"),
+        BinaryOpKind::Pow => unreachable!("handled above"),
+        BinaryOpKind::FloorDivide => unreachable!("handled above"),
+        BinaryOpKind::BitAnd => "&",
+        BinaryOpKind::BitOr => "|",
+        BinaryOpKind::BitXor => "^",
+        BinaryOpKind::Shl | BinaryOpKind::Shr => unreachable!("handled above"),
+    };
+    format!("({} {} {})", operand(&l, op_str, false), op_str, operand(&r, op_str, true))
+}
+
+/// The `Call` arm of [`codegen_expr_node`], in a frame of its own — see [`codegen_expr_node`].
+#[inline(never)]
+fn codegen_call_expr(expr: &Expr, ctx: &CContext) -> String {
+    let Expr::Call { function, args } = expr else {
+        unreachable!("codegen_call_expr is called on the arm it was taken from")
+    };
+    let raw_name = ctx.interner.resolve(*function);
+    // "Declarer wins": a function the program defines (`funcs` holds every `## To` with a
+    // body) is called as written — no builtin arm below may take its name.
+    let defined_here =
+        ctx.funcs.contains_key(function) && !ctx.native_funcs.contains(function);
+    let builtin = if defined_here { "" } else { raw_name };
+    match builtin {
+        "args" => "logos_args()".to_string(),
+        // `{a, b, …}`: the set `Add` builds, item by item in the order written.
+        "setOf" if !args.is_empty() => set_literal(expr, args, ctx),
+        "randomInt" if args.len() == 2 => {
+            let lo = codegen_expr(args[0], ctx);
+            let hi = codegen_expr(args[1], ctx);
+            let lo = narrow_i64_sink(args[0], lo, ctx);
+            let hi = narrow_i64_sink(args[1], hi, ctx);
+            format!("lc_random_int({lo}, {hi})")
+        }
+        // env.lg's `get(name)`: the variable in the process environment, `some` of its text or
+        // `none` when it is unset, built as the program's own `Option of Text`.
+        "get" if args.len() == 1 => {
+            let name = codegen_expr(args[0], ctx);
+            let opt = c_type_str_resolved(&infer_expr_type(expr, ctx), ctx.interner);
+            format!(
+                "({{ const char *__env = getenv({name}); __env ? ({opt}){{.tag = {opt}_Some, \
+                         .data.Some = {{.value = lc_gc_strdup(__env)}}}} : ({opt}){{.tag = {opt}_None}}; }})"
+            )
+        }
+        // time.lg's `now()`: the Unix time in milliseconds, not the moment the bare `now` names.
+        "now" if args.is_empty() => "logos_time_now()".to_string(),
+
+        // `format(x)` — the value's text exactly as `Show` prints it.
+        "format" if args.len() == 1 => c_format_builtin(args[0], ctx),
+        // The call spellings of `length of x`, `copy of x` and `x contains y`: each emits exactly what
+        // its dedicated node emits.
+        "length" if args.len() == 1 => codegen_expr(
+            &Expr::Length {
+                collection: args[0],
+            },
+            ctx,
+        ),
+        "contains" if args.len() == 2 => c_contains(args[0], args[1], ctx),
+        "copy" if args.len() == 1 => codegen_expr(&Expr::Copy { expr: args[0] }, ctx),
+        "text_bytes" => {
+            let a = args
+                .first()
+                .map(|a| codegen_expr(a, ctx))
+                .unwrap_or_else(|| "\"\"".to_string());
+            format!("logos_text_bytes({})", a)
+        }
+        "text_from_bytes" => {
+            let a = args
+                .first()
+                .map(|a| codegen_expr(a, ctx))
+                .unwrap_or_else(|| "seq_i64_new()".to_string());
+            format!("logos_text_from_bytes({})", a)
+        }
+        "chr" => {
+            let a = args
+                .first()
+                .map(|a| codegen_expr(a, ctx))
+                .unwrap_or_else(|| "0".to_string());
+            format!("logos_chr({})", a)
+        }
+        "parseInt" => {
+            let arg = if let Some(a) = args.first() {
+                codegen_expr(a, ctx)
+            } else {
+                "\"0\"".to_string()
+            };
+            format!("logos_parseInt({})", arg)
+        }
+        "parseFloat" => {
+            let arg = if let Some(a) = args.first() {
+                codegen_expr(a, ctx)
+            } else {
+                "\"0\"".to_string()
+            };
+            format!("atof({})", arg)
+        }
+        "readReals" => {
+            let arg = args.first().map(|a| codegen_expr(a, ctx)).unwrap_or_else(|| "\"\"".to_string());
+            format!("logos_read_reals({arg})")
+        }
+        "sqrt" => {
+            let arg = if let Some(a) = args.first() {
+                codegen_expr(a, ctx)
+            } else {
+                "0.0".to_string()
+            };
+            format!("sqrt({})", arg)
+        }
+        // Fixed-width UNSIGNED wrap (word8/16/32/64): mask the argument to the width as an
+        // unsigned value held in an i64 — the VM/RISC-V `arg_wrapping` semantics. Without these
+        // arms the C backend emitted an undeclared `word32(...)` call (e.g. sha256).
+        "word8" | "word16" | "word32" | "word64" => {
+            let arg = args
+                .first()
+                .map(|a| {
+                    let value = codegen_expr(a, ctx);
+                    if infer_expr_type(a, ctx) == CType::BigInt {
+                        format!("lint_word_bits({value})")
+                    } else {
+                        narrow_i64_sink(a, value, ctx)
+                    }
+                })
+                .unwrap_or_else(|| "0".to_string());
+            let cast = match raw_name {
+                "word8" => "uint8_t",
+                "word16" => "uint16_t",
+                "word32" => "uint32_t",
+                _ => "uint64_t",
+            };
+            format!("((int64_t)({cast})({arg}))")
+        }
+        // 32-bit unsigned shifts + rotates (the sha256 word32 bit-op family). Standard 32-bit
+        // semantics with the shift amount masked to 5 bits (matches the VM/RISC-V builtins).
+        "word32Shr" | "word32Shl" | "rotr" | "rotl" if args.len() == 2 => {
+            let x = codegen_expr(&args[0], ctx);
+            let n = codegen_expr(&args[1], ctx);
+            match raw_name {
+                "word32Shr" => format!("((int64_t)((uint32_t)({x}) >> (({n}) & 31)))"),
+                "word32Shl" => format!("((int64_t)(uint32_t)((uint32_t)({x}) << (({n}) & 31)))"),
+                "rotr" => format!(
+                    "((int64_t)(uint32_t)(((uint32_t)({x}) >> (({n}) & 31)) | ((uint32_t)({x}) << ((32 - (({n}) & 31)) & 31))))"
+                ),
+                _ => format!(
+                    "((int64_t)(uint32_t)(((uint32_t)({x}) << (({n}) & 31)) | ((uint32_t)({x}) >> ((32 - (({n}) & 31)) & 31))))"
+                ),
+            }
+        }
+        // 32-bit unsigned bitwise logic (word_and/or/xor) — two operands, unsigned-32 result.
+        "word_and" | "word_or" | "word_xor" if args.len() == 2 => {
+            let a = codegen_expr(&args[0], ctx);
+            let b = codegen_expr(&args[1], ctx);
+            let op = match raw_name {
+                "word_and" => "&",
+                "word_or" => "|",
+                _ => "^",
+            };
+            format!("((int64_t)((uint32_t)({a}) {op} (uint32_t)({b})))")
+        }
+        // word_not = 32-bit bitwise complement; intOfWord32 reinterprets a word32 as a
+        // non-negative int (both mask to 32 bits, held in an i64).
+        "word_not" => {
+            let a = args
+                .first()
+                .map(|x| codegen_expr(x, ctx))
+                .unwrap_or_else(|| "0".to_string());
+            format!("((int64_t)(uint32_t)(~(uint32_t)({a})))")
+        }
+        // A word's value as an Int, as the VM reads it: the narrow widths as their unsigned value,
+        // a `Word64` as the signed integer its 64 bits spell.
+        "intOfWord8" | "intOfWord16" | "intOfWord32" | "intOfWord64" => {
+            let a = args
+                .first()
+                .map(|x| codegen_expr(x, ctx))
+                .unwrap_or_else(|| "0".to_string());
+            match raw_name {
+                "intOfWord8" => format!("((int64_t)(uint8_t)({a}))"),
+                "intOfWord16" => format!("((int64_t)(uint16_t)({a}))"),
+                "intOfWord32" => format!("((int64_t)(uint32_t)({a}))"),
+                _ => format!("((int64_t)({a}))"),
+            }
+        }
+        "complex"
+            if args.len() == 2
+                && infer_expr_type(&args[0], ctx) != CType::Float64
+                && infer_expr_type(&args[1], ctx) != CType::Float64 =>
+        {
+            // exact int-part complex → LComplex (the C mirror of LogosComplex).
+            format!(
+                "cplx_ints({}, {})",
+                codegen_expr(&args[0], ctx),
+                codegen_expr(&args[1], ctx)
+            )
+        }
+        // float-part complex → LComplex over exact dyadic rationals (mirrors LogosComplexF).
+        "complex" if args.len() == 2 => {
+            format!(
+                "cplx_reals((double)({}), (double)({}))",
+                codegen_expr(&args[0], ctx),
+                codegen_expr(&args[1], ctx)
+            )
+        }
+        // Real / imaginary part of a complex, extracted by value as an f64.
+        "re" if args.len() == 1 && infer_expr_type(&args[0], ctx) == CType::Complex => {
+            format!("cplx_re_f64({})", codegen_expr(&args[0], ctx))
+        }
+        "re" if args.len() == 1 => format!("((double)({}))", codegen_expr(&args[0], ctx)),
+        "im" if args.len() == 1 && infer_expr_type(&args[0], ctx) == CType::Complex => {
+            format!("cplx_im_f64({})", codegen_expr(&args[0], ctx))
+        }
+        "im" if args.len() == 1 => {
+            let _ = codegen_expr(&args[0], ctx);
+            "0.0".to_string()
+        }
+        "abs"
+            if args
+                .first()
+                .map_or(false, |a| infer_expr_type(a, ctx) == CType::Complex) =>
+        {
+            format!("cplx_abs_f64({})", codegen_expr(&args[0], ctx))
+        }
+        // |x| of an exact Rational/Decimal stays exact (`LDec`, sign cleared).
+        "abs"
+            if args
+                .first()
+                .is_some_and(|a| matches!(infer_expr_type(a, ctx), CType::Rational | CType::Decimal)) =>
+        {
+            format!("ldec_abs({})", codegen_expr(&args[0], ctx))
+        }
+        // `decimal("1.50")` — scale-aware Decimal parsed from its digit string (`LDec`).
+        "decimal" if args.len() == 1 && infer_expr_type(&args[0], ctx) == CType::String => {
+            format!("ldec_from_text({})", codegen_expr(&args[0], ctx))
+        }
+        "decimal" if args.len() == 1 => {
+            // scale-0 decimal (`LDec`) — the C mirror of LOGOS `decimal(n)`.
+            format!("ldec_from_i64((int64_t)({}))", codegen_expr(&args[0], ctx))
+        }
+        "modular"
+            if args.len() == 2
+                && infer_expr_type(&args[0], ctx) != CType::Float64
+                && infer_expr_type(&args[1], ctx) != CType::Float64 =>
+        {
+            // exact ℤ/nℤ → LMod (the C mirror of logicaffeine_base::Modular).
+            format!(
+                "mod_ints((int64_t)({}), (int64_t)({}))",
+                codegen_expr(&args[0], ctx),
+                codegen_expr(&args[1], ctx)
+            )
+        }
+        // UUID (the C mirror of logicaffeine_base::Uuid): parse/constants/version/bytes.
+        "uuid" if args.len() == 1 => format!("uuid_parse({})", codegen_expr(&args[0], ctx)),
+        "uuid_nil" if args.is_empty() => "uuid_nil()".to_string(),
+        "uuid_max" if args.is_empty() => "uuid_max()".to_string(),
+        "uuid_dns" if args.is_empty() => "uuid_dns()".to_string(),
+        "uuid_url" if args.is_empty() => "uuid_url()".to_string(),
+        "uuid_oid" if args.is_empty() => "uuid_oid()".to_string(),
+        "uuid_x500" if args.is_empty() => "uuid_x500()".to_string(),
+        "uuid_version" if args.len() == 1 => {
+            format!("uuid_version({})", codegen_expr(&args[0], ctx))
+        }
+        "uuid_bytes" if args.len() == 1 => {
+            format!("uuid_bytes({})", codegen_expr(&args[0], ctx))
+        }
+        "uuid_from_bytes" if args.len() == 1 => {
+            format!("uuid_from_bytes({})", codegen_expr(&args[0], ctx))
+        }
+        // `quantity(v, "unit")` → `LQuant`; the unit resolves to its exact scale/offset/dimension
+        // at codegen time. An unresolvable (non-literal or unknown) unit fails loud at gcc.
+        "quantity" if args.len() == 2 => {
+            match quantity_unit_literal(&args[1], ctx)
+                .and_then(|n| resolve_quantity_unit(&n))
+            {
+                Some((scale, offset, dnums, ddens, sym)) => format!(
+                    "quant_of(rat_from_i64((int64_t)({})), {}, {}, {}, {}, {})",
+                    codegen_expr(&args[0], ctx),
+                    scale,
+                    offset,
+                    dnums,
+                    ddens,
+                    sym
+                ),
+                None => {
+                    format!("quantity_unresolved_unit({})", codegen_expr(&args[0], ctx))
+                }
+            }
+        }
+        // `convert(q, "unit")` (and the `X in unit` surface) → re-express in a same-dimension unit.
+        "convert" if args.len() == 2 => {
+            match quantity_unit_literal(&args[1], ctx)
+                .and_then(|n| resolve_quantity_unit(&n))
+            {
+                Some((scale, offset, dnums, ddens, sym)) => format!(
+                    "quant_convert({}, {}, {}, {}, {}, {})",
+                    codegen_expr(&args[0], ctx),
+                    scale,
+                    offset,
+                    dnums,
+                    ddens,
+                    sym
+                ),
+                None => {
+                    format!("quantity_unresolved_unit({})", codegen_expr(&args[0], ctx))
+                }
+            }
+        }
+        // `money(amount, "USD")` → `LMoney`; a bare integer amount promotes to a scale-0 decimal.
+        "money" if args.len() == 2 => {
+            let amt = if matches!(infer_expr_type(&args[0], ctx), CType::Rational | CType::Decimal) {
+                codegen_expr(&args[0], ctx)
+            } else {
+                format!("ldec_from_i64((int64_t)({}))", codegen_expr(&args[0], ctx))
+            };
+            format!("money_of({}, {})", amt, codegen_expr(&args[1], ctx))
+        }
+        // |x| of a `Real` is a `Real`; of an `Int` the exact `Int` (`logos_iabs`), never through a `double`.
+        "abs" if args.len() == 1 && infer_expr_type(&args[0], ctx) == CType::Float64 => {
+            format!("fabs({})", codegen_expr(&args[0], ctx))
+        }
+        "abs" if args.len() == 1 && infer_expr_type(&args[0], ctx) == CType::BigInt => {
+            format!("logos_lint_abs({})", codegen_expr(&args[0], ctx))
+        }
+        "abs" if args.len() == 1 => {
+            format!("logos_iabs({})", narrow_i64_sink(&args[0], codegen_expr(&args[0], ctx), ctx))
+        }
+        "count_ones" => {
+            // Population count over the value's u64 bit pattern — matches the
+            // AOT-Rust `(x as u64).count_ones()` and the interpreter/VM.
+            let arg = args.first().map_or_else(
+                || "0".to_string(),
+                |a| narrow_i64_sink(a, codegen_expr(a, ctx), ctx),
+            );
+            format!(
+                "(int64_t)__builtin_popcountll((unsigned long long)({}))",
+                arg
+            )
+        }
+        "leading_zeros" => {
+            // High zero bits; `__builtin_clzll(0)` is UB, so match Rust's
+            // `(0u64).leading_zeros() == 64` explicitly.
+            let arg = args.first().map_or_else(
+                || "0".to_string(),
+                |a| narrow_i64_sink(a, codegen_expr(a, ctx), ctx),
+            );
+            format!("((unsigned long long)({0})==0ULL?(int64_t)64:(int64_t)__builtin_clzll((unsigned long long)({0})))", arg)
+        }
+        "trailing_zeros" => {
+            // Low zero bits; `__builtin_ctzll(0)` is UB → Rust's
+            // `(0u64).trailing_zeros() == 64`.
+            let arg = args.first().map_or_else(
+                || "0".to_string(),
+                |a| narrow_i64_sink(a, codegen_expr(a, ctx), ctx),
+            );
+            format!("((unsigned long long)({0})==0ULL?(int64_t)64:(int64_t)__builtin_ctzll((unsigned long long)({0})))", arg)
+        }
+        // `floor`/`ceil`/`round` of an exact Rational/Decimal yield the exact integer (`lint_norm`
+        // downsizes it to a fast small when it fits). `round` is HALF-AWAY-FROM-ZERO, matching the
+        // interpreter's `Rational::round`. A float argument keeps the libm form below.
+        "floor"
+            if args
+                .first()
+                .is_some_and(|a| matches!(infer_expr_type(a, ctx), CType::Rational | CType::Decimal)) =>
+        {
+            format!("lint_norm(ldec_floor({}))", codegen_expr(&args[0], ctx))
+        }
+        "ceil"
+            if args
+                .first()
+                .is_some_and(|a| matches!(infer_expr_type(a, ctx), CType::Rational | CType::Decimal)) =>
+        {
+            format!("lint_norm(ldec_ceil({}))", codegen_expr(&args[0], ctx))
+        }
+        "round"
+            if args
+                .first()
+                .is_some_and(|a| matches!(infer_expr_type(a, ctx), CType::Rational | CType::Decimal)) =>
+        {
+            format!("lint_norm(ldec_round({}))", codegen_expr(&args[0], ctx))
+        }
+        "floor" => {
+            let arg = if let Some(a) = args.first() {
+                codegen_expr(a, ctx)
+            } else {
+                "0.0".to_string()
+            };
+            format!("(int64_t)floor({})", arg)
+        }
+        "ceil" => {
+            let arg = if let Some(a) = args.first() {
+                codegen_expr(a, ctx)
+            } else {
+                "0.0".to_string()
+            };
+            format!("(int64_t)ceil({})", arg)
+        }
+        "round" => {
+            let arg = if let Some(a) = args.first() {
+                codegen_expr(a, ctx)
+            } else {
+                "0.0".to_string()
+            };
+            format!("(int64_t)round({})", arg)
+        }
+        // Modular exponentiation: `pow(m, e)` where the base is a ℤ/nℤ element — the C mirror
+        // of the interpreter's `Modular::pow` (square-and-multiply in the ring, exponent ≥ 0).
+        "pow" if args.len() == 2 && infer_expr_type(&args[0], ctx) == CType::Modular => {
+            format!(
+                "mod_pow({}, (int64_t)({}))",
+                codegen_expr(&args[0], ctx),
+                codegen_expr(&args[1], ctx)
+            )
+        }
+        "pow" => {
+            let base_arg = args.first();
+            let exp_arg = args.get(1);
+            let base = base_arg
+                .map(|a| codegen_expr(a, ctx))
+                .unwrap_or_else(|| "0.0".to_string());
+            let exp = exp_arg
+                .map(|a| codegen_expr(a, ctx))
+                .unwrap_or_else(|| "1.0".to_string());
+            // Integer pow is EXACT and promotes on overflow (matching the interpreter), not a
+            // lossy float `pow` nor a wrapping `uint64_t`. When both operands are integer-typed,
+            // raise the base through the arbitrary-precision runtime (`lint_pow`), which
+            // downsizes a fitting result and promotes an overflow to the exact BigInt.
+            let is_int_pow = matches!(
+                (base_arg, exp_arg),
+                (Some(b), Some(e))
+                    if !matches!(infer_expr_type(b, ctx), CType::Float64)
+                        && !matches!(infer_expr_type(e, ctx), CType::Float64)
+            );
+            if is_int_pow {
+                let bt = base_arg
+                    .map(|a| infer_expr_type(a, ctx))
+                    .unwrap_or(CType::Int64);
+                let et = exp_arg
+                    .map(|a| infer_expr_type(a, ctx))
+                    .unwrap_or(CType::Int64);
+                let base_l = if bt == CType::BigInt {
+                    base
+                } else {
+                    format!("lint_of((int64_t)({}))", base)
+                };
+                let exp_i = if et == CType::BigInt {
+                    format!("lint_expect_i64({})", exp)
+                } else {
+                    format!("(int64_t)({})", exp)
+                };
+                format!("lint_pow({}, {})", base_l, exp_i)
+            } else {
+                format!("pow((double)({}), (double)({}))", base, exp)
+            }
+        }
+        "min" | "max" => {
+            let operand = |k: usize| {
+                args.get(k).map_or_else(
+                    || ("0".to_string(), CType::Int64),
+                    |a| (codegen_expr(a, ctx), infer_expr_type(a, ctx)),
+                )
+            };
+            let ((a, at), (b, bt)) = (operand(0), operand(1));
+            let order = if raw_name == "min" { "<" } else { ">" };
+            let exact = (at == CType::BigInt || bt == CType::BigInt)
+                && at != CType::Float64
+                && bt != CType::Float64;
+            if exact {
+                // The VM's `min`/`max` choose between two machine-word Ints and refuse anything else,
+                // a big one included, in its own words.
+                let big = crate::interpreter::RuntimeValue::from_bigint(
+                    logicaffeine_base::BigInt::from_i64(i64::MIN)
+                        .mul(&logicaffeine_base::BigInt::from_i64(2)),
+                );
+                let builtin = if raw_name == "min" {
+                    crate::semantics::builtins::BuiltinId::Min
+                } else {
+                    crate::semantics::builtins::BuiltinId::Max
+                };
+                let refusal = crate::semantics::builtins::call_builtin(
+                    builtin,
+                    vec![big, crate::interpreter::RuntimeValue::Int(0)],
+                )
+                .err()
+                .unwrap_or_default();
+                let lint = |v: &str, t: &CType| {
+                    if *t == CType::BigInt {
+                        v.to_string()
+                    } else {
+                        format!("lint_of((int64_t)({v}))")
+                    }
+                };
+                format!(
+                    "({{ LInt __lhs = {}; LInt __rhs = {}; if (__lhs.big || __rhs.big) {{ {} }} lint_of(__lhs.small {order} __rhs.small ? __lhs.small : __rhs.small); }})",
+                    lint(&a, &at),
+                    lint(&b, &bt),
+                    ctx.fail_stmt(&c_string_literal(&refusal))
+                )
+            } else if at == CType::Float64 || bt == CType::Float64 {
+                // A Real on either side: the language's own `min`/`max` of reals, which decides the
+                // sign of equal zeros and a NaN as every other tier does.
+                format!("logos_{raw_name}_f64((double)({a}), (double)({b}))")
+            } else {
+                // Evaluate each argument EXACTLY once (a plain ternary double-evaluates the selected
+                // operand, duplicating any side effects). A GCC statement expression with __typeof__
+                // binds each operand to a temp first.
+                format!(
+                    "({{ __typeof__({a}) __lhs = ({a}); __typeof__({b}) __rhs = ({b}); __lhs {order} __rhs ? __lhs : __rhs; }})"
+                )
+            }
+        }
+        // Temporal tower → the C runtime (codegen_c/runtime.rs). One-argument builtins:
+        "parse_timestamp" | "format_timestamp" | "year_of" | "month_of" | "day_of"
+        | "hour_of" | "minute_of" | "second_of" | "weekday_of" | "week_of"
+        | "quarter_of" | "date_of" | "time_of" => {
+            let cfn = match raw_name {
+                "parse_timestamp" => "logos_parse_timestamp",
+                "format_timestamp" => "logos_format_rfc3339",
+                "year_of" => "logos_year_of",
+                "month_of" => "logos_month_of",
+                "day_of" => "logos_day_of",
+                "hour_of" => "logos_hour_of",
+                "minute_of" => "logos_minute_of",
+                "second_of" => "logos_second_of",
+                "weekday_of" => "logos_weekday_of",
+                "week_of" => "logos_week_of",
+                "quarter_of" => "logos_quarter_of",
+                "date_of" => "logos_date_of",
+                "time_of" => "logos_time_of",
+                _ => unreachable!(),
+            };
+            let a = args
+                .first()
+                .map(|a| codegen_expr(a, ctx))
+                .unwrap_or_else(|| "0".to_string());
+            // A `Date` is days-since-epoch; the Moment-based extractors expect nanos, so feed a
+            // Date through a midnight-UTC conversion (`date_of` stays identity via the round-trip:
+            // `(days*NANOS_PER_DAY) / NANOS_PER_DAY == days`). A `Moment` is already nanos, and
+            // `parse_timestamp`/`format_timestamp` take a Text/Moment (never a Date) — unchanged.
+            let arg_is_date = args
+                .first()
+                .map(|e| infer_expr_type(e, ctx) == CType::Date)
+                .unwrap_or(false);
+            if arg_is_date {
+                format!("{}(({}) * LOGOS_NANOS_PER_DAY)", cfn, a)
+            } else {
+                format!("{}({})", cfn, a)
+            }
+        }
+        // Civil-component constructors (3-arg Date, 6-arg Moment).
+        "makeDate" if args.len() == 3 => {
+            let a: Vec<String> = args.iter().map(|e| codegen_expr(e, ctx)).collect();
+            format!("logos_make_date({}, {}, {})", a[0], a[1], a[2])
+        }
+        "makeMoment" if args.len() == 6 => {
+            let a: Vec<String> = args.iter().map(|e| codegen_expr(e, ctx)).collect();
+            format!(
+                "logos_make_moment({}, {}, {}, {}, {}, {})",
+                a[0], a[1], a[2], a[3], a[4], a[5]
+            )
+        }
+        // Two-argument temporal builtins.
+        "seconds_between" | "add_seconds" | "months_between" | "years_between" => {
+            let cfn = match raw_name {
+                "seconds_between" => "logos_seconds_between",
+                "months_between" => "logos_months_between",
+                "years_between" => "logos_years_between",
+                _ => "logos_add_seconds",
+            };
+            let a = args
+                .first()
+                .map(|a| codegen_expr(a, ctx))
+                .unwrap_or_else(|| "0".to_string());
+            let b = args
+                .get(1)
+                .map(|a| codegen_expr(a, ctx))
+                .unwrap_or_else(|| "0".to_string());
+            format!("{}({}, {})", cfn, a, b)
+        }
+        _ => {
+            let fname = escape_c_ident(raw_name);
+            // Two exact-integer promotions: (a) calling a scalar EXACT-HOF — re-codegen its closure arg
+            // as exact + promote an i64 scalar arg to `LInt`; (b) calling a fn-typed PARAM `f` whose
+            // params are exact — promote an i64 arg (`f(i64::MAX)` inside a HOF body).
+            let exact_hof = ctx.exact_hofs.contains(function);
+            let fnptr_params: Vec<CType> = match ctx.vars.get(function) {
+                Some(CType::FnPtr { params, .. }) => params.clone(),
+                _ => Vec::new(),
+            };
+            let args_str: Vec<String> = args
+                .iter()
+                .enumerate()
+                .map(|(i, a)| {
+                    if exact_hof {
+                        if let Expr::Closure {
+                            params,
+                            body,
+                            return_type,
+                        } = a
+                        {
+                            return codegen_closure(params, body, *return_type, ctx);
+                        }
+                        let ac = codegen_expr(a, ctx);
+                        if matches!(infer_expr_type(a, ctx), CType::Int64) {
+                            return exact_int_of(a, &ac, ctx);
+                        }
+                        return ac;
+                    }
+                    let ac = codegen_expr(a, ctx);
+                    if fnptr_params.get(i) == Some(&CType::BigInt)
+                        && infer_expr_type(a, ctx) != CType::BigInt
+                    {
+                        exact_int_of(a, &ac, ctx)
+                    } else {
+                        as_param_value(ac, a, *function, i, ctx)
+                    }
+                })
+                .collect();
+            // A variable holding a function value is called through it.
+            if let Some(CType::FnPtr { ret, params }) = ctx.vars.get(function) {
+                return closure_call(
+                    &ctx.resolve(*function),
+                    true,
+                    ret,
+                    params,
+                    &args_str,
+                    ctx,
+                );
+            }
+            let args_str: Vec<&str> = args_str.iter().map(|a| argument(a)).collect();
+            format!("{}({})", fname, args_str.join(", "))
+        }
+    }
+}
+
+/// The `Tuple` arm of [`codegen_expr_node`], in a frame of its own — see [`codegen_expr_node`].
+#[inline(never)]
+fn codegen_tuple_expr(expr: &Expr, ctx: &CContext) -> String {
+    let Expr::Tuple(items) = expr else {
+        unreachable!("codegen_tuple_expr is called on the arm it was taken from")
+    };
+    let elems: Vec<CType> = items.iter().map(|e| infer_expr_type(e, ctx)).collect();
+    let name = tuple_c_name(&elems, ctx.interner);
+    let vals: Vec<String> = items
+        .iter()
+        .map(|e| stored(e, codegen_expr(e, ctx), ctx))
+        .collect();
+    format!("({}){{{}}}", name, vals.join(", "))
+}
+
+/// The `Index` arm of [`codegen_expr_node`], in a frame of its own — see [`codegen_expr_node`].
+#[inline(never)]
+fn codegen_index_expr(expr: &Expr, ctx: &CContext) -> String {
+    let Expr::Index { collection, index } = expr else {
+        unreachable!("codegen_index_expr is called on the arm it was taken from")
+    };
+    // One rule for every collection: its type, then its accessor. Only a named variable is
+    // addressable (`seq_*_get(&xs, i)`); any other collection — a field, a call's result —
+    // is bound to a statement-expression temporary first, since `&rvalue` is illegal C.
+    // A value-or-nothing variable is the collection it holds; the index is computed before the VM finds
+    // that it holds nothing.
+    let (coll, ty, addressable, absent) = match collection {
+        _ if operand_place(collection, ctx) => {
+            let operand = collection_operand(
+                collection,
+                || {
+                    use crate::interpreter::RuntimeValue;
+                    crate::semantics::collections::index_get(&RuntimeValue::Nothing, &RuntimeValue::Int(1))
+                        .map(|_| ())
+                },
+                ctx,
+            );
+            let ty = operand.ty.clone().unwrap_or(CType::SeqI64(Ints::Int));
+            (operand.place, ty, true, operand.absent)
+        }
+        _ => (
+            codegen_expr(collection, ctx),
+            infer_expr_type(collection, ctx),
+            false,
+            None,
+        ),
+    };
+    let rendered = codegen_expr(index, ctx);
+    let idx = match &ty {
+        CType::String => narrow_index(
+            index,
+            rendered,
+            ctx,
+            crate::semantics::failcode::FailCode::TextIndexTooWide,
+        ),
+        CType::MapI64I64(_, _)
+        | CType::MapStrI64(_)
+        | CType::MapStrStr
+        | CType::MapI64Str(_)
+        | CType::MapStrValue(_)
+        | CType::MapI64Value(_) => narrow_i64_sink(index, rendered, ctx),
+        _ => narrow_index(
+            index,
+            rendered,
+            ctx,
+            crate::semantics::failcode::FailCode::ListIndexTooWide,
+        ),
+    };
+    let (idx, computed) = match &absent {
+        None => (idx, None),
+        Some(_) => ("__index".to_string(), Some(idx)),
+    };
+    let read = (|| {
+    if let Expr::Identifier(sym) = collection {
+        if ctx.text_bytes_views.contains_key(sym) {
+            return format!(
+                "(int64_t)((const unsigned char *){coll})[logos_idx0({idx}, strlen((const char *){coll}))]"
+            );
+        }
+    }
+
+    match &ty {
+        // `item N of t` on a tuple (1-based) → its field `f{N-1}` (the index is a constant).
+        CType::Tuple(elems) => tuple_item(&coll, elems, index, ctx),
+        CType::Record(fields) => {
+            let elems: Vec<CType> = fields.iter().map(|(_, t)| t.clone()).collect();
+            tuple_item(&coll, &elems, index, ctx)
+        }
+        // `item k of <Text>` → its k-th character, counted from the end for a negative k.
+        CType::String => match collection {
+            Expr::Identifier(sym) if is_text_builder(*sym, ctx) => {
+                format!("logos_text_builder_char_at({coll}, {idx})")
+            }
+            _ => format!("logos_text_char_at({coll}, {idx})"),
+        },
+        // An element of a list that may promote ([`CContext::seq_may_promote`]), read where a machine word holds it:
+        // the word itself while the list holds words, a promoted cell narrowed, loudly past the word. A sink that holds
+        // the exact value reads it with `seq_i64_get_lint` instead (`exact_int_of`, `word_chain`).
+        CType::SeqI64(Ints::Int) if ctx.seq_may_promote(collection) => {
+            if addressable {
+                format!("seq_i64_get_word(&{coll}, {idx})")
+            } else {
+                format!("({{ Seq_i64 __idx_tmp = {coll}; seq_i64_get_word(&__idx_tmp, {idx}); }})")
+            }
+        }
+        _ => {
+            // The versioning pass records `InBounds` only on the fast clone whose
+            // hoisted guard proves this exact 1-based access names an element.  Rust
+            // consumes that fact with unchecked indexing; consume it here too instead
+            // of silently putting `logos_idx0` back into every C hot-loop load.
+            let proven_direct = crate::optimize::active_config()
+                .is_on(crate::optimization::Opt::Unchecked)
+                && crate::optimize::facts::holds_expr(
+                    crate::optimize::facts::Fact::InBounds,
+                    index,
+                )
+                && addressable
+                && matches!(
+                    &ty,
+                    CType::SeqI64(_)
+                        | CType::SeqBool
+                        | CType::SeqStr
+                        | CType::SeqF64
+                        | CType::SeqStruct(_)
+                        | CType::SeqTuple(_)
+                        | CType::SeqSeq(_)
+                        | CType::SeqValue(_)
+                );
+            if proven_direct {
+                crate::optimize::mark_fired(crate::optimization::Opt::Unchecked);
+                return format!("({coll}).data[(size_t)(({idx}) - 1LL)]");
+            }
+            let getfn = match &ty {
+                CType::MapI64I64(_, _) => "map_i64_i64_get".to_string(),
+                CType::MapStrI64(_) => "map_str_i64_get".to_string(),
+                CType::MapStrStr => "map_str_str_get".to_string(),
+                CType::MapI64Str(_) => "map_i64_str_get".to_string(),
+                CType::MapStrValue(inner) => {
+                    format!("map_str_{}_get", c_type_str_resolved(inner, ctx.interner))
+                }
+                CType::MapI64Value(inner) => {
+                    format!("map_i64_{}_get", c_type_str_resolved(inner, ctx.interner))
+                }
+                CType::SeqBool
+                | CType::SeqStr
+                | CType::SeqF64
+                | CType::SeqStruct(_)
+                | CType::SeqTuple(_)
+                | CType::SeqSeq(_)
+                | CType::SeqValue(_) => {
+                    let seq = c_type_str_resolved(&ty, ctx.interner);
+                    format!("seq_{}_get", seq.strip_prefix("Seq_").unwrap_or(&seq))
+                }
+                _ => "seq_i64_get".to_string(),
+            };
+            if addressable {
+                format!("{}(&{}, {})", getfn, coll, idx)
+            } else {
+                let cty = match &ty {
+                    CType::MapI64I64(_, _)
+                    | CType::MapStrI64(_)
+                    | CType::MapStrStr
+                    | CType::MapI64Str(_)
+                    | CType::MapStrValue(_)
+                    | CType::MapI64Value(_)
+                    | CType::SeqBool
+                    | CType::SeqStr
+                    | CType::SeqF64
+                    | CType::SeqStruct(_)
+                    | CType::SeqTuple(_)
+                    | CType::SeqSeq(_)
+                    | CType::SeqValue(_) => c_type_str_resolved(&ty, ctx.interner),
+                    _ => "Seq_i64".to_string(),
+                };
+                format!(
+                    "({{ {} __idx_tmp = {}; {}(&__idx_tmp, {}); }})",
+                    cty, coll, getfn, idx
+                )
+            }
+        }
+    }
+    })();
+    match (absent, computed) {
+        (Some(check), Some(index)) => format!("({{ __auto_type __index = {index}; {check} {read}; }})"),
+        _ => read,
+    }
+}
+
+/// The `Length` arm of [`codegen_expr_node`], in a frame of its own — see [`codegen_expr_node`].
+#[inline(never)]
+fn codegen_length_expr(expr: &Expr, ctx: &CContext) -> String {
+    let Expr::Length { collection } = expr else {
+        unreachable!("codegen_length_expr is called on the arm it was taken from")
+    };
+    if let Expr::Identifier(sym) = collection {
+        if ctx.text_bytes_views.contains_key(sym) {
+            let coll = ctx.resolve(*sym);
+            return format!("(int64_t)strlen((const char *){coll})");
+        }
+    }
+    if operand_place(collection, ctx) {
+        let operand = collection_operand(
+            collection,
+            || crate::semantics::collections::length_of(&crate::interpreter::RuntimeValue::Nothing).map(|_| ()),
+            ctx,
+        );
+        let coll = operand.place.clone();
+        operand.read(match operand.ty.as_ref() {
+            Some(CType::SeqI64(_)) => format!("seq_i64_len(&{})", coll),
+            Some(CType::SeqBool) => format!("seq_bool_len(&{})", coll),
+            Some(CType::SeqStr) => format!("seq_str_len(&{})", coll),
+            Some(CType::SeqF64) => format!("seq_f64_len(&{})", coll),
+            Some(CType::String) if matches!(collection, Expr::Identifier(sym) if is_text_builder(*sym, ctx)) => {
+                format!("(int64_t)logos_text_builder_len({coll})")
+            }
+            Some(CType::String) => format!("str_len({})", coll),
+            Some(CType::SetI64(_)) => format!("set_i64_len(&{})", coll),
+            Some(CType::SetStr) => format!("set_str_len(&{})", coll),
+            Some(CType::SetTuple(elems)) => {
+                format!("set_{}_len(&{})", tuple_c_name(elems, ctx.interner), coll)
+            }
+            // `length of <map>` is the distinct-entry count (the struct's `len` field, bumped once per
+            // new key). Without this a Map fell to the `seq_i64_len` default and read a garbage field.
+            Some(CType::MapI64I64(_, _))
+            | Some(CType::MapStrI64(_))
+            | Some(CType::MapStrStr)
+            | Some(CType::MapI64Str(_))
+            | Some(CType::MapStrValue(_))
+            | Some(CType::MapI64Value(_)) => format!("(int64_t)({}).len", coll),
+            Some(CType::SeqStruct(s)) => {
+                format!("{}(&{})", seq_struct_fn(*s, "len", ctx.interner), coll)
+            }
+            Some(CType::SeqValue(inner)) => {
+                format!("seq_{}_len(&{})", c_type_str(inner), coll)
+            }
+            // A nested `Seq of Seq of …` uses the `seq_Seq_<inner>_len` family (matching the
+            // SeqSeq get at the top of this match), not the flat `seq_i64_len` default.
+            Some(CType::SeqSeq(inner)) => format!(
+                "seq_{}_len(&{})",
+                c_type_str_resolved(inner, ctx.interner),
+                coll
+            ),
+            _ => format!("seq_i64_len(&{})", coll),
+        })
+    } else {
+        let coll = codegen_expr(collection, ctx);
+        let ty = infer_expr_type(collection, ctx);
+        if ty == CType::String {
+            return format!("str_len({})", coll);
+        }
+        if let CType::SeqStruct(s) = ty {
+            return format!(
+                "({{ {} __len_tmp = {}; {}(&__len_tmp); }})",
+                seq_struct_type(s, ctx.interner),
+                coll,
+                seq_struct_fn(s, "len", ctx.interner)
+            );
+        }
+        if let CType::SeqValue(inner) = &ty {
+            let e = c_type_str(inner);
+            return format!(
+                "({{ Seq_{e} __len_tmp = {}; seq_{e}_len(&__len_tmp); }})",
+                coll
+            );
+        }
+        if let CType::SetTuple(elems) = &ty {
+            let n = tuple_c_name(elems, ctx.interner);
+            return format!("({{ Set_{n} __len_tmp = {coll}; set_{n}_len(&__len_tmp); }})");
+        }
+        // The `*_len` helpers take a pointer, but the collection here may be an rvalue (a
+        // call result like `length of split(…)`), and `&rvalue` is illegal C. Bind it in a
+        // GCC statement-expression first (the backend already uses this form elsewhere).
+        let (cty, lenfn) = match ty {
+            CType::SeqBool => ("Seq_bool", "seq_bool_len"),
+            CType::SeqStr => ("Seq_str", "seq_str_len"),
+            CType::SeqF64 => ("Seq_f64", "seq_f64_len"),
+            CType::SetI64(_) => ("Set_i64", "set_i64_len"),
+            CType::SetStr => ("Set_str", "set_str_len"),
+            _ => ("Seq_i64", "seq_i64_len"),
+        };
+        format!(
+            "({{ {} __len_tmp = {}; {}(&__len_tmp); }})",
+            cty, coll, lenfn
+        )
+    }
+}
+
+/// The `New` arm of [`codegen_expr_node`], in a frame of its own — see [`codegen_expr_node`].
+#[inline(never)]
+fn codegen_new_expr(expr: &Expr, ctx: &CContext) -> String {
+    let Expr::New { type_name, type_args, init_fields, .. } = expr else {
+        unreachable!("codegen_new_expr is called on the arm it was taken from")
+    };
+    let name = ctx.interner.resolve(*type_name);
+    match name {
+        // The sequence's own family, named after its type exactly as `infer_expr_type` types it
+        // (`seq_of` the element): a user record or enum, a tuple, a nested sequence, a value type.
+        "Seq" | "List" => {
+            let elem = type_args
+                .first()
+                .map(|arg| {
+                    resolve_type_expr_with_registry(arg, ctx.interner, Some(ctx.registry))
+                })
+                .unwrap_or(CType::Int64);
+            let seq = seq_of(elem);
+            if seq == CType::Tower {
+                return "ltower_list(0, NULL)".to_string();
+            }
+            format!(
+                "{}()",
+                seq_fn(&seq, "new", ctx.interner)
+                    .unwrap_or_else(|| "seq_i64_new".to_string())
+            )
+        }
+        "Map" => {
+            let key_type = type_args
+                .first()
+                .map(|p| resolve_type_expr_with_registry(p, ctx.interner, Some(ctx.registry)))
+                .unwrap_or(CType::Int64);
+            let val_type = type_args
+                .get(1)
+                .map(|p| resolve_type_expr_with_registry(p, ctx.interner, Some(ctx.registry)))
+                .unwrap_or(CType::Int64);
+            map_new(&map_ctype(&key_type, &val_type), ctx.interner)
+                .expect("a map type has a constructor")
+        }
+        "Set" => {
+            let elem = type_args
+                .first()
+                .map(|arg| resolve_type_expr(arg, ctx.interner))
+                .unwrap_or(CType::Int64);
+            set_new(&super::types::set_of(elem), ctx)
+        }
+        _ => {
+            // Check if this is a user-defined struct
+            if let Some(crate::analysis::TypeDef::Struct { .. }) =
+                ctx.registry.get(*type_name)
+            {
+                let escaped = escape_c_ident(name);
+                // Every counter-CRDT field of this struct is seeded with a fresh per-replica map
+                // handle (`logos_crdt_new()`), stored in its `int64_t` cell as a cast pointer. A
+                // plain `New` (no init fields) still needs these — a zero cell would be a null
+                // handle. Explicit inits for non-counter fields are honored as before.
+                let counter_inits: Vec<String> = ctx
+                    .counter_fields
+                    .iter()
+                    .filter(|(s, _)| *s == *type_name)
+                    .map(|(_, fsym)| {
+                        let fn_str = escape_c_ident(ctx.interner.resolve(*fsym));
+                        format!(".{} = (int64_t)(intptr_t)logos_crdt_new()", fn_str)
+                    })
+                    .collect();
+                let declared = match ctx.registry.get(*type_name) {
+                    Some(crate::analysis::TypeDef::Struct { fields, .. }) => {
+                        fields.as_slice()
+                    }
+                    _ => &[],
+                };
+                let mut fields_str: Vec<String> = init_fields
+                    .iter()
+                    .map(|(fname, fexpr)| {
+                        let fn_str = escape_c_ident(ctx.interner.resolve(*fname));
+                        let fd = declared.iter().find(|f| f.name == *fname);
+                        let val = as_field_value(
+                            stored(fexpr, codegen_expr(fexpr, ctx), ctx),
+                            fexpr,
+                            *type_name,
+                            fd,
+                            ctx,
+                        );
+                        format!(".{} = {}", fn_str, val)
+                    })
+                    .collect();
+                fields_str.extend(counter_inits);
+                // A field the construction leaves out holds its type's empty value, as the VM fills it: an
+                // empty text, set or map (a zeroed list is already an empty one, and a zero a number).
+                for fd in declared
+                    .iter()
+                    .filter(|fd| !init_fields.iter().any(|(n, _)| *n == fd.name))
+                {
+                    let fty = super::exact::field_ctype(
+                        *type_name,
+                        fd,
+                        ctx.interner,
+                        ctx.registry,
+                        &ctx.field_facts(),
+                    );
+                    let empty = match &fty {
+                        // The VM holds nothing in a rational field a record is built without, which a C
+                        // rational cannot hold.
+                        CType::Rational => {
+                            return c_refuse_expr(&format!(
+                                "a `{name}` built without its field `{}`, a rational: a C rational holds no \
+                                         nothing",
+                                ctx.interner.resolve(fd.name)
+                            ))
+                        }
+                        CType::String => Some("(char *)\"\"".to_string()),
+                        // An exact field starts at nothing, as the VM's does.
+                        CType::Tower => Some("ltower_nothing()".to_string()),
+                        // A field a stored `nothing` reaches starts present with its type's empty value, or
+                        // absent where the VM leaves it nothing (a rational).
+                        CType::Opt(inner) => Some(match &**inner {
+                            CType::Rational | CType::Decimal => "((logos_opt){0, 0})".to_string(),
+                            held => {
+                                let empty = match held {
+                                    CType::String => "(char *)\"\"".to_string(),
+                                    set @ (CType::SetI64(_) | CType::SetStr | CType::SetTuple(_)) => {
+                                        set_new(set, ctx)
+                                    }
+                                    held => map_new(held, ctx.interner).unwrap_or_else(|| {
+                                        format!("({}){{0}}", c_type_str_resolved(held, ctx.interner))
+                                    }),
+                                };
+                                format!("((logos_opt){{1, {}}})", opt_pack(held, &empty, ctx))
+                            }
+                        }),
+                        set @ (CType::SetI64(_) | CType::SetStr | CType::SetTuple(_)) => {
+                            Some(set_new(set, ctx))
+                        }
+                        map => map_new(map, ctx.interner),
+                    };
+                    if let Some(empty) = empty {
+                        fields_str.push(format!(
+                            ".{} = {empty}",
+                            escape_c_ident(ctx.interner.resolve(fd.name))
+                        ));
+                    }
+                }
+                if fields_str.is_empty() {
+                    format!("({}){{0}}", escaped)
+                } else {
+                    format!("({}){{{}}}", escaped, fields_str.join(", "))
+                }
+            } else {
+                format!("/* unsupported new {} */0", name)
+            }
+        }
+    }
+}
+
+/// The `WithCapacity` arm of [`codegen_expr_node`], in a frame of its own — see [`codegen_expr_node`].
+#[inline(never)]
+fn codegen_with_capacity_expr(expr: &Expr, ctx: &CContext) -> String {
+    let Expr::WithCapacity { value, capacity } = expr else {
+        unreachable!("codegen_with_capacity_expr is called on the arm it was taken from")
+    };
+    // The runtime's constructors take the hint as a machine word (and clamp a negative one to nothing).
+    let cap = narrow_i64_sink(capacity, codegen_expr(capacity, ctx), ctx);
+    let ty = infer_expr_type(value, ctx);
+    match ty {
+        CType::MapI64I64(_, _) => format!("map_i64_i64_with_capacity({})", cap),
+        CType::MapStrI64(_) => format!("map_str_i64_with_capacity({})", cap),
+        CType::MapStrStr => format!("map_str_str_with_capacity({})", cap),
+        CType::MapI64Str(_) => format!("map_i64_str_with_capacity({})", cap),
+        CType::SeqI64(_) => format!("seq_i64_with_capacity({})", cap),
+        CType::SeqBool => format!("seq_bool_with_capacity({})", cap),
+        CType::SeqStr => format!("seq_str_with_capacity({})", cap),
+        CType::SeqF64 => format!("seq_f64_with_capacity({})", cap),
+        // A text's capacity is a hint to a text built in place (see `text_builder_of`); here it is read
+        // for its effects and the text is itself.
+        CType::String => format!("({{ (void)({}); {}; }})", cap, codegen_expr(value, ctx)),
+        _ => codegen_expr(value, ctx),
+    }
+}
+
+/// The `List` arm of [`codegen_expr_node`], in a frame of its own — see [`codegen_expr_node`].
+#[inline(never)]
+fn codegen_list_expr(expr: &Expr, ctx: &CContext) -> String {
+    let Expr::List(elems) = expr else {
+        unreachable!("codegen_list_expr is called on the arm it was taken from")
+    };
+    let elem_type = super::types::list_item_type(elems, ctx);
+    if elem_type == CType::Rational {
+        let seq = crate::codegen_c::types::seq_of(CType::Rational);
+        return literal_as(elems, &seq, &CType::Rational, ctx);
+    }
+    // The literal's sequence type is `seq_of` its first element's — the one mapping every
+    // `Seq of X` is typed through — and every sequence family is spelled from its type's
+    // name: `Seq_<key>` with `seq_<key>_new` / `seq_<key>_push` (a scalar's runtime family,
+    // a record's or enum's, a tuple's, a value type's, a nested sequence's alike).
+    let cty =
+        c_type_str_resolved(&crate::codegen_c::types::seq_of(elem_type), ctx.interner);
+    let key = cty.strip_prefix("Seq_").unwrap_or(&cty);
+    let (new_fn, push_fn) = (format!("seq_{key}_new"), format!("seq_{key}_push"));
+    if elems.is_empty() {
+        return format!("{}()", new_fn);
+    }
+    // Materialize the literal in a GCC statement-expression so it works in ANY position —
+    // an argument (`sumSeq([1,2,3])`), a return, etc. The old form emitted an empty seq
+    // with the elements only in a comment, so every literal passed by value was empty.
+    //
+    // A `Seq of Int` literal with an item past the word, into a list that may promote (`ExactSlots::literal_is_tagged`),
+    // is built promoted: every cell tagged (`lint_to_cell`) and `exact` set. Any other narrows each item, loudly past a
+    // word.
+    let tag_i64 = key == "i64" && ctx.exact.literal_is_tagged(expr);
+    let mut s = format!("({{ {} __lit = {}(); ", cty, new_fn);
+    if tag_i64 {
+        s.push_str("__lit.exact = 1; ");
+    }
+    for e in elems {
+        let value = if tag_i64 {
+            format!("lint_to_cell({})", exact_lint_value(e, ctx))
+        } else if key == "i64" {
+            narrow_i64_sink(e, codegen_expr(e, ctx), ctx)
+        } else {
+            stored(e, codegen_expr(e, ctx), ctx)
+        };
+        s.push_str(&format!("{}(&__lit, {}); ", push_fn, value));
+    }
+    s.push_str("__lit; })");
+    s
+}
+
+/// The `Union` arm of [`codegen_expr_node`], in a frame of its own — see [`codegen_expr_node`].
+#[inline(never)]
+fn codegen_union_expr(expr: &Expr, ctx: &CContext) -> String {
+    let Expr::Union { left, right } = expr else {
+        unreachable!("codegen_union_expr is called on the arm it was taken from")
+    };
+    let (l, r) = (codegen_expr(left, ctx), codegen_expr(right, ctx));
+    match infer_expr_type(left, ctx) {
+        CType::SetStr => format!("set_str_union(&{}, &{})", l, r),
+        CType::SetTuple(elems) => {
+            format!("set_{}_union(&{}, &{})", tuple_c_name(&elems, ctx.interner), l, r)
+        }
+        _ => format!("set_i64_union(&{}, &{})", l, r),
+    }
+}
+
+/// The `Intersection` arm of [`codegen_expr_node`], in a frame of its own — see [`codegen_expr_node`].
+#[inline(never)]
+fn codegen_intersection_expr(expr: &Expr, ctx: &CContext) -> String {
+    let Expr::Intersection { left, right } = expr else {
+        unreachable!("codegen_intersection_expr is called on the arm it was taken from")
+    };
+    let (l, r) = (codegen_expr(left, ctx), codegen_expr(right, ctx));
+    match infer_expr_type(left, ctx) {
+        CType::SetStr => format!("set_str_intersect(&{}, &{})", l, r),
+        CType::SetTuple(elems) => {
+            format!("set_{}_intersect(&{}, &{})", tuple_c_name(&elems, ctx.interner), l, r)
+        }
+        _ => format!("set_i64_intersect(&{}, &{})", l, r),
+    }
+}
+
+/// The `FieldAccess` arm of [`codegen_expr_node`], in a frame of its own — see [`codegen_expr_node`].
+#[inline(never)]
+fn codegen_field_access_expr(expr: &Expr, ctx: &CContext) -> String {
+    let Expr::FieldAccess { object, field } = expr else {
+        unreachable!("codegen_field_access_expr is called on the arm it was taken from")
+    };
+    let obj = codegen_expr(object, ctx);
+    let obj_ty = infer_expr_type(object, ctx);
+    // A named-record field `r's quotient` → the positional `.fN` of the shared tuple struct.
+    if let CType::Record(fields) = &obj_ty {
+        if let Some(idx) = fields.iter().position(|(n, _)| n == field) {
+            return format!("{}.f{}", obj, idx);
+        }
+    }
+    let fname = escape_c_ident(ctx.interner.resolve(*field));
+    // A counter-CRDT field (`c's points`) holds a `logos_crdt*` handle in its `int64_t` cell; its
+    // OBSERVABLE is the SUM of the per-replica map — project it exactly as the VM/tree-walker does.
+    if let CType::Struct(sym) = &obj_ty {
+        if ctx.is_counter_field(*sym, *field) {
+            return format!(
+                "logos_crdt_sum((logos_crdt *)(intptr_t)({}.{}))",
+                obj, fname
+            );
+        }
+    }
+    format!("{}.{}", obj, fname)
+}
+
+/// The `NewVariant` arm of [`codegen_expr_node`], in a frame of its own — see [`codegen_expr_node`].
+#[inline(never)]
+fn codegen_new_variant_expr(expr: &Expr, ctx: &CContext) -> String {
+    let Expr::NewVariant { enum_name, variant, fields } = expr else {
+        unreachable!("codegen_new_variant_expr is called on the arm it was taken from")
+    };
+    let ename = escape_c_ident(ctx.interner.resolve(*enum_name));
+    let vname = escape_c_ident(ctx.interner.resolve(*variant));
+    if fields.is_empty() {
+        format!("({}){{{}.tag = {}_{}}}", ename, "", ename, vname)
+    } else {
+        // Check which fields are recursive (self-referencing pointer)
+        let variant_def_fields = ctx.registry.get(*enum_name).and_then(|td| {
+            if let crate::analysis::TypeDef::Enum { variants, .. } = td {
+                variants
+                    .iter()
+                    .find(|v| v.name == *variant)
+                    .map(|v| &v.fields)
+            } else {
+                None
+            }
+        });
+
+        let recursive_fields: Vec<bool> = fields
+            .iter()
+            .map(|(fname, _)| {
+                variant_def_fields
+                    .and_then(|vfields| vfields.iter().find(|f| f.name == *fname))
+                    .is_some_and(|f| {
+                        matches!(&f.ty, crate::analysis::FieldType::Named(fsym) if *fsym == *enum_name)
+                    })
+            })
+            .collect();
+        let recursive_count = recursive_fields
+            .iter()
+            .filter(|&&recursive| recursive)
+            .count();
+        // Recursive payload pointers are never freed independently: they are immutable
+        // value children owned by the containing enum. Put sibling children in one block
+        // so a binary node pays for one allocator round trip instead of two.
+        let batch_recursive = recursive_count > 1
+            && crate::optimize::active_config().is_on(crate::optimization::Opt::Scalarize);
+        let recursive_storage =
+            batch_recursive.then(|| ctx.fresh_temporary("recursive_fields"));
+        let mut recursive_index = 0usize;
+        let mut recursive_assignments = Vec::with_capacity(recursive_count);
+        let field_inits: Vec<String> = fields
+            .iter()
+            .zip(&recursive_fields)
+            .map(|((fname, fexpr), &is_recursive)| {
+                let fn_str = escape_c_ident(ctx.interner.resolve(*fname));
+                let fd = variant_def_fields
+                    .and_then(|vfields| vfields.iter().find(|f| f.name == *fname));
+                let val = as_field_value(
+                    stored(fexpr, codegen_expr(fexpr, ctx), ctx),
+                    fexpr,
+                    *variant,
+                    fd,
+                    ctx,
+                );
+
+                if is_recursive && batch_recursive {
+                    let index = recursive_index;
+                    recursive_index += 1;
+                    let storage = recursive_storage
+                        .as_deref()
+                        .expect("batched recursive storage");
+                    recursive_assignments.push(format!("{storage}[{index}] = {val};"));
+                    format!(".{fn_str} = &{storage}[{index}]")
+                } else if is_recursive {
+                    // Heap-allocate recursive field: ({Type *__p = lc_gc_alloc(sizeof(Type)); *__p = val; __p;})
+                    format!(
+                        ".{} = ({{{}* __p = ({}*)lc_gc_alloc(sizeof({})); *__p = {}; __p;}})",
+                        fn_str, ename, ename, ename, val
+                    )
+                } else {
+                    format!(".{} = {}", fn_str, val)
+                }
+            })
+            .collect();
+        let value = format!(
+            "({}){{{}.tag = {}_{}, .data.{} = {{{}}}}}",
+            ename,
+            "",
+            ename,
+            vname,
+            vname,
+            field_inits.join(", ")
+        );
+        if batch_recursive {
+            crate::optimize::mark_fired(crate::optimization::Opt::Scalarize);
+            let storage = recursive_storage
+                .as_deref()
+                .expect("batched recursive storage");
+            format!(
+                "({{ {ename} *{storage} = ({ename} *)lc_gc_alloc({recursive_count} * sizeof({ename})); {} {value}; }})",
+                recursive_assignments.join(" ")
+            )
+        } else {
+            value
+        }
+    }
+}
+
+/// The `Closure` arm of [`codegen_expr_node`], in a frame of its own — see [`codegen_expr_node`].
+#[inline(never)]
+fn codegen_closure_expr(expr: &Expr, ctx: &CContext) -> String {
+    let Expr::Closure { params, body, return_type } = expr else {
+        unreachable!("codegen_closure_expr is called on the arm it was taken from")
+    };
+    // Generic closure position (not an exact-HOF arg) — plain i64 integers; the exact-HOF call site
+    // re-codegens its closure arg with `exact = true`.
+    codegen_closure(params, body, *return_type, ctx)
+}
+
+/// The `CallExpr` arm of [`codegen_expr_node`], in a frame of its own — see [`codegen_expr_node`].
+#[inline(never)]
+fn codegen_closure_call_expr(expr: &Expr, ctx: &CContext) -> String {
+    let Expr::CallExpr { callee, args } = expr else {
+        unreachable!("codegen_closure_call_expr is called on the arm it was taken from")
+    };
+    let f = codegen_expr(callee, ctx);
+    // The callee's function type says which params are exact `LInt` — promote an i64 argument there, so
+    // `f(i64::MAX)` (a function-typed param inside an exact-HOF body) doesn't truncate.
+    let (ret, param_tys): (CType, Vec<CType>) = match infer_expr_type(callee, ctx) {
+        CType::FnPtr { ret, params } => (*ret, params),
+        _ => (CType::Int64, Vec::new()),
+    };
+    let a: Vec<String> = args
+        .iter()
+        .enumerate()
+        .map(|(i, x)| {
+            let xc = codegen_expr(x, ctx);
+            if param_tys.get(i) == Some(&CType::BigInt)
+                && infer_expr_type(x, ctx) != CType::BigInt
+            {
+                format!("lint_of((int64_t)({}))", xc)
+            } else {
+                xc
+            }
+        })
+        .collect();
+    let is_variable = matches!(callee, Expr::Identifier(sym) if ctx.vars.contains_key(sym));
+    closure_call(&f, is_variable, &ret, &param_tys, &a, ctx)
+}
+
+/// The `Range` arm of [`codegen_expr_node`], in a frame of its own — see [`codegen_expr_node`].
+#[inline(never)]
+fn codegen_range_expr(expr: &Expr, ctx: &CContext) -> String {
+    let Expr::Range { start, end } = expr else {
+        unreachable!("codegen_range_expr is called on the arm it was taken from")
+    };
+    let n = ctx.select_ctr.get();
+    ctx.select_ctr.set(n + 1);
+    format!(
+        "({{ int64_t __lo{n} = {}; int64_t __hi{n} = {}; Seq_i64 __r{n} = seq_i64_new(); \
+                 if (__lo{n} <= __hi{n}) for (int64_t __logos_k{n} = __lo{n}; ; __logos_k{n}++) {{ seq_i64_push(&__r{n}, __logos_k{n}); \
+                 if (__logos_k{n} == __hi{n}) break; }} __r{n}; }})",
+        range_bound(start, ctx),
+        range_bound(end, ctx),
+    )
 }
 
 /// `left op right` where an operand is a value-or-nothing variable (outside `is`, `and`, `or` and a joining of
@@ -3706,10 +4207,214 @@ pub(super) fn c_truthy(expr: &Expr, ctx: &CContext) -> String {
     truthy_of(&infer_expr_type(expr, ctx), &codegen_expr(expr, ctx), ctx)
 }
 
+/// `code`, a statement's condition, without the parentheses that enclose all of it — the statement's own make them
+/// redundant: `if (n < 2LL)`, not `if (((n < 2LL)))`. A GNU statement expression keeps its own (`({ … })`), and so does
+/// an assignment (gcc's `-Wparentheses` asks for one pair around an assignment read as a truth value).
+fn condition(code: &str) -> &str {
+    let mut c = code.trim();
+    while let Some(inner) = c.strip_prefix('(').and_then(|rest| rest.strip_suffix(')')) {
+        let inner = inner.trim();
+        if inner.is_empty() || inner.starts_with('{') || !encloses_all(c) || assigns_at_top(inner) {
+            break;
+        }
+        c = inner;
+    }
+    c
+}
+
+/// `code`, a call's argument, without the parentheses that enclose all of it: `fib(n - 1LL)`, not `fib((n - 1LL))`. A
+/// GNU statement expression keeps its own (`({ … })`), and so does an argument with a comma outside every parenthesis,
+/// which would otherwise be read as two.
+fn argument(code: &str) -> &str {
+    let mut c = code.trim();
+    while let Some(inner) = c.strip_prefix('(').and_then(|rest| rest.strip_suffix(')')) {
+        let inner = inner.trim();
+        if inner.is_empty() || inner.starts_with('{') || !encloses_all(c) || separates_at_top(inner) {
+            break;
+        }
+        c = inner;
+    }
+    c
+}
+
+/// Whether `code` holds a comma outside every parenthesis, bracket and brace, a comma in a literal being none.
+fn separates_at_top(code: &str) -> bool {
+    let bytes = code.as_bytes();
+    let mut depth = 0i32;
+    let mut at = 0;
+    while at < bytes.len() {
+        match bytes[at] {
+            quote @ (b'"' | b'\'') => {
+                at += 1;
+                while at < bytes.len() && bytes[at] != quote {
+                    at += if bytes[at] == b'\\' { 2 } else { 1 };
+                }
+            }
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            b',' if depth == 0 => return true,
+            _ => {}
+        }
+        at += 1;
+    }
+    false
+}
+
+/// `code`, an operand of the binary operator `parent` (its right operand when `right`), without the parentheses that
+/// enclose all of it where C reads the expression the same without them: `zr * zr + zi * zi > 4.0`. They go for a
+/// multiplicative operand of an additive operator, an additive or multiplicative operand of a comparison, a comparison
+/// under `&&` or `||`, and an operator of the parent's own strength on its left. They stay wherever gcc's
+/// `-Wparentheses` asks for them (`&&` under `||`, a comparison under a comparison, anything under a bitwise operator or
+/// a shift), on the right of an operator of the same strength (`c + (a - b)` overflows otherwise than `c + a - b`), and
+/// around an operand that opens with a sign, a dereference or an address, or is a GNU statement expression.
+fn operand<'c>(code: &'c str, parent: &str, right: bool) -> &'c str {
+    let c = code.trim();
+    let Some(inner) = c.strip_prefix('(').and_then(|rest| rest.strip_suffix(')')) else {
+        return code;
+    };
+    let inner = inner.trim();
+    if inner.is_empty() || inner.starts_with(['{', '-', '+', '*', '&']) || !encloses_all(c) {
+        return code;
+    }
+    const MULTIPLICATIVE: &[&str] = &["*", "/", "%"];
+    const ADDITIVE: &[&str] = &["+", "-"];
+    const COMPARISON: &[&str] = &["<", "<=", ">", ">=", "==", "!="];
+    let Some(child) = loosest_operator(inner) else {
+        // A primary, a call, a cast or a unary operation in parentheses of its own.
+        return inner;
+    };
+    let strips = match parent {
+        p if ADDITIVE.contains(&p) => {
+            MULTIPLICATIVE.contains(&child) || (ADDITIVE.contains(&child) && !right)
+        }
+        p if MULTIPLICATIVE.contains(&p) => MULTIPLICATIVE.contains(&child) && !right,
+        p if COMPARISON.contains(&p) => MULTIPLICATIVE.contains(&child) || ADDITIVE.contains(&child),
+        "&&" => COMPARISON.contains(&child) || child == "&&",
+        "||" => COMPARISON.contains(&child) || child == "||",
+        _ => false,
+    };
+    if strips {
+        inner
+    } else {
+        code
+    }
+}
+
+/// The loosest-binding binary operator outside every parenthesis, bracket and brace of `code`, as the emitter writes one
+/// (a space on each side); `None` when it has none. A conditional, an assignment or a comma answers as itself, which no
+/// rule strips under.
+fn loosest_operator(code: &str) -> Option<&'static str> {
+    const OPERATORS: &[(&str, u8)] = &[
+        ("*", 13), ("/", 13), ("%", 13), ("+", 12), ("-", 12), ("<<", 11), (">>", 11), ("<", 10), ("<=", 10),
+        (">", 10), (">=", 10), ("==", 9), ("!=", 9), ("&", 8), ("^", 7), ("|", 6), ("&&", 5), ("||", 4), ("?", 3),
+        (":", 3), ("=", 2), ("+=", 2), ("-=", 2), ("*=", 2), ("/=", 2), ("%=", 2), ("<<=", 2), (">>=", 2), ("&=", 2),
+        ("^=", 2), ("|=", 2),
+    ];
+    let bytes = code.as_bytes();
+    let mut depth = 0i32;
+    let mut loosest: Option<(&'static str, u8)> = None;
+    let mut at = 0;
+    while at < bytes.len() {
+        match bytes[at] {
+            quote @ (b'"' | b'\'') => {
+                at += 1;
+                while at < bytes.len() && bytes[at] != quote {
+                    at += if bytes[at] == b'\\' { 2 } else { 1 };
+                }
+            }
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            b',' if depth == 0 => return Some(","),
+            b' ' if depth == 0 => {
+                let rest = &code[at + 1..];
+                if let Some(token) = rest.split(' ').next().filter(|_| rest.contains(' ')) {
+                    if let Some(&(op, strength)) = OPERATORS.iter().find(|(op, _)| *op == token) {
+                        if loosest.is_none_or(|(_, held)| strength <= held) {
+                            loosest = Some((op, strength));
+                        }
+                        at += token.len();
+                    }
+                }
+            }
+            _ => {}
+        }
+        at += 1;
+    }
+    loosest.map(|(op, _)| op)
+}
+
+/// `code` in parentheses that enclose all of it: itself where its own already do.
+fn enclosed(code: &str) -> String {
+    let c = code.trim();
+    if c.starts_with('(') && encloses_all(c) {
+        c.to_string()
+    } else {
+        format!("({c})")
+    }
+}
+
+/// Whether the parenthesis opening `code` is the one closing it, a parenthesis inside a string or character literal
+/// being no parenthesis.
+fn encloses_all(code: &str) -> bool {
+    let bytes = code.as_bytes();
+    let mut depth = 0i32;
+    let mut at = 0;
+    while at < bytes.len() {
+        match bytes[at] {
+            quote @ (b'"' | b'\'') => {
+                at += 1;
+                while at < bytes.len() && bytes[at] != quote {
+                    at += if bytes[at] == b'\\' { 2 } else { 1 };
+                }
+            }
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 && at != bytes.len() - 1 {
+                    return false;
+                }
+            }
+            _ => {}
+        }
+        at += 1;
+    }
+    depth == 0
+}
+
+/// Whether `code` assigns outside every parenthesis it holds (`x = f()`, `n += 1`, `m <<= 2`), a comparison (`==`,
+/// `!=`, `<=`, `>=`) being no assignment.
+fn assigns_at_top(code: &str) -> bool {
+    let bytes = code.as_bytes();
+    let mut depth = 0i32;
+    let mut at = 0;
+    while at < bytes.len() {
+        match bytes[at] {
+            quote @ (b'"' | b'\'') => {
+                at += 1;
+                while at < bytes.len() && bytes[at] != quote {
+                    at += if bytes[at] == b'\\' { 2 } else { 1 };
+                }
+            }
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            b'=' if depth == 0 && bytes.get(at + 1) != Some(&b'=') => {
+                let before = if at > 0 { bytes[at - 1] } else { b' ' };
+                let shift = at > 1 && matches!(before, b'<' | b'>') && bytes[at - 2] == before;
+                if shift || !matches!(before, b'=' | b'!' | b'<' | b'>') {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+        at += 1;
+    }
+    false
+}
+
 /// `value`, a C expression of type `ty`, read as true or false (see [`c_truthy`]).
 fn truthy_of(ty: &CType, value: &str, ctx: &CContext) -> String {
     match ty {
-        CType::Bool | CType::Int64 | CType::Float64 => format!("({value})"),
+        CType::Bool | CType::Int64 | CType::Float64 => enclosed(value),
         CType::String => format!("(str_len({value}) != 0)"),
         CType::BigInt => format!("(lint_cmp({value}, lint_of(0)) != 0)"),
         CType::Rational | CType::Decimal => format!("(ldec_cmp({value}, ldec_from_i64(0)) != 0)"),
@@ -3724,6 +4429,7 @@ fn truthy_of(ty: &CType, value: &str, ctx: &CContext) -> String {
         | CType::SeqValue(_)
         | CType::SetI64(_)
         | CType::SetStr
+        | CType::SetTuple(_)
         | CType::MapI64I64(_, _)
         | CType::MapStrI64(_)
         | CType::MapStrStr
@@ -3888,7 +4594,7 @@ fn vm_type_name(ty: &CType, ctx: &CContext) -> String {
         | CType::SeqTuple(_)
         | CType::SeqSeq(_)
         | CType::SeqValue(_) => "List".to_string(),
-        CType::SetI64(_) | CType::SetStr => "Set".to_string(),
+        CType::SetI64(_) | CType::SetStr | CType::SetTuple(_) => "Set".to_string(),
         CType::MapI64I64(_, _)
         | CType::MapStrI64(_)
         | CType::MapStrStr
@@ -4072,6 +4778,9 @@ fn c_contains(collection: &Expr, value: &Expr, ctx: &CContext) -> String {
         ),
         CType::SetI64(_) => "set_i64_contains".to_string(),
         CType::SetStr => "set_str_contains".to_string(),
+        CType::SetTuple(elems) if super::types::tuple_is_set_key(elems) => {
+            format!("set_{}_contains", tuple_c_name(elems, ctx.interner))
+        }
         other => {
             return c_refuse_expr(&format!(
                 "`contains` over a {other:?}, whose elements it cannot compare yet"
@@ -4082,13 +4791,15 @@ fn c_contains(collection: &Expr, value: &Expr, ctx: &CContext) -> String {
         ty,
         CType::SeqI64(_) | CType::MapI64I64(_, _) | CType::MapI64Str(_) | CType::SetI64(_)
     );
+    // A list that may promote ([`CContext::seq_may_promote`]) is searched for the needle's exact value
+    // (`seq_i64_contains_lint`): by its words while it holds words, by value once promoted.
+    let promotes = matches!(ty, CType::SeqI64(Ints::Int)) && ctx.seq_may_promote(collection);
     with_collection(collection, &ty, on_nothing, ctx, |at| {
+        if promotes {
+            return format!("seq_i64_contains_lint({at}, {})", exact_lint_value(value, ctx));
+        }
         let v = codegen_expr(value, ctx);
-        let v = if integer_key {
-            narrow_i64_sink(value, v, ctx)
-        } else {
-            v
-        };
+        let v = if integer_key { narrow_i64_sink(value, v, ctx) } else { v };
         format!("{membership}({at}, {v})")
     })
 }
@@ -4150,6 +4861,50 @@ fn mixed_kinds(elems: &[&Expr], ctx: &CContext) -> bool {
         return false;
     };
     kinds.any(|k| k != first && !(integer(&k) && integer(&first)))
+}
+
+/// An empty set of C type `set`: `set_i64_new()`, `set_str_new()`, or a tuple-keyed set's own constructor —
+/// refused by name for a tuple whose elements C cannot hash and compare as the VM does.
+fn set_new(set: &CType, ctx: &CContext) -> String {
+    match set {
+        CType::SetStr => "set_str_new()".to_string(),
+        CType::SetTuple(elems) if super::types::tuple_is_set_key(elems) => {
+            format!("set_{}_new()", tuple_c_name(elems, ctx.interner))
+        }
+        CType::SetTuple(elems) => c_refuse_expr(&format!(
+            "a Set of tuples whose elements ({elems:?}) it cannot hash and compare as the VM does"
+        )),
+        _ => "set_i64_new()".to_string(),
+    }
+}
+
+/// The set literal `expr`, `{a, b, …}` (`setOf(a, b, …)`): an empty set of its type with each item added in the order
+/// written, as `Add` adds one. Items that differ in kind are refused, as a list of them is.
+fn set_literal(expr: &Expr, items: &[&Expr], ctx: &CContext) -> String {
+    if mixed_kinds(items, ctx) {
+        return c_refuse_expr("a set whose items differ in kind");
+    }
+    let ty = infer_expr_type(expr, ctx);
+    let n = ctx.select_ctr.get();
+    ctx.select_ctr.set(n + 1);
+    let set = format!("__set{n}");
+    let adds: Vec<String> = items
+        .iter()
+        .map(|item| {
+            let v = codegen_expr(item, ctx);
+            match &ty {
+                CType::SetStr => format!("set_str_add(&{set}, {v});"),
+                CType::SetTuple(elems) => format!("set_{}_add(&{set}, {v});", tuple_c_name(elems, ctx.interner)),
+                _ => format!("set_i64_add(&{set}, {});", narrow_i64_sink(item, v, ctx)),
+            }
+        })
+        .collect();
+    format!(
+        "({{ {} {set} = {}; {} {set}; }})",
+        c_type_str_resolved(&ty, ctx.interner),
+        set_new(&ty, ctx),
+        adds.join(" ")
+    )
 }
 
 /// The C text that refuses `what` at generation: an `#error` naming the construct.
@@ -4256,13 +5011,14 @@ fn codegen_closure(
         ),
         ClosureBody::Block(stmts) => {
             let mut b = String::new();
-            for s in *stmts {
-                codegen_stmt(s, &mut child, &mut b, 1);
-            }
+            codegen_block(stmts, &mut child, &mut b, 1);
             b
         }
     };
     let mut def = String::new();
+    if captured.is_empty() {
+        prologue.insert_str(0, "    (void)__env;\n");
+    }
     if !captured.is_empty() {
         let fields: String = captured
             .iter()
@@ -4438,6 +5194,14 @@ pub(super) fn c_format_spec_for_hole(
     if let (Expr::Literal(Literal::Nothing) | Expr::OptionNone, None) = (expr, spec) {
         return ("%s".to_string(), "\"nothing\"".to_string());
     }
+    if spec.is_none() {
+        if let Some(s) = speculation(expr, ctx) {
+            return (
+                "%s".to_string(),
+                s.either(|w| format!("i64_to_str({w})"), |x| format!("lint_to_string({x})")),
+            );
+        }
+    }
     let ty = infer_expr_type(expr, ctx);
     let val_str = codegen_expr(expr, ctx);
 
@@ -4590,7 +5354,8 @@ pub(super) fn c_format_spec_for_hole(
         | CType::MapStrValue(_)
         | CType::MapI64Value(_)
         | CType::SetI64(_)
-        | CType::SetStr => {
+        | CType::SetStr
+        | CType::SetTuple(_) => {
             let tn = c_type_str_resolved(&ty, ctx.interner);
             let render = crate::codegen_c::types::c_field_to_string_expr(&ty, "__t", ctx.interner);
             (
@@ -4879,7 +5644,13 @@ fn emit_c_buffer_reuse_body(
     indent: usize,
 ) {
     let pad = "    ".repeat(indent);
+    let refs: Vec<&Stmt> = body.iter().collect();
+    let reused = |idx: usize| idx == reuse.inner_let || idx == reuse.move_set;
+    let mut consumed = false;
     for (idx, child) in body.iter().enumerate() {
+        if std::mem::take(&mut consumed) {
+            continue;
+        }
         if idx == reuse.inner_let {
             writeln!(output, "{pad}{inner}.len = 0;").unwrap();
         } else if idx == reuse.move_set {
@@ -4889,6 +5660,8 @@ fn emit_c_buffer_reuse_body(
                 "{pad}{{ {ty} __buffer_swap = {outer}; {outer} = {inner}; {inner} = __buffer_swap; }}"
             )
             .unwrap();
+        } else if !reused(idx + 1) && try_emit_c_byte_compare_window(&refs, idx, ctx, output, indent) {
+            consumed = true;
         } else {
             codegen_stmt(child, ctx, output, indent);
         }
@@ -4896,12 +5669,13 @@ fn emit_c_buffer_reuse_body(
 }
 
 /// Emit the C spelling of the same fixed-window byte comparison recognized by
-/// the Rust emitter.  The structural proof lives in one shared matcher; only
-/// the final target syntax differs.  Constant windows are deliberately
+/// the Rust emitter, at `stmts[at]` (the counter's `Let`) and the loop after it, which it consumes.  The structural
+/// proof lives in one shared matcher; only the final target syntax differs.  Constant windows are deliberately
 /// unrolled so gcc sees bare byte loads instead of per-character allocation,
 /// UTF-8 walking, and `strcmp` in the authored scalar loop.
 fn try_emit_c_byte_compare_window(
-    stmt: &Stmt,
+    stmts: &[&Stmt],
+    at: usize,
     ctx: &CContext,
     output: &mut String,
     indent: usize,
@@ -4909,8 +5683,9 @@ fn try_emit_c_byte_compare_window(
     if !crate::optimize::active_config().is_on(crate::optimization::Opt::Simd) {
         return false;
     }
-    let Some(m) = crate::codegen::peephole::match_byte_compare_window(
-        stmt,
+    let Some(m) = crate::codegen::peephole::match_byte_compare_window_at(
+        stmts,
+        at,
         ctx.interner,
         ctx.int_oracle.as_deref(),
     ) else {
@@ -5328,9 +6103,7 @@ fn try_emit_c_tiled_while(
     )
     .unwrap();
     ctx.in_loop(|ctx| {
-        for child in inner_pass {
-            codegen_stmt(child, ctx, output, indent + 8);
-        }
+        codegen_block(inner_pass, ctx, output, indent + 8);
     });
     writeln!(output, "{seven}}}").unwrap();
     writeln!(output, "{six}}}").unwrap();
@@ -5349,9 +6122,7 @@ fn try_emit_c_tiled_while(
     writeln!(output, "{two}while ({exact_cond}) {{").unwrap();
     ctx.enter_scope();
     ctx.in_loop(|ctx| {
-        for child in *body {
-            codegen_stmt(child, ctx, output, indent + 3);
-        }
+        codegen_block(body, ctx, output, indent + 3);
     });
     ctx.exit_scope();
     writeln!(output, "{two}}}").unwrap();
@@ -5681,14 +6452,10 @@ fn try_emit_c_native_descending_while(
     }
     ctx.enter_scope();
     ctx.in_loop(|ctx| {
-        for child in before {
-            codegen_stmt(child, ctx, output, indent + 3);
-        }
+        codegen_block(before, ctx, output, indent + 3);
         if !after.is_empty() {
             writeln!(output, "{}{native}--;", "    ".repeat(indent + 3)).unwrap();
-            for child in after {
-                codegen_stmt(child, ctx, output, indent + 3);
-            }
+            codegen_block(after, ctx, output, indent + 3);
         }
     });
     ctx.exit_scope();
@@ -5701,9 +6468,7 @@ fn try_emit_c_native_descending_while(
     writeln!(output, "{body_pad}while ({exact_cond}) {{").unwrap();
     ctx.enter_scope();
     ctx.in_loop(|ctx| {
-        for child in *body {
-            codegen_stmt(child, ctx, output, indent + 3);
-        }
+        codegen_block(body, ctx, output, indent + 3);
     });
     ctx.exit_scope();
     writeln!(output, "{body_pad}}}").unwrap();
@@ -5916,9 +6681,7 @@ fn try_emit_c_native_counted_while(
         if let (Some(reuse), Some((inner_name, outer_name))) = (&reuse, &reuse_names) {
             emit_c_buffer_reuse_body(pass, reuse, inner_name, outer_name, ctx, output, indent + 3);
         } else {
-            for child in pass {
-                codegen_stmt(child, ctx, output, indent + 3);
-            }
+            codegen_block(pass, ctx, output, indent + 3);
         }
     });
     ctx.exit_scope();
@@ -5939,9 +6702,7 @@ fn try_emit_c_native_counted_while(
         if let (Some(reuse), Some((inner_name, outer_name))) = (&reuse, &reuse_names) {
             emit_c_buffer_reuse_body(body, reuse, inner_name, outer_name, ctx, output, indent + 3);
         } else {
-            for child in *body {
-                codegen_stmt(child, ctx, output, indent + 3);
-            }
+            codegen_block(body, ctx, output, indent + 3);
         }
     });
     ctx.exit_scope();
@@ -5956,6 +6717,26 @@ fn try_emit_c_native_counted_while(
         crate::optimize::mark_fired(crate::optimization::Opt::IntStrength);
     }
     true
+}
+
+/// The statements of a block, in order, each through [`codegen_stmt`] — but a byte-compare window and its counter's
+/// `Let` (`peephole::match_byte_compare_window_at`) as the one comparison they are.
+pub(super) fn codegen_block(stmts: &[Stmt], ctx: &mut CContext, output: &mut String, indent: usize) {
+    let refs: Vec<&Stmt> = stmts.iter().collect();
+    codegen_block_refs(&refs, ctx, output, indent);
+}
+
+/// [`codegen_block`] over the statements `stmts` names (Main's, its function definitions left out).
+pub(super) fn codegen_block_refs(stmts: &[&Stmt], ctx: &mut CContext, output: &mut String, indent: usize) {
+    let mut at = 0;
+    while at < stmts.len() {
+        if try_emit_c_byte_compare_window(stmts, at, ctx, output, indent) {
+            at += 2;
+            continue;
+        }
+        codegen_stmt(stmts[at], ctx, output, indent);
+        at += 1;
+    }
 }
 
 pub(super) fn codegen_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
@@ -5980,1044 +6761,45 @@ pub(super) fn codegen_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String,
     }
 }
 
+/// One statement's C, by its kind: each wide arm in a frame of its own.
+///
+/// A compile recurses once per nesting level of the program, and the levels the emitter walks are not only the
+/// source's: memoization and the recursive inliner nest what they generate. In a debug build every arm's locals
+/// share the enclosing function's frame, so the widest arms set the stack cost of EVERY level, including levels
+/// that never run them: kept inline they came to tens of KiB a level, and memoized `fib` overflowed a 2 MiB
+/// thread. Each wide arm is a function of its own (`#[inline(never)]`), as the Rust emitter's `codegen_stmt` keeps
+/// its own (`compiler_stack_safety_lock`).
 fn codegen_stmt_node(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
     if ctx.stepped.is_some() && super::stepped::scheduling_point(stmt, ctx, output, indent) {
         return;
     }
     let pad = "    ".repeat(indent);
     match stmt {
-        Stmt::Let {
-            var,
-            value,
-            ty,
-            mutable,
-        } => {
-            let var_name = ctx.resolve(*var).to_string();
-            // At Main's root, a program static's `Let` assigns the file-scope static every function reaches.
-            let program_static = ctx.main_root_depth == Some(ctx.decl_scopes.len())
-                && ctx.program_statics.contains(var);
-
-            // Determine C type. An undeclared copy of a value-or-nothing variable is value-or-nothing too.
-            if ty.is_none() && ctx.number_locals.refused.contains(var) {
-                output.push_str(&c_refuse_expr(&format!(
-                    "`{}`, which holds an exact number and a real",
-                    ctx.interner.resolve(*var)
-                )));
-                return;
-            }
-            let c_type = if super::tower::binding(ctx, *var) {
-                CType::Tower
-            } else if let Some(ty_expr) = ty {
-                resolve_type_expr_with_registry(ty_expr, ctx.interner, Some(ctx.registry))
-            } else if let Some(widened) = ctx.number_locals.types.get(var) {
-                widened.clone()
-            } else if let Some((_, ty)) = opt_var(value, ctx) {
-                ty
-            } else {
-                infer_expr_type(value, ctx)
-            };
-            // A BigInt-flagged local is declared `LInt` even when seeded with a small literal.
-            let c_type = if ctx.bigint_vars.contains(var) && c_type == CType::Int64 {
-                CType::BigInt
-            } else {
-                c_type
-            };
-            // A binding a stored `nothing` reaches holds value-or-nothing.
-            let c_type = super::absent::binding(stmt, c_type, ctx);
-            if program_static {
-                match ctx.static_types.get(var) {
-                    Some(bound) if *bound != c_type => {
-                        output.push_str(&c_refuse_expr(&format!(
-                            "the program's `{}` bound once as {:?} and again as {:?}",
-                            var_name, bound, c_type
-                        )));
-                        return;
-                    }
-                    _ => {
-                        ctx.static_types.insert(*var, c_type.clone());
-                    }
-                }
-            }
-
-            if c_type == CType::Tower {
-                let val_str = super::tower::stored(value, ctx);
-                let reuse = program_static || ctx.declared_value_here(*var, &c_type);
-                let var_name = if program_static {
-                    ctx.bind_static(*var, c_type.clone())
-                } else {
-                    ctx.declare(*var, c_type.clone())
-                };
-                let head = if reuse {
-                    var_name
-                } else {
-                    ctx.decl_head(&c_type, &var_name)
-                };
-                writeln!(output, "{pad}{head} = {val_str};").unwrap();
-                return;
-            }
-
-            if let Some(source) = ctx
-                .text_bytes_candidates
-                .get(&(stmt as *const Stmt as usize))
-                .copied()
-            {
-                // A stack-local pointer borrows an ordinary text value. Frame and program-static
-                // bindings retain owned sequence storage across their longer lifetimes.
-                if !program_static
-                    && ctx.stepped.is_none()
-                    && ctx.vars.get(&source) == Some(&CType::String)
-                {
-                    let var_name = ctx.declare_text_bytes(*var, source);
-                    writeln!(
-                        output,
-                        "{pad}const unsigned char *{var_name} = (const unsigned char *)({});",
-                        ctx.resolve(source)
-                    )
-                    .unwrap();
-                    crate::optimize::mark_fired(crate::optimization::Opt::TextBytesView);
-                    return;
-                }
-            }
-
-            // Consume the same fixed-buffer proof as the Rust AOT emitter,
-            // while retaining C's ordinary Seq representation and operations.
-            // Because the analysis proves the buffer has exactly `len` pushes,
-            // is non-escaping, and is only lent at read-only call positions,
-            // `seq_i64_push` never reaches its realloc path.  This closes the
-            // backend drift where Rust emitted `[T; N]` but C heap-allocated the
-            // same SHA/message/work buffers on every loop iteration.
-            if let (Some(&len), CType::SeqI64(_), true) = (
-                ctx.fixed_stack_seqs.get(var),
-                &c_type,
-                matches!(
-                    value,
-                    Expr::New { type_name, init_fields, .. }
-                        if matches!(ctx.interner.resolve(*type_name), "Seq" | "List" | "Vec")
-                            && init_fields.is_empty()
-                ) || matches!(value, Expr::List(items) if items.is_empty()),
-            ) {
-                let reuse = program_static || (ctx.declared_value_here(*var, &c_type));
-                let var_name = if program_static {
-                    ctx.bind_static(*var, c_type.clone())
-                } else {
-                    ctx.declare(*var, c_type.clone())
-                };
-                if reuse {
-                    writeln!(output, "{pad}{var_name}.len = 0;").unwrap();
-                } else {
-                    let backing = format!(
-                        "__logos_fixed_{}",
-                        var_name.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "_")
-                    );
-                    writeln!(output, "{pad}int64_t {backing}[{len}] = {{0}};").unwrap();
-                    writeln!(output, "{pad}Seq_i64 {var_name} = (Seq_i64){{{backing}, 0, {len}}}; /* shared fixed Seq */").unwrap();
-                }
-                crate::optimize::mark_fired(crate::optimization::Opt::Scalarize);
-                return;
-            }
-
-            // Handle list literals specially — build inline. The DYNAMIC-NAMED Seq elements — a VALUE-TYPE
-            // Seq (`Seq_LMoney` …), a user-STRUCT Seq (`Seq_<Name>`), a nested Seq (`Seq_<inner>`), and a
-            // Seq-of-TUPLE (`Seq_LTuple_…`) — are the exceptions: they fall through to the general path
-            // below, whose `codegen_expr(Expr::List)` materializes the literal in a GCC statement-expression
-            // with the right dynamic `Seq_<E>` type + push fn (`c_type_str` can only render them as a
-            // `/* … */` placeholder, so a static-name declaration here would be `undeclared` under gcc). A
-            // binding that can hold nothing takes the literal as a value-or-nothing on the general path too.
-            // Everything else keeps its exact prior behavior here.
-            if let Expr::List(elems) = value {
-                if mixed_kinds(elems, ctx) {
-                    output.push_str(&c_refuse_expr(MIXED_LIST));
-                    return;
-                }
-            }
-            if let (Expr::List(elems), false) = (
-                value,
-                matches!(
-                    c_type,
-                    CType::SeqValue(_)
-                        | CType::SeqStruct(_)
-                        | CType::SeqSeq(_)
-                        | CType::SeqTuple(_)
-                        | CType::Opt(_)
-                ),
-            ) {
-                if !elems.is_empty() {
-                    let (new_fn, push_fn) = match &c_type {
-                        CType::SeqBool => ("seq_bool_new", "seq_bool_push"),
-                        CType::SeqStr => ("seq_str_new", "seq_str_push"),
-                        CType::SeqF64 => ("seq_f64_new", "seq_f64_push"),
-                        _ => ("seq_i64_new", "seq_i64_push"),
-                    };
-                    let values: Vec<String> = elems
-                        .iter()
-                        .map(|e| stored(e, codegen_expr(e, ctx), ctx))
-                        .collect();
-                    let reuse = program_static || (ctx.declared_value_here(*var, &c_type));
-                    let var_name = if program_static {
-                        ctx.bind_static(*var, c_type.clone())
-                    } else {
-                        ctx.declare(*var, c_type.clone())
-                    };
-                    let head = if reuse {
-                        var_name.clone()
-                    } else {
-                        ctx.decl_head(&c_type, &var_name)
-                    };
-                    writeln!(output, "{}{} = {}();", pad, head, new_fn).unwrap();
-                    for v in values {
-                        writeln!(output, "{}{}(&{}, {});", pad, push_fn, var_name, v).unwrap();
-                    }
-                    return;
-                }
-            }
-
-            // A text the body appends to is a builder of its own; any other mutable text a copy of its own.
-            if c_type == CType::String && (*mutable || builds_text(*var, ctx)) {
-                let val_str = if builds_text(*var, ctx) {
-                    text_builder_of(value, ctx)
-                } else if matches!(value, Expr::Literal(Literal::Text(_)))
-                    && crate::optimize::active_config().is_on(crate::optimization::Opt::Borrow)
-                {
-                    // Rebinding a text pointer never mutates an immutable
-                    // program literal. Avoid a strdup on every loop iteration.
-                    crate::optimize::mark_fired(crate::optimization::Opt::Borrow);
-                    codegen_expr(value, ctx)
-                } else {
-                    format!("lc_gc_strdup({})", codegen_expr(value, ctx))
-                };
-                let reuse = program_static || (ctx.declared_value_here(*var, &c_type));
-                let var_name = if program_static {
-                    ctx.bind_static(*var, c_type)
-                } else {
-                    ctx.declare(*var, c_type)
-                };
-                let declarator = if reuse {
-                    var_name
-                } else {
-                    ctx.decl_head(&CType::String, &var_name)
-                };
-                writeln!(output, "{}{} = {};", pad, declarator, val_str).unwrap();
-                return;
-            }
-
-            let val_str = match (value, &c_type) {
-                (Expr::List(elems), CType::SeqValue(elem)) if !elems.is_empty() => {
-                    literal_as(elems, &c_type, elem, ctx)
-                }
-                (Expr::List(_), seq @ CType::SeqSeq(_)) if super::absent::holds_nothing(seq) => {
-                    value_as(value, seq, ctx)
-                }
-                _ => fresh_collection(value, &c_type, ctx).unwrap_or_else(|| codegen_expr(value, ctx)),
-            };
-            // Seed an `LInt` local from a raw int64 value (`Let result be 1` → `LInt result = lint_of(1)`);
-            // seed a `: Rational`-annotated local by re-emitting its value in rational context so
-            // `Let x: Rational be 7 / 2` is the exact `7/2` (`ldec_div`), not the truncated int `3`.
-            let val_str = if c_type == CType::BigInt && infer_expr_type(value, ctx) != CType::BigInt
-            {
-                format!("lint_of((int64_t)({}))", val_str)
-            } else if matches!(c_type, CType::Rational | CType::Decimal)
-                && !matches!(infer_expr_type(value, ctx), CType::Rational | CType::Decimal)
-            {
-                codegen_expr_as_rational(value, ctx)
-            } else if matches!(c_type, CType::Opt(_)) {
-                opt_stored(value, &c_type, *var, stmt, ctx)
-            } else if super::values::binding_copies(value, &c_type, *var, stmt, ctx) {
-                super::values::copy_value(&c_type, &val_str, ctx)
-            } else if c_type == CType::String && shares_builder(value, ctx) {
-                format!("lc_gc_strdup({val_str})")
-            } else {
-                val_str
-            };
-            // Re-binding a name ALREADY declared in this exact block with the same type (the optimizer's
-            // loop-unroll duplicates `Let x …`) assigns that variable — gcc rejects a redefinition (nbody).
-            // With another type it declares a variable of its own (`CContext::declare`).
-            let reuse = program_static || (ctx.declared_value_here(*var, &c_type));
-            let var_name = if program_static {
-                ctx.bind_static(*var, c_type.clone())
-            } else {
-                ctx.declare(*var, c_type.clone())
-            };
-            // A function-pointer variable (a lambda value) declares with the NAME INSIDE the declarator
-            // (`RET (*g)(ARGS)`), which `decl_head`'s `c_param_decl` spells.
-            let head = if reuse {
-                var_name
-            } else {
-                ctx.decl_head(&c_type, &var_name)
-            };
-            writeln!(output, "{}{} = {};", pad, head, val_str).unwrap();
-        }
+        Stmt::Let { .. } => codegen_let_stmt(stmt, ctx, output, indent),
         // A name nothing binds: the value is computed, then the assignment fails, as on the VM.
-        Stmt::Set { target, value }
-            if !ctx.vars.contains_key(target) && !ctx.program_statics.contains(target) =>
-        {
-            let failure = format!("Undefined variable: {}", ctx.interner.resolve(*target));
-            writeln!(output, "{pad}(void)({});", codegen_expr(value, ctx)).unwrap();
-            writeln!(
-                output,
-                "{pad}{}",
-                ctx.fail_stmt(&c_string_literal(&failure))
-            )
-            .unwrap();
+        Stmt::Set { target, .. } if !ctx.vars.contains_key(target) && !ctx.program_statics.contains(target) => {
+            codegen_set_undeclared_stmt(stmt, ctx, output, indent)
         }
-        Stmt::Set { target, value } => {
-            // A text the program appends to: `Set t to t + a + b` appends each part in place, in order, when no
-            // later part reads `t`; any other value becomes the builder's new text.
-            if is_text_builder(*target, ctx) {
-                let builder = ctx.resolve(*target);
-                if let Some(appended) = self_appended_parts(*target, value, ctx) {
-                    for part in appended {
-                        let fast = crate::optimize::active_config()
-                            .is_on(crate::optimization::Opt::StringAccumReuse);
-                        if fast && infer_expr_type(part, ctx) == CType::Int64 {
-                            crate::optimize::mark_fired(crate::optimization::Opt::StringAccumReuse);
-                            writeln!(
-                                output,
-                                "{pad}logos_text_append_i64(&{builder}, {});",
-                                codegen_expr(part, ctx)
-                            )
-                            .unwrap();
-                            continue;
-                        }
-                        if fast {
-                            if let Expr::Literal(Literal::Text(sym)) = part {
-                                let bytes = ctx.interner.resolve(*sym).as_bytes();
-                                if bytes.len() == 1 && bytes[0] != 0 && bytes[0].is_ascii() {
-                                    crate::optimize::mark_fired(
-                                        crate::optimization::Opt::StringAccumReuse,
-                                    );
-                                    writeln!(
-                                        output,
-                                        "{pad}logos_text_push_ascii(&{builder}, {});",
-                                        bytes[0]
-                                    )
-                                    .unwrap();
-                                    continue;
-                                }
-                            }
-                        }
-                        let (text, owned) = text_part(part, ctx);
-                        let release = if owned {
-                            " lc_gc_free((void *)__appended);"
-                        } else {
-                            ""
-                        };
-                        writeln!(output, "{pad}{{ const char *__appended = {text}; logos_text_append(&{builder}, __appended);{release} }}").unwrap();
-                    }
-                } else {
-                    writeln!(output, "{pad}{builder} = {};", text_builder_of(value, ctx)).unwrap();
-                }
-                return;
-            }
-            if ctx.vars.get(target).or_else(|| ctx.static_types.get(target)) == Some(&CType::Tower) {
-                let val_str = super::tower::stored(value, ctx);
-                writeln!(output, "{pad}{} = {val_str};", ctx.resolve(*target)).unwrap();
-                return;
-            }
-            let val_str = match (value, ctx.vars.get(target).cloned()) {
-                (Expr::List(elems), Some(seq @ CType::SeqValue(_))) if !elems.is_empty() => {
-                    let CType::SeqValue(elem) = &seq else { unreachable!("matched above") };
-                    literal_as(elems, &seq, elem, ctx)
-                }
-                (_, Some(ty)) => fresh_collection(value, &ty, ctx).unwrap_or_else(|| codegen_expr(value, ctx)),
-                _ => codegen_expr(value, ctx),
-            };
-            // Reassigning an `LInt` local a raw int64 value (`Set result to 1`) promotes via `lint_of`;
-            // reassigning a Rational local an int-arithmetic value re-emits it in rational context.
-            let val_str = if ctx.vars.get(target) == Some(&CType::BigInt)
-                && infer_expr_type(value, ctx) != CType::BigInt
-            {
-                format!("lint_of((int64_t)({}))", val_str)
-            } else if matches!(ctx.vars.get(target), Some(CType::Rational | CType::Decimal))
-                && !matches!(infer_expr_type(value, ctx), CType::Rational | CType::Decimal)
-            {
-                codegen_expr_as_rational(value, ctx)
-            } else if let Some(ty @ CType::Opt(_)) = ctx.vars.get(target).cloned() {
-                opt_stored(value, &ty, *target, stmt, ctx)
-            } else if ctx.vars.get(target) == Some(&CType::String)
-                && builds_text(*target, ctx)
-                && !super::values::is_fresh(value)
-            {
-                // A text appended to in place holds a buffer of its own.
-                format!("lc_gc_strdup({val_str})")
-            } else if let Some(ty) = ctx
-                .vars
-                .get(target)
-                .cloned()
-                .filter(|ty| super::values::binding_copies(value, ty, *target, stmt, ctx))
-            {
-                super::values::copy_value(&ty, &val_str, ctx)
-            } else if ctx.vars.get(target) == Some(&CType::String) && shares_builder(value, ctx) {
-                format!("lc_gc_strdup({val_str})")
-            } else {
-                val_str
-            };
-            let var_name = ctx.resolve(*target);
-            writeln!(output, "{}{} = {};", pad, var_name, val_str).unwrap();
-        }
+        Stmt::Set { .. } => codegen_set_stmt(stmt, ctx, output, indent),
         // `Give x to f` hands `x` to its recipient exactly as `Show x to f` does.
-        Stmt::Give { object, recipient } => {
-            codegen_stmt_node(
-                &Stmt::Show {
-                    object: *object,
-                    recipient: *recipient,
-                },
-                ctx,
-                output,
-                indent,
-            );
-        }
-        Stmt::Show { object, recipient } => {
-            // Only `show` itself prints: any other recipient is called with the value, and a recipient that is
-            // not a name only has the value computed.
-            match recipient {
-                Expr::Identifier(f) if ctx.interner.resolve(*f) == "show" => {}
-                Expr::Identifier(f) => {
-                    emit_recipient_call(object, *f, ctx, output, &pad);
-                    return;
-                }
-                _ => {
-                    writeln!(output, "{pad}(void)({});", codegen_expr(object, ctx)).unwrap();
-                    return;
-                }
-            }
-            if let Expr::InterpolatedString(parts) = object {
-                let holes: Vec<&Expr> = parts
-                    .iter()
-                    .filter_map(|p| match p {
-                        crate::ast::stmt::StringPart::Expr { value, .. } => Some(*value),
-                        crate::ast::stmt::StringPart::Literal(_) => None,
-                    })
-                    .collect();
-                let cells = sequence_operands(&holes, ctx, output, &pad);
-                codegen_interpolated_show_c(parts, ctx, &pad, output);
-                forget_operands(cells, ctx);
-                return;
-            }
-            if let Expr::Literal(Literal::Nothing) = object {
-                writeln!(output, "{}printf(\"nothing\\n\");", pad).unwrap();
-                return;
-            }
-            // A value-or-nothing variable: the value if present, else `nothing` (the VM's Nothing). A scalar
-            // prints straight from its cell; any other value through its rendering.
-            if let Some((var, ty)) = opt_var(object, ctx) {
-                let element = opt_element(&ty);
-                let show = match element {
-                    CType::Int64 => Some("show_i64"),
-                    CType::Float64 => Some("show_f64"),
-                    CType::Bool => Some("show_bool"),
-                    CType::String => Some("show_str"),
-                    _ => None,
-                };
-                match show {
-                    Some(show) => {
-                        let value =
-                            task_arg_unpack(&element, &format!("({var}).value"), ctx.interner);
-                        writeln!(output, "{pad}if (({var}).present) {{ {show}({value}); }} else {{ printf(\"nothing\\n\"); }}").unwrap();
-                    }
-                    None => writeln!(
-                        output,
-                        "{pad}logos_show_text({});",
-                        c_text_of(&ty, &var, ctx)
-                    )
-                    .unwrap(),
-                }
-                return;
-            }
-            let ty = infer_expr_type(object, ctx);
-            let val_str = codegen_expr(object, ctx);
-            match ty {
-                // A value-or-nothing, or a value holding them, renders as their payloads do, `nothing` where one is
-                // absent (a value-or-nothing variable is shown above).
-                ty if super::absent::holds_nothing(&ty) => {
-                    let render = crate::codegen_c::types::c_field_to_string_expr(&ty, "__c", ctx.interner);
-                    writeln!(
-                        output,
-                        "{pad}{{ {} __c = {val_str}; char *__s = {render}; printf(\"%s\\n\", __s); lc_gc_free(__s); }}",
-                        c_type_str_resolved(&ty, ctx.interner)
-                    )
-                    .unwrap();
-                }
-                CType::Int64 => writeln!(output, "{}show_i64({});", pad, val_str).unwrap(),
-                CType::Word(_) => writeln!(
-                    output,
-                    "{pad}printf(\"%\" PRIu64 \"\\n\", (uint64_t)({val_str}));"
-                )
-                .unwrap(),
-                CType::Float64 => writeln!(output, "{}show_f64({});", pad, val_str).unwrap(),
-                CType::Complex => writeln!(output, "{}show_complex({});", pad, val_str).unwrap(),
-                CType::Rational | CType::Decimal => writeln!(output, "{}show_ldec({});", pad, val_str).unwrap(),
-                CType::Tower => writeln!(output, "{pad}show_ltower({val_str});").unwrap(),
-                CType::BigInt => writeln!(output, "{}show_lint({});", pad, val_str).unwrap(),
-                CType::Modular => writeln!(output, "{}show_mod({});", pad, val_str).unwrap(),
-                CType::Uuid => writeln!(output, "{}show_uuid({});", pad, val_str).unwrap(),
-                CType::Money => writeln!(output, "{}show_money({});", pad, val_str).unwrap(),
-                CType::Quantity => writeln!(output, "{}show_quant({});", pad, val_str).unwrap(),
-                CType::Bool => writeln!(output, "{}show_bool({});", pad, val_str).unwrap(),
-                CType::String => writeln!(output, "{}show_str({});", pad, val_str).unwrap(),
-                CType::Moment => writeln!(output, "{}show_moment({});", pad, val_str).unwrap(),
-                CType::Date => writeln!(output, "{}show_date({});", pad, val_str).unwrap(),
-                CType::Time => writeln!(output, "{}show_time({});", pad, val_str).unwrap(),
-                CType::Duration => writeln!(output, "{}show_duration({});", pad, val_str).unwrap(),
-                CType::Span => writeln!(output, "{}show_span({});", pad, val_str).unwrap(),
-                // A collection of machine words shows each by its unsigned value, of temporal values each as itself.
-                _ if crate::codegen_c::types::holds_ints_read_apart(&ty) => {
-                    let render = crate::codegen_c::types::c_field_to_string_expr(
-                        &ty,
-                        "__c",
-                        ctx.interner,
-                    );
-                    writeln!(
-                        output,
-                        "{pad}{{ {} __c = {val_str}; char *__s = {render}; printf(\"%s\\n\", __s); lc_gc_free(__s); }}",
-                        c_type_str(&ty)
-                    )
-                    .unwrap();
-                }
-                CType::SeqI64(_) => {
-                    if let Expr::Identifier(_) = object {
-                        writeln!(output, "{}show_seq_i64(&{});", pad, val_str).unwrap();
-                    } else {
-                        writeln!(
-                            output,
-                            "{}{{ Seq_i64 __tmp = {}; show_seq_i64(&__tmp); }}",
-                            pad, val_str
-                        )
-                        .unwrap();
-                    }
-                }
-                CType::SeqBool => {
-                    if let Expr::Identifier(_) = object {
-                        writeln!(output, "{}show_seq_bool(&{});", pad, val_str).unwrap();
-                    } else {
-                        writeln!(
-                            output,
-                            "{}{{ Seq_bool __tmp = {}; show_seq_bool(&__tmp); }}",
-                            pad, val_str
-                        )
-                        .unwrap();
-                    }
-                }
-                CType::SeqStr => {
-                    if let Expr::Identifier(_) = object {
-                        writeln!(output, "{}show_seq_str(&{});", pad, val_str).unwrap();
-                    } else {
-                        writeln!(
-                            output,
-                            "{}{{ Seq_str __tmp = {}; show_seq_str(&__tmp); }}",
-                            pad, val_str
-                        )
-                        .unwrap();
-                    }
-                }
-                CType::SeqF64 => {
-                    if let Expr::Identifier(_) = object {
-                        writeln!(output, "{}show_seq_f64(&{});", pad, val_str).unwrap();
-                    } else {
-                        writeln!(
-                            output,
-                            "{}{{ Seq_f64 __tmp = {}; show_seq_f64(&__tmp); }}",
-                            pad, val_str
-                        )
-                        .unwrap();
-                    }
-                }
-                // A Seq of a value type (`Show [money(…), …]`) → its `show_seq_<E>` (`[a, b]` format).
-                CType::SeqValue(inner) => {
-                    let e = c_type_str(&inner);
-                    if let Expr::Identifier(_) = object {
-                        writeln!(output, "{}show_seq_{e}(&{});", pad, val_str).unwrap();
-                    } else {
-                        writeln!(
-                            output,
-                            "{}{{ Seq_{e} __tmp = {}; show_seq_{e}(&__tmp); }}",
-                            pad, val_str
-                        )
-                        .unwrap();
-                    }
-                }
-                // A nested Seq (`Show [[1,2],[3,4]]`) → `show_seq_<inner>` (`[[..], ..]`), where the inner
-                // is itself a `Seq_…`. Its family + `to_string` are synthesized in `codegen_c::mod`.
-                CType::SeqSeq(inner) => {
-                    let elem = c_type_str_resolved(&inner, ctx.interner); // e.g. "Seq_i64"
-                    let tn = format!("Seq_{elem}"); // "Seq_Seq_i64"
-                    if let Expr::Identifier(_) = object {
-                        writeln!(output, "{}show_seq_{elem}(&{});", pad, val_str).unwrap();
-                    } else {
-                        writeln!(
-                            output,
-                            "{}{{ {tn} __tmp = {}; show_seq_{elem}(&__tmp); }}",
-                            pad, val_str
-                        )
-                        .unwrap();
-                    }
-                }
-                // A tuple / named record (`Show (1, 2)`) → `<LTuple>_to_string` (PARENS). Records share the
-                // positional `LTuple` struct, so both use the same renderer.
-                CType::Tuple(elems) => {
-                    let tn = crate::codegen_c::types::tuple_c_name(&elems, ctx.interner);
-                    writeln!(
-                        output,
-                        "{}{{ char *__s = {}_to_string({}); printf(\"%s\\n\", __s); lc_gc_free(__s); }}",
-                        pad, tn, val_str
-                    )
-                    .unwrap();
-                }
-                CType::Record(fields) => {
-                    let elems: Vec<CType> = fields.iter().map(|(_, t)| t.clone()).collect();
-                    let tn = crate::codegen_c::types::tuple_c_name(&elems, ctx.interner);
-                    writeln!(
-                        output,
-                        "{}{{ char *__s = {}_to_string({}); printf(\"%s\\n\", __s); lc_gc_free(__s); }}",
-                        pad, tn, val_str
-                    )
-                    .unwrap();
-                }
-                // A Seq of tuples (`Show [(1,2),(3,4)]`) → `show_seq_<LTuple>` (`[(1, 2), (3, 4)]`).
-                CType::SeqTuple(elems) => {
-                    let tn = crate::codegen_c::types::tuple_c_name(&elems, ctx.interner);
-                    let sq = format!("Seq_{tn}");
-                    if let Expr::Identifier(_) = object {
-                        writeln!(output, "{}show_seq_{tn}(&{});", pad, val_str).unwrap();
-                    } else {
-                        writeln!(
-                            output,
-                            "{}{{ {sq} __tmp = {}; show_seq_{tn}(&__tmp); }}",
-                            pad, val_str
-                        )
-                        .unwrap();
-                    }
-                }
-                // A Seq of a showable user struct (`Show [p1, p2]`) → its `show_seq_<Name>` (each element
-                // via `<Name>_to_string`). Only when the element struct is C-renderable (see the Struct arm).
-                CType::SeqStruct(sym)
-                    if crate::codegen_c::types::c_user_type_showable(
-                        sym,
-                        ctx.registry,
-                        ctx.interner,
-                    ) =>
-                {
-                    let n = escape_c_ident(ctx.interner.resolve(sym));
-                    let sq = crate::codegen_c::types::seq_struct_type(sym, ctx.interner);
-                    if let Expr::Identifier(_) = object {
-                        writeln!(output, "{}show_seq_{n}(&{});", pad, val_str).unwrap();
-                    } else {
-                        writeln!(
-                            output,
-                            "{}{{ {sq} __tmp = {}; show_seq_{n}(&__tmp); }}",
-                            pad, val_str
-                        )
-                        .unwrap();
-                    }
-                }
-                // Maps render `{k: v, …}` and Sets `{a, …}` in INSERTION order (the C runtime carries an
-                // `order` array), byte-identical to the interpreter oracle. `show_<T>` takes a pointer.
-                CType::MapI64I64(_, _)
-                | CType::MapStrI64(_)
-                | CType::MapStrStr
-                | CType::MapI64Str(_)
-                | CType::MapStrValue(_)
-                | CType::MapI64Value(_)
-                | CType::SetI64(_)
-                | CType::SetStr => {
-                    let (tn, fun): (String, String) = match &ty {
-                        CType::MapI64I64(_, _) => ("Map_i64_i64".into(), "show_map_i64_i64".into()),
-                        CType::MapStrI64(_) => ("Map_str_i64".into(), "show_map_str_i64".into()),
-                        CType::MapStrStr => ("Map_str_str".into(), "show_map_str_str".into()),
-                        CType::MapI64Str(_) => ("Map_i64_str".into(), "show_map_i64_str".into()),
-                        CType::MapStrValue(inner) => {
-                            let e = c_type_str_resolved(inner, ctx.interner);
-                            (format!("Map_str_{e}"), format!("show_map_str_{e}"))
-                        }
-                        CType::MapI64Value(inner) => {
-                            let e = c_type_str_resolved(inner, ctx.interner);
-                            (format!("Map_i64_{e}"), format!("show_map_i64_{e}"))
-                        }
-                        CType::SetI64(_) => ("Set_i64".into(), "show_set_i64".into()),
-                        CType::SetStr => ("Set_str".into(), "show_set_str".into()),
-                        _ => unreachable!(),
-                    };
-                    if let Expr::Identifier(_) = object {
-                        writeln!(output, "{}{}(&{});", pad, fun, val_str).unwrap();
-                    } else {
-                        writeln!(
-                            output,
-                            "{}{{ {tn} __tmp = {}; {fun}(&__tmp); }}",
-                            pad, val_str
-                        )
-                        .unwrap();
-                    }
-                }
-                // A whole enum value (`Show m`) → `<Name>_to_string` (`Just(42)`, `Leaf`, an Option's payload).
-                CType::Enum(sym)
-                    if crate::codegen_c::types::c_enum_showable(
-                        sym,
-                        ctx.registry,
-                        ctx.interner,
-                    ) =>
-                {
-                    let ts = crate::codegen_c::types::struct_to_string_fn(sym, ctx.interner);
-                    writeln!(
-                        output,
-                        "{}{{ char *__s = {}({}); printf(\"%s\\n\", __s); lc_gc_free(__s); }}",
-                        pad, ts, val_str
-                    )
-                    .unwrap();
-                }
-                CType::Struct(sym)
-                    if crate::codegen_c::types::c_struct_showable(
-                        sym,
-                        ctx.registry,
-                        ctx.interner,
-                    ) =>
-                {
-                    // Whole-value Show via the generated `<Name>_to_string` (braces, sorted fields,
-                    // nested structs recursive) — the one renderer shared with nested fields + Seq-of-struct.
-                    let ts = crate::codegen_c::types::struct_to_string_fn(sym, ctx.interner);
-                    writeln!(
-                        output,
-                        "{}{{ char *__s = {}({}); printf(\"%s\\n\", __s); lc_gc_free(__s); }}",
-                        pad, ts, val_str
-                    )
-                    .unwrap();
-                }
-                CType::Struct(sym) => {
-                    if let Some(crate::analysis::TypeDef::Struct { fields, .. }) =
-                        ctx.registry.get(sym)
-                    {
-                        let struct_name = ctx.display_name(sym);
-                        // Print struct as `StructName { field1: val1, field2: val2 }` — byte-identical to the
-                        // interpreter oracle: brace-delimited, fields SORTED by name (a struct's field storage
-                        // is unordered, so a stable display order is what keeps every tier in lockstep), and an
-                        // empty struct shows just its name. Display uses the raw LOGOS field name (what the
-                        // oracle prints); field ACCESS uses the escaped C member name.
-                        let mut sorted: Vec<&crate::analysis::FieldDef> = fields.iter().collect();
-                        sorted.sort_by(|a, b| {
-                            ctx.interner
-                                .resolve(a.name)
-                                .cmp(ctx.interner.resolve(b.name))
-                        });
-                        if sorted.is_empty() {
-                            writeln!(output, "{}printf(\"{}\\n\");", pad, struct_name).unwrap();
-                        } else {
-                            let mut fmt_parts = Vec::new();
-                            let mut arg_parts = Vec::new();
-                            fmt_parts.push(format!("{} {{ ", struct_name));
-                            for (i, f) in sorted.iter().enumerate() {
-                                let disp_name = ctx.interner.resolve(f.name);
-                                let acc_name = escape_c_ident(ctx.interner.resolve(f.name));
-                                let ctype = super::exact::field_ctype(
-                                    sym,
-                                    f,
-                                    ctx.interner,
-                                    ctx.registry,
-                                    &ctx.field_facts(),
-                                );
-                                if i > 0 {
-                                    fmt_parts.push(", ".to_string());
-                                }
-                                // A value-type field renders via its `*_to_string` (%s), not the `%lld`
-                                // that would print the struct as a garbage `0`. The buffer leaks — fine in
-                                // the short-lived program (same convention as elsewhere).
-                                let (fmt_spec, arg): (&str, String) = match ctype {
-                                    CType::Int64 => {
-                                        ("%\" PRId64 \"", format!("{}.{}", val_str, acc_name))
-                                    }
-                                    CType::Float64 => {
-                                        ("%s", format!("logos_fmt_f64({}.{})", val_str, acc_name))
-                                    }
-                                    CType::Bool => (
-                                        "%s",
-                                        format!("{}.{} ? \"true\" : \"false\"", val_str, acc_name),
-                                    ),
-                                    CType::String => ("%s", format!("{}.{}", val_str, acc_name)),
-                                    CType::Money => {
-                                        ("%s", format!("money_to_string({}.{})", val_str, acc_name))
-                                    }
-                                    CType::Quantity => {
-                                        ("%s", format!("quant_to_string({}.{})", val_str, acc_name))
-                                    }
-                                    CType::Modular => {
-                                        ("%s", format!("mod_to_string({}.{})", val_str, acc_name))
-                                    }
-                                    CType::Uuid => {
-                                        ("%s", format!("uuid_to_string({}.{})", val_str, acc_name))
-                                    }
-                                    CType::Complex => {
-                                        ("%s", format!("cplx_to_string({}.{})", val_str, acc_name))
-                                    }
-                                    CType::BigInt => {
-                                        ("%s", format!("lint_to_string({}.{})", val_str, acc_name))
-                                    }
-                                    CType::Rational | CType::Decimal => (
-                                        "%s",
-                                        format!(
-                                            "({{ LDec __d = {}.{}; ldec_to_string(&__d); }})",
-                                            val_str, acc_name
-                                        ),
-                                    ),
-                                    other => (
-                                        "%s",
-                                        c_text_of(
-                                            &other,
-                                            &format!("{}.{}", val_str, acc_name),
-                                            ctx,
-                                        ),
-                                    ),
-                                };
-                                fmt_parts.push(format!("{}: {}", disp_name, fmt_spec));
-                                arg_parts.push(arg);
-                            }
-                            fmt_parts.push(" }".to_string());
-                            let fmt_string = fmt_parts.join("");
-                            writeln!(
-                                output,
-                                "{}printf(\"{}\\n\", {});",
-                                pad,
-                                fmt_string,
-                                arg_parts.join(", ")
-                            )
-                            .unwrap();
-                        }
-                    } else {
-                        writeln!(output, "{}show_i64({});", pad, val_str).unwrap();
-                    }
-                }
-                other => writeln!(
-                    output,
-                    "{}logos_show_text({});",
-                    pad,
-                    c_text_of(&other, &val_str, ctx)
-                )
-                .unwrap(),
-            }
-        }
+        Stmt::Give { .. } => codegen_give_stmt(stmt, ctx, output, indent),
+        Stmt::Show { .. } => codegen_show_stmt(stmt, ctx, output, indent),
         // A scope-transparent desugar (e.g. `Let (a, b) be e`) — emit its statements FLAT, same indent.
         // A `Reversibly:` / `Uncompute:` block is likewise output-TRANSPARENT: the C tier has no
         // history-tape notion, so it emits the body FLAT (the forward semantics of the in-place abelian
         // updates are ordinary arithmetic), producing byte-identical output to the same statements
         // outside the block — matching the tree-walker / VM / AOT-Rust tiers.
-        Stmt::Splice { body } | Stmt::Reversibly { body } => {
-            for inner in body.iter() {
-                codegen_stmt(inner, ctx, output, indent);
-            }
-        }
+        Stmt::Splice { .. } | Stmt::Reversibly { .. } => codegen_splice_reversibly_stmt(stmt, ctx, output, indent),
         // `During <gerund>:` is a lexical TRACE span — no runtime start/stop; its body is ordinary code that
         // must run transparently (the VM/tree-walker emit the body's output, the span name is trace-only).
-        Stmt::During { body, .. } => {
-            for inner in body.iter() {
-                codegen_stmt(inner, ctx, output, indent);
-            }
-        }
+        Stmt::During { .. } => codegen_during_stmt(stmt, ctx, output, indent),
         // `Swap a and b` — the reversible register exchange (`Op::RevSwap`, its own inverse) → a typed
         // temp-swap of the two same-typed locals, byte-identical to the VM/tree-walker's swap.
         // `Swap a and b` exchanges the two values through a temporary of their one C type.
-        Stmt::Swap { a, b } => {
-            if a == b {
-                return;
-            }
-            let (na, nb) = (ctx.resolve(*a).to_string(), ctx.resolve(*b).to_string());
-            let ty = ctx
-                .vars
-                .get(a)
-                .or_else(|| ctx.vars.get(b))
-                .cloned()
-                .unwrap_or(CType::Int64);
-            let tmp = ctx.temp("__swap", ty.clone());
-            let head = ctx.decl_head(&ty, &tmp);
-            // A builder taking a text that is not one gets a builder of its own; a builder's text passes as is.
-            let taking = |to: Symbol, from: Symbol, value: &str| {
-                if is_text_builder(to, ctx) && !is_text_builder(from, ctx) {
-                    format!("logos_text_builder({value}, 0)")
-                } else {
-                    value.to_string()
-                }
-            };
-            writeln!(
-                output,
-                "{pad}{{ {head} = {na}; {na} = {}; {nb} = {}; }}",
-                taking(*a, *b, &nb),
-                taking(*b, *a, &tmp)
-            )
-            .unwrap();
-        }
-        Stmt::Return { value } => {
-            // A zone swallows a `Return` made inside it, through any loops: the value is computed and the zone
-            // left. In `## Main` a `Return` ends the run, as finished.
-            let leaves = ctx
-                .enclosing_zone_exit()
-                .map(|exit| format!("goto {exit};"))
-                .or_else(|| ctx.in_main.then(|| "return 0;".to_string()));
-            if let Some(leave) = leaves {
-                if let Some(val) = value {
-                    writeln!(output, "{pad}(void)({});", codegen_expr(val, ctx)).unwrap();
-                }
-                writeln!(output, "{pad}{leave}").unwrap();
-                return;
-            }
-            // Rust drops unique Vec temporaries here automatically. Direct C must do the same or a
-            // recursive divide-and-conquer function retains its whole allocation tree. The plan is
-            // deliberately limited to fresh singleton sharing classes; this final gate admits only
-            // scalar sequences with no nested ownership, currently in scope, and never stack-backed
-            // or borrowed byte views.
-            if crate::optimize::active_config().is_on(crate::optimization::Opt::Unbox) {
-                let mut drops: Vec<_> = ctx
-                    .ownership
-                    .as_ref()
-                    .into_iter()
-                    .flat_map(|ownership| ownership.owned_drops.iter().copied())
-                    .filter(|sym| {
-                        !ctx.fixed_stack_seqs.contains_key(sym)
-                            && !ctx.text_bytes_views.contains_key(sym)
-                            && matches!(
-                                ctx.vars.get(sym),
-                                Some(CType::SeqI64(_) | CType::SeqBool | CType::SeqF64)
-                            )
-                    })
-                    .collect();
-                drops.sort_by_key(|sym| ctx.resolve(*sym));
-                for sym in drops {
-                    writeln!(
-                        output,
-                        "{pad}lc_gc_free((void *){}.data); /* unique local drop */",
-                        ctx.resolve(sym)
-                    )
-                    .unwrap();
-                    crate::optimize::mark_fired(crate::optimization::Opt::Unbox);
-                }
-            }
-            if let Some(val) = value {
-                let val_str = codegen_expr(val, ctx);
-                // A builder's text leaves as a copy of its own.
-                let val_str =
-                    if infer_expr_type(val, ctx) == CType::String && shares_builder(val, ctx) {
-                        format!("lc_gc_strdup({val_str})")
-                    } else {
-                        val_str
-                    };
-                let val_str = as_returned(val, val_str, ctx);
-                writeln!(output, "{}return {};", pad, val_str).unwrap();
-            } else {
-                writeln!(output, "{}return;", pad).unwrap();
-            }
-        }
-        Stmt::If {
-            cond,
-            then_block,
-            else_block,
-        } => {
-            // BranchlessAccumulate is profitable only when its add can be plain. The shared body
-            // proof admits exactly a zero-based `+1` accumulator changed in one i64-bounded loop;
-            // every other shape keeps the ordinary checked conditional add.
-            if else_block.is_none()
-                && then_block.len() == 1
-                && crate::optimize::active_config()
-                    .is_on(crate::optimization::Opt::BranchlessAccumulate)
-            {
-                if let Some(Stmt::Set {
-                    target,
-                    value:
-                        Expr::BinaryOp {
-                            op: BinaryOpKind::Add,
-                            left,
-                            right,
-                        },
-                }) = then_block.first()
-                {
-                    let unit_self_add = matches!(left, Expr::Identifier(sym) if *sym == *target)
-                        && matches!(right, Expr::Literal(Literal::Number(1)));
-                    let proven = ctx
-                        .ownership
-                        .as_ref()
-                        .is_some_and(|own| own.bounded_count_accumulators.contains(target));
-                    if unit_self_add && proven && ctx.vars.get(target) == Some(&CType::Int64) {
-                        crate::optimize::mark_fired(crate::optimization::Opt::BranchlessAccumulate);
-                        let name = ctx.resolve(*target);
-                        let truth = c_truthy(cond, ctx);
-                        writeln!(output, "{pad}{name} += (int64_t)!!({truth});").unwrap();
-                        return;
-                    }
-                }
-            }
-            let cond_str = c_truthy(cond, ctx);
-            writeln!(output, "{}if ({}) {{", pad, cond_str).unwrap();
-            ctx.enter_scope();
-            for s in *then_block {
-                codegen_stmt(s, ctx, output, indent + 1);
-            }
-            ctx.exit_scope();
-            if let Some(eb) = else_block {
-                writeln!(output, "{}}} else {{", pad).unwrap();
-                ctx.enter_scope();
-                for s in *eb {
-                    codegen_stmt(s, ctx, output, indent + 1);
-                }
-                ctx.exit_scope();
-            }
-            writeln!(output, "{}}}", pad).unwrap();
-        }
-        Stmt::While { cond, body, .. } => {
-            if try_emit_c_byte_compare_window(stmt, ctx, output, indent) {
-                return;
-            }
-            if try_emit_c_tiled_while(stmt, ctx, output, indent) {
-                return;
-            }
-            if try_emit_c_native_descending_while(stmt, ctx, output, indent) {
-                return;
-            }
-            if try_emit_c_native_counted_while(stmt, ctx, output, indent) {
-                return;
-            }
-            if let Some(reuse) = detect_c_buffer_reuse(body, ctx) {
-                crate::optimize::mark_fired(crate::optimization::Opt::Peephole);
-                let inner_pad = format!("{pad}    ");
-                writeln!(output, "{pad}{{").unwrap();
-                ctx.enter_scope();
-                let inner = ctx.declare(reuse.inner, reuse.ty.clone());
-                let outer = ctx.resolve(reuse.outer).to_string();
-                let head = ctx.decl_head(&reuse.ty, &inner);
-                let new_fn = seq_fn(&reuse.ty, "new", ctx.interner)
-                    .expect("buffer reuse is only detected for a sequence type");
-                writeln!(output, "{inner_pad}{head} = {new_fn}();").unwrap();
-
-                reserve_counted_fills(stmt, cond, body, ctx, output, &inner_pad, None);
-                let cond_str = c_truthy(cond, ctx);
-                writeln!(output, "{inner_pad}while ({cond_str}) {{").unwrap();
-                ctx.enter_scope();
-                ctx.in_loop(|ctx| {
-                    for (idx, child) in body.iter().enumerate() {
-                        if idx == reuse.inner_let {
-                            writeln!(output, "{inner_pad}    {inner}.len = 0;").unwrap();
-                        } else if idx == reuse.move_set {
-                            let ty = c_type_str_resolved(&reuse.ty, ctx.interner);
-                            writeln!(
-                                output,
-                                "{inner_pad}    {{ {ty} __buffer_swap = {outer}; {outer} = {inner}; {inner} = __buffer_swap; }}"
-                            )
-                            .unwrap();
-                        } else {
-                            codegen_stmt(child, ctx, output, indent + 2);
-                        }
-                    }
-                });
-                ctx.exit_scope();
-                writeln!(output, "{inner_pad}}}").unwrap();
-                ctx.exit_scope();
-                writeln!(output, "{pad}}}").unwrap();
-                return;
-            }
-            reserve_counted_fills(stmt, cond, body, ctx, output, &pad, None);
-            let cond_str = c_truthy(cond, ctx);
-            writeln!(output, "{}while ({}) {{", pad, cond_str).unwrap();
-            ctx.enter_scope();
-            ctx.in_loop(|ctx| {
-                for s in *body {
-                    codegen_stmt(s, ctx, output, indent + 1);
-                }
-            });
-            ctx.exit_scope();
-            writeln!(output, "{}}}", pad).unwrap();
-        }
+        Stmt::Swap { .. } => codegen_swap_stmt(stmt, ctx, output, indent),
+        Stmt::Return { .. } => codegen_return_stmt(stmt, ctx, output, indent),
+        Stmt::If { .. } => codegen_if_stmt(stmt, ctx, output, indent),
+        Stmt::While { .. } => codegen_while_stmt(stmt, ctx, output, indent),
         // `Break` leaves the innermost loop or zone; outside every one it is a value-less `Return`.
         Stmt::Break => match ctx.flow.last() {
             Some(super::types::Flow::Loop) => writeln!(output, "{pad}break;").unwrap(),
@@ -7029,1004 +6811,34 @@ fn codegen_stmt_node(stmt: &Stmt, ctx: &mut CContext, output: &mut String, inden
         },
         // A zone runs its body in a block of its own, its name bound to nothing; a `Break` directly in it or a
         // `Return` anywhere in it leaves it.
-        Stmt::Zone { name, body, .. } => {
-            let inner = format!("{pad}    ");
-            ctx.in_zone(output, &pad, |ctx, output| {
-                writeln!(output, "{pad}{{").unwrap();
-                ctx.enter_scope();
-                bind_nothing(*name, ctx, output, &inner);
-                for s in *body {
-                    codegen_stmt(s, ctx, output, indent + 1);
-                }
-                ctx.exit_scope();
-                writeln!(output, "{pad}}}").unwrap();
-            });
-        }
+        Stmt::Zone { .. } => codegen_zone_stmt(stmt, ctx, output, indent),
         // Each task runs in order, its bindings kept, a zone of its own: its `Break` or `Return` ends it alone.
-        Stmt::Concurrent { tasks } | Stmt::Parallel { tasks } => {
-            for task in tasks.iter() {
-                ctx.in_zone(output, &pad, |ctx, output| {
-                    codegen_stmt(task, ctx, output, indent)
-                });
-            }
+        Stmt::Concurrent { .. } | Stmt::Parallel { .. } => codegen_concurrent_parallel_stmt(stmt, ctx, output, indent),
+        Stmt::Push { collection, .. } if infer_expr_type(collection, ctx) == CType::Tower => {
+            codegen_push_tower_stmt(stmt, ctx, output, indent)
         }
-        Stmt::Push { collection, value } if infer_expr_type(collection, ctx) == CType::Tower => {
-            writeln!(
-                output,
-                "{pad}ltower_push({}, {});",
-                codegen_expr(collection, ctx),
-                super::tower::value(value, ctx)
-            )
-            .unwrap();
-        }
-        Stmt::Push { collection, value } => {
-            let val_str = stored(value, codegen_expr(value, ctx), ctx);
-            if operand_place(collection, ctx) {
-                let operand = collection_operand(
-                    collection,
-                    || {
-                        use crate::interpreter::RuntimeValue;
-                        crate::semantics::collections::list_push(&RuntimeValue::Nothing, RuntimeValue::Nothing)
-                    },
-                    ctx,
-                );
-                // A bignum-promoted value flowing into an int64-element `Seq` must be narrowed back to i64
-                // (see `narrow_i64_sink`) — otherwise `Push (a / b % c)` emits `seq_i64_push(&s, <LInt>)`.
-                let i64_val = narrow_i64_sink(value, val_str.clone(), ctx);
-                let (push, pushed) = match operand.ty.as_ref() {
-                    Some(CType::SeqI64(_)) => ("seq_i64_push".to_string(), i64_val),
-                    Some(CType::SeqBool) => ("seq_bool_push".to_string(), val_str),
-                    Some(CType::SeqStr) => ("seq_str_push".to_string(), val_str),
-                    Some(CType::SeqF64) => ("seq_f64_push".to_string(), val_str),
-                    Some(CType::SeqStruct(s)) => (seq_struct_fn(*s, "push", ctx.interner), val_str),
-                    Some(CType::SeqValue(inner)) if matches!(**inner, CType::Opt(_)) => {
-                        ("seq_logos_opt_push".to_string(), opt_item(value, inner, ctx))
-                    }
-                    Some(CType::SeqValue(inner)) => (format!("seq_{}_push", c_type_str(inner)), val_str),
-                    // Pushing an inner sequence into a `Seq of Seq of …` → the `seq_Seq_<inner>_push`
-                    // family (the value is itself a Seq, so it rides `val_str`, not the i64-narrowed form).
-                    Some(CType::SeqSeq(inner)) => (
-                        format!("seq_{}_push", c_type_str_resolved(inner, ctx.interner)),
-                        val_str,
-                    ),
-                    _ => ("seq_i64_push".to_string(), i64_val),
-                };
-                let coll = &operand.place;
-                // The VM computes the value before it finds the list holds nothing.
-                let act = match operand.absent {
-                    None => format!("{push}(&{coll}, {pushed});"),
-                    Some(_) => format!(
-                        "{{ __auto_type __pushed = {pushed}; {} }}",
-                        operand.act(format!("{push}(&{coll}, __pushed);"))
-                    ),
-                };
-                writeln!(output, "{pad}{act}").unwrap();
-            } else if matches!(collection, Expr::FieldAccess { .. }) {
-                // Push to a struct field that is itself a Seq (`Push v to b's items`): the field lvalue is
-                // `b.items`, and its element type comes from the field's inferred `CType`.
-                let coll = codegen_expr(collection, ctx);
-                let i64_val = narrow_i64_sink(value, val_str.clone(), ctx);
-                match infer_expr_type(collection, ctx) {
-                    CType::SeqStr => {
-                        writeln!(output, "{}seq_str_push(&{}, {});", pad, coll, val_str).unwrap()
-                    }
-                    CType::SeqF64 => {
-                        writeln!(output, "{}seq_f64_push(&{}, {});", pad, coll, val_str).unwrap()
-                    }
-                    CType::SeqBool => {
-                        writeln!(output, "{}seq_bool_push(&{}, {});", pad, coll, val_str).unwrap()
-                    }
-                    CType::SeqStruct(s) => writeln!(
-                        output,
-                        "{}{}(&{}, {});",
-                        pad,
-                        seq_struct_fn(s, "push", ctx.interner),
-                        coll,
-                        val_str
-                    )
-                    .unwrap(),
-                    CType::SeqValue(inner) => writeln!(
-                        output,
-                        "{}seq_{}_push(&{}, {});",
-                        pad,
-                        c_type_str(&inner),
-                        coll,
-                        val_str
-                    )
-                    .unwrap(),
-                    _ => writeln!(output, "{}seq_i64_push(&{}, {});", pad, coll, i64_val).unwrap(),
-                }
-            }
-        }
+        Stmt::Push { .. } => codegen_push_stmt(stmt, ctx, output, indent),
         // `Pop from xs into v` takes the last element, or binds nothing when there is none; without `into` it only
         // drops the last element, if any.
-        Stmt::Pop { collection, into } if infer_expr_type(collection, ctx) == CType::Tower => {
-            let popped = format!("ltower_pop({})", codegen_expr(collection, ctx));
-            match into {
-                Some(var) => emit_binding(*var, CType::Tower, &popped, ctx, output, &pad),
-                None => writeln!(output, "{pad}(void){popped};").unwrap(),
-            }
+        Stmt::Pop { collection, .. } if infer_expr_type(collection, ctx) == CType::Tower => {
+            codegen_pop_tower_stmt(stmt, ctx, output, indent)
         }
-        Stmt::Pop { collection, into } => {
-            let (place, ty) = match collection {
-                _ if operand_place(collection, ctx) => {
-                    let operand = collection_operand(
-                        collection,
-                        || {
-                            crate::semantics::collections::list_pop(&crate::interpreter::RuntimeValue::Nothing)
-                                .map(|_| ())
-                        },
-                        ctx,
-                    );
-                    if let Some(check) = &operand.absent {
-                        writeln!(output, "{pad}{check}").unwrap();
-                    }
-                    let ty = operand.ty.unwrap_or_else(|| collection_type(collection, ctx));
-                    (operand.place, ty)
-                }
-                Expr::FieldAccess { .. } => (
-                    codegen_expr(collection, ctx),
-                    infer_expr_type(collection, ctx),
-                ),
-                _ => {
-                    output.push_str(&c_refuse_expr(
-                        "`Pop from` a list that is neither a variable nor a field",
-                    ));
-                    return;
-                }
-            };
-            let Some(element) = super::types::seq_element(&ty, ctx.registry) else {
-                output.push_str(&c_refuse_expr(&format!(
-                    "`Pop from` a {ty:?}, which is not a list"
-                )));
-                return;
-            };
-            match into {
-                // A popped item that may be nothing is the value-or-nothing it is, with no second layer.
-                Some(var) if matches!(element, CType::Opt(_)) => {
-                    let popped = format!(
-                        "(({place}).len > 0 ? ({place}).data[--({place}).len] : (logos_opt){{0, 0}})"
-                    );
-                    emit_binding(*var, element, &popped, ctx, output, &pad);
-                }
-                Some(var) => {
-                    let n = ctx.select_ctr.get();
-                    ctx.select_ctr.set(n + 1);
-                    let taken =
-                        opt_pack(&element, &format!("({place}).data[--({place}).len]"), ctx);
-                    let popped = format!(
-                        "({{ logos_opt __popped{n} = {{0, 0}}; if (({place}).len > 0) {{ __popped{n}.present = 1; __popped{n}.value = {taken}; }} __popped{n}; }})"
-                    );
-                    emit_binding(
-                        *var,
-                        CType::Opt(Box::new(element)),
-                        &popped,
-                        ctx,
-                        output,
-                        &pad,
-                    );
-                }
-                None => writeln!(output, "{pad}if (({place}).len > 0) ({place}).len--;").unwrap(),
-            }
-        }
+        Stmt::Pop { .. } => codegen_pop_stmt(stmt, ctx, output, indent),
         // A call made for its effect is the call expression, its value dropped.
-        Stmt::Call { function, args } => {
-            let call = Expr::Call {
-                function: *function,
-                args: args.clone(),
-            };
-            writeln!(output, "{pad}{};", codegen_expr(&call, ctx)).unwrap();
+        Stmt::Call { .. } => codegen_call_stmt(stmt, ctx, output, indent),
+        Stmt::SetIndex { collection, .. } if infer_expr_type(collection, ctx) == CType::Tower => {
+            codegen_set_index_tower_stmt(stmt, ctx, output, indent)
         }
-        Stmt::SetIndex {
-            collection,
-            index,
-            value,
-        } if infer_expr_type(collection, ctx) == CType::Tower => {
-            writeln!(
-                output,
-                "{pad}ltower_set_item({}, {}, {});",
-                codegen_expr(collection, ctx),
-                super::tower::value(index, ctx),
-                super::tower::value(value, ctx)
-            )
-            .unwrap();
+        Stmt::SetIndex { .. } => codegen_set_index_stmt(stmt, ctx, output, indent),
+        Stmt::Repeat { iterable, .. } if infer_expr_type(iterable, ctx) == CType::Tower => {
+            codegen_repeat_tower_stmt(stmt, ctx, output, indent)
         }
-        Stmt::SetIndex {
-            collection,
-            index,
-            value,
-        } => {
-            // A named collection, or a place reached through fields (`b's items`): either is an lvalue. A
-            // value-or-nothing variable is the collection it holds, found to hold nothing after the position and
-            // the value are computed, as the VM finds it.
-            let mut absent = None;
-            let (coll_name, coll_ty) = match collection {
-                _ if operand_place(collection, ctx) => {
-                    let operand = collection_operand(
-                        collection,
-                        || {
-                            use crate::interpreter::RuntimeValue;
-                            crate::semantics::collections::index_set(
-                                &RuntimeValue::Nothing,
-                                &RuntimeValue::Int(1),
-                                RuntimeValue::Nothing,
-                            )
-                        },
-                        ctx,
-                    );
-                    absent = operand.absent;
-                    (operand.place, operand.ty)
-                }
-                Expr::FieldAccess { .. } => (
-                    codegen_expr(collection, ctx),
-                    Some(infer_expr_type(collection, ctx)),
-                ),
-                // An item of a list is a list held in the outer list's buffer.
-                Expr::Index { .. } if seq_item_place(collection, ctx).is_some() => {
-                    let (place, ty) = seq_item_place(collection, ctx).expect("checked above");
-                    (place, Some(ty))
-                }
-                _ => {
-                    output.push_str(&c_refuse_expr(
-                        "`Set item … of` a collection that is neither a variable nor a field",
-                    ));
-                    return;
-                }
-            };
-            // The position, then the value, as the VM computes them.
-            let cells = sequence_operands(&[*index, *value], ctx, output, &pad);
-            let idx_str = match &coll_ty {
-                Some(
-                    CType::MapI64I64(_, _)
-                    | CType::MapStrI64(_)
-                    | CType::MapStrStr
-                    | CType::MapI64Str(_)
-                    | CType::MapStrValue(_)
-                    | CType::MapI64Value(_),
-                ) => narrow_i64_sink(index, codegen_expr(index, ctx), ctx),
-                _ => narrow_index(
-                    index,
-                    codegen_expr(index, ctx),
-                    ctx,
-                    crate::semantics::failcode::FailCode::ListStoreIndexTooWide,
-                ),
-            };
-            let val_str = match &coll_ty {
-                // A map of the extension's values holds a cell of its own for each.
-                Some(CType::MapStrValue(inner) | CType::MapI64Value(inner)) if **inner == CType::Tower => {
-                    super::tower::stored(value, ctx)
-                }
-                Some(CType::SeqValue(inner) | CType::MapStrValue(inner) | CType::MapI64Value(inner))
-                    if matches!(**inner, CType::Opt(_)) =>
-                {
-                    opt_item(value, inner, ctx)
-                }
-                _ => stored(
-                    value,
-                    narrow_i64_sink(value, codegen_expr(value, ctx), ctx),
-                    ctx,
-                ),
-            };
-            let proven_direct = crate::optimize::active_config()
-                .is_on(crate::optimization::Opt::Unchecked)
-                && crate::optimize::facts::holds_expr(
-                    crate::optimize::facts::Fact::InBounds,
-                    index,
-                )
-                && matches!(
-                    &coll_ty,
-                    Some(
-                        CType::SeqI64(_)
-                            | CType::SeqBool
-                            | CType::SeqStr
-                            | CType::SeqF64
-                            | CType::SeqStruct(_)
-                            | CType::SeqTuple(_)
-                            | CType::SeqSeq(_)
-                            | CType::SeqValue(_)
-                    )
-                );
-            if let Some(check) = absent {
-                writeln!(output, "{pad}{check}").unwrap();
-            }
-            if proven_direct {
-                crate::optimize::mark_fired(crate::optimization::Opt::Unchecked);
-                writeln!(
-                    output,
-                    "{pad}({coll_name}).data[(size_t)(({idx_str}) - 1LL)] = {val_str};"
-                )
-                .unwrap();
-                forget_operands(cells, ctx);
-                return;
-            }
-            let setter = match &coll_ty {
-                Some(CType::MapI64I64(_, _)) => "map_i64_i64_set".to_string(),
-                Some(CType::MapStrI64(_)) => "map_str_i64_set".to_string(),
-                Some(CType::MapStrStr) => "map_str_str_set".to_string(),
-                Some(CType::MapI64Str(_)) => "map_i64_str_set".to_string(),
-                Some(CType::MapStrValue(inner)) => {
-                    format!("map_str_{}_set", c_type_str_resolved(inner, ctx.interner))
-                }
-                Some(CType::MapI64Value(inner)) => {
-                    format!("map_i64_{}_set", c_type_str_resolved(inner, ctx.interner))
-                }
-                Some(seq) => {
-                    seq_fn(seq, "set", ctx.interner).unwrap_or_else(|| "seq_i64_set".to_string())
-                }
-                None => "seq_i64_set".to_string(),
-            };
-            writeln!(
-                output,
-                "{}{}(&{}, {}, {});",
-                pad, setter, coll_name, idx_str, val_str
-            )
-            .unwrap();
-            forget_operands(cells, ctx);
-        }
-        Stmt::Repeat {
-            pattern,
-            iterable,
-            body,
-        } if infer_expr_type(iterable, ctx) == CType::Tower => {
-            // The items are taken once, before the first pass, as the VM takes them; each pass binds the
-            // pattern afresh in a block of its own.
-            let items = ctx.temp("__items", CType::Tower);
-            let count = ctx.temp("__count", CType::Int64);
-            let at = ctx.temp("__at", CType::Int64);
-            writeln!(output, "{pad}{{").unwrap();
-            writeln!(
-                output,
-                "{pad}    {} = ltower_items({});",
-                ctx.decl_head(&CType::Tower, &items),
-                codegen_expr(iterable, ctx)
-            )
-            .unwrap();
-            writeln!(
-                output,
-                "{pad}    {} = ltower_length({items});",
-                ctx.decl_head(&CType::Int64, &count)
-            )
-            .unwrap();
-            writeln!(
-                output,
-                "{pad}    for ({} = 1; {at} <= {count}; {at}++) {{",
-                ctx.decl_head(&CType::Int64, &at)
-            )
-            .unwrap();
-            ctx.enter_scope();
-            let inner = format!("{pad}        ");
-            let item = format!("ltower_item_at({items}, {at})");
-            match pattern {
-                Pattern::Identifier(sym) => emit_binding(*sym, CType::Tower, &item, ctx, output, &inner),
-                Pattern::Tuple(syms) => {
-                    let whole = ctx.temp("__item", CType::Tower);
-                    writeln!(output, "{inner}{} = {item};", ctx.decl_head(&CType::Tower, &whole)).unwrap();
-                    for (k, sym) in syms.iter().enumerate() {
-                        let part = format!("ltower_item_at({whole}, {})", k + 1);
-                        emit_binding(*sym, CType::Tower, &part, ctx, output, &inner);
-                    }
-                }
-            }
-            writeln!(output, "{inner}{{").unwrap();
-            ctx.enter_scope();
-            ctx.in_loop(|ctx| {
-                for s in *body {
-                    codegen_stmt(s, ctx, output, indent + 3);
-                }
-            });
-            ctx.exit_scope();
-            writeln!(output, "{inner}}}").unwrap();
-            ctx.exit_scope();
-            writeln!(output, "{pad}    }}").unwrap();
-            writeln!(output, "{pad}}}").unwrap();
-        }
-        Stmt::Repeat {
-            pattern,
-            iterable,
-            body,
-        } => {
-            if let Expr::Identifier(view_sym) = iterable {
-                if ctx.text_bytes_views.contains_key(view_sym) {
-                    let var_sym = match pattern {
-                        Pattern::Identifier(sym) => *sym,
-                        Pattern::Tuple(syms) => {
-                            if let Some(sym) = syms.first() {
-                                *sym
-                            } else {
-                                return;
-                            }
-                        }
-                    };
-                    let view = ctx.temp("__tbv", CType::String);
-                    let at = ctx.temp("__tbi", CType::Int64);
-                    let len = ctx.temp("__tbn", CType::Int64);
-                    writeln!(
-                        output,
-                        "{pad}const unsigned char *{view} = (const unsigned char *){};",
-                        ctx.resolve(*view_sym)
-                    )
-                    .unwrap();
-                    writeln!(
-                        output,
-                        "{pad}for (size_t {at} = 0, {len} = strlen((const char *){view}); {at} < {len}; {at}++) {{"
-                    )
-                    .unwrap();
-                    ctx.enter_scope();
-                    match pattern {
-                        Pattern::Tuple(syms) => bind_pattern_failing(
-                            syms,
-                            "Expected tuple for pattern, got Int",
-                            ctx,
-                            output,
-                            &format!("{pad}    "),
-                        ),
-                        Pattern::Identifier(_) => {
-                            let var_name = ctx.declare(var_sym, CType::Int64);
-                            writeln!(
-                                output,
-                                "{pad}    {} = (int64_t){view}[{at}];",
-                                ctx.decl_head(&CType::Int64, &var_name)
-                            )
-                            .unwrap();
-                        }
-                    }
-                    ctx.in_loop(|ctx| {
-                        for stmt in *body {
-                            codegen_stmt(stmt, ctx, output, indent + 1);
-                        }
-                    });
-                    ctx.exit_scope();
-                    writeln!(output, "{pad}}}").unwrap();
-                    return;
-                }
-            }
-
-            // Check for Range-based iteration (optimized)
-            if let Expr::Range { start, end } = iterable {
-                let var_sym = match pattern {
-                    Pattern::Identifier(sym) => *sym,
-                    Pattern::Tuple(syms) => {
-                        if let Some(s) = syms.first() {
-                            *s
-                        } else {
-                            return;
-                        }
-                    }
-                };
-                // The range is read once, before the variable is bound, into temporaries of the loop's own
-                // block. A hidden count walks it and stops AT the end, never past it, so a range ending at the
-                // largest Int ends. Each pass binds the variable to the count afresh, and the body is a block of
-                // its own: a body that sets the variable, or binds its name anew, changes that pass only.
-                // The counter is a machine word: an exact bound narrows into it (`lint_expect_i64` aborts on a
-                // bound past `i64`, a range no program can walk).
-                let start_str = range_bound(start, ctx);
-                let end_str = range_bound(end, ctx);
-                let lo = ctx.temp("__lo", CType::Int64);
-                let hi = ctx.temp("__hi", CType::Int64);
-                writeln!(output, "{pad}{{").unwrap();
-                writeln!(
-                    output,
-                    "{pad}    {} = {start_str};",
-                    ctx.decl_head(&CType::Int64, &lo)
-                )
-                .unwrap();
-                writeln!(
-                    output,
-                    "{pad}    {} = {end_str};",
-                    ctx.decl_head(&CType::Int64, &hi)
-                )
-                .unwrap();
-                let count = ctx.temp("__logos_count", CType::Int64);
-                writeln!(
-                    output,
-                    "{pad}    if ({lo} <= {hi}) for ({} = {lo}; ; {count}++) {{",
-                    ctx.decl_head(&CType::Int64, &count)
-                )
-                .unwrap();
-                ctx.enter_scope();
-                let var_name = ctx.declare(var_sym, CType::Int64);
-                writeln!(
-                    output,
-                    "{pad}        {} = {count};",
-                    ctx.decl_head(&CType::Int64, &var_name)
-                )
-                .unwrap();
-                writeln!(output, "{pad}        {{").unwrap();
-                ctx.enter_scope();
-                ctx.in_loop(|ctx| {
-                    for s in *body {
-                        codegen_stmt(s, ctx, output, indent + 3);
-                    }
-                });
-                ctx.exit_scope();
-                ctx.exit_scope();
-                writeln!(output, "{pad}        }}").unwrap();
-                writeln!(output, "{pad}        if ({count} == {hi}) break;").unwrap();
-                writeln!(output, "{pad}    }}").unwrap();
-                writeln!(output, "{pad}}}").unwrap();
-                return;
-            }
-
-            // A value-or-nothing variable is the collection it holds, failing in the VM's words when it holds none.
-            let operand = match iterable {
-                _ if opt_place(iterable, ctx) => {
-                    Some(collection_operand(
-                        iterable,
-                        || {
-                            crate::semantics::collections::iteration_snapshot(
-                                &crate::interpreter::RuntimeValue::Nothing,
-                            )
-                            .map(|_| ())
-                        },
-                        ctx,
-                    ))
-                }
-                _ => None,
-            };
-            let coll_type = match &operand {
-                Some(CollectionOperand { ty: Some(ty), .. }) => ty.clone(),
-                _ => infer_expr_type(iterable, ctx),
-            };
-            // The collection is read once, before the first pass — as a copy of its own when the body changes it,
-            // since the passes walk the collection as it was when the loop began.
-            let changed_in_body = {
-                let changed = super::sharing::changed_in(
-                    body,
-                    &ctx.changed_statics,
-                    &ctx.mutating,
-                    &ctx.call_shapes,
-                    &ctx.fn_inout,
-                );
-                match ctx.ownership.as_deref() {
-                    Some(own) => own.sharing.closure(&changed),
-                    None => changed,
-                }
-            };
-            let iterated = match &operand {
-                Some(operand) => operand.read(operand.place.clone()),
-                None => codegen_expr(iterable, ctx),
-            };
-            let iterated = if super::values::binding_needs_copy(
-                iterable,
-                &coll_type,
-                None,
-                &changed_in_body,
-                ctx,
-            ) {
-                super::values::copy_value(&coll_type, &iterated, ctx)
-            } else {
-                iterated
-            };
-            let iter_str = ctx.temp("__it", coll_type.clone());
-            writeln!(
-                output,
-                "{pad}{} = {iterated};",
-                ctx.decl_head(&coll_type, &iter_str)
-            )
-            .unwrap();
-
-            // Map iteration — direct bucket scan
-            let map_types = super::types::map_entry_types(&coll_type);
-
-            if let Some((key_type, val_type)) = map_types {
-                // In insertion order, as the interpreter's map iterates: the `order` array `Show` walks too.
-                let oi = ctx.temp("__oi", CType::Int64);
-                let mi = ctx.temp("__mi", CType::Int64);
-                let oi_head = ctx.decl_head(&CType::Int64, &oi);
-                let mi_head = ctx.decl_head(&CType::Int64, &mi);
-                writeln!(
-                    output,
-                    "{pad}for ({oi_head} = 0; {oi} < (int64_t){iter_str}.ord_len; {oi}++) {{"
-                )
-                .unwrap();
-                writeln!(
-                    output,
-                    "{pad}    {mi_head} = (int64_t){iter_str}.order[{oi}];"
-                )
-                .unwrap();
-                writeln!(output, "{pad}    if (!{iter_str}.state[{mi}]) continue;").unwrap();
-
-                ctx.enter_scope();
-                match pattern {
-                    Pattern::Tuple(syms) if syms.len() != 2 => {
-                        let failure = format!("Cannot bind a 2-tuple to {} names", syms.len());
-                        bind_pattern_failing(syms, &failure, ctx, output, &format!("{pad}    "));
-                    }
-                    Pattern::Tuple(syms) => {
-                        let value = format!("{iter_str}.vals[{mi}]");
-                        let value =
-                            own_binding(&val_type, value, changed_in_body.contains(&syms[1]), ctx);
-                        let k_name = ctx.declare(syms[0], key_type.clone());
-                        let v_name = ctx.declare(syms[1], val_type.clone());
-                        writeln!(
-                            output,
-                            "{}    {} = {}.keys[{}];",
-                            pad,
-                            ctx.decl_head(&key_type, &k_name),
-                            iter_str,
-                            mi
-                        )
-                        .unwrap();
-                        writeln!(
-                            output,
-                            "{}    {} = {value};",
-                            pad,
-                            ctx.decl_head(&val_type, &v_name)
-                        )
-                        .unwrap();
-                    }
-                    // One name binds the whole entry, `(key, value)`, as on the interpreter.
-                    _ => {
-                        let var_sym = match pattern {
-                            Pattern::Identifier(sym) => *sym,
-                            Pattern::Tuple(syms) => {
-                                if let Some(s) = syms.first() {
-                                    *s
-                                } else {
-                                    return;
-                                }
-                            }
-                        };
-                        let entry = CType::Tuple(vec![key_type.clone(), val_type.clone()]);
-                        let entry_c = c_type_str_resolved(&entry, ctx.interner);
-                        let var_name = ctx.declare(var_sym, entry.clone());
-                        let head = ctx.decl_head(&entry, &var_name);
-                        writeln!(
-                            output,
-                            "{pad}    {head} = ({entry_c}){{ {iter_str}.keys[{mi}], {iter_str}.vals[{mi}] }};"
-                        )
-                        .unwrap();
-                    }
-                }
-
-                ctx.in_loop(|ctx| {
-                    for s in *body {
-                        codegen_stmt(s, ctx, output, indent + 1);
-                    }
-                });
-                ctx.exit_scope();
-                writeln!(output, "{}}}", pad).unwrap();
-            } else if let Some(elem_type) = super::types::set_element(&coll_type) {
-                // A set iterates its elements in insertion order, as the interpreter's does: the `order` array
-                // its `Show` walks.
-                let var_sym = match pattern {
-                    Pattern::Identifier(sym) => *sym,
-                    Pattern::Tuple(syms) => match syms.first() {
-                        Some(sym) => *sym,
-                        None => return,
-                    },
-                };
-                let oi = ctx.temp("__oi", CType::Int64);
-                let si = ctx.temp("__si", CType::Int64);
-                let oi_head = ctx.decl_head(&CType::Int64, &oi);
-                let si_head = ctx.decl_head(&CType::Int64, &si);
-                writeln!(
-                    output,
-                    "{pad}for ({oi_head} = 0; {oi} < (int64_t){iter_str}.ord_len; {oi}++) {{"
-                )
-                .unwrap();
-                writeln!(output, "{pad}    {si_head} = (int64_t){iter_str}.order[{oi}];").unwrap();
-                writeln!(output, "{pad}    if (!{iter_str}.state[{si}]) continue;").unwrap();
-                ctx.enter_scope();
-                let var_name = ctx.declare(var_sym, elem_type.clone());
-                writeln!(
-                    output,
-                    "{pad}    {} = {iter_str}.keys[{si}];",
-                    ctx.decl_head(&elem_type, &var_name)
-                )
-                .unwrap();
-                ctx.in_loop(|ctx| {
-                    for s in *body {
-                        codegen_stmt(s, ctx, output, indent + 1);
-                    }
-                });
-                ctx.exit_scope();
-                writeln!(output, "{}}}", pad).unwrap();
-            } else if let (CType::SeqTuple(elems), Pattern::Tuple(syms)) = (&coll_type, pattern) {
-                // A Seq of tuples destructured positionally (`Repeat for (a, b) in pairs`): iterate the
-                // `seq_<LTuple>` family and bind each pattern variable to the element's positional field
-                // (`f0..fN`), at that field's own C type (so a `(Int, Text)` element binds `a`/`b` correctly).
-                let tn = tuple_c_name(elems, ctx.interner);
-                let idx = ctx.temp("__idx", CType::Int64);
-                let tup = ctx.temp("__tup", CType::Tuple(elems.clone()));
-                writeln!(
-                    output,
-                    "{pad}for ({} = 1; {idx} <= seq_{tn}_len(&{iter_str}); {idx}++) {{",
-                    ctx.decl_head(&CType::Int64, &idx)
-                )
-                .unwrap();
-                writeln!(
-                    output,
-                    "{pad}    {} = seq_{tn}_get(&{iter_str}, {idx});",
-                    ctx.decl_head(&CType::Tuple(elems.clone()), &tup)
-                )
-                .unwrap();
-                ctx.enter_scope();
-                if syms.len() == elems.len() {
-                    for (i, sym) in syms.iter().enumerate() {
-                        let field_ty = elems[i].clone();
-                        let part = format!("{tup}.f{i}");
-                        let part = own_binding(&field_ty, part, changed_in_body.contains(sym), ctx);
-                        let name = ctx.declare(*sym, field_ty.clone());
-                        writeln!(
-                            output,
-                            "{pad}    {} = {part};",
-                            ctx.decl_head(&field_ty, &name)
-                        )
-                        .unwrap();
-                    }
-                } else {
-                    let failure = format!(
-                        "Cannot bind a {}-tuple to {} names",
-                        elems.len(),
-                        syms.len()
-                    );
-                    bind_pattern_failing(syms, &failure, ctx, output, &format!("{pad}    "));
-                }
-                ctx.in_loop(|ctx| {
-                    for s in *body {
-                        codegen_stmt(s, ctx, output, indent + 1);
-                    }
-                });
-                ctx.exit_scope();
-                writeln!(output, "{}}}", pad).unwrap();
-            } else if coll_type == CType::String {
-                // A Text is iterated character by character, each a Text of its own.
-                let var_sym = match pattern {
-                    Pattern::Identifier(sym) => *sym,
-                    Pattern::Tuple(syms) => {
-                        if let Some(s) = syms.first() {
-                            *s
-                        } else {
-                            return;
-                        }
-                    }
-                };
-                let at = ctx.temp("__at", CType::String);
-                let width = ctx.temp("__width", CType::Int64);
-                writeln!(output, "{pad}{} = 0;", ctx.decl_head(&CType::Int64, &width)).unwrap();
-                writeln!(
-                    output,
-                    "{pad}for ({} = {iter_str}; *{at}; {at} += {width}) {{",
-                    ctx.decl_head(&CType::String, &at)
-                )
-                .unwrap();
-                writeln!(
-                    output,
-                    "{pad}    {width} = ((unsigned char)*{at} < 0x80) ? 1 : (((unsigned char)*{at} >> 5) == 6) ? 2 : (((unsigned char)*{at} >> 4) == 14) ? 3 : 4;"
-                )
-                .unwrap();
-                ctx.enter_scope();
-                match pattern {
-                    Pattern::Tuple(syms) => bind_pattern_failing(
-                        syms,
-                        "Expected tuple for pattern, got Text",
-                        ctx,
-                        output,
-                        &format!("{pad}    "),
-                    ),
-                    Pattern::Identifier(_) => {
-                        let var_name = ctx.declare(var_sym, CType::String);
-                        writeln!(
-                            output,
-                            "{pad}    {} = lc_gc_strndup({at}, (size_t){width});",
-                            ctx.decl_head(&CType::String, &var_name)
-                        )
-                        .unwrap();
-                    }
-                }
-                ctx.in_loop(|ctx| {
-                    for s in *body {
-                        codegen_stmt(s, ctx, output, indent + 1);
-                    }
-                });
-                ctx.exit_scope();
-                writeln!(output, "{}}}", pad).unwrap();
-            } else {
-                // Seq iteration
-                let var_sym = match pattern {
-                    Pattern::Identifier(sym) => *sym,
-                    Pattern::Tuple(syms) => {
-                        if let Some(s) = syms.first() {
-                            *s
-                        } else {
-                            return;
-                        }
-                    }
-                };
-                let (len_fn, get_fn, elem_type): (String, String, CType) = match &coll_type {
-                    CType::SeqBool => ("seq_bool_len".into(), "seq_bool_get".into(), CType::Bool),
-                    CType::SeqStr => ("seq_str_len".into(), "seq_str_get".into(), CType::String),
-                    CType::SeqF64 => ("seq_f64_len".into(), "seq_f64_get".into(), CType::Float64),
-                    // Iterate a Seq of a value type — the loop var binds the element (Money/Quantity/…).
-                    CType::SeqValue(inner) => {
-                        let e = c_type_str(inner);
-                        (
-                            format!("seq_{e}_len"),
-                            format!("seq_{e}_get"),
-                            (**inner).clone(),
-                        )
-                    }
-                    // Iterate a nested `Seq of Seq of …` — the loop var binds an INNER sequence
-                    // (`Seq_i64`/`Seq_str`) via the `seq_Seq_<inner>_*` family, not the flat default.
-                    CType::SeqSeq(inner) => {
-                        let e = c_type_str_resolved(inner, ctx.interner);
-                        (
-                            format!("seq_{e}_len"),
-                            format!("seq_{e}_get"),
-                            (**inner).clone(),
-                        )
-                    }
-                    // Iterate a `Seq of <Struct>` / `Seq of <Enum>` — the loop var binds each value.
-                    CType::SeqStruct(sym) => (
-                        seq_struct_fn(*sym, "len", ctx.interner),
-                        seq_struct_fn(*sym, "get", ctx.interner),
-                        crate::codegen_c::types::user_type_ctype(*sym, ctx.registry),
-                    ),
-                    // Iterate a `Seq of (…)` into ONE name — the loop var binds the whole tuple.
-                    CType::SeqTuple(elems) => {
-                        let tn = tuple_c_name(elems, ctx.interner);
-                        (
-                            format!("seq_{tn}_len"),
-                            format!("seq_{tn}_get"),
-                            CType::Tuple(elems.clone()),
-                        )
-                    }
-                    // Iterate a `Seq of Int` or of a machine word — the loop var binds each as it reads.
-                    CType::SeqI64(ints) => ("seq_i64_len".into(), "seq_i64_get".into(), ints.ctype()),
-                    _ => ("seq_i64_len".into(), "seq_i64_get".into(), CType::Int64),
-                };
-                let idx = ctx.temp("__idx", CType::Int64);
-                writeln!(
-                    output,
-                    "{pad}for ({} = 1; {idx} <= {len_fn}(&{iter_str}); {idx}++) {{",
-                    ctx.decl_head(&CType::Int64, &idx)
-                )
-                .unwrap();
-                ctx.enter_scope();
-                match pattern {
-                    // An element that is not a tuple cannot be taken apart: the pass fails, as on the VM.
-                    Pattern::Tuple(syms) => {
-                        let failure = format!(
-                            "Expected tuple for pattern, got {}",
-                            vm_type_name(&elem_type, ctx)
-                        );
-                        bind_pattern_failing(syms, &failure, ctx, output, &format!("{pad}    "));
-                    }
-                    Pattern::Identifier(_) => {
-                        let element = format!("{get_fn}(&{iter_str}, {idx})");
-                        let element = own_binding(
-                            &elem_type,
-                            element,
-                            changed_in_body.contains(&var_sym),
-                            ctx,
-                        );
-                        let var_name = ctx.declare(var_sym, elem_type.clone());
-                        writeln!(
-                            output,
-                            "{pad}    {} = {element};",
-                            ctx.decl_head(&elem_type, &var_name)
-                        )
-                        .unwrap();
-                    }
-                }
-                ctx.in_loop(|ctx| {
-                    for s in *body {
-                        codegen_stmt(s, ctx, output, indent + 1);
-                    }
-                });
-                ctx.exit_scope();
-                writeln!(output, "{}}}", pad).unwrap();
-            }
-        }
+        Stmt::Repeat { .. } => codegen_repeat_stmt(stmt, ctx, output, indent),
         // `Add v to s` and `Remove v from c` change the set or map a place holds: a variable or a record's field.
         // An integer the program made exact goes in as the word it is; any other collection fails in the words
         // the VM's own `Add` and `Remove` give it.
-        Stmt::Add { value, collection } | Stmt::Remove { value, collection } => {
-            let adding = matches!(stmt, Stmt::Add { .. });
-            // A value-or-nothing variable is the collection it holds, found to hold nothing once the member is
-            // computed, as the VM finds it.
-            let operand = match collection {
-                _ if operand_place(collection, ctx) => Some(collection_operand(
-                    collection,
-                    || {
-                        use crate::interpreter::RuntimeValue as V;
-                        if adding {
-                            crate::semantics::collections::set_add(&V::Nothing, V::Nothing)
-                        } else {
-                            crate::semantics::collections::remove_from(&V::Nothing, &V::Nothing)
-                        }
-                    },
-                    ctx,
-                )),
-                _ => None,
-            };
-            let absent = operand.as_ref().and_then(|o| o.absent.clone());
-            let v = match &absent {
-                None => codegen_expr(value, ctx),
-                Some(_) => "__member".to_string(),
-            };
-            let found = match operand {
-                Some(CollectionOperand { place, ty: Some(ty), .. }) => Some((place, ty)),
-                _ => changed_place_of(collection, ctx),
-            };
-            let Some((place, ty)) = found else {
-                output.push_str(&c_refuse_expr(
-                    "`Add`/`Remove` on a collection that is neither a variable nor a field",
-                ));
-                return;
-            };
-            let word = narrow_i64_sink(value, v.clone(), ctx);
-            let call = match (adding, &ty) {
-                (true, CType::SetI64(_)) => Some(format!("set_i64_add(&{place}, {word})")),
-                (true, CType::SetStr) => Some(format!("set_str_add(&{place}, {v})")),
-                (false, CType::SetI64(_)) => Some(format!("set_i64_remove(&{place}, {word})")),
-                (false, CType::SetStr) => Some(format!("set_str_remove(&{place}, {v})")),
-                (false, CType::MapI64I64(_, _)) => Some(format!("map_i64_i64_remove(&{place}, {word})")),
-                (false, CType::MapI64Str(_)) => Some(format!("map_i64_str_remove(&{place}, {word})")),
-                (false, CType::MapStrI64(_)) => Some(format!("map_str_i64_remove(&{place}, {v})")),
-                (false, CType::MapStrStr) => Some(format!("map_str_str_remove(&{place}, {v})")),
-                (false, CType::MapStrValue(inner)) => Some(format!(
-                    "map_str_{}_remove(&{place}, {v})",
-                    c_type_str_resolved(inner, ctx.interner)
-                )),
-                (false, CType::MapI64Value(inner)) => Some(format!(
-                    "map_i64_{}_remove(&{place}, {word})",
-                    c_type_str_resolved(inner, ctx.interner)
-                )),
-                _ => None,
-            };
-            match (call, absent) {
-                (Some(call), None) => writeln!(output, "{pad}{call};").unwrap(),
-                (Some(call), Some(check)) => writeln!(
-                    output,
-                    "{pad}{{ __auto_type __member = {}; {check} {call}; }}",
-                    codegen_expr(value, ctx)
-                )
-                .unwrap(),
-                (None, _) => {
-                    use crate::interpreter::RuntimeValue as V;
-                    let sample = V::Int(0);
-                    let refusal = if adding {
-                        crate::semantics::collections::set_add(&V::Int(0), sample)
-                    } else {
-                        crate::semantics::collections::remove_from(&V::Int(0), &sample)
-                    }
-                    .err()
-                    .unwrap_or_default();
-                    writeln!(output, "{pad}(void)({v});").unwrap();
-                    writeln!(
-                        output,
-                        "{pad}{}",
-                        ctx.fail_stmt(&c_string_literal(&refusal))
-                    )
-                    .unwrap();
-                }
-            }
-        }
-        Stmt::SetField {
-            object,
-            field,
-            value,
-        } => {
-            let obj = codegen_expr(object, ctx);
-            let fname = escape_c_ident(ctx.interner.resolve(*field));
-            let val = codegen_expr(value, ctx);
-            let val = match infer_expr_type(object, ctx) {
-                CType::Struct(sym) => match ctx.registry.get(sym) {
-                    Some(crate::analysis::TypeDef::Struct { fields, .. }) => as_field_value(
-                        val,
-                        value,
-                        sym,
-                        fields.iter().find(|f| f.name == *field),
-                        ctx,
-                    ),
-                    _ => val,
-                },
-                _ => val,
-            };
-            writeln!(output, "{}{}.{} = {};", pad, obj, fname, val).unwrap();
-        }
+        Stmt::Add { .. } | Stmt::Remove { .. } => codegen_add_remove_stmt(stmt, ctx, output, indent),
+        Stmt::SetField { .. } => codegen_set_field_stmt(stmt, ctx, output, indent),
         // ── Single-replica CRDT counters (`ConvergentCount`/`Tally`) — the field cell holds a
         //    `logos_crdt*` handle; `Increase`/`Decrease` bump THIS replica's own slot in place, so the
         //    mutation is visible through the struct just like `Set … field`. Matches the VM/tree-walker
@@ -8046,313 +6858,29 @@ fn codegen_stmt_node(stmt: &Stmt, ctx: &mut CContext, output: &mut String, inden
             emit_crdt_bump_c(object, *field, amount, true, ctx, output, &pad);
         }
         // `Merge source into target` — the field-wise lattice join. A counter field takes the per-replica
-        // MAX (idempotent — a redelivered state never double-counts); other fields keep the VM's plain-
-        // field ADD. Both operands share the struct type, so iterate its counter fields.
-        Stmt::MergeCrdt { source, target } => {
-            let src = codegen_expr(source, ctx);
-            let tgt = codegen_expr(target, ctx);
-            if let CType::Struct(sym) = infer_expr_type(target, ctx) {
-                if let Some(crate::analysis::TypeDef::Struct { fields, .. }) = ctx.registry.get(sym)
-                {
-                    for f in fields {
-                        let fname = escape_c_ident(ctx.interner.resolve(f.name));
-                        if ctx.is_counter_field(sym, f.name) {
-                            writeln!(
-                                output,
-                                "{}logos_crdt_merge((logos_crdt *)(intptr_t)({}.{}), (logos_crdt *)(intptr_t)({}.{}));",
-                                pad, tgt, fname, src, fname
-                            )
-                            .unwrap();
-                        } else {
-                            // Plain field: the VM's `crdt_merge_field` ADDs.
-                            writeln!(
-                                output,
-                                "{}{}.{} = {}.{} + {}.{};",
-                                pad, tgt, fname, tgt, fname, src, fname
-                            )
-                            .unwrap();
-                        }
-                    }
-                }
-            }
-        }
+        // MAX (idempotent — a redelivered state never double-counts); a plain field merges as the VM's
+        // `crdt_merge_field` does. Both operands share the struct type, so iterate its fields.
+        Stmt::MergeCrdt { .. } => codegen_merge_crdt_stmt(stmt, ctx, output, indent),
         // `Converge source into target` — the IDEMPOTENT lattice join, the sibling of `Merge`. A counter
         // field takes the same per-replica MAX (`logos_crdt_merge`); a plain field takes the per-field MAX
         // (not ADD), so applying a redelivered state twice equals applying it once. Matches `crdt_join_field`.
-        Stmt::JoinCrdt { source, target } => {
-            let src = codegen_expr(source, ctx);
-            let tgt = codegen_expr(target, ctx);
-            if let CType::Struct(sym) = infer_expr_type(target, ctx) {
-                if let Some(crate::analysis::TypeDef::Struct { fields, .. }) = ctx.registry.get(sym)
-                {
-                    for f in fields {
-                        let fname = escape_c_ident(ctx.interner.resolve(f.name));
-                        if ctx.is_counter_field(sym, f.name) {
-                            writeln!(
-                                output,
-                                "{}logos_crdt_merge((logos_crdt *)(intptr_t)({}.{}), (logos_crdt *)(intptr_t)({}.{}));",
-                                pad, tgt, fname, src, fname
-                            )
-                            .unwrap();
-                        } else {
-                            // Plain field: the VM's `crdt_join_field` takes the per-field MAX.
-                            writeln!(
-                                output,
-                                "{}{}.{} = {}.{} > {}.{} ? {}.{} : {}.{};",
-                                pad, tgt, fname, tgt, fname, src, fname, tgt, fname, src, fname
-                            )
-                            .unwrap();
-                        }
-                    }
-                }
-            }
-        }
-        Stmt::Inspect {
-            target,
-            arms,
-            has_otherwise,
-        } => {
-            let target_type = infer_expr_type(target, ctx);
-            // The value inspected is computed once, before any arm is tried.
-            let target_str = match target {
-                Expr::Identifier(_) => codegen_expr(target, ctx),
-                _ => {
-                    let value = codegen_expr(target, ctx);
-                    let cell = ctx.temp("__inspected", target_type.clone());
-                    writeln!(
-                        output,
-                        "{pad}{} = {value};",
-                        ctx.decl_head(&target_type, &cell)
-                    )
-                    .unwrap();
-                    cell
-                }
-            };
-            let enum_sym = if let CType::Enum(sym) = target_type {
-                Some(sym)
-            } else {
-                None
-            };
-
-            let mut first = true;
-            for arm in arms {
-                if let Some(variant_sym) = arm.variant {
-                    let ename = arm
-                        .enum_name
-                        .map(|s| escape_c_ident(ctx.interner.resolve(s)))
-                        .or_else(|| enum_sym.map(|s| escape_c_ident(ctx.interner.resolve(s))))
-                        .unwrap_or_else(|| "Unknown".to_string());
-                    let vname = escape_c_ident(ctx.interner.resolve(variant_sym));
-
-                    if first {
-                        writeln!(
-                            output,
-                            "{}if ({}.tag == {}_{}) {{",
-                            pad, target_str, ename, vname
-                        )
-                        .unwrap();
-                        first = false;
-                    } else {
-                        writeln!(
-                            output,
-                            "{}}} else if ({}.tag == {}_{}) {{",
-                            pad, target_str, ename, vname
-                        )
-                        .unwrap();
-                    }
-
-                    // Extract bindings from variant fields, each the arm's own.
-                    ctx.enter_scope();
-                    for (field_name, binding_name) in &arm.bindings {
-                        let fname = escape_c_ident(ctx.interner.resolve(*field_name));
-                        // Infer the field type from the registry, detecting recursive fields
-                        let (field_ctype, is_recursive_field) = if let Some(esym) = enum_sym {
-                            if let Some(crate::analysis::TypeDef::Enum { variants, .. }) =
-                                ctx.registry.get(esym)
-                            {
-                                variants.iter()
-                                    .find(|v| v.name == variant_sym)
-                                    .and_then(|v| v.fields.iter().find(|f| f.name == *field_name))
-                                    .map(|f| {
-                                        let is_self = matches!(&f.ty, crate::analysis::FieldType::Named(fsym) if *fsym == esym);
-                                        let ctype = super::exact::field_ctype(variant_sym, f, ctx.interner, ctx.registry, &ctx.field_facts());
-                                        (ctype, is_self)
-                                    })
-                                    .unwrap_or((CType::Int64, false))
-                            } else {
-                                (CType::Int64, false)
-                            }
-                        } else {
-                            (CType::Int64, false)
-                        };
-                        // A recursive field is a pointer — dereference to get a value copy.
-                        let deref = if is_recursive_field { "*" } else { "" };
-                        let taken = format!("{deref}{target_str}.data.{vname}.{fname}");
-                        // A binding the arm changes in place is the arm's own copy.
-                        let changed_in_arm = super::values::mutated_roots(arm.body, &ctx.fn_inout)
-                            .contains(binding_name);
-                        let taken = own_binding(&field_ctype, taken, changed_in_arm, ctx);
-                        let bname = ctx.declare(*binding_name, field_ctype.clone());
-                        let head = ctx.decl_head(&field_ctype, &bname);
-                        writeln!(output, "{pad}    {head} = {taken};").unwrap();
-                    }
-                } else {
-                    // Otherwise arm
-                    if first {
-                        writeln!(output, "{}{{", pad).unwrap();
-                        first = false;
-                    } else {
-                        writeln!(output, "{}}} else {{", pad).unwrap();
-                    }
-                    ctx.enter_scope();
-                }
-
-                for s in arm.body {
-                    codegen_stmt(s, ctx, output, indent + 1);
-                }
-                ctx.exit_scope();
-            }
-            if !first {
-                if *has_otherwise {
-                    writeln!(output, "{}}}", pad).unwrap();
-                } else {
-                    // A variant no arm names, with no `Otherwise`, fails the run in the words the VM's `Inspect`
-                    // gives it. The last such variant takes the plain `else`: every tag is then accounted for.
-                    let uncovered: Vec<Symbol> = match enum_sym.and_then(|e| ctx.registry.get(e)) {
-                        Some(crate::analysis::TypeDef::Enum { variants, .. }) => variants
-                            .iter()
-                            .map(|v| v.name)
-                            .filter(|v| !arms.iter().any(|arm| arm.variant == Some(*v)))
-                            .collect(),
-                        _ => Vec::new(),
-                    };
-                    let enum_shown = enum_sym.map(|e| ctx.display_name(e)).unwrap_or_default();
-                    let ename = arms
-                        .iter()
-                        .find_map(|arm| arm.enum_name)
-                        .or(enum_sym)
-                        .map(|e| escape_c_ident(ctx.interner.resolve(e)))
-                        .unwrap_or_default();
-                    for (i, v) in uncovered.iter().enumerate() {
-                        let words = crate::semantics::builtins::inspect_unhandled_message(
-                            &enum_shown,
-                            ctx.interner.resolve(*v),
-                        );
-                        let fail = ctx.fail_stmt(&c_string_literal(&words));
-                        if i + 1 == uncovered.len() {
-                            writeln!(output, "{pad}}} else {{ {fail} }}").unwrap();
-                        } else {
-                            let vname = escape_c_ident(ctx.interner.resolve(*v));
-                            writeln!(
-                                output,
-                                "{pad}}} else if ({target_str}.tag == {ename}_{vname}) {{ {fail}"
-                            )
-                            .unwrap();
-                        }
-                    }
-                    if uncovered.is_empty() {
-                        writeln!(output, "{pad}}}").unwrap();
-                    }
-                }
-            }
-        }
+        Stmt::JoinCrdt { .. } => codegen_join_crdt_stmt(stmt, ctx, output, indent),
+        Stmt::Inspect { .. } => codegen_inspect_stmt(stmt, ctx, output, indent),
         // ── Deterministic concurrency (the cooperative `ucontext` scheduler; gated on the whole program
         //    using concurrency, so a non-concurrency program never reaches these arms). A pipe lives as an
         //    `int64_t` handle (`CType::Pipe` of its element), cast to `logos_chan*` at each use; a value
         //    crosses it in its element's scalar packing (a Real by its bits, a Text by its pointer). ──
-        Stmt::CreatePipe {
-            var,
-            capacity,
-            element_type,
-        } => {
-            let element = resolve_type_expr_with_registry(
-                &TypeExpr::Named(*element_type),
-                ctx.interner,
-                Some(ctx.registry),
-            );
-            if task_arg_pack(&element, "0").is_none() {
-                output.push_str(&c_refuse_expr(&format!(
-                    "a pipe of {}, which a pipe's scalar cell cannot carry",
-                    ctx.interner.resolve(*element_type)
-                )));
-                return;
-            }
-            // `Pipe of Int` with no explicit capacity is UNBOUNDED (`cap = -1`), matching the VM
-            // (`capacity.map(...).unwrap_or(-1)`); an explicit capacity is bounded.
-            let cap: i64 = capacity.map(|c| c as i64).unwrap_or(-1);
-            let handle = format!("(int64_t)(intptr_t)logos_chan_new({})", cap);
-            emit_binding(
-                *var,
-                CType::Pipe(Box::new(element)),
-                &handle,
-                ctx,
-                output,
-                &pad,
-            );
-        }
-        Stmt::SendPipe { value, pipe } => {
-            let packed = pipe_packed_value(value, pipe, ctx);
-            let chan = codegen_expr(pipe, ctx);
-            writeln!(
-                output,
-                "{}logos_chan_send((logos_chan *)(intptr_t)({}), {});",
-                pad, chan, packed
-            )
-            .unwrap();
-        }
+        Stmt::CreatePipe { .. } => codegen_create_pipe_stmt(stmt, ctx, output, indent),
+        Stmt::SendPipe { .. } => codegen_send_pipe_stmt(stmt, ctx, output, indent),
         // `Receive x from ch` — park until a value arrives; binds `x` to what it read, value-or-Nothing of
         // the pipe's element: a closed pipe, once drained, reads `nothing`, as it does on the VM.
-        Stmt::ReceivePipe { var, pipe } => {
-            let chan = codegen_expr(pipe, ctx);
-            let read = CType::Opt(Box::new(pipe_element(pipe, ctx)));
-            emit_binding(
-                *var,
-                read,
-                &format!("logos_chan_recv((logos_chan *)(intptr_t)({}))", chan),
-                ctx,
-                output,
-                &pad,
-            );
-        }
+        Stmt::ReceivePipe { .. } => codegen_receive_pipe_stmt(stmt, ctx, output, indent),
         // `Try to send v to ch into ok` — non-blocking; `logos_chan_trysend` returns the success flag
         // (matching the VM's `dst = true/false`).
-        Stmt::TrySendPipe {
-            value,
-            pipe,
-            result,
-        } => {
-            let packed = pipe_packed_value(value, pipe, ctx);
-            let chan = codegen_expr(pipe, ctx);
-            let call = format!(
-                "logos_chan_trysend((logos_chan *)(intptr_t)({}), {})",
-                chan, packed
-            );
-            match result {
-                Some(res) => emit_binding(
-                    *res,
-                    CType::Bool,
-                    &format!("{} != 0", call),
-                    ctx,
-                    output,
-                    &pad,
-                ),
-                None => writeln!(output, "{}(void){};", pad, call).unwrap(),
-            }
-        }
+        Stmt::TrySendPipe { .. } => codegen_try_send_pipe_stmt(stmt, ctx, output, indent),
         // `Try to receive x from ch` — non-blocking; binds `x` to a value-OR-Nothing of the pipe's element
         // (`CType::Opt`, the runtime's `logos_opt`), `nothing` when none is buffered.
-        Stmt::TryReceivePipe { var, pipe } => {
-            let chan = codegen_expr(pipe, ctx);
-            let read = CType::Opt(Box::new(pipe_element(pipe, ctx)));
-            emit_binding(
-                *var,
-                read,
-                &format!("logos_chan_tryrecv((logos_chan *)(intptr_t)({}))", chan),
-                ctx,
-                output,
-                &pad,
-            );
-        }
+        Stmt::TryReceivePipe { .. } => codegen_try_receive_pipe_stmt(stmt, ctx, output, indent),
         Stmt::LaunchTask { function, args } => {
             emit_spawn_c(*function, args, None, ctx, output, &pad);
         }
@@ -8369,172 +6897,36 @@ fn codegen_stmt_node(stmt: &Stmt, ctx: &mut CContext, output: &mut String, inden
         // NOT wake it. Mirrors the RISC-V lowering (`logos_task_abort`); byte-for-byte the VM's
         // `VmBlock::Abort` lazy-teardown. Without this the statement no-op'd → a `Stop`-then-`Send` wrongly
         // resumed the "aborted" task in C (a real C≠VM divergence this fixes).
-        Stmt::StopTask { handle } => {
-            let h = codegen_expr(handle, ctx);
-            writeln!(
-                output,
-                "{}logos_task_abort((logos_task *)(intptr_t)({}));",
-                pad, h
-            )
-            .unwrap();
-        }
+        Stmt::StopTask { .. } => codegen_stop_task_stmt(stmt, ctx, output, indent),
         // `Close ch` — mark the channel closed (Op::ChanClose). Wakes any parked receivers with the
         // closed signal and yields (`logos_chan_close`); buffered values stay receivable, a later send is
         // the error. The deterministic-scheduler channel sibling of `Stop`. Byte-for-byte the VM's
         // `VmBlock::Close`.
-        Stmt::CloseChannel { channel } => {
-            let ch = codegen_expr(channel, ctx);
-            writeln!(
-                output,
-                "{}logos_chan_close((logos_chan *)(intptr_t)({}));",
-                pad, ch
-            )
-            .unwrap();
-        }
+        Stmt::CloseChannel { .. } => codegen_close_channel_stmt(stmt, ctx, output, indent),
         // `Await h` / `Wait for h` — park until the task has finished (Op::TaskAwait). The handle var holds
         // the `logos_task*` cast to int64 (see `emit_spawn_c`). A task answers `nothing`, as it does on the
         // interpreter and the VM, so `… into r` binds `r` to the absent `logos_opt`.
-        Stmt::AwaitTask { handle, result } => {
-            let h = codegen_expr(handle, ctx);
-            writeln!(
-                output,
-                "{}logos_task_await((logos_task *)(intptr_t)({}));",
-                pad, h
-            )
-            .unwrap();
-            if let Some(r) = result {
-                emit_binding(
-                    *r,
-                    CType::Opt(Box::new(CType::Int64)),
-                    "(logos_opt){0, 0}",
-                    ctx,
-                    output,
-                    &pad,
-                );
-            }
-        }
+        Stmt::AwaitTask { .. } => codegen_await_task_stmt(stmt, ctx, output, indent),
         // `Sleep n` — park on the scheduler's logical clock: an Int counts ticks, a Duration nanoseconds,
         // as the tick a `After n:` select arm waits on.
         Stmt::Sleep { milliseconds } => {
             let ticks = select_timeout_ticks_c(milliseconds, ctx);
             writeln!(output, "{}logos_sleep((long long)({}));", pad, ticks).unwrap();
         }
-        Stmt::Select { branches } => {
-            // Register each arm in declaration order (arm index 0,1,2… — the convention the runtime's
-            // `logos_select_wait` returns and the VM/tree-walker oracle dispatch on). A recv arm mints a
-            // unique `logos_opt` slot the runtime writes what it read into — a value, or `nothing` from a
-            // closed pipe; a timeout arm passes the tick count `select_timeout_ticks_c` derives EXACTLY as
-            // the VM's `eval_select_timeout_ticks` (`After N seconds` is a `Duration` of `N·10⁹` nanos →
-            // that many virtual ticks). The winning arm's body then runs; a recv body first binds its
-            // variable from the slot, value-or-nothing, as `Receive … from` binds.
-            writeln!(output, "{}logos_select_reset();", pad).unwrap();
-            let mut slots: Vec<Option<String>> = Vec::with_capacity(branches.len());
-            for branch in branches.iter() {
-                match branch {
-                    SelectBranch::Receive { pipe, .. } => {
-                        let chan = codegen_expr(pipe, ctx);
-                        let n = ctx.select_ctr.get();
-                        ctx.select_ctr.set(n + 1);
-                        let slot = format!("__selslot_{}", n);
-                        writeln!(output, "{}logos_opt {};", pad, slot).unwrap();
-                        writeln!(
-                            output,
-                            "{}logos_select_arm_recv((logos_chan *)(intptr_t)({}), &{});",
-                            pad, chan, slot
-                        )
-                        .unwrap();
-                        slots.push(Some(slot));
-                    }
-                    SelectBranch::Timeout { milliseconds, .. } => {
-                        let ticks = select_timeout_ticks_c(milliseconds, ctx);
-                        writeln!(
-                            output,
-                            "{}logos_select_arm_timeout((long long)({}));",
-                            pad, ticks
-                        )
-                        .unwrap();
-                        slots.push(None);
-                    }
-                }
-            }
-            writeln!(output, "{}long long __arm = logos_select_wait();", pad).unwrap();
-            for (i, branch) in branches.iter().enumerate() {
-                let kw = if i == 0 { "if" } else { "} else if" };
-                writeln!(output, "{}{} (__arm == {}) {{", pad, kw, i).unwrap();
-                ctx.enter_scope();
-                let body = match branch {
-                    SelectBranch::Receive { var, pipe, body } => {
-                        let slot = slots[i].as_ref().expect("recv arm has a slot");
-                        let read = CType::Opt(Box::new(pipe_element(pipe, ctx)));
-                        emit_binding(*var, read, slot, ctx, output, &format!("{}    ", pad));
-                        *body
-                    }
-                    SelectBranch::Timeout { body, .. } => *body,
-                };
-                for s in body {
-                    codegen_stmt(s, ctx, output, indent + 1);
-                }
-                ctx.exit_scope();
-            }
-            if !branches.is_empty() {
-                writeln!(output, "{}}}", pad).unwrap();
-            }
-        }
+        Stmt::Select { .. } => codegen_select_stmt(stmt, ctx, output, indent),
         Stmt::FunctionDef { .. } => {}
         // `Append v to <obj>'s <field>` (SharedSequence RGA). On the single replica this is an in-place
         // push to the struct's `Seq` field — the element's push fn is chosen from the field's Seq type.
-        Stmt::AppendToSequence { sequence, value } => {
-            let seq_str = codegen_expr(sequence, ctx);
-            let val_str = codegen_expr(value, ctx);
-            let push_fn = match infer_expr_type(sequence, ctx) {
-                CType::SeqBool => "seq_bool_push".to_string(),
-                CType::SeqStr => "seq_str_push".to_string(),
-                CType::SeqF64 => "seq_f64_push".to_string(),
-                CType::SeqStruct(s) => seq_struct_fn(s, "push", ctx.interner),
-                CType::SeqValue(inner) => format!("seq_{}_push", c_type_str(&inner)),
-                CType::SeqTuple(elems) => {
-                    format!("seq_{}_push", tuple_c_name(&elems, ctx.interner))
-                }
-                _ => "seq_i64_push".to_string(),
-            };
-            writeln!(output, "{}{}(&{}, {});", pad, push_fn, seq_str, val_str).unwrap();
-        }
+        Stmt::AppendToSequence { .. } => codegen_append_to_sequence_stmt(stmt, ctx, output, indent),
         // `Resolve <obj>'s <field> to v` (MVRegister LWW). On the single replica the last write wins, so it
         // is a plain field assignment — exactly like `SetField`.
-        Stmt::ResolveConflict {
-            object,
-            field,
-            value,
-        } => {
-            let obj = codegen_expr(object, ctx);
-            let fname = escape_c_ident(ctx.interner.resolve(*field));
-            let val = codegen_expr(value, ctx);
-            writeln!(output, "{}{}.{} = {};", pad, obj, fname, val).unwrap();
-        }
+        Stmt::ResolveConflict { .. } => codegen_resolve_conflict_stmt(stmt, ctx, output, indent),
         // `Check that <subject> is <predicate>` / `... can <action> the <object>` lowers to an inline
         // guard: `if (!(<condition>)) { <fail> }`. The condition is the policy's predicate/capability
         // condition emitted over the subject (and object) C structs — byte-identical semantics to
         // `semantics::policy::check_policy`, the tree-walker/VM oracle. An unlowerable form emits a LOUD
         // `#error` (never a silent no-op, which would be a C≠VM miscompile).
-        Stmt::Check {
-            subject,
-            predicate,
-            is_capability,
-            object,
-            source_text,
-            ..
-        } => {
-            emit_policy_check(
-                ctx,
-                output,
-                &pad,
-                *subject,
-                *predicate,
-                *is_capability,
-                *object,
-                source_text,
-            );
-        }
+        Stmt::Check { .. } => codegen_check_stmt(stmt, ctx, output, indent),
         // ── Offline networking (the loopback transport, see `C_NET_RUNTIME`) ──────────────────────────────
         // `Connect`/`Listen` dial nothing (no relay); the offline single node just registers the address.
         // `Let peer be a PeerAgent at "addr"` binds the address string as the peer handle (MakePeer = identity).
@@ -8542,141 +6934,22 @@ fn codegen_stmt_node(stmt: &Stmt, ctx: &mut CContext, output: &mut String, inden
         // a stream) into the destination's FIFO; `Await` dequeues it. Byte-for-byte the VM's offline model. The
         // one-time-pad (`secure`) is ignored: on a single node encrypt-then-decrypt is identity, so the observed
         // message is unchanged (≡VM for the loopback).
-        Stmt::ConnectTo { address, .. } => {
-            let a = codegen_expr(address, ctx);
-            writeln!(
-                output,
-                "{}logos_net_connect((const char *)(intptr_t)({}));",
-                pad, a
-            )
-            .unwrap();
-        }
-        Stmt::Listen { address, .. } => {
-            let a = codegen_expr(address, ctx);
-            writeln!(
-                output,
-                "{}logos_net_listen((const char *)(intptr_t)({}));",
-                pad, a
-            )
-            .unwrap();
-        }
-        Stmt::LetPeerAgent { var, address } => {
-            let a = codegen_expr(address, ctx);
-            let peer = format!(
-                "(char *)(intptr_t)logos_net_makepeer((long long)(intptr_t)({}))",
-                a
-            );
-            emit_binding(*var, CType::String, &peer, ctx, output, &pad);
-        }
+        Stmt::ConnectTo { .. } => codegen_connect_to_stmt(stmt, ctx, output, indent),
+        Stmt::Listen { .. } => codegen_listen_stmt(stmt, ctx, output, indent),
+        Stmt::LetPeerAgent { .. } => codegen_let_peer_agent_stmt(stmt, ctx, output, indent),
         Stmt::Sync { .. } => {
             // Offline-identity: no peer state to merge.
             writeln!(output, "{}/* offline Sync — no-op */", pad).unwrap();
         }
-        Stmt::SendMessage {
-            message,
-            destination,
-            ..
-        } => {
-            let m = codegen_expr(message, ctx);
-            let d = codegen_expr(destination, ctx);
-            writeln!(
-                output,
-                "{}logos_net_send((const char *)(intptr_t)({}), (long long)({}));",
-                pad, d, m
-            )
-            .unwrap();
-        }
-        Stmt::StreamMessage {
-            values,
-            destination,
-        } => {
-            // A stream is a `Seq` — send its ADDRESS as the 64-bit message; the loopback round-trips the same
-            // object (an `Await stream` reads it back). `Seq of Int` on this path (a device-clean `Seq_i64`).
-            let vals = codegen_expr(values, ctx);
-            let d = codegen_expr(destination, ctx);
-            writeln!(
-                output,
-                "{}logos_net_send((const char *)(intptr_t)({}), (long long)(intptr_t)(&({})));",
-                pad, d, vals
-            )
-            .unwrap();
-        }
-        Stmt::AwaitMessage {
-            source,
-            into,
-            stream,
-            ..
-        } => {
-            let s = codegen_expr(source, ctx);
-            if *stream {
-                // Stream receive: the message is the streamed `Seq`'s pointer; deref to a local copy of the batch.
-                let batch = format!(
-                    "*(Seq_i64 *)(intptr_t)logos_net_await((const char *)(intptr_t)({}))",
-                    s
-                );
-                emit_binding(*into, CType::SeqI64(Ints::Int), &batch, ctx, output, &pad);
-            } else {
-                // Scalar receive: the dequeued 64-bit message is the sent Int.
-                let message = format!("logos_net_await((const char *)(intptr_t)({}))", s);
-                emit_binding(*into, CType::Int64, &message, ctx, output, &pad);
-            }
-        }
-        Stmt::RuntimeAssert {
-            condition,
-            hard,
-            dim: _,
-            reason,
-        } => {
-            let cond_str = c_truthy(condition, ctx);
-            let report = match reason {
-                None => ctx.fail_stmt("\"Assertion failed\""),
-                Some(r) => c_failure_report(r, ctx, true),
-            };
-            // The soft form mirrors AOT-Rust's `debug_assert!`: enforced unless NDEBUG.
-            if !*hard {
-                writeln!(output, "{}#ifndef NDEBUG", pad).unwrap();
-            }
-            writeln!(output, "{}if (!({})) {{ {} }}", pad, cond_str, report).unwrap();
-            if !*hard {
-                writeln!(output, "{}#endif", pad).unwrap();
-            }
-        }
-        Stmt::Fail { reason } => {
-            writeln!(
-                output,
-                "{}{{ {} }}",
-                pad,
-                c_failure_report(reason, ctx, false)
-            )
-            .unwrap();
-        }
+        Stmt::SendMessage { .. } => codegen_send_message_stmt(stmt, ctx, output, indent),
+        Stmt::StreamMessage { .. } => codegen_stream_message_stmt(stmt, ctx, output, indent),
+        Stmt::AwaitMessage { .. } => codegen_await_message_stmt(stmt, ctx, output, indent),
+        Stmt::RuntimeAssert { .. } => codegen_runtime_assert_stmt(stmt, ctx, output, indent),
+        Stmt::Fail { .. } => codegen_fail_stmt(stmt, ctx, output, indent),
         // `Read x from console` reads empty Text, as on the interpreter; a file's whole text otherwise.
-        Stmt::ReadFrom { var, source } => {
-            let read = match source {
-                ReadSource::Console => "lc_gc_strdup(\"\")".to_string(),
-                ReadSource::File(path) => {
-                    format!("logos_file_read({})", c_format_builtin(path, ctx))
-                }
-            };
-            emit_binding(*var, CType::String, &read, ctx, output, &pad);
-        }
+        Stmt::ReadFrom { .. } => codegen_read_from_stmt(stmt, ctx, output, indent),
         // The content is rendered, then the path, in the order the VM evaluates them.
-        Stmt::WriteFile { content, path } => {
-            let text = ctx.temp("__content", CType::String);
-            writeln!(
-                output,
-                "{pad}{} = {};",
-                ctx.decl_head(&CType::String, &text),
-                c_format_builtin(content, ctx)
-            )
-            .unwrap();
-            writeln!(
-                output,
-                "{pad}logos_file_write({}, {text});",
-                c_format_builtin(path, ctx)
-            )
-            .unwrap();
-        }
+        Stmt::WriteFile { .. } => codegen_write_file_stmt(stmt, ctx, output, indent),
         Stmt::Mount { var, path } => {
             let mounted = format!("logos_file_mount({})", c_format_builtin(path, ctx));
             emit_binding(*var, CType::String, &mounted, ctx, output, &pad);
@@ -8722,6 +6995,3046 @@ fn codegen_stmt_node(stmt: &Stmt, ctx: &mut CContext, output: &mut String, inden
     }
 }
 
+/// The `Let` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_let_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Let { var, value, ty, mutable } = stmt else {
+        unreachable!("codegen_let_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let var_name = ctx.resolve(*var).to_string();
+    // At Main's root, a program static's `Let` assigns the file-scope static every function reaches.
+    let program_static = ctx.main_root_depth == Some(ctx.decl_scopes.len())
+        && ctx.program_statics.contains(var);
+
+    // Determine C type. An undeclared copy of a value-or-nothing variable is value-or-nothing too.
+    if ty.is_none() && ctx.number_locals.refused.contains(var) {
+        output.push_str(&c_refuse_expr(&format!(
+            "`{}`, which holds an exact number and a real",
+            ctx.interner.resolve(*var)
+        )));
+        return;
+    }
+    let c_type = if super::tower::binding(ctx, *var) {
+        CType::Tower
+    } else if let Some(ty_expr) = ty {
+        resolve_type_expr_with_registry(ty_expr, ctx.interner, Some(ctx.registry))
+    } else if let Some(widened) = ctx.number_locals.types.get(var) {
+        widened.clone()
+    } else if let Some((_, ty)) = opt_var(value, ctx) {
+        ty
+    } else {
+        infer_expr_type(value, ctx)
+    };
+    // A BigInt-flagged local is declared `LInt` even when seeded with a small literal.
+    let c_type = if ctx.bigint_vars.contains(var) && c_type == CType::Int64 {
+        CType::BigInt
+    } else {
+        c_type
+    };
+    // A binding a stored `nothing` reaches holds value-or-nothing.
+    let c_type = super::absent::binding(stmt, c_type, ctx);
+    if program_static {
+        match ctx.static_types.get(var) {
+            Some(bound) if *bound != c_type => {
+                output.push_str(&c_refuse_expr(&format!(
+                    "the program's `{}` bound once as {:?} and again as {:?}",
+                    var_name, bound, c_type
+                )));
+                return;
+            }
+            _ => {
+                ctx.static_types.insert(*var, c_type.clone());
+            }
+        }
+    }
+
+    if c_type == CType::Tower {
+        let val_str = super::tower::stored(value, ctx);
+        let reuse = program_static || ctx.declared_value_here(*var, &c_type);
+        let var_name = if program_static {
+            ctx.bind_static(*var, c_type.clone())
+        } else {
+            ctx.declare(*var, c_type.clone())
+        };
+        let head = if reuse {
+            var_name
+        } else {
+            ctx.decl_head(&c_type, &var_name)
+        };
+        writeln!(output, "{pad}{head} = {val_str};").unwrap();
+        return;
+    }
+
+    if let Some(source) = ctx
+        .text_bytes_candidates
+        .get(&(stmt as *const Stmt as usize))
+        .copied()
+    {
+        // A stack-local pointer borrows an ordinary text value. Frame and program-static
+        // bindings retain owned sequence storage across their longer lifetimes.
+        if !program_static
+            && ctx.stepped.is_none()
+            && ctx.vars.get(&source) == Some(&CType::String)
+        {
+            let var_name = ctx.declare_text_bytes(*var, source);
+            writeln!(
+                output,
+                "{pad}const unsigned char *{var_name} = (const unsigned char *)({});",
+                ctx.resolve(source)
+            )
+            .unwrap();
+            crate::optimize::mark_fired(crate::optimization::Opt::TextBytesView);
+            return;
+        }
+    }
+
+    // Consume the same fixed-buffer proof as the Rust AOT emitter,
+    // while retaining C's ordinary Seq representation and operations.
+    // Because the analysis proves the buffer has exactly `len` pushes,
+    // is non-escaping, and is only lent at read-only call positions,
+    // `seq_i64_push` never reaches its realloc path.  This closes the
+    // backend drift where Rust emitted `[T; N]` but C heap-allocated the
+    // same SHA/message/work buffers on every loop iteration.
+    if let (Some(&len), CType::SeqI64(_), true) = (
+        ctx.fixed_stack_seqs.get(var),
+        &c_type,
+        matches!(
+            value,
+            Expr::New { type_name, init_fields, .. }
+                if matches!(ctx.interner.resolve(*type_name), "Seq" | "List" | "Vec")
+                    && init_fields.is_empty()
+        ) || matches!(value, Expr::List(items) if items.is_empty()),
+    ) {
+        let reuse = program_static || (ctx.declared_value_here(*var, &c_type));
+        let var_name = if program_static {
+            ctx.bind_static(*var, c_type.clone())
+        } else {
+            ctx.declare(*var, c_type.clone())
+        };
+        if reuse {
+            writeln!(output, "{pad}{var_name}.len = 0;").unwrap();
+        } else {
+            let backing = format!(
+                "__logos_fixed_{}",
+                var_name.replace(|c: char| !c.is_ascii_alphanumeric() && c != '_', "_")
+            );
+            writeln!(output, "{pad}int64_t {backing}[{len}] = {{0}};").unwrap();
+            writeln!(output, "{pad}Seq_i64 {var_name} = (Seq_i64){{{backing}, 0, {len}}}; /* shared fixed Seq */").unwrap();
+        }
+        crate::optimize::mark_fired(crate::optimization::Opt::Scalarize);
+        return;
+    }
+
+    // Handle list literals specially — build inline. The DYNAMIC-NAMED Seq elements — a VALUE-TYPE
+    // Seq (`Seq_LMoney` …), a user-STRUCT Seq (`Seq_<Name>`), a nested Seq (`Seq_<inner>`), and a
+    // Seq-of-TUPLE (`Seq_LTuple_…`) — are the exceptions: they fall through to the general path
+    // below, whose `codegen_expr(Expr::List)` materializes the literal in a GCC statement-expression
+    // with the right dynamic `Seq_<E>` type + push fn (`c_type_str` can only render them as a
+    // `/* … */` placeholder, so a static-name declaration here would be `undeclared` under gcc). A
+    // binding that can hold nothing takes the literal as a value-or-nothing on the general path too.
+    // Everything else keeps its exact prior behavior here.
+    if let Expr::List(elems) = value {
+        if mixed_kinds(elems, ctx) {
+            output.push_str(&c_refuse_expr(MIXED_LIST));
+            return;
+        }
+    }
+    if let (Expr::List(elems), false) = (
+        value,
+        matches!(
+            c_type,
+            CType::SeqValue(_)
+                | CType::SeqStruct(_)
+                | CType::SeqSeq(_)
+                | CType::SeqTuple(_)
+                | CType::Opt(_)
+        ),
+    ) {
+        if !elems.is_empty() {
+            let (new_fn, push_fn) = match &c_type {
+                CType::SeqBool => ("seq_bool_new", "seq_bool_push"),
+                CType::SeqStr => ("seq_str_new", "seq_str_push"),
+                CType::SeqF64 => ("seq_f64_new", "seq_f64_push"),
+                _ => ("seq_i64_new", "seq_i64_push"),
+            };
+            // This fast inline-build path bypasses `codegen_list_expr` (see the doc above), so it asks the same
+            // shared decision that path does: a literal with an item past the word, into a list that may promote, is
+            // built promoted (`ExactSlots::literal_is_tagged`).
+            let tag_i64 = matches!(c_type, CType::SeqI64(Ints::Int)) && ctx.exact.literal_is_tagged(value);
+            let values: Vec<String> = elems
+                .iter()
+                .map(|e| {
+                    if tag_i64 {
+                        format!("lint_to_cell({})", exact_lint_value(e, ctx))
+                    } else if matches!(c_type, CType::SeqI64(_)) {
+                        narrow_i64_sink(e, codegen_expr(e, ctx), ctx)
+                    } else {
+                        stored(e, codegen_expr(e, ctx), ctx)
+                    }
+                })
+                .collect();
+            let reuse = program_static || (ctx.declared_value_here(*var, &c_type));
+            let var_name = if program_static {
+                ctx.bind_static(*var, c_type.clone())
+            } else {
+                ctx.declare(*var, c_type.clone())
+            };
+            let head = if reuse {
+                var_name.clone()
+            } else {
+                ctx.decl_head(&c_type, &var_name)
+            };
+            writeln!(output, "{}{} = {}();", pad, head, new_fn).unwrap();
+            if tag_i64 {
+                writeln!(output, "{pad}{var_name}.exact = 1;").unwrap();
+            }
+            for v in values {
+                writeln!(output, "{}{}(&{}, {});", pad, push_fn, var_name, v).unwrap();
+            }
+            return;
+        }
+    }
+
+    // A text the body appends to is a builder of its own; any other mutable text a copy of its own.
+    if c_type == CType::String && (*mutable || builds_text(*var, ctx)) {
+        let val_str = if builds_text(*var, ctx) {
+            text_builder_of(value, ctx)
+        } else if matches!(value, Expr::Literal(Literal::Text(_)))
+            && crate::optimize::active_config().is_on(crate::optimization::Opt::Borrow)
+        {
+            // Rebinding a text pointer never mutates an immutable
+            // program literal. Avoid a strdup on every loop iteration.
+            crate::optimize::mark_fired(crate::optimization::Opt::Borrow);
+            codegen_expr(value, ctx)
+        } else {
+            format!("lc_gc_strdup({})", codegen_expr(value, ctx))
+        };
+        let reuse = program_static || (ctx.declared_value_here(*var, &c_type));
+        let var_name = if program_static {
+            ctx.bind_static(*var, c_type)
+        } else {
+            ctx.declare(*var, c_type)
+        };
+        let declarator = if reuse {
+            var_name
+        } else {
+            ctx.decl_head(&CType::String, &var_name)
+        };
+        writeln!(output, "{}{} = {};", pad, declarator, val_str).unwrap();
+        return;
+    }
+
+    let val_str = match (value, &c_type) {
+        (Expr::List(elems), CType::SeqValue(elem)) if !elems.is_empty() => {
+            literal_as(elems, &c_type, elem, ctx)
+        }
+        (Expr::List(_), seq @ CType::SeqSeq(_)) if super::absent::holds_nothing(seq) => {
+            value_as(value, seq, ctx)
+        }
+        _ => fresh_collection(value, &c_type, ctx).unwrap_or_else(|| codegen_expr(value, ctx)),
+    };
+    // Seed an `LInt` local from a raw int64 value (`Let result be 1` → `LInt result = lint_of(1)`);
+    // seed a `: Rational`-annotated local by re-emitting its value in rational context so
+    // `Let x: Rational be 7 / 2` is the exact `7/2` (`ldec_div`), not the truncated int `3`.
+    let val_str = if c_type == CType::BigInt && infer_expr_type(value, ctx) != CType::BigInt
+    {
+        exact_int_of(value, &val_str, ctx)
+    } else if matches!(c_type, CType::Rational | CType::Decimal)
+        && !matches!(infer_expr_type(value, ctx), CType::Rational | CType::Decimal)
+    {
+        codegen_expr_as_rational(value, ctx)
+    } else if matches!(c_type, CType::Opt(_)) {
+        opt_stored(value, &c_type, *var, stmt, ctx)
+    } else if super::values::binding_copies(value, &c_type, *var, stmt, ctx) {
+        super::values::copy_value(&c_type, &val_str, ctx)
+    } else if c_type == CType::String && shares_builder(value, ctx) {
+        format!("lc_gc_strdup({val_str})")
+    } else {
+        val_str
+    };
+    // Re-binding a name ALREADY declared in this exact block with the same type (the optimizer's
+    // loop-unroll duplicates `Let x …`) assigns that variable — gcc rejects a redefinition (nbody).
+    // With another type it declares a variable of its own (`CContext::declare`).
+    let reuse = program_static || (ctx.declared_value_here(*var, &c_type));
+    let var_name = if program_static {
+        ctx.bind_static(*var, c_type.clone())
+    } else {
+        ctx.declare(*var, c_type.clone())
+    };
+    // A function-pointer variable (a lambda value) declares with the NAME INSIDE the declarator
+    // (`RET (*g)(ARGS)`), which `decl_head`'s `c_param_decl` spells.
+    let head = if reuse {
+        var_name
+    } else {
+        ctx.decl_head(&c_type, &var_name)
+    };
+    writeln!(output, "{}{} = {};", pad, head, val_str).unwrap();
+}
+
+/// The `Set` arm of [`codegen_stmt_node`] (when `!ctx.vars.contains_key(target) &&
+/// !ctx.program_statics.contains(target)`), in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_set_undeclared_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Set { target, value } = stmt else {
+        unreachable!("codegen_set_undeclared_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let failure = format!("Undefined variable: {}", ctx.interner.resolve(*target));
+    writeln!(output, "{pad}(void)({});", codegen_expr(value, ctx)).unwrap();
+    writeln!(
+        output,
+        "{pad}{}",
+        ctx.fail_stmt(&c_string_literal(&failure))
+    )
+    .unwrap();
+}
+
+/// The `Set` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_set_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Set { target, value } = stmt else {
+        unreachable!("codegen_set_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    // A text the program appends to: `Set t to t + a + b` appends each part in place, in order, when no
+    // later part reads `t`; any other value becomes the builder's new text.
+    if is_text_builder(*target, ctx) {
+        let builder = ctx.resolve(*target);
+        if let Some(appended) = self_appended_parts(*target, value, ctx) {
+            for part in appended {
+                let fast = crate::optimize::active_config()
+                    .is_on(crate::optimization::Opt::StringAccumReuse);
+                if fast && infer_expr_type(part, ctx) == CType::Int64 {
+                    crate::optimize::mark_fired(crate::optimization::Opt::StringAccumReuse);
+                    writeln!(
+                        output,
+                        "{pad}logos_text_append_i64(&{builder}, {});",
+                        codegen_expr(part, ctx)
+                    )
+                    .unwrap();
+                    continue;
+                }
+                if fast {
+                    if let Expr::Literal(Literal::Text(sym)) = part {
+                        let bytes = ctx.interner.resolve(*sym).as_bytes();
+                        if bytes.len() == 1 && bytes[0] != 0 && bytes[0].is_ascii() {
+                            crate::optimize::mark_fired(
+                                crate::optimization::Opt::StringAccumReuse,
+                            );
+                            writeln!(
+                                output,
+                                "{pad}logos_text_push_ascii(&{builder}, {});",
+                                bytes[0]
+                            )
+                            .unwrap();
+                            continue;
+                        }
+                    }
+                }
+                let (text, owned) = text_part(part, ctx);
+                let release = if owned {
+                    " lc_gc_free((void *)__appended);"
+                } else {
+                    ""
+                };
+                writeln!(output, "{pad}{{ const char *__appended = {text}; logos_text_append(&{builder}, __appended);{release} }}").unwrap();
+            }
+        } else {
+            writeln!(output, "{pad}{builder} = {};", text_builder_of(value, ctx)).unwrap();
+        }
+        return;
+    }
+    if ctx.vars.get(target).or_else(|| ctx.static_types.get(target)) == Some(&CType::Tower) {
+        let val_str = super::tower::stored(value, ctx);
+        writeln!(output, "{pad}{} = {val_str};", ctx.resolve(*target)).unwrap();
+        return;
+    }
+    let val_str = match (value, ctx.vars.get(target).cloned()) {
+        (Expr::List(elems), Some(seq @ CType::SeqValue(_))) if !elems.is_empty() => {
+            let CType::SeqValue(elem) = &seq else { unreachable!("matched above") };
+            literal_as(elems, &seq, elem, ctx)
+        }
+        (_, Some(ty)) => fresh_collection(value, &ty, ctx).unwrap_or_else(|| codegen_expr(value, ctx)),
+        _ => codegen_expr(value, ctx),
+    };
+    // Reassigning an `LInt` local a raw int64 value (`Set result to 1`) promotes via `lint_of`;
+    // reassigning a Rational local an int-arithmetic value re-emits it in rational context.
+    let val_str = if ctx.vars.get(target) == Some(&CType::BigInt)
+        && infer_expr_type(value, ctx) != CType::BigInt
+    {
+        exact_int_of(value, &val_str, ctx)
+    } else if matches!(ctx.vars.get(target), Some(CType::Rational | CType::Decimal))
+        && !matches!(infer_expr_type(value, ctx), CType::Rational | CType::Decimal)
+    {
+        codegen_expr_as_rational(value, ctx)
+    } else if let Some(ty @ CType::Opt(_)) = ctx.vars.get(target).cloned() {
+        opt_stored(value, &ty, *target, stmt, ctx)
+    } else if ctx.vars.get(target) == Some(&CType::String)
+        && builds_text(*target, ctx)
+        && !super::values::is_fresh(value)
+    {
+        // A text appended to in place holds a buffer of its own.
+        format!("lc_gc_strdup({val_str})")
+    } else if let Some(ty) = ctx
+        .vars
+        .get(target)
+        .cloned()
+        .filter(|ty| super::values::binding_copies(value, ty, *target, stmt, ctx))
+    {
+        super::values::copy_value(&ty, &val_str, ctx)
+    } else if ctx.vars.get(target) == Some(&CType::String) && shares_builder(value, ctx) {
+        format!("lc_gc_strdup({val_str})")
+    } else {
+        val_str
+    };
+    let var_name = ctx.resolve(*target);
+    writeln!(output, "{}{} = {};", pad, var_name, val_str).unwrap();
+}
+
+/// The `Give` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_give_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Give { object, recipient } = stmt else {
+        unreachable!("codegen_give_stmt is called on the arm it was taken from")
+    };
+    codegen_stmt_node(
+        &Stmt::Show {
+            object: *object,
+            recipient: *recipient,
+        },
+        ctx,
+        output,
+        indent,
+    );
+}
+
+/// The `Show` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_show_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Show { object, recipient } = stmt else {
+        unreachable!("codegen_show_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    // Only `show` itself prints: any other recipient is called with the value, and a recipient that is
+    // not a name only has the value computed.
+    match recipient {
+        Expr::Identifier(f) if ctx.interner.resolve(*f) == "show" => {}
+        Expr::Identifier(f) => {
+            emit_recipient_call(object, *f, ctx, output, &pad);
+            return;
+        }
+        _ => {
+            writeln!(output, "{pad}(void)({});", codegen_expr(object, ctx)).unwrap();
+            return;
+        }
+    }
+    if let Expr::InterpolatedString(parts) = object {
+        let holes: Vec<&Expr> = parts
+            .iter()
+            .filter_map(|p| match p {
+                crate::ast::stmt::StringPart::Expr { value, .. } => Some(*value),
+                crate::ast::stmt::StringPart::Literal(_) => None,
+            })
+            .collect();
+        let cells = sequence_operands(&holes, ctx, output, &pad);
+        codegen_interpolated_show_c(parts, ctx, &pad, output);
+        forget_operands(cells, ctx);
+        return;
+    }
+    if let Expr::Literal(Literal::Nothing) = object {
+        writeln!(output, "{}printf(\"nothing\\n\");", pad).unwrap();
+        return;
+    }
+    // A value-or-nothing variable: the value if present, else `nothing` (the VM's Nothing). A scalar
+    // prints straight from its cell; any other value through its rendering.
+    if let Some((var, ty)) = opt_var(object, ctx) {
+        let element = opt_element(&ty);
+        let show = match element {
+            CType::Int64 => Some("show_i64"),
+            CType::Float64 => Some("show_f64"),
+            CType::Bool => Some("show_bool"),
+            CType::String => Some("show_str"),
+            _ => None,
+        };
+        match show {
+            Some(show) => {
+                let value =
+                    task_arg_unpack(&element, &format!("({var}).value"), ctx.interner);
+                writeln!(output, "{pad}if (({var}).present) {{ {show}({value}); }} else {{ printf(\"nothing\\n\"); }}").unwrap();
+            }
+            None => writeln!(
+                output,
+                "{pad}logos_show_text({});",
+                c_text_of(&ty, &var, ctx)
+            )
+            .unwrap(),
+        }
+        return;
+    }
+    let ty = infer_expr_type(object, ctx);
+    if ty == CType::Int64 {
+        if reads_a_promotable_element(object, ctx) {
+            writeln!(output, "{pad}show_lint({});", promotable_element_lint(object, ctx)).unwrap();
+            return;
+        }
+        if let Some(s) = speculation(object, ctx) {
+            let shown = s.branch(|w| format!("show_i64({w});"), |x| format!("show_lint({x});"));
+            writeln!(output, "{pad}{shown}").unwrap();
+            return;
+        }
+    }
+    let val_str = codegen_expr(object, ctx);
+    match ty {
+        // A value-or-nothing, or a value holding them, renders as their payloads do, `nothing` where one is
+        // absent (a value-or-nothing variable is shown above).
+        ty if super::absent::holds_nothing(&ty) => {
+            let render = crate::codegen_c::types::c_field_to_string_expr(&ty, "__c", ctx.interner);
+            writeln!(
+                output,
+                "{pad}{{ {} __c = {val_str}; char *__s = {render}; printf(\"%s\\n\", __s); lc_gc_free(__s); }}",
+                c_type_str_resolved(&ty, ctx.interner)
+            )
+            .unwrap();
+        }
+        CType::Int64 => writeln!(output, "{}show_i64({});", pad, val_str).unwrap(),
+        CType::Word(_) => writeln!(
+            output,
+            "{pad}printf(\"%\" PRIu64 \"\\n\", (uint64_t)({val_str}));"
+        )
+        .unwrap(),
+        CType::Float64 => writeln!(output, "{}show_f64({});", pad, val_str).unwrap(),
+        CType::Complex => writeln!(output, "{}show_complex({});", pad, val_str).unwrap(),
+        CType::Rational | CType::Decimal => writeln!(output, "{}show_ldec({});", pad, val_str).unwrap(),
+        CType::Tower => writeln!(output, "{pad}show_ltower({val_str});").unwrap(),
+        CType::BigInt => writeln!(output, "{}show_lint({});", pad, val_str).unwrap(),
+        CType::Modular => writeln!(output, "{}show_mod({});", pad, val_str).unwrap(),
+        CType::Uuid => writeln!(output, "{}show_uuid({});", pad, val_str).unwrap(),
+        CType::Money => writeln!(output, "{}show_money({});", pad, val_str).unwrap(),
+        CType::Quantity => writeln!(output, "{}show_quant({});", pad, val_str).unwrap(),
+        CType::Bool => writeln!(output, "{}show_bool({});", pad, val_str).unwrap(),
+        CType::String => writeln!(output, "{}show_str({});", pad, val_str).unwrap(),
+        CType::Moment => writeln!(output, "{}show_moment({});", pad, val_str).unwrap(),
+        CType::Date => writeln!(output, "{}show_date({});", pad, val_str).unwrap(),
+        CType::Time => writeln!(output, "{}show_time({});", pad, val_str).unwrap(),
+        CType::Duration => writeln!(output, "{}show_duration({});", pad, val_str).unwrap(),
+        CType::Span => writeln!(output, "{}show_span({});", pad, val_str).unwrap(),
+        // A collection of machine words shows each by its unsigned value, of temporal values each as itself.
+        _ if crate::codegen_c::types::holds_ints_read_apart(&ty) => {
+            let render = crate::codegen_c::types::c_field_to_string_expr(
+                &ty,
+                "__c",
+                ctx.interner,
+            );
+            writeln!(
+                output,
+                "{pad}{{ {} __c = {val_str}; char *__s = {render}; printf(\"%s\\n\", __s); lc_gc_free(__s); }}",
+                c_type_str(&ty)
+            )
+            .unwrap();
+        }
+        CType::SeqI64(ints) => {
+            // A list that may promote (`CContext::seq_may_promote`) is shown by its one bit (`show_seq_i64_any`):
+            // its words, or each promoted cell decoded; a byte/word-width reading never promotes.
+            let show_fn = if ints == Ints::Int && ctx.seq_may_promote(object) {
+                "show_seq_i64_any"
+            } else {
+                "show_seq_i64"
+            };
+            if let Expr::Identifier(_) = object {
+                writeln!(output, "{}{}(&{});", pad, show_fn, val_str).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}{{ Seq_i64 __tmp = {}; {}(&__tmp); }}",
+                    pad, val_str, show_fn
+                )
+                .unwrap();
+            }
+        }
+        CType::SeqBool => {
+            if let Expr::Identifier(_) = object {
+                writeln!(output, "{}show_seq_bool(&{});", pad, val_str).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}{{ Seq_bool __tmp = {}; show_seq_bool(&__tmp); }}",
+                    pad, val_str
+                )
+                .unwrap();
+            }
+        }
+        CType::SeqStr => {
+            if let Expr::Identifier(_) = object {
+                writeln!(output, "{}show_seq_str(&{});", pad, val_str).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}{{ Seq_str __tmp = {}; show_seq_str(&__tmp); }}",
+                    pad, val_str
+                )
+                .unwrap();
+            }
+        }
+        CType::SeqF64 => {
+            if let Expr::Identifier(_) = object {
+                writeln!(output, "{}show_seq_f64(&{});", pad, val_str).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}{{ Seq_f64 __tmp = {}; show_seq_f64(&__tmp); }}",
+                    pad, val_str
+                )
+                .unwrap();
+            }
+        }
+        // A Seq of a value type (`Show [money(…), …]`) → its `show_seq_<E>` (`[a, b]` format).
+        CType::SeqValue(inner) => {
+            let e = c_type_str(&inner);
+            if let Expr::Identifier(_) = object {
+                writeln!(output, "{}show_seq_{e}(&{});", pad, val_str).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}{{ Seq_{e} __tmp = {}; show_seq_{e}(&__tmp); }}",
+                    pad, val_str
+                )
+                .unwrap();
+            }
+        }
+        // A nested Seq (`Show [[1,2],[3,4]]`) → `show_seq_<inner>` (`[[..], ..]`), where the inner
+        // is itself a `Seq_…`. Its family + `to_string` are synthesized in `codegen_c::mod`.
+        CType::SeqSeq(inner) => {
+            let elem = c_type_str_resolved(&inner, ctx.interner); // e.g. "Seq_i64"
+            let tn = format!("Seq_{elem}"); // "Seq_Seq_i64"
+            if let Expr::Identifier(_) = object {
+                writeln!(output, "{}show_seq_{elem}(&{});", pad, val_str).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}{{ {tn} __tmp = {}; show_seq_{elem}(&__tmp); }}",
+                    pad, val_str
+                )
+                .unwrap();
+            }
+        }
+        // A tuple / named record (`Show (1, 2)`) → `<LTuple>_to_string` (PARENS). Records share the
+        // positional `LTuple` struct, so both use the same renderer.
+        CType::Tuple(elems) => {
+            let tn = crate::codegen_c::types::tuple_c_name(&elems, ctx.interner);
+            writeln!(
+                output,
+                "{}{{ char *__s = {}_to_string({}); printf(\"%s\\n\", __s); lc_gc_free(__s); }}",
+                pad, tn, val_str
+            )
+            .unwrap();
+        }
+        CType::Record(fields) => {
+            let elems: Vec<CType> = fields.iter().map(|(_, t)| t.clone()).collect();
+            let tn = crate::codegen_c::types::tuple_c_name(&elems, ctx.interner);
+            writeln!(
+                output,
+                "{}{{ char *__s = {}_to_string({}); printf(\"%s\\n\", __s); lc_gc_free(__s); }}",
+                pad, tn, val_str
+            )
+            .unwrap();
+        }
+        // A Seq of tuples (`Show [(1,2),(3,4)]`) → `show_seq_<LTuple>` (`[(1, 2), (3, 4)]`).
+        CType::SeqTuple(elems) => {
+            let tn = crate::codegen_c::types::tuple_c_name(&elems, ctx.interner);
+            let sq = format!("Seq_{tn}");
+            if let Expr::Identifier(_) = object {
+                writeln!(output, "{}show_seq_{tn}(&{});", pad, val_str).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}{{ {sq} __tmp = {}; show_seq_{tn}(&__tmp); }}",
+                    pad, val_str
+                )
+                .unwrap();
+            }
+        }
+        // A Seq of a showable user struct (`Show [p1, p2]`) → its `show_seq_<Name>` (each element
+        // via `<Name>_to_string`). Only when the element struct is C-renderable (see the Struct arm).
+        CType::SeqStruct(sym)
+            if crate::codegen_c::types::c_user_type_showable(
+                sym,
+                ctx.registry,
+                ctx.interner,
+            ) =>
+        {
+            let n = escape_c_ident(ctx.interner.resolve(sym));
+            let sq = crate::codegen_c::types::seq_struct_type(sym, ctx.interner);
+            if let Expr::Identifier(_) = object {
+                writeln!(output, "{}show_seq_{n}(&{});", pad, val_str).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}{{ {sq} __tmp = {}; show_seq_{n}(&__tmp); }}",
+                    pad, val_str
+                )
+                .unwrap();
+            }
+        }
+        // Maps render `{k: v, …}` and Sets `{a, …}` in INSERTION order (the C runtime carries an
+        // `order` array), byte-identical to the interpreter oracle. `show_<T>` takes a pointer.
+        CType::MapI64I64(_, _)
+        | CType::MapStrI64(_)
+        | CType::MapStrStr
+        | CType::MapI64Str(_)
+        | CType::MapStrValue(_)
+        | CType::MapI64Value(_)
+        | CType::SetI64(_)
+        | CType::SetStr
+        | CType::SetTuple(_) => {
+            let (tn, fun): (String, String) = match &ty {
+                CType::MapI64I64(_, _) => ("Map_i64_i64".into(), "show_map_i64_i64".into()),
+                CType::MapStrI64(_) => ("Map_str_i64".into(), "show_map_str_i64".into()),
+                CType::MapStrStr => ("Map_str_str".into(), "show_map_str_str".into()),
+                CType::MapI64Str(_) => ("Map_i64_str".into(), "show_map_i64_str".into()),
+                CType::MapStrValue(inner) => {
+                    let e = c_type_str_resolved(inner, ctx.interner);
+                    (format!("Map_str_{e}"), format!("show_map_str_{e}"))
+                }
+                CType::MapI64Value(inner) => {
+                    let e = c_type_str_resolved(inner, ctx.interner);
+                    (format!("Map_i64_{e}"), format!("show_map_i64_{e}"))
+                }
+                CType::SetI64(_) => ("Set_i64".into(), "show_set_i64".into()),
+                CType::SetStr => ("Set_str".into(), "show_set_str".into()),
+                CType::SetTuple(elems) => {
+                    let n = tuple_c_name(elems, ctx.interner);
+                    (format!("Set_{n}"), format!("show_set_{n}"))
+                }
+                _ => unreachable!(),
+            };
+            if let Expr::Identifier(_) = object {
+                writeln!(output, "{}{}(&{});", pad, fun, val_str).unwrap();
+            } else {
+                writeln!(
+                    output,
+                    "{}{{ {tn} __tmp = {}; {fun}(&__tmp); }}",
+                    pad, val_str
+                )
+                .unwrap();
+            }
+        }
+        // A whole enum value (`Show m`) → `<Name>_to_string` (`Just(42)`, `Leaf`, an Option's payload).
+        CType::Enum(sym)
+            if crate::codegen_c::types::c_enum_showable(
+                sym,
+                ctx.registry,
+                ctx.interner,
+            ) =>
+        {
+            let ts = crate::codegen_c::types::struct_to_string_fn(sym, ctx.interner);
+            writeln!(
+                output,
+                "{}{{ char *__s = {}({}); printf(\"%s\\n\", __s); lc_gc_free(__s); }}",
+                pad, ts, val_str
+            )
+            .unwrap();
+        }
+        CType::Struct(sym)
+            if crate::codegen_c::types::c_struct_showable(
+                sym,
+                ctx.registry,
+                ctx.interner,
+            ) =>
+        {
+            // Whole-value Show via the generated `<Name>_to_string` (braces, sorted fields,
+            // nested structs recursive) — the one renderer shared with nested fields + Seq-of-struct.
+            let ts = crate::codegen_c::types::struct_to_string_fn(sym, ctx.interner);
+            writeln!(
+                output,
+                "{}{{ char *__s = {}({}); printf(\"%s\\n\", __s); lc_gc_free(__s); }}",
+                pad, ts, val_str
+            )
+            .unwrap();
+        }
+        CType::Struct(sym) => {
+            if let Some(crate::analysis::TypeDef::Struct { fields, .. }) =
+                ctx.registry.get(sym)
+            {
+                let struct_name = ctx.display_name(sym);
+                // Print struct as `StructName { field1: val1, field2: val2 }` — byte-identical to the
+                // interpreter oracle: brace-delimited, fields SORTED by name (a struct's field storage
+                // is unordered, so a stable display order is what keeps every tier in lockstep), and an
+                // empty struct shows just its name. Display uses the raw LOGOS field name (what the
+                // oracle prints); field ACCESS uses the escaped C member name.
+                let mut sorted: Vec<&crate::analysis::FieldDef> = fields.iter().collect();
+                sorted.sort_by(|a, b| {
+                    ctx.interner
+                        .resolve(a.name)
+                        .cmp(ctx.interner.resolve(b.name))
+                });
+                if sorted.is_empty() {
+                    writeln!(output, "{}printf(\"{}\\n\");", pad, struct_name).unwrap();
+                } else {
+                    let mut fmt_parts = Vec::new();
+                    let mut arg_parts = Vec::new();
+                    fmt_parts.push(format!("{} {{ ", struct_name));
+                    for (i, f) in sorted.iter().enumerate() {
+                        let disp_name = ctx.interner.resolve(f.name);
+                        let acc_name = escape_c_ident(ctx.interner.resolve(f.name));
+                        let ctype = super::exact::field_ctype(
+                            sym,
+                            f,
+                            ctx.interner,
+                            ctx.registry,
+                            &ctx.field_facts(),
+                        );
+                        if i > 0 {
+                            fmt_parts.push(", ".to_string());
+                        }
+                        // A value-type field renders via its `*_to_string` (%s), not the `%lld`
+                        // that would print the struct as a garbage `0`. The buffer leaks — fine in
+                        // the short-lived program (same convention as elsewhere).
+                        let (fmt_spec, arg): (&str, String) = match ctype {
+                            CType::Int64 => {
+                                ("%\" PRId64 \"", format!("{}.{}", val_str, acc_name))
+                            }
+                            CType::Float64 => {
+                                ("%s", format!("logos_fmt_f64({}.{})", val_str, acc_name))
+                            }
+                            CType::Bool => (
+                                "%s",
+                                format!("{}.{} ? \"true\" : \"false\"", val_str, acc_name),
+                            ),
+                            CType::String => ("%s", format!("{}.{}", val_str, acc_name)),
+                            CType::Money => {
+                                ("%s", format!("money_to_string({}.{})", val_str, acc_name))
+                            }
+                            CType::Quantity => {
+                                ("%s", format!("quant_to_string({}.{})", val_str, acc_name))
+                            }
+                            CType::Modular => {
+                                ("%s", format!("mod_to_string({}.{})", val_str, acc_name))
+                            }
+                            CType::Uuid => {
+                                ("%s", format!("uuid_to_string({}.{})", val_str, acc_name))
+                            }
+                            CType::Complex => {
+                                ("%s", format!("cplx_to_string({}.{})", val_str, acc_name))
+                            }
+                            CType::BigInt => {
+                                ("%s", format!("lint_to_string({}.{})", val_str, acc_name))
+                            }
+                            CType::Rational | CType::Decimal => (
+                                "%s",
+                                format!(
+                                    "({{ LDec __d = {}.{}; ldec_to_string(&__d); }})",
+                                    val_str, acc_name
+                                ),
+                            ),
+                            other => (
+                                "%s",
+                                c_text_of(
+                                    &other,
+                                    &format!("{}.{}", val_str, acc_name),
+                                    ctx,
+                                ),
+                            ),
+                        };
+                        fmt_parts.push(format!("{}: {}", disp_name, fmt_spec));
+                        arg_parts.push(arg);
+                    }
+                    fmt_parts.push(" }".to_string());
+                    let fmt_string = fmt_parts.join("");
+                    writeln!(
+                        output,
+                        "{}printf(\"{}\\n\", {});",
+                        pad,
+                        fmt_string,
+                        arg_parts.join(", ")
+                    )
+                    .unwrap();
+                }
+            } else {
+                writeln!(output, "{}show_i64({});", pad, val_str).unwrap();
+            }
+        }
+        other => writeln!(
+            output,
+            "{}logos_show_text({});",
+            pad,
+            c_text_of(&other, &val_str, ctx)
+        )
+        .unwrap(),
+    }
+}
+
+/// The `Splice` | `Reversibly` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_splice_reversibly_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let (Stmt::Splice { body } | Stmt::Reversibly { body }) = stmt else {
+        unreachable!("codegen_splice_reversibly_stmt is called on the arm it was taken from")
+    };
+    codegen_block(body, ctx, output, indent);
+}
+
+/// The `During` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_during_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::During { body, .. } = stmt else {
+        unreachable!("codegen_during_stmt is called on the arm it was taken from")
+    };
+    codegen_block(body, ctx, output, indent);
+}
+
+/// The `Swap` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_swap_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Swap { a, b } = stmt else {
+        unreachable!("codegen_swap_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    if a == b {
+        return;
+    }
+    let (na, nb) = (ctx.resolve(*a).to_string(), ctx.resolve(*b).to_string());
+    let ty = ctx
+        .vars
+        .get(a)
+        .or_else(|| ctx.vars.get(b))
+        .cloned()
+        .unwrap_or(CType::Int64);
+    let tmp = ctx.temp("__swap", ty.clone());
+    let head = ctx.decl_head(&ty, &tmp);
+    // A builder taking a text that is not one gets a builder of its own; a builder's text passes as is.
+    let taking = |to: Symbol, from: Symbol, value: &str| {
+        if is_text_builder(to, ctx) && !is_text_builder(from, ctx) {
+            format!("logos_text_builder({value}, 0)")
+        } else {
+            value.to_string()
+        }
+    };
+    writeln!(
+        output,
+        "{pad}{{ {head} = {na}; {na} = {}; {nb} = {}; }}",
+        taking(*a, *b, &nb),
+        taking(*b, *a, &tmp)
+    )
+    .unwrap();
+}
+
+/// The `Return` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_return_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Return { value } = stmt else {
+        unreachable!("codegen_return_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    // A zone swallows a `Return` made inside it, through any loops: the value is computed and the zone
+    // left. In `## Main` a `Return` ends the run, as finished.
+    let leaves = ctx
+        .enclosing_zone_exit()
+        .map(|exit| format!("goto {exit};"))
+        .or_else(|| ctx.in_main.then(|| "return 0;".to_string()));
+    if let Some(leave) = leaves {
+        if let Some(val) = value {
+            writeln!(output, "{pad}(void)({});", codegen_expr(val, ctx)).unwrap();
+        }
+        writeln!(output, "{pad}{leave}").unwrap();
+        return;
+    }
+    // Rust drops unique Vec temporaries here automatically. Direct C must do the same or a
+    // recursive divide-and-conquer function retains its whole allocation tree. The plan is
+    // deliberately limited to fresh singleton sharing classes; this final gate admits only
+    // scalar sequences with no nested ownership, currently in scope, and never stack-backed
+    // or borrowed byte views.
+    if crate::optimize::active_config().is_on(crate::optimization::Opt::Unbox) {
+        let mut drops: Vec<_> = ctx
+            .ownership
+            .as_ref()
+            .into_iter()
+            .flat_map(|ownership| ownership.owned_drops.iter().copied())
+            .filter(|sym| {
+                !ctx.fixed_stack_seqs.contains_key(sym)
+                    && !ctx.text_bytes_views.contains_key(sym)
+                    && matches!(
+                        ctx.vars.get(sym),
+                        Some(CType::SeqI64(_) | CType::SeqBool | CType::SeqF64)
+                    )
+            })
+            .collect();
+        drops.sort_by_key(|sym| ctx.resolve(*sym));
+        for sym in drops {
+            writeln!(
+                output,
+                "{pad}lc_gc_free((void *){}.data); /* unique local drop */",
+                ctx.resolve(sym)
+            )
+            .unwrap();
+            crate::optimize::mark_fired(crate::optimization::Opt::Unbox);
+        }
+    }
+    if let Some(val) = value {
+        let val_str = codegen_expr(val, ctx);
+        // A builder's text leaves as a copy of its own.
+        let val_str =
+            if infer_expr_type(val, ctx) == CType::String && shares_builder(val, ctx) {
+                format!("lc_gc_strdup({val_str})")
+            } else {
+                val_str
+            };
+        let val_str = as_returned(val, val_str, ctx);
+        writeln!(output, "{}return {};", pad, val_str).unwrap();
+    } else {
+        writeln!(output, "{}return;", pad).unwrap();
+    }
+}
+
+/// The `If` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_if_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::If { cond, then_block, else_block } = stmt else {
+        unreachable!("codegen_if_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    // BranchlessAccumulate is profitable only when its add can be plain. The shared body
+    // proof admits exactly a zero-based `+1` accumulator changed in one i64-bounded loop;
+    // every other shape keeps the ordinary checked conditional add.
+    if else_block.is_none()
+        && then_block.len() == 1
+        && crate::optimize::active_config()
+            .is_on(crate::optimization::Opt::BranchlessAccumulate)
+    {
+        if let Some(Stmt::Set {
+            target,
+            value:
+                Expr::BinaryOp {
+                    op: BinaryOpKind::Add,
+                    left,
+                    right,
+                },
+        }) = then_block.first()
+        {
+            let unit_self_add = matches!(left, Expr::Identifier(sym) if *sym == *target)
+                && matches!(right, Expr::Literal(Literal::Number(1)));
+            let proven = ctx
+                .ownership
+                .as_ref()
+                .is_some_and(|own| own.bounded_count_accumulators.contains(target));
+            if unit_self_add && proven && ctx.vars.get(target) == Some(&CType::Int64) {
+                crate::optimize::mark_fired(crate::optimization::Opt::BranchlessAccumulate);
+                let name = ctx.resolve(*target);
+                let truth = c_truthy(cond, ctx);
+                writeln!(output, "{pad}{name} += (int64_t)!!({truth});").unwrap();
+                return;
+            }
+        }
+    }
+    let cond_str = c_truthy(cond, ctx);
+    writeln!(output, "{}if ({}) {{", pad, condition(&cond_str)).unwrap();
+    ctx.enter_scope();
+    codegen_block(then_block, ctx, output, indent + 1);
+    ctx.exit_scope();
+    if let Some(eb) = else_block {
+        writeln!(output, "{}}} else {{", pad).unwrap();
+        ctx.enter_scope();
+        codegen_block(eb, ctx, output, indent + 1);
+        ctx.exit_scope();
+    }
+    writeln!(output, "{}}}", pad).unwrap();
+}
+
+/// The `While` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_while_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::While { cond, body, .. } = stmt else {
+        unreachable!("codegen_while_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    if try_emit_c_tiled_while(stmt, ctx, output, indent) {
+        return;
+    }
+    if try_emit_c_native_descending_while(stmt, ctx, output, indent) {
+        return;
+    }
+    if try_emit_c_native_counted_while(stmt, ctx, output, indent) {
+        return;
+    }
+    if let Some(reuse) = detect_c_buffer_reuse(body, ctx) {
+        crate::optimize::mark_fired(crate::optimization::Opt::Peephole);
+        let inner_pad = format!("{pad}    ");
+        writeln!(output, "{pad}{{").unwrap();
+        ctx.enter_scope();
+        let inner = ctx.declare(reuse.inner, reuse.ty.clone());
+        let outer = ctx.resolve(reuse.outer).to_string();
+        let head = ctx.decl_head(&reuse.ty, &inner);
+        let new_fn = seq_fn(&reuse.ty, "new", ctx.interner)
+            .expect("buffer reuse is only detected for a sequence type");
+        writeln!(output, "{inner_pad}{head} = {new_fn}();").unwrap();
+
+        reserve_counted_fills(stmt, cond, body, ctx, output, &inner_pad, None);
+        let cond_str = c_truthy(cond, ctx);
+        writeln!(output, "{inner_pad}while ({}) {{", condition(&cond_str)).unwrap();
+        ctx.enter_scope();
+        ctx.in_loop(|ctx| {
+            let refs: Vec<&Stmt> = body.iter().collect();
+            let reused = |idx: usize| idx == reuse.inner_let || idx == reuse.move_set;
+            let mut consumed = false;
+            for (idx, child) in body.iter().enumerate() {
+                if std::mem::take(&mut consumed) {
+                    continue;
+                }
+                if idx == reuse.inner_let {
+                    writeln!(output, "{inner_pad}    {inner}.len = 0;").unwrap();
+                } else if idx == reuse.move_set {
+                    let ty = c_type_str_resolved(&reuse.ty, ctx.interner);
+                    writeln!(
+                        output,
+                        "{inner_pad}    {{ {ty} __buffer_swap = {outer}; {outer} = {inner}; {inner} = __buffer_swap; }}"
+                    )
+                    .unwrap();
+                } else if !reused(idx + 1)
+                    && try_emit_c_byte_compare_window(&refs, idx, ctx, output, indent + 2)
+                {
+                    consumed = true;
+                } else {
+                    codegen_stmt(child, ctx, output, indent + 2);
+                }
+            }
+        });
+        ctx.exit_scope();
+        writeln!(output, "{inner_pad}}}").unwrap();
+        ctx.exit_scope();
+        writeln!(output, "{pad}}}").unwrap();
+        return;
+    }
+    reserve_counted_fills(stmt, cond, body, ctx, output, &pad, None);
+    let cond_str = c_truthy(cond, ctx);
+    writeln!(output, "{}while ({}) {{", pad, condition(&cond_str)).unwrap();
+    ctx.enter_scope();
+    ctx.in_loop(|ctx| {
+        codegen_block(body, ctx, output, indent + 1);
+    });
+    ctx.exit_scope();
+    writeln!(output, "{}}}", pad).unwrap();
+}
+
+/// The `Zone` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_zone_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Zone { name, body, .. } = stmt else {
+        unreachable!("codegen_zone_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let inner = format!("{pad}    ");
+    ctx.in_zone(output, &pad, |ctx, output| {
+        writeln!(output, "{pad}{{").unwrap();
+        ctx.enter_scope();
+        bind_nothing(*name, ctx, output, &inner);
+        codegen_block(body, ctx, output, indent + 1);
+        ctx.exit_scope();
+        writeln!(output, "{pad}}}").unwrap();
+    });
+}
+
+/// The `Concurrent` | `Parallel` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_concurrent_parallel_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let (Stmt::Concurrent { tasks } | Stmt::Parallel { tasks }) = stmt else {
+        unreachable!("codegen_concurrent_parallel_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    for task in tasks.iter() {
+        ctx.in_zone(output, &pad, |ctx, output| {
+            codegen_stmt(task, ctx, output, indent)
+        });
+    }
+}
+
+/// The `Push` arm of [`codegen_stmt_node`] (when `infer_expr_type(collection, ctx) == CType::Tower`), in a frame of its
+/// own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_push_tower_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Push { collection, value } = stmt else {
+        unreachable!("codegen_push_tower_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    writeln!(
+        output,
+        "{pad}ltower_push({}, {});",
+        codegen_expr(collection, ctx),
+        super::tower::value(value, ctx)
+    )
+    .unwrap();
+}
+
+/// The `Push` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_push_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Push { collection, value } = stmt else {
+        unreachable!("codegen_push_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    if operand_place(collection, ctx)
+        && ctx.seq_may_promote(collection)
+        && infer_expr_type(collection, ctx) == CType::SeqI64(Ints::Int)
+    {
+        let operand = collection_operand(
+            collection,
+            || {
+                use crate::interpreter::RuntimeValue;
+                crate::semantics::collections::list_push(&RuntimeValue::Nothing, RuntimeValue::Nothing)
+            },
+            ctx,
+        );
+        let coll = operand.place.clone();
+        // The VM computes the value before it finds the list holds nothing.
+        let act = match operand.absent {
+            None => promoting_store(
+                value,
+                ctx,
+                |w| format!("seq_i64_push_word(&{coll}, {w});"),
+                |x| format!("seq_i64_push_lint(&{coll}, {x});"),
+            ),
+            Some(_) => format!(
+                "{{ LInt __pushed = {}; {} }}",
+                exact_lint_value(value, ctx),
+                operand.act(format!("seq_i64_push_lint(&{coll}, __pushed);"))
+            ),
+        };
+        writeln!(output, "{pad}{act}").unwrap();
+        return;
+    }
+    let val_str = stored(value, codegen_expr(value, ctx), ctx);
+    if operand_place(collection, ctx) {
+        let operand = collection_operand(
+            collection,
+            || {
+                use crate::interpreter::RuntimeValue;
+                crate::semantics::collections::list_push(&RuntimeValue::Nothing, RuntimeValue::Nothing)
+            },
+            ctx,
+        );
+        // A bignum-promoted value flowing into an int64-element `Seq` must be narrowed back to i64
+        // (see `narrow_i64_sink`) — otherwise `Push (a / b % c)` emits `seq_i64_push(&s, <LInt>)`.
+        let i64_val = narrow_i64_sink(value, val_str.clone(), ctx);
+        let (push, pushed) = match operand.ty.as_ref() {
+            Some(CType::SeqI64(_)) => ("seq_i64_push".to_string(), i64_val),
+            Some(CType::SeqBool) => ("seq_bool_push".to_string(), val_str),
+            Some(CType::SeqStr) => ("seq_str_push".to_string(), val_str),
+            Some(CType::SeqF64) => ("seq_f64_push".to_string(), val_str),
+            Some(CType::SeqStruct(s)) => (seq_struct_fn(*s, "push", ctx.interner), val_str),
+            Some(CType::SeqValue(inner)) if matches!(**inner, CType::Opt(_)) => {
+                ("seq_logos_opt_push".to_string(), opt_item(value, inner, ctx))
+            }
+            Some(CType::SeqValue(inner)) => (format!("seq_{}_push", c_type_str(inner)), val_str),
+            // Pushing an inner sequence into a `Seq of Seq of …` → the `seq_Seq_<inner>_push`
+            // family (the value is itself a Seq, so it rides `val_str`, not the i64-narrowed form).
+            Some(CType::SeqSeq(inner)) => (
+                format!("seq_{}_push", c_type_str_resolved(inner, ctx.interner)),
+                val_str,
+            ),
+            // Every other sequence — a `Seq of (Text, Int)` among them — pushes through its own family.
+            Some(seq) if super::types::is_seq_ctype(seq) => (
+                seq_fn(seq, "push", ctx.interner).expect("a sequence type names its push"),
+                val_str,
+            ),
+            _ => ("seq_i64_push".to_string(), i64_val),
+        };
+        let coll = &operand.place;
+        // The VM computes the value before it finds the list holds nothing.
+        let act = match operand.absent {
+            None => format!("{push}(&{coll}, {pushed});"),
+            Some(_) => format!(
+                "{{ __auto_type __pushed = {pushed}; {} }}",
+                operand.act(format!("{push}(&{coll}, __pushed);"))
+            ),
+        };
+        writeln!(output, "{pad}{act}").unwrap();
+    } else if matches!(collection, Expr::FieldAccess { .. }) {
+        // Push to a struct field that is itself a Seq (`Push v to b's items`): the field lvalue is
+        // `b.items`, and its element type comes from the field's inferred `CType`.
+        let coll = codegen_expr(collection, ctx);
+        let i64_val = narrow_i64_sink(value, val_str.clone(), ctx);
+        match infer_expr_type(collection, ctx) {
+            CType::SeqStr => {
+                writeln!(output, "{}seq_str_push(&{}, {});", pad, coll, val_str).unwrap()
+            }
+            CType::SeqF64 => {
+                writeln!(output, "{}seq_f64_push(&{}, {});", pad, coll, val_str).unwrap()
+            }
+            CType::SeqBool => {
+                writeln!(output, "{}seq_bool_push(&{}, {});", pad, coll, val_str).unwrap()
+            }
+            CType::SeqStruct(s) => writeln!(
+                output,
+                "{}{}(&{}, {});",
+                pad,
+                seq_struct_fn(s, "push", ctx.interner),
+                coll,
+                val_str
+            )
+            .unwrap(),
+            CType::SeqValue(inner) => writeln!(
+                output,
+                "{}seq_{}_push(&{}, {});",
+                pad,
+                c_type_str(&inner),
+                coll,
+                val_str
+            )
+            .unwrap(),
+            // A field's `Seq of Int` holds machine words (no field is a tagged slot, `exact::settle_tagged_seqs`): an
+            // exact value narrows into it, loudly past the word.
+            CType::SeqI64(_) => writeln!(output, "{}seq_i64_push(&{}, {});", pad, coll, i64_val).unwrap(),
+            seq if super::types::is_seq_ctype(&seq) => writeln!(
+                output,
+                "{}{}(&{}, {});",
+                pad,
+                seq_fn(&seq, "push", ctx.interner).expect("a sequence type names its push"),
+                coll,
+                val_str
+            )
+            .unwrap(),
+            _ => writeln!(output, "{}seq_i64_push(&{}, {});", pad, coll, i64_val).unwrap(),
+        }
+    }
+}
+
+/// The `Pop` arm of [`codegen_stmt_node`] (when `infer_expr_type(collection, ctx) == CType::Tower`), in a frame of its
+/// own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_pop_tower_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Pop { collection, into } = stmt else {
+        unreachable!("codegen_pop_tower_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let popped = format!("ltower_pop({})", codegen_expr(collection, ctx));
+    match into {
+        Some(var) => emit_binding(*var, CType::Tower, &popped, ctx, output, &pad),
+        None => writeln!(output, "{pad}(void){popped};").unwrap(),
+    }
+}
+
+/// The `Pop` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_pop_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Pop { collection, into } = stmt else {
+        unreachable!("codegen_pop_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let (place, ty) = match collection {
+        _ if operand_place(collection, ctx) => {
+            let operand = collection_operand(
+                collection,
+                || {
+                    crate::semantics::collections::list_pop(&crate::interpreter::RuntimeValue::Nothing)
+                        .map(|_| ())
+                },
+                ctx,
+            );
+            if let Some(check) = &operand.absent {
+                writeln!(output, "{pad}{check}").unwrap();
+            }
+            let ty = operand.ty.unwrap_or_else(|| collection_type(collection, ctx));
+            (operand.place, ty)
+        }
+        Expr::FieldAccess { .. } => (
+            codegen_expr(collection, ctx),
+            infer_expr_type(collection, ctx),
+        ),
+        _ => {
+            output.push_str(&c_refuse_expr(
+                "`Pop from` a list that is neither a variable nor a field",
+            ));
+            return;
+        }
+    };
+    let Some(element) = super::types::seq_element(&ty, ctx.registry) else {
+        output.push_str(&c_refuse_expr(&format!(
+            "`Pop from` a {ty:?}, which is not a list"
+        )));
+        return;
+    };
+    match into {
+        // A popped item that may be nothing is the value-or-nothing it is, with no second layer.
+        Some(var) if matches!(element, CType::Opt(_)) => {
+            let popped = format!(
+                "(({place}).len > 0 ? ({place}).data[--({place}).len] : (logos_opt){{0, 0}})"
+            );
+            emit_binding(*var, element, &popped, ctx, output, &pad);
+        }
+        Some(var) => {
+            let n = ctx.select_ctr.get();
+            ctx.select_ctr.set(n + 1);
+            let taken =
+                opt_pack(&element, &format!("({place}).data[--({place}).len]"), ctx);
+            let popped = format!(
+                "({{ logos_opt __popped{n} = {{0, 0}}; if (({place}).len > 0) {{ __popped{n}.present = 1; __popped{n}.value = {taken}; }} __popped{n}; }})"
+            );
+            emit_binding(
+                *var,
+                CType::Opt(Box::new(element)),
+                &popped,
+                ctx,
+                output,
+                &pad,
+            );
+        }
+        None => writeln!(output, "{pad}if (({place}).len > 0) ({place}).len--;").unwrap(),
+    }
+}
+
+/// The `Call` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_call_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Call { function, args } = stmt else {
+        unreachable!("codegen_call_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let call = Expr::Call {
+        function: *function,
+        args: args.clone(),
+    };
+    writeln!(output, "{pad}{};", codegen_expr(&call, ctx)).unwrap();
+}
+
+/// The `SetIndex` arm of [`codegen_stmt_node`] (when `infer_expr_type(collection, ctx) == CType::Tower`), in a frame of
+/// its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_set_index_tower_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::SetIndex { collection, index, value } = stmt else {
+        unreachable!("codegen_set_index_tower_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    writeln!(
+        output,
+        "{pad}ltower_set_item({}, {}, {});",
+        codegen_expr(collection, ctx),
+        super::tower::value(index, ctx),
+        super::tower::value(value, ctx)
+    )
+    .unwrap();
+}
+
+/// The `SetIndex` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_set_index_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::SetIndex { collection, index, value } = stmt else {
+        unreachable!("codegen_set_index_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    // A named collection, or a place reached through fields (`b's items`): either is an lvalue. A
+    // value-or-nothing variable is the collection it holds, found to hold nothing after the position and
+    // the value are computed, as the VM finds it.
+    let mut absent = None;
+    let (coll_name, coll_ty) = match collection {
+        _ if operand_place(collection, ctx) => {
+            let operand = collection_operand(
+                collection,
+                || {
+                    use crate::interpreter::RuntimeValue;
+                    crate::semantics::collections::index_set(
+                        &RuntimeValue::Nothing,
+                        &RuntimeValue::Int(1),
+                        RuntimeValue::Nothing,
+                    )
+                },
+                ctx,
+            );
+            absent = operand.absent;
+            (operand.place, operand.ty)
+        }
+        Expr::FieldAccess { .. } => (
+            codegen_expr(collection, ctx),
+            Some(infer_expr_type(collection, ctx)),
+        ),
+        // An item of a list is a list held in the outer list's buffer.
+        Expr::Index { .. } if seq_item_place(collection, ctx).is_some() => {
+            let (place, ty) = seq_item_place(collection, ctx).expect("checked above");
+            (place, Some(ty))
+        }
+        _ => {
+            output.push_str(&c_refuse_expr(
+                "`Set item … of` a collection that is neither a variable nor a field",
+            ));
+            return;
+        }
+    };
+    // A list that may promote: the position, then the value (stored as `promoting_store` stores it); a list that holds
+    // nothing is found so after both, as the VM finds it.
+    if matches!(&coll_ty, Some(CType::SeqI64(Ints::Int))) && ctx.seq_may_promote(collection) {
+        let idx = narrow_index(
+            index,
+            codegen_expr(index, ctx),
+            ctx,
+            crate::semantics::failcode::FailCode::ListStoreIndexTooWide,
+        );
+        let store = match &absent {
+            None => promoting_store(
+                value,
+                ctx,
+                |w| format!("seq_i64_set_word(&{coll_name}, __at, {w});"),
+                |x| format!("seq_i64_set_lint(&{coll_name}, __at, {x});"),
+            ),
+            Some(check) => format!(
+                "LInt __stored = {}; {check} seq_i64_set_lint(&{coll_name}, __at, __stored);",
+                exact_lint_value(value, ctx)
+            ),
+        };
+        writeln!(output, "{pad}{{ int64_t __at = {idx}; {store} }}").unwrap();
+        return;
+    }
+    // The position, then the value, as the VM computes them.
+    let cells = sequence_operands(&[*index, *value], ctx, output, &pad);
+    let idx_str = match &coll_ty {
+        Some(
+            CType::MapI64I64(_, _)
+            | CType::MapStrI64(_)
+            | CType::MapStrStr
+            | CType::MapI64Str(_)
+            | CType::MapStrValue(_)
+            | CType::MapI64Value(_),
+        ) => narrow_i64_sink(index, codegen_expr(index, ctx), ctx),
+        _ => narrow_index(
+            index,
+            codegen_expr(index, ctx),
+            ctx,
+            crate::semantics::failcode::FailCode::ListStoreIndexTooWide,
+        ),
+    };
+    let val_str = match &coll_ty {
+        // A map of the extension's values holds a cell of its own for each.
+        Some(CType::MapStrValue(inner) | CType::MapI64Value(inner)) if **inner == CType::Tower => {
+            super::tower::stored(value, ctx)
+        }
+        Some(CType::SeqValue(inner) | CType::MapStrValue(inner) | CType::MapI64Value(inner))
+            if matches!(**inner, CType::Opt(_)) =>
+        {
+            opt_item(value, inner, ctx)
+        }
+        _ => stored(
+            value,
+            narrow_i64_sink(value, codegen_expr(value, ctx), ctx),
+            ctx,
+        ),
+    };
+    let proven_direct = crate::optimize::active_config()
+        .is_on(crate::optimization::Opt::Unchecked)
+        && crate::optimize::facts::holds_expr(
+            crate::optimize::facts::Fact::InBounds,
+            index,
+        )
+        && matches!(
+            &coll_ty,
+            Some(
+                CType::SeqI64(_)
+                    | CType::SeqBool
+                    | CType::SeqStr
+                    | CType::SeqF64
+                    | CType::SeqStruct(_)
+                    | CType::SeqTuple(_)
+                    | CType::SeqSeq(_)
+                    | CType::SeqValue(_)
+            )
+        );
+    if let Some(check) = absent {
+        writeln!(output, "{pad}{check}").unwrap();
+    }
+    if proven_direct {
+        crate::optimize::mark_fired(crate::optimization::Opt::Unchecked);
+        writeln!(
+            output,
+            "{pad}({coll_name}).data[(size_t)(({idx_str}) - 1LL)] = {val_str};"
+        )
+        .unwrap();
+        forget_operands(cells, ctx);
+        return;
+    }
+    let setter = match &coll_ty {
+        Some(CType::MapI64I64(_, _)) => "map_i64_i64_set".to_string(),
+        Some(CType::MapStrI64(_)) => "map_str_i64_set".to_string(),
+        Some(CType::MapStrStr) => "map_str_str_set".to_string(),
+        Some(CType::MapI64Str(_)) => "map_i64_str_set".to_string(),
+        Some(CType::MapStrValue(inner)) => {
+            format!("map_str_{}_set", c_type_str_resolved(inner, ctx.interner))
+        }
+        Some(CType::MapI64Value(inner)) => {
+            format!("map_i64_{}_set", c_type_str_resolved(inner, ctx.interner))
+        }
+        Some(seq) => {
+            seq_fn(seq, "set", ctx.interner).unwrap_or_else(|| "seq_i64_set".to_string())
+        }
+        None => "seq_i64_set".to_string(),
+    };
+    writeln!(
+        output,
+        "{}{}(&{}, {}, {});",
+        pad, setter, coll_name, idx_str, val_str
+    )
+    .unwrap();
+    forget_operands(cells, ctx);
+}
+
+/// The `Repeat` arm of [`codegen_stmt_node`] (when `infer_expr_type(iterable, ctx) == CType::Tower`), in a frame of its
+/// own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_repeat_tower_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Repeat { pattern, iterable, body } = stmt else {
+        unreachable!("codegen_repeat_tower_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    // The items are taken once, before the first pass, as the VM takes them; each pass binds the
+    // pattern afresh in a block of its own.
+    let items = ctx.temp("__items", CType::Tower);
+    let count = ctx.temp("__count", CType::Int64);
+    let at = ctx.temp("__at", CType::Int64);
+    writeln!(output, "{pad}{{").unwrap();
+    writeln!(
+        output,
+        "{pad}    {} = ltower_items({});",
+        ctx.decl_head(&CType::Tower, &items),
+        codegen_expr(iterable, ctx)
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "{pad}    {} = ltower_length({items});",
+        ctx.decl_head(&CType::Int64, &count)
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "{pad}    for ({} = 1; {at} <= {count}; {at}++) {{",
+        ctx.decl_head(&CType::Int64, &at)
+    )
+    .unwrap();
+    ctx.enter_scope();
+    let inner = format!("{pad}        ");
+    let item = format!("ltower_item_at({items}, {at})");
+    match pattern {
+        Pattern::Identifier(sym) => emit_binding(*sym, CType::Tower, &item, ctx, output, &inner),
+        Pattern::Tuple(syms) => {
+            let whole = ctx.temp("__item", CType::Tower);
+            writeln!(output, "{inner}{} = {item};", ctx.decl_head(&CType::Tower, &whole)).unwrap();
+            for (k, sym) in syms.iter().enumerate() {
+                let part = format!("ltower_item_at({whole}, {})", k + 1);
+                emit_binding(*sym, CType::Tower, &part, ctx, output, &inner);
+            }
+        }
+    }
+    writeln!(output, "{inner}{{").unwrap();
+    ctx.enter_scope();
+    ctx.in_loop(|ctx| {
+        codegen_block(body, ctx, output, indent + 3);
+    });
+    ctx.exit_scope();
+    writeln!(output, "{inner}}}").unwrap();
+    ctx.exit_scope();
+    writeln!(output, "{pad}    }}").unwrap();
+    writeln!(output, "{pad}}}").unwrap();
+}
+
+/// The `Repeat` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_repeat_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Repeat { pattern, iterable, body } = stmt else {
+        unreachable!("codegen_repeat_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    if let Expr::Identifier(view_sym) = iterable {
+        if ctx.text_bytes_views.contains_key(view_sym) {
+            let var_sym = match pattern {
+                Pattern::Identifier(sym) => *sym,
+                Pattern::Tuple(syms) => {
+                    if let Some(sym) = syms.first() {
+                        *sym
+                    } else {
+                        return;
+                    }
+                }
+            };
+            let view = ctx.temp("__tbv", CType::String);
+            let at = ctx.temp("__tbi", CType::Int64);
+            let len = ctx.temp("__tbn", CType::Int64);
+            writeln!(
+                output,
+                "{pad}const unsigned char *{view} = (const unsigned char *){};",
+                ctx.resolve(*view_sym)
+            )
+            .unwrap();
+            writeln!(
+                output,
+                "{pad}for (size_t {at} = 0, {len} = strlen((const char *){view}); {at} < {len}; {at}++) {{"
+            )
+            .unwrap();
+            ctx.enter_scope();
+            match pattern {
+                Pattern::Tuple(syms) => bind_pattern_failing(
+                    syms,
+                    "Expected tuple for pattern, got Int",
+                    ctx,
+                    output,
+                    &format!("{pad}    "),
+                ),
+                Pattern::Identifier(_) => {
+                    let var_name = ctx.declare(var_sym, CType::Int64);
+                    writeln!(
+                        output,
+                        "{pad}    {} = (int64_t){view}[{at}];",
+                        ctx.decl_head(&CType::Int64, &var_name)
+                    )
+                    .unwrap();
+                }
+            }
+            ctx.in_loop(|ctx| {
+                codegen_block(body, ctx, output, indent + 1);
+            });
+            ctx.exit_scope();
+            writeln!(output, "{pad}}}").unwrap();
+            return;
+        }
+    }
+
+    // Check for Range-based iteration (optimized)
+    if let Expr::Range { start, end } = iterable {
+        let var_sym = match pattern {
+            Pattern::Identifier(sym) => *sym,
+            Pattern::Tuple(syms) => {
+                if let Some(s) = syms.first() {
+                    *s
+                } else {
+                    return;
+                }
+            }
+        };
+        // The range is read once, before the variable is bound, into temporaries of the loop's own
+        // block. A hidden count walks it and stops AT the end, never past it, so a range ending at the
+        // largest Int ends. Each pass binds the variable to the count afresh, and the body is a block of
+        // its own: a body that sets the variable, or binds its name anew, changes that pass only.
+        // The counter is a machine word, unless a bound is exact: then it walks exact integers from the one bound
+        // through the other, as the VM walks any Int.
+        if [start, end].iter().any(|b| infer_expr_type(b, ctx) == CType::BigInt) {
+            let exact = |b: &Expr, ctx: &CContext| {
+                let rendered = codegen_expr(b, ctx);
+                if infer_expr_type(b, ctx) == CType::BigInt {
+                    rendered
+                } else {
+                    exact_int_of(b, &rendered, ctx)
+                }
+            };
+            let (start_str, end_str) = (exact(start, ctx), exact(end, ctx));
+            let lo = ctx.temp("__lo", CType::BigInt);
+            let hi = ctx.temp("__hi", CType::BigInt);
+            let count = ctx.temp("__logos_count", CType::BigInt);
+            writeln!(output, "{pad}{{").unwrap();
+            writeln!(output, "{pad}    {} = {start_str};", ctx.decl_head(&CType::BigInt, &lo)).unwrap();
+            writeln!(output, "{pad}    {} = {end_str};", ctx.decl_head(&CType::BigInt, &hi)).unwrap();
+            writeln!(
+                output,
+                "{pad}    if (lint_cmp({lo}, {hi}) <= 0) for ({} = {lo}; ; {count} = lint_add({count}, lint_small(1))) {{",
+                ctx.decl_head(&CType::BigInt, &count)
+            )
+            .unwrap();
+            ctx.enter_scope();
+            let var_name = ctx.declare(var_sym, CType::BigInt);
+            writeln!(output, "{pad}        {} = {count};", ctx.decl_head(&CType::BigInt, &var_name)).unwrap();
+            writeln!(output, "{pad}        {{").unwrap();
+            ctx.enter_scope();
+            ctx.in_loop(|ctx| {
+                codegen_block(body, ctx, output, indent + 3);
+            });
+            ctx.exit_scope();
+            ctx.exit_scope();
+            writeln!(output, "{pad}        }}").unwrap();
+            writeln!(output, "{pad}        if (lint_cmp({count}, {hi}) == 0) break;").unwrap();
+            writeln!(output, "{pad}    }}").unwrap();
+            writeln!(output, "{pad}}}").unwrap();
+            return;
+        }
+        let start_str = range_bound(start, ctx);
+        let end_str = range_bound(end, ctx);
+        let lo = ctx.temp("__lo", CType::Int64);
+        let hi = ctx.temp("__hi", CType::Int64);
+        writeln!(output, "{pad}{{").unwrap();
+        writeln!(
+            output,
+            "{pad}    {} = {start_str};",
+            ctx.decl_head(&CType::Int64, &lo)
+        )
+        .unwrap();
+        writeln!(
+            output,
+            "{pad}    {} = {end_str};",
+            ctx.decl_head(&CType::Int64, &hi)
+        )
+        .unwrap();
+        let count = ctx.temp("__logos_count", CType::Int64);
+        writeln!(
+            output,
+            "{pad}    if ({lo} <= {hi}) for ({} = {lo}; ; {count}++) {{",
+            ctx.decl_head(&CType::Int64, &count)
+        )
+        .unwrap();
+        ctx.enter_scope();
+        let var_name = ctx.declare(var_sym, CType::Int64);
+        writeln!(
+            output,
+            "{pad}        {} = {count};",
+            ctx.decl_head(&CType::Int64, &var_name)
+        )
+        .unwrap();
+        writeln!(output, "{pad}        {{").unwrap();
+        ctx.enter_scope();
+        ctx.in_loop(|ctx| {
+            codegen_block(body, ctx, output, indent + 3);
+        });
+        ctx.exit_scope();
+        ctx.exit_scope();
+        writeln!(output, "{pad}        }}").unwrap();
+        writeln!(output, "{pad}        if ({count} == {hi}) break;").unwrap();
+        writeln!(output, "{pad}    }}").unwrap();
+        writeln!(output, "{pad}}}").unwrap();
+        return;
+    }
+
+    // A value-or-nothing variable is the collection it holds, failing in the VM's words when it holds none.
+    let operand = match iterable {
+        _ if opt_place(iterable, ctx) => {
+            Some(collection_operand(
+                iterable,
+                || {
+                    crate::semantics::collections::iteration_snapshot(
+                        &crate::interpreter::RuntimeValue::Nothing,
+                    )
+                    .map(|_| ())
+                },
+                ctx,
+            ))
+        }
+        _ => None,
+    };
+    let coll_type = match &operand {
+        Some(CollectionOperand { ty: Some(ty), .. }) => ty.clone(),
+        _ => infer_expr_type(iterable, ctx),
+    };
+    // The collection is read once, before the first pass — as a copy of its own when the body changes it,
+    // since the passes walk the collection as it was when the loop began.
+    let changed_in_body = {
+        let changed = super::sharing::changed_in(
+            body,
+            &ctx.changed_statics,
+            &ctx.mutating,
+            &ctx.call_shapes,
+            &ctx.fn_inout,
+        );
+        match ctx.ownership.as_deref() {
+            Some(own) => own.sharing.closure(&changed),
+            None => changed,
+        }
+    };
+    let iterated = match &operand {
+        Some(operand) => operand.read(operand.place.clone()),
+        None => codegen_expr(iterable, ctx),
+    };
+    let iterated = if super::values::binding_needs_copy(
+        iterable,
+        &coll_type,
+        None,
+        &changed_in_body,
+        ctx,
+    ) {
+        super::values::copy_value(&coll_type, &iterated, ctx)
+    } else {
+        iterated
+    };
+    let iter_str = ctx.temp("__it", coll_type.clone());
+    writeln!(
+        output,
+        "{pad}{} = {iterated};",
+        ctx.decl_head(&coll_type, &iter_str)
+    )
+    .unwrap();
+
+    // Map iteration — direct bucket scan
+    let map_types = super::types::map_entry_types(&coll_type);
+
+    if let Some((key_type, val_type)) = map_types {
+        // In insertion order, as the interpreter's map iterates: the `order` array `Show` walks too.
+        let oi = ctx.temp("__oi", CType::Int64);
+        let mi = ctx.temp("__mi", CType::Int64);
+        let oi_head = ctx.decl_head(&CType::Int64, &oi);
+        let mi_head = ctx.decl_head(&CType::Int64, &mi);
+        writeln!(
+            output,
+            "{pad}for ({oi_head} = 0; {oi} < (int64_t){iter_str}.ord_len; {oi}++) {{"
+        )
+        .unwrap();
+        writeln!(
+            output,
+            "{pad}    {mi_head} = (int64_t){iter_str}.order[{oi}];"
+        )
+        .unwrap();
+        writeln!(output, "{pad}    if (!{iter_str}.state[{mi}]) continue;").unwrap();
+
+        ctx.enter_scope();
+        match pattern {
+            Pattern::Tuple(syms) if syms.len() != 2 => {
+                let failure = format!("Cannot bind a 2-tuple to {} names", syms.len());
+                bind_pattern_failing(syms, &failure, ctx, output, &format!("{pad}    "));
+            }
+            Pattern::Tuple(syms) => {
+                let value = format!("{iter_str}.vals[{mi}]");
+                let value =
+                    own_binding(&val_type, value, changed_in_body.contains(&syms[1]), ctx);
+                let k_name = ctx.declare(syms[0], key_type.clone());
+                let v_name = ctx.declare(syms[1], val_type.clone());
+                writeln!(
+                    output,
+                    "{}    {} = {}.keys[{}];",
+                    pad,
+                    ctx.decl_head(&key_type, &k_name),
+                    iter_str,
+                    mi
+                )
+                .unwrap();
+                writeln!(
+                    output,
+                    "{}    {} = {value};",
+                    pad,
+                    ctx.decl_head(&val_type, &v_name)
+                )
+                .unwrap();
+            }
+            // One name binds the whole entry, `(key, value)`, as on the interpreter.
+            _ => {
+                let var_sym = match pattern {
+                    Pattern::Identifier(sym) => *sym,
+                    Pattern::Tuple(syms) => {
+                        if let Some(s) = syms.first() {
+                            *s
+                        } else {
+                            return;
+                        }
+                    }
+                };
+                let entry = CType::Tuple(vec![key_type.clone(), val_type.clone()]);
+                let entry_c = c_type_str_resolved(&entry, ctx.interner);
+                let var_name = ctx.declare(var_sym, entry.clone());
+                let head = ctx.decl_head(&entry, &var_name);
+                writeln!(
+                    output,
+                    "{pad}    {head} = ({entry_c}){{ {iter_str}.keys[{mi}], {iter_str}.vals[{mi}] }};"
+                )
+                .unwrap();
+            }
+        }
+
+        ctx.in_loop(|ctx| {
+            codegen_block(body, ctx, output, indent + 1);
+        });
+        ctx.exit_scope();
+        writeln!(output, "{}}}", pad).unwrap();
+    } else if let Some(elem_type) = super::types::set_element(&coll_type) {
+        // A set iterates its elements in insertion order, as the interpreter's does: the `order` array
+        // its `Show` walks. A tuple pattern over a set of tuples binds each name to its position of the
+        // member, at that position's own type.
+        if let (Pattern::Tuple(syms), CType::Tuple(elems)) = (pattern, &elem_type) {
+            if syms.len() != elems.len() {
+                let failure =
+                    format!("Cannot bind a {}-tuple to {} names", elems.len(), syms.len());
+                bind_pattern_failing(syms, &failure, ctx, output, &format!("{pad}    "));
+                return;
+            }
+            let oi = ctx.temp("__oi", CType::Int64);
+            let si = ctx.temp("__si", CType::Int64);
+            let oi_head = ctx.decl_head(&CType::Int64, &oi);
+            let si_head = ctx.decl_head(&CType::Int64, &si);
+            writeln!(
+                output,
+                "{pad}for ({oi_head} = 0; {oi} < (int64_t){iter_str}.ord_len; {oi}++) {{"
+            )
+            .unwrap();
+            writeln!(output, "{pad}    {si_head} = (int64_t){iter_str}.order[{oi}];").unwrap();
+            writeln!(output, "{pad}    if (!{iter_str}.state[{si}]) continue;").unwrap();
+            ctx.enter_scope();
+            for (k, (sym, ty)) in syms.iter().zip(elems.iter()).enumerate() {
+                let name = ctx.declare(*sym, ty.clone());
+                writeln!(
+                    output,
+                    "{pad}    {} = {iter_str}.keys[{si}].f{k};",
+                    ctx.decl_head(ty, &name)
+                )
+                .unwrap();
+            }
+            ctx.in_loop(|ctx| {
+                codegen_block(body, ctx, output, indent + 1);
+            });
+            ctx.exit_scope();
+            writeln!(output, "{}}}", pad).unwrap();
+            return;
+        }
+        let var_sym = match pattern {
+            Pattern::Identifier(sym) => *sym,
+            Pattern::Tuple(syms) => match syms.first() {
+                Some(sym) => *sym,
+                None => return,
+            },
+        };
+        let oi = ctx.temp("__oi", CType::Int64);
+        let si = ctx.temp("__si", CType::Int64);
+        let oi_head = ctx.decl_head(&CType::Int64, &oi);
+        let si_head = ctx.decl_head(&CType::Int64, &si);
+        writeln!(
+            output,
+            "{pad}for ({oi_head} = 0; {oi} < (int64_t){iter_str}.ord_len; {oi}++) {{"
+        )
+        .unwrap();
+        writeln!(output, "{pad}    {si_head} = (int64_t){iter_str}.order[{oi}];").unwrap();
+        writeln!(output, "{pad}    if (!{iter_str}.state[{si}]) continue;").unwrap();
+        ctx.enter_scope();
+        let var_name = ctx.declare(var_sym, elem_type.clone());
+        writeln!(
+            output,
+            "{pad}    {} = {iter_str}.keys[{si}];",
+            ctx.decl_head(&elem_type, &var_name)
+        )
+        .unwrap();
+        ctx.in_loop(|ctx| {
+            codegen_block(body, ctx, output, indent + 1);
+        });
+        ctx.exit_scope();
+        writeln!(output, "{}}}", pad).unwrap();
+    } else if let (CType::SeqTuple(elems), Pattern::Tuple(syms)) = (&coll_type, pattern) {
+        // A Seq of tuples destructured positionally (`Repeat for (a, b) in pairs`): iterate the
+        // `seq_<LTuple>` family and bind each pattern variable to the element's positional field
+        // (`f0..fN`), at that field's own C type (so a `(Int, Text)` element binds `a`/`b` correctly).
+        let tn = tuple_c_name(elems, ctx.interner);
+        let idx = ctx.temp("__idx", CType::Int64);
+        let tup = ctx.temp("__tup", CType::Tuple(elems.clone()));
+        writeln!(
+            output,
+            "{pad}for ({} = 1; {idx} <= seq_{tn}_len(&{iter_str}); {idx}++) {{",
+            ctx.decl_head(&CType::Int64, &idx)
+        )
+        .unwrap();
+        writeln!(
+            output,
+            "{pad}    {} = seq_{tn}_get(&{iter_str}, {idx});",
+            ctx.decl_head(&CType::Tuple(elems.clone()), &tup)
+        )
+        .unwrap();
+        ctx.enter_scope();
+        if syms.len() == elems.len() {
+            for (i, sym) in syms.iter().enumerate() {
+                let field_ty = elems[i].clone();
+                let part = format!("{tup}.f{i}");
+                let part = own_binding(&field_ty, part, changed_in_body.contains(sym), ctx);
+                let name = ctx.declare(*sym, field_ty.clone());
+                writeln!(
+                    output,
+                    "{pad}    {} = {part};",
+                    ctx.decl_head(&field_ty, &name)
+                )
+                .unwrap();
+            }
+        } else {
+            let failure = format!(
+                "Cannot bind a {}-tuple to {} names",
+                elems.len(),
+                syms.len()
+            );
+            bind_pattern_failing(syms, &failure, ctx, output, &format!("{pad}    "));
+        }
+        ctx.in_loop(|ctx| {
+            codegen_block(body, ctx, output, indent + 1);
+        });
+        ctx.exit_scope();
+        writeln!(output, "{}}}", pad).unwrap();
+    } else if coll_type == CType::String {
+        // A Text is iterated character by character, each a Text of its own.
+        let var_sym = match pattern {
+            Pattern::Identifier(sym) => *sym,
+            Pattern::Tuple(syms) => {
+                if let Some(s) = syms.first() {
+                    *s
+                } else {
+                    return;
+                }
+            }
+        };
+        let at = ctx.temp("__at", CType::String);
+        let width = ctx.temp("__width", CType::Int64);
+        writeln!(output, "{pad}{} = 0;", ctx.decl_head(&CType::Int64, &width)).unwrap();
+        writeln!(
+            output,
+            "{pad}for ({} = {iter_str}; *{at}; {at} += {width}) {{",
+            ctx.decl_head(&CType::String, &at)
+        )
+        .unwrap();
+        writeln!(
+            output,
+            "{pad}    {width} = ((unsigned char)*{at} < 0x80) ? 1 : (((unsigned char)*{at} >> 5) == 6) ? 2 : (((unsigned char)*{at} >> 4) == 14) ? 3 : 4;"
+        )
+        .unwrap();
+        ctx.enter_scope();
+        match pattern {
+            Pattern::Tuple(syms) => bind_pattern_failing(
+                syms,
+                "Expected tuple for pattern, got Text",
+                ctx,
+                output,
+                &format!("{pad}    "),
+            ),
+            Pattern::Identifier(_) => {
+                let var_name = ctx.declare(var_sym, CType::String);
+                writeln!(
+                    output,
+                    "{pad}    {} = lc_gc_strndup({at}, (size_t){width});",
+                    ctx.decl_head(&CType::String, &var_name)
+                )
+                .unwrap();
+            }
+        }
+        ctx.in_loop(|ctx| {
+            codegen_block(body, ctx, output, indent + 1);
+        });
+        ctx.exit_scope();
+        writeln!(output, "{}}}", pad).unwrap();
+    } else {
+        // Seq iteration
+        let var_sym = match pattern {
+            Pattern::Identifier(sym) => *sym,
+            Pattern::Tuple(syms) => {
+                if let Some(s) = syms.first() {
+                    *s
+                } else {
+                    return;
+                }
+            }
+        };
+        let (len_fn, get_fn, elem_type): (String, String, CType) = match &coll_type {
+            CType::SeqBool => ("seq_bool_len".into(), "seq_bool_get".into(), CType::Bool),
+            CType::SeqStr => ("seq_str_len".into(), "seq_str_get".into(), CType::String),
+            CType::SeqF64 => ("seq_f64_len".into(), "seq_f64_get".into(), CType::Float64),
+            // Iterate a Seq of a value type — the loop var binds the element (Money/Quantity/…).
+            CType::SeqValue(inner) => {
+                let e = c_type_str(inner);
+                (
+                    format!("seq_{e}_len"),
+                    format!("seq_{e}_get"),
+                    (**inner).clone(),
+                )
+            }
+            // Iterate a nested `Seq of Seq of …` — the loop var binds an INNER sequence
+            // (`Seq_i64`/`Seq_str`) via the `seq_Seq_<inner>_*` family, not the flat default.
+            CType::SeqSeq(inner) => {
+                let e = c_type_str_resolved(inner, ctx.interner);
+                (
+                    format!("seq_{e}_len"),
+                    format!("seq_{e}_get"),
+                    (**inner).clone(),
+                )
+            }
+            // Iterate a `Seq of <Struct>` / `Seq of <Enum>` — the loop var binds each value.
+            CType::SeqStruct(sym) => (
+                seq_struct_fn(*sym, "len", ctx.interner),
+                seq_struct_fn(*sym, "get", ctx.interner),
+                crate::codegen_c::types::user_type_ctype(*sym, ctx.registry),
+            ),
+            // Iterate a `Seq of (…)` into ONE name — the loop var binds the whole tuple.
+            CType::SeqTuple(elems) => {
+                let tn = tuple_c_name(elems, ctx.interner);
+                (
+                    format!("seq_{tn}_len"),
+                    format!("seq_{tn}_get"),
+                    CType::Tuple(elems.clone()),
+                )
+            }
+            // Iterate a `Seq of Int` or of a machine word — the loop var binds each as it reads. A list that may
+            // promote ([`CContext::seq_may_promote`]) is read where a machine word holds each element
+            // (`seq_i64_get_word`): its word, or a promoted cell narrowed, loudly past the word.
+            CType::SeqI64(ints) if *ints == Ints::Int && ctx.seq_may_promote(iterable) => {
+                ("seq_i64_len".into(), "seq_i64_get_word".into(), CType::Int64)
+            }
+            CType::SeqI64(ints) => ("seq_i64_len".into(), "seq_i64_get".into(), ints.ctype()),
+            _ => ("seq_i64_len".into(), "seq_i64_get".into(), CType::Int64),
+        };
+        let idx = ctx.temp("__idx", CType::Int64);
+        writeln!(
+            output,
+            "{pad}for ({} = 1; {idx} <= {len_fn}(&{iter_str}); {idx}++) {{",
+            ctx.decl_head(&CType::Int64, &idx)
+        )
+        .unwrap();
+        ctx.enter_scope();
+        match pattern {
+            // An element that is not a tuple cannot be taken apart: the pass fails, as on the VM.
+            Pattern::Tuple(syms) => {
+                let failure = format!(
+                    "Expected tuple for pattern, got {}",
+                    vm_type_name(&elem_type, ctx)
+                );
+                bind_pattern_failing(syms, &failure, ctx, output, &format!("{pad}    "));
+            }
+            Pattern::Identifier(_) => {
+                let element = format!("{get_fn}(&{iter_str}, {idx})");
+                let element = own_binding(
+                    &elem_type,
+                    element,
+                    changed_in_body.contains(&var_sym),
+                    ctx,
+                );
+                let var_name = ctx.declare(var_sym, elem_type.clone());
+                writeln!(
+                    output,
+                    "{pad}    {} = {element};",
+                    ctx.decl_head(&elem_type, &var_name)
+                )
+                .unwrap();
+            }
+        }
+        ctx.in_loop(|ctx| {
+            codegen_block(body, ctx, output, indent + 1);
+        });
+        ctx.exit_scope();
+        writeln!(output, "{}}}", pad).unwrap();
+    }
+}
+
+/// The `Add` | `Remove` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_add_remove_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let (Stmt::Add { value, collection } | Stmt::Remove { value, collection }) = stmt else {
+        unreachable!("codegen_add_remove_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let adding = matches!(stmt, Stmt::Add { .. });
+    // A value-or-nothing variable is the collection it holds, found to hold nothing once the member is
+    // computed, as the VM finds it.
+    let operand = match collection {
+        _ if operand_place(collection, ctx) => Some(collection_operand(
+            collection,
+            || {
+                use crate::interpreter::RuntimeValue as V;
+                if adding {
+                    crate::semantics::collections::set_add(&V::Nothing, V::Nothing)
+                } else {
+                    crate::semantics::collections::remove_from(&V::Nothing, &V::Nothing)
+                }
+            },
+            ctx,
+        )),
+        _ => None,
+    };
+    let absent = operand.as_ref().and_then(|o| o.absent.clone());
+    let v = match &absent {
+        None => codegen_expr(value, ctx),
+        Some(_) => "__member".to_string(),
+    };
+    let found = match operand {
+        Some(CollectionOperand { place, ty: Some(ty), .. }) => Some((place, ty)),
+        _ => changed_place_of(collection, ctx),
+    };
+    let Some((place, ty)) = found else {
+        output.push_str(&c_refuse_expr(
+            "`Add`/`Remove` on a collection that is neither a variable nor a field",
+        ));
+        return;
+    };
+    let word = narrow_i64_sink(value, v.clone(), ctx);
+    let call = match (adding, &ty) {
+        (true, CType::SetI64(_)) => Some(format!("set_i64_add(&{place}, {word})")),
+        (true, CType::SetStr) => Some(format!("set_str_add(&{place}, {v})")),
+        (adding, CType::SetTuple(elems)) if super::types::tuple_is_set_key(elems) => Some(format!(
+            "set_{}_{}(&{place}, {v})",
+            tuple_c_name(elems, ctx.interner),
+            if adding { "add" } else { "remove" }
+        )),
+        (false, CType::SetI64(_)) => Some(format!("set_i64_remove(&{place}, {word})")),
+        (false, CType::SetStr) => Some(format!("set_str_remove(&{place}, {v})")),
+        (false, CType::MapI64I64(_, _)) => Some(format!("map_i64_i64_remove(&{place}, {word})")),
+        (false, CType::MapI64Str(_)) => Some(format!("map_i64_str_remove(&{place}, {word})")),
+        (false, CType::MapStrI64(_)) => Some(format!("map_str_i64_remove(&{place}, {v})")),
+        (false, CType::MapStrStr) => Some(format!("map_str_str_remove(&{place}, {v})")),
+        (false, CType::MapStrValue(inner)) => Some(format!(
+            "map_str_{}_remove(&{place}, {v})",
+            c_type_str_resolved(inner, ctx.interner)
+        )),
+        (false, CType::MapI64Value(inner)) => Some(format!(
+            "map_i64_{}_remove(&{place}, {word})",
+            c_type_str_resolved(inner, ctx.interner)
+        )),
+        _ => None,
+    };
+    match (call, absent) {
+        (Some(call), None) => writeln!(output, "{pad}{call};").unwrap(),
+        (Some(call), Some(check)) => writeln!(
+            output,
+            "{pad}{{ __auto_type __member = {}; {check} {call}; }}",
+            codegen_expr(value, ctx)
+        )
+        .unwrap(),
+        (None, _) => {
+            use crate::interpreter::RuntimeValue as V;
+            let sample = V::Int(0);
+            let refusal = if adding {
+                crate::semantics::collections::set_add(&V::Int(0), sample)
+            } else {
+                crate::semantics::collections::remove_from(&V::Int(0), &sample)
+            }
+            .err()
+            .unwrap_or_default();
+            writeln!(output, "{pad}(void)({v});").unwrap();
+            writeln!(
+                output,
+                "{pad}{}",
+                ctx.fail_stmt(&c_string_literal(&refusal))
+            )
+            .unwrap();
+        }
+    }
+}
+
+/// The `SetField` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_set_field_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::SetField { object, field, value } = stmt else {
+        unreachable!("codegen_set_field_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let obj = codegen_expr(object, ctx);
+    let fname = escape_c_ident(ctx.interner.resolve(*field));
+    let val = codegen_expr(value, ctx);
+    let val = match infer_expr_type(object, ctx) {
+        CType::Struct(sym) => match ctx.registry.get(sym) {
+            Some(crate::analysis::TypeDef::Struct { fields, .. }) => as_field_value(
+                val,
+                value,
+                sym,
+                fields.iter().find(|f| f.name == *field),
+                ctx,
+            ),
+            _ => val,
+        },
+        _ => val,
+    };
+    writeln!(output, "{}{}.{} = {};", pad, obj, fname, val).unwrap();
+}
+
+/// The `MergeCrdt` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_merge_crdt_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::MergeCrdt { source, target } = stmt else {
+        unreachable!("codegen_merge_crdt_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let src = codegen_expr(source, ctx);
+    let tgt = codegen_expr(target, ctx);
+    if let CType::Struct(sym) = infer_expr_type(target, ctx) {
+        if let Some(crate::analysis::TypeDef::Struct { fields, .. }) = ctx.registry.get(sym)
+        {
+            for f in fields {
+                let fname = escape_c_ident(ctx.interner.resolve(f.name));
+                if ctx.is_counter_field(sym, f.name) {
+                    writeln!(
+                        output,
+                        "{}logos_crdt_merge((logos_crdt *)(intptr_t)({}.{}), (logos_crdt *)(intptr_t)({}.{}));",
+                        pad, tgt, fname, src, fname
+                    )
+                    .unwrap();
+                } else if let Some(ctype) = c_struct_field_ctype(ctx, sym, f.name) {
+                    emit_crdt_merge_value(&ctype, &format!("{tgt}.{fname}"), &format!("{src}.{fname}"), ctx, output, &pad);
+                }
+            }
+        }
+    }
+}
+
+/// The `JoinCrdt` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_join_crdt_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::JoinCrdt { source, target } = stmt else {
+        unreachable!("codegen_join_crdt_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let src = codegen_expr(source, ctx);
+    let tgt = codegen_expr(target, ctx);
+    if let CType::Struct(sym) = infer_expr_type(target, ctx) {
+        if let Some(crate::analysis::TypeDef::Struct { fields, .. }) = ctx.registry.get(sym)
+        {
+            for f in fields {
+                let fname = escape_c_ident(ctx.interner.resolve(f.name));
+                if ctx.is_counter_field(sym, f.name) {
+                    writeln!(
+                        output,
+                        "{}logos_crdt_merge((logos_crdt *)(intptr_t)({}.{}), (logos_crdt *)(intptr_t)({}.{}));",
+                        pad, tgt, fname, src, fname
+                    )
+                    .unwrap();
+                } else {
+                    // Plain field: the VM's `crdt_join_field` takes an Int's per-field MAX and merges any
+                    // other field as `Merge` does.
+                    match c_struct_field_ctype(ctx, sym, f.name) {
+                        Some(CType::Int64) => writeln!(
+                            output,
+                            "{}{}.{} = {}.{} > {}.{} ? {}.{} : {}.{};",
+                            pad, tgt, fname, tgt, fname, src, fname, tgt, fname, src, fname
+                        )
+                        .unwrap(),
+                        Some(ctype) => emit_crdt_merge_value(
+                            &ctype,
+                            &format!("{tgt}.{fname}"),
+                            &format!("{src}.{fname}"),
+                            ctx,
+                            output,
+                            &pad,
+                        ),
+                        None => {}
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The `Inspect` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_inspect_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Inspect { target, arms, has_otherwise } = stmt else {
+        unreachable!("codegen_inspect_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let target_type = infer_expr_type(target, ctx);
+    // The value inspected is computed once, before any arm is tried.
+    let target_str = match target {
+        Expr::Identifier(_) => codegen_expr(target, ctx),
+        _ => {
+            let value = codegen_expr(target, ctx);
+            let cell = ctx.temp("__inspected", target_type.clone());
+            writeln!(
+                output,
+                "{pad}{} = {value};",
+                ctx.decl_head(&target_type, &cell)
+            )
+            .unwrap();
+            cell
+        }
+    };
+    let enum_sym = if let CType::Enum(sym) = target_type {
+        Some(sym)
+    } else {
+        None
+    };
+
+    // The variants no arm names. When there are none and no `Otherwise`, the last arm is the plain `else`:
+    // every tag is then accounted for, and a function whose arms all return returns on every path.
+    let uncovered: Option<Vec<Symbol>> = match enum_sym.and_then(|e| ctx.registry.get(e)) {
+        Some(crate::analysis::TypeDef::Enum { variants, .. }) => Some(
+            variants
+                .iter()
+                .map(|v| v.name)
+                .filter(|v| !arms.iter().any(|arm| arm.variant == Some(*v)))
+                .collect(),
+        ),
+        _ => None,
+    };
+    let closing_arm = (!*has_otherwise && uncovered.as_ref().is_some_and(|u| u.is_empty()))
+        .then(|| arms.iter().rposition(|arm| arm.variant.is_some()))
+        .flatten();
+
+    let mut first = true;
+    for (at, arm) in arms.iter().enumerate() {
+        if let Some(variant_sym) = arm.variant {
+            let ename = arm
+                .enum_name
+                .map(|s| escape_c_ident(ctx.interner.resolve(s)))
+                .or_else(|| enum_sym.map(|s| escape_c_ident(ctx.interner.resolve(s))))
+                .unwrap_or_else(|| "Unknown".to_string());
+            let vname = escape_c_ident(ctx.interner.resolve(variant_sym));
+
+            match (first, closing_arm == Some(at)) {
+                (true, true) => writeln!(output, "{pad}{{").unwrap(),
+                (true, false) => writeln!(
+                    output,
+                    "{}if ({}.tag == {}_{}) {{",
+                    pad, target_str, ename, vname
+                )
+                .unwrap(),
+                (false, true) => writeln!(output, "{pad}}} else {{").unwrap(),
+                (false, false) => writeln!(
+                    output,
+                    "{}}} else if ({}.tag == {}_{}) {{",
+                    pad, target_str, ename, vname
+                )
+                .unwrap(),
+            }
+            first = false;
+
+            // Extract bindings from variant fields, each the arm's own; a field the arm never reads is not taken.
+            ctx.enter_scope();
+            let read = crate::optimize::mentions::Mentions::of_block(arm.body);
+            for (field_name, binding_name) in &arm.bindings {
+                if !read.touches(ctx.interner.resolve(*binding_name), ctx.interner) {
+                    continue;
+                }
+                let fname = escape_c_ident(ctx.interner.resolve(*field_name));
+                // Infer the field type from the registry, detecting recursive fields
+                let (field_ctype, is_recursive_field) = if let Some(esym) = enum_sym {
+                    if let Some(crate::analysis::TypeDef::Enum { variants, .. }) =
+                        ctx.registry.get(esym)
+                    {
+                        variants.iter()
+                            .find(|v| v.name == variant_sym)
+                            .and_then(|v| v.fields.iter().find(|f| f.name == *field_name))
+                            .map(|f| {
+                                let is_self = matches!(&f.ty, crate::analysis::FieldType::Named(fsym) if *fsym == esym);
+                                let ctype = super::exact::field_ctype(variant_sym, f, ctx.interner, ctx.registry, &ctx.field_facts());
+                                (ctype, is_self)
+                            })
+                            .unwrap_or((CType::Int64, false))
+                    } else {
+                        (CType::Int64, false)
+                    }
+                } else {
+                    (CType::Int64, false)
+                };
+                // A recursive field is a pointer — dereference to get a value copy.
+                let deref = if is_recursive_field { "*" } else { "" };
+                let taken = format!("{deref}{target_str}.data.{vname}.{fname}");
+                // A binding the arm changes in place is the arm's own copy.
+                let changed_in_arm = super::values::mutated_roots(arm.body, &ctx.fn_inout)
+                    .contains(binding_name);
+                let taken = own_binding(&field_ctype, taken, changed_in_arm, ctx);
+                let bname = ctx.declare(*binding_name, field_ctype.clone());
+                let head = ctx.decl_head(&field_ctype, &bname);
+                writeln!(output, "{pad}    {head} = {taken};").unwrap();
+            }
+        } else {
+            // Otherwise arm
+            if first {
+                writeln!(output, "{}{{", pad).unwrap();
+                first = false;
+            } else {
+                writeln!(output, "{}}} else {{", pad).unwrap();
+            }
+            ctx.enter_scope();
+        }
+
+        codegen_block(arm.body, ctx, output, indent + 1);
+        ctx.exit_scope();
+    }
+    if !first {
+        if *has_otherwise {
+            writeln!(output, "{}}}", pad).unwrap();
+        } else {
+            // A variant no arm names, with no `Otherwise`, fails the run in the words the VM's `Inspect`
+            // gives it. The last such variant takes the plain `else`: every tag is then accounted for.
+            let uncovered = uncovered.unwrap_or_default();
+            let enum_shown = enum_sym.map(|e| ctx.display_name(e)).unwrap_or_default();
+            let ename = arms
+                .iter()
+                .find_map(|arm| arm.enum_name)
+                .or(enum_sym)
+                .map(|e| escape_c_ident(ctx.interner.resolve(e)))
+                .unwrap_or_default();
+            for (i, v) in uncovered.iter().enumerate() {
+                let words = crate::semantics::builtins::inspect_unhandled_message(
+                    &enum_shown,
+                    ctx.interner.resolve(*v),
+                );
+                let fail = ctx.fail_stmt(&c_string_literal(&words));
+                if i + 1 == uncovered.len() {
+                    writeln!(output, "{pad}}} else {{ {fail} }}").unwrap();
+                } else {
+                    let vname = escape_c_ident(ctx.interner.resolve(*v));
+                    writeln!(
+                        output,
+                        "{pad}}} else if ({target_str}.tag == {ename}_{vname}) {{ {fail}"
+                    )
+                    .unwrap();
+                }
+            }
+            if uncovered.is_empty() {
+                writeln!(output, "{pad}}}").unwrap();
+            }
+        }
+    }
+}
+
+/// The `CreatePipe` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_create_pipe_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::CreatePipe { var, capacity, element_type } = stmt else {
+        unreachable!("codegen_create_pipe_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let element = resolve_type_expr_with_registry(
+        &TypeExpr::Named(*element_type),
+        ctx.interner,
+        Some(ctx.registry),
+    );
+    if task_arg_pack(&element, "0").is_none() {
+        output.push_str(&c_refuse_expr(&format!(
+            "a pipe of {}, which a pipe's scalar cell cannot carry",
+            ctx.interner.resolve(*element_type)
+        )));
+        return;
+    }
+    // A pipe with no explicit capacity holds the scheduler's default, as on the VM and the tree-walker
+    // (`SchedulerConfig::default_channel_capacity`); an explicit capacity is its own.
+    let cap: i64 = capacity.map_or(
+        logicaffeine_runtime::SchedulerConfig::default().default_channel_capacity as i64,
+        |c| c as i64,
+    );
+    let handle = format!("(int64_t)(intptr_t)logos_chan_new({})", cap);
+    emit_binding(
+        *var,
+        CType::Pipe(Box::new(element)),
+        &handle,
+        ctx,
+        output,
+        &pad,
+    );
+}
+
+/// The `SendPipe` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_send_pipe_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::SendPipe { value, pipe } = stmt else {
+        unreachable!("codegen_send_pipe_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let packed = pipe_packed_value(value, pipe, ctx);
+    let chan = codegen_expr(pipe, ctx);
+    writeln!(
+        output,
+        "{}logos_chan_send((logos_chan *)(intptr_t)({}), {});",
+        pad, chan, packed
+    )
+    .unwrap();
+}
+
+/// The `ReceivePipe` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_receive_pipe_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::ReceivePipe { var, pipe } = stmt else {
+        unreachable!("codegen_receive_pipe_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let chan = codegen_expr(pipe, ctx);
+    let read = CType::Opt(Box::new(pipe_element(pipe, ctx)));
+    emit_binding(
+        *var,
+        read,
+        &format!("logos_chan_recv((logos_chan *)(intptr_t)({}))", chan),
+        ctx,
+        output,
+        &pad,
+    );
+}
+
+/// The `TrySendPipe` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_try_send_pipe_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::TrySendPipe { value, pipe, result } = stmt else {
+        unreachable!("codegen_try_send_pipe_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let packed = pipe_packed_value(value, pipe, ctx);
+    let chan = codegen_expr(pipe, ctx);
+    let call = format!(
+        "logos_chan_trysend((logos_chan *)(intptr_t)({}), {})",
+        chan, packed
+    );
+    match result {
+        Some(res) => emit_binding(
+            *res,
+            CType::Bool,
+            &format!("{} != 0", call),
+            ctx,
+            output,
+            &pad,
+        ),
+        None => writeln!(output, "{}(void){};", pad, call).unwrap(),
+    }
+}
+
+/// The `TryReceivePipe` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_try_receive_pipe_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::TryReceivePipe { var, pipe } = stmt else {
+        unreachable!("codegen_try_receive_pipe_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let chan = codegen_expr(pipe, ctx);
+    let read = CType::Opt(Box::new(pipe_element(pipe, ctx)));
+    emit_binding(
+        *var,
+        read,
+        &format!("logos_chan_tryrecv((logos_chan *)(intptr_t)({}))", chan),
+        ctx,
+        output,
+        &pad,
+    );
+}
+
+/// The `StopTask` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_stop_task_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::StopTask { handle } = stmt else {
+        unreachable!("codegen_stop_task_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let h = codegen_expr(handle, ctx);
+    writeln!(
+        output,
+        "{}logos_task_abort((logos_task *)(intptr_t)({}));",
+        pad, h
+    )
+    .unwrap();
+}
+
+/// The `CloseChannel` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_close_channel_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::CloseChannel { channel } = stmt else {
+        unreachable!("codegen_close_channel_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let ch = codegen_expr(channel, ctx);
+    writeln!(
+        output,
+        "{}logos_chan_close((logos_chan *)(intptr_t)({}));",
+        pad, ch
+    )
+    .unwrap();
+}
+
+/// The `AwaitTask` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_await_task_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::AwaitTask { handle, result } = stmt else {
+        unreachable!("codegen_await_task_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let h = codegen_expr(handle, ctx);
+    writeln!(
+        output,
+        "{}logos_task_await((logos_task *)(intptr_t)({}));",
+        pad, h
+    )
+    .unwrap();
+    if let Some(r) = result {
+        emit_binding(
+            *r,
+            CType::Opt(Box::new(CType::Int64)),
+            "(logos_opt){0, 0}",
+            ctx,
+            output,
+            &pad,
+        );
+    }
+}
+
+/// The `Select` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_select_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Select { branches } = stmt else {
+        unreachable!("codegen_select_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    // Register each arm in declaration order (arm index 0,1,2… — the convention the runtime's
+    // `logos_select_wait` returns and the VM/tree-walker oracle dispatch on). A recv arm mints a
+    // unique `logos_opt` slot the runtime writes what it read into — a value, or `nothing` from a
+    // closed pipe; a timeout arm passes the tick count `select_timeout_ticks_c` derives EXACTLY as
+    // the VM's `eval_select_timeout_ticks` (`After N seconds` is a `Duration` of `N·10⁹` nanos →
+    // that many virtual ticks). The winning arm's body then runs; a recv body first binds its
+    // variable from the slot, value-or-nothing, as `Receive … from` binds.
+    writeln!(output, "{}logos_select_reset();", pad).unwrap();
+    let mut slots: Vec<Option<String>> = Vec::with_capacity(branches.len());
+    for branch in branches.iter() {
+        match branch {
+            SelectBranch::Receive { pipe, .. } => {
+                let chan = codegen_expr(pipe, ctx);
+                let n = ctx.select_ctr.get();
+                ctx.select_ctr.set(n + 1);
+                let slot = format!("__selslot_{}", n);
+                writeln!(output, "{}logos_opt {};", pad, slot).unwrap();
+                writeln!(
+                    output,
+                    "{}logos_select_arm_recv((logos_chan *)(intptr_t)({}), &{});",
+                    pad, chan, slot
+                )
+                .unwrap();
+                slots.push(Some(slot));
+            }
+            SelectBranch::Timeout { milliseconds, .. } => {
+                let ticks = select_timeout_ticks_c(milliseconds, ctx);
+                writeln!(
+                    output,
+                    "{}logos_select_arm_timeout((long long)({}));",
+                    pad, ticks
+                )
+                .unwrap();
+                slots.push(None);
+            }
+        }
+    }
+    writeln!(output, "{}long long __arm = logos_select_wait();", pad).unwrap();
+    for (i, branch) in branches.iter().enumerate() {
+        let kw = if i == 0 { "if" } else { "} else if" };
+        writeln!(output, "{}{} (__arm == {}) {{", pad, kw, i).unwrap();
+        ctx.enter_scope();
+        let body = match branch {
+            SelectBranch::Receive { var, pipe, body } => {
+                let slot = slots[i].as_ref().expect("recv arm has a slot");
+                let read = CType::Opt(Box::new(pipe_element(pipe, ctx)));
+                emit_binding(*var, read, slot, ctx, output, &format!("{}    ", pad));
+                *body
+            }
+            SelectBranch::Timeout { body, .. } => *body,
+        };
+        codegen_block(body, ctx, output, indent + 1);
+        ctx.exit_scope();
+    }
+    if !branches.is_empty() {
+        writeln!(output, "{}}}", pad).unwrap();
+    }
+}
+
+/// The `AppendToSequence` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_append_to_sequence_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::AppendToSequence { sequence, value } = stmt else {
+        unreachable!("codegen_append_to_sequence_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let seq_str = codegen_expr(sequence, ctx);
+    let val_str = codegen_expr(value, ctx);
+    let push_fn = match infer_expr_type(sequence, ctx) {
+        CType::SeqBool => "seq_bool_push".to_string(),
+        CType::SeqStr => "seq_str_push".to_string(),
+        CType::SeqF64 => "seq_f64_push".to_string(),
+        CType::SeqStruct(s) => seq_struct_fn(s, "push", ctx.interner),
+        CType::SeqValue(inner) => format!("seq_{}_push", c_type_str(&inner)),
+        CType::SeqTuple(elems) => {
+            format!("seq_{}_push", tuple_c_name(&elems, ctx.interner))
+        }
+        _ => "seq_i64_push".to_string(),
+    };
+    writeln!(output, "{}{}(&{}, {});", pad, push_fn, seq_str, val_str).unwrap();
+}
+
+/// The `ResolveConflict` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_resolve_conflict_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::ResolveConflict { object, field, value } = stmt else {
+        unreachable!("codegen_resolve_conflict_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let obj = codegen_expr(object, ctx);
+    let fname = escape_c_ident(ctx.interner.resolve(*field));
+    let val = codegen_expr(value, ctx);
+    writeln!(output, "{}{}.{} = {};", pad, obj, fname, val).unwrap();
+}
+
+/// The `Check` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_check_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Check { subject, predicate, is_capability, object, source_text, .. } = stmt else {
+        unreachable!("codegen_check_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    emit_policy_check(
+        ctx,
+        output,
+        &pad,
+        *subject,
+        *predicate,
+        *is_capability,
+        *object,
+        source_text,
+    );
+}
+
+/// The `ConnectTo` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_connect_to_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::ConnectTo { address, .. } = stmt else {
+        unreachable!("codegen_connect_to_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let a = codegen_expr(address, ctx);
+    writeln!(
+        output,
+        "{}logos_net_connect((const char *)(intptr_t)({}));",
+        pad, a
+    )
+    .unwrap();
+}
+
+/// The `Listen` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_listen_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Listen { address, .. } = stmt else {
+        unreachable!("codegen_listen_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let a = codegen_expr(address, ctx);
+    writeln!(
+        output,
+        "{}logos_net_listen((const char *)(intptr_t)({}));",
+        pad, a
+    )
+    .unwrap();
+}
+
+/// The `LetPeerAgent` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_let_peer_agent_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::LetPeerAgent { var, address } = stmt else {
+        unreachable!("codegen_let_peer_agent_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let a = codegen_expr(address, ctx);
+    let peer = format!(
+        "(char *)(intptr_t)logos_net_makepeer((long long)(intptr_t)({}))",
+        a
+    );
+    emit_binding(*var, CType::String, &peer, ctx, output, &pad);
+}
+
+/// The `SendMessage` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_send_message_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::SendMessage { message, destination, .. } = stmt else {
+        unreachable!("codegen_send_message_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let m = codegen_expr(message, ctx);
+    let d = codegen_expr(destination, ctx);
+    writeln!(
+        output,
+        "{}logos_net_send((const char *)(intptr_t)({}), (long long)({}));",
+        pad, d, m
+    )
+    .unwrap();
+}
+
+/// The `StreamMessage` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_stream_message_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::StreamMessage { values, destination } = stmt else {
+        unreachable!("codegen_stream_message_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    // A stream is a `Seq` — send its ADDRESS as the 64-bit message; the loopback round-trips the same
+    // object (an `Await stream` reads it back). `Seq of Int` on this path (a device-clean `Seq_i64`).
+    let vals = codegen_expr(values, ctx);
+    let d = codegen_expr(destination, ctx);
+    writeln!(
+        output,
+        "{}logos_net_send((const char *)(intptr_t)({}), (long long)(intptr_t)(&({})));",
+        pad, d, vals
+    )
+    .unwrap();
+}
+
+/// The `AwaitMessage` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_await_message_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::AwaitMessage { source, into, stream, .. } = stmt else {
+        unreachable!("codegen_await_message_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let s = codegen_expr(source, ctx);
+    if *stream {
+        // Stream receive: the message is the streamed `Seq`'s pointer; deref to a local copy of the batch.
+        let batch = format!(
+            "*(Seq_i64 *)(intptr_t)logos_net_await((const char *)(intptr_t)({}))",
+            s
+        );
+        emit_binding(*into, CType::SeqI64(Ints::Int), &batch, ctx, output, &pad);
+    } else {
+        // Scalar receive: the dequeued 64-bit message is the sent Int.
+        let message = format!("logos_net_await((const char *)(intptr_t)({}))", s);
+        emit_binding(*into, CType::Int64, &message, ctx, output, &pad);
+    }
+}
+
+/// The `RuntimeAssert` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_runtime_assert_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::RuntimeAssert { condition, hard, dim: _, reason } = stmt else {
+        unreachable!("codegen_runtime_assert_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let cond_str = c_truthy(condition, ctx);
+    let report = match reason {
+        None => ctx.fail_stmt("\"Assertion failed\""),
+        Some(r) => c_failure_report(r, ctx, true),
+    };
+    // The soft form mirrors AOT-Rust's `debug_assert!`: enforced unless NDEBUG.
+    if !*hard {
+        writeln!(output, "{}#ifndef NDEBUG", pad).unwrap();
+    }
+    writeln!(output, "{}if (!({})) {{ {} }}", pad, cond_str, report).unwrap();
+    if !*hard {
+        writeln!(output, "{}#endif", pad).unwrap();
+    }
+}
+
+/// The `Fail` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_fail_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::Fail { reason } = stmt else {
+        unreachable!("codegen_fail_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    writeln!(
+        output,
+        "{}{{ {} }}",
+        pad,
+        c_failure_report(reason, ctx, false)
+    )
+    .unwrap();
+}
+
+/// The `ReadFrom` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_read_from_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::ReadFrom { var, source } = stmt else {
+        unreachable!("codegen_read_from_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let read = match source {
+        ReadSource::Console => "lc_gc_strdup(\"\")".to_string(),
+        ReadSource::File(path) => {
+            format!("logos_file_read({})", c_format_builtin(path, ctx))
+        }
+    };
+    emit_binding(*var, CType::String, &read, ctx, output, &pad);
+}
+
+/// The `WriteFile` arm of [`codegen_stmt_node`], in a frame of its own — see [`codegen_stmt_node`].
+#[inline(never)]
+fn codegen_write_file_stmt(stmt: &Stmt, ctx: &mut CContext, output: &mut String, indent: usize) {
+    let Stmt::WriteFile { content, path } = stmt else {
+        unreachable!("codegen_write_file_stmt is called on the arm it was taken from")
+    };
+    let pad = "    ".repeat(indent);
+    let text = ctx.temp("__content", CType::String);
+    writeln!(
+        output,
+        "{pad}{} = {};",
+        ctx.decl_head(&CType::String, &text),
+        c_format_builtin(content, ctx)
+    )
+    .unwrap();
+    writeln!(
+        output,
+        "{pad}logos_file_write({}, {text});",
+        c_format_builtin(path, ctx)
+    )
+    .unwrap();
+}
+
 /// Escape a Rust string for embedding in a C string literal — the same rules the `Literal::Text` emitter
 /// uses (newlines/tabs/backslash/quote), so a policy message or literal renders identically.
 fn escape_c_string(raw: &str) -> String {
@@ -8738,6 +10051,57 @@ fn escape_c_string(raw: &str) -> String {
             other => other.to_string(),
         })
         .collect()
+}
+
+/// C statements merging the value `src` into the place `tgt`, both of C type `ty`, by the VM's `crdt_merge_field`: two
+/// `Int`s add, wrapping; two sets take their union; a map folds the incoming one in key by key, in its insertion order —
+/// a key both hold merges its two values by this same rule, a new key takes its value; anything else takes the incoming
+/// value, as a copy of its own so the two records never share a buffer.
+fn emit_crdt_merge_value(ty: &CType, tgt: &str, src: &str, ctx: &CContext, output: &mut String, pad: &str) {
+    let map = match ty {
+        CType::MapI64I64(_, vals) => Some(("map_i64_i64".to_string(), vals.ctype())),
+        CType::MapStrI64(vals) => Some(("map_str_i64".to_string(), vals.ctype())),
+        CType::MapStrStr => Some(("map_str_str".to_string(), CType::String)),
+        CType::MapI64Str(_) => Some(("map_i64_str".to_string(), CType::String)),
+        CType::MapStrValue(inner) => Some((format!("map_str_{}", c_type_str_resolved(inner, ctx.interner)), (**inner).clone())),
+        CType::MapI64Value(inner) => Some((format!("map_i64_{}", c_type_str_resolved(inner, ctx.interner)), (**inner).clone())),
+        _ => None,
+    };
+    match ty {
+        CType::Int64 => {
+            writeln!(output, "{pad}{tgt} = (int64_t)((uint64_t)({tgt}) + (uint64_t)({src}));").unwrap()
+        }
+        CType::SetI64(_) => writeln!(output, "{pad}{tgt} = set_i64_union(&{tgt}, &{src});").unwrap(),
+        CType::SetStr => writeln!(output, "{pad}{tgt} = set_str_union(&{tgt}, &{src});").unwrap(),
+        _ if map.is_some() => {
+            let (family, value) = map.expect("a map family");
+            let n = ctx.select_ctr.get();
+            ctx.select_ctr.set(n + 1);
+            let (slot, held) = (format!("__merge_slot{n}"), format!("__merge_held{n}"));
+            let key = format!("({src}).keys[{slot}]");
+            let incoming = format!("({src}).vals[{slot}]");
+            let inner = format!("{pad}        ");
+            writeln!(output, "{pad}for (size_t __merge_at{n} = 0; __merge_at{n} < ({src}).ord_len; __merge_at{n}++) {{")
+                .unwrap();
+            writeln!(output, "{pad}    size_t {slot} = ({src}).order[__merge_at{n}];").unwrap();
+            writeln!(output, "{pad}    if (!({src}).state[{slot}]) continue;").unwrap();
+            writeln!(output, "{pad}    if ({family}_contains(&{tgt}, {key})) {{").unwrap();
+            writeln!(output, "{pad}        {} = {family}_get(&{tgt}, {key});", c_param_decl(&value, &held, ctx.interner))
+                .unwrap();
+            emit_crdt_merge_value(&value, &held, &incoming, ctx, output, &inner);
+            writeln!(output, "{pad}        {family}_set(&{tgt}, {key}, {held});").unwrap();
+            writeln!(output, "{pad}    }} else {{").unwrap();
+            writeln!(
+                output,
+                "{pad}        {family}_set(&{tgt}, {key}, {});",
+                super::values::copy_value(&value, &incoming, ctx)
+            )
+            .unwrap();
+            writeln!(output, "{pad}    }}").unwrap();
+            writeln!(output, "{pad}}}").unwrap();
+        }
+        other => writeln!(output, "{pad}{tgt} = {};", super::values::copy_value(other, src, ctx)).unwrap(),
+    }
 }
 
 /// The C type of field `field` of the record `struct_sym`, as its storage lays it out.
@@ -8762,6 +10126,41 @@ fn policy_sample(ty: &CType, ctx: &CContext) -> Option<crate::interpreter::Runti
             },
         ))),
         other => sample_of(other, 1),
+    }
+}
+
+/// Whether `cond`, a condition over a record of `subject_type`, names a predicate while resolving it — directly or
+/// through the predicates it names (`resolving` holds those it is inside of): such a predicate has no condition that
+/// reaches a field, so it cannot be lowered, and resolving it never ends.
+pub(super) fn policy_names_itself(
+    policies: &crate::analysis::policy::PolicyRegistry,
+    subject_type: Symbol,
+    cond: &crate::analysis::policy::PolicyCondition,
+    resolving: &mut Vec<Symbol>,
+) -> bool {
+    use crate::analysis::policy::PolicyCondition as PC;
+    match cond {
+        PC::Predicate { predicate, .. } => {
+            if resolving.contains(predicate) {
+                return true;
+            }
+            let Some(inner) = policies
+                .get_predicates(subject_type)
+                .and_then(|preds| preds.iter().find(|p| p.predicate_name == *predicate))
+                .map(|p| &p.condition)
+            else {
+                return false;
+            };
+            resolving.push(*predicate);
+            let cycle = policy_names_itself(policies, subject_type, inner, resolving);
+            resolving.pop();
+            cycle
+        }
+        PC::Or(l, r) | PC::And(l, r) => {
+            policy_names_itself(policies, subject_type, l, resolving)
+                || policy_names_itself(policies, subject_type, r, resolving)
+        }
+        _ => false,
     }
 }
 
@@ -8807,6 +10206,28 @@ fn emit_policy_check(
         )));
         return;
     };
+    // A predicate that names itself has no condition to lower, and resolving it — the VM's words below too — never
+    // ends.
+    if let CType::Struct(subject_type) = &subject_ty {
+        let subject_type = *subject_type;
+        let checked = if is_capability {
+            ctx.policies
+                .get_capabilities(subject_type)
+                .and_then(|caps| caps.iter().find(|c| c.action == predicate))
+                .map(|c| (&c.condition, Vec::new()))
+        } else {
+            ctx.policies
+                .get_predicates(subject_type)
+                .and_then(|preds| preds.iter().find(|p| p.predicate_name == predicate))
+                .map(|p| (&p.condition, vec![predicate]))
+        };
+        if let Some((condition, mut resolving)) = checked {
+            if policy_names_itself(ctx.policies, subject_type, condition, &mut resolving) {
+                output.push_str(&c_refuse_expr("a policy predicate that names itself"));
+                return;
+            }
+        }
+    }
     let verdict = crate::semantics::policy::check_policy(
         ctx.policies,
         ctx.interner,
@@ -9030,7 +10451,22 @@ fn emit_crdt_bump_c(
             .unwrap();
         }
     } else {
-        writeln!(output, "{}/* crdt bump of non-counter field */", pad).unwrap();
+        // A plain field: an `Int` adds the amount, or its negation, wrapping (`crdt_counter_bump`).
+        let field_type = struct_sym.and_then(|s| c_struct_field_ctype(ctx, s, field));
+        if field_type == Some(CType::Int64) {
+            let sign = if negate { "-" } else { "+" };
+            writeln!(
+                output,
+                "{pad}{obj}.{fname} = (int64_t)((uint64_t)({obj}.{fname}) {sign} (uint64_t)({amt}));"
+            )
+            .unwrap();
+        } else {
+            output.push_str(&c_refuse_expr(&format!(
+                "`{}` of the field `{}`, which holds no machine Int",
+                if negate { "Decrease" } else { "Increase" },
+                ctx.interner.resolve(field)
+            )));
+        }
     }
 }
 
@@ -9277,3 +10713,7 @@ fn c_refuse_reason(type_name: &str, ctx: &CContext) -> String {
         "\"The reason after `otherwise` must be Text, but it was {type_name}.\""
     ))
 }
+
+#[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/codegen_c/emit/tests.rs"]
+mod tests;

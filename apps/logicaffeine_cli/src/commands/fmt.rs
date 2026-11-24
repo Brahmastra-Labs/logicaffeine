@@ -110,7 +110,7 @@ fn project_source_files() -> Result<Vec<PathBuf>, Box<dyn std::error::Error>> {
     Ok(files)
 }
 
-/// Recursively collect `.lg` and `.md` files under `dir`.
+/// Recursively collect every LOGOS module (`.logos`, `.lg`, `.md`) under `dir`.
 fn collect_sources(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), std::io::Error> {
     if !dir.exists() {
         return Ok(());
@@ -119,10 +119,7 @@ fn collect_sources(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), std::io::
         let path = entry?.path();
         if path.is_dir() {
             collect_sources(&path, files)?;
-        } else if matches!(
-            path.extension().and_then(|e| e.to_str()),
-            Some("lg") | Some("md")
-        ) {
+        } else if logicaffeine_compile::source_files::is_module_file(&path) {
             files.push(path);
         }
     }

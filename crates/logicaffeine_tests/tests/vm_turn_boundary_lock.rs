@@ -297,8 +297,8 @@ fn a_view_that_cannot_paint_the_committed_state_fails_the_entry_and_the_program_
 fn a_page_load_handler_that_traps_still_ends_the_program() {
     // `When the page loads:` runs as the page mounts, not as a delivered turn — so its failure is
     // the program's, and the program ends there, as the browser's page main does when its mount
-    // traps. The VM agrees; the tree-walker's page host carries `Mount` through its guarded door
-    // and runs on, so the tiers disagree here until that is settled.
+    // traps. The VM compiles `Mount` in `## Main` to a call its main makes, and the tree-walker's
+    // page host makes the same call for the program's own statements (`page_host::DrivenBy`).
     let src = "## Component App\nState:\n    Let n be 0.\n    Let boom be 0.\nActions:\n\
                \x20   When the page loads:\n        Set n to 5.\n        Set boom to item 9 of [1].\n\
                View:\n    <p id=\"n\">{n}</p>\n\n## Main\nMount App.\nShow \"after\".\n";

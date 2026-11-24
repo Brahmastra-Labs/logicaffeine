@@ -1868,7 +1868,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
 
         if self.check(&TokenType::Never) {
             self.advance();
-            let verb = self.consume_verb();
+            let verb = self.consume_verb()?;
             let verb_pred = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb,
                 args: self.ctx.terms.alloc_slice([subject_term]),
@@ -1918,7 +1918,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             if self.check_verb() {
-                let (verb, verb_time, verb_aspect, verb_class) = self.consume_verb_with_metadata();
+                let (verb, verb_time, verb_aspect, verb_class) = self.consume_verb_with_metadata()?;
 
                 // Check for embedded wh-clause with sluicing: "I don't know who"
                 if self.check_wh_word() {
@@ -2068,7 +2068,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             crate::lexicon::VerbClass::Activity,
                         )
                     } else {
-                        self.consume_verb_with_metadata()
+                        self.consume_verb_with_metadata()?
                     };
 
                     if self.check_quantifier() {
@@ -2242,7 +2242,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             }
 
             if self.check_verb() {
-                let (verb, _verb_time, verb_aspect, verb_class) = self.consume_verb_with_metadata();
+                let (verb, _verb_time, verb_aspect, verb_class) = self.consume_verb_with_metadata()?;
 
                 // Stative verbs cannot be progressive
                 if verb_class.is_stative() && verb_aspect == Aspect::Progressive {
@@ -2854,7 +2854,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         as_variable: bool,
     ) -> ParseResult<&'a LogicExpr<'a>> {
         if self.check_verb() {
-            let (verb, verb_time, verb_aspect, verb_class) = self.consume_verb_with_metadata();
+            let (verb, verb_time, verb_aspect, verb_class) = self.consume_verb_with_metadata()?;
             self.build_verb_vp(
                 subject_symbol,
                 subject_term,
@@ -4776,7 +4776,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
 
         // Coordinated subjects registered in DRS via introduce_referent
 
-        let (verb, verb_time, _verb_aspect, _) = self.consume_verb_with_metadata();
+        let (verb, verb_time, _verb_aspect, _) = self.consume_verb_with_metadata()?;
 
         // Check for reciprocal: "John and Mary kicked each other"
         if self.check(&TokenType::Reciprocal) {
@@ -5062,7 +5062,7 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
                 }));
             }
 
-            let inf_verb = self.consume_verb();
+            let inf_verb = self.consume_verb()?;
 
             let embedded = if self.is_control_verb(inf_verb) {
                 let raised_np = NounPhrase {
@@ -5146,11 +5146,11 @@ impl<'a, 'ctx, 'int> LogicVerbParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int>
             }));
         }
 
-        let inf_verb = self.consume_verb();
+        let inf_verb = self.consume_verb()?;
         let inf_verb_str = self.interner.resolve(inf_verb).to_lowercase();
 
         let infinitive = if inf_verb_str == "be" && self.check_verb() {
-            let passive_verb = self.consume_verb();
+            let passive_verb = self.consume_verb()?;
             // An agent by-phrase fills the first argument slot, matching the
             // finite passive ("was seen by the people" → See(People, s)).
             let mut passive_args = vec![Term::Constant(pro_controller_sym)];

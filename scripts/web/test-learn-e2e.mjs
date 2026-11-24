@@ -145,6 +145,7 @@ function serve(dir) {
     let file = path.join(dir, decodeURIComponent(url.pathname));
     if (!file.startsWith(dir)) { res.writeHead(403).end(); return; }
     if (fs.existsSync(file) && fs.statSync(file).isDirectory()) file = path.join(file, 'index.html');
+    if (!fs.existsSync(file) && fs.existsSync(`${file}.html`)) file = `${file}.html`;
     if (!fs.existsSync(file)) file = path.join(dir, 'index.html');
     res.writeHead(200, { 'content-type': MIME[path.extname(file)] || 'application/octet-stream' });
     fs.createReadStream(file).pipe(res);

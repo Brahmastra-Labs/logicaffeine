@@ -93,3 +93,126 @@ fn the_asset_lookup_still_splits_a_query_off_itself() {
          however the caller spells the target:\n{module}"
     );
 }
+
+// ── The URLs a static host answers for a directory ───────────────────────────────────────────────
+//
+// A static host serves `apps/index.html` for `/apps` AND `/apps/`, and `tour/index.html` for `/tour`
+// and `/tour/`: that is the whole of how it maps a URL to a file. `largo serve` answered neither the
+// trailing slash nor a `static/` directory's own `index.html`, so a link that worked on the built
+// site 404'd in development. Development answers every URL the built site answers.
+
+#[path = "cli_common/mod.rs"]
+mod common;
+
+/// A site with a front page, a page at `/apps`, a hand-written `static/tour/index.html`, and a
+/// static folder with no index.
+fn directory_site(dir: &std::path::Path) -> std::path::PathBuf {
+    let root = dir.join("dirs");
+    for (rel, text) in [
+        ("Largo.toml", "[package]\nname = \"dirs\"\nversion = \"0.1.0\"\n"),
+        ("pages/app.lg", "## Page /\n\nView:\n    <main><h1>front page</h1></main>\n"),
+        ("pages/apps.lg", "## Page /apps\n\nView:\n    <main><h1>the apps page</h1></main>\n"),
+        ("static/tour/index.html", "<!doctype html><title>tour</title><p>the tour, by hand</p>\n"),
+        ("static/notes/readme.txt", "no index here\n"),
+    ] {
+        let path = root.join(rel);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    root
+}
+
+fn shown(raw: &[u8]) -> String {
+    String::from_utf8_lossy(raw).into_owned()
+}
+
+#[test]
+fn the_dev_server_answers_a_page_with_a_trailing_slash() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = directory_site(dir.path());
+    let mut server = common::http::Server::start(&root);
+    let raw = server.get("/apps/");
+    assert_eq!(common::http::status(&raw), 200, "`/apps/` is the page at `/apps`:\n{}", shown(&raw));
+    assert!(common::http::body(&raw).contains("the apps page"), "{}", shown(&raw));
+    let front = server.get("/");
+    assert!(common::http::body(&front).contains("front page"), "and `/` is still the front page");
+}
+
+#[test]
+fn the_dev_server_answers_a_static_directory_with_its_index() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = directory_site(dir.path());
+    let mut server = common::http::Server::start(&root);
+    for url in ["/tour", "/tour/", "/tour/index.html"] {
+        let raw = server.get(url);
+        assert_eq!(common::http::status(&raw), 200, "`{url}` is static/tour/index.html:\n{}", shown(&raw));
+        assert!(common::http::body(&raw).contains("the tour, by hand"), "`{url}`");
+        assert!(
+            common::http::header(&raw, "content-type").is_some_and(|t| t.starts_with("text/html")),
+            "`{url}` is served as a document:\n{}",
+            shown(&raw)
+        );
+    }
+}
+
+#[test]
+fn a_directory_without_an_index_is_still_not_found() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = directory_site(dir.path());
+    let mut server = common::http::Server::start(&root);
+    for url in ["/notes", "/notes/", "/nope/"] {
+        assert_eq!(common::http::status(&server.get(url)), 404, "`{url}` names no file");
+    }
+    assert_eq!(
+        common::http::body(&server.get("/notes/readme.txt")),
+        "no index here\n",
+        "while the file in it is served as ever"
+    );
+}
+
+/// Every document URL the static export answers — each `.html` file written, and each folder
+/// holding an `index.html`, with and without its slash — the dev server answers too. (The modules
+/// ship under content-addressed names the dev server does not use, and `robots.txt` is generated
+/// for the export; both are outside what a person links.)
+#[test]
+fn the_dev_server_answers_every_document_url_the_static_export_answers() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = directory_site(dir.path());
+    let out = common::largo_in(&root, &["build", "--static"]);
+    assert!(out.status.success(), "{}", common::stderr(&out));
+    let dist = root.join("dist");
+    let mut urls = Vec::new();
+    let mut stack = vec![dist.clone()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                stack.push(p);
+                continue;
+            }
+            let rel = p.strip_prefix(&dist).unwrap().to_string_lossy().replace('\\', "/");
+            if !rel.ends_with(".html") {
+                continue;
+            }
+            urls.push(format!("/{rel}"));
+            if let Some(folder) = rel.strip_suffix("index.html") {
+                let folder = folder.trim_end_matches('/');
+                if !folder.is_empty() {
+                    urls.push(format!("/{folder}"));
+                    urls.push(format!("/{folder}/"));
+                }
+            }
+        }
+    }
+    urls.sort();
+    let mut server = common::http::Server::start(&root);
+    let missing: Vec<String> = urls
+        .iter()
+        .filter(|u| common::http::status(&server.get(u)) != 200)
+        .cloned()
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "the built site answers these and `largo serve` does not: {missing:?}\nall: {urls:?}"
+    );
+}

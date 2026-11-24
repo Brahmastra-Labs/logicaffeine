@@ -17,8 +17,9 @@ use std::fmt::Write as _;
 use crate::codegen_cuda::knobs::CudaKnobs;
 use crate::codegen_cuda::provenance::{header, Provenance};
 use crate::codegen_cuda::qwen_emit::Q8MatKind;
+use crate::model::author::NotYet;
 use crate::model::quant::GgmlType;
-use crate::tensor_recognize::qwen::{Activation, MoeAct};
+use crate::tensor_recognize::qwen::{Activation, GateAct, MoeAct};
 use crate::tensor_recognize::ElementwiseOp;
 
 use super::arena;
@@ -57,6 +58,14 @@ fn cdiv(a: usize, b: usize) -> usize {
 /// A float as a C literal that reads back to the same `f32`.
 fn flit(v: f32) -> String {
     format!("{v:e}f")
+}
+
+/// A delta rule's gate as its kernels' trailing template argument: none for SiLU, their default; `, true` for a sigmoid.
+fn sigmoid(gate: GateAct) -> &'static str {
+    match gate {
+        GateAct::Silu => "",
+        GateAct::Sigmoid => ", true",
+    }
 }
 
 /// How one form names its buffers in C: the constants and the carried state once for every form, the position once
@@ -129,7 +138,7 @@ impl<'a> Names<'a> {
 
     /// A product's epilogue argument (`lk_epi`): its bias alone where its epilogue does nothing past it; otherwise its
     /// bias, its scale, what it adds after — a constant of the product's shape read from row `row` on, a slab's first, of
-    /// `cols` outputs a row — and whether it squares the ReLU of that.
+    /// `cols` outputs a row — whether it squares the ReLU of that, and the activation and factor it takes after.
     fn epi(&self, bias: &Option<String>, epi: &Option<Epilogue>, row: usize, cols: usize) -> String {
         let Some(e) = epi else { return self.opt(bias) };
         let from = |t: &str, own: bool| match row * cols {
@@ -143,7 +152,8 @@ impl<'a> Names<'a> {
             Some(ScaleBy::Each(t)) => (1.0, from(t, true), true),
         };
         let (after, own) = e.after.as_ref().map_or(("nullptr".to_string(), false), |(t, own)| (from(t, *own), *own));
-        format!("lk_epi({}, {}, {scales}, {each}, {after}, {own}, {})", self.opt(bias), flit(factor), e.relu_sq)
+        let act = e.act.map_or(String::new(), |(a, post)| format!(", {}, {}", act_arg(a), flit(post as f32)));
+        format!("lk_epi({}, {}, {scales}, {each}, {after}, {own}, {}{act})", self.opt(bias), flit(factor), e.relu_sq)
     }
 
     /// The suffix of a tensor's quantized buffers (`q`, `l` and `s` before it), shared or the form's as its `f32`
@@ -241,9 +251,13 @@ fn handle(t: &str, ty: GgmlType, cols: usize) -> String {
 
 /// The block-format tensor-core GEMM of format `f` under numerics `m` over tiles of `bm` activation rows, grouped by
 /// expert under `group` 1 and 2 and paired (gate and up, through the gated activation `act`) under 3 — the rows and the
-/// activation written only where they are not the defaults (128 rows dense, 64 grouped; SwiGLU).
-fn gemm_blk_name(f: u32, m: u32, group: u32, bm: usize, act: i32, plain: bool) -> String {
+/// activation written only where they are not the defaults (128 rows dense, 64 grouped; SwiGLU) — its epilogue's
+/// activation compiled in under `ea` (`Launch::activates`).
+fn gemm_blk_name(f: u32, m: u32, group: u32, bm: usize, act: i32, plain: bool, ea: bool) -> String {
     let default = if matches!(group, 1..=3) { 64 } else { kernels::GEMM_BLK_TILE_M };
+    if ea {
+        return format!("lk_gemm_blk<{f}, {m}, {group}, {bm}, {act}, {plain}, true>");
+    }
     if plain {
         return format!("lk_gemm_blk<{f}, {m}, {group}, {bm}, {act}, true>");
     }
@@ -263,14 +277,18 @@ fn blk_plain(l: &Launch, buffers: &BTreeMap<String, Buffer>) -> bool {
     let f32 = |d: &Dst| d.unit.is_none() && buffers.get(&d.buf).is_some_and(|b| b.dtype == DType::F32);
     match l {
         Launch::Gemv { bias, epi, y, .. } => bias.is_none() && epi.is_none() && f32(y),
-        Launch::GemmParts { parts, .. } => parts.iter().all(|p| p.bias.is_none() && f32(&p.y)),
+        Launch::GemmParts { parts, .. } => parts.iter().all(|p| p.bias.is_none() && p.epi.is_none() && f32(&p.y)),
         _ => false,
     }
 }
 
 /// The 16-bit tensor-core GEMM of format `f` under numerics `m` (one activation word, two), dense (`group` 0), in parts
-/// (4) or paired through the gated activation `act` (5), in tiles of `tn` outputs.
-fn gemm_h16_name(f: u32, m: u32, group: u32, act: i32, tn: usize) -> String {
+/// (4) or paired through the gated activation `act` (5), in tiles of `tn` outputs, its epilogue's activation compiled
+/// in under `ea` (`Launch::activates`).
+fn gemm_h16_name(f: u32, m: u32, group: u32, act: i32, tn: usize, ea: bool) -> String {
+    if ea {
+        return format!("lk_gemm_h16<{f}, {m}, {group}, {act}, {tn}, true>");
+    }
     match (group, act, tn) {
         (0, _, 128) => format!("lk_gemm_h16<{f}, {m}>"),
         (_, 0, 128) => format!("lk_gemm_h16<{f}, {m}, {group}>"),
@@ -294,8 +312,11 @@ fn launch_kernels(l: &Launch, numerics: Q8MatKind) -> Vec<Kernel> {
         Launch::Gather { format: Some(_), .. } => vec![Kernel::Blocks, Kernel::GatherBlk],
         Launch::Gather { .. } => vec![Kernel::GatherF32],
         Launch::View { .. } => vec![],
+        Launch::Norm { lanes, .. } if *lanes > 1 => vec![Kernel::RmsNorm, Kernel::NormLanes],
         Launch::Norm { .. } => vec![Kernel::RmsNorm],
         Launch::NormParts { .. } => vec![Kernel::NormParts],
+        Launch::LaneMean { .. } | Launch::LaneSpread { .. } | Launch::LaneSums { .. } | Launch::SignedRoot { .. } => vec![Kernel::Lanes],
+        Launch::NgramIds { .. } => vec![Kernel::Ngram],
         Launch::Quant { .. } => vec![Kernel::Quant],
         Launch::Moe { router, .. } if l.on_tensor_cores(numerics) => {
             let mut k = vec![Kernel::Blocks, Kernel::Mma, Kernel::GemmBlk, Kernel::Moe, Kernel::Quant];
@@ -320,6 +341,7 @@ fn launch_kernels(l: &Launch, numerics: Q8MatKind) -> Vec<Kernel> {
         Launch::Softcap { .. } => vec![Kernel::Softcap],
         Launch::SwiGlu { .. } => vec![Kernel::SwiGlu],
         Launch::Unary { .. } => vec![Kernel::Unary],
+        Launch::Erf { .. } => vec![Kernel::Erf],
         Launch::Relu { .. } => vec![Kernel::Relu],
         Launch::Rope { .. } | Launch::RopeParts { .. } => vec![Kernel::Rope],
         Launch::SetRow { .. } => vec![Kernel::SetRow],
@@ -344,6 +366,7 @@ fn launch_kernels(l: &Launch, numerics: Q8MatKind) -> Vec<Kernel> {
         Launch::HeadGemv { .. } => vec![Kernel::Blocks, Kernel::Heads],
         Launch::GemvGlu { .. } => vec![Kernel::Blocks, Kernel::Glu],
         l if l.gdn_inputs().is_some() => vec![Kernel::Blocks, Kernel::Conv, Kernel::Decay, Kernel::Gates, Kernel::GemvGdn],
+        l if l.dual_norm().is_some() => vec![Kernel::RmsNorm, Kernel::DualNorm],
         Launch::Fold { first, .. } if matches!(first.as_ref(), Launch::Gather { .. }) => {
             vec![Kernel::Blocks, Kernel::GatherQ8, Kernel::GatherBlk, Kernel::GatherF32, Kernel::RmsNorm, Kernel::GatherNorm]
         }
@@ -536,20 +559,34 @@ struct PartOut {
 
 /// The `lk_parts` of up to `GEMM_PARTS` parts, those past the last ending at the launch's last output.
 fn lk_parts(parts: &[PartOut]) -> String {
+    lk_parts_laid(parts, |n| n)
+}
+
+/// The `lk_parts` of a tensor-core GEMM in parts: each part from a tile of its own (`kernels::gemm_part_cols`), and
+/// where a part is narrower than its tiles, every part's own count of outputs (`lk_parts`'s `n`).
+fn lk_tile_parts(parts: &[PartOut]) -> String {
+    lk_parts_laid(parts, kernels::gemm_part_cols)
+}
+
+/// The `lk_parts` of `parts`, each part's outputs `cols(n)` of the launch's.
+fn lk_parts_laid(parts: &[PartOut], cols: impl Fn(usize) -> usize) -> String {
     let pad = |v: Vec<String>, with: &str| (0..kernels::GEMM_PARTS).map(|i| v.get(i).cloned().unwrap_or_else(|| with.to_string())).collect::<Vec<_>>().join(", ");
-    let cols: usize = parts.iter().map(|p| p.n).sum();
+    let last: usize = parts.iter().map(|p| cols(p.n)).sum();
     let ends: Vec<String> = parts.iter().scan(0, |end, p| {
-        *end += p.n;
+        *end += cols(p.n);
         Some(end.to_string())
     }).collect();
-    let groups = [
+    let mut groups = vec![
         pad(parts.iter().map(|p| p.w.clone()).collect(), "lk_w{}"),
         pad(parts.iter().map(|p| p.dst.0.clone()).collect(), "nullptr"),
         pad(parts.iter().map(|p| p.bias.clone()).collect(), "nullptr"),
-        pad(ends, &cols.to_string()),
+        pad(ends, &last.to_string()),
         pad(parts.iter().map(|p| p.dst.1.clone()).collect(), "nullptr"),
         pad(parts.iter().map(|p| p.dst.2.to_string()).collect(), "0"),
     ];
+    if parts.iter().any(|p| cols(p.n) != p.n) {
+        groups.push(pad(parts.iter().map(|p| p.n.to_string()).collect(), "0"));
+    }
     format!("lk_parts{{{}}}", groups.iter().map(|g| format!("{{{g}}}")).collect::<Vec<_>>().join(", "))
 }
 
@@ -557,7 +594,7 @@ fn lk_parts(parts: &[PartOut]) -> String {
 /// A batch's projection by up to `GEMM_PARTS` Q8_0 matrices side by side on the tensor cores (`lk_gemv_mma`): its rows in
 /// launches of `GEMV_MMA_ROWS`, each launch's activation and destination rows the launch's — and a lone product's
 /// epilogue (`epi`, from a launch's first row on) its own.
-fn gemv_mma(n: &Names, x: &str, k: usize, rows: usize, parts: &[PartOut], m: u32, epi: Option<&dyn Fn(usize) -> String>) -> String {
+fn gemv_mma(n: &Names, x: &str, k: usize, rows: usize, parts: &[PartOut], m: u32, epi: Option<&dyn Fn(usize) -> String>, ea: bool) -> String {
     let cols: usize = parts.iter().map(|p| p.n).sum();
     (0..rows.div_ceil(kernels::GEMV_MMA_ROWS))
         .map(|slab| {
@@ -574,7 +611,8 @@ fn gemv_mma(n: &Names, x: &str, k: usize, rows: usize, parts: &[PartOut], m: u32
                 })
                 .collect();
             format!(
-                "lk_gemv_mma<{m}, {mt}, {nt}, {mw}, {nw}><<<{}, {}, {}, st>>>({}, {k}, {cols}, {r}, {});",
+                "lk_gemv_mma<{m}, {mt}, {nt}, {mw}, {nw}{}><<<{}, {}, {}, st>>>({}, {k}, {cols}, {r}, {});",
+                ea_arg(ea),
                 cdiv(cols, 8 * nt),
                 kernels::gemv_mma_threads(mt, nt, mw, nw),
                 kernels::gemv_mma_smem_bytes(n.two, mt, nt),
@@ -606,11 +644,12 @@ fn glu_gate(n: &Names, m: u32, hg: &str, hu: &str, act: &Option<Activation>, out
 
 /// A batch's projection by up to `GEMM_PARTS` Q4_K or Q6_K matrices side by side on the tensor cores in its rows' own
 /// order (`lk_gemv_mma_blk`): one launch of its rows, `GEMV_MMA_BLK_OUTPUTS` outputs a block.
-fn gemv_mma_blk(n: &Names, x: &str, k: usize, rows: usize, parts: &[PartOut], format: GgmlType) -> String {
+fn gemv_mma_blk(n: &Names, x: &str, k: usize, rows: usize, parts: &[PartOut], format: GgmlType, act: bool) -> String {
     let cols: usize = parts.iter().map(|p| p.n).sum();
     let f = kernels::format_arg(format);
     format!(
-        "lk_gemv_mma_blk<{f}><<<{}, {}, {}, st>>>({}, {k}, {cols}, {rows}, {});",
+        "lk_gemv_mma_blk<{f}{}><<<{}, {}, {}, st>>>({}, {k}, {cols}, {rows}, {});",
+        ea_arg(act),
         cols / kernels::GEMV_MMA_BLK_OUTPUTS,
         kernels::GEMV_MMA_BLK_THREADS,
         kernels::gemv_mma_blk_smem_bytes(f),
@@ -625,9 +664,31 @@ fn capped(cap: Option<f64>, given: &str, defaults: &str) -> String {
     cap.map_or(String::new(), |c| format!("{}, {}", if given.is_empty() { defaults } else { "" }, flit(c as f32)))
 }
 
+/// An attention launch's row offset (its kernels' last argument `row0`) after its trailing arguments `tail` — the
+/// quantized output, then the cap where the kernel takes one (`capped` says whether `tail` holds it) — each absent one
+/// given its default: nothing where `row0` is 0.
+fn row_offset(row0: usize, tail: &str, takes_cap: bool, capped: bool) -> String {
+    if row0 == 0 {
+        return String::new();
+    }
+    let qo = if tail.is_empty() { ", lk_qout{}" } else { "" };
+    let cap = if takes_cap && !capped { ", 0.f" } else { "" };
+    format!("{qo}{cap}, {row0}")
+}
+
 /// An attention's window as its kernels take it (`lk_window_lo`): its span, negative for a chunked-local one, 0 for none.
 fn win(window: Option<usize>, chunked: bool) -> i64 {
     window.map_or(0, |w| if chunked { -(w as i64) } else { w as i64 })
+}
+
+/// A product kernel's last template argument `EA` where its launch takes an activated epilogue (`Launch::activates`):
+/// written only where true.
+fn ea_arg(ea: bool) -> &'static str {
+    if ea {
+        ", true"
+    } else {
+        ""
+    }
 }
 
 fn act_arg(act: Activation) -> i32 {
@@ -689,7 +750,68 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             flit(*factor as f32)
         ),
         Launch::Softcap { x, y, n: len, cap } => format!("lk_softcap<<<{}, 256, 0, st>>>({}, {}, {len}, {});", cdiv(*len, 256), p(x), p(y), flit(*cap as f32)),
-        Launch::Norm { x, part, add, pre, sum, w, out, into, f32, quant, rows, cols, eps, scale, fold } => {
+        // A norm in lanes: each row of the launch a lane, normed by its own row of the weight — its blocks those of a norm
+        // of its token rows, the lanes of one token the decode step's own block each.
+        Launch::Norm { x, part, add, pre: None, sum, w: Some(w), out, into, f32, quant, rows, cols, eps, scale: None, fold, lanes, spread } if *lanes > 1 && fold.is_empty() => {
+            let own = Dst::to(out);
+            let d = into.as_ref().unwrap_or(&own);
+            let (y, yrow, ypitch) = if *f32 { n.dst_split(d, 0) } else { ("nullptr".into(), "nullptr".into(), 0) };
+            let ((xp, xo), (yp, yo)) = (reading(part, *cols), unit(d, *cols));
+            let (threads, vw) = kernels::norm_block(*cols, rows / lanes);
+            format!(
+                "lk_rmsnorm_lanes<{}, {}, {}, {}, {}, {sum_ty}, {vw}, {}><<<{rows}, {threads}, 0, st>>>({}, {}, {}, {}, {y}, {}, {cols}, {}, {xp}, {xo}, {yrow}, {ypitch}, {yp}, {yo}, {lanes}, {});",
+                b(add.is_some()),
+                b(sum.is_some()),
+                b(*f32),
+                qm(*quant),
+                cols.div_ceil(threads * vw),
+                b(spread.is_some()),
+                p(x),
+                n.opt(add),
+                n.opt(sum),
+                p(w),
+                n.quant(out, *quant),
+                flit(eps.get() as f32),
+                n.opt(spread)
+            )
+        }
+        Launch::Norm { lanes, .. } if *lanes > 1 => unreachable!("a norm in lanes reads its weight's rows, adds no partials and scales nothing"),
+        Launch::LaneMean { x, by, y, rows, lanes, cols, f32, quant } => format!(
+            "lk_lane_mean<{sum_ty}, {}, {}><<<{}, 256, 0, st>>>({}, {}, {}, {}, {}, {rows}, {lanes}, {cols});",
+            b(*f32),
+            qm(*quant),
+            cdiv(rows * cols, 256),
+            p(x),
+            by.as_ref().map_or_else(|| "nullptr".to_string(), |(t, _)| p(t)),
+            by.as_ref().and_then(|(_, a)| *a).map_or(-1, act_arg),
+            if *f32 { p(y) } else { "nullptr".into() },
+            n.quant(y, *quant)
+        ),
+        Launch::LaneSums { x, y, rows, lanes, cols } => {
+            format!("lk_lane_sums<{sum_ty}><<<{}, 256, 0, st>>>({}, {}, {rows}, {lanes}, {cols});", cdiv(rows * lanes, 256), p(x), p(y))
+        }
+        Launch::SignedRoot { x, y, n: len, eps } => {
+            format!("lk_signed_root<<<{}, 256, 0, st>>>({}, {}, {len}L, {});", cdiv(*len, 256), p(x), p(y), flit(eps.get() as f32))
+        }
+        Launch::NgramIds { t, hist, m, v, o, ids, tokens, ngram, per_order, eos } => format!(
+            "lk_ngram_ids<<<1, {}, 0, st>>>({}, {}, {}, {}, {}, {}, {tokens}, {ngram}, {per_order}, {eos}LL);",
+            tokens.next_multiple_of(32),
+            p(t),
+            p(hist),
+            p(m),
+            p(v),
+            p(o),
+            p(ids)
+        ),
+        Launch::LaneSpread { x, by, y, rows, lanes, cols, add } => format!(
+            "lk_lane_spread<<<{}, 256, 0, st>>>({}, {}, {}, {}, {rows}, {lanes}, {cols});",
+            cdiv(rows * lanes * cols, 256),
+            p(x),
+            n.opt(by),
+            n.opt(add),
+            p(y)
+        ),
+        Launch::Norm { x, part, add, pre, sum, w, out, into, f32, quant, rows, cols, eps, scale, fold, .. } => {
             let own = Dst::to(out);
             let d = into.as_ref().unwrap_or(&own);
             let (y, yrow, ypitch) = if *f32 { n.dst_split(d, 0) } else { ("nullptr".into(), "nullptr".into(), 0) };
@@ -785,11 +907,15 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
                 unreachable!("a gated delta layer's inputs")
             };
             let threads = (*block).max(256);
-            let per_warp = launch_rows(*format, *per_warp, parts.iter().map(|q| q.n).sum(), numerics, n);
+            let per_warp = if *format == GgmlType::Q8_0 && m == 1 {
+                kernels::q8_gdn_launch_rows(&parts.iter().map(|q| q.n).collect::<Vec<_>>())
+            } else {
+                launch_rows(*format, *per_warp, parts.iter().map(|q| q.n).sum(), numerics, n)
+            };
             // A 16-bit matrix's launch names its threads, the registers they may take (`lk_gemv_gdn`'s `NT`).
             let nt = if kernels::sixteen(*format) { format!(", {threads}") } else { String::new() };
             let cols: usize = parts.iter().map(|q| q.n).sum();
-            let outs: Vec<PartOut> = parts.iter().map(|q| PartOut { w: handle(&q.w, *format, *k), dst: n.dst_split(&q.y, 0), bias: n.opt(&q.bias), n: q.n }).collect();
+            let outs: Vec<PartOut> = parts.iter().map(|q| PartOut { w: handle(&q.w, *format, *k), dst: n.dst_split(&q.y, 0), bias: n.epi(&q.bias, &q.epi, 0, q.n), n: q.n }).collect();
             let part_of = |t: &str| parts.iter().position(|q| q.y.own() == Some(t)).expect("a part's output") as i64;
             let conv = |c: Option<&super::plan::ConvPart>| match c {
                 Some(c) => format!("lk_gdn_conv{{{}, {}, {}, {}, {}}}", part_of(&c.x), p(&c.w), p(&c.ring), p(&c.y), u8::from(c.l2)),
@@ -816,6 +942,44 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
                 n.conv_pos(&convs[0].ring, taps * convs[0].chan, 1),
                 n.scratch("gc", gdn.writes()[0])
             )
+        }
+        // Two norms of independent rows as one launch, the first side's rows then the second's a block each: each side
+        // its own launch's template arguments, its norm's threads played by the wider side's block.
+        l @ Launch::Fold { .. } if l.dual_norm().is_some() => {
+            let (first, second) = l.dual_norm().expect("two norms");
+            let threads = [first, second]
+                .map(|side| match side {
+                    Launch::Norm { rows, cols, .. } => kernels::norm_block(*cols, *rows).0,
+                    _ => unreachable!("a side of two norms is a norm"),
+                })
+                .into_iter()
+                .max()
+                .unwrap_or(32);
+            let side = |side: &Launch| {
+                let Launch::Norm { x, part, add, pre: None, sum, w, out, into, f32, quant, rows, cols, eps, scale: None, fold, lanes: 1, spread: None } = side else {
+                    unreachable!("a side of two norms norms its rows alone, unscaled")
+                };
+                assert!(fold.is_empty(), "a side of two norms folds no partials");
+                let own = Dst::to(out);
+                let d = into.as_ref().unwrap_or(&own);
+                let (y, yrow, ypitch) = if *f32 { n.dst_split(d, 0) } else { ("nullptr".into(), "nullptr".into(), 0) };
+                let ((xp, xo), (yp, yo)) = (reading(part, *cols), unit(d, *cols));
+                let vt = kernels::norm_threads(*cols);
+                let vw = (vt / 32).div_ceil(threads / 32);
+                let args = format!("{}, {}, {}, {}, {}, {vw}", b(add.is_some()), b(sum.is_some()), b(*f32), qm(*quant), cols.div_ceil(vt));
+                let pack = format!(
+                    "lk_norm_side{{{}, {}, {}, {}, {y}, {yrow}, {ypitch}, {}, {cols}, {}, {xp}, {xo}, {yp}, {yo}, {vt}}}",
+                    p(x),
+                    n.opt(add),
+                    n.opt(sum),
+                    n.opt(w),
+                    n.quant(out, *quant),
+                    flit(eps.get() as f32)
+                );
+                (args, pack, *rows)
+            };
+            let ((ta, pa, ra), (tb, pb, rb)) = (side(first), side(second));
+            format!("lk_rmsnorm2<{ta}, {tb}, {sum_ty}><<<{}, {threads}, 0, st>>>({pa}, {pb}, {ra});", ra + rb)
         }
         // A gather whose block norms the row it gathered, a block a row of the norm's threads or playing them.
         Launch::Fold { first, then } if matches!(first.as_ref(), Launch::Gather { .. }) => {
@@ -873,18 +1037,19 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             let own = Dst::to(out);
             let (y, yrow, ypitch) = if *f32 { n.dst_split(into.as_ref().unwrap_or(&own), 0) } else { ("nullptr".into(), "nullptr".into(), 0) };
             let threads = kernels::norm_threads(*cols);
+            let per_warp = if *rows == 1 { kernels::q8_norm_launch_rows(*cols, threads, n.sms) } else { 1 };
             let (pre_arg, pre_tail) = match pre {
                 Some(pn) => ("true", format!(", {}, {}", n.opt(&pn.w), flit(pn.eps.get() as f32))),
                 None => ("false", String::new()),
             };
             format!(
-                "lk_gemv_q8_norm<{m}, {rows}, {}, {}, {}, {}, {}, {sum_ty}, {pre_arg}><<<{}, {threads}, 0, st>>>({}, {}, {}, {}, {}, {}, {k}, {cols}, {}, {}, {}, {}, {y}, {yrow}, {ypitch}, {}, {}, {}{pre_tail});",
+                "lk_gemv_q8_norm<{m}, {rows}, {}, {}, {}, {}, {}, {sum_ty}, {pre_arg}, {per_warp}><<<{}, {threads}, 0, st>>>({}, {}, {}, {}, {}, {}, {k}, {cols}, {}, {}, {}, {}, {y}, {yrow}, {ypitch}, {}, {}, {}{pre_tail});",
                 b(add.is_some()),
                 b(sum.is_some()),
                 b(*f32),
                 qm(*quant),
                 cols.div_ceil(threads),
-                cdiv(*cols, threads / 32),
+                cdiv(*cols, threads / 32 * per_warp),
                 rows_q(w),
                 rows_s(w),
                 if m == 0 { p(ax) } else { "nullptr".into() },
@@ -904,14 +1069,14 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
         // a gated pair as its gate and up apart, each in its own format, then gated as the pair's own epilogue gates them.
         Launch::Gemv { x, w, format, bias, epi, y, k, n: cols, m: rows, .. } if l.batch_blk_format(numerics).is_some() => {
             let part = [PartOut { w: handle(w, *format, *k), dst: n.dst_split(y, 0), bias: n.epi(bias, epi, 0, *cols), n: *cols }];
-            gemv_mma_blk(n, x, *k, *rows, &part, *format)
+            gemv_mma_blk(n, x, *k, *rows, &part, *format, l.activates())
         }
         Launch::GemmParts { x, format, k, m: rows, parts, .. } if l.batch_blk_format(numerics).is_some() => {
-            let parts: Vec<PartOut> = parts
+            let outs: Vec<PartOut> = parts
                 .iter()
-                .map(|p| PartOut { w: handle(&p.w, *format, *k), dst: n.dst_split(&p.y, 0), bias: n.opt(&p.bias), n: p.n })
-                .collect();
-            gemv_mma_blk(n, x, *k, *rows, &parts, *format)
+                .map(|p| PartOut { w: handle(&p.w, *format, *k), dst: n.dst_split(&p.y, 0), bias: n.epi(&p.bias, &p.epi, 0, p.n), n: p.n })
+                .collect::<Vec<_>>();
+            gemv_mma_blk(n, x, *k, *rows, &outs, *format, l.activates())
         }
         Launch::GemvGlu { x, wg, wu, formats: [fg, fu], biases: [bg, bu], act, out, f32, quant, k, n: cols, m: rows, .. } if l.batch_blk_format(numerics).is_some() => {
             let (hg, hu) = (n.scratch("mg", out), n.scratch("mu", out));
@@ -922,12 +1087,12 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
                 n: *cols,
             };
             let products = if fg == fu {
-                gemv_mma_blk(n, x, *k, *rows, &[scratch(wg, *fg, &hg, bg), scratch(wu, *fu, &hu, bu)], *fg)
+                gemv_mma_blk(n, x, *k, *rows, &[scratch(wg, *fg, &hg, bg), scratch(wu, *fu, &hu, bu)], *fg, false)
             } else {
                 format!(
                     "{}\n  CKL();\n  {}",
-                    gemv_mma_blk(n, x, *k, *rows, &[scratch(wg, *fg, &hg, bg)], *fg),
-                    gemv_mma_blk(n, x, *k, *rows, &[scratch(wu, *fu, &hu, bu)], *fu)
+                    gemv_mma_blk(n, x, *k, *rows, &[scratch(wg, *fg, &hg, bg)], *fg, false),
+                    gemv_mma_blk(n, x, *k, *rows, &[scratch(wu, *fu, &hu, bu)], *fu, false)
                 )
             };
             format!("{products}\n  CKL();\n  {}", glu_gate(n, m, &hg, &hu, act, out, *f32, *quant, rows * cols))
@@ -936,14 +1101,14 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
         // launch; a gated pair as its gate and up apart, then gated as the pair's own epilogue gates them.
         Launch::Gemv { x, w, bias, epi, y, k, n: cols, m: rows, .. } if l.batch_on_tensor_cores(numerics) => {
             let part = [PartOut { w: handle(w, GgmlType::Q8_0, *k), dst: n.dst_split(y, 0), bias: n.opt(bias), n: *cols }];
-            gemv_mma(n, x, *k, *rows, &part, m, Some(&|at| n.epi(bias, epi, at, *cols)))
+            gemv_mma(n, x, *k, *rows, &part, m, Some(&|at| n.epi(bias, epi, at, *cols)), l.activates())
         }
         Launch::GemmParts { x, k, m: rows, parts, .. } if l.batch_on_tensor_cores(numerics) => {
             let parts: Vec<PartOut> = parts
                 .iter()
-                .map(|p| PartOut { w: handle(&p.w, GgmlType::Q8_0, *k), dst: n.dst_split(&p.y, 0), bias: n.opt(&p.bias), n: p.n })
+                .map(|p| PartOut { w: handle(&p.w, GgmlType::Q8_0, *k), dst: n.dst_split(&p.y, 0), bias: n.epi(&p.bias, &p.epi, 0, p.n), n: p.n })
                 .collect();
-            gemv_mma(n, x, *k, *rows, &parts, m, None)
+            gemv_mma(n, x, *k, *rows, &parts, m, None, l.activates())
         }
         Launch::GemvGlu { x, wg, wu, biases: [bg, bu], act, out, f32, quant, k, n: cols, m: rows, .. } if l.batch_on_tensor_cores(numerics) => {
             let (hg, hu) = (n.scratch("mg", out), n.scratch("mu", out));
@@ -954,11 +1119,11 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
                 n: *cols,
             };
             let parts = [scratch(wg, &hg, bg), scratch(wu, &hu, bu)];
-            format!("{}\n  CKL();\n  {}", gemv_mma(n, x, *k, *rows, &parts, m, None), glu_gate(n, m, &hg, &hu, act, out, *f32, *quant, rows * cols))
+            format!("{}\n  CKL();\n  {}", gemv_mma(n, x, *k, *rows, &parts, m, None, false), glu_gate(n, m, &hg, &hu, act, out, *f32, *quant, rows * cols))
         }
         Launch::Gemv { x, w, format, bias, epi, y, k, n: cols, m: rows, .. } if l.on_tensor_cores(numerics) && l.reads_sixteen() => format!(
             "{}<<<dim3({}, {}), 256, {}, st>>>({}, {}, {}, {}, {k}, {cols}, {rows});",
-            gemm_h16_name(kernels::format_arg(*format), m, 0, 0, h16_launch_tile(l, numerics, n.sms)),
+            gemm_h16_name(kernels::format_arg(*format), m, 0, 0, h16_launch_tile(l, numerics, n.sms), l.activates()),
             cdiv(*cols, h16_launch_tile(l, numerics, n.sms)),
             cdiv(*rows, kernels::GEMM_H16_ROWS),
             kernels::gemm_h16_smem_bytes(numerics == Q8MatKind::TwoPassInt8, h16_launch_tile(l, numerics, n.sms)),
@@ -972,7 +1137,7 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             let launch = |group: u32, cols: usize, args: String| {
                 format!(
                     "{}<<<dim3({}, {}), 256, {}, st>>>({args});",
-                    gemm_h16_name(f, m, group, 0, tn),
+                    gemm_h16_name(f, m, group, 0, tn, l.activates()),
                     cdiv(cols, tn),
                     cdiv(*rows, kernels::GEMM_H16_ROWS),
                     kernels::gemm_h16_smem_bytes(numerics == Q8MatKind::TwoPassInt8, h16_tile(numerics))
@@ -980,7 +1145,7 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             };
             if h16_parted(parts, numerics) {
                 // Whole tiles a part: one launch over the parts side by side.
-                let outs: Vec<PartOut> = parts.iter().map(|p| PartOut { w: handle(&p.w, *format, *k), dst: n.dst_split(&p.y, 0), bias: n.opt(&p.bias), n: p.n }).collect();
+                let outs: Vec<PartOut> = parts.iter().map(|p| PartOut { w: handle(&p.w, *format, *k), dst: n.dst_split(&p.y, 0), bias: n.epi(&p.bias, &p.epi, 0, p.n), n: p.n }).collect();
                 let cols = l.gemm_cols();
                 launch(4, cols, format!("{{}}, {}, {{}}, nullptr, nullptr, 0, {k}, {cols}, {rows}, {{}}, nullptr, {}", p(x), lk_parts(&outs)))
             } else {
@@ -994,7 +1159,7 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
         }
         Launch::GemvGlu { x, wg, wu, formats: [fg, _], biases: [bg, bu], act, out, k, n: cols, m: rows, .. } if l.on_tensor_cores(numerics) && l.reads_sixteen() => format!(
             "{}<<<dim3({}, {}), 256, {}, st>>>({}, {}, {}, {}, nullptr, 0, {k}, {cols}, {rows}, {}, {});",
-            gemm_h16_name(kernels::format_arg(*fg), m, 5, act.map_or(-1, act_arg), h16_launch_tile(l, numerics, n.sms)),
+            gemm_h16_name(kernels::format_arg(*fg), m, 5, act.map_or(-1, act_arg), h16_launch_tile(l, numerics, n.sms), false),
             cdiv(*cols, h16_launch_tile(l, numerics, n.sms) / 2),
             cdiv(*rows, kernels::GEMM_H16_ROWS),
             kernels::gemm_h16_smem_bytes(numerics == Q8MatKind::TwoPassInt8, h16_launch_tile(l, numerics, n.sms)),
@@ -1022,7 +1187,7 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             };
             format!(
                 "{}<<<{grid}, {}, {}, st>>>({}, {}, {}, {}, {k}, {cols}, {rows}{line});",
-                gemm_blk_name(kernels::format_arg(*format), m, 0, bm, 0, blk_plain(l, n.buffers)),
+                gemm_blk_name(kernels::format_arg(*format), m, 0, bm, 0, blk_plain(l, n.buffers), l.activates()),
                 kernels::gemm_blk_launch_threads(kernels::format_arg(*format), bm, *k),
                 kernels::gemm_blk_launch_smem(kernels::format_arg(*format), m == 2, bm, *k),
                 handle(w, *format, *k),
@@ -1033,7 +1198,7 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
         }
         Launch::GemmParts { x, format, k, m: rows, parts, tail, .. } if l.on_tensor_cores(numerics) => {
             let bm = l.gemm_rows(numerics);
-            let cols = l.gemm_cols();
+            let cols = l.gemm_tile_cols();
             let tiles = cdiv(cols, kernels::GEMM_TILE_N) * cdiv(*rows, bm);
             let key = &parts[0].y.buf;
             let (grid, line) = match tail {
@@ -1042,20 +1207,25 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             };
             let outs: Vec<PartOut> = parts
                 .iter()
-                .map(|p| PartOut { w: handle(&p.w, *format, *k), dst: n.dst_split(&p.y, 0), bias: n.opt(&p.bias), n: p.n })
+                .map(|p| PartOut { w: handle(&p.w, *format, *k), dst: n.dst_split(&p.y, 0), bias: n.epi(&p.bias, &p.epi, 0, p.n), n: p.n })
                 .collect();
             format!(
                 "{}<<<{grid}, {}, {}, st>>>({{}}, {}, nullptr, nullptr, nullptr, 0, {k}, {cols}, {rows}, nullptr, nullptr, nullptr, nullptr, {{}}, nullptr, nullptr, nullptr, nullptr, 0.f, 0.f, {line}, {});",
-                gemm_blk_name(kernels::format_arg(*format), m, 4, bm, 0, blk_plain(l, n.buffers)),
+                gemm_blk_name(kernels::format_arg(*format), m, 4, bm, 0, blk_plain(l, n.buffers), l.activates()),
                 kernels::gemm_blk_launch_threads(kernels::format_arg(*format), bm, *k),
                 kernels::gemm_blk_launch_smem(kernels::format_arg(*format), m == 2, bm, *k),
                 n.quant(x, true),
-                lk_parts(&outs)
+                lk_tile_parts(&outs)
             )
         }
         Launch::GemmParts { x, format, k, m: rows, parts, per_warp, .. } => {
             let cols = l.gemm_cols();
-            let per_warp = &launch_rows(*format, *per_warp, cols, numerics, n);
+            // A step's one row over Q8_0 rows under one word takes the rows a warp its parts divide; the rest as planned.
+            let per_warp = &if *format == GgmlType::Q8_0 && *rows == 1 && m == 1 {
+                kernels::q8_parts_launch_rows(&parts.iter().map(|p| p.n).collect::<Vec<_>>())
+            } else {
+                launch_rows(*format, *per_warp, cols, numerics, n)
+            };
             // A batch's rows past the GEMV's in slabs of `GEMV_ROWS`, each launch's activation and output rows the slab's.
             (0..rows.div_ceil(GEMV_ROWS))
                 .map(|slab| {
@@ -1066,7 +1236,7 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
                         .map(|p| PartOut {
                             w: handle(&p.w, *format, *k),
                             dst: n.dst_split(&p.y, slab * GEMV_ROWS * p.n),
-                            bias: n.opt(&p.bias),
+                            bias: n.epi(&p.bias, &p.epi, 0, p.n),
                             n: p.n,
                         })
                         .collect();
@@ -1075,7 +1245,7 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
                     format!(
                         "lk_gemv_parts<{}, {m}, {r}{}><<<{}, 256, 0, st>>>({xin}, {k}, {cols}, {});",
                         kernels::format_arg(*format),
-                        per_warp_arg(*per_warp),
+                        if l.activates() { format!(", {per_warp}, true") } else { per_warp_arg(*per_warp) },
                         cdiv(cols, 8 * *per_warp),
                         lk_parts(&outs)
                     )
@@ -1102,9 +1272,10 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
                 format!(
                     "lk_gemv_blk<{}, {m}, {r}{}><<<{}, {}, 0, st>>>({}, {xin}, {}, {dst}, {k}, {cols}, {yq});",
                     kernels::format_arg(*format),
-                    match (rows_a_warp, *quant) {
-                        (1, false) => String::new(),
-                        (w, q) => format!(", {w}, {}", qm(q)),
+                    match (rows_a_warp, *quant, l.activates()) {
+                        (1, false, false) => String::new(),
+                        (w, q, false) => format!(", {w}, {}", qm(q)),
+                        (w, q, true) => format!(", {w}, {}, true", qm(q)),
                     },
                     cdiv(*cols, warps * rows_a_warp),
                     32 * warps,
@@ -1118,7 +1289,8 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             .map(|slab| {
                 let r = GEMV_ROWS.min(rows - slab * GEMV_ROWS);
                 format!(
-                    "lk_gemv_q8<0, {r}><<<{}, 256, 0, st>>>({}, {}, {} + {}, nullptr, nullptr, nullptr, {}, {}, {k}, {cols});",
+                    "lk_gemv_q8<0, {r}{}><<<{}, 256, 0, st>>>({}, {}, {} + {}, nullptr, nullptr, nullptr, {}, {}, {k}, {cols});",
+                    ea_arg(l.activates()),
                     cdiv(*cols, 8),
                     rows_q(w),
                     rows_s(w),
@@ -1131,7 +1303,8 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             .collect::<Vec<_>>()
             .join("\n  CKL();\n  "),
         Launch::Gemv { x, w, bias, epi, y, k, n: cols, m: rows, .. } => format!(
-            "lk_gemv_q8<{m}, {rows}><<<{}, 256, 0, st>>>({}, {}, {}, {}, {}, {}, {k}, {cols});",
+            "lk_gemv_q8<{m}, {rows}{}><<<{}, 256, 0, st>>>({}, {}, {}, {}, {}, {}, {k}, {cols});",
+            ea_arg(l.activates()),
             cdiv(*cols, 8),
             rows_q(w),
             rows_s(w),
@@ -1141,7 +1314,8 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             n.dst(y)
         ),
         Launch::GemvF32 { x, w, bias, epi, y, k, n: cols, m: rows, split, .. } if l.multiplies_in_tiles(numerics) => format!(
-            "lk_gemm_f32<<<dim3({}, {}, {split}), 256, 0, st>>>({}, {}, {}, {}, {rows}, {cols}, {k}{});",
+            "lk_gemm_f32{}<<<dim3({}, {}, {split}), 256, 0, st>>>({}, {}, {}, {}, {rows}, {cols}, {k}{});",
+            if l.activates() { "<true>" } else { "" },
             cdiv(*cols, 64),
             cdiv(*rows, 64),
             p(x),
@@ -1151,7 +1325,8 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             if *split > 1 { format!(", {split}, {}, {}", n.scratch("fp", &y.buf), n.scratch("fq", &y.buf)) } else { String::new() }
         ),
         Launch::GemvF32 { x, w, bias, epi, y, k, n: cols, m: rows, split, .. } => format!(
-            "lk_gemv_f32<<<dim3({}, {}), 256, 0, st>>>({}, {}, {}, {}, {k}, {cols}, {rows}{});",
+            "lk_gemv_f32{}<<<dim3({}, {}), 256, 0, st>>>({}, {}, {}, {}, {k}, {cols}, {rows}{});",
+            if l.activates() { "<true>" } else { "" },
             cdiv(*cols, 8 / split),
             cdiv(*rows, kernels::GEMV_F32_ROWS),
             p(w),
@@ -1207,7 +1382,7 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             };
             format!(
                 "{}<<<{grid}, {}, {}, st>>>({}, {}, {}, {}, nullptr, 0, {k}, {cols}, {rows}, nullptr, nullptr, nullptr, nullptr, {}, {}, {}, 0.f, 0.f, {line});",
-                gemm_blk_name(kernels::format_arg(*fg), m, 5, bm, act.map_or(-1, act_arg), false),
+                gemm_blk_name(kernels::format_arg(*fg), m, 5, bm, act.map_or(-1, act_arg), false, false),
                 kernels::gemm_blk_launch_threads(kernels::format_arg(*fg), bm, *k),
                 kernels::gemm_blk_launch_smem(kernels::format_arg(*fg), m == 2, bm, *k),
                 handle(wg, *fg, *k),
@@ -1226,7 +1401,11 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
                 let xin = activation_args(n, x, Some(at), m, kernels::sixteen(*fg) || kernels::sixteen(*fu));
                 let y = if *f32 { format!("{} + {oat}", p(out)) } else { "nullptr".into() };
                 let yq = if *quant { n.quant_at(out, oat) } else { "nullptr, nullptr, nullptr".into() };
-                let rows_a_warp = launch_rows(if kernels::sixteen(*fg) { *fg } else { *fu }, *per_warp, *cols, numerics, n);
+                let rows_a_warp = if !kernels::sixteen(*fg) && !kernels::sixteen(*fu) && m == 1 && r == 1 && *quant {
+                    kernels::GLU_ROWS
+                } else {
+                    launch_rows(if kernels::sixteen(*fg) { *fg } else { *fu }, *per_warp, *cols, numerics, n)
+                };
                 // A quantized output takes a block of 32 outputs; a plain one, eight warps, a 16-bit pair's on the tensor
                 // cores one (`kernels::SIXTEEN_BLOCK_WARPS`).
                 let warps = match *quant {
@@ -1259,6 +1438,7 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             p(x),
             p(y)
         ),
+        Launch::Erf { x, y, n: len } => format!("lk_erf<<<{}, 256, 0, st>>>({}, {}, {len});", cdiv(*len, 256), p(x), p(y)),
         Launch::Rope { x, part, norm: None, cos, sin, pos, y, heads, per_row, hd, half } => {
             let ((xp, xo), (yp, yo)) = (reading(part, *hd), unit(y, *hd));
             format!(
@@ -1310,9 +1490,13 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             };
             let normed = sides[0].norm.is_some();
             let threads = rope_threads(normed, *hd).max(256);
-            let nt = if kernels::sixteen(*format) { format!(", {threads}") } else { String::new() };
+            let nt = match (kernels::sixteen(*format), first.activates()) {
+                (_, true) => format!(", {threads}, true"),
+                (true, false) => format!(", {threads}"),
+                (false, false) => String::new(),
+            };
             let per_warp = &launch_rows(*format, *per_warp, first.gemm_cols(), numerics, n);
-            let outs: Vec<PartOut> = parts.iter().map(|q| PartOut { w: handle(&q.w, *format, *k), dst: n.dst_split(&q.y, 0), bias: n.opt(&q.bias), n: q.n }).collect();
+            let outs: Vec<PartOut> = parts.iter().map(|q| PartOut { w: handle(&q.w, *format, *k), dst: n.dst_split(&q.y, 0), bias: n.epi(&q.bias, &q.epi, 0, q.n), n: q.n }).collect();
             let read = |side: Option<&RopeSide>| side.map_or(-1, |r| parts.iter().position(|q| q.y.own() == Some(r.x.as_str())).expect("a side reads a part") as i64);
             let none = RopeSide { x: sides[0].x.clone(), part: None, norm: sides[0].norm.clone(), y: sides[0].y.clone(), heads: 0, per_row: 1, yz: 0 };
             let xin = activation_args(n, x, None, m, kernels::sixteen(*format));
@@ -1352,7 +1536,8 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             }
             sets.join("\n  CKL();\n  ")
         }
-        Launch::Attention { q, kc, vc, pos, sinks, out, heads, group, hd, vd, len, rows, window, chunked, vstride, voff, scale, cap, split, stream, .. } if l.attends_in_tiles(numerics) => {
+        Launch::Attention { q, kc, vc, pos, sinks, out, heads, group, hd, vd, len, rows, row0, window, chunked, vstride, voff, scale, cap, split, stream, .. } if l.attends_in_tiles(numerics) => {
+            assert_eq!(*row0, 0, "a block's last rows apart from the rest attend one row at a time, never in tiles");
             let hg = kernels::attn_tile_heads(*group);
             let (mma, flash) = (l.attends_on_tensor_cores(numerics), l.attends_flash(numerics));
             let kv = n.elems(&[Some(kc), Some(vc), split.as_ref().map(|s| s.k_tail.0.as_str())]);
@@ -1470,15 +1655,16 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             }
         }
         // Each chunk a block, every head of the group in it; more than one chunk, and a launch folds them.
-        Launch::Attention { q, kc, vc, pos, sinks, out, heads, group, hd, vd, len, rows, window, chunked, vstride, voff, scale, cap, shared: Some(splits), seq, f32, quant, gate, goff, .. } => {
+        Launch::Attention { q, kc, vc, pos, sinks, out, heads, group, hd, vd, len, rows, row0, window, chunked, vstride, voff, scale, cap, shared: Some(splits), seq, f32, quant, gate, goff, .. } => {
             let part = if *splits > 1 { n.scratch("ap", out) } else { "nullptr".into() };
             let (win, minc) = (win(*window, *chunked), kernels::ATTN_MIN_SPLIT);
             let (qo, qargs) = attention_quant(n, out, *quant, gate, *goff, m);
             let kernel = attention_shared_kernel(*heads, *vd, *hd, kc == vc, &n.elems(&[Some(kc), Some(vc)]), &qo);
             let dst = if *f32 { p(out) } else { "nullptr".into() };
             let capq = capped(*cap, &qargs, ", lk_qout{}");
+            let from = row_offset(*row0, &format!("{qargs}{capq}"), true, !capq.is_empty());
             let attend = format!(
-                "{kernel}<<<dim3({}, {rows}, {splits}), 256, {}, st>>>({}, {}, {}, {}, {}, {dst}, {part}, {len}, {win}, {vd}, {heads}, {}, {vstride}, {voff}, {}, {minc}, {splits}, {}{qargs}{capq});",
+                "{kernel}<<<dim3({}, {rows}, {splits}), 256, {}, st>>>({}, {}, {}, {}, {}, {dst}, {part}, {len}, {win}, {vd}, {heads}, {}, {vstride}, {voff}, {}, {minc}, {splits}, {}{qargs}{capq}{from});",
                 heads / group,
                 kernels::attn_shared_smem_bytes(*heads, *hd),
                 p(q),
@@ -1494,8 +1680,9 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
                 attend
             } else {
                 let fold = if qo.is_empty() { "lk_attention_fold".to_string() } else { format!("lk_attention_fold<{}>", if *quant { m } else { 0 }) };
+                let from = row_offset(*row0, &qargs, false, false);
                 format!(
-                    "{attend}\n  CKL();\n  {fold}<<<dim3({heads}, {rows}, {}), {}, {}, st>>>({part}, {}, {}, {dst}, {len}, {win}, {vd}, {heads}, {minc}, {splits}, {}{qargs});",
+                    "{attend}\n  CKL();\n  {fold}<<<dim3({heads}, {rows}, {}), {}, {}, st>>>({part}, {}, {}, {dst}, {len}, {win}, {vd}, {heads}, {minc}, {splits}, {}{qargs}{from});",
                     cdiv(*vd, 2 * kernels::ATTN_FOLD_PAIRS),
                     kernels::ATTN_FOLD_PAIRS,
                     splits * 4,
@@ -1505,7 +1692,7 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
                 )
             }
         }
-        Launch::Attention { q, kc, vc, pos, sinks, out, heads, group, hd, vd, len, rows, window, chunked, vstride, voff, scale, cap, per_block, splits, parallel, split, shared: None, seq, f32, quant, gate, goff, stream: _ } => {
+        Launch::Attention { q, kc, vc, pos, sinks, out, heads, group, hd, vd, len, rows, row0, window, chunked, vstride, voff, scale, cap, per_block, splits, parallel, split, shared: None, seq, f32, quant, gate, goff, stream: _ } => {
             assert!(split.is_none(), "a split attention attends in tiles");
             let (part, cnt) = if *parallel { (n.scratch("ap", out), n.scratch("ac", out)) } else { ("nullptr".into(), "nullptr".into()) };
             let (acc, ty) = kernels::accumulator(m);
@@ -1517,8 +1704,9 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             let kernel = attention_kernel(*per_block, *vd, ty, mb, &n.elems(&[Some(kc), Some(vc)]), &qo, kernels::attn_path(z, side, *splits), *hd);
             let dst = if *f32 { p(out) } else { "nullptr".into() };
             let capq = capped(*cap, &qargs, ", lk_qout{}");
+            let from = row_offset(*row0, &format!("{qargs}{capq}"), true, !capq.is_empty());
             format!(
-                "{kernel}<<<dim3({}, {rows}, {z}), 256, {smem}, st>>>({}, {}, {}, {}, {}, {dst}, {part}, {cnt}, {len}, {}, {hd}, {vd}, {group}, {heads}, {}, {vstride}, {voff}, {}, {}, {splits}, {}, {}{qargs}{capq});",
+                "{kernel}<<<dim3({}, {rows}, {z}), 256, {smem}, st>>>({}, {}, {}, {}, {}, {dst}, {part}, {cnt}, {len}, {}, {hd}, {vd}, {group}, {heads}, {}, {vstride}, {voff}, {}, {}, {splits}, {}, {}{qargs}{capq}{from});",
                 heads / per_block,
                 p(q),
                 p(kc),
@@ -1719,13 +1907,13 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             p(decay)
         ),
         // A chunk of rows at a time: every chunk's products the memory does not enter, then the memory's walk.
-        Launch::Delta { q, k, v, z, b: bb, a, st, gn, out, f32, quant, hv, hk, d, rows, eps, .. } if l.delta_in_chunks(numerics) => {
+        Launch::Delta { q, k, v, z, b: bb, a, st, gn, out, f32, quant, hv, hk, d, rows, eps, gate, .. } if l.delta_in_chunks(numerics) => {
             let chunks = rows.div_ceil(kernels::DELTA_CHUNK);
             let (dk, dq, dt, dp, dg) = (n.scratch("dk", out), n.scratch("dq", out), n.scratch("dt", out), n.scratch("dp", out), n.scratch("dg", out));
             format!(
                 "lk_delta_prep<{d}><<<dim3({hv}, {chunks}), 256, {}, st>>>({}, {}, {}, {}, {dk}, {dq}, {dt}, {dp}, {dg}, {hk}, {hv}, {rows});\n  CKL();\n  \
                  lk_delta_state<{d}, {}{}><<<dim3({hv}, {}), {}, 0, st>>>({}, {}, {dk}, {dq}, {dt}, {dp}, {dg}, {}, {}, {hk}, {hv}, {rows});\n  CKL();\n  \
-                 lk_delta_norm<{}, {}, {sum_ty}><<<{}, {d}, 0, st>>>({}, {}, {}, {}, {}, {d}, {});",
+                 lk_delta_norm<{}, {}, {sum_ty}{}><<<{}, {d}, 0, st>>>({}, {}, {}, {}, {}, {d}, {});",
                 kernels::DELTA_PREP_SMEM,
                 p(q),
                 p(k),
@@ -1741,6 +1929,7 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
                 n.scratch("o", out),
                 b(*f32),
                 qm(*quant),
+                sigmoid(*gate),
                 rows * hv,
                 p(z),
                 p(gn),
@@ -1751,15 +1940,17 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
             )
         }
         // A row at a time, each head's last block norming the head: the norm's own block of `d` threads played by the
-        // step's four warps.
-        Launch::Delta { q, k, v, z, b: bb, a, st, gn, out, f32, quant, hv, hk, d, rows, eps, seqs, qk } => format!(
-            "lk_delta_step<{sum_ty}, {}, {}, {}, {}, {}><<<dim3({hv}, {}, {seqs}), 128, 0, st>>>({}, {}, {}, {}, {}, {}, {}, {d}, {hk}, {hv}, {rows}, {}, {}, {}, {}, {}, {}, {}{});",
+        // step's four warps, each warp `DELTA_ROWS_A_WARP` rows of the memory.
+        Launch::Delta { q, k, v, z, b: bb, a, st, gn, out, f32, quant, hv, hk, d, rows, eps, seqs, qk, gate } => format!(
+            "lk_delta_step<{sum_ty}, {}, {}, {}, {}, {}, {}, {}><<<dim3({hv}, {}, {seqs}), 128, 0, st>>>({}, {}, {}, {}, {}, {}, {}, {d}, {hk}, {hv}, {rows}, {}, {}, {}, {}, {}, {}, {}{});",
             d.div_ceil(32),
             b(*f32),
             qm(*quant),
             d.div_ceil(32).div_ceil(4),
             n.elem(st),
-            cdiv(*d, 4),
+            b(*gate == GateAct::Sigmoid),
+            kernels::DELTA_ROWS_A_WARP,
+            cdiv(*d, 4 * kernels::DELTA_ROWS_A_WARP),
             p(q),
             p(k),
             p(v),
@@ -1779,12 +1970,11 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
         Launch::Moe { x, wr, wg, wu, wd, formats, y, d, dff, experts, k, router, rb, biases, renormalize, act, shared, per_warp, rows, router_split, .. } => {
             let key = &y.buf;
             let xin = format!("{}, {}", if m == 0 { p(x) } else { "nullptr".into() }, n.quant(x, m > 0));
-            // An f32 router reads the input f32 under every numerics; a quantized one reads it as the experts do.
-            let (rf, fr, route_in, router_rows) = match router {
-                Router::F32 => {
-                    (1, 8, format!("{}, {}", p(x), n.quant(x, m > 0)), format!("lk_w{{nullptr, nullptr, nullptr, 0}}, {}", p(wr)))
-                }
-                Router::Rows(ty) => (0, kernels::format_arg(*ty), xin.clone(), format!("{}, nullptr", handle(wr, *ty, *d))),
+            // A router reads the input's values under every numerics, its matrix `f32` or checkpoint rows.
+            let route_in = format!("{}, {}", p(x), n.quant(x, m > 0));
+            let (rf, fr, router_rows) = match router {
+                Router::F32 => (1, 8, format!("lk_w{{nullptr, nullptr, nullptr, 0}}, {}", p(wr))),
+                Router::Rows(ty) => (0, kernels::format_arg(*ty), format!("{}, nullptr", handle(wr, *ty, *d))),
             };
             let [fg, fu, fd] = formats.map(kernels::format_arg);
             // Without shared experts their formats are the kept experts' and their rows none.
@@ -1838,7 +2028,7 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
                         "{}<<<dim3({}, {}, {experts}), {}, st>>>({}, {words}, {}, nullptr, nullptr, 0, {d}, {dff}, 0, {ec}, {eo}, nullptr, nullptr, \
                          {}, {}, {hq}, {}, {});\n  CKL();\n  \
                          {}<<<dim3({}, {}, {experts}), {}, st>>>({}, {hq}, {}, {pa}, nullptr, 0, {dff}, {d}, 0, {ec}, {eo}, {el}, {g});\n  CKL();\n  ",
-                        gemm_blk_name(fg, m, 3, bm, i32::from(act_arg), false),
+                        gemm_blk_name(fg, m, 3, bm, i32::from(act_arg), false, false),
                         cdiv(*dff, kernels::GEMM_TILE_N / 2),
                         cdiv(rows, bm),
                         shape(fg, *d),
@@ -1848,7 +2038,7 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
                         n.opt(&biases[1]),
                         flit(limit as f32),
                         flit(slope as f32),
-                        gemm_blk_name(fd, m, 2, bm, 0, false),
+                        gemm_blk_name(fd, m, 2, bm, 0, false, false),
                         cdiv(*d, kernels::GEMM_TILE_N),
                         cdiv(rows, bm),
                         shape(fd, *dff),
@@ -1868,11 +2058,11 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
                          {}<<<{}, {}, st>>>({}, {words}, nullptr, {hu}, nullptr, 0, {d}, {dff}, 0, {ec}, {eo});\n  CKL();\n  \
                          lk_moe_glu<{act_arg}><<<{}, 256, 0, st>>>({hg}, {hu}, {}, {}, {i}, {el}, {hid}, {hidden_rows}L, {dff}, {}, {});\n  CKL();\n  \
                          {quant}{}<<<{}, {}, st>>>({}, {hq}, {}, {pa}, nullptr, 0, {dff}, {d}, 0, {ec}, {eo}, {el}, {g});\n  CKL();\n  ",
-                        gemm_blk_name(fg, m, 1, bm, 0, false),
+                        gemm_blk_name(fg, m, 1, bm, 0, false, false),
                         grid(*dff),
                         shape(fg, *d),
                         handle(wg, formats[0], *d),
-                        gemm_blk_name(fu, m, 1, bm, 0, false),
+                        gemm_blk_name(fu, m, 1, bm, 0, false, false),
                         grid(*dff),
                         shape(fu, *d),
                         handle(wu, formats[1], *d),
@@ -1881,7 +2071,7 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
                         n.opt(&biases[1]),
                         flit(limit as f32),
                         flit(slope as f32),
-                        gemm_blk_name(fd, m, 2, bm, 0, false),
+                        gemm_blk_name(fd, m, 2, bm, 0, false, false),
                         grid(*d),
                         shape(fd, *dff),
                         handle(wd, formats[2], *dff),
@@ -1904,48 +2094,34 @@ fn launch(l: &Launch, n: &Names, numerics: Q8MatKind, token: &str, out: &mut Str
                         n.opt(&biases[2])
                     )
                 };
-                let route = if l.on_tensor_cores(numerics) {
-                    // The rows' router logits as one GEMM, then each row's choices from its logits.
-                    let logits = match router {
-                        Router::F32 => format!(
-                            "lk_gemm_f32<<<dim3({}, {}, {router_split}), 256, 0, st>>>({}, {}, {}, {lg}, {rows}, {experts}, {d}{});",
-                            cdiv(*experts, 64),
-                            cdiv(rows, 64),
-                            p(x),
-                            p(wr),
-                            n.opt(rb),
-                            if *router_split > 1 {
-                                format!(", {router_split}, {}, {}", n.scratch("rp", key), n.scratch("rq", key))
-                            } else {
-                                String::new()
-                            }
-                        ),
-                        Router::Rows(ty) => format!(
-                            "{}<<<dim3({}, {}), {}, {}, st>>>({}, {}, {}, {lg}, nullptr, 0, {d}, {experts}, {rows});",
-                            gemm_blk_name(kernels::format_arg(*ty), m, 0, kernels::GEMM_BLK_TILE_M, 0, false),
-                            cdiv(*experts, kernels::GEMM_TILE_N),
-                            cdiv(rows, kernels::GEMM_BLK_TILE_M),
-                            kernels::gemm_blk_launch_threads(kernels::format_arg(*ty), kernels::GEMM_BLK_TILE_M, *d),
-                            kernels::gemm_blk_launch_smem(kernels::format_arg(*ty), n.two, kernels::GEMM_BLK_TILE_M, *d),
-                            handle(wr, *ty, *d),
-                            n.quant(x, true),
-                            n.opt(rb)
-                        ),
-                    };
-                    format!(
-                        "{logits}\n  CKL();\n  lk_moe_pick<{m}><<<{rows}, 256, {}, st>>>({lg}, {experts}, {k}, {}, {i}, {g});",
+                let route = match router {
+                    // A chunk's `f32` router on the tensor cores: the rows' logits as one GEMM, then each row's choices
+                    // from its logits.
+                    Router::F32 if l.on_tensor_cores(numerics) => format!(
+                        "lk_gemm_f32<<<dim3({}, {}, {router_split}), 256, 0, st>>>({}, {}, {}, {lg}, {rows}, {experts}, {d}{});\n  CKL();\n  lk_moe_pick<{m}><<<{rows}, 256, {}, st>>>({lg}, {experts}, {k}, {}, {i}, {g});",
+                        cdiv(*experts, 64),
+                        cdiv(rows, 64),
+                        p(x),
+                        p(wr),
+                        n.opt(rb),
+                        if *router_split > 1 {
+                            format!(", {router_split}, {}, {}", n.scratch("rp", key), n.scratch("rq", key))
+                        } else {
+                            String::new()
+                        },
                         experts * 4,
                         u8::from(*renormalize)
-                    )
-                } else {
-                    format!(
+                    ),
+                    // Every other router a warp an expert of each row, one of checkpoint rows reading the input's values
+                    // as an `f32` one does.
+                    _ => format!(
                         "lk_moe_route<{m}, {rf}, {fr}{}><<<dim3({}, {rows}), 256, {}, st>>>({route_in}, {router_rows}, {}, {d}, {experts}, {k}, {}, {i}, {g}, {lg}, {cnt});",
                         per_warp_arg(wpe),
                         cdiv(*experts * wpe, 8),
                         experts * 4,
                         n.opt(rb),
                         u8::from(*renormalize)
-                    )
+                    ),
                 };
                 // Each row combined, or with the next norm a block of the norm's threads a row.
                 let combine = match &finish {
@@ -2051,6 +2227,13 @@ fn norm_of(norm: &Launch, n: &Names, m: u32, cols: usize, sum_ty: &str) -> (Stri
 }
 
 
+/// The array the decode step's arg-max leaves its pick in for the next step: its token, or a span's own result where the
+/// span reads no token (its host embeds the pick).
+fn pick_array(decode: &Form) -> String {
+    let io = &decode.schedule.io;
+    format!("t1_{}", c(if io.token.is_empty() { &io.next } else { &io.token }))
+}
+
 /// The nodes the program's graphs capture, every form's step and a prefill chunk's lean step (`output_only`): each
 /// kernel its launches print and each memory set or copy — the events a step records across its streams
 /// (`branches::branch`) are the graph's edges, not nodes — what `residence::plan`'s spare is counted by.
@@ -2058,7 +2241,7 @@ pub fn captured_nodes(forms: &[Form], knobs: &CudaKnobs) -> usize {
     let two = forms[0].schedule.numerics == Q8MatKind::TwoPassInt8;
     let shared = shared_names(forms);
     let decode = forms.iter().find(|f| f.rows == 1).expect("a lane has a decode step");
-    let token = format!("t1_{}", c(&decode.schedule.io.token));
+    let token = pick_array(decode);
     let nodes = |stmts: &str| ["<<<", "cudaMemsetAsync(", "cudaMemcpyAsync("].iter().map(|op| stmts.matches(op).count()).sum::<usize>();
     forms
         .iter()
@@ -2128,14 +2311,27 @@ pub fn output_only(f: &Form, forms: &[Form]) -> Vec<bool> {
     out
 }
 
-/// Print `forms` as one CUDA program over the checkpoint `ckpt`, its caches `ctx` positions long.
-pub fn emit(forms: &[Form], knobs: &CudaKnobs, ctx: usize, ckpt: Checkpoint, plan: &Plan) -> Result<Program, LaneError> {
+/// The host's half of a program whose decode step starts past the first layer (`StepIo::hidden_in`): the token's
+/// embedding and the layers before the program's, computed on the host's cores by the front it is linked with
+/// (`codegen_cpu::split`), its values the sidecar's last `sidecar` bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Front {
+    pub sidecar: usize,
+}
+
+/// Print `forms` as one CUDA program over the checkpoint `ckpt`, its caches `ctx` positions long; where its decode step
+/// reads the hidden state its host's layers make, linked with the `front` that computes them.
+pub fn emit(forms: &[Form], knobs: &CudaKnobs, ctx: usize, ckpt: Checkpoint, plan: &Plan, front: Option<Front>) -> Result<Program, LaneError> {
     let numerics = forms[0].schedule.numerics;
     let m = kernels::mode(numerics);
     let two = numerics == Q8MatKind::TwoPassInt8;
     let shared = shared_names(forms);
     let decode = forms.iter().find(|f| f.rows == 1).expect("a lane has a decode step");
-    let token = format!("t1_{}", c(&decode.schedule.io.token));
+    let token = pick_array(decode);
+    let hidden = decode.schedule.io.hidden_in.as_deref();
+    if hidden.is_some() != front.is_some() || (hidden.is_some() && forms.len() != 1) {
+        return Err(LaneError::NotYet(NotYet("a decode step past the first layer is a program's one form, linked with the front that computes the layers before it")));
+    }
 
     let mut cu = header(Provenance::Compiled);
     for f in forms {
@@ -2318,6 +2514,19 @@ pub fn emit(forms: &[Form], knobs: &CudaKnobs, ctx: usize, ckpt: Checkpoint, pla
                         moved(&buf.name)
                     );
                 }
+                // An integer table the program sets itself: its values in the program, uploaded once.
+                Fill::Constant(Placement::Ints(v)) => {
+                    let list: Vec<String> = v.iter().map(|x| format!("{x}LL")).collect();
+                    let _ = writeln!(cu, "static const long long I_{}[] = {{{}}};", c(&buf.name), list.join(", "));
+                    let _ = writeln!(decls, "  long long* {} = nullptr;", n.plain(&buf.name));
+                    let _ = writeln!(
+                        loads,
+                        "  lk_malloc(&{0}, {1}UL * 8); CK(cudaMemcpy({0}, I_{2}, {1}UL * 8, cudaMemcpyHostToDevice));",
+                        n.plain(&buf.name),
+                        v.len(),
+                        c(&buf.name)
+                    );
+                }
                 Fill::Constant(Placement::Values(v)) => {
                     let off = sidecar.len();
                     sidecar.extend(v.iter().flat_map(|x| x.to_le_bytes()));
@@ -2399,11 +2608,13 @@ pub fn emit(forms: &[Form], knobs: &CudaKnobs, ctx: usize, ckpt: Checkpoint, pla
     let mut shared_smem: BTreeMap<String, usize> = BTreeMap::new();
     let mut flash: BTreeSet<(usize, usize, usize, String)> = BTreeSet::new();
     let mut mma: BTreeSet<(String, usize)> = BTreeSet::new();
-    let mut gemm_blk: BTreeSet<(u32, u32, usize, i32, bool)> = BTreeSet::new();
-    let mut gemm_h16: BTreeSet<(u32, u32, i32, usize)> = BTreeSet::new();
+    // Each instantiation launched, its epilogue's activation flag (`Launch::activates`) among its arguments, so the
+    // shared memory each takes is raised on the instantiation that runs.
+    let mut gemm_blk: BTreeSet<(u32, u32, usize, i32, bool, bool)> = BTreeSet::new();
+    let mut gemm_h16: BTreeSet<(u32, u32, i32, usize, bool)> = BTreeSet::new();
     // A batch's tensor-core GEMVs, by tile: `(mt, nt, mw, nw)`; and of Q4_K and Q6_K rows, by format.
-    let mut gemv_mma: BTreeSet<(usize, usize, usize, usize)> = BTreeSet::new();
-    let mut gemv_mma_blk: BTreeSet<u32> = BTreeSet::new();
+    let mut gemv_mma: BTreeSet<(usize, usize, usize, usize, bool)> = BTreeSet::new();
+    let mut gemv_mma_blk: BTreeSet<(u32, bool)> = BTreeSet::new();
     // Every step's launches, timed under `--profile`: the form's rows, the launch's kind and output, and the event
     // recorded before it (the next event closes it; each form's last is its own).
     let mut prof: Vec<(i64, &str, String, usize, usize)> = Vec::new();
@@ -2439,14 +2650,11 @@ pub fn emit(forms: &[Form], knobs: &CudaKnobs, ctx: usize, ckpt: Checkpoint, pla
                             let [fg, fu, fd] = formats.map(kernels::format_arg);
                             let bm = kernels::gemm_blk_expert_rows(rows * k, *experts);
                             if l.pairs_gate_and_up(f.schedule.numerics) {
-                                gemm_blk.insert((fg, 3, bm, i32::from(*act != MoeAct::Swiglu), false));
+                                gemm_blk.insert((fg, 3, bm, i32::from(*act != MoeAct::Swiglu), false, false));
                             } else {
-                                gemm_blk.extend([(fg, 1, bm, 0, false), (fu, 1, bm, 0, false)]);
+                                gemm_blk.extend([(fg, 1, bm, 0, false, false), (fu, 1, bm, 0, false, false)]);
                             }
-                            gemm_blk.insert((fd, 2, bm, 0, false));
-                            if let Router::Rows(ty) = router {
-                                gemm_blk.insert((kernels::format_arg(*ty), 0, kernels::GEMM_BLK_TILE_M, 0, false));
-                            }
+                            gemm_blk.insert((fd, 2, bm, 0, false, false));
                         }
                     }
                     Launch::Attention { kc, vc, group, hd, vd, split, stream, .. } if l.attends_on_tensor_cores(f.schedule.numerics) => {
@@ -2477,19 +2685,19 @@ pub fn emit(forms: &[Form], knobs: &CudaKnobs, ctx: usize, ckpt: Checkpoint, pla
                     }
                     Launch::Gemv { format, .. } | Launch::GemmParts { format, .. } if l.on_tensor_cores(f.schedule.numerics) && l.reads_sixteen() => {
                         let parted = matches!(l, Launch::GemmParts { parts, .. } if h16_parted(parts, f.schedule.numerics));
-                        gemm_h16.insert((kernels::format_arg(*format), if parted { 4 } else { 0 }, 0, h16_launch_tile(l, f.schedule.numerics, knobs.chip.sms)));
+                        gemm_h16.insert((kernels::format_arg(*format), if parted { 4 } else { 0 }, 0, h16_launch_tile(l, f.schedule.numerics, knobs.chip.sms), l.activates()));
                     }
                     Launch::GemvGlu { formats: [fg, _], act, .. } if l.on_tensor_cores(f.schedule.numerics) && l.reads_sixteen() => {
-                        gemm_h16.insert((kernels::format_arg(*fg), 5, act.map_or(-1, act_arg), h16_launch_tile(l, f.schedule.numerics, knobs.chip.sms)));
+                        gemm_h16.insert((kernels::format_arg(*fg), 5, act.map_or(-1, act_arg), h16_launch_tile(l, f.schedule.numerics, knobs.chip.sms), false));
                     }
                     Launch::Gemv { format, .. } if l.on_tensor_cores(f.schedule.numerics) => {
-                        gemm_blk.insert((kernels::format_arg(*format), 0, l.gemm_rows(f.schedule.numerics), 0, blk_plain(l, &f.schedule.buffers)));
+                        gemm_blk.insert((kernels::format_arg(*format), 0, l.gemm_rows(f.schedule.numerics), 0, blk_plain(l, &f.schedule.buffers), l.activates()));
                     }
                     Launch::GemvGlu { formats, .. } if l.batch_blk_format(f.schedule.numerics).is_some() => {
-                        gemv_mma_blk.extend(formats.iter().map(|f| kernels::format_arg(*f)));
+                        gemv_mma_blk.extend(formats.iter().map(|f| (kernels::format_arg(*f), false)));
                     }
                     Launch::Gemv { .. } | Launch::GemmParts { .. } if l.batch_blk_format(f.schedule.numerics).is_some() => {
-                        gemv_mma_blk.extend(l.batch_blk_format(f.schedule.numerics).map(kernels::format_arg));
+                        gemv_mma_blk.extend(l.batch_blk_format(f.schedule.numerics).map(|f| (kernels::format_arg(f), l.activates())));
                     }
                     Launch::Gemv { m: rows, .. } | Launch::GemmParts { m: rows, .. } | Launch::GemvGlu { m: rows, .. }
                         if l.batch_on_tensor_cores(f.schedule.numerics) =>
@@ -2500,14 +2708,15 @@ pub fn emit(forms: &[Form], knobs: &CudaKnobs, ctx: usize, ckpt: Checkpoint, pla
                             _ => unreachable!(),
                         };
                         gemv_mma.extend((0..rows.div_ceil(kernels::GEMV_MMA_ROWS)).map(|s| {
-                            kernels::gemv_mma_launch(kernels::GEMV_MMA_ROWS.min(rows - s * kernels::GEMV_MMA_ROWS), cols, k, knobs.chip.sms)
+                            let (mt, nt, mw, nw) = kernels::gemv_mma_launch(kernels::GEMV_MMA_ROWS.min(rows - s * kernels::GEMV_MMA_ROWS), cols, k, knobs.chip.sms);
+                            (mt, nt, mw, nw, l.activates())
                         }));
                     }
                     Launch::GemmParts { format, .. } if l.on_tensor_cores(f.schedule.numerics) => {
-                        gemm_blk.insert((kernels::format_arg(*format), 4, l.gemm_rows(f.schedule.numerics), 0, blk_plain(l, &f.schedule.buffers)));
+                        gemm_blk.insert((kernels::format_arg(*format), 4, l.gemm_rows(f.schedule.numerics), 0, blk_plain(l, &f.schedule.buffers), l.activates()));
                     }
                     Launch::GemvGlu { formats: [fg, _], act, .. } if l.on_tensor_cores(f.schedule.numerics) => {
-                        gemm_blk.insert((kernels::format_arg(*fg), 5, l.gemm_rows(f.schedule.numerics), act.map_or(-1, act_arg), false));
+                        gemm_blk.insert((kernels::format_arg(*fg), 5, l.gemm_rows(f.schedule.numerics), act.map_or(-1, act_arg), false, false));
                     }
                     _ => {}
                 }
@@ -2656,34 +2865,36 @@ pub fn emit(forms: &[Form], knobs: &CudaKnobs, ctx: usize, ckpt: Checkpoint, pla
             kernels::attn_flash_smem_bytes(hd, vd)
         );
     }
-    for (f, group, act, tn) in gemm_h16 {
+    for (f, group, act, tn, ea) in gemm_h16 {
         let _ = writeln!(
             attrs,
             "  CK(cudaFuncSetAttribute({}, cudaFuncAttributeMaxDynamicSharedMemorySize, {}));",
-            gemm_h16_name(f, m, group, act, tn),
+            gemm_h16_name(f, m, group, act, tn, ea),
             kernels::gemm_h16_smem_bytes(numerics == Q8MatKind::TwoPassInt8, tn)
         );
     }
-    for (f, group, bm, act, plain) in gemm_blk {
+    for (f, group, bm, act, plain, ea) in gemm_blk {
         let _ = writeln!(
             attrs,
             "  CK(cudaFuncSetAttribute({}, cudaFuncAttributeMaxDynamicSharedMemorySize, {}));",
-            gemm_blk_name(f, m, group, bm, act, plain),
+            gemm_blk_name(f, m, group, bm, act, plain, ea),
             kernels::gemm_blk_smem_bytes(f, two, bm)
         );
     }
-    for f in gemv_mma_blk {
+    for (f, ea) in gemv_mma_blk {
         let _ = writeln!(
             attrs,
-            "  CK(cudaFuncSetAttribute(lk_gemv_mma_blk<{f}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {}));",
+            "  CK(cudaFuncSetAttribute(lk_gemv_mma_blk<{f}{}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {}));",
+            ea_arg(ea),
             kernels::gemv_mma_blk_smem_bytes(f)
         );
     }
-    for (mt, nt, mw, nw) in gemv_mma {
+    for (mt, nt, mw, nw, ea) in gemv_mma {
         if kernels::gemv_mma_smem_bytes(two, mt, nt) > 48 * 1024 {
             let _ = writeln!(
                 attrs,
-                "  CK(cudaFuncSetAttribute(lk_gemv_mma<{m}, {mt}, {nt}, {mw}, {nw}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {}));",
+                "  CK(cudaFuncSetAttribute(lk_gemv_mma<{m}, {mt}, {nt}, {mw}, {nw}{}>, cudaFuncAttributeMaxDynamicSharedMemorySize, {}));",
+                ea_arg(ea),
                 kernels::gemv_mma_smem_bytes(two, mt, nt)
             );
         }
@@ -2715,6 +2926,19 @@ pub fn emit(forms: &[Form], knobs: &CudaKnobs, ctx: usize, ckpt: Checkpoint, pla
         .collect();
     // The vocabulary the decode step's arg-max picks from: its logits' length, read or not.
     let vocab = decode.schedule.launches.iter().find_map(|l| if let Launch::ArgMax { n, .. } = l { Some(*n) } else { None }).expect("the decode step picks its token");
+    let (front_decls, args, drive) = match (hidden, front) {
+        (Some(h), Some(fr)) => {
+            let hid = Names::of(decode, &shared, two, knobs.chip.sms).plain(h);
+            let width = decode.schedule.buffers.get(h).map_or(0, |b| b.len);
+            (
+                format!("{FRONT}static const size_t LK_FRONT_SIDE = {}UL;\nstatic const int LK_HIDDEN = {width};\n", fr.sidecar),
+                ARGS.replace("  bool prof = false, stagger = false, whole = false;\n", "  bool prof = false, stagger = false, whole = false;\n  int front_threads = 8;\n")
+                    .replace("    else av.push_back(argv[i]);\n", "    else if(s == \"--front-threads\" && i + 1 < argc) front_threads = atoi(argv[++i]);\n    else av.push_back(argv[i]);\n"),
+                DRIVE_FROM.replace("t_pick_", &token).replace("t_hidden_", &hid),
+            )
+        }
+        _ => (String::new(), ARGS.to_string(), DRIVE.replace("t_tok_", &token).replace("/*CHUNK_TOKENS*/\n", &chunk_tokens)),
+    };
     let _ = write!(
         cu,
         "static const size_t SIDECAR_BYTES = {}UL;\nstatic const int CHUNKS[] = {{{}}};\nstatic const int BATCH = {batch_rows};\nstatic const bool LOGITS = {};\n{HOST}{}\nint main(int argc, char** argv){{\n{ARGS}{PLACE}{SLOTS}{decls}{loads}{arena}{aliases}{scratch}{attrs}\
@@ -2740,20 +2964,20 @@ pub fn emit(forms: &[Form], knobs: &CudaKnobs, ctx: usize, ckpt: Checkpoint, pla
          \x20 auto reset = [&]{{\n{resets}    CK(cudaMemsetAsync(d_count, 0, 4, st));\n    CK(cudaStreamSynchronize(st));\n\
          \x20   int one = 1; CK(cudaMemcpy(d_pos, &one, 4, cudaMemcpyHostToDevice));\n  }};\n\
          \x20 const int vocab = {vocab};\n{}}}\n",
-        sidecar.len(),
+        sidecar.len() + front.map_or(0, |f| f.sidecar),
         if chunks.is_empty() { "0".to_string() } else { chunks.iter().map(usize::to_string).collect::<Vec<_>>().join(", ") },
         decode.schedule.io.logits_read,
         format!(
-            "{}{}{}",
+            "{}{}{}{front_decls}",
             if mxfp4 { HOST_MXFP4 } else { "" },
             if q6k { HOST_Q6K } else { "" },
             if sixteen { HOST_H16 } else { "" }
         ),
         branches::STREAMS - 1,
         if knobs.cuda_graphs { "true" } else { "false" },
-        DRIVE.replace("t_tok_", &token).replace("/*CHUNK_TOKENS*/\n", &chunk_tokens),
+        drive,
         HOST = HOST,
-        ARGS = ARGS,
+        ARGS = args,
         PLACE = PLACE,
         SLOTS = SLOTS,
     );
@@ -3003,6 +3227,88 @@ const ARGS: &str = r#"  setenv("CUDA_MODULE_LOADING", "EAGER", 1);
   FILE* sf = fopen(argv[2], "rb");
   if(!sf || fread(side.data(), 1, SIDECAR_BYTES, sf) != SIDECAR_BYTES || fgetc(sf) != EOF){ fprintf(stderr, "%s is not this program's sidecar\n", argv[2]); return 3; }
   fclose(sf);
+"#;
+
+/// The front a program whose decode step starts past the first layer is linked with: `lk_front_init` given the mapped
+/// checkpoint, its values and its threads; `lk_front_reset` zeroing its carried state; `lk_front(tok, pos, hidden)` the
+/// token's embedding and the layers before the program's at position `pos` (both 1-based), their hidden state into
+/// `hidden`.
+const FRONT: &str = r#"extern "C" void lk_front_init(const unsigned char* file, const unsigned char* side, int threads);
+extern "C" void lk_front_reset();
+extern "C" void lk_front(int tok, int pos, float* hidden);
+"#;
+
+/// The generation of a program linked with a front, prompt after prompt: the carried state of both halves reset, then a
+/// step a token — the prompt's, then each generated — the front's layers on the host's cores, their hidden state copied
+/// into the decode step's input, the step's layers, head and arg-max on the device. The prompt's steps run ahead of the
+/// device, each hidden state in the pinned buffer the copy two steps back has left; a generated token's step waits for
+/// the pick it embeds.
+const DRIVE_FROM: &str = r#"  cudaEvent_t e0, e1, e2; CK(cudaEventCreate(&e0)); CK(cudaEventCreate(&e1)); CK(cudaEventCreate(&e2));
+  if(batch_mode){ fprintf(stderr, "this program has no batch step\n"); return 2; }
+  lk_front_init(file, side.data() + (SIDECAR_BYTES - LK_FRONT_SIDE), front_threads);
+  float* h_hidden[2] = {nullptr, nullptr}; cudaEvent_t h_copied[2];
+  for(int k = 0; k < 2; ++k){ CK(cudaHostAlloc((void**)&h_hidden[k], (size_t)LK_HIDDEN * 4, cudaHostAllocDefault)); CK(cudaEventCreateWithFlags(&h_copied[k], cudaEventDisableTiming)); CK(cudaEventRecord(h_copied[k], st)); }
+  int* h_pick = nullptr; CK(cudaHostAlloc((void**)&h_pick, 4, cudaHostAllocDefault));
+  std::vector<float> host_logits(logits_out ? vocab : 0);
+  auto dump = [&]{
+    if(!logits_out) return;
+    CK(cudaMemcpyAsync(host_logits.data(), logits, (size_t)vocab * 4, cudaMemcpyDeviceToHost, st));
+    CK(cudaStreamSynchronize(st));
+    fwrite(host_logits.data(), 4, vocab, logits_out);
+  };
+  int hk = 0;
+  auto step = [&](int tok, int pos){
+    CK(cudaEventSynchronize(h_copied[hk]));
+    lk_front(tok, pos, h_hidden[hk]);
+    CK(cudaMemcpyAsync(t_hidden_, h_hidden[hk], (size_t)LK_HIDDEN * 4, cudaMemcpyHostToDevice, st));
+    CK(cudaEventRecord(h_copied[hk], st));
+    hk ^= 1;
+    run(1, true);
+    if(!prof) return;
+    CK(cudaStreamSynchronize(st));
+    for(int k = 0; k < PROF_N; ++k) if(PROF_ROWS[k] == 1){
+      float ms = 0.f; CK(cudaEventElapsedTime(&ms, pev[PROF_EV[k]], pev[PROF_EV[k] + 1])); pms[k] += ms; ++pcount[k];
+    }
+  };
+  for(auto& job : jobs){
+    const std::vector<int>& prompt = job.second;
+    const int n_gen = job.first;
+    reset();
+    lk_front_reset();
+    CK(cudaEventRecord(e0, st));
+    int pos = 0, steps = 0;
+    for(int at = 0; at < (int)prompt.size(); ++at){ step(prompt[at], ++pos); ++steps; }
+    CK(cudaEventRecord(e1, st));
+    dump();
+    for(int g = 1; g < n_gen; ++g){
+      CK(cudaMemcpyAsync(h_pick, t_pick_, 4, cudaMemcpyDeviceToHost, st));
+      CK(cudaStreamSynchronize(st));
+      step(*h_pick, ++pos); ++steps;
+      dump();
+    }
+    CK(cudaEventRecord(e2, st));
+    CK(cudaStreamSynchronize(st));
+    CK(cudaGetLastError());
+    float prefill_ms = 0.f, decode_ms = 0.f;
+    CK(cudaEventElapsedTime(&prefill_ms, e0, e1)); CK(cudaEventElapsedTime(&decode_ms, e1, e2));
+    std::vector<int> gen(steps);
+    CK(cudaMemcpy(gen.data(), d_gen, (size_t)steps * 4, cudaMemcpyDeviceToHost));
+    printf("TOKENS:");
+    for(int g = steps - n_gen; g < steps; ++g) printf(" %d", gen[g] - 1);
+    printf("\nPREFILL_MS: %.3f\nLEAN_CHUNKS: 0\n", prefill_ms);
+    if(n_gen > 1) printf("DECODE_MS_PER_TOKEN: %.4f\nDECODE_TOK_PER_S: %.2f\n", decode_ms / (n_gen - 1), 1000.0 * (n_gen - 1) / decode_ms);
+    fflush(stdout);
+  }
+  if(prof){
+    double total = 0.0;
+    for(int k = 0; k < PROF_N; ++k) if(PROF_ROWS[k] == 1 && pcount[k]){
+      double us = 1000.0 * pms[k] / pcount[k];
+      printf("PROFILE: %s %s %.3f %llu %.1f\n", PROF_KIND[k], PROF_OUT[k], us, PROF_BYTES[k], PROF_BYTES[k] / us / 1e3); total += us;
+    }
+    if(total > 0.0) printf("PROFILE_TOTAL_US: %.3f\n", total);
+  }
+  if(logits_out) fclose(logits_out);
+  return 0;
 "#;
 
 /// The staging of the matrices in host memory that stream (`residence`): two device slots, the copy stream that fills

@@ -732,7 +732,7 @@ impl<'a> DiscoveryPass<'a> {
             }
         }
 
-        if let Some(name_sym) = self.consume_noun_or_proper() {
+        if let Some(name_sym) = self.consume_type_name() {
             // Phase 34: Check for "of [T]" which indicates user-defined generic
             let type_params = if self.check_preposition("of") {
                 self.advance(); // consume "of"
@@ -939,7 +939,7 @@ impl<'a> DiscoveryPass<'a> {
             // the lowercased lemma, and a lemma-keyed registry would never
             // match the `When Ok (v):` arm's raw-lexeme lookup.
             let raw_lexeme = self.peek().map(|t| t.lexeme);
-            if self.consume_noun_or_proper().is_some() {
+            if self.consume_type_name().is_some() {
                 let variant_name = raw_lexeme.expect("peeked before consuming");
                 // Check for payload fields
                 let fields = if self.check_word("with") {
@@ -1211,7 +1211,7 @@ impl<'a> DiscoveryPass<'a> {
             self.advance();
         }
 
-        if let Some(name) = self.consume_noun_or_proper() {
+        if let Some(name) = self.consume_type_name() {
             let name_str = self.interner.resolve(name);
 
             // Phase 49c: Check for bias/algorithm modifier on SharedSet: "SharedSet (AddWins) of T"
@@ -1389,14 +1389,81 @@ impl<'a> DiscoveryPass<'a> {
     /// interrogative, `a` an article, and each is an ordinary field name where a name stands. Any
     /// identifier-shaped word is accepted (the symbol [`Self::consume_noun_or_proper`] would give,
     /// where it accepts the word).
+    ///
+    /// ★ A NAME IS THE WORD AS WRITTEN. [`Self::consume_noun_or_proper`] reads a CRDT keyword
+    /// (`tally`, `divergent`, …) as its canonical TYPE name (`Tally`), which is right where a type
+    /// is written and wrong where a field is named: `A tally: Int.` registered a field called
+    /// `Tally`, so the constructor's `and tally 2` named no declared field and the clause was
+    /// left dangling, and no compiled tier could find the slot `k's tally` reads.
     fn consume_field_name(&mut self) -> Option<Symbol> {
+        if let Some(t) = self.peek() {
+            if matches!(
+                t.kind,
+                TokenType::Tally
+                    | TokenType::SharedSet
+                    | TokenType::SharedSequence
+                    | TokenType::CollaborativeSequence
+                    | TokenType::SharedMap
+                    | TokenType::Divergent
+            ) {
+                let sym = t.lexeme;
+                self.advance();
+                return Some(sym);
+            }
+        }
+        self.consume_committed_word(|_| true)
+    }
+
+    /// Take the word here as a TYPE's name, where the position has already committed to one:
+    /// after `## A`, where a field's type is written, where a variant or a type parameter is
+    /// declared.
+    ///
+    /// ★ A KEYWORD CAN NAME A TYPE. `check` begins `Check that …`, and a record called `Check`
+    /// used to register nothing at all: no error at the declaration, a parameter of that type with
+    /// no type on every compiled tier, a field of it silently dropped. A keyword already names a
+    /// variable or a field (identifier freedom), and a type is the same kind of name. A word the
+    /// lexicon does not already read as a name is taken here only when it is CAPITALIZED, as every
+    /// type name is, so prose in a `## Definition` block ("A check is …") is never mistaken for a
+    /// declaration.
+    ///
+    /// ★ AND A TYPE IS NAMED BY THE WORD AS WRITTEN. The lexer reads a capitalized plural before a
+    /// verb as a common noun and interns it lowercased (`Dogs bark.` is about dogs), so the header
+    /// `## A Kinds has:` registered a type called `kinds` while every use of it says `Kinds`. Beside
+    /// a record called `Kind`, a variant carrying a `Kinds` was then a type no compiled tier knew.
+    /// A capitalized word keeps its capital, the way a variant's name already does.
+    fn consume_type_name(&mut self) -> Option<Symbol> {
+        let written = self.peek().and_then(|t| match t.kind {
+            TokenType::Noun(_) => Some(t.lexeme),
+            _ => None,
+        });
+        let sym =
+            self.consume_committed_word(|w| w.chars().next().is_some_and(char::is_uppercase))?;
+        match written {
+            Some(lexeme)
+                if self
+                    .interner
+                    .resolve(lexeme)
+                    .chars()
+                    .next()
+                    .is_some_and(char::is_uppercase) =>
+            {
+                Some(lexeme)
+            }
+            _ => Some(sym),
+        }
+    }
+
+    /// The word here as a name: whatever [`Self::consume_noun_or_proper`] accepts, else any
+    /// identifier-shaped word `admit` allows, by its lexeme.
+    fn consume_committed_word(&mut self, admit: impl Fn(&str) -> bool) -> Option<Symbol> {
         if let Some(sym) = self.consume_noun_or_proper() {
             return Some(sym);
         }
         let t = self.peek()?;
         let lexeme = self.interner.resolve(t.lexeme);
         let identifier = lexeme.chars().next().is_some_and(|c| c.is_alphabetic())
-            && lexeme.chars().all(|c| c.is_alphanumeric() || c == '_');
+            && lexeme.chars().all(|c| c.is_alphanumeric() || c == '_')
+            && admit(lexeme);
         if !identifier {
             return None;
         }
@@ -1844,7 +1911,7 @@ impl<'a> DiscoveryPass<'a> {
         loop {
             if self.check_lbracket() {
                 self.advance(); // consume [
-                if let Some(param) = self.consume_noun_or_proper() {
+                if let Some(param) = self.consume_type_name() {
                     params.push(param);
                 }
                 if self.check_rbracket() {
@@ -1939,7 +2006,7 @@ impl<'a> DiscoveryPass<'a> {
             self.advance();
         }
 
-        if let Some(name) = self.consume_noun_or_proper() {
+        if let Some(name) = self.consume_type_name() {
             // Check if this is a type parameter reference
             if type_params.contains(&name) {
                 return FieldType::TypeParam(name);

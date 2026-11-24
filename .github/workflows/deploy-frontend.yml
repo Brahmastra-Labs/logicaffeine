@@ -108,7 +108,7 @@ jobs:
           CHROME_BIN="$(command -v google-chrome || command -v chromium-browser)" ./scripts/web/test-ssg-render.sh
 
       # Headless-browser boot: prerendered page CSR takeover (no duplicated DOM)
-      # and an SPA-fallback route still boots the app.
+      # a client-side route still boots the app, and an unknown route is a real 404.
       - name: SSG smoke test
         run: ./scripts/web/test-ssg-smoke.sh
 

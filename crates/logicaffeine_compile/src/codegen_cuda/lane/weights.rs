@@ -42,6 +42,9 @@ pub enum Placement {
     Rows(Rows),
     /// Values the compiler computes, in the layout the program declares (`rows × cols`, row-major).
     Values(Vec<f32>),
+    /// An integer table the program sets itself, element by element (`Set item k of T to v`): its values, in the
+    /// layout it declares.
+    Ints(Vec<i64>),
 }
 
 /// The rows of a tensor of `n` rows a view picks, in order, and whether it transposes them — `None` for a view that
@@ -73,6 +76,17 @@ fn picked(view: &View, n: usize) -> Option<(Vec<usize>, bool)> {
     }
 }
 
+/// Where constant `t` of a step authored from `spec` comes from: an integer table the program sets itself from the
+/// values it sets ([`Placement::Ints`]); every other constant from the checkpoint ([`place`]).
+pub fn place_declared(spec: &ModelSpec, g: &mut Gguf, t: &crate::tensor_graph::graph::Tensor, q8: bool, ctx: usize) -> Result<Placement, LaneError> {
+    if t.elem == crate::tensor_graph::graph::Elem::Int {
+        if let Some(crate::tensor_graph::eval::Data::Int(v)) = t.fill.as_ref().and_then(|f| crate::tensor_graph::eval::filled(f, t.len())) {
+            return Ok(Placement::Ints(v));
+        }
+    }
+    place(spec, g, &t.name, t.len(), q8, ctx)
+}
+
 /// Where constant `var` (of `len` elements) of a step authored from `spec` comes from. `q8` when the author declared
 /// it a quantized matrix — rows read in place, or values when the checkpoint keeps it in a float format; `positions`
 /// the rows of the rotary caches.
@@ -84,7 +98,7 @@ pub fn place(
     q8: bool,
     positions: usize,
 ) -> Result<Placement, LaneError> {
-    if let Some(table) = rotary_table(spec, g, var, positions)? {
+    if let Some(table) = host_table(spec, g, var, positions)? {
         if table.len() != len {
             return Err(LaneError::Shape { var: var.to_string(), declared: len, bound: table.len() });
         }
@@ -207,10 +221,18 @@ pub fn place_slice(spec: &ModelSpec, g: &mut Gguf, var: &str, len: usize, slice:
     Ok(Placement::Values((0..rows).flat_map(|r| (0..cols).map(move |c| (r, c))).map(|(r, c)| full[slice.full_index(r, c)] as f32).collect()))
 }
 
-/// A rotary table's values when `var` names one ([`bind::RotaryTable`]): a decode step's caches of `positions` rows, or
-/// a forward's one row (position 0), of the rotation the name gives.
-fn rotary_table(spec: &ModelSpec, g: &mut Gguf, var: &str, positions: usize) -> Result<Option<Vec<f32>>, LaneError> {
-    let Some(table) = bind::RotaryTable::named(var) else { return Ok(None) };
+/// A host table's values when `var` names one ([`bind::HostTable`]): a rotary table's — a decode step's caches of
+/// `positions` rows, or a forward's one row (position 0), of the rotation the name gives — or one the spec alone gives,
+/// a row of ones or an attention temperature ([`bind::computed_values`]).
+fn host_table(spec: &ModelSpec, g: &mut Gguf, var: &str, positions: usize) -> Result<Option<Vec<f32>>, LaneError> {
+    let Some(table) = bind::RotaryTable::named(var) else {
+        return match bind::HostTable::named(var) {
+            Some(table) => bind::computed_values(spec, table, positions)
+                .map(|v| Some(v.into_iter().map(|x| x as f32).collect()))
+                .ok_or_else(|| LaneError::Unbound(format!("{var}: the model has no attention temperature"))),
+            None => Ok(None),
+        };
+    };
     let rows = if table.cached { positions } else { 1 };
     let rope = *bind::rotations(spec)
         .get(table.rotation)

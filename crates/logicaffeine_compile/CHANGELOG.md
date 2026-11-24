@@ -25,71 +25,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `s3.lg`, a new auto-imported module: AWS Signature Version 4 (`s3CanonicalRequest`, `s3StringToSign`,
   `s3SigningKey`, `s3Authorization`, `s3AmzDate`) and path-style `s3Put` / `s3Get` for S3, R2 and MinIO over
   `httpclient.lg`, pinned to Amazon's documented GET Object example (`s3_sigv4_lock`).
-- `WireCompression::Cm` (header codec id 3): the context-mixing byte codec at its fast level, pure Rust on every
-  target, bodies and the bytes its model codes kept within `MAX_CM_DECODE_BYTES` (1 MiB) so a small frame cannot
-  demand more than a few seconds of decode. `FEAT_CM` advertises it and
-  `Negotiated::may_use_cm` reports both peers decode it; a negotiated send still defaults to zstd.
-  `best_compressed_len` grants a competitor the same codec, so wirebench's fair fight stays fair.
-- The `Auto` float column bake-off adds the decimal (`T_FLOATS_DECIMAL`) and bit-pattern (`T_FLOATS_BITS`) forms, read
-  from the column with every NaN canonical; int columns decode `T_INTS_MULT`, `T_INTS_CM` and `T_INTS_CXOR`.
-- The column menu follows the compression level: `WireCompressionLevel::Max` searches `describe`'s full menu (the
-  entropy-coded and conditional-XOR forms), every other level the structural one, so the default send path is as
-  fast as before.
-- `message_to_wire_best(Smallest)` searches the Max level too and the context-mixing codec there, and encodes each
-  shape once, trying every compressor on that one body (dials a value never reaches give identical bodies, compressed
-  once; under `Auto` the numeric dial is skipped, since the column menu never reads it): smaller and fewer encode
-  passes. Context mixing runs last, only on bodies whose zstd form is within a quarter of the best candidate.
-- `compile::CoreAtom`: a duration, date, instant, span, time of day or character the Core IR holds as the language's
-  own value (`CDuration`, `CDate`, `CMoment`, `CSpan`, `CTime`, `CChar`), with its tree-walker value, its wire bytes and
-  the language's expression for it; the self-interpreter's `VDuration` … `VChar` hold the same values, and
-  `core_interp.logos`, the three partial evaluators, `mix.logos`, `mix_bta` and the decompiler run, fold and spell them
-  by the language's operator and builtin tables (`semantics::operator_overloads`, `semantics::builtin_overloads`).
-  The bootstrap programs compile with reference collections and blocking waits (`codegen::with_blocking_waits`: a
-  `Sleep` compiles to `std::thread::sleep` and makes no function async), part of every native engine's cache key.
-- `pe_source.logos`: `peFinishProgram(residual, state)`, the residual finished as a `CProg` — every reached function
-  once (an identity helper inlined into its callers), each body and the main block through `peFinishBlock`, a pass over final
-  code only: copy loops to `copy of`, a dead initializer merged into its first write, a copy coalesced into the variable
-  it was taken from when no path reads that variable after the copy is written, a single-use binding substituted into
-  the next statement's first evaluation (anywhere in it when it can neither fail nor act; never into a loop, nor into an
-  interpolation hole an expression of its shape cannot stand in, `peHoleExprPrintable`), a dead
-  store whose failure the next statement subsumes, `While true` whose body opens with its exit test as a `While` on
-  that test, a never-written binding of `args()` read where it is used, `Show "{e}"` as `Show e`, a text built in steps
-  as one text, a short-circuit the self-interpreter split into a branch and a second test as one test, and a guard whose failure the next step reports identically under the same condition: an operator's
-  guard when its operands' kinds select an overload whose table guard is that condition (`peGuardCondition`), an index
-  guard when its condition is a disjunction of the host's out-of-range tests for an Int index of a list, a text or a
-  tuple read or of a list write (the kinds a fixpoint over the function's writes, `peKinds`). It also drops the stores
-  of a local nothing reads when they cannot fail by kinds (Int and Real `+ - *` widen and never fail; a name with a
-  store that can fail keeps its `Let`s), fuses a short circuit whose right operand was inlined, spells a list or tuple
-  of known structure shown in a text item by item where a hole could not hold it, drops `copy of args()` wherever it
-  stands, cuts every statement after an exit, and ends each level holding the header of a branch or loop whose blocks
-  it emptied (`Let pkv__held be …`) when that header can fail. The pass runs to its fixpoint. `PE_DRIVER_CORE` (the
-  textbook projection, the resident-server and the cdylib engines) calls it, and prints what it returns through the
-  decompiler's `decompileProgram`, after the sum types the specializer made when the residual names one
-  (`peWithSections`).
-- `optimize::memo_keys`: the specializers' memo keys, every value and statement keyed by its whole structure and
-  each part length-prefixed (`keyJoin`), between `KEYS_BEGIN` and `KEYS_END` in `pe_source.logos`; `dialect_keys`
-  gives the same functions under pe_mini's and pe_bti's suffixes, which those dialects hold and a lock holds equal,
-  and `dialect_key_signatures` the signatures the second and third projections restore on a specialization of one.
-- `core_operators::guards_source`: `peGuardCondition`, the finishing pass's reading of the operator table's guards,
-  generated into `pe_source.logos` between `GUARDS_BEGIN` and `GUARDS_END` and locked to the table.
-- `model::spec::Mixer::Recurrent` (`ShortConv`, `Ssd`, `Selective`, `Parallel`, `DeltaAttention`, `Lightning`,
-  `Rwkv7`) and `Mixer::None`; `Ffn::None`, `Ffn::ChannelMix` and `Ffn::DenseAndMoe`; `ModelSpec::norm`, `head_bias`
-  and `parts`; `Temperature::offset`; `Mla::rope` an `Option` and `Mla::latent_norm_eps` (`MLA_LATENT_NORM_EPS`);
-  `Gating::SparseMixer`. `model::hf` reads the new families' keys, tensors and tokenizers (vendored MiniMax-M1 and RWKV
-  World chat templates) and Python's non-finite floats in either spelling; `model::reference` computes every new
-  mixer and part; `model::author` writes a latent norm's own epsilon where it is not the model's.
-- `tensor_recognize::qwen::recognize_scatter` and `tensor_recognize::map::recognize_map` lift a counted loop by what
-  its turns compute together (`TensorOpSpec::Scatter`, `TensorOpSpec::Map`, its recurrent kind `Scan`);
-  `spatial::passes::from_qwen_ops::{from_scatter, from_map}` lower them (an owner-computes rewrite of the carried
-  table; `Generic` stages, a recurrence stepped or as a chunked scan); `tensor_graph::eval` evaluates both as the VM
-  runs the loops; `spatial::value_range` ranges a scatter; the CUDA lanes and the decode engine refuse them by name.
-- `spatial::lower::rdu_report::program_report`; `compile::RduProgramFiles::{whole_certificate_json, report_json,
-  files}`; `spatial::lineage::Lineage::runs_apart`; `spatial::certificate::{compute_obligation, checked, RecheckFault}`;
-  `codegen_sva::pnr_certificate::{Obligation, PlacementCertificate::{carries, refutes}}`, every reader of an external
-  placement rebuilding its obligation before it replays the proof; `spatial::compile_cache`, the section cache.
+- `ui_bridge::TheoryTheoremResult::refuted` and `countermodel`, `TheoryDevelopment::refutations` and `claims`:
+  `compile_theory_for_ui` refutes a development's `refute` theorems and reports every claim in source order.
+  `testrun::RefutedClaim` and `Inventory::from_prove_with_refutations`, `ClaimKind::Refutation`, `ClaimStatus::Refuted`
+  and `Unrefuted`, and `InventorySummary::refutations`: a refutation inventoried as its own kind, never a proof
+  (`theory_refute_lock`).
+- `analysis::readonly_rules`: `READONLY_RULES` (read-only `Seq` parameters as `MutatesDirectly`, `PassesTo`, `SeqParam`
+  and `Plain` facts under four rules, stratified negation), `readonly_facts` and `readonly_by_rules`, equal to
+  `ReadonlyParams::analyze` (`readonly_rules_lock`).
+- `page_host::DrivenBy`: whose statements a lowered page's host carries out — a host's (a `## Test`'s script, the
+  default), whose `Mount` is an entry into the page, or the program's own `## Main`, whose `Mount` is a call its main
+  makes. `LoweredHost::driven_by`, `LoweredPage::driven_by`, and `Interpreter::driving_pages_as` for a run of a test
+  body (`mount_entry_lock`).
+- `ui_bridge::Files` (`Host`, `Memory`) and `interpret_for_ui_with_files`: whether an interpreted run reads and writes
+  the disk, passed down the call (`interpret_files_lock`).
+- `ui_bridge::parse_seam_with` and `Front`: one front end for every backend — the as-written judgments, the scope
+  check, monomorphization and the run-path optimizer on request.
+- `optimize::partial_eval::specialization_origin`, the inverse of a specialization's name.
+- The VM's branch profile and `vm::cold_paths`: per loop region, the code no warm path reaches (a branch direction
+  that never ran while the branch ran `COLD_EDGE_MIN_RUNS` times the other way), each cold entry with the registers
+  live there. `NativeTier::compile_region` takes it as `cold`; `RegionFn::cold_runs` reports a cut region's cold exits
+  and iterations, and the VM demotes one whose cold exits pass `COLD_EXIT_SHARE`. A region compiled without its cold
+  code copies, on entry, every list it refills in place that anything else holds, the register a list literal is copied
+  into included, so a list the cold path kept is never refilled under it (`jit_partial_region_lock`).
+- `analysis::points_to`: `points_to_facts` reads a program's statements as points-to facts and `points_to` evaluates
+  PLDI 2004's rules over them, with or without contexts (`points_to_lock`).
+- The `datalog` standard library module (`assets/std/datalog.lg`): `DatalogTerm`, `DatalogAtom`, `DatalogLiteral`,
+  `DatalogRule`, `DatalogFact` and their builders, `datalogEvaluate` (arity, safety and stratification refused as
+  `logicaffeine_proof::datalog` refuses them; strata from the dependency graph's reachability; semi-naive rounds over a
+  per-round index; each fact once, under a length-prefixed key) and `datalogShowFact`.
+- `ui_bridge::theory_development`: a program's `## Axiom` blocks and `## Theory` declarations, named, in source order;
+  `compile_theory_for_ui` proves its theorems and `largo datalog` evaluates its axioms bottom-up.
+- `ui_bridge::TheoryTheoremResult::certificate`: a proved `## Theory` theorem's `TheoremCertificate`, minted from the
+  development's kernel proof term the way an English theorem's is (`theory_certificate_lock`).
 - `codegen_cpu`, the CPU tier (PARITY-CPU-SHIM): a checkpoint's decode step and prefill chunks linked from the one IR
-  into a C++17 program for the host's cores (`codegen_cpu::model::compile_model`, `examples/model_cpu.rs`), the GGUF
-  mapped and its rows read in place. `codegen_cpu::shim::CpuShim` answers the shared optimizer for each instruction set
+  into a C++17 program for the host's cores (`codegen_cpu::model::compile_model`, `examples/model_cpu.rs`), each cut
+  lifted with its constants placed from the checkpoint as the program declares them (`codegen_cpu::model::placed_graph`),
+  the GGUF mapped and its rows read in place. `codegen_cpu::shim::CpuShim` answers the shared optimizer for each instruction set
   (x86 AVX2 with AVX-VNNI and F16C linked; AVX-512, Arm NEON dot and RVV refused by name) at two numerics points — a
   product's activation in one word a 32-value block, its dots exact in 32-bit integers, or as its values — its attention
   caches (`CpuCache`) `f32`, binary16 (llama.cpp's default cache), int8 codes under one binary16 scale a head's row, or
@@ -107,9 +79,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   each op as a run of phases, a fused op one run of its parts' phases, each part's units computed by the function it
   runs alone. Every tiny architecture links: within 1e-5 of the evaluator under the precise point, every op within 3e-2
   of the evaluator's on the same inputs under one word (`cpu_shim_lock`).
+
 - `TensorGraph::cache_units`: every attention's cache with the widths of the units a cache kept a row at a time keeps
   its rows in — a head's row where an attention reads the cache itself, the whole row where it reads a part (a
   latent's); `caches` is its names.
+
+- `compile::CoreAtom`: a duration, date, instant, span, time of day or character the Core IR holds as the language's
+  own value (`CDuration`, `CDate`, `CMoment`, `CSpan`, `CTime`, `CChar`), with its tree-walker value, its wire bytes and
+  the language's expression for it; the self-interpreter's `VDuration` … `VChar` hold the same values, and
+  `core_interp.logos`, the three partial evaluators, `mix.logos`, `mix_bta` and the decompiler run, fold and spell them
+  by the language's operator and builtin tables (`semantics::operator_overloads`, `semantics::builtin_overloads`).
+  The bootstrap programs compile with reference collections and blocking waits (`codegen::with_blocking_waits`: a
+  `Sleep` compiles to `std::thread::sleep` and makes no function async), part of every native engine's cache key.
+- `WireCompression::Cm` (header codec id 3): the context-mixing byte codec at its fast level, pure Rust on every
+  target, bodies and the bytes its model codes kept within `MAX_CM_DECODE_BYTES` (1 MiB) so a small frame cannot
+  demand more than a few seconds of decode. `FEAT_CM` advertises it and
+  `Negotiated::may_use_cm` reports both peers decode it; a negotiated send still defaults to zstd.
+  `best_compressed_len` grants a competitor the same codec, so wirebench's fair fight stays fair.
+- The `Auto` float column bake-off adds the decimal (`T_FLOATS_DECIMAL`) and bit-pattern (`T_FLOATS_BITS`) forms, read
+  from the column with every NaN canonical; int columns decode `T_INTS_MULT`, `T_INTS_CM` and `T_INTS_CXOR`.
+- The column menu follows the compression level: `WireCompressionLevel::Max` searches `describe`'s full menu (the
+  entropy-coded and conditional-XOR forms), every other level the structural one, so the default send path is as
+  fast as before.
+- `message_to_wire_best(Smallest)` searches the Max level too and the context-mixing codec there, and encodes each
+  shape once, trying every compressor on that one body (dials a value never reaches give identical bodies, compressed
+  once; under `Auto` the numeric dial is skipped, since the column menu never reads it): smaller and fewer encode
+  passes. Context mixing runs last, only on bodies whose zstd form is within a quarter of the best candidate.
+
 - `codegen_cuda::lane` reads a matrix a checkpoint keeps in BF16 or F16 in place, two bytes a weight, where it widened
   it to `f32` values on the host (PARITY-WEIGHT-FORMATS, phase 1): `lane::weights::place` places it as rows in its own
   format (`kernels::reads_in_place`, `kernels::sixteen`), and `lk_row_dot` hands its rows to `lk_h16_dot`, which widens
@@ -205,6 +201,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   and a latent's whole row, as `Keep::keep_row` keeps it, plain or turned; each head's scale and each of its codes are
   near calls (`RoundingCall` of word `CACHE_WORD` for a code, the new `CACHE_SCALE_WORD` for a scale) a run may decide
   the other way, and a turned row whose width is not a power of two is refused by name.
+
 - `codegen_cuda::lane` streams a matrix in host memory to the device a launch at a time (`residence::Plan::streamed`,
   PARITY-HOST-WEIGHT-STREAMING): before a launch that reads it whole, the copy engine copies it into one of two device
   slots once the slot's last reader is done, and the launch reads the slot — so a prefill chunk reads it over the link
@@ -247,6 +244,148 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   item's parts to arrive, in key order — an item one block covers whole is the bits one block computes. Over a binary16
   cache at every width, over another where heads and values are at most 128 wide. On the 3060 at Llama-3.2-1B's shape
   after 3,584 keys over the `f32` cache: 1,236 µs one block an item, 866 µs under the schedule.
+- `codegen_cpu::split` (PARITY-HOST-LAYERS-ON-CPU): a model cut between the host's cores and the card, as llama.cpp's
+  partial offload runs one — its decode step's token embedding and first layers linked for the CPU tier over the
+  checkpoint's rows read in place, the rest with the head and the arg-max compiled for the CUDA lane
+  (`lane::compile_from`, only those layers' matrices on the device), the hidden state at the cut crossing the link twice
+  a token. The two halves make one program, the lane's, which calls the front's library a step at a time (`lane::Front`,
+  `lk_front`), its values after the lane's in the sidecar. `model::program::Cut::DecodeSpan` writes a decode step's layers
+  `[from, to)` (`author::decode_span`), spans laid end to end being the step; `lane::span_io` names what a span reads and
+  writes across steps (`StepIo::hidden_in`, `hidden_out`); `model_lane --cpu-layers=<s>` compiles a checkpoint cut at
+  layer `s`.
+- The CUDA lane's expert router reads its input's values under every numerics, its matrix `f32` or checkpoint rows (a
+  chunk's router of checkpoint rows takes `lk_moe_route` a row at a time, not the quantized GEMM): the experts it picks
+  are the CPU tier's, which routes from the values too, so a model cut between the two decodes as the lane does
+  (Tristen's ruling, 11-11). The f64 reference's quantized precisions route the same way
+  (`model::reference::Reference::project_values`), so the reference the lane is held to under them is the lane's.
+- `TensorGraph::lift` takes the token and the positions a step's names across steps give as its parameters whether or
+  not an op indexes by them: a span of recurrent layers alone still runs at its step's position.
+- A hyper-connected residual's mixes in few launches (PARITY-HYPER-CONNECTIONS): four classes of the one IR, each a
+  shared rule, native on the lane and the CPU tier, each the kernel vLLM's Qwen4Exp runs (`hc_gate_mix`, `hc_combine`,
+  `hc_combine_norm`, `hc_down_silu`). `gemm_act`: an activation of a product's result, and a factor after
+  it, in the product's epilogue (`plan::Epilogue::act`, `lk_epi`'s `act` and `post`, as `lk_unary` and `lk_scale`
+  compute them) — a mix's gate `silu(D·x̂ / L)` and its shares `σ(J·x̂ / L)·2`. `hc_mix`: the mix's gated product averaged
+  over the lanes in one pass (`Launch::LaneMean::by`), the mean quantized in the same launch where a product reads it
+  so (a warp a 32-value group; `elementwise_quant` over a lane mean). `hc_post`: a sublayer's output spread over the
+  lanes by its shares and added to the residual in one pass (`Launch::LaneSpread::add`). `hc_post_norm`: the post and
+  the norm in lanes that reads its sum first in one launch (`Launch::Norm::spread`, `lk_rmsnorm_row`'s `SPREAD` load
+  adding the token's row times the lane's share), the sum written on where it is read later — where a chunk's head
+  reads the last residual's last row alone, that post stays `hc_post`. Every value is the bits the launches apart
+  compute; a mix and the post before it run in five launches, not twelve.
+- A decode step's norms in lanes take the norm's own block a lane (its 1024 threads at 2048 wide), as a norm of one
+  token's row does, not the 256-thread blocks a chunk's rows take: one token's four lanes in blocks of 256, each warp
+  playing four of the norm's, left 24 of the 3060's 28 multiprocessors idle. Flash-Next's mixes at medium width (rank
+  320) decode a token in 0.357 ms, from 0.392, the logits the same bits.
+- A GEMV or GEMM in parts takes products with their scale or activation folded in (`gemm_scale`, `gemm_act`), each part
+  its own epilogue (`plan::GemmPart::epi`, the `lk_epi` of the part's slot in `lk_parts`) where it reads no operand a
+  row of its own: a hyper-connected mix's gate and shares products are one launch, as vLLM's Qwen4Exp merges its down
+  and inject GEMMs — the shares' four outputs no longer a launch of one block. A mix and the post before it run in four
+  launches, Flash-Next's at medium width decode a token in 0.353 ms, from 0.357, the logits the same bits.
+- The CUDA lane turns a step's query and key heads in their projections' launch (`qkv_head_epilogue`) only under the new
+  `head_epilogue` knob, off by default: apart, the projections in one launch and the rotations in one more overlap in
+  the step's graph, and on the 3060 at Q4_K_M decode faster on every model measured — Llama-3.2-1B 341.3 tok/s against
+  328.0, Gemma-3-1B 250.0 against 245.0, Qwen3-8B 65.6 against 64.2 (Tristen's ruling, 11-12). The fold, its kernel and
+  its bit-for-bit lock stay, under the knob; `examples/model_lane.rs` compiles with it on under `--head-epilogue=on`.
+- Each launch compiles `lk_epi`'s activation in only where it takes an activated epilogue (`Launch::activates`):
+  every product kernel's last template argument `EA` (`lk_epi::apply<EA>`), true at those launches alone, and the
+  shared memory each takes raised on the instantiation it launches. The select of three activations the
+  hyper-connected mixes brought into every epilogue of every program took a hyper-connected program 772 s of nvcc
+  against 123 without it, the grouped expert GEMMs' kernel program past 20 minutes against 121 s, and cost Q4_1's
+  batch kernel, already at its 128 registers, an 8-byte spill under CUDA 12.8.
+- A Q8_0 projection that norms its row in its last block (`lk_gemv_q8_norm`) takes two rows a warp where one row a warp
+  takes more of the norm's 1024-thread blocks than the chip holds at once and two fit them in one wave
+  (`kernels::q8_norm_launch_rows`): on the 3060 Qwen3.5-0.8B decodes at 321.9 tok/s, from 315.0, Gemma-3-1B at 230.5,
+  from 228.6, the logits the same bits.
+- A gated delta layer's step takes two of its memory's rows a warp (`kernels::DELTA_ROWS_A_WARP`, `lk_delta_step`'s
+  `RW`), the key and query loaded, normed and dotted once for both: Qwen3.5-0.8B's step in 9.91 µs, from 10.98,
+  Qwen3.8's in 23.68, from 26.21, and the model at 324.6 tok/s, from 322.1, every output, word and memory value the
+  same bits. Its inputs over Q8_0 rows under one word take two rows a warp where every part's outputs are whole twos
+  (`kernels::q8_gdn_launch_rows`): Qwen3.5-0.8B at 326.0 tok/s, from 324.3, the logits the same bytes.
+- `tensor_graph::last_row::last_row_tail`: a prefill chunk's rows that feed nothing dropped and its last layer run on
+  its output row (PARITY-LAST-LAYER-ROWS, K-29), by row-level liveness from the head's read of the last row: what
+  nothing reads goes (a mixture's rows before the last), and what only the last row is read of runs on that row through
+  views of its operands' row `T − 1`. Not yet run by the CUDA lane: the prefill forms it changes are pinned by locks
+  that await Tristen's ruling. An attention's query rows can stand for a later row of their block
+  (`AttentionSpec::from_row`, which `tensor_graph::eval` honors and the CPU tier, the spatial chips and the older CUDA
+  forward assert is 0; `Launch::Attention`'s `row0`, the kernels' trailing `row0` on `lk_attention`,
+  `lk_attention_shared` and `lk_attention_fold`), 0 everywhere today.
+- A gated pair of a step's one row in any block format under one activation word takes four rows a warp, as Q8_0's
+  does (`kernels::GLU_ROWS`), in blocks of 8 warps where one row a warp took blocks of 32: Gemma-3-1B Q4_K_M's Q5_0 pair
+  (1152 → 6912) in 42.88 µs, from 60.71, and the model at 266.8 tok/s on the 3060, from 249.9; every block format faster
+  at four rows a warp than at one at 1024, 1152 and 2048 wide, the words and scales the same bytes.
+- A norm issues every load of its values — the row's, the added operand's and the weight's, each at a column in range —
+  before it stores any (`lk_rmsnorm_row`), and the gather that norms its row loads it all before the norm and writes it
+  after: a fold's last block on Qwen3-8B's 4096 waited on four round trips through L2 in series, and the step's first
+  launch on a round trip from DRAM a value. On the 3060 the gather-and-norm of a Q8_0 row of 4096 in 4.46 µs from 5.13,
+  and Llama-3.2-1B decodes at 228.9 tok/s from 227.9, Qwen3-8B at 40.13 from 39.95, gpt-oss-20b at 110.0 from 109.6;
+  every output the same bits.
+- An MXFP4 decode mixture's gate and up rows take two rows a warp where `rows_a_warp` gives four
+  (`kernels::moe_rows_a_warp`): gpt-oss-20b's in 110.4 µs a layer on the 3060, from 116.0 (93.7% of the card's read),
+  two MXFP4's fastest at DeepSeek-V2-Lite's and Qwen3-30B-A3B's mixture shapes too; every output the same bits.
+- A decode mixture whose shared expert is a whole number of experts wide (DeepSeek-V2's two) takes as many outputs a
+  down block as that, a warp a shared row (`kernels::moe_down_rows`), so every warp of the block reads the same values:
+  DeepSeek-V2-Lite's down beside its shared Q6_K in 73.8 µs on the 3060, from 79.3 at four outputs and four warps,
+  beside Q4_K in 51.6, from 52.8, and the model at 155.6 tok/s, from 153.6; every output the same bits.
+- The step's first launch (`lk_gather_norm`) over an `f32` or Q8_0 table norms the row it gathered where each thread
+  holds it, its values handed to `lk_rmsnorm_row` in registers (`REG`) instead of read back from the row it wrote: a
+  Q8_0 row of 2048 in 3.57 µs on the 3060, from 3.84, of 4096 in 5.20, from 5.55, the row, words and scales the same.
+- A block-format dot of several rows a warp takes their last sub-blocks past whole rounds of 32 in one round of the
+  warp (`lk_blk_round_merged`), each lane's steps the ones it takes over the row alone: Gemma-3-1B Q4_K_M's Q5_0 gated
+  pair (1152 → 6912) in 37.2 µs at four rows a warp on the 3060, from 41.8, and the model at 276.8 tok/s, from 267.7;
+  every format of 32-value blocks 1152 wide 1.4–12% faster at two and four rows a warp, every output the same bits.
+- The chunked delta rule's walk (`lk_delta_state`) unrolls its loops over a chunk's rows and the width further, more of
+  each thread's loads in flight: Qwen3.5-0.8B's 512-row walk in 275 µs a layer on the 3060, from 306, the same bits.
+- A gated delta step's last block a head reads each value's gate and norm weight with the value, before the head's
+  sum (`lk_delta_norm_row`): Qwen3.5-0.8B's step with its norm in 9.64 µs, from 9.92, Qwen3.8's in 23.36, from 23.78,
+  the same bytes.
+- A Q8_0 GEMV in parts of a step's one row under one activation word (`lk_gemv_parts`) takes four rows a warp where
+  every part's outputs are whole fours, two where whole twos (`kernels::q8_parts_launch_rows`): Llama-3.2-1B's query,
+  key and value in 22.0 µs a layer, from 24.8, Qwen3-8B's in 80.8, from 83.1, every output the same bits.
+- A Q8_0 gated pair of a step's one row under one activation word (`lk_gemv_glu`) takes four rows a warp
+  (`kernels::GLU_ROWS`), blocks of 8 warps, and a Q8_0 dot of several rows a warp takes their last blocks past
+  whole rounds of sixteen in one round (`lk_q8_round_merged`), each partial's steps the ones it takes alone: Gemma-3-1B's
+  pair in 52.8 µs a layer, from 59.5 (318 GB/s, 92.9% of the 3060's read), and the model at 238.6 tok/s, from 230.4,
+  the words and scales the same bytes.
+- `gemm_act` folds an activation into its product's epilogue at every width: what a product reads of it quantized is
+  quantized in that epilogue where the product quantizes its outputs, and by its own launch where it does not (a rank-320
+  mix's gate, its up product Q8_0). Flash-Next's mixes at medium width decode a token in 0.347 ms, from 0.353, the
+  logits the same bits.
+- Qwen3.8-Flash-Next's layers on the CUDA lane (PARITY-HYPER-CONNECTIONS, PARITY-MODEL-SPECIFIC-LAYERS): a
+  hyper-connected residual — each mix's norm in lanes (`plan::Launch::Norm::lanes`, `lk_rmsnorm_lanes`: row `r` normed by
+  the weight's row `r mod lanes` through `lk_rmsnorm_row`), its mean over the lanes (`Launch::LaneMean`) and each
+  sublayer's output spread over them by its shares (`Launch::LaneSpread`); Gated DeltaNet gated by a sigmoid
+  (`Launch::Delta::gate`, the delta kernels' trailing `SIG` argument, SiLU's programs unchanged); and the per-layer
+  n-gram embedding — the hash exact in 64-bit integers (`Launch::NgramIds`, `lk_ngram_ids`, a block of a thread a token
+  row, the carried history rewritten once every row has read it), the lanes' agreements (`Launch::LaneSums`) and their
+  gates' signed root (`Launch::SignedRoot`). An integer table the program sets itself (`Set item k of T to v`) is placed
+  from those values (`lane::weights::Placement::Ints`, `weights::place_declared`), a 64-bit buffer on the lane
+  (`DType::I64`) and a table written into the CPU program (`codegen_cpu::model::CpuModel::ints`, `split::Split::ints`);
+  an integer state is the lane's `I32`. Every host table the spec gives is placed on the lane and the CPU tier
+  (`weights::place`: a row of ones a shared expert's gate spreads across, an attention temperature, beside the rotary
+  tables), so a mixture with a gated shared expert compiles on both. A model is cut between the CPU tier and the card
+  (`codegen_cpu::split::compile_cut`, `lane::compile_from`) with a hyper-connected residual — its lanes the hidden state
+  crossing — and with the n-gram embedding on the host's side; on the device's side it is refused by name, its hash
+  reading the token only the host's layers take. Qwen3.8-Flash-Next's tiny block — four lanes, delta rules gated by
+  sigmoids, the n-gram embedding, and 512 experts keeping 10 beside a gated shared expert in every layer — generates
+  the f64 reference's tokens on the card, on the CPU tier and cut between them.
+- `dual_norm` on the CUDA lane (PARITY-DUAL-NORM): two independent norms — of any rows and widths, reading their inputs
+  whole or as parts, landing in their own buffers or a table's rows, each quantizing its result or not — run as one
+  launch, `lk_rmsnorm2`, each side's rows blocks of the launch running that side's norm (`lk_rmsnorm_row`) as its own
+  launch does, so either side's every value is the bits of its norm alone; a latent layer's low-rank query norm and its
+  latent's norm into the cache row are one launch a layer (DeepSeek-V2 with `q_lora_rank`). The shared rule now runs
+  late, after the quantize fold (`fuse::LATE`), so each side keeps the quantize its epilogue took
+  (`fuse::side_norm`); `plan::RULES` holds it back (`dual_norm`).
+- `bringup::Cpu`, the `cpu` chip of `largo bringup` (PARITY-CPU-SHIM): a model's decode step and prefill chunks linked
+  from the one IR under the CPU shim (`codegen_cpu::model::compile_model`) into `model.cpp`, naming every cut it links,
+  beside `model.side`; `--run` builds it with `g++` once and runs every sequence on the host's threads
+  (`codegen_cpu::model::host_threads`: a hybrid CPU's performance cores, which the run names). The CUDA lane's run and
+  the CPU tier's share one reader of a program's `TOKENS`, `PREFILL_MS` and `DECODE_MS_PER_TOKEN`, which refuses a
+  program printing fewer tokens than asked for.
+- A CPU-tier program refuses a host without the instruction set it is built for at load, before any of it runs, naming
+  every feature the host lacks (`this host has no FMA AVX-VNNI`, exit status 5) — never an illegal instruction:
+  `codegen_cpu::kernels::LIBRARY_X86_AVX2_VNNI` checks the host in an initializer built for x86-64 alone, and
+  `FLAGS_X86_AVX2_VNNI` are the flags it is built with. `codegen_cpu::model::CpuForm::identity` is the cut a form links,
+  and the model's program and a split's front name theirs, a line each.
 - `delta_qk_norm`, the CUDA lane's own rule in the one IR's table (`LaneShim::rules`, after `gdn_input_epilogue`; the
   class `delta_qk_norm`): a gated delta step norms each query and key head it reads itself (`Launch::Delta`'s `qk`)
   where a block of its layer's inputs' launch holds less than a head; a launch that norms each head in the block that
@@ -257,16 +396,146 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `lk_advance`), in graphs of their own (`--whole-chunks` runs them whole), K-29 part 1. With the I2FP sums below, each
   4,096-token prompt of Qwen3-8B, Gemma-3, Qwen3.5 and Gemma-2 the 3060 measured behind llama.cpp's (its binary16 cache)
   leads it: Qwen3-8B Q4_K_M 2,063 ms against 2,175.
+- `pe_source.logos`: `peFinishProgram(residual, state)`, the residual finished as a `CProg` — every reached function
+  once (an identity helper inlined into its callers), each body and the main block through `peFinishBlock`, a pass over final
+  code only: copy loops to `copy of`, a dead initializer merged into its first write, a copy coalesced into the variable
+  it was taken from when no path reads that variable after the copy is written, a single-use binding substituted into
+  the next statement's first evaluation (anywhere in it when it can neither fail nor act; never into a loop, nor into an
+  interpolation hole an expression of its shape cannot stand in, `peHoleExprPrintable`), a dead
+  store whose failure the next statement subsumes, `While true` whose body opens with its exit test as a `While` on
+  that test, a never-written binding of `args()` read where it is used, `Show "{e}"` as `Show e`, a text built in steps
+  as one text, a short-circuit the self-interpreter split into a branch and a second test as one test, and a guard whose failure the next step reports identically under the same condition: an operator's
+  guard when its operands' kinds select an overload whose table guard is that condition (`peGuardCondition`), an index
+  guard when its condition is a disjunction of the host's out-of-range tests for an Int index of a list, a text or a
+  tuple read or of a list write (the kinds a fixpoint over the function's writes, `peKinds`). It also drops the stores
+  of a local nothing reads when they cannot fail by kinds (Int and Real `+ - *` widen and never fail; a name with a
+  store that can fail keeps its `Let`s), fuses a short circuit whose right operand was inlined, spells a list or tuple
+  of known structure shown in a text item by item where a hole could not hold it, drops `copy of args()` wherever it
+  stands, cuts every statement after an exit, and ends each level holding the header of a branch or loop whose blocks
+  it emptied (`Let pkv__held be …`) when that header can fail. The pass runs to its fixpoint. `PE_DRIVER_CORE` (the
+  textbook projection, the resident-server and the cdylib engines) calls it, and prints what it returns through the
+  decompiler's `decompileProgram`, after the sum types the specializer made when the residual names one
+  (`peWithSections`).
+- `optimize::memo_keys`: the specializers' memo keys, every value and statement keyed by its whole structure and
+  each part length-prefixed (`keyJoin`), between `KEYS_BEGIN` and `KEYS_END` in `pe_source.logos`; `dialect_keys`
+  gives the same functions under pe_mini's and pe_bti's suffixes, which those dialects hold and a lock holds equal,
+  and `dialect_key_signatures` the signatures the second and third projections restore on a specialization of one.
+- `core_operators::guards_source`: `peGuardCondition`, the finishing pass's reading of the operator table's guards,
+  generated into `pe_source.logos` between `GUARDS_BEGIN` and `GUARDS_END` and locked to the table.
+- `model::spec::Mixer::Recurrent` (`ShortConv`, `Ssd`, `Selective`, `Parallel`, `DeltaAttention`, `Lightning`,
+  `Rwkv7`) and `Mixer::None`; `Ffn::None`, `Ffn::ChannelMix` and `Ffn::DenseAndMoe`; `ModelSpec::norm`, `head_bias`
+  and `parts`; `Temperature::offset`; `Mla::rope` an `Option` and `Mla::latent_norm_eps` (`MLA_LATENT_NORM_EPS`);
+  `Gating::SparseMixer`. `model::hf` reads the new families' keys, tensors and tokenizers (vendored MiniMax-M1 and RWKV
+  World chat templates) and Python's non-finite floats in either spelling; `model::reference` computes every new
+  mixer and part; `model::author` writes a latent norm's own epsilon where it is not the model's.
+- `tensor_recognize::qwen::recognize_scatter` and `tensor_recognize::map::recognize_map` lift a counted loop by what
+  its turns compute together (`TensorOpSpec::Scatter`, `TensorOpSpec::Map`, its recurrent kind `Scan`);
+  `spatial::passes::from_qwen_ops::{from_scatter, from_map}` lower them (an owner-computes rewrite of the carried
+  table; `Generic` stages, a recurrence stepped or as a chunked scan); `tensor_graph::eval` evaluates both as the VM
+  runs the loops; `spatial::value_range` ranges a scatter; the CUDA lanes and the decode engine refuse them by name.
+- `spatial::lower::rdu_report::program_report`; `compile::RduProgramFiles::{whole_certificate_json, report_json,
+  files}`; `spatial::lineage::Lineage::runs_apart`; `spatial::certificate::{compute_obligation, checked, RecheckFault}`;
+  `codegen_sva::pnr_certificate::{Obligation, PlacementCertificate::{carries, refutes}}`, every reader of an external
+  placement rebuilding its obligation before it replays the proof; `spatial::compile_cache`, the section cache.
+- `model::hf` computes a quantized checkpoint's weights as the converter's `dequant_model` does, each presented
+  in f32 under the name the converter writes it by: compressed-tensors' `pack-quantized` (`dequant_packed`) and scaled
+  formats, GPTQ (`dequant_gptq`), AutoAWQ's GEMM codes (as `AutoAWQConverter` reads them into `pack-quantized`),
+  ModelOpt's FP8 and the FP8 checkpoints read before, one path; NVFP4 weights presented as the NVFP4 blocks
+  `_nvfp4_pack` writes, their own and activation scales beside them (`<weight>.scale`, `<weight>.input_scale`) where the
+  converter writes them; gpt-oss's MXFP4 experts presented as ggml's MXFP4 blocks (`Form::Mxfp4`); `hf_quant_config.json`
+  merged into the configuration as the converter's `prepare_tensors` merges it. `model::reference` multiplies a
+  projection's products by its one-entry `.scale` and each chosen expert's by its entry of the stack's, before its
+  biases (Gemma 4's down scale among them); `model::bind::own_scale` folds the same scale into the bound weight.
+  `model::quant::GgmlType` reads `Iq1S`, `Iq1M`, `Iq2Xxs`, `Iq2Xs`, `Iq2S`, `Iq3Xxs`, `Iq3S`, `Tq1_0`, `Tq2_0`, `Q1_0`,
+  `Q2_0` and `Nvfp4`; `model::quant::grids` holds ggml's lattice tables (`scripts/accel/ggml-grids.py`).
+- `spatial::passes::from_qwen_ops::gathers`: a rows gather of narrow rows from a table wider than a site's page
+  moves a table tile a row through an `IndirectTile` that divides the row by the rows a tile holds; rows that straddle a
+  tile, and rows whose block tile takes more table tiles than a site holds, are refused by name.
+- `model::pt2` reads a `torch.export` archive in place (stored or DEFLATE entries, ZIP64); `model::graph` imports its
+  ATen graph (`Graph::import`, `Graph::forward` the `f64` oracle, `GraphWeights` its parameters as weights a host
+  reads), refusing an unmapped op by name (`GraphError::Unmapped`); `model::author::graph` writes it as a program
+  (`GraphProgram`); `compile::lower_graph` lowers it whole on any target and `compile::compile_graph_to_rdu` writes its
+  RDU bundle (`RDU_GRAPH_MANIFEST_SCHEMA`); `spatial::drop::run_graph_bundle` is the bundle's host and
+  `spatial::drop::run_graph_on` runs the program in place.
+- The error function: `TensorOpSpec::Erf` (`tensor_recognize::qwen::recognize_erf`, lifted only where the `erf` called
+  is the library's), `tensor_recognize::map::Fun::Erf`, `spatial::ir::SfpuKind::Erf`, evaluated as the library's `erf`
+  (`tensor_graph::eval::lib_erf`) by the graph's and the spatial evaluators, differentiated by the VJP, lowered as
+  `erf_tile` on Tensix, `lk_erf` on the CUDA lane, `std::erf` on the CPU tier and `torch.erf` in the SambaFlow module,
+  and refused by name by the Spatial-language printer and the decode engine. `assets/std/math.lg`'s `erf` is Go's
+  `math.Erf` operation for operation.
 
 ### Changed
 
-- `codegen_c::from_program`: a closure body's captured values take the kinds every `MakeClosure` that builds it stores
-  (`capture_kinds`, settled with the parameters), so its arithmetic and its result agree with what its callers read; a
-  popped value is the list's element (no `[present, value]` box), as `resolve_pop` guarantees an item to every pop.
-- The collector prints the heap report a program asks for even when it never allocated (`lc_gc_report_unstarted`).
-- `codegen_riscv::RISCV_RUNTIME_C` carries no call of the C library's allocator: the libc fallback moved out of
-  `lc_gc_api_source` into `lc_gc_libc_source`, which only the C runtime emits, and the RISC-V runtime refuses to compile
-  where the collector cannot run.
+- The C prelude, bytecode C's functions and its runtime helpers are marked `__attribute__((unused))`; conditions,
+  arguments and operands carry only the parentheses C needs; a capture-free closure says `(void)__env;`; an `Inspect`
+  arm binds only the fields it reads. `-Wall -Wextra` over the benchmark and feature corpora: 9,334 warnings to 98.
+- The Rust emitter reads a `Copy` runtime value without `.clone()`, binds `_` for an unread loop variable, folds a
+  literal bound, widens a value to `LogosInt` only where it may be a machine word (`codegen::expr::as_logos_int`,
+  `tolerant_logos_int`), and writes a field filled from the binding of its name by its name
+  (`codegen::types::field_init`); what a hoisted borrow's scope and a versioned loop hold is written one level in
+  (`codegen::hoist::scoped_indent`, `codegen::precedence::indented`, which leaves a line inside a string literal as it
+  is, and writes an `Escape to Rust:` block's lines too); `optimize::dce` drops a literal binding nothing reads together
+  with its stores and turns a loop that only counts into the value it leaves.
+- `codegen::precedence` places every operand, argument, condition, cast and returned value by how tightly Rust binds
+  it; the generated Rust carries no parentheses Rust does not need, and the program's final `return`s are its values.
+- AOT-Rust concurrency lowers onto the replay executor by default; `compile_program_full_threaded` lowers onto tokio.
+- `optimize::dce` removes a `Let` of a literal nothing reads; `analysis::liveness` keeps a Main variable live for a
+  call only when a callee reads or writes it as a global (`optimize::writes::CalleeGlobals::reads`).
+- `optimize::guard` decides a versioning guard's literal parts and keeps the tighter of two bounds on one name.
+- `vm::disasm::op_targets` lists every `Op` (no wildcard): an instruction that names a pc cannot compile until its
+  targets are placed there, so a reachability walk never takes a jump for a fall-through.
+- **`NativeTier::compile_function` takes the values a function's warm-up passed** (`values: &[Option<ScalarValue>]`,
+  after `param_kinds`): for each parameter, the `Int` or `Bool` every call before the function was compiled passed,
+  recorded by the VM per parameter as each call is counted toward the tier threshold. A backend may specialize on them,
+  and must then version its code at the function's entry: native callers reach it through the dispatch table, past the
+  VM's per-call guard. `ScalarValue::bits` is a value as a native frame slot carries it
+  (`jit_function_value_specialization_lock`).
+- **`NativeTier::compile_region` takes the registers' `Int` and `Bool` values at the hot crossing**
+  (`values: &[Option<ScalarValue>]`, `vm::ScalarValue`), and `RegionFn::value_guards` names the slots a region was
+  specialized on, with the kind and value each must hold. The VM checks each guard after the kind guards and reports a
+  miss through `RegionFn::note_value_guard_miss`. A loop keeps its specialized region and its generic one side by side:
+  an entry whose values miss runs the generic region, compiled at the first such entry (`RegionFn::note_fallback_entry`),
+  so a miss costs one guard check for the whole entry; a loop with no generic region (it cannot run native unspecialized)
+  runs that entry on bytecode and does not retry it while the guarded registers hold the values that missed. The
+  specialized region is retired (`RegionFn::note_retired`) once its misses reach the demotion threshold and outnumber the
+  entries it ran; a generic region that keeps missing demotes to bytecode.
+- `model::reference::StateStorage::keep` is public, and it and `tensor_graph::numerics::Keep::Bf16` keep a value
+  through `model::quant::f32_to_bf16` and `bf16_to_f32`: one rounding the lane's bf16 memory, its numerics contract and
+  its reference share.
+- `codegen_cuda::lane` uploads an MXFP4 matrix's rows regrouped, each row's sub-blocks 16 to a group, a group's 16
+  exponents before its 16 nibble words (`kernels::row_bytes`, `kernels::MXFP4_GROUP`; `lk_mx_exp`, `lk_mx_nib`,
+  `lk_mx_row_bytes` and `lk_mx_regroup` in the block library, one layout map the decoders and `upload_mxfp4` share), 4.25
+  bits a weight kept: every reader takes a sub-block's nibbles as one aligned 16-byte word and its exponent as one byte,
+  where the tensor-core GEMM's fetch read a 17-byte block a byte at a time. A block format's staged unit is
+  `kernels::unit` (MXFP4's group of 272 bytes) and the bytes an upload keeps past its rows `kernels::tail_bytes`.
+  gpt-oss-20b's 512-row prefill on the 3060: 257.2 ms before, 232.9 after.
+- `codegen_cuda::lane`'s `lk_gemv_gdn` (K-09) copies each row's convolution operands and gate constants into shared
+  memory by `cp.async` from the warp's idle lanes while the row's dot streams, where each warp read its ring and taps
+  after the dot; only the blocks holding a normed head's rows fence and count. A convolution of more than
+  `kernels::GDN_TAPS` (4) taps keeps the layer's inputs apart. Qwen3.5-0.8B's decode step on the 3060: 293 tokens a
+  second before, 308 after, every logit the same.
+- `codegen_cuda::lane`'s block-format tensor-core GEMM holds two blocks a multiprocessor on a 64-row tile under one word
+  (`lk_gemm_blk_blocks`, its launch bounds), Q2_K, Q3_K and Q5_K kept at one, whose halves' scales and offsets beside the
+  multiply need more registers; an expert mixture's grouped outputs store as `f32` directly. gpt-oss-20b's 512-row
+  prefill 241.6 ms → 187.5, DeepSeek-V2-Lite's 197.6 → 174.8, every token the same.
+- `codegen_cuda::lane`'s int8 tensor-core GEMMs read an `mma`'s int32 sum as a float by the conversion where it issues
+  on the float pipe (I2FP, sm_86 on; `lk_dot_f`, `lk_dot0`): the sum begins at zero, where it began at the bits of
+  1.5·2²³ and one float subtraction read it — the same float either way. The streamed Q8_0 GEMM under both numerics and
+  the block path and batch GEMV under one word: medians 3.5–8.9% faster, every output the same
+  (`a_block_gemm_reads_its_sums_the_same_on_every_architecture`).
+- `codegen_cuda::lane` uploads a Q6_K matrix's rows grouped eight blocks to a unit, the group's binary16 scales before
+  its blocks' other 208 bytes (`lk_q6_regroup`, `kernels::row_bytes`, 1,680 bytes a unit), so every block's levels are
+  aligned 16-byte words.
+- `codegen_cuda::lane`'s block-format GEMM stores a product's outputs at once where each is its sum into an `f32` array
+  — no bias, no epilogue step (`lk_gemm_blk`'s `PLAIN`, `emit::blk_plain`) — so the epilogue's general steps take no
+  registers from the tile's multiply: Qwen3.5-0.8B's 8,192-output in-projections at 512 rows on the 3060, in parts, 607
+  µs → 380.
+- `codegen_sva::pnr_certificate` hashes the proof crate's new `Witness::PartialSymmetry` steps, tag 6.
+- `wpe_caravel::WPE_CARAVEL` runs at 48 ns on the core clock (`WPE_CLOCK = HarnessClock::Core`), the period its macro
+  and wrapper are signed off at, and `wpe_caravel_memory` times the PSRAM edge at 20 ns, one cycle per SCLK half, cut
+  for 80 ns. `emit_wpe_user_project_testbench` follows `WPE_CLOCK`: on the core clock it drives `wb_clk_i` at the
+  engine's period and ties `user_clock2` low, on `user_clock2` it runs `wb_clk_i` beside it at the core clock's signoff
+  period.
 - `spatial::wide_int` checks its identities in the kernel's one standard library (`StandardLibrary::context`) instead
   of registering its own on every thread. Locked by `prelude_registered_once_lock`.
 - `compile::textbook_projection1` specializes the self-interpreter on the program's run-time arguments (`args()`);
@@ -334,37 +603,367 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `RduChipFacts::simd` records each SIMD stage's formats; the RDU target's elementwise and row-reduce units take
   them; `from_qwen_ops::products_float` holds what only products read — an expert's weights, and a key or value cache
   (`cache_precision`) — at the products' narrowest float, and the set-row forms write a cache at that width.
-- `codegen_cuda::lane` uploads an MXFP4 matrix's rows regrouped, each row's sub-blocks 16 to a group, a group's 16
-  exponents before its 16 nibble words (`kernels::row_bytes`, `kernels::MXFP4_GROUP`; `lk_mx_exp`, `lk_mx_nib`,
-  `lk_mx_row_bytes` and `lk_mx_regroup` in the block library, one layout map the decoders and `upload_mxfp4` share), 4.25
-  bits a weight kept: every reader takes a sub-block's nibbles as one aligned 16-byte word and its exponent as one byte,
-  where the tensor-core GEMM's fetch read a 17-byte block a byte at a time. A block format's staged unit is
-  `kernels::unit` (MXFP4's group of 272 bytes) and the bytes an upload keeps past its rows `kernels::tail_bytes`.
-  gpt-oss-20b's 512-row prefill on the 3060: 257.2 ms before, 232.9 after.
-- `codegen_cuda::lane`'s `lk_gemv_gdn` (K-09) copies each row's convolution operands and gate constants into shared
-  memory by `cp.async` from the warp's idle lanes while the row's dot streams, where each warp read its ring and taps
-  after the dot; only the blocks holding a normed head's rows fence and count. A convolution of more than
-  `kernels::GDN_TAPS` (4) taps keeps the layer's inputs apart. Qwen3.5-0.8B's decode step on the 3060: 293 tokens a
-  second before, 308 after, every logit the same.
-- `codegen_cuda::lane`'s block-format tensor-core GEMM holds two blocks a multiprocessor on a 64-row tile under one word
-  (`lk_gemm_blk_blocks`, its launch bounds), Q2_K, Q3_K and Q5_K kept at one, whose halves' scales and offsets beside the
-  multiply need more registers; an expert mixture's grouped outputs store as `f32` directly. gpt-oss-20b's 512-row
-  prefill 241.6 ms → 187.5, DeepSeek-V2-Lite's 197.6 → 174.8, every token the same.
-- `codegen_cuda::lane`'s int8 tensor-core GEMMs read an `mma`'s int32 sum as a float by the conversion where it issues
-  on the float pipe (I2FP, sm_86 on; `lk_dot_f`, `lk_dot0`): the sum begins at zero, where it began at the bits of
-  1.5·2²³ and one float subtraction read it — the same float either way. The streamed Q8_0 GEMM under both numerics and
-  the block path and batch GEMV under one word: medians 3.5–8.9% faster, every output the same
-  (`a_block_gemm_reads_its_sums_the_same_on_every_architecture`).
-- `codegen_cuda::lane` uploads a Q6_K matrix's rows grouped eight blocks to a unit, the group's binary16 scales before
-  its blocks' other 208 bytes (`lk_q6_regroup`, `kernels::row_bytes`, 1,680 bytes a unit), so every block's levels are
-  aligned 16-byte words.
-- `codegen_cuda::lane`'s block-format GEMM stores a product's outputs at once where each is its sum into an `f32` array
-  — no bias, no epilogue step (`lk_gemm_blk`'s `PLAIN`, `emit::blk_plain`) — so the epilogue's general steps take no
-  registers from the tile's multiply: Qwen3.5-0.8B's 8,192-output in-projections at 512 rows on the 3060, in parts, 607
-  µs → 380.
+- `spatial::passes::fuse_generic` loads a tensor the folded body reads through several loads of one pattern once.
+  `spatial::pipeline` joins two sections through a carrier at a float precision, and checks that no section loads a
+  result nothing stores in time linear in the program's loads.
 
 ### Fixed
+- Deforestation fuses a producer loop and the loop that consumes its intermediate list only when their actions
+  commute. It fused any pair whose consumer left the producer's source alone, which printed wrong output, or failed
+  with "Undefined variable", on the optimized VM, its native tier and compiled Rust for a consumer pushing to another
+  list the producer fills, a producer reading or measuring the intermediate, two loops that both print, a consumer
+  reading a count the producer keeps or changing a value the producer reads, a consumer breaking early, a consumer
+  measuring the intermediate, and a producer that fails after the consumer would have printed.
+- AOT-Rust holds a list-returning call in a function that returns no list to its caller's binding, as it holds every
+  other call: such a call de-boxed to a `Vec` met a `LogosSeq` binding, and the genuine second projection's native
+  build stopped on thousands of type errors (`phase_de_rc`).
+- The AOT-Rust emitter numbers the versioned `IntVec` loops' labels, the word regions' flags and the tentative
+  declarations from zero for each program, and forgets the needs an earlier program left, so compiling one program
+  after another changes neither (`emitter_statelessness_lock`, which now catalogues every piece of the emitter's
+  global state with its scope).
+- An exact list item compared with a word compares as the word (`LogosInt` orders against an `i64`), and a value an
+  exact sink already reads as a `LogosInt` is not converted to itself: the benchmark programs pass clippy's
+  `cmp_owned` and `useless_conversion` again.
 
+- AOT-Rust `Int` arithmetic is checked or exact wherever the emitter cannot type an operand itself: a `Repeat` binder
+  over any collection, a popped item, a map's key and value, a record's field however it is reached, an item of a
+  record's list or a tuple, a generic result, a `Maybe` payload. `infer_numeric_type` falls back to the checker's
+  resolved `Int` (`analysis::check::Instantiations::ints`, installed by `codegen::instantiation`), and
+  `seq_element_rust_type` strips the hoisted-length tag that hid a lent slice's item type. A generic function's result
+  written in its own type parameters no longer types the call's binding.
+- AOT-Rust holds a `Seq of Int` that may outgrow the word as an `IntVec` (`codegen::int_vec`). The decision is taken
+  per flow class (`analysis::seq_flow`, shared with AST C) and only for lists the checker resolves to `Seq of Int`; no
+  stack-array, `Vec<i32>`, affine or worklist form takes such a list, and a statement-window rewrite never starts at a
+  statement that reaches one.
+- AST C promotes a `Seq_i64` once, at the first value past the word stored into it (`codegen_c::exact`, the
+  `Seq_i64.exact` bit). A store roots promotion only when it computes a value that may pass the word or stores a
+  variable that definitely may hold one (`ExactSlots::definite_locals`/`definite_program`, the decision taken without
+  speculation).
+- `codegen::exact_scalars` (the shared decision over AOT-Rust scalars, held off behind `DECIDES_SCALARS`),
+  `codegen::unboxed` (word regions) and `codegen::word_twin` (word twins, taking lists in every `WordList` form a
+  function holds them in, and never for a function that writes a list it is handed).
+- AOT-Rust narrows an exact value into every machine-word place: `rational::integer_operand` takes a `LogosInt` with
+  the place's refusal, and `expr::into_word` covers literal items, pushes, stores, map keys, returns, builtin arguments,
+  pipes and values shown to word functions. A statement window, a `While`/`Repeat` rewrite or the partition outliner
+  that reaches an exact local is emitted as written (`exact_scalars::mentions_exact`).
+- A counted loop whose bound an exact binding holds walks `logicaffeine_data::logos_exact_range` in generated Rust, its
+  binder exact through the body, and an `LInt` counter on AST C (`codegen_c::emit`).
+- `optimize::abstract_interp`: a branch that always leaves the function drops from the `If` join, a conjunction (or a
+  failed disjunction) narrows by each side, and a remainder by a ranged divisor is bounded.
+- `assets/std/convert.lg`: `toBase` refuses a base outside 2 to 36.
+- `vm::wasm::kind::Kind::Word8`/`Kind::Word16`: an `i32`-riding wrapping-integer ring masked to 8/16 bits after
+  `+`/`-`/`*` (wasm has no narrower integer arithmetic); construction (`word8`/`word16`), extraction (`intOfWord8`/
+  `intOfWord16`), unsigned `/`/`%`/compare, and the `Word32`/`Word64` `Show` path all extend to them.
+- `vm::wasm::module::display::ShownTable::compared_parts` generates an equality function for a record or a variant
+  member, closed under their own fields' shapes exactly as a list's or a tuple's already was; `emit_equal_fn` gains
+  the `Shown::Record`/`Shown::Variant` bodies. `vm::wasm::module::exact::record_int_field_eq` compares a record's
+  `Int` field by the integer it names — through its counted cell when it holds one — never by the cell's handle.
+- **A function returning an arithmetic of its own call runs native.** `Return n % k + digits(k, n / k)` reaches the
+  VM as the run path's accumulator loop, a `While true`; the bytecode compiler tested the literal, so the
+  `ReturnNothing` after the loop looked reachable and the JIT, which cannot return Nothing, kept the function on
+  bytecode. `While true` now compiles with no test (one op less per iteration), and its code after the loop is reached
+  only through its breaks (`jit_accumulator_recursion_lock`).
+- `semantics::collections::range` takes any Int bounds: a bound past `i64` is walked exactly, each item held as a
+  machine word where it fits, and the VM's `NewRange` takes it the same way. The tree-walker and the range value raised
+  "Range requires Int bounds" where the VM's counted loop counted on (`range_exact_bounds_lock`).
+  `integer_place_refusals(IntegerPlace::Range)` gives a compiled tier `FailCode::IntTooWide`'s sentence for a bound
+  past the word instead of asking the range for one, which it now walks.
+- `codegen::stmt`'s parallel and serial sum reductions add in `i128` and narrow once with `logos_narrow_i128`.
+- `optimize::accum_bound`'s linear-accumulator versioning bounds the counter where it starts (`counter_start`: a
+  literal, an expression over inputs the guard bounds, or the counter itself) and as far as the limit reaches
+  (`interval_with`), and its bound counts the accumulator's start.
+- `codegen_c::emit::policy_names_itself`: both C emitters refuse a policy predicate that names itself.
+- `codegen::expr`'s map index reads a record field's or a call's map through its own `get`, and its untyped
+  `LogosIndex` index copies in a key that is not `Copy` and is read again (`key_by_value`); an equality of a map read
+  reads it as any read does, trapping on a missing key.
+- `codegen::stmt` tracks a `Seq of Map` element and a `Let` settled on a map as that map, and types a read of a map's
+  value; `iterated_collection_type` gives the collection a `Repeat` walks through an index, a slice and a list written
+  in place, so a tuple pattern over `LogosTuple`s binds by position.
+- `optimize::closed_form` solves a recursion whose step is any affine map of its value one below
+  (`1 + f(n − 1) + f(n − 1)`), honors a function's own `## No closedform`, and moves the recursion it guards to a
+  function of its own (`<name>_recursion`); `answers_in_closed_form` names such a function, and the Rust and run-path
+  memoizers leave it uncached. `codegen::detection`'s own double-recursion closed form is gone.
+- `codegen::expr::is_bool_valued`: an `If`/`While` condition, a `not` and an `and`/`or` operand that is a call of a
+  function declared to return `Bool` is written as itself.
+- `codegen::expr` looks a Text literal key up in a `LogosMap<String, V>` as a borrowed `str`, and compares a Text
+  value with a Text literal as a `str`, the empty Text as `is_empty()`, and a Bool with a truth value as itself.
+- `codegen::stmt` shows a Text literal as a `str`, and its `Repeat` copies a collection before walking it only where
+  the program names it.
+- `codegen::expr`'s call arguments move a binding the statement names only there at its last use
+  (`flow::moves_at_last_use`), where they copied it; a `mutable` parameter, lent in place or as a shared reference,
+  and a binding held as a reference are still copied, as the value the callee takes.
+- `codegen::expr::through_reference`: a field read, a field write and a copy-on-write place of a binding held through
+  a reference name the binding bare; the index argument of `LogosIndex::logos_get` is written with no parentheses it
+  does not need.
+- `codegen::precedence::cast` writes a numeric literal the cast leaves as it is as the literal of the type
+  (`literal_of`: `0f64`, `7u32`), and a word rotate casts through it.
+- `codegen::stmt`'s counted range narrows a bound held as a `LogosInt` to the word it walks, stopping with the Range
+  place's sentence (`semantics::collections::integer_place_refusals`) past it.
+- Generated Rust writes what a store, a push and a helper call take as the expression it is: a byte pushed into a
+  text builder casts through `codegen::precedence::cast` (`out.push(122u8)`); a stored value, an untyped store's
+  index and the arguments of the exact-arithmetic helpers stand without parentheses of their own; an assertion
+  negates its condition inside one pair of parentheses; and a wait reads an `Int` binding as the word it is
+  (`from_millis(pause.max(0) as u64)`) and a literal as the wait it is.
+- `codegen::simd_reduce` states the type of every binding of its four-lane kernel, writes a `std::f64::consts`
+  constant by its name, adds the lanes into the accumulator with `+=`, and writes its helper functions and its tail
+  loop's body inside the braces that hold them.
+- `analysis::types` types `repeatSeq(x, n)` (`n copies of x`) as a `Seq` of `x`'s type; `codegen::stmt` binds `n
+  copies of x` as the list its fill builds, a `LogosSeq` at every level (`copies_type`), and registers a settled list of
+  scalars, or of lists of them, for the binding's later reads and writes (`seq_of_scalars`), so a store into it is the
+  copying store and a store into one of its rows is the nested store.
+- `codegen::stmt::stored_value` moves a binding the statement names once at its last use (`flow::moves_at_last_use`),
+  unless the function holds it through a reference or it is of a generic parameter's type.
+- `codegen::expr` writes a closure's result type where every value it returns is one machine scalar
+  (`closure_result_type`: `move |n: i64| -> i64 { … }`), so a binding that holds the closure is typed by it, and the
+  last `Return` of a closure's body is its value.
+- A `ComplexF` value is a typed `Copy` value in generated Rust: `codegen::stmt::is_copy_type` knows the runtime's `Copy`
+  value types no `LogosType` names (`COPY_RUNTIME_TYPES`), so it is copied, not cloned; `codegen::expr::written_type`
+  and `value_rust_type` write a float `complex(…)` and its `conjugate` as `LogosComplexF`, so its binding states its
+  type; and a part of `complex(…)` already a `Real` is not cast to one.
+- `codegen::expr` writes a power of reals (`a ** b`, `a to the power of b`) through `codegen::precedence`: the base
+  parenthesized only where a method call needs it, the exponent as the argument it is
+  (`std::f64::consts::E.powf(0f64 - x)`).
+- `codegen::peephole`'s radix digit buffer ends its function with the text it builds where its `Return` is the
+  function's last statement, and writes its loop's condition through `codegen::precedence::condition`.
+- `codegen::stmt`'s `Let` of a binding hands the binding over at its last use (`flow::moves_at_last_use`) for a list,
+  a map and any other value it copied, except a binding lent in place or of a generic parameter's type.
+- `codegen::word_calls` writes every runtime word and lane call from one table and states each call's result type, held
+  to `word_rt`'s own signatures; a builtin that answers its argument's word answers a word or lane type only
+  (`word_and(1, 2)` is no word).
+- `codegen::stmt` states a binding's type only where the value is of it (`writes_value`, `number_written`): the
+  name-keyed type map, the last binding's type for a name, no longer types a binding of another value; a name rebound
+  between text and a number is tracked as text exactly while its binding is (`RustCodegenContext::forget_string_var`); a
+  copy of a list parameter the function changes is its `Vec`.
+- `codegen::types::type_arguments` and `field_type_at` instantiate a generic variant's field at the scrutinee's type
+  arguments for an `Inspect` arm's bindings; `named_tuple` writes `Pair`/`Triple` as tuples unless the program declares
+  the name.
+- `codegen::stmt::element_free_lets` finds the empty lists and `nothing`s no use constrains (shown, measured, compared
+  with `nothing`, inspected with unread bindings) and types them over `i64`.
+- `codegen::expr::keeps_low_bits` names the operators a word's wrapping arithmetic holds through; `wordN(…)` of a
+  quotient or of a promoted `LogosInt` divides the exact value. A comparison with `nothing` asks an option whether it
+  holds nothing and is a constant for any other kind of value.
+- `loop_shape` keeps a `While` whose bound reads its counter a loop; `codegen::peephole` copies a closed-form list item
+  by item and marks a filled list `mut` by the tentative-mutability pass; `codegen::program` binds a parameter divisor's
+  `LogosDivU64` at the function's entry and ends `Main` at a `Return` (`RustCodegenContext::set_returns_nothing`).
+- `codegen::types` generates `merge`/`join` for every record a `Merge` or `Converge` names, folding each field by its
+  type (`Int` adds wrapping, or takes the larger in a join; a set extends; a map folds through
+  `LogosMap::merge_entries`; a CRDT merges); `Increase`/`Decrease`/`Append`/`Resolve` on a plain field add, subtract,
+  push and assign.
+- Every `Box` the Rust emitter writes, the FFI handles' included, is `::std::boxed::Box`
+  (`aot_prelude_name_collision_lock`).
+- `semantics::collections::built_by` is what `a new <name>` builds (`Built::{List, Set, Map}`), read by the interpreter,
+  `analysis::check`, `analysis::types`, `vm::compiler`, the supercompiler and the Rust emitter; `Vec` is not a
+  construction.
+- Constant tables are hoisted, and mutually tail-calling functions paired (`tce::detect_mutual_tce_pairs`), in
+  declaration order, and a join task clones its captures by name, so the emitted Rust and C are the same in every
+  process; OPT-5's sentinel `break` asks `flow::live_after` of the loop and the rest of the pass (`stmt::steps_only`)
+  (`emitted_source_determinism_lock`).
+- AST C and bytecode C: `abs` keeps its kind (`logos_iabs`, `logos_lint_abs`); options, records and enum values compare
+  structurally, a recursive enum's equality included; a comparison with `nothing` is the tree-walker's; a plain record
+  field merges by its type; a field declared with an applied generic holds that type, and monomorphization rewrites the
+  fields of every record and enum declared without parameters; a map of records, enum values or options builds; bytecode
+  C removes a map key; a set literal builds; `x is none` of a monomorphized `Option` tests its tag; the byte-compare
+  window is written only where its proof holds; an empty list copies without `memcpy` on a null buffer.
+- **An `Int` that a chain of machine words carries past the word is exact on AST C.** A sum, difference, product or
+  quotient of machine words that the shared exactness decision (`analysis::exactness`) says can outgrow a word is
+  computed with every step checked and, from the first step that leaves the word, exactly: shown, interpolated,
+  compared, bound, reassigned, returned, combined bitwise and taken a remainder of as the VM does, where AST C printed
+  the wrapped word (`Show (item 1 of xs) + 1` printed -9223372036854775808). A quotient is computed where the reference
+  computes it, so a zero divisor fails before an operand to its right is read, and the bottom of the word divided by -1
+  is 2^63 (`/` and `//`), where `logos_idiv` wrapped it (`exact_int_every_tier_lock`, `c_defined_integers_lock`).
+- **The optimizer divides the bottom of the word by -1 as the VM does.** Its range oracle answered `wrapping_div`'s
+  -2^63, and divided a range starting at -2^63 by -1 outright, which panicked in a debug build of the compiler; the
+  quotient's range is now unbounded above (`exact_int_every_tier_lock`).
+- **AST C shifts as every tier shifts.** A shift takes its count modulo 64, as the VM's `wrapping_shl`/`wrapping_shr`
+  take it, where C's `<<` and `>>` by 64 or more, by a negative count or into the sign bit were undefined; an exact
+  operand meets the runtime's `lint_shl`/`lint_shr`/`lint_bit*`, which refuse a value past the word in the VM's words
+  instead of "integer value out of range for this int64 context".
+- **A shared record's plain fields merge on both C tiers as on the VM.** Two Ints add wrapping as the word does (AST C
+  overflowed a signed sum; bytecode C added them exactly and answered 2^63 where the VM answers -2^63), an integer past
+  the word gives way to the incoming value, two sets merge as their union, and any other field takes the incoming
+  value (bytecode C added the two cells, a Text's and a set's handles included).
+- **The C runtime reads -2^63 back as a word.** A big integer's word was accumulated in a signed word and negated, two
+  signed overflows at -2^63; `lbig_word` accumulates the magnitude unsigned, and every narrowing, index and within-i64
+  test reads through it, so an exact result within the word is held as one.
+- **`c_defined_integers_lock` builds both C tiers with the undefined-behavior sanitizer** on signed overflow and
+  shifts, over shifts at every count, arithmetic at the edges of the word, the bottom of the word narrowed, and shared
+  records merged, and holds each to the VM's output.
+- **`parseInt` reads every digit of the word on every tier, and refuses alike.** The browser runtime and the Node shim
+  read text through JavaScript's `parseInt`, a binary64, so `parseInt("9223372036854775807")` answered 2^63 wrapped to
+  -2^63, and text that was no Int read as 0; AST C read it with `atoll`, so `"12x"` was 12. Every host now reads as the
+  VM reads (`str::trim`, then an `i64` or the VM's "Cannot parse '…' as Int"), the JavaScript hosts through
+  `web_host::EXACT_INT_JS`'s `parseIntExactly` and both C tiers through one `logos_parseInt`.
+- **A `Mount` is the program's call in `## Main` and the test's entry in a `## Test`.** The lowered page's driver made
+  every mount the program's, so a `## Test` whose mount could not paint (a recursion with nothing to stop it) stopped
+  the test where every other tier reports it as the page's failure and runs on; at HEAD it made every mount the page's,
+  so a `## Main` whose `When the page loads:` trapped ran on past it on the tree-walker and nowhere else. The driver is
+  told whose statements it carries out (`page_host::DrivenBy`): the program's own `## Main` calls `__mount_<C>` as the
+  VM and a browser's page main call it, and a host's mount is an entry into the page, its failure delivered to the
+  page's failure door. Chrome's test tier reports a failed mount entry as the page's failure, as it reports a failed
+  event (`mount_entry_lock`, `recursive_component_lock`).
+- **A set of pairs and a pair of sets run on every tier.** `Set of (Text, Text)` with `Add`, `contains` and `count`,
+  `Repeat for (v, h) in` such a set, and a function returning a tuple of sets that its caller destructures ran on the
+  tree-walker and the VM only: AOT-Rust did not build (a tuple had no hash or equality, a set could not ride a
+  `Value`), C did not compile, and WebAssembly refused a sequence of an unknown element kind. Each prints what the
+  tree-walker prints (`param_return_tier_coverage_lock`, `wasm_aot_lock`).
+- **Every way into the toolchain judges ownership on the program as written.** A use after `Give` passed `largo
+  check`, printed the given-away list on the tree-walker, the VM, C and WebAssembly, and failed `largo build` in rustc
+  as a compiler bug. The ownership check now runs before any rewrite on every run and compile path, so `check`, `run
+  --interpret` on each engine, `build`, and `emit rust`/`c`/`wasm` refuse alike (`ownership_front_door_lock`). A `copy
+  of` a zone's value is a value of its own and may leave the zone (`ownership_judges_the_program_as_written`).
+- **`--seed` reaches the scheduler, and the VM runs concurrent programs.** `largo run --interpret --seed S` ran every
+  concurrent program at seed 0, and `--engine vm`/`jit` refused concurrent programs the guide says they run. Every
+  engine now runs them on its seeded scheduler at `--seed`, else `LOGOS_SEED`, else 0 (`interpret_seed_lock`).
+- **`largo run --interpret` reads and writes files.** File I/O failed on every engine ("VFS not initialized"). The
+  interpreter now reads and writes the paths the compiled program does; the MCP sandbox keeps its files in memory,
+  chosen by `ui_bridge::Files` passed down the call, never by the environment (`interpret_files_lock`, `mcp_e2e`). The
+  generated Rust reads and writes files inside functions and tasks too, through one program-wide `logos_vfs()`, where
+  it named a `vfs` only `main` declared.
+- **WebAssembly runs the program the optimizer makes.** The direct WebAssembly path compiled the monomorphized program
+  without the run-path optimizer, so `ackermann 10` recursed about 8,000 frames deep and exhausted Node's stack. One
+  parse seam (`ui_bridge::parse_seam_with`) gives every backend its front end, and every collapse-noted benchmark runs at
+  its reference size under Node (`benchmark_logos_tiers_lock`). A page function the optimizer specializes keeps its
+  role (`partial_eval::specialization_origin`, read by `vm::reach`).
+- **WebAssembly code after a stop no longer types registers it never reads.** A register read after a `Return` or a
+  `Fail`, and written as a different kind before it, refused the module ("register reused across incompatible value
+  types"); the lowering, kind inference and the register splitter now share one notion of a live op
+  (`wasm_aot_lock`).
+- `optimize::abstract_interp`: a walk whose facts are thrown away (a loop fixpoint's ascent and narrowing passes)
+  computes states and records nothing: a widened loop skips its recording walk and proofs, a converged one its alias
+  snapshot and recording pass. `OracleFacts::loop_recordings` counts recordings; each loop's facts are recorded once.
+- `loader`: the scan for a program's parameter names steps over the character before each colon by its width, so a
+  `## To` header holding `«…»:` no longer panics the prelude.
+- `vm::wasm`: `contains` over a list compares each element by value, as the VM's `==` does: a Text by its bytes, a
+  list or a tuple through the generated equality functions (`display::compared_members` now collects a list's
+  `contains` beside a set's sites), a `Real` by `f64.eq`, a 32-bit word by `i32.eq`; a list of records, variants, maps or
+  sets is refused by name instead of lowering to a module validation rejects.
+- `codegen_c::emit`: each wide arm of `codegen_stmt_node` and `codegen_expr_node` is an `#[inline(never)]` function of
+  its own, so an unoptimized build no longer spends tens of KiB of stack a nesting level and the benchmark corpus
+  compiles to C on a 2 MiB thread (`compiler_stack_safety_lock`).
+- The AOT-Rust and AST-C emitters agree with the tree-walker on every row of `codegen_divergence_lock`: shifts wrap
+  their count, capacities clamp at zero, an inclusive loop may end at the largest Int, a counter after its loop holds
+  the value the loop left, a hoisted length is bound under the emitter's own name, and C's `Inspect`, missing map key,
+  shared Text field and pipe capacity mean what they mean on the VM.
+- `vm::wasm::reloc::module_to_relocatable` relocates a module that defines its memory: the `logos.static` layout
+  section, `env.__linear_memory` imported, one static data segment with `SEGMENT_INFO` and a local data symbol,
+  `R_WASM_MEMORY_ADDR_{LEB,SLEB,I32}` for every five-byte static address and Text self-pointer, `main`'s prologue
+  seating `__heap_ptr` at `__heap_base` and `__heap_end` at memory's end; `memory.copy`/`memory.fill` accepted; `main`'s
+  symbol flagged `EXPORTED` (0x20, it said 0x04, which is `VISIBILITY_HIDDEN`). `vm::wasm::encode::i32_const_static`
+  marks a static address. `__logos_alloc` and the heap census grow in place only while the heap ends where memory
+  does, and take fresh pages otherwise.
+- The VM counts a loop region's guard misses once per entry: a register kind or value that missed is remembered until
+  the loop's exit is taken or its frame returns (`end_missed_entries`), where every crossing of the head counted one.
+  A Ready region demotes when its misses reach `REGION_DEMOTE_AFTER` (now public) and outnumber the entries it ran,
+  counted over `REGION_RATE_WINDOW`; `RegionFn::note_guard_miss` and `note_demoted` tell the tier
+  (`jit_partial_region_lock`).
+- `loader::apply_prelude` splices a module whose native the program declares itself, without the module's own
+  declaration of it (`without_natives`), where it skipped the whole module; only a builtin-backed type still keeps a
+  module out (`stdlib_user_name_hygiene`).
+- `VerificationPass` checks every `Assert` (`Stmt::RuntimeAssert`, which it skipped) and is sound on the statements it
+  reads: SSA versions for `Let`/`Set`/`Swap`, path conditions for `If` with a join after it, loops that forget what
+  their bodies may write (`optimize::writes::WriteSet`) and keep their exit condition only when nothing breaks out,
+  early `Return`/`Fail` narrowing the rest of a block, block-scoped shadowing, per-function scopes, calls mapped only
+  for pure functions of known signature (`optimize::purity::Purity`), and `decreasing` checked in the loop's
+  havocked state. `Require`/`Assume` are assumed, an unreadable `Assert` is reported unproved.
+  `verification_soundness_lock`.
+
+- `codegen_cuda::lane`'s spare holds what its graphs take: a captured node takes 21.2–21.6 KiB of the RTX 3060's
+  memory under driver 580 (Llama-3.2-1B's and Qwen3-8B's batch lanes, the free memory before and after their
+  graphs), where `residence::SPARE_A_LAUNCH` reserved 16 and Qwen3.8-27B's program ran out of memory instantiating
+  its 19th graph; it now reserves 24, and every program prints the memory its graphs took (`GRAPH_BYTES:`).
+- `tensor_graph::graph::Op::writes` names every table and state a fused op's parts write however deep they lie: a
+  fused op holding another (a merged projection holding a key's norm, rotation and cache insert) left out the cache
+  row its inner part lands, so the dataflow facts every rule reads missed the write. The optimized graphs every shim
+  builds are unchanged (`fusion_class_lock::a_fused_op_writes_every_table_and_state_its_parts_write`).
+- The generated Rust reads the clock for `today` and `now` wherever they appear (`semantics::temporal::ClockRead`
+  names them for the checker, the type environment and the emitter), holds a Duration as the signed `LogosDuration`,
+  waits in `Sleep` and a select's `After` for any duration-typed
+  expression (an Int at or below zero waits not at all), and types the language's temporal arithmetic
+  (`LogosType::temporal_arithmetic`) and an interpolated Text.
+- Async coloring walks every expression a statement evaluates (`ast_depth`'s enumerators) and every nested block
+  (`analysis::tower::nested_blocks`): a call of a sleeping function from a constructor field, `not`, a set field, a
+  `Splice`, `Reversibly:`, `some`, a range bound, `length`/`contains`/copy, a set's add/remove/union, a capacity or a
+  failure reason colors its caller, as a `Sleep` in any block colors its function.
+- A `Repeat` whose body awaits steps an iterator over the items its `for` would walk (it moved the collection); an
+  await of a function on a cycle of the call graph boxes its future (`::std::boxed::Box::pin`, in full, as every std
+  name the compiler emits beside a program's own types), at every call and launch site.
+- A slice is an owned list (`LogosSeq::from_vec`) wherever it is held, returned, passed or stored; a length, a
+  membership, a borrowed parameter and a loop's snapshot read the view of the items (`codegen::expr::slice_view`).
+- No optimization treats a clock read as a variable: the optimizer installs the program's clock symbols at entry
+  (`optimize::is_clock_read`) and equality saturation reads each as an opaque leaf. The C and RISC-V shims' `now`
+  read nanoseconds, and RISC-V compares two instants or two dates as the integers they ride in.
+- The AST → C backend's integer collections read a date, an instant, a time of day and a duration apart
+  (`codegen_c::types::Ints`; `logos_int_text` shows each as itself), a record or variant holding a temporal value
+  shows, and the runtime computes `months_between` and `years_between` as base does.
+- **The self-interpreter compares and keys values as the language does.** `core_interp`'s equality is structural:
+  numbers across Int and Real, lists and tuples by position, sets by content, maps, records and variants by their
+  entries, where it compared the text it would print (`["1"] equals [1]` was `true`). A map holds each key as the
+  value it is, under a text two keys share only when the language calls them equal, so an Int-keyed map iterates its
+  keys as Ints (`k + 1` gave `11`) and two keys that print alike stay two; a set adds, holds and removes by the same
+  equality. The store the offline specializer reads its program from (`mix_bta::store_builder`, `residual_input_wire`)
+  writes its maps the same way.
+- **The textbook first projection specializes a value it knows only in part.** A `Let` whose value has a known kind
+  and a part the specializer cannot compute (`Let n be parseInt("15").`) binds that part once, where it is computed,
+  and keeps the kind, so `Show n + 1` specializes to the program's own work instead of a residual that kept the
+  self-interpreter and named its pattern variables unbound; a residual that still holds the self-interpreter's values
+  carries their types (`textbook_projection1`).
+- **The specializers fold what the language computes, by the language's own tables.** Two known values fold by the
+  operator table (`core_operators::specializer_source`, `**`, `//` and `is approximately` included), a pure builtin on
+  known arguments by the builtin table (`core_builtins::specializer_source`, bytes as a known list), and known lists
+  concatenate and repeat; `Show upper("hi")` specializes to `text_from_bytes([72, 73])` where it left 12,618 lines.
+- Both decompilers print a construction an operator follows in parentheses: `(a new Point with x 1) equals …` read
+  as `x (1 equals …)`.
+- A receiver refuses a byte, delta, delta-of-delta, bit-pack, dictionary or run-length int column claiming more
+  elements than its `ReceiveLimits::max_elements`; a tiny compressed frame could expand those past the budget.
+- `codegen_c::from_program`: a closure body's captured values take the kinds every `MakeClosure` that builds it stores
+  (`capture_kinds`, settled with the parameters), so its arithmetic and its result agree with what its callers read; a
+  popped value is the list's element (no `[present, value]` box), as `resolve_pop` guarantees an item to every pop.
+- The collector prints the heap report a program asks for even when it never allocated (`lc_gc_report_unstarted`).
+- `codegen_riscv::RISCV_RUNTIME_C` carries no call of the C library's allocator: the libc fallback moved out of
+  `lc_gc_api_source` into `lc_gc_libc_source`, which only the C runtime emits, and the RISC-V runtime refuses to compile
+  where the collector cannot run.
+- The optimizer's linear prover (`optimize::affine::{consistent, prove}`) eliminates under a budget of 4,096
+  constraints a step (`lia::fourier_motzkin_unsat_within`): a system past it counts as satisfiable and its goal as
+  not proven, so loop-interleaved recursion the inliner unfolds compiles (`largo run` never finished on it).
+- The browser runtime's `read_reals` host function takes the path the module passes it: the module imports it with
+  one parameter and the host declared none, and WebAssembly refuses to instantiate on a signature mismatch, so a
+  page whose program reads reals rendered blank. Locked by `wasm_host_abi_lock`.
+- `concurrency::pnp`'s ledger locks its file with `fs2::FileExt::lock_exclusive`: `File::lock` needs Rust 1.89, and the
+  crate declares 1.88.
+- `resolve_division::resolve_real_constants`, run by `resolve_program` after the exact contexts: each bare `pi`, `π`
+  or `e` left outside an exact context is the `Real` literal nearest π or e, in each scope (`## Main`, or one function,
+  which also sees the names `## Main` binds) that binds no name so spelled and defines no function so named. What a
+  scope binds is read from every binder the effect walk reports, a closure's parameters and body and a nested
+  function's included, for the exact reading too.
+- `codegen_c`: `c_field_to_string_expr` renders a `Float64` with `logos_fmt_f64`, and `c_format_spec_for_hole` renders
+  a `Real` hole with it and every padded hole that is not text through `c_text_of`; `map_ctype` holds a `Real` value
+  in the generic `Map_str_double` / `Map_i64_double` families, not the integer map; the bytecode→C lowering pads and
+  centres a `Float` register's `logos_fmt_f64` text.
+- `page_host::lowered`: the mount's `When the page loads:` call runs outside the guarded turn door, so its failure
+  ends the page's main (`DriveError::Failed`). `semantics::dom::element_click` raises a `click` the host delivers after
+  the turn, and the `click` element command reaches it; the browser runtime's command calls `element.click()`.
+- `vm`: a page entry the program takes (`dispatchEntry`) delivers the events its turns raised on the page's own
+  elements once the outermost entry has returned, each an entry of its own along the event's dispatch path through the
+  page's node dispatcher, as `page_host::lowered` does after every call it makes.
+- `ui_bridge`: a premise that presupposes at its top is accommodated only where its context, the other premises, is
+  consistent with what it presupposes. The theorem paths (`verify_theorem`, `prove_theorem_trace`,
+  `theorem_certificate`, `compile_theorem_for_ui`) refuse it as a presupposition failure when the other premises are
+  consistent and refute the presupposition, each refutation found by `prove_certify_check_bounded` at depth 12 and
+  checked by the kernel, and none searched for unless the premises refute each other at all.
+- `codegen_sva::timing_graph`: a box is its module, its outputs' `Cost` and the `Area` an instance takes
+  (`script`, `netlist`, `synthesize`), the area written as `logos_box_area` only when it is not none, so a netlist
+  cached by its script's hash is the same one. `spatial::decode_engine::rtl::ram::memory_boxes` names every memory the
+  generator writes in a Verilog text, each width and each `_part` a stack or the pipelined store is built of, as the
+  box the model times it as, a held read with `held_read_area` (three LUTs and three registers a bit, storeprobe-a's
+  pass-through): the `timing_calibrate`, `d5005_preflight` and `timing_report` examples box by it. `timing_calibrate`
+  refuses a synthesis whose top holds fewer memory bits in Quartus's report than the model maps as memories.
+  ends the page's main (`DriveError::Failed`).
+- `verification`: the Z3 pass behind `largo verify` checks every `Assert that …` (it skipped them all), re-checks a
+  binding's refinement at every `Set`, checks a refined return type at every `Return`, and answers a refinement over
+  a call's value instead of crashing in Z3. Assignments are SSA names, branches are guarded and joined, loops, calls
+  and unmodelled statements forget what they may write, and anything the pass does not model is refused by name.
+- `compile::copy_runtime_crates` refuses a workspace whose `[workspace.package] version` is not the compiler's own,
+  naming both versions and `LOGOS_WORKSPACE`, instead of staging a runtime the generated Rust does not match.
 - The Rust tier builds a variant of an enum that holds itself boxed wherever the construction stands: an argument of
   a call statement (`keep(a new Node with kids ks, out).`) was built in place and failed to compile (`has no field
   named`). A construction takes the variant the program declares (`codegen::types::program_variant`) when the context
@@ -414,74 +1013,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   stayed a call into the self-interpreter (951 units of dispatch).
 - The textbook first projection carries a program's reads of the clock as it carries its arguments: `today` and `now`
   stay reads the residual makes when it runs (the specializer never reads the clock), where it refused the program.
-- The optimizer's linear prover (`optimize::affine::{consistent, prove}`) eliminates under a budget of 4,096
-  constraints a step (`lia::fourier_motzkin_unsat_within`): a system past it counts as satisfiable and its goal as
-  not proven, so loop-interleaved recursion the inliner unfolds compiles (`largo run` never finished on it).
-- The browser runtime's `read_reals` host function takes the path the module passes it: the module imports it with
-  one parameter and the host declared none, and WebAssembly refuses to instantiate on a signature mismatch, so a
-  page whose program reads reals rendered blank. Locked by `wasm_host_abi_lock`.
-- `concurrency::pnp`'s ledger locks its file with `fs2::FileExt::lock_exclusive`: `File::lock` needs Rust 1.89, and the
-  crate declares 1.88.
-- `resolve_division::resolve_real_constants`, run by `resolve_program` after the exact contexts: each bare `pi`, `π`
-  or `e` left outside an exact context is the `Real` literal nearest π or e, in each scope (`## Main`, or one function,
-  which also sees the names `## Main` binds) that binds no name so spelled and defines no function so named. What a
-  scope binds is read from every binder the effect walk reports, a closure's parameters and body and a nested
-  function's included, for the exact reading too.
-- `codegen_c`: `c_field_to_string_expr` renders a `Float64` with `logos_fmt_f64`, and `c_format_spec_for_hole` renders
-  a `Real` hole with it and every padded hole that is not text through `c_text_of`; `map_ctype` holds a `Real` value
-  in the generic `Map_str_double` / `Map_i64_double` families, not the integer map; the bytecode→C lowering pads and
-  centres a `Float` register's `logos_fmt_f64` text.
-- `page_host::lowered`: the mount's `When the page loads:` call runs outside the guarded turn door, so its failure
-  ends the page's main (`DriveError::Failed`). `semantics::dom::element_click` raises a `click` the host delivers after
-  the turn, and the `click` element command reaches it; the browser runtime's command calls `element.click()`.
-- `vm`: a page entry the program takes (`dispatchEntry`) delivers the events its turns raised on the page's own
-  elements once the outermost entry has returned, each an entry of its own along the event's dispatch path through the
-  page's node dispatcher, as `page_host::lowered` does after every call it makes.
-- `ui_bridge`: a premise that presupposes at its top is accommodated only where its context, the other premises, is
-  consistent with what it presupposes. The theorem paths (`verify_theorem`, `prove_theorem_trace`,
-  `theorem_certificate`, `compile_theorem_for_ui`) refuse it as a presupposition failure when the other premises are
-  consistent and refute the presupposition, each refutation found by `prove_certify_check_bounded` at depth 12 and
-  checked by the kernel, and none searched for unless the premises refute each other at all.
-- A receiver refuses a byte, delta, delta-of-delta, bit-pack, dictionary or run-length int column claiming more
-  elements than its `ReceiveLimits::max_elements`; a tiny compressed frame could expand those past the budget.
-- The generated Rust reads the clock for `today` and `now` wherever they appear (`semantics::temporal::ClockRead`
-  names them for the checker, the type environment and the emitter), holds a Duration as the signed `LogosDuration`,
-  waits in `Sleep` and a select's `After` for any duration-typed
-  expression (an Int at or below zero waits not at all), and types the language's temporal arithmetic
-  (`LogosType::temporal_arithmetic`) and an interpolated Text.
-- Async coloring walks every expression a statement evaluates (`ast_depth`'s enumerators) and every nested block
-  (`analysis::tower::nested_blocks`): a call of a sleeping function from a constructor field, `not`, a set field, a
-  `Splice`, `Reversibly:`, `some`, a range bound, `length`/`contains`/copy, a set's add/remove/union, a capacity or a
-  failure reason colors its caller, as a `Sleep` in any block colors its function.
-- A `Repeat` whose body awaits steps an iterator over the items its `for` would walk (it moved the collection); an
-  await of a function on a cycle of the call graph boxes its future (`::std::boxed::Box::pin`, in full, as every std
-  name the compiler emits beside a program's own types), at every call and launch site.
-- A slice is an owned list (`LogosSeq::from_vec`) wherever it is held, returned, passed or stored; a length, a
-  membership, a borrowed parameter and a loop's snapshot read the view of the items (`codegen::expr::slice_view`).
-- No optimization treats a clock read as a variable: the optimizer installs the program's clock symbols at entry
-  (`optimize::is_clock_read`) and equality saturation reads each as an opaque leaf. The C and RISC-V shims' `now`
-  read nanoseconds, and RISC-V compares two instants or two dates as the integers they ride in.
-- The AST → C backend's integer collections read a date, an instant, a time of day and a duration apart
-  (`codegen_c::types::Ints`; `logos_int_text` shows each as itself), a record or variant holding a temporal value
-  shows, and the runtime computes `months_between` and `years_between` as base does.
-- **The self-interpreter compares and keys values as the language does.** `core_interp`'s equality is structural:
-  numbers across Int and Real, lists and tuples by position, sets by content, maps, records and variants by their
-  entries, where it compared the text it would print (`["1"] equals [1]` was `true`). A map holds each key as the
-  value it is, under a text two keys share only when the language calls them equal, so an Int-keyed map iterates its
-  keys as Ints (`k + 1` gave `11`) and two keys that print alike stay two; a set adds, holds and removes by the same
-  equality. The store the offline specializer reads its program from (`mix_bta::store_builder`, `residual_input_wire`)
-  writes its maps the same way.
-- **The textbook first projection specializes a value it knows only in part.** A `Let` whose value has a known kind
-  and a part the specializer cannot compute (`Let n be parseInt("15").`) binds that part once, where it is computed,
-  and keeps the kind, so `Show n + 1` specializes to the program's own work instead of a residual that kept the
-  self-interpreter and named its pattern variables unbound; a residual that still holds the self-interpreter's values
-  carries their types (`textbook_projection1`).
-- **The specializers fold what the language computes, by the language's own tables.** Two known values fold by the
-  operator table (`core_operators::specializer_source`, `**`, `//` and `is approximately` included), a pure builtin on
-  known arguments by the builtin table (`core_builtins::specializer_source`, bytes as a known list), and known lists
-  concatenate and repeat; `Show upper("hi")` specializes to `text_from_bytes([72, 73])` where it left 12,618 lines.
-- Both decompilers print a construction an operator follows in parentheses: `(a new Point with x 1) equals …` read
-  as `x (1 equals …)`.
 - `mix_bta`: a specialization read the clock. The self-interpreter reads it for `now` and `now()`, and the
   specializer's own two-level program held those reads in its static parts. So the compiler the second projection
   writes, and the compiler generator of the third, each held the moment it was built, and the compiler the generator
@@ -533,22 +1064,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   last use it stored the reference itself (`&LogosSeq`, `&LogosMap` or `&mut T`, which did not build), elsewhere a
   second handle on the caller's buffer, which a later write to the parameter changed: the stored list printed
   `[5, 1, 2]` where the language prints `[5, 1]` (`e2e_ref_semantics`).
-- `codegen_cuda::lane`'s spare holds what its graphs take: a captured node takes 21.2–21.6 KiB of the RTX 3060's
-  memory under driver 580 (Llama-3.2-1B's and Qwen3-8B's batch lanes, the free memory before and after their
-  graphs), where `residence::SPARE_A_LAUNCH` reserved 16 and Qwen3.8-27B's program ran out of memory instantiating
-  its 19th graph; it now reserves 24, and every program prints the memory its graphs took (`GRAPH_BYTES:`).
-- `tensor_graph::graph::Op::writes` names every table and state a fused op's parts write however deep they lie: a
-  fused op holding another (a merged projection holding a key's norm, rotation and cache insert) left out the cache
-  row its inner part lands, so the dataflow facts every rule reads missed the write. The optimized graphs every shim
-  builds are unchanged (`fusion_class_lock::a_fused_op_writes_every_table_and_state_its_parts_write`).
-- `codegen_sva::timing_graph`: a box is its module, its outputs' `Cost` and the `Area` an instance takes
-  (`script`, `netlist`, `synthesize`), the area written as `logos_box_area` only when it is not none, so a netlist
-  cached by its script's hash is the same one. `spatial::decode_engine::rtl::ram::memory_boxes` names every memory the
-  generator writes in a Verilog text, each width and each `_part` a stack or the pipelined store is built of, as the
-  box the model times it as, a held read with `held_read_area` (three LUTs and three registers a bit, storeprobe-a's
-  pass-through): the `timing_calibrate`, `d5005_preflight` and `timing_report` examples box by it. `timing_calibrate`
-  refuses a synthesis whose top holds fewer memory bits in Quartus's report than the model maps as memories.
-  ends the page's main (`DriveError::Failed`).
 - `spatial::passes::from_qwen_ops::recurrent`'s chunked gated delta inverts a chunk's unit lower-triangular `I + A`
   by halves (`X_ℓ = X_{ℓ−1} − X_{ℓ−1} (A ⊙ M_ℓ) X_{ℓ−1}`, `M_ℓ` each block's lower-left quarter) in the `⌈log₂ C⌉`
   sections the power series `(I + N)(I + N²)(I + N⁴)…` took, every factor bounded by the answer.
@@ -557,6 +1072,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - A flash fold of several query tiles reads its sinks one tile a head (`from_qwen_ops::attention::sink_tiles`), each
   item through the index a compile-time table (`{out}__flash_sink_heads`) gives it; a fold of one query tile and a
   regrouped decode read one tile an item, as before.
+- `model::hf` reads a ModelOpt export's `hf_quant_config.json`: an FP8 export stating its method there alone is
+  read times its scales, not as its 8-bit codes.
 
 ## [0.11.0] - 2026-11-02
 

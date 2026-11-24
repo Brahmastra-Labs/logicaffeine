@@ -1882,11 +1882,11 @@ pub fn parts_norm(op: &Op) -> Option<(Vec<(String, usize)>, NormForm, Vec<(usize
     Some((parts, n, slices))
 }
 
-/// The product an op of its epilogue runs — a scaled product (`gemm_scale`), or a ReLU squared folded into its producer
-/// (`relu_sqr`) — its bias before the epilogue its own.
+/// The product an op of its epilogue runs — a scaled product (`gemm_scale`), an activated one (`gemm_act`), or a ReLU
+/// squared folded into its producer (`relu_sqr`) — its bias before the epilogue its own.
 pub fn epilogued_product(op: &Op, g: &TensorGraph) -> Option<GemvForm> {
     match &op.sym {
-        Sym::Fused(f) if f.class == ClassId::GemmScale || (f.class == ClassId::ReluSqr && f.parts.len() == 3) => {
+        Sym::Fused(f) if matches!(f.class, ClassId::GemmScale | ClassId::GemmAct) || (f.class == ClassId::ReluSqr && f.parts.len() == 3) => {
             gemv(&f.parts[0], g).or_else(|| epilogued_product(&f.parts[0], g))
         }
         _ => None,
@@ -1936,6 +1936,114 @@ fn relu_sqr(r: &mut Rewriter) {
         let relu = matches!(r.s.get(i).prim(), Some(TensorOpSpec::Relu(u)) if u.n == b.n) && pointwise(r.s.get(i)).is_some();
         if relu && r.s.readers(&b.a) == [j] && !r.s.crosses(i, j, &[]) && !relu_sqr_in_producer(r, i, j, b.n) {
             pair(r, "relu_sqr", ClassId::ReluSqr, i, j, i);
+        }
+    }
+}
+
+/// An activation of a product's result in the product's epilogue — after its bias and scale — and a scale of the
+/// activation after that, each the only reader of what it reads: a hyper-connected residual's gate (`silu(D·x̂ / L)`) and
+/// shares (`σ(J·x̂ / L)·2`) as the products' own.
+fn gemm_act(r: &mut Rewriter) {
+    for j in 0..r.s.len() {
+        let Some(op) = r.s.slot(j) else { continue };
+        let n = match op.prim() {
+            Some(TensorOpSpec::Silu(_) | TensorOpSpec::Sigmoid(_) | TensorOpSpec::Gelu(_)) => pointwise(op),
+            _ => None,
+        };
+        let Some(n) = n else { continue };
+        let (x, out) = (op.ins[0].clone(), op.out.clone());
+        let Some(i) = r.s.producer(&x) else { continue };
+        let product = gemv(r.s.get(i), r.g).or_else(|| epilogued_product(r.s.get(i), r.g));
+        if !product.is_some_and(|p| p.m * p.n == n && p.dst.own().is_some()) || r.s.readers(&x) != [j] || r.s.crosses(i, j, &[]) {
+            continue;
+        }
+        let after = match r.s.readers(&out)[..] {
+            [k] if r.s.slot(k).and_then(scale_of).is_some_and(|(s, len)| s == out && len == n) && !r.s.crosses(i, k, &[j]) && !r.carried(&out) => Some(k),
+            _ => None,
+        };
+        let members: Vec<usize> = [i, j].into_iter().chain(after).collect();
+        let ops: Vec<Op> = members.iter().map(|&k| r.s.get(k).clone()).collect();
+        let last = ops.last().expect("a product and its activation").clone();
+        let ins = external(&ops.iter().collect::<Vec<_>>());
+        let names: Vec<String> = ins.iter().map(|(t, _)| t.clone()).collect();
+        if r.admits(&candidate(ClassId::GemmAct, ops, names, &last.out, last.dst.clone())) {
+            r.fuse("gemm_act", ClassId::GemmAct, i, &members[1..], ins, last.out, last.dst);
+        }
+    }
+}
+
+/// A hyper-connected residual's mix: its lanes' gated product averaged over the lanes in one pass — each value the
+/// product's, gated or not, its mean the lane mean's — the product read by the mean alone.
+fn hc_mix(r: &mut Rewriter) {
+    for j in 0..r.s.len() {
+        let Some(TensorOpSpec::LaneMean(m)) = r.s.slot(j).and_then(|op| op.prim()) else { continue };
+        let len = m.rows * m.lanes * m.cols;
+        let x = r.s.get(j).ins[0].clone();
+        let Some(i) = r.s.producer(&x) else { continue };
+        let product = binary(r.s.get(i)).is_some_and(|b| b.op == ElementwiseOp::Mul && b.row.is_none() && b.n == len && b.a != b.b);
+        let whole = r.s.get(i).access.iter().chain(&r.s.get(j).access).all(|a| *a == Access::Whole);
+        if product && whole && r.s.readers(&x) == [j] && !r.s.crosses(i, j, &[]) {
+            pair(r, "hc_mix", ClassId::HcMix, i, j, i);
+        }
+    }
+}
+
+/// The spreads over the lanes the residual add at `j` reads alone, each its slot: an ungated add of two operands, the
+/// spread its operand's own producer, both whole, the spread movable down to the add.
+fn residual_spreads(r: &Rewriter, j: usize) -> Vec<usize> {
+    let Some(b) = r.s.slot(j).and_then(binary) else { return Vec::new() };
+    let whole = r.s.get(j).access.iter().all(|a| *a == Access::Whole);
+    if b.op != ElementwiseOp::Add || b.gate.is_some() || b.row.is_some() || b.a == b.b || !whole || class(r.s.get(j)).is_some() {
+        return Vec::new();
+    }
+    [&b.a, &b.b]
+        .into_iter()
+        .filter_map(|spread| {
+            let i = r.s.producer(spread)?;
+            let op = r.s.get(i);
+            let lanes = matches!(op.prim(), Some(TensorOpSpec::LaneSpread(p)) if p.rows * p.lanes * p.cols == b.n);
+            let alone = op.dst.own().is_some() && op.access.iter().all(|a| *a == Access::Whole) && r.s.readers(spread) == [j];
+            (lanes && alone && !r.s.crosses(i, j, &[])).then_some(i)
+        })
+        .collect()
+}
+
+/// A hyper-connected residual's post and the next mix's norm: a sublayer's output spread over the lanes by its shares,
+/// added to the residual it joins and the sum normed in those lanes, as one op at the spread's slot that writes the sum on
+/// for its later readers — the spread read by the add alone, the sum read first by the norm, all three whole.
+fn hc_post_norm(r: &mut Rewriter) {
+    for j in 0..r.s.len() {
+        for i in residual_spreads(r, j) {
+            let Some(TensorOpSpec::LaneSpread(p)) = r.s.get(i).prim() else { continue };
+            let sum = r.s.get(j).out.clone();
+            let Some(&k) = r.s.readers(&sum).first() else { continue };
+            let norm = r.s.get(k);
+            let lanes = matches!(norm.prim(), Some(TensorOpSpec::FusedRow(n)) if n.reduce == RowReduceKind::RmsNorm
+                && n.weight_rows == p.lanes && n.residual.is_none() && n.bias.is_none() && n.rows * n.cols == p.rows * p.lanes * p.cols);
+            let whole = norm.ins[0] == sum && norm.dst.own().is_some() && norm.access.iter().all(|a| *a == Access::Whole);
+            if p.by.is_none() || !lanes || !whole || r.s.crosses(i, k, &[j]) {
+                continue;
+            }
+            let ops: Vec<Op> = [i, j, k].iter().map(|&s| r.s.get(s).clone()).collect();
+            let ins = external(&ops.iter().collect::<Vec<_>>());
+            let names: Vec<String> = ins.iter().map(|(t, _)| t.clone()).collect();
+            let (out, dst) = (ops[2].out.clone(), ops[2].dst.clone());
+            if r.admits(&candidate(ClassId::HcPostNorm, ops, names, &out, dst.clone())) {
+                r.fuse("hc_post_norm", ClassId::HcPostNorm, i, &[j, k], ins, out, dst);
+                break;
+            }
+        }
+    }
+}
+
+/// A hyper-connected residual's post: a sublayer's output spread over the lanes, by its shares or not, and added to the
+/// residual it joins, as one op at the spread's slot — the spread read by the add alone, both whole.
+fn hc_post(r: &mut Rewriter) {
+    for j in 0..r.s.len() {
+        for i in residual_spreads(r, j) {
+            if pair(r, "hc_post", ClassId::HcPost, i, j, i) {
+                break;
+            }
         }
     }
 }
@@ -2140,14 +2248,27 @@ fn recompute_fanout(r: &mut Rewriter) {
     }
 }
 
-/// Two independent plain norms of one row shape, the later moved up to the earlier's place, as one op.
+/// The norm an op of a dual norm's sides is: a norm, or a norm that quantizes its result in its epilogue.
+pub fn side_norm(op: &Op) -> Option<NormForm> {
+    match &op.sym {
+        Sym::Fused(f) if matches!(f.class, ClassId::NormQuant | ClassId::AddNormQuant) => norm(&f.parts[0]),
+        _ => norm(op),
+    }
+}
+
+/// Two independent norms — each of any rows and width, reading its input whole or as a part of a wider one, landing in
+/// its own buffer or a table's row, and quantizing its result or not — the later moved up to the earlier's place, as
+/// one op: neither reads what the other writes nor writes what the other reads or writes, and no op between them
+/// meets the later. Each norm pairs with the first later one the chip takes beside it.
 fn dual_norm(r: &mut Rewriter) {
-    let plain = |op: &Op| norm(op).filter(|n| class(op).is_none() && n.own && n.part.is_none() && n.add.is_none());
+    let apart = |a: &Op, b: &Op| {
+        let (wa, wb) = (facts::writes(a), facts::writes(b));
+        !facts::reads(b).iter().chain(&wb).any(|t| wa.contains(t)) && !facts::reads(a).iter().any(|t| wb.contains(t))
+    };
     for i in 0..r.s.len() {
-        let Some(a) = r.s.slot(i).and_then(plain) else { continue };
+        let Some(a) = r.s.slot(i).and_then(side_norm) else { continue };
         for j in i + 1..r.s.len() {
-            let Some(b) = r.s.slot(j).and_then(plain) else { continue };
-            if (b.rows, b.cols) != (a.rows, a.cols) || facts::reads(r.s.get(j)).contains(&a.out.as_str()) || r.s.crosses(i, j, &[]) {
+            if r.s.slot(j).and_then(side_norm).is_none() || !apart(r.s.get(i), r.s.get(j)) || r.s.crosses(i, j, &[]) {
                 continue;
             }
             let ops = vec![r.s.get(i).clone(), r.s.get(j).clone()];
@@ -2156,8 +2277,8 @@ fn dual_norm(r: &mut Rewriter) {
             let dst = r.s.get(i).dst.clone();
             if r.admits(&candidate(ClassId::DualNorm, ops, names, &a.out, dst.clone())) {
                 r.fuse("dual_norm", ClassId::DualNorm, i, &[j], ins, a.out.clone(), dst);
+                break;
             }
-            break;
         }
     }
 }
@@ -2471,7 +2592,7 @@ fn gdn_decode_whole(r: &mut Rewriter) {
 /// Whether an op computes each row of its result from that row of its activations alone (an attention: each query
 /// row from its row and the whole cache; a token-sorted mixture: each row routed on its own, its views a row each),
 /// writing no state and no rows of a table.
-fn row_wise(op: &Op) -> bool {
+pub(crate) fn row_wise(op: &Op) -> bool {
     if op.dst.row.is_some() || !op.state_inputs().is_empty() {
         return false;
     }
@@ -2489,6 +2610,7 @@ fn row_wise(op: &Op) -> bool {
                     | TensorOpSpec::Silu(_)
                     | TensorOpSpec::Sigmoid(_)
                     | TensorOpSpec::Gelu(_)
+                    | TensorOpSpec::Erf(_)
                     | TensorOpSpec::Relu(_)
                     | TensorOpSpec::Scale(_)
                     | TensorOpSpec::SwiGlu(_)
@@ -2644,7 +2766,11 @@ pub const RULES: &[Rule] = &[
     Rule { name: "attn_output_gate", kind: RuleKind::Group, builds: &[ClassId::AttnOutputGate], apply: attn_output_gate },
     Rule { name: "glu_pair", kind: RuleKind::Group, builds: &[ClassId::GemvGateUpGlu], apply: glu_pair },
     Rule { name: "relu_sqr", kind: RuleKind::Group, builds: &[ClassId::ReluSqr], apply: relu_sqr },
+    Rule { name: "gemm_act", kind: RuleKind::Group, builds: &[ClassId::GemmAct], apply: gemm_act },
     Rule { name: "cap_argmax", kind: RuleKind::Group, builds: &[ClassId::CapArgmax], apply: cap_argmax },
+    Rule { name: "hc_mix", kind: RuleKind::Group, builds: &[ClassId::HcMix], apply: hc_mix },
+    Rule { name: "hc_post_norm", kind: RuleKind::Group, builds: &[ClassId::HcPostNorm], apply: hc_post_norm },
+    Rule { name: "hc_post", kind: RuleKind::Group, builds: &[ClassId::HcPost], apply: hc_post },
     Rule { name: "elementwise_regions", kind: RuleKind::Group, builds: &[ClassId::ElementwiseRegions], apply: elementwise_regions },
     Rule { name: "elementwise_chains", kind: RuleKind::Group, builds: &[ClassId::ElementwiseChains], apply: elementwise_chains },
     Rule { name: "recompute_fanout", kind: RuleKind::Group, builds: &[ClassId::RecomputeFanout], apply: recompute_fanout },
@@ -2655,7 +2781,6 @@ pub const RULES: &[Rule] = &[
     Rule { name: "embed_norm", kind: RuleKind::Group, builds: &[ClassId::EmbedNorm], apply: embed_norm },
     Rule { name: "strided_values", kind: RuleKind::Place, builds: &[ClassId::StridedValues], apply: strided_values },
     Rule { name: "mla_unabsorb_in_fold", kind: RuleKind::Group, builds: &[ClassId::MlaUnabsorbInFold], apply: mla_unabsorb_in_fold },
-    Rule { name: "dual_norm", kind: RuleKind::Group, builds: &[ClassId::DualNorm], apply: dual_norm },
     Rule { name: "cross_layer_launch", kind: RuleKind::Group, builds: &[ClassId::CrossLayerLaunch], apply: cross_layer_launch },
     Rule { name: "rope_parts", kind: RuleKind::Group, builds: &[ClassId::RopeQkOneLaunch], apply: rope_parts },
     Rule { name: "qk_norm_rope_gate_split", kind: RuleKind::Group, builds: &[ClassId::QkNormRopeGateSplit], apply: qk_norm_rope_gate_split },
@@ -2667,8 +2792,12 @@ pub const RULES: &[Rule] = &[
 /// The rule that always closes the table: the arg-max that picks the next token moves the step on.
 pub const ADVANCE: Rule = Rule { name: "argmax_advance", kind: RuleKind::Group, builds: &[ClassId::FusedSampling], apply: argmax_advance };
 
-/// The rules that apply once every product's activation is quantized where it will be read.
-pub const LATE: &[Rule] = &[Rule { name: "merged_projections", kind: RuleKind::Group, builds: &[ClassId::MergedQkv], apply: merged_projections }];
+/// The rules that apply once every product's activation is quantized where it will be read: the projections of one
+/// activation as one, and two independent norms as one, each with the quantize its epilogue took.
+pub const LATE: &[Rule] = &[
+    Rule { name: "merged_projections", kind: RuleKind::Group, builds: &[ClassId::MergedQkv], apply: merged_projections },
+    Rule { name: "dual_norm", kind: RuleKind::Group, builds: &[ClassId::DualNorm], apply: dual_norm },
+];
 
 /// The lifted ops with every row of a computed table taken at a literal index read in place — a view into the table —
 /// unless the table is written in place before the row's last reader, where the row is copied where the program takes

@@ -43,9 +43,12 @@ pub struct ComponentDef<'a> {
 pub enum ComponentKind<'a> {
     Component,
     /// `## Page /todos/:id (id: Int)` — mounted at `path`; each `:name` binds a typed param.
+    /// `paths` is its `Paths:` section: the block that answers, at build time, the concrete URLs a
+    /// static export pre-renders the page at. Only a page whose path has `:name` segments has one.
     Page {
         path: Symbol,
         params: Vec<(Symbol, &'a TypeExpr<'a>)>,
+        paths: Option<Block<'a>>,
     },
     /// `## Store Name [persisted as "key" | shared on "topic"]`.
     Store {
@@ -456,10 +459,17 @@ impl<'a> ComponentDef<'a> {
                 interner.resolve(self.name),
                 params_shape(&self.props, interner)
             ),
-            ComponentKind::Page { path, params } => format!(
-                "page {}{}",
+            ComponentKind::Page {
+                path,
+                params,
+                paths,
+            } => format!(
+                "page {}{}{}",
                 interner.resolve(*path),
-                params_shape(params, interner)
+                params_shape(params, interner),
+                paths
+                    .map(|b| format!(" paths: {}", b.len()))
+                    .unwrap_or_default()
             ),
             ComponentKind::Store { mode } => match mode {
                 StoreMode::Local => format!("store {}", interner.resolve(self.name)),

@@ -189,3 +189,17 @@ fn parity_convert_quote_rune() {
 fn parity_convert_append_quote_rune() {
     assert_all_tiers("## Main\nShow appendQuoteRune(\"c=\", 65).\n", "c='A'");
 }
+
+/// `toBase` writes the digits `0`-`9` and then the letters: a base outside 2 to 36 has no digits to write a number in,
+/// and every tier refuses it in the same words, after printing what came before (base 1 looped forever).
+#[test]
+fn parity_convert_to_base_refuses_a_base_without_digits() {
+    for base in ["1", "0", "37", "0 - 2", "9223372036854775807"] {
+        let src = format!("## Main\nShow toBase(255, 16).\nShow toBase(255, {base}).\n");
+        let agreed = common::run_all_tiers(&src);
+        assert_eq!(agreed.output.trim(), "ff", "\n{src}");
+        let why = agreed.error.expect("a base without digits is refused");
+        assert!(why.contains("toBase(): the base must be 2 to 36"), "{why}\n{src}");
+    }
+    assert_all_tiers("## Main\nShow toBase(35, 36).\nShow toBase(5, 2).\nShow toBase(255, 16).\n", "z\n101\nff");
+}

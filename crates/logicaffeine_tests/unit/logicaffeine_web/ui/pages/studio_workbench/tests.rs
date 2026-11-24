@@ -98,3 +98,184 @@ fn the_preview_document_centers_the_page_and_keeps_its_first_paint() {
     let broken = preview_document("## Page /\nThis is not a page.");
     assert!(!broken.contains(PREVIEW_CENTERING_STYLE), "the error overlay is not a page to center");
 }
+
+// ---------------------------------------------------------------------------------------------
+// Opening a file shows what it does: every output column goes back to its Output view, so a
+// reader who last looked at a program as Rust sees the next example's output, not its Rust. The
+// last run's time belonged to the last file, so it goes too until the new one has run.
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn choosing_another_example_selects_output_in_the_code_column() {
+    let (vdom, state) = opened_on("/examples/code/basics/control-flow.logos");
+    vdom.in_scope(ScopeId::ROOT, || {
+        for shown in [CodeOutputMode::Rust, CodeOutputMode::C, CodeOutputMode::RiscV, CodeOutputMode::Wasm] {
+            state.code_output_mode.clone().set(shown);
+            let other = seeded_examples()
+                .map(|spec| spec.vfs_path)
+                .find(|path| path.starts_with("/examples/code/") && *path != "/examples/code/basics/control-flow.logos")
+                .expect("a second Code example ships");
+            state.choose(other.to_string());
+            assert_eq!(*state.code_output_mode.peek(), CodeOutputMode::Interpret, "opening {other} after {shown:?} does not show its output");
+        }
+    });
+}
+
+#[test]
+fn choosing_a_file_of_any_mode_selects_output_in_every_column() {
+    let (vdom, state) = opened_on("/examples/code/basics/control-flow.logos");
+    vdom.in_scope(ScopeId::ROOT, || {
+        for path in ["/examples/math/auto-tactic.logos", "/examples/hardware/handshake.hw", "/examples/logic/quantifiers.logic", "/examples/code/basics/control-flow.logos"] {
+            state.code_output_mode.clone().set(CodeOutputMode::Rust);
+            state.math_output_mode.clone().set(CodeOutputMode::Rust);
+            state.hw_output_mode.clone().set(CodeOutputMode::Rust);
+            state.logic_output_mode.clone().set(LogicView::Rust);
+            state.choose(path.to_string());
+            assert_eq!(*state.code_output_mode.peek(), CodeOutputMode::Interpret, "{path}: the Code column");
+            assert_eq!(*state.math_output_mode.peek(), CodeOutputMode::Interpret, "{path}: the Math column");
+            assert_eq!(*state.hw_output_mode.peek(), CodeOutputMode::Interpret, "{path}: the Hardware column");
+            assert_eq!(*state.logic_output_mode.peek(), LogicView::Logic, "{path}: the Logic column");
+        }
+    });
+}
+
+#[test]
+fn choosing_a_file_clears_the_last_run_s_time() {
+    let (vdom, state) = opened_on("/examples/code/basics/control-flow.logos");
+    vdom.in_scope(ScopeId::ROOT, || {
+        state.run_time.clone().set(Some(RunTime { millis: 3.0, finished: true }));
+        state.choose("/examples/logic/quantifiers.logic".to_string());
+        assert_eq!(*state.run_time.peek(), None, "the last file's run time is still shown");
+    });
+}
+
+#[test]
+fn a_fresh_workbench_has_no_run_time() {
+    let (vdom, state) = opened_on("/examples/logic/quantifiers.logic");
+    vdom.in_scope(ScopeId::ROOT, || assert_eq!(*state.run_time.peek(), None));
+}
+
+// ---------------------------------------------------------------------------------------------
+// The Web preview's frame is only ever created with its document in place, and another document
+// gets another frame. A sandboxed frame that goes in empty and is filled in the same task stays
+// blank in Chromium (a shipped page opened from the tree, with its prebuilt document already
+// fetched, showed nothing until something set the document again).
+// ---------------------------------------------------------------------------------------------
+
+fn preview_html(doc: &str) -> String {
+    #[derive(Props, Clone, PartialEq)]
+    struct Doc {
+        doc: String,
+    }
+    #[allow(non_snake_case)]
+    fn Frame(props: Doc) -> Element {
+        rsx! { PreviewFrame { doc: props.doc } }
+    }
+    let mut vdom = VirtualDom::new_with_props(Frame, Doc { doc: doc.to_string() });
+    vdom.rebuild_in_place();
+    dioxus_ssr::render(&vdom)
+}
+
+#[test]
+fn there_is_no_preview_frame_before_there_is_a_document() {
+    let html = preview_html("");
+    assert!(!html.contains("<iframe"), "an empty preview frame is created, to be filled later: {html}");
+    assert!(html.contains("preview-waiting"), "the panel shows nothing at all while it waits: {html}");
+}
+
+#[test]
+fn a_preview_frame_is_created_with_its_document() {
+    let doc = preview_document(shipped("/examples/code/web/counter.logos"));
+    let html = preview_html(&doc);
+    assert_eq!(html.matches("<iframe").count(), 1, "{html}");
+    assert!(!html.contains("srcdoc=\"\""), "the preview frame is created empty");
+    assert!(html.contains(&format!("title=\"{PREVIEW_TITLE}\"")), "the preview has no name for a screen reader");
+    assert!(html.contains("sandbox=\"allow-scripts\""), "the preview is not sandboxed");
+}
+
+#[test]
+fn each_preview_document_has_its_own_key() {
+    let counter = preview_document(shipped("/examples/code/web/counter.logos"));
+    let form = preview_document(shipped("/examples/code/web/form.logos"));
+    assert_eq!(preview_key(&counter), preview_key(&counter.clone()), "one document, two keys: its frame would be rebuilt for nothing");
+    assert_ne!(preview_key(&counter), preview_key(&form), "two documents, one key: the second would be set on the first's frame");
+    assert_ne!(preview_key(&counter), preview_key(""));
+}
+
+// ---------------------------------------------------------------------------------------------
+// A restore shows itself: over the editor, the reader's text pixelates away one character at a
+// time as the file's text forms in the mirror of that order, then the layer fades and leaves the
+// editor holding the file.
+// ---------------------------------------------------------------------------------------------
+
+fn swap_html(before: &str, after: &str) -> String {
+    #[derive(Props, Clone, PartialEq)]
+    struct Texts {
+        before: String,
+        after: String,
+    }
+    #[allow(non_snake_case)]
+    fn Swap(props: Texts) -> Element {
+        rsx! { HealSwap { before: props.before, after: props.after } }
+    }
+    let mut vdom = VirtualDom::new_with_props(Swap, Texts { before: before.to_string(), after: after.to_string() });
+    vdom.rebuild_in_place();
+    dioxus_ssr::render(&vdom)
+}
+
+/// The text the renderer escaped back, for the characters these tests use.
+fn unescape(text: &str) -> String {
+    text.replace("&#34;", "\"").replace("&quot;", "\"").replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+}
+
+fn layer_text(html: &str, class: &str) -> String {
+    html.split(&format!("class=\"{class}\""))
+        .skip(1)
+        .map(|rest| rest[rest.find('>').unwrap() + 1..rest.find("</span>").unwrap()].to_string())
+        .collect::<Vec<_>>()
+        .join("")
+}
+
+#[test]
+fn a_restore_pixelates_every_character_of_both_texts() {
+    let mine = "Show \"mine\".\nShow 2.";
+    let shipped = "## Main\nShow \"Hello\".";
+    let html = swap_html(mine, shipped);
+    assert!(html.contains("class=\"heal-swap\""), "no restore layer: {html}");
+    assert!(html.contains("aria-hidden=\"true\""), "a screen reader would read both texts: {html}");
+    assert_eq!(html.matches("class=\"heal-px out\"").count(), mine.chars().count(), "a character of the reader's text does not dissolve");
+    assert_eq!(html.matches("class=\"heal-px in\"").count(), shipped.chars().count(), "a character of the file does not form");
+    assert_eq!(unescape(&layer_text(&html, "heal-px out")), mine, "the dissolving layer is not the reader's text");
+    assert_eq!(unescape(&layer_text(&html, "heal-px in")), shipped, "the forming layer is not the file");
+}
+
+#[test]
+fn each_character_starts_at_its_turn() {
+    let html = swap_html("ab", "xyz");
+    for delay in heal::pixel_turns(3, 11, true).iter().map(|&turn| heal::pixel_delay_ms(turn, 3)) {
+        assert!(html.contains(&format!("animation-delay: {delay}ms;")), "no character forms at {delay} ms: {html}");
+    }
+}
+
+#[test]
+fn a_restore_too_long_to_pixelate_simply_shows_the_file() {
+    let long = "x".repeat(heal::PIXEL_LIMIT + 1);
+    assert!(!swap_html(&long, "short").contains("heal-swap"));
+    assert!(!swap_html("short", &long).contains("heal-swap"));
+    assert!(swap_html(&"x".repeat(heal::PIXEL_LIMIT), "short").contains("heal-swap"), "a text at the limit still pixelates");
+}
+
+#[test]
+fn the_heal_card_for_a_restore_carries_the_pixel_layer() {
+    #[allow(non_snake_case)]
+    fn Restored() -> Element {
+        let flight = use_signal(|| heal::Flight::Restored { previous: "Show \"mine\".".to_string() });
+        let editor = use_signal(|| "## Main\nShow \"Hello\".".to_string());
+        rsx! { HealOverlay { flight, editor } }
+    }
+    let mut vdom = VirtualDom::new(Restored);
+    vdom.rebuild_in_place();
+    let html = dioxus_ssr::render(&vdom);
+    assert!(html.contains("class=\"heal-swap\""), "a restore does not pixelate: {html}");
+    assert!(html.contains(heal::RESTORED), "the restore's card is gone: {html}");
+}

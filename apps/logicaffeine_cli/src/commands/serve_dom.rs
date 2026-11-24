@@ -186,13 +186,13 @@ fn source_fingerprint(root: &Path, files: &[PathBuf]) -> SystemTime {
             newest = newest.max(m);
         }
     }
-    scan_lg_mtimes(root, &mut newest, 0);
+    scan_source_mtimes(root, &mut newest, 0);
     newest
 }
 
 /// Recursive `.lg` mtime sweep under `dir`, skipping `target/` and
 /// dot-directories; depth-capped as a symlink-cycle backstop.
-fn scan_lg_mtimes(dir: &Path, newest: &mut SystemTime, depth: usize) {
+fn scan_source_mtimes(dir: &Path, newest: &mut SystemTime, depth: usize) {
     if depth > 32 {
         return;
     }
@@ -207,8 +207,8 @@ fn scan_lg_mtimes(dir: &Path, newest: &mut SystemTime, depth: usize) {
             if name == "target" || name.starts_with('.') {
                 continue;
             }
-            scan_lg_mtimes(&f.path(), newest, depth + 1);
-        } else if f.path().extension().and_then(|e| e.to_str()) == Some("lg") {
+            scan_source_mtimes(&f.path(), newest, depth + 1);
+        } else if logicaffeine_compile::source_files::is_source_file(&f.path()) {
             if let Ok(m) = f.metadata().and_then(|m| m.modified()) {
                 *newest = (*newest).max(m);
             }

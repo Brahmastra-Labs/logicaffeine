@@ -104,6 +104,7 @@ pub fn monomorphize<'a>(
         param_types: HashMap::new(),
         error: None,
     };
+    mono.lower_declared_fields();
 
     enum Segment<'a> {
         Stmt(Stmt<'a>),
@@ -142,7 +143,8 @@ pub fn monomorphize<'a>(
 
 /// Whether anything in the program is generic enough to need rewriting: a call of a generic
 /// function, a construction or inspection of an applied generic type (or, lowered, an `Option`),
-/// an empty literal whose element the context fixes, or a signature naming an applied generic.
+/// an empty literal whose element the context fixes, a signature naming an applied generic, or a
+/// field of a record or enum declared without type parameters that names one.
 fn needs_monomorphization(
     stmts: &[Stmt],
     registry: &TypeRegistry,
@@ -163,6 +165,11 @@ fn needs_monomorphization(
         return true;
     }
     let empty = HashMap::new();
+    if registry.iter_types().any(|(_, def)| {
+        declared_fields(def).any(|f| field_mentions(&f.ty, &empty, registry, interner, options))
+    }) {
+        return true;
+    }
     let twins = registry.namespaced_twins(interner);
     let scope = TypeScope {
         interner,
@@ -182,6 +189,66 @@ fn needs_monomorphization(
             .any(|t| generic_type(&InferType::from_type_expr_in(t, &scope))),
         _ => false,
     })
+}
+
+/// The fields of a record or enum declared without type parameters — every variant's, for an enum.
+/// None for a generic one: its fields are rewritten per instance.
+fn declared_fields(def: &TypeDef) -> Box<dyn Iterator<Item = &FieldDef> + '_> {
+    match def {
+        TypeDef::Struct { fields, generics, .. } if generics.is_empty() => Box::new(fields.iter()),
+        TypeDef::Enum { variants, generics, .. } if generics.is_empty() => {
+            Box::new(variants.iter().flat_map(|v| v.fields.iter()))
+        }
+        _ => Box::new(std::iter::empty()),
+    }
+}
+
+/// A registered generic record or enum.
+fn is_generic_type(registry: &TypeRegistry, base: Symbol) -> bool {
+    match registry.get(base) {
+        Some(TypeDef::Struct { generics, .. } | TypeDef::Enum { generics, .. }) => {
+            !generics.is_empty()
+        }
+        _ => false,
+    }
+}
+
+/// The built-in `Option`: `Option`, and `Maybe` unless the program declares its own.
+fn is_option_name(registry: &TypeRegistry, interner: &Interner, base: Symbol) -> bool {
+    let name = interner.resolve(base);
+    name == "Option"
+        || (name == "Maybe"
+            && !matches!(
+                registry.get(base),
+                Some(TypeDef::Struct { .. } | TypeDef::Enum { .. })
+            ))
+}
+
+/// Whether `base`, applied, becomes one of its concrete instances: a registered generic record or
+/// enum, or (under `options.lower_option`) the built-in `Option`.
+fn lowers(registry: &TypeRegistry, interner: &Interner, options: Options, base: Symbol) -> bool {
+    is_generic_type(registry, base) || (options.lower_option && is_option_name(registry, interner, base))
+}
+
+/// Whether a declared field type names something monomorphization rewrites: one of the type's own
+/// `params`, an applied type that [`lowers`], anywhere inside it.
+fn field_mentions(
+    ft: &FieldType,
+    params: &HashMap<Symbol, InferType>,
+    registry: &TypeRegistry,
+    interner: &Interner,
+    options: Options,
+) -> bool {
+    let rec = |t: &FieldType| field_mentions(t, params, registry, interner, options);
+    match ft {
+        FieldType::TypeParam(p) | FieldType::Named(p) => params.contains_key(p),
+        FieldType::Primitive(_) => false,
+        FieldType::Generic { base, params: ps } => {
+            lowers(registry, interner, options, *base) || ps.iter().any(rec)
+        }
+        FieldType::Tuple(items) => items.iter().any(rec),
+        FieldType::Record(fields) => fields.iter().any(|(_, t)| rec(t)),
+    }
 }
 
 fn mentions_generic(t: &InferType, options: Options) -> bool {
@@ -443,76 +510,103 @@ impl<'a, 'r> Mono<'a, 'r> {
                 args: args.clone(),
             },
         );
-        let def = match self.template(generic) {
-            Some(TypeDef::Struct {
+        let Some(def) = self.template(generic).and_then(|t| self.concrete(&t, &args)) else {
+            self.fail(format!(
+                "`{gname}` is applied to type arguments but is not a generic record or enum"
+            ));
+            return None;
+        };
+        self.out_registry.register(name, def);
+        Some(name)
+    }
+
+    /// The record or enum `def` applied to `args`, one per type parameter it declares: every field
+    /// at the type it has there, and no type parameter left. None for anything but a record or enum.
+    fn concrete(&mut self, def: &TypeDef, args: &[InferType]) -> Option<TypeDef> {
+        match def {
+            TypeDef::Struct {
                 fields,
                 generics,
                 is_portable,
                 is_shared,
-            }) => {
+            } => {
                 let params: HashMap<Symbol, InferType> =
                     generics.iter().copied().zip(args.iter().cloned()).collect();
-                let fields = fields
-                    .iter()
-                    .map(|f| FieldDef {
-                        name: f.name,
-                        ty: self.field_type(&f.ty, &params),
-                        is_public: f.is_public,
-                    })
-                    .collect();
-                TypeDef::Struct {
-                    fields,
+                Some(TypeDef::Struct {
+                    fields: self.fields_at(fields, &params),
                     generics: Vec::new(),
-                    is_portable,
-                    is_shared,
-                }
+                    is_portable: *is_portable,
+                    is_shared: *is_shared,
+                })
             }
-            Some(TypeDef::Enum {
+            TypeDef::Enum {
                 variants,
                 generics,
                 is_portable,
                 is_shared,
-            }) => {
+            } => {
                 let params: HashMap<Symbol, InferType> =
                     generics.iter().copied().zip(args.iter().cloned()).collect();
                 let variants = variants
                     .iter()
                     .map(|v| VariantDef {
                         name: v.name,
-                        fields: v
-                            .fields
-                            .iter()
-                            .map(|f| FieldDef {
-                                name: f.name,
-                                ty: self.field_type(&f.ty, &params),
-                                is_public: f.is_public,
-                            })
-                            .collect(),
+                        fields: self.fields_at(&v.fields, &params),
                     })
                     .collect();
-                TypeDef::Enum {
+                Some(TypeDef::Enum {
                     variants,
                     generics: Vec::new(),
-                    is_portable,
-                    is_shared,
-                }
+                    is_portable: *is_portable,
+                    is_shared: *is_shared,
+                })
             }
-            _ => {
-                self.fail(format!(
-                    "`{gname}` is applied to type arguments but is not a generic record or enum"
-                ));
-                return None;
+            _ => None,
+        }
+    }
+
+    /// Declared fields at one application of their record or enum, `params` giving each of its
+    /// type parameters.
+    fn fields_at(&mut self, fields: &[FieldDef], params: &HashMap<Symbol, InferType>) -> Vec<FieldDef> {
+        fields
+            .iter()
+            .map(|f| FieldDef {
+                name: f.name,
+                ty: self.field_type(&f.ty, params),
+                is_public: f.is_public,
+            })
+            .collect()
+    }
+
+    /// Every record and enum declared without type parameters, a field that names an applied
+    /// generic (or, lowered, an `Option`) rewritten to the concrete type it becomes, as an
+    /// instance's own fields are — so no field of the monomorphic program names a generic. In
+    /// the order their names were interned, so the instances they mint are named alike every run.
+    fn lower_declared_fields(&mut self) {
+        let none = HashMap::new();
+        let mut declared: Vec<(Symbol, TypeDef)> = self
+            .registry
+            .iter_types()
+            .filter(|(_, def)| {
+                declared_fields(def).any(|f| {
+                    field_mentions(&f.ty, &none, self.registry, self.interner, self.options)
+                })
+            })
+            .map(|(name, def)| (*name, def.clone()))
+            .collect();
+        declared.sort_by_key(|(name, _)| *name);
+        for (name, def) in declared {
+            if let Some(lowered) = self.concrete(&def, &[]) {
+                self.out_registry.register(name, lowered);
             }
-        };
-        self.out_registry.register(name, def);
-        Some(name)
+        }
     }
 
     /// A declared field type at one application of its record or enum, `params` giving each of
     /// the type's own parameters. A field naming no parameter and no applied generic is kept
     /// exactly as written.
     fn field_type(&mut self, ft: &FieldType, params: &HashMap<Symbol, InferType>) -> FieldType {
-        if !self.field_mentions(ft, params) {
+        if !field_mentions(ft, params, self.registry, self.interner, self.options) {
             return ft.clone();
         }
         // A tuple is opaque to inference: substitute inside it position by position.
@@ -545,28 +639,6 @@ impl<'a, 'r> Mono<'a, 'r> {
                 self.fail(format!("cannot lay out a field: {why}"));
                 ft.clone()
             }
-        }
-    }
-
-    fn field_mentions(&self, ft: &FieldType, params: &HashMap<Symbol, InferType>) -> bool {
-        match ft {
-            FieldType::TypeParam(p) | FieldType::Named(p) => params.contains_key(p),
-            FieldType::Primitive(_) => false,
-            FieldType::Generic { base, params: ps } => {
-                self.is_generic_type(*base) || ps.iter().any(|p| self.field_mentions(p, params))
-            }
-            FieldType::Tuple(items) => items.iter().any(|t| self.field_mentions(t, params)),
-            FieldType::Record(fields) => fields.iter().any(|(_, t)| self.field_mentions(t, params)),
-        }
-    }
-
-    /// A registered generic record or enum, or (lowered) the built-in `Option`.
-    fn is_generic_type(&self, base: Symbol) -> bool {
-        match self.registry.get(base) {
-            Some(TypeDef::Struct { generics, .. } | TypeDef::Enum { generics, .. }) => {
-                !generics.is_empty()
-            }
-            _ => false,
         }
     }
 
@@ -666,8 +738,7 @@ impl<'a, 'r> Mono<'a, 'r> {
         match t {
             TypeExpr::Primitive(s) | TypeExpr::Named(s) => self.param_types.contains_key(s),
             TypeExpr::Generic { base, params } => {
-                self.is_generic_type(*base)
-                    || (self.options.lower_option && self.is_option_name(*base))
+                lowers(self.registry, self.interner, self.options, *base)
                     || params.iter().any(|p| self.type_mentions(p))
             }
             TypeExpr::Tuple(items) => items.iter().any(|p| self.type_mentions(p)),
@@ -682,16 +753,6 @@ impl<'a, 'r> Mono<'a, 'r> {
                 self.type_mentions(inner)
             }
         }
-    }
-
-    fn is_option_name(&self, base: Symbol) -> bool {
-        let name = self.interner.resolve(base);
-        name == "Option"
-            || (name == "Maybe"
-                && !matches!(
-                    self.registry.get(base),
-                    Some(TypeDef::Struct { .. } | TypeDef::Enum { .. })
-                ))
     }
 
     /// The instance function for one `(generic function, ground type arguments)`.
@@ -805,8 +866,7 @@ impl<'a, 'r> AstMap<'a> for Mono<'a, 'r> {
                 self.arenas.types.alloc(written)
             }
             TypeExpr::Generic { base, .. }
-                if self.is_generic_type(*base)
-                    || (self.options.lower_option && self.is_option_name(*base)) =>
+                if lowers(self.registry, self.interner, self.options, *base) =>
             {
                 let params = self.param_types.clone();
                 let ty = InferType::from_type_expr_in(
@@ -846,7 +906,7 @@ impl<'a, 'r> AstMap<'a> for Mono<'a, 'r> {
                 type_name,
                 init_fields,
                 ..
-            } if self.is_generic_type(*type_name) => {
+            } if is_generic_type(self.registry, *type_name) => {
                 let what = format!("a new {}", self.interner.resolve(*type_name));
                 let recorded = self.inst.constructed.get(&site).cloned();
                 let type_name = self
@@ -866,7 +926,7 @@ impl<'a, 'r> AstMap<'a> for Mono<'a, 'r> {
                 enum_name,
                 variant,
                 fields,
-            } if self.is_generic_type(*enum_name) => {
+            } if is_generic_type(self.registry, *enum_name) => {
                 let what = format!("a new {}", self.interner.resolve(*variant));
                 let recorded = self.inst.constructed.get(&site).cloned();
                 let enum_name = self

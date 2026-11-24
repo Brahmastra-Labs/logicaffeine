@@ -1014,12 +1014,14 @@ impl Lanes16Word8 {
         Self(r)
     }
 
-    /// Per-byte logical shift right by `n` — the high-nibble extract (`v >> 4`).
+    /// Per-byte logical shift right by `n` — the high-nibble extract (`v >> 4`). A count of 8 or
+    /// more clears every lane, as a SIMD byte-lane shift does (the count is not taken modulo 8),
+    /// and the result is the same in debug and release builds.
     #[inline]
     pub fn shr_bytes(self, n: u32) -> Self {
         let mut r = [0u8; 16];
         for i in 0..16 {
-            r[i] = self.0[i] >> n;
+            r[i] = self.0[i].checked_shr(n).unwrap_or(0);
         }
         Self(r)
     }

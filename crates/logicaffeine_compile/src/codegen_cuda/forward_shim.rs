@@ -97,6 +97,7 @@ pub fn kernel_refusal(op: &TensorOpSpec) -> Option<&'static str> {
         T::SwiGlu(_)
         | T::Sigmoid(_)
         | T::Gelu(_)
+        | T::Erf(_)
         | T::Scale(_)
         | T::Decay(_)
         | T::L2Norm(_)
@@ -155,7 +156,7 @@ impl Shim for ForwardShim {
             MoeTokenSort | MoeGatherInOperand | MoeDeferredFinalize | SharedExpertFusion => Decompose,
             GdnInputEpilogue | GdnDecodeWhole | GdnPostConvPrep | ConvBiasSilu | ConvParts | ConvSiluL2norm => Decompose,
             GdnGateProjections | GdnGating | FusedSampling | LastLayerRows | AllreduceNorm | AllreduceSumsqNorm => Decompose,
-            ElementwiseQuant | GdnOutputQuant | GemvQuant | DeltaQkNorm => Decompose,
+            ElementwiseQuant | GdnOutputQuant | GemvQuant | DeltaQkNorm | HcPost | GemmAct | HcMix | HcPostNorm => Decompose,
             ReluSqr => Refuse("the forward links no ReLU"),
             FlashDecode | FlashPrefill => Refuse("the forward attends one query over a cache held in one block's shared scores"),
             AttentionVariantsInline | Softcap | MixedBatchAttention | SparseAttention => {

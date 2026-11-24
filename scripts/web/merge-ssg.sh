@@ -24,8 +24,16 @@
 #      (GLOBAL_STYLE's first rule is the palette). The client takes over rather
 #      than hydrating, so the markers carry nothing,
 #   4. injects the invariant head and the loader into every page that lacks them,
-#   5. lays the pages over public/ (the prerendered `/` becomes index.html, so
-#      the SPA fallback serves real landing content too).
+#   5. lays the pages over public/, each written as its address with .html
+#      (`/learn` becomes learn.html, `/news/<slug>` news/<slug>.html) rather than
+#      a directory's index.html: Cloudflare Pages serves learn.html at `/learn`
+#      itself and redirects `/learn/` to it, so a page is served at the address its
+#      canonical link and the sitemap name (DAT-170), where a directory's
+#      index.html would be served at `/learn/` after a 308. The prerendered `/`
+#      becomes index.html, so the client-side routes' rewrite serves real landing
+#      content too, and the not-found page, prerendered at `/404`
+#      (sitemap::NOT_FOUND_ROUTE), becomes the root 404.html that Pages serves with
+#      a 404 status for every path no file and no _redirects rule answers.
 #
 # Usage: ./scripts/web/merge-ssg.sh [web-dir]
 #        (default: target/dx/logicaffeine-web/release/web)
@@ -45,6 +53,7 @@ import pathlib, re, sys
 
 web = pathlib.Path(sys.argv[1])
 shell = (web / "public" / "index.html").read_text()
+NOT_FOUND_PAGE = "404/index.html"
 
 script = re.search(r'<script type="module" async src="[^"]*"></script>', shell)
 if not script:
@@ -122,8 +131,13 @@ for page in pages:
             html += loader_body
         injected += 1
     page.write_text(html)
-    rel = page.relative_to(web / "prerendered")
-    dest = web / "public" / rel
+    rel = page.relative_to(web / "prerendered").as_posix()
+    if rel == NOT_FOUND_PAGE:
+        dest = web / "public" / "404.html"
+    elif rel == "index.html":
+        dest = web / "public" / "index.html"
+    else:
+        dest = web / "public" / (rel[: -len("/index.html")] + ".html")
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(html)
 

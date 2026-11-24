@@ -93,6 +93,7 @@ verify::detect_conflict(premises: &[ProofExpr]) -> ConflictReport;
 verify::ScopedChecker::new(premises, goal).certifies(tree: DerivationTree) -> bool;
 verify::close_over_context_locals(ctx: &Context, term: &Term) -> Term;
 verify::prove_library(theorems: &[LibraryTheorem]) -> Vec<LibraryResult>;
+verify::refute_library_with_axioms(axioms, theorems, refutations: &[LibraryRefutation]) -> Vec<RefutationResult>;
 VerifiedProof::axiom_footprint(&self) -> AxiomFootprint;  // { trusted, introduced }
 ```
 
@@ -153,6 +154,19 @@ and vacuity to `prove_unsat`.
 - `certifier`: `certify`, `DerivationTree` → kernel `Term`.
 - `unify`: Robinson unification with occurs check, capture-avoiding `beta_reduce`, Miller patterns.
 - `grounding`: expands bounded quantifiers over a finite domain.
+- `datalog`: function-free Horn rules evaluated bottom-up to their least model. `Program::from_axioms` reads a
+  theory's ground facts and `for all …, if … then …` rules (negated body atoms allowed; unsafe rules and non-Horn
+  axioms refused by name); `evaluate` is semi-naive and stratified (a negation through recursion is refused),
+  `evaluate_naive` the reference, and `evaluate_bdd` the same model over binary decision diagrams with each
+  relation's node count. Every fact carries the rule and premises that derived it (`Model::derivation`).
+  `Contexts::number` numbers the call paths of a program's `Calls(caller, site, callee)` facts as Whaley and Lam do
+  (a range per call into a method, a recursive cycle sharing its contexts), and `evaluate_bdd_with_contexts`
+  evaluates with the rules reading `Context(method, c)` and `CallContext(c, site, d, callee)` computed from it:
+  context-sensitive analysis over 2^k contexts in diagrams polynomial in k, counted by `BddModel::count`. The call
+  graph may be stated or discovered by the rules (evaluated to completion first).
+- `bdd`: reduced ordered binary decision diagrams: a hash-consed unique table, one memoized `ite` under every
+  connective, `exists`, the relational product `rel_prod`, simultaneous variable `rename`, exact `sat_count` (over
+  the whole order or over the variables a set is encoded on) and satisfying-assignment enumeration.
 - `grid_solver`: the certified logic-grid solver (watched-literal unit propagation + DPLL).
 - `cdcl`: the CDCL(T) core: clauses in one flat arena under eight-byte watchers (a binary clause decided from its
   watcher alone), 1-UIP with recursive minimization, VSIDS, adaptive Glucose/Luby restarts whose stable phases
@@ -340,7 +354,7 @@ Beyond the certified SAT/BMC core, the crate ships a tactic layer and algebraic 
 - **`omega_solve`**: `omega`, linear integer arithmetic. It refutes the hypotheses (a strict `a < b` becomes `a + 1 ≤ b` through `lt_succ_le`, then a Farkas refutation), proves the goal directly (a ground comparison by computation, a `≤` by chaining in-scope facts, an `Int` equality through the ring oracle), or splits on `le_total` and refutes the other side. It reaches every goal whose negation-by-totality is refutable, not all of Presburger arithmetic, and adds no axiom.
 - **`linarith_solve`**: the rational Fourier–Motzkin core with Farkas certificates behind `linarith`, which declines any goal that needs integrality.
 - **`lemma_index`**: `exact?` / `apply?` premise selection over a named, certified lemma index.
-- **`counterexample`**: when a goal is false, exhibits a model instead of just failing.
+- **`counterexample`**: when a goal is false, exhibits a model instead of just failing. `least_countermodel` refutes a formula from Datalog premises with their least model, a `FiniteModel`; `check_countermodel` re-verifies any `FiniteModel` premise by premise over its domain, naming the premise and the assignment that break it, with an evaluator that shares nothing with the Datalog engine.
 - **`simp`**: oriented rewrite-rule sets; `SimpSet::register_context_lemmas(&Context)` compiles the `@[simp]` rules a kernel context registers.
 
 ### The tactic language

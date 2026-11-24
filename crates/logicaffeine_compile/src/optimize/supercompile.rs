@@ -1475,10 +1475,10 @@ fn msg_inner<'a>(
 // (matmul / reduction over literal-filled arrays) to its result constants.
 // =============================================================================
 
-/// `Let A be a new Seq/List/Vec` → a statically-known (empty) array value.
+/// `Let A be a new Seq/List` → a statically-known (empty) array value.
 fn new_seq_value(driven: &Expr, interner: &Interner) -> Option<Value> {
     if let Expr::New { type_name, .. } = driven {
-        if matches!(interner.resolve(*type_name), "Seq" | "List" | "Vec") {
+        if crate::semantics::collections::builds_list(interner.resolve(*type_name)) {
             return Some(Value::Seq(Vec::new()));
         }
     }

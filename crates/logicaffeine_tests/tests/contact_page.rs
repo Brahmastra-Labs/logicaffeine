@@ -850,7 +850,7 @@ fn the_form_speaks_its_state_and_links_its_privacy_note() {
     assert_eq!(submit.len(), 1);
     assert!(form.contains(">Send<"), "the submit button does not read Send");
     let form_links = links(form);
-    assert!(form_links.iter().any(|(a, _)| a.get("href").is_some_and(|h| h == "/privacy#pricing-requests")), "the form does not link its privacy note");
+    assert!(form_links.iter().any(|(a, _)| a.get("href").is_some_and(|h| h == "/privacy#contact-requests")), "the form does not link its privacy note");
     let text = visible_text(form);
     assert!(text.contains("We use these only to reply to you."), "the form does not say what the details are for");
     assert!(text.contains(&format!("Prefer email? {}", content::TEAM_EMAIL)), "the form does not offer the team address");
@@ -866,13 +866,14 @@ fn the_form_waits_for_the_app_before_it_sends() {
 }
 
 #[test]
-fn the_privacy_policy_explains_pricing_requests() {
+fn the_privacy_policy_explains_contact_requests() {
     let html = render_route("/privacy");
-    let at = html.find("id=\"pricing-requests\"").expect("the privacy policy has a pricing-requests section");
-    let end = at + html[at..].find("</div>").expect("the pricing-requests paragraph closes");
+    let at = html.find("id=\"contact-requests\"").expect("the privacy policy has a contact-requests section");
+    let end = at + html[at..].find("</div>").expect("the contact-requests paragraph closes");
     let text = visible_text(&html[at..end]);
-    for needle in ["pricing", "email", "phone", "reply", "Cloudflare", "24 months", "never sell", "marketing", "Turnstile", "Resend"] {
-        assert!(text.to_lowercase().contains(&needle.to_lowercase()), "the pricing-requests paragraph does not mention {needle:?}: {text}");
+    assert!(!text.to_lowercase().contains("pricing"), "the contact-requests paragraph still speaks of pricing: {text}");
+    for needle in ["contact", "email", "phone", "reply", "Cloudflare", "24 months", "never sell", "marketing", "Turnstile", "Resend"] {
+        assert!(text.to_lowercase().contains(&needle.to_lowercase()), "the contact-requests paragraph does not mention {needle:?}: {text}");
     }
 }
 

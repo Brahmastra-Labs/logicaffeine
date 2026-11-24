@@ -60,6 +60,14 @@ pub struct GeluSpec {
     pub n: usize,
 }
 
+/// `Y = erf(X)` — the library's error function over `n` entries.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ErfSpec {
+    pub x: Symbol,
+    pub out: Symbol,
+    pub n: usize,
+}
+
 /// `Y = X scaled by C` — `x·C` over `n` entries.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScaleSpec {
@@ -402,6 +410,10 @@ pub struct AttentionSpec {
     pub pos: Option<RowIndex>,
     /// Query rows: 1 for the single-query form, `T` for a causal block.
     pub rows: usize,
+    /// The row of its causal block the first query row stands for: row `r` attends `P + from_row + r` positions. 0 as a
+    /// program states every attention; a block's last rows computed apart from the rest (a prefill chunk's last layer
+    /// on its output row) take theirs.
+    pub from_row: usize,
     /// The positions a query keeps of the `n` it attends: the last `W` (`within a window of W`), or those of its own chunk
     /// of `C` (`within chunks of C`).
     pub window: Option<Window>,
@@ -1013,6 +1025,35 @@ pub fn recognize_relu(stmts: &[Stmt], interner: &Interner) -> Option<ReluSpec> {
         (IntMap::Relu { int }, x, out, n) => Some(ReluSpec { x, out, n, int }),
         _ => None,
     }
+}
+
+// ── erf ────────────────────────────────────────────────────────────────────────────────────────────────
+
+fn match_erf<'a>(body: &'a [Stmt<'a>], interner: &Interner) -> Option<ErfSpec> {
+    for (i, out) in anchors(body) {
+        let mut c = Cursor::new(body, i + 1);
+        let Some(iv) = c.int_let(1) else { continue };
+        let Some(l) = c.loop_(iv, true) else { continue };
+        let Some((value, into)) = Cursor::new(l.body, 0).push() else {
+            continue;
+        };
+        if into != out || l.body.len() != 2 {
+            continue;
+        }
+        if let Some(x) = call_of(value, interner, "erf").and_then(|args| match args {
+            [arg] => read_at(arg, iv),
+            _ => None,
+        }) {
+            return Some(ErfSpec { x, out, n: l.bound as usize });
+        }
+    }
+    None
+}
+
+/// Recognize `Let Y be erf of X` — `Push erf(X[i])` in one counted loop. Whether that `erf` is the library's or one the
+/// program wrote itself is the walk's to say (`tensor_graph::front::walk_in`).
+pub fn recognize_erf(stmts: &[Stmt], interner: &Interner) -> Option<ErfSpec> {
+    find_in_bodies(stmts, |b| match_erf(b, interner))
 }
 
 // ── decay ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -2979,6 +3020,7 @@ pub fn recognize_attention(stmts: &[Stmt]) -> Option<AttentionSpec> {
             l,
             pos,
             rows: 1,
+            from_row: 0,
             window,
             sinks,
         });
@@ -3088,6 +3130,7 @@ pub fn recognize_causal_attention(stmts: &[Stmt]) -> Option<AttentionSpec> {
             l: l as usize,
             pos: Some(pos),
             rows,
+            from_row: 0,
             window,
             sinks,
         });

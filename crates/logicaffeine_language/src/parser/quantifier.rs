@@ -524,7 +524,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             }
 
             if self.check_verb() {
-                let verb = self.consume_verb();
+                let verb = self.consume_verb()?;
 
                 // Passive auxiliary "will/would BE used": the copula `be`/`been` is
                 // followed by a past-participle verb that is the real predicate — its
@@ -533,7 +533,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                 let verb_lower = self.interner.resolve(verb).to_lowercase();
                 let obj_term = if matches!(verb_lower.as_str(), "be" | "been") && self.check_verb()
                 {
-                    Some(Term::Constant(self.consume_verb()))
+                    Some(Term::Constant(self.consume_verb()?))
                 } else {
                     None
                 };
@@ -596,11 +596,16 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
                     crate::lexicon::lookup_presup_trigger(&s)
                         .expect("Lexicon mismatch: Verb flagged as trigger but lookup failed")
                 }
-                _ => panic!("Expected presupposition trigger"),
+                _ => {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::ExpectedPresuppositionTrigger,
+                        span: self.current_span(),
+                    })
+                }
             };
 
             let complement = if self.check_verb() {
-                let verb = self.consume_verb();
+                let verb = self.consume_verb()?;
                 let modifiers = self.collect_adverbs();
                 self.build_verb_neo_event(verb, var_name, None, modifiers)
             } else {
@@ -631,7 +636,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         }
 
         if self.check_verb() {
-            let verb = self.consume_verb();
+            let verb = self.consume_verb()?;
             let mut args = vec![Term::Variable(var_name)];
 
             if self.check_pronoun() {
@@ -884,7 +889,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
             self.advance(); // consume "does"/"do"
             let negative = self.match_token(&[TokenType::Not]);
             // The verb after "does not" becomes the predicate
-            let verb_sym = self.consume_verb();
+            let verb_sym = self.consume_verb()?;
             let predicate_expr = self.ctx.exprs.alloc(LogicExpr::Predicate {
                 name: verb_sym,
                 args: self.ctx.terms.alloc_slice([Term::Variable(var_name)]),
@@ -1241,7 +1246,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         var_name: Symbol,
     ) -> ParseResult<&'a LogicExpr<'a>> {
         let var_term = Term::Variable(var_name);
-        let verb = self.consume_verb();
+        let verb = self.consume_verb()?;
         let verb_str_owned = self.interner.resolve(verb).to_string();
 
         // Check EARLY if verb is lexically negative (e.g., "lacks" -> "Have" with negation)
@@ -1256,7 +1261,7 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
         if Lexer::is_raising_verb(&verb_str_owned) && self.check_to() {
             self.advance();
             if self.check_verb() {
-                let inf_verb = self.consume_verb();
+                let inf_verb = self.consume_verb()?;
                 let inf_verb_str = self.interner.resolve(inf_verb).to_lowercase();
 
                 if inf_verb_str == "be" && self.check_content_word() {
@@ -3155,7 +3160,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 Some(TokenType::Reciprocal)
             )
         {
-            let (verb, recip_time, _, _) = self.consume_verb_with_metadata();
+            let (verb, recip_time, _, _) = self.consume_verb_with_metadata()?;
             self.advance(); // the reciprocal
             let other_var = self.next_var_name();
             let other_restriction = self.rename_var_in_expr(restriction, var_name, other_var);
@@ -3222,7 +3227,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     self.pending_time = Some(if copula_past { Time::Past } else { Time::None });
                 } else {
                     self.advance(); // copula
-                    let (verb, _, _, _) = self.consume_verb_with_metadata();
+                    let (verb, _, _, _) = self.consume_verb_with_metadata()?;
                     let mut modifiers = if copula_past {
                         vec![self.interner.intern("Past")]
                     } else {

@@ -63,14 +63,31 @@ pub fn get_news_routes() -> Vec<SitemapEntry> {
         .collect()
 }
 
-/// Every route the SSG build prerenders — the sitemap in path form. `/workspace/:subject` and
-/// `/registry/package/:name` (not enumerable at build time) stay client-side.
+/// Every crawlable page the SSG build prerenders — the sitemap in path form. The routes in
+/// [`CLIENT_SIDE_ROUTES`] (not enumerable at build time) stay client-side.
 pub fn prerender_routes() -> Vec<String> {
     get_static_routes()
         .into_iter()
         .chain(get_news_routes())
         .map(|entry| entry.path)
         .collect()
+}
+
+/// The path the not-found page is prerendered at. The router answers it with its catch-all, and
+/// `scripts/web/merge-ssg.sh` moves the page to the site's root `404.html`, which Cloudflare Pages
+/// serves with a 404 status for every path no file and no `_redirects` rule answers.
+pub const NOT_FOUND_ROUTE: &str = "/404";
+
+/// The routes whose values the build cannot enumerate. `public/_redirects` rewrites each subtree
+/// to the app shell (`/index.html`), and no other path, so every other unknown address is the 404
+/// page.
+pub const CLIENT_SIDE_ROUTES: &[&str] = &["/workspace/*", "/registry/package/*"];
+
+/// Every route the SSG build prerenders: the sitemap's pages and the not-found page.
+pub fn static_routes() -> Vec<String> {
+    let mut routes = prerender_routes();
+    routes.push(NOT_FOUND_ROUTE.to_string());
+    routes
 }
 
 /// Generate the complete sitemap XML

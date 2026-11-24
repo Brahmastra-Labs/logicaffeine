@@ -116,6 +116,17 @@ fn bool_or() {
 }
 
 #[test]
+fn and_or_on_ints_take_truthiness() {
+    agree("## Main\nShow 6 and 3.\nShow 0 or 5.\nShow 0 and 7.\nShow 0 or 0.");
+}
+
+#[test]
+fn and_or_raise_from_the_right_operand_only_when_it_runs() {
+    agree("## Main\nLet z be 0.\nShow false and 1 / z is greater than 0.\nShow true or 1 / z is greater than 0.");
+    agree("## Main\nLet z be 0.\nShow true and 1 / z is greater than 0.");
+}
+
+#[test]
 fn bool_not() {
     agree("## Main\nShow not true.");
 }

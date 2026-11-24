@@ -87,6 +87,10 @@ pub const LINKED_WHOLE: &[ClassId] = &[
     ClassId::ConvSiluL2norm,
     ClassId::GdnOutputQuant,
     ClassId::DeltaQkNorm,
+    ClassId::HcPost,
+    ClassId::GemmAct,
+    ClassId::HcMix,
+    ClassId::HcPostNorm,
     ClassId::RouterTopk,
     ClassId::GroupedTopk,
     ClassId::RouterSharedGateMerge,
@@ -112,18 +116,36 @@ pub const LINKED_WHOLE: &[ClassId] = &[
 /// at a time, the splits merged by log-sum-exp.
 pub const ATTN_SPLIT: usize = 256;
 
-/// The library for x86-64 with AVX2, FMA and AVX-VNNI (`-mavx2 -mfma -mavxvnni -mf16c`).
+/// The flags the host's C++ compiler builds [`LIBRARY_X86_AVX2_VNNI`] with: x86-64 with AVX2, FMA, F16C and AVX-VNNI.
+pub const FLAGS_X86_AVX2_VNNI: [&str; 4] = ["-mavx2", "-mfma", "-mavxvnni", "-mf16c"];
+
+/// The library for x86-64 with AVX2, FMA, F16C and AVX-VNNI, built with [`FLAGS_X86_AVX2_VNNI`]. A program of it refuses
+/// a host without one of the four at load, naming every one the host lacks.
 pub const LIBRARY_X86_AVX2_VNNI: &str = r#"
 #include <immintrin.h>
 #include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <initializer_list>
 #include <thread>
 #include <vector>
+
+// The host's features, checked before any other initializer runs and built for x86-64 alone (`no-avx` drops AVX and
+// every extension of it), so a host without one sees its name and exit status 5, never an illegal instruction.
+__attribute__((constructor(101), target("no-avx"))) static void lk_require_isa(){
+  __builtin_cpu_init();
+  const bool has[4] = {__builtin_cpu_supports("avx2") != 0, __builtin_cpu_supports("fma") != 0, __builtin_cpu_supports("f16c") != 0, __builtin_cpu_supports("avxvnni") != 0};
+  static const char* const names[4] = {"AVX2", "FMA", "F16C", "AVX-VNNI"};
+  if(has[0] && has[1] && has[2] && has[3]) return;
+  std::fputs("this program is built for x86-64 with AVX2, FMA, F16C and AVX-VNNI; this host has no", stderr);
+  for(int i = 0; i < 4; ++i) if(!has[i]){ std::fputs(" ", stderr); std::fputs(names[i], stderr); }
+  std::fputs("\n", stderr);
+  std::_Exit(5);
+}
 
 // The host's threads: the caller and n - 1 workers. run(phases, spaces, job, ctx) cuts each phase's [0, units) into
 // chunks every participant takes in turn from the phase's own counter, calling job(ctx, phase, lo, hi) on each; a

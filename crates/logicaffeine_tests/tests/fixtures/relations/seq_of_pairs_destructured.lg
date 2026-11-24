@@ -1,0 +1,19 @@
+## To total (pairs: Seq of (Text, Int)) -> Int:
+    Let mutable sum be 0.
+    Repeat for (name, n) in pairs:
+        Set sum to sum + n.
+    Return sum.
+
+## Main
+Let xs be a new Seq of (Text, Int).
+Push ("a", 1) to xs.
+Push ("b", 2) to xs.
+Push ("a", 1) to xs.
+Repeat for (v, n) in xs:
+    Show v + "!".
+    Show n + 1.
+Show total(xs).
+Let seen be a new Set of (Text, Int).
+Repeat for (v, n) in xs:
+    Add (v, n) to seen.
+Show the count of seen.

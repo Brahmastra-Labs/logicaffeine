@@ -257,6 +257,11 @@ fn vjp_stage(rp: &RecognizedProgram, st: &RecognizedStage, d_out: &str, out: &mu
             let x = rp.name(g.x).to_string();
             gelu_rule(out, &x, d_out)
         }
+        TensorOpSpec::Erf(e) => {
+            // y = erf(x): dx = dy · (2/√π)·e^(−x²).
+            let x = rp.name(e.x).to_string();
+            erf_rule(out, &x, d_out)
+        }
         TensorOpSpec::SwiGlu(s) => {
             // y = silu(g)·u: dg = dy·u·silu'(g), du = dy·silu(g).
             let (g, u) = (rp.name(s.gate).to_string(), rp.name(s.up).to_string());
@@ -555,6 +560,24 @@ fn gelu_rule(out: &mut Out, x: &str, d_out: &str) -> Result<(), VjpRefusal> {
             format!(
                 "Set item {k} of {dx} to (item {k} of {d_out}) * ({s} + {xv} * {s} * (1.0 - {s}) * 2.0 * {SQRT_2_OVER_PI:?} * (1.0 + 3.0 * {K:?} * {xv} * {xv}))."
             ),
+        );
+    });
+    out.accumulate(x, dx);
+    Ok(())
+}
+
+fn erf_rule(out: &mut Out, x: &str, d_out: &str) -> Result<(), VjpRefusal> {
+    const TWO_OVER_SQRT_PI: f64 = std::f64::consts::FRAC_2_SQRT_PI;
+    let shape = out.shape(x)?;
+    let dx = out.tensor(&format!("g_{x}"), shape);
+    let d_out = d_out.to_string();
+    let x_name = x.to_string();
+    out.each(shape, |o, depth, _, _, k| {
+        let xv = o.names.fresh("x");
+        o.line(depth, format!("Let {xv} be item {k} of {x_name}."));
+        o.line(
+            depth,
+            format!("Set item {k} of {dx} to (item {k} of {d_out}) * {TWO_OVER_SQRT_PI:?} * ({} ** (0.0 - {xv} * {xv})).", std::f64::consts::E),
         );
     });
     out.accumulate(x, dx);

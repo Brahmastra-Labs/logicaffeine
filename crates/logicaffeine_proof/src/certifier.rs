@@ -158,9 +158,11 @@ impl<'a> CertificationContext<'a> {
         }
     }
 
-    /// Check if a name is a local variable.
+    /// Whether `name` is a local variable: one this certification introduced (a λ-bound variable, an
+    /// induction variable) or one the kernel context binds — a theorem's free variable, which the trust
+    /// door registers as a context local. Either is `Term::Var`; only a declaration is `Term::Global`.
     fn is_local(&self, name: &str) -> bool {
-        self.locals.iter().any(|n| n == name)
+        self.locals.iter().any(|n| n == name) || self.kernel_ctx.get(name).is_some()
     }
 
     /// Check if this conclusion matches one of the IHs in the current induction
@@ -2329,7 +2331,7 @@ fn certify_hypothesis(conclusion: &ProofExpr, ctx: &CertificationContext) -> Ker
             }
 
             Err(KernelError::CertificationError(format!(
-                "Cannot find hypothesis with type: {:?}",
+                "Cannot find hypothesis with type: {}",
                 conclusion
             )))
         }
@@ -2341,7 +2343,7 @@ fn certify_hypothesis(conclusion: &ProofExpr, ctx: &CertificationContext) -> Ker
             // is found — its lookup type must match the binder domain it was declared with.
             let target_type = proof_expr_to_type_ctx(conclusion, ctx.kernel_ctx).map_err(|_| {
                 KernelError::CertificationError(format!(
-                    "Cannot certify hypothesis: {:?}",
+                    "Cannot certify hypothesis: {}",
                     conclusion
                 ))
             })?;
@@ -2353,7 +2355,7 @@ fn certify_hypothesis(conclusion: &ProofExpr, ctx: &CertificationContext) -> Ker
             }
 
             Err(KernelError::CertificationError(format!(
-                "Cannot find hypothesis with type matching: {:?}",
+                "Cannot find hypothesis with type matching: {}",
                 conclusion
             )))
         }

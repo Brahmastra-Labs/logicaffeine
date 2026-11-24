@@ -14,6 +14,8 @@
 //!     positions, the prompt fed a token a step and every token after it the step's own — and the VM's tokens are the
 //!     f64 reference's on every architecture the language writes; every CPU tier (the JIT, C, Rust, RISC-V,
 //!     WebAssembly) lowers the decode step and generates the reference's tokens for every sequence it is given;
+//!   * the CPU tier links the decode step and its prefill chunks from the one IR into one program for the host's cores,
+//!     or refuses the model by name, and at its precise numerics generates the reference's tokens for every sequence;
 //!   * a chip that cannot run here says why by name, and a run is judged against the reference or a golden it names.
 
 #![cfg(feature = "codegen")]
@@ -25,11 +27,14 @@ mod tiny_models;
 use std::path::Path;
 
 use logicaffeine_compile::bringup::{
-    backends, bring_up, bring_up_spec, run, run_sequences, Generated, Ran, Reference, Refused, Runs, Sequence, SequenceRuns,
+    backends, bring_up, bring_up_spec, run, run_sequences, Backend, Cpu, Generated, Ran, Reference, Refused, Runs, Sequence,
+    SequenceRuns,
 };
+use logicaffeine_compile::codegen_cpu::shim::{CpuActivations, CpuCache, CpuIsa, CpuShim};
 use logicaffeine_compile::model::author;
 use logicaffeine_compile::codegen_cuda::qwen38::Qwen38Cfg;
 use logicaffeine_compile::model::gguf::Gguf;
+use logicaffeine_compile::model::quant::GgmlType;
 use logicaffeine_compile::model::program::{written, Cut, Identity};
 use logicaffeine_compile::model::spec::{Mixer, ModelSpec};
 use tiny_models::Tiny;
@@ -119,7 +124,7 @@ fn the_targets_named_are_the_only_ones_run_and_an_unknown_one_is_refused() {
 #[test]
 fn every_chip_the_command_line_names_is_a_backend() {
     let names: Vec<&str> = backends().iter().map(|b| b.name()).collect();
-    assert_eq!(names, ["vm", "jit", "c", "rust", "riscv-qemu", "wasm", "cuda", "d5005", "sn50", "fabric"]);
+    assert_eq!(names, ["vm", "jit", "c", "rust", "riscv-qemu", "wasm", "cpu", "cuda", "d5005", "sn50", "fabric"]);
     let cli = std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/logicaffeine_cli/src/cli.rs")).unwrap();
     let doc = cli.lines().find(|l| l.contains("The chips to bring the model up on")).expect("the --target help");
     for n in &names {
@@ -439,6 +444,98 @@ fn the_riscv_tier_generates_every_sequence_from_one_program() {
 #[test]
 fn the_wasm_tier_generates_every_sequence_from_one_program() {
     the_tier_generates_every_sequence_from_one_program("wasm", Some("node"));
+}
+
+/// The CPU tier brings up every tiny architecture the language writes: its decode step and its prefill chunks linked
+/// from the one IR under the CPU shim into one C++ program (`cpu/model.cpp`, naming every cut it links) beside the
+/// values the compiler computed for it (`cpu/model.side`), the decode step first and every other a prefill chunk of the
+/// one program. Where the host's compiler is here and the host has the instruction set the program is built for, the
+/// program the bring-up wrote runs every sequence from an empty state — as many tokens as each is judged against, timed,
+/// on threads it names — and at the precise numerics (each product reading its activation's values, the caches in
+/// `f32`) every sequence generates the f64 reference's tokens. A checkpoint whose matrices are in a block format the CPU
+/// library does not read (Q5_0) is refused by name, the format named.
+#[test]
+fn the_cpu_backend_brings_up_every_model_or_refuses_by_name() {
+    let precise = Cpu { shim: CpuShim { isa: CpuIsa::X86Avx2Vnni, activations: CpuActivations::Values, cache: CpuCache::F32, fuse: true } };
+    let each = |arch: Tiny| {
+        let dir = tempfile::tempdir().unwrap();
+        let spec = arch.spec(24);
+        let ckpt = checkpoint(&spec, dir.path(), "tiny");
+        let out = dir.path().join("out");
+        let b = bring_up_spec(spec.clone(), &ckpt, 24, &out, &chips(&["cpu"])).unwrap_or_else(|e| panic!("{arch:?}: {e}"));
+        let r = b.results[0].1.as_ref().unwrap_or_else(|why| panic!("{arch:?}: the CPU tier brings it up: {why}"));
+        assert_eq!(r.programs[0], b.decode, "{arch:?}: the decode step first");
+        assert!(r.programs.len() > 1, "{arch:?}: its prefill chunks beside the decode step");
+        for p in &r.programs[1..] {
+            let Cut::Prefill { rows, ctx } = p.cut else { panic!("{arch:?}: {} is a prefill chunk", p.line()) };
+            assert_eq!(*p, written(&spec, Cut::Prefill { rows, ctx }).1, "{arch:?}: its chunk of {rows} rows is a cut of the one program");
+        }
+        let cpp = std::fs::read_to_string(out.join("cpu/model.cpp")).unwrap_or_else(|e| panic!("{arch:?}: the program: {e}"));
+        for p in &r.programs {
+            assert!(cpp.contains(&format!("// {}\n", p.line())), "{arch:?}: the program names {}", p.line());
+        }
+        assert!(r.files.contains(&out.join("cpu/model.cpp")) && r.files.contains(&out.join("cpu/model.side")), "{arch:?}: {:?}", r.files);
+        assert!(r.files.iter().all(|f| f.is_file()), "{arch:?}: its artifacts are on disk");
+        let seqs = sequences(&spec, &ckpt, 3);
+        let runs = run_sequences(&b, &ckpt, 24, &out, &seqs);
+        let g = match generated(&runs, "cpu") {
+            Ok(g) => g,
+            Err(why) if why.0.contains("g++") || why.0.contains("this host has no") => return,
+            Err(why) => panic!("{arch:?}: the CPU tier runs on this machine: {why}"),
+        };
+        assert_eq!(g.tokens.iter().map(Vec::len).collect::<Vec<_>>(), [3, 3, 3], "{arch:?}: as many tokens as each sequence is judged against");
+        assert!(g.tokens.iter().flatten().all(|&t| (t as usize) < tiny_models::VOCAB), "{arch:?}: {:?}", g.tokens);
+        assert!(g.seconds > 0.0 && g.on.contains("threads"), "{arch:?}: the run is timed and names its threads: {}", g.on);
+        assert_eq!(g.program, out.join("cpu/model.cpp"), "{arch:?}: the program the bring-up wrote is the one run");
+        let at = dir.path().join("precise");
+        precise.bring_up(&spec, &ckpt, 24, &at).unwrap_or_else(|e| panic!("{arch:?}: at the precise numerics: {e}"));
+        let g = precise.run(&spec, &ckpt, 24, &at, &seqs).unwrap_or_else(|e| panic!("{arch:?}: at the precise numerics: {e}"));
+        let want: Vec<Vec<u32>> = seqs.iter().map(|s| s.tokens.clone()).collect();
+        assert_eq!(g.tokens, want, "{arch:?}: at the precise numerics every sequence generates the reference's tokens");
+    };
+    // Four architectures at a time: each builds its two programs with the host's compiler, one core each.
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..4 {
+            scope.spawn(|| {
+                while let Some(&arch) = tiny_models::ALL.get(next.fetch_add(1, std::sync::atomic::Ordering::Relaxed)) {
+                    each(arch);
+                }
+            });
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let spec = Tiny::Qwen3.spec(24);
+    let ckpt = dir.path().join("q5.gguf");
+    tiny_models::write_checkpoint_in(&spec, &ckpt, GgmlType::Q5_0);
+    let b = bring_up_spec(spec, &ckpt, 24, &dir.path().join("out"), &chips(&["cpu"])).unwrap_or_else(|e| panic!("{e}"));
+    let why = b.results[0].1.as_ref().err().expect("the CPU library reads no Q5_0 rows: refused");
+    assert!(why.0.contains("CPU") && why.0.contains("Q5_0"), "the refusal names the tier and the format: {why}");
+}
+
+/// Qwen3.8-Flash-Next's layers on the CPU tier: its two tiny models (`tiny_models::flash_next_models`: hyper-connected
+/// lanes, sigmoid-gated delta rules, the n-gram embedding — its hash's tables the integers the program sets) and every
+/// hyper-connected model (`tiny_models::hyper_connected_models`) brought up on `cpu` at the precise numerics generate the
+/// f64 reference's tokens for every sequence, prompts crossing an end of document among them, where the host's compiler
+/// is here and the host has the program's instruction set.
+#[test]
+fn the_cpu_tier_runs_qwen38_flash_next_layers() {
+    let precise = Cpu { shim: CpuShim { isa: CpuIsa::X86Avx2Vnni, activations: CpuActivations::Values, cache: CpuCache::F32, fuse: true } };
+    let eos = tiny_models::EOS;
+    let prompts: [&[u32]; 3] = [&[5, 17, eos, 2, 30, 9], &[9], &[40, eos, 12, 7, 1, eos, 8]];
+    let models: Vec<(&str, ModelSpec)> = tiny_models::flash_next_models(24).into_iter().chain(tiny_models::hyper_connected_models(24)).collect();
+    for (k, (what, spec)) in models.into_iter().enumerate() {
+        let dir = tempfile::tempdir().unwrap();
+        let ckpt = checkpoint(&spec, dir.path(), &format!("m{k}"));
+        let seqs: Vec<Sequence> = prompts.iter().map(|p| Sequence { prompt: p.to_vec(), tokens: Reference::of(&spec, &ckpt, p, 3).unwrap().tokens }).collect();
+        let at = dir.path().join("cpu");
+        precise.bring_up(&spec, &ckpt, 24, &at).unwrap_or_else(|e| panic!("{what}: the CPU tier brings it up: {e}"));
+        match precise.run(&spec, &ckpt, 24, &at, &seqs) {
+            Ok(g) => assert_eq!(g.tokens, seqs.iter().map(|s| s.tokens.clone()).collect::<Vec<_>>(), "{what}: every sequence the reference's tokens"),
+            Err(why) if why.0.contains("g++") || why.0.contains("this host has no") => return,
+            Err(why) => panic!("{what}: the CPU tier runs on this machine: {why}"),
+        }
+    }
 }
 
 /// The D5005's machine model runs every sequence from an empty state, each its own sequence of the machine.

@@ -1375,13 +1375,17 @@ impl Page {
 
     /// Mount the component `component` under the element `parent` names (the page's `body` when
     /// `None`), through the mount entry the page's host exposes for it — present only when the page
-    /// was built for a host that mounts it on demand ([`PageBundle::page_with`]).
+    /// was built for a host that mounts it on demand ([`PageBundle::page_with`]). The mount is an
+    /// entry the host makes into the page: what it throws is the page's failure, reported as one an
+    /// event's entry throws is — uncaught, among [`Page::exceptions`] — and the host goes on.
     pub fn mount(&self, component: &str, parent: Option<&str>) -> Result<(), BrowserError> {
         self.act(|| {
             let component = serde_json::to_string(component).expect("a string serializes");
             let parent = serde_json::to_string(&parent).expect("an optional string serializes");
             self.look(
-                &format!("__logosMount({component}, {parent})"),
+                &format!(
+                    "try {{ __logosMount({component}, {parent}); }} catch (e) {{ reportError(e); }}"
+                ),
                 COMMAND_TIMEOUT,
             )?;
             Ok(())

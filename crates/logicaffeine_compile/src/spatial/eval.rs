@@ -1648,6 +1648,7 @@ impl<'a> Eval<'a> {
                                 SfpuKind::Silu => v / (1.0 + (-v).exp()),
                                 SfpuKind::Relu => v.max(0.0),
                                 SfpuKind::Ln => v.ln(),
+                                SfpuKind::Erf => crate::tensor_graph::eval::lib_erf(v),
                                 SfpuKind::Sign => {
                                     if v > 0.0 {
                                         1.0

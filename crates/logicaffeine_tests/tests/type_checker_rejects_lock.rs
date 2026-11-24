@@ -87,6 +87,11 @@ const ILL_TYPED: &[IllTyped] = &[
         fault: "a Text is stored in a field declared Int",
     },
     IllTyped {
+        name: "struct_field_type_mismatch_in_a_record_named_like_a_list",
+        src: "## A Vec has:\n    An x: Int.\n\n## Main\n    Let v be a new Vec with x \"text\".\n    Show v's x.\n",
+        fault: "a Text is stored in a field the program's own record `Vec` declares Int",
+    },
+    IllTyped {
         name: "let_annotation_mismatch",
         src: "## Main\n    Let x: Int be \"hello\".\n    Show x.\n",
         fault: "the annotation says Int and the value is a Text",

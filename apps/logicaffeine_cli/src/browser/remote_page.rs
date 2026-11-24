@@ -146,7 +146,9 @@ fn to_message(e: BrowserError) -> DriveError {
 impl ChromePage {
     /// `Mount C [at S]` through the host's own mount entry. A component the page's module does not
     /// export a mount for is one this tier cannot mount (the walk asks the lowering why); a parent
-    /// the page does not hold is the reference tier's own failure.
+    /// the page does not hold is the reference tier's own failure. Both are asked before the entry
+    /// is made, because what the entry itself throws is the page's failure, not the statement's
+    /// ([`Page::mount`]).
     fn mount(&mut self, component: &str, at: Option<&str>) -> Result<(), DriveError> {
         let entry = logicaffeine_language::parser::lgx_lower::mount_fn_name(component);
         if !self.page.exports().map_err(to_message)?.contains(&entry) {

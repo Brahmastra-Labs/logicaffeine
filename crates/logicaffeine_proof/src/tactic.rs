@@ -3057,7 +3057,68 @@ impl ProofState {
     /// reaches is "every goal whose negation-by-totality is refutable", which covers every
     /// goal with slack. The gate is likewise relaxed: an arithmetic GOAL admits the tactic
     /// even with no arithmetic hypothesis in scope, which is the no-hypothesis Lean case.
+    ///
+    /// Before deciding, the goal is brought to arithmetic the way Lean's `omega` does it:
+    /// every leading `∀` and `→` is introduced, and every conjunction hypothesis is split
+    /// into its conjuncts, so `∀ w s, 0 ≤ s → w - s ≤ w` is decided as `0 ≤ s ⊢ w - s ≤ w`.
+    /// A bound variable keeps its own name unless a hypothesis already mentions that name
+    /// free, in which case it is renamed fresh, because the eigenvariable condition is what
+    /// makes `∀`-introduction sound. If the decision then fails, the state is restored to
+    /// what it was before the introductions, so a declined `omega` changes nothing.
     pub fn omega(&mut self) -> Result<&mut Self, TacticError> {
+        let before = self.clone();
+        match self.omega_introduce().and_then(|()| self.omega_decide()) {
+            Ok(()) => Ok(self),
+            Err(e) => {
+                *self = before;
+                Err(e)
+            }
+        }
+    }
+
+    /// The introduction half of [`omega`](Self::omega): `∀`, `→`, then `∧` hypotheses.
+    fn omega_introduce(&mut self) -> Result<(), TacticError> {
+        loop {
+            let g = self.focused_goal()?;
+            let hyp_names: std::collections::BTreeSet<String> =
+                g.hyps.iter().map(|h| h.name.clone()).collect();
+            match unfold_not(&g.target) {
+                ProofExpr::ForAll { variable, .. } => {
+                    let mut mentioned = std::collections::BTreeSet::new();
+                    for h in &g.hyps {
+                        free_vars(&h.prop, &mut mentioned);
+                    }
+                    let name = if mentioned.contains(&variable) {
+                        fresh_name(&variable, &mentioned)
+                    } else {
+                        variable
+                    };
+                    self.intro(&name)?;
+                }
+                ProofExpr::Implies(..) => {
+                    self.intro(&fresh_name("omega", &hyp_names))?;
+                }
+                _ => break,
+            }
+        }
+        let mut split: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        loop {
+            let g = self.focused_goal()?;
+            let Some(name) = g
+                .hyps
+                .iter()
+                .find(|h| matches!(h.prop, ProofExpr::And(..)) && !split.contains(&h.name))
+                .map(|h| h.name.clone())
+            else {
+                return Ok(());
+            };
+            self.cases(&name)?;
+            split.insert(name);
+        }
+    }
+
+    /// The decision half of [`omega`](Self::omega), on a goal already brought to arithmetic.
+    fn omega_decide(&mut self) -> Result<(), TacticError> {
         let g = self.focused_goal()?;
         let known: Vec<(ProofExpr, DerivationTree)> = g
             .hyps
@@ -3083,12 +3144,12 @@ impl ProofState {
         {
             let tree = DerivationTree::new(g.target.clone(), InferenceRule::ExFalso, vec![bot]);
             self.close(tree)?;
-            return Ok(self);
+            return Ok(());
         }
         // 2 + 3. Goal-directed.
         if let Some(tree) = crate::omega_solve::omega_prove(&known, &g.target) {
             self.close(tree)?;
-            return Ok(self);
+            return Ok(());
         }
         Err(TacticError::DoesNotApply(format!(
             "omega: the hypotheses have an integer model, and `{}` does not follow from them \

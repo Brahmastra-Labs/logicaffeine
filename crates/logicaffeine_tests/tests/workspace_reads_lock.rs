@@ -23,11 +23,18 @@ mod public_manifest;
 use public_manifest::{checkout, git_ignored, repo_root, Classifier};
 
 /// `(file, the read, the guard that skips it where the workspace is absent)`.
-const GUARDED: &[(&str, &str, &str)] = &[(
-    "scripts/bump-version.sh",
-    "HOOK=\"$REPO_ROOT/work/release-guards/bump/post-bump.sh\"",
-    "if [ -x \"$HOOK\" ]; then",
-)];
+const GUARDED: &[(&str, &str, &str)] = &[
+    (
+        "scripts/bump-version.sh",
+        "HOOK=\"$REPO_ROOT/work/release-guards/bump/post-bump.sh\"",
+        "if [ -x \"$HOOK\" ]; then",
+    ),
+    (
+        "crates/logicaffeine_tests/tests/john_corpus_lock.rs",
+        "join(\"../../work/john/examples\")",
+        "if !examples.is_dir() {",
+    ),
+];
 
 /// `(file, what it does)`: developer tools whose OWN output lives in the workspace. They create what they read,
 /// so a public checkout runs them unchanged; they are not reads of private material.
@@ -475,6 +482,11 @@ const NAMED: &[(&str, &str, &str)] = &[
         "scripts/dev/triage-wiki.sh",
         "work/wikis/",
         "its own output (OWN_OUTPUT)",
+    ),
+    (
+        ".github/workflows/deploy-leads.yml",
+        ".wrangler/dry-run",
+        "its own output: `wrangler deploy --dry-run` writes the worker's bundle there, in the runner's checkout",
     ),
 ];
 

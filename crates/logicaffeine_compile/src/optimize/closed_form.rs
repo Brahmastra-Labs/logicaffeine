@@ -1267,19 +1267,26 @@ enum SolvedForm {
 }
 
 /// O8b — solve the self-recursions the specializer leaves behind
-/// (`f(0) = C; f(n) = g(f(n−1))` with `g` itself already solved affine, plus
-/// direct affine bodies) and rewrite each solved RECURSIVE function as a
-/// version-guarded closed form over its original body:
+/// (`f(0) = C; f(n) = step(f(n−1))` with `step` an affine map of `f(n−1)`,
+/// through functions already solved affine, plus direct affine bodies) and
+/// rewrite each solved RECURSIVE function as a version-guarded closed form
+/// whose original body moves to a function of its own the guard falls to:
 ///
 /// ```text
-/// If n >= 0 and n <= N_SAFE: Return <closed form>.   # ops proven-raw
-/// <original recursive body>                          # exact fallback
+/// ## To f (n: Int) -> Int:
+///     If n >= 0 and n <= N_SAFE: Return <closed form>.   # ops proven-raw
+///     Return f_recursion(n).
+/// ## To f_recursion (n: Int) -> Int:
+///     <original recursive body>                          # exact fallback
 /// ```
 ///
 /// `N_SAFE` is the largest argument whose closed-form result provably fits
 /// i64, so every guarded-branch op is registered proven-raw; outside the
 /// guard the original body runs bit for bit — including the exact promotion
-/// and the divergence-on-negatives the recursion defines. LLVM once derived
+/// and the divergence-on-negatives the recursion defines, its calls of `f`
+/// taking the guard again. `f` itself calls no function of its own, so a
+/// backend inlines it where it is called and lifts the closed form out of a
+/// loop that calls it with one argument. LLVM once derived
 /// these forms itself from raw i64 ops; exact-Int checked arithmetic blocks
 /// its recursion reasoning, so the derivation lives HERE, where the proof
 /// obligations are explicit and the fallback is the original semantics.
@@ -1287,7 +1294,7 @@ fn solve_affine_recursions<'a>(
     stmts: Vec<Stmt<'a>>,
     ea: &'a Arena<Expr<'a>>,
     sa: &'a Arena<Stmt<'a>>,
-    interner: &Interner,
+    interner: &mut Interner,
 ) -> Vec<Stmt<'a>> {
     use std::collections::HashMap;
 
@@ -1305,12 +1312,13 @@ fn solve_affine_recursions<'a>(
                 body,
                 return_type,
                 is_native: false,
+                opt_flags,
                 ..
             } = stmt
             else {
                 continue;
             };
-            if solved.contains_key(name) || params.len() != 1 {
+            if solved.contains_key(name) || params.len() != 1 || !opt_flags.is_on(Opt::ClosedForm) {
                 continue;
             }
             if !is_int(params[0].1) || !return_type.is_some_and(|t| is_int(t)) {
@@ -1332,48 +1340,91 @@ fn solve_affine_recursions<'a>(
         return stmts;
     }
 
-    stmts
-        .into_iter()
-        .map(|stmt| match stmt {
-            Stmt::FunctionDef {
+    let mut taken: std::collections::HashSet<Symbol> = stmts
+        .iter()
+        .filter_map(|s| match s {
+            Stmt::FunctionDef { name, .. } => Some(*name),
+            _ => None,
+        })
+        .collect();
+    let mut out = Vec::with_capacity(stmts.len());
+    for stmt in stmts {
+        let Stmt::FunctionDef {
+            name,
+            generics,
+            params,
+            body,
+            return_type,
+            is_native: false,
+            native_path,
+            is_exported,
+            export_target,
+            opt_flags,
+        } = stmt
+        else {
+            out.push(stmt);
+            continue;
+        };
+        // Only RECURSIVE solved bodies get the guarded rewrite — a
+        // direct affine body is already its own closed form.
+        let form = solved
+            .get(&name)
+            .copied()
+            .filter(|_| params.len() == 1 && base_and_wrap(body, params[0].0).is_some());
+        let fresh_name = || {
+            let base = format!("{}_recursion", interner.resolve(name));
+            let mut recursion = interner.intern(&base);
+            let mut k = 2;
+            while taken.contains(&recursion) {
+                recursion = interner.intern(&format!("{base}_{k}"));
+                k += 1;
+            }
+            recursion
+        };
+        let solved_entry = form.and_then(|f| guarded_closed_body(f, params[0].0, fresh_name, ea, sa));
+        let Some((entry, recursion)) = solved_entry else {
+            out.push(Stmt::FunctionDef {
                 name,
                 generics,
                 params,
                 body,
                 return_type,
-                is_native,
+                is_native: false,
                 native_path,
                 is_exported,
                 export_target,
                 opt_flags,
-            } if !is_native && params.len() == 1 => {
-                let p = params[0].0;
-                // Only RECURSIVE solved bodies get the guarded rewrite — a
-                // direct affine body is already its own closed form.
-                let new_body = solved
-                    .get(&name)
-                    .copied()
-                    .filter(|_| base_and_wrap(body, p).is_some())
-                    .and_then(|f| guarded_closed_body(f, p, body, ea, sa));
-                if new_body.is_some() {
-                    super::mark_fired(Opt::ClosedForm);
-                }
-                Stmt::FunctionDef {
-                    name,
-                    generics,
-                    params,
-                    body: new_body.unwrap_or(body),
-                    return_type,
-                    is_native,
-                    native_path,
-                    is_exported,
-                    export_target,
-                    opt_flags,
-                }
-            }
-            other => other,
-        })
-        .collect()
+            });
+            continue;
+        };
+        super::mark_fired(Opt::ClosedForm);
+        taken.insert(recursion);
+        out.push(Stmt::FunctionDef {
+            name,
+            generics: generics.clone(),
+            params: params.clone(),
+            body: entry,
+            return_type,
+            is_native: false,
+            native_path,
+            is_exported,
+            export_target,
+            opt_flags,
+        });
+        out.push(Stmt::FunctionDef {
+            name: recursion,
+            generics,
+            params,
+            body,
+            return_type,
+            is_native: false,
+            native_path: None,
+            is_exported: false,
+            export_target: None,
+            opt_flags,
+        });
+    }
+    out
 }
 
 /// Body is exactly `Return <affine of p>` — solved for the chain, untouched.
@@ -1469,8 +1520,9 @@ fn is_self_dec_call(e: &Expr, selfn: Symbol, p: Symbol) -> bool {
         && matches!(right, Expr::Literal(Literal::Number(1)))
 }
 
-/// The recursion's step as an affine map of `SELF(p−1)`: bare `SELF(p−1)` is
-/// the identity; `g(SELF(p−1))` uses `g`'s solved affine form.
+/// The recursion's step as an affine map `pc·SELF(p−1) + q`: bare `SELF(p−1)` is the identity, `g(SELF(p−1))` uses
+/// `g`'s solved affine form, an integer literal is a constant, and sums, differences and literal multiples of these
+/// combine their maps (`1 + SELF(p−1) + SELF(p−1)` is `2·SELF(p−1) + 1`).
 fn wrap_as_affine_of_self(
     wrap: &Expr,
     selfn: Symbol,
@@ -1480,15 +1532,32 @@ fn wrap_as_affine_of_self(
     if is_self_dec_call(wrap, selfn, p) {
         return Some((1, 0));
     }
-    let Expr::Call { function, args } = wrap else {
-        return None;
-    };
-    if args.len() != 1 || !is_self_dec_call(args[0], selfn, p) {
-        return None;
-    }
-    match solved.get(function)? {
-        SolvedForm::Affine { a, b } => Some((*a, *b)),
-        SolvedForm::Geo2 { .. } => None,
+    let affine = |e: &Expr| wrap_as_affine_of_self(e, selfn, p, solved);
+    match wrap {
+        Expr::Literal(Literal::Number(c)) => Some((0, *c as i128)),
+        Expr::BinaryOp { op: BinaryOpKind::Add, left, right } => {
+            let ((a1, b1), (a2, b2)) = (affine(left)?, affine(right)?);
+            Some((a1.checked_add(a2)?, b1.checked_add(b2)?))
+        }
+        Expr::BinaryOp { op: BinaryOpKind::Subtract, left, right } => {
+            let ((a1, b1), (a2, b2)) = (affine(left)?, affine(right)?);
+            Some((a1.checked_sub(a2)?, b1.checked_sub(b2)?))
+        }
+        Expr::BinaryOp { op: BinaryOpKind::Multiply, left, right } => {
+            let ((a1, b1), (a2, b2)) = (affine(left)?, affine(right)?);
+            match (a1, a2) {
+                (0, _) => Some((b1.checked_mul(a2)?, b1.checked_mul(b2)?)),
+                (_, 0) => Some((a1.checked_mul(b2)?, b1.checked_mul(b2)?)),
+                _ => None,
+            }
+        }
+        Expr::Call { function, args } if args.len() == 1 && is_self_dec_call(args[0], selfn, p) => {
+            match solved.get(function)? {
+                SolvedForm::Affine { a, b } => Some((*a, *b)),
+                SolvedForm::Geo2 { .. } => None,
+            }
+        }
+        _ => None,
     }
 }
 
@@ -1512,15 +1581,16 @@ fn recursive_solved_form(
     }
 }
 
-/// Build `If 0 <= n <= N_SAFE: Return <closed>.` + the original body. The
-/// constructed arithmetic is registered proven-raw (the guard is its proof).
+/// Build `If 0 <= n <= N_SAFE: Return <closed>.` + `Return <recursion>(n).`, the entry of a solved recursion whose
+/// original body becomes the function `recursion` names (asked for only once the closed form exists), with that name.
+/// The constructed arithmetic is registered proven-raw (the guard is its proof).
 fn guarded_closed_body<'a>(
     form: SolvedForm,
     p: Symbol,
-    original: Block<'a>,
+    recursion: impl FnOnce() -> Symbol,
     ea: &'a Arena<Expr<'a>>,
     sa: &'a Arena<Stmt<'a>>,
-) -> Option<Block<'a>> {
+) -> Option<(Block<'a>, Symbol)> {
     let n_id = ea.alloc(Expr::Identifier(p));
     let (n_safe, formula): (i128, &Expr) = match form {
         SolvedForm::Affine { a, b } => {
@@ -1585,11 +1655,44 @@ fn guarded_closed_body<'a>(
     let then_block = sa.alloc_slice(vec![Stmt::Return {
         value: Some(formula),
     }]);
-    let mut new_body = vec![Stmt::If {
-        cond: guard,
-        then_block,
-        else_block: None,
-    }];
-    new_body.extend(original.iter().cloned());
-    Some(sa.alloc_slice(new_body))
+    let recursion = recursion();
+    let rest = ea.alloc(Expr::Call { function: recursion, args: vec![n_id] });
+    let entry = sa.alloc_slice(vec![
+        Stmt::If {
+            cond: guard,
+            then_block,
+            else_block: None,
+        },
+        Stmt::Return { value: Some(rest) },
+    ]);
+    Some((entry, recursion))
+}
+
+/// Whether `body`, a unary function's over its parameter `p`, opens with the closed form [`guarded_closed_body`]
+/// writes: `If p >= 0 and p <= N: Return <p and integers by arithmetic>.` Such a function answers every argument in
+/// that range without a call, so a cache in front of it only costs.
+pub(crate) fn answers_in_closed_form(body: &[Stmt], p: Symbol) -> bool {
+    let Some(Stmt::If { cond, then_block, else_block: None }) = body.first() else {
+        return false;
+    };
+    let [Stmt::Return { value: Some(answer) }] = then_block else {
+        return false;
+    };
+    let is_p = |e: &Expr| matches!(e, Expr::Identifier(s) if *s == p);
+    let ranged = matches!(cond, Expr::BinaryOp { op: BinaryOpKind::And, left, right }
+        if matches!(left, Expr::BinaryOp { op: BinaryOpKind::GtEq, left: l, right: r }
+            if is_p(l) && matches!(r, Expr::Literal(Literal::Number(0))))
+        && matches!(right, Expr::BinaryOp { op: BinaryOpKind::LtEq, left: l, right: r }
+            if is_p(l) && matches!(r, Expr::Literal(Literal::Number(_)))));
+    ranged && of_p_alone(answer, p)
+}
+
+/// Whether `e` is built from `p` and integer literals by arithmetic alone.
+fn of_p_alone(e: &Expr, p: Symbol) -> bool {
+    match e {
+        Expr::Identifier(s) => *s == p,
+        Expr::Literal(Literal::Number(_)) => true,
+        Expr::BinaryOp { left, right, .. } => of_p_alone(left, p) && of_p_alone(right, p),
+        _ => false,
+    }
 }

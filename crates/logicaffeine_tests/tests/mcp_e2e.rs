@@ -19,9 +19,15 @@ use serde_json::{json, Value};
 /// Run one scripted MCP session: write every line, close stdin, collect the
 /// responses. Returns `(responses, exit_ok, elapsed)`.
 fn session(lines: &[String]) -> (Vec<Value>, bool, Duration) {
+    session_in(&std::env::current_dir().expect("the test's directory"), lines)
+}
+
+/// [`session`] with the server started in `dir`.
+fn session_in(dir: &std::path::Path, lines: &[String]) -> (Vec<Value>, bool, Duration) {
     let start = Instant::now();
     let mut child = largo()
         .arg("mcp")
+        .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -300,4 +306,21 @@ fn requesting_vm_on_an_unsupported_program_is_a_typed_refusal_not_tw_output() {
         p["error"].as_str().is_some_and(|e| e.contains("scheduler")),
         "the refusal says WHY: {run}"
     );
+}
+
+/// A sandboxed run's file statements stay off the disk: `largo run --interpret` reaches the files a program names
+/// (`interpret_files_lock`), and the sandbox an agent's program runs in leaves the directory it runs in as it was.
+#[test]
+fn the_sandbox_leaves_the_disk_as_it_was() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let source = "## Main\nWrite \"saved\" to file \"out.txt\".\nWrite \"deep\" to file \"data/a.txt\".\nShow \"wrote\".\n";
+    let (responses, exit_ok, _) = session_in(
+        dir.path(),
+        &[initialize_line(1), initialized_line(), call_line(2, "logos_run", json!({"source": source}))],
+    );
+    assert!(exit_ok, "clean exit after EOF");
+    let run = &by_id(&responses, 2)["result"];
+    assert_eq!(run["structuredContent"]["stdout_lines"], json!(["wrote"]), "the sandboxed run runs: {run}");
+    let left: Vec<_> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name()).collect();
+    assert!(left.is_empty(), "the sandboxed run wrote to the disk: {left:?}");
 }

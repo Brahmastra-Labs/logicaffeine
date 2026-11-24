@@ -53,8 +53,11 @@ pub enum CompilerENode {
     Index(NodeId, NodeId),
     /// `copy of xs` — a fresh, unaliased deep copy. Total.
     Copy(NodeId),
-    /// `xs sliced from a to b` (1-based, inclusive). NON-total: raises on
-    /// out-of-bounds, so rewrites may never delete one without proofs.
+    /// `items a through b of xs` (1-based, inclusive): the items from offset
+    /// `a - 1` (a start of 0 reads as 1) up to `b` when `b` is at most the
+    /// length, and EMPTY otherwise, as `logos_slice_range` computes. Never an
+    /// out-of-bounds error, but NON-total: raises when `xs` is not a list or a
+    /// bound is not an Int, so rewrites may never delete one without proofs.
     Slice(NodeId, NodeId, NodeId),
     /// `xs contains x` — membership. Total; modeled for congruence/CSE
     /// only (no rewrite touches its semantics).
@@ -129,12 +132,12 @@ impl CompilerENode {
     }
 
     /// Ops whose evaluation can never raise a runtime error, given total
-    /// children. Div/Mod (zero divisor), Index/Slice (bounds), and Opaque
-    /// (arbitrary effects) are the non-total ones — a rewrite may only
-    /// DELETE a subterm whose whole tree is total, or it would erase the
-    /// program's error/effect behavior. Len/Copy/Contains raise KIND
-    /// errors over non-collections, so they are non-total HERE and earn
-    /// totality through class facts in
+    /// children. Div/Mod (zero divisor), Index (bounds), Slice (a non-list or
+    /// a non-Int bound), and Opaque (arbitrary effects) are the non-total
+    /// ones — a rewrite may only DELETE a subterm whose whole tree is total,
+    /// or it would erase the program's error/effect behavior. Len/Copy/Contains
+    /// raise KIND errors over non-collections, so they are non-total HERE and
+    /// earn totality through class facts in
     /// [`super::CompilerEGraph::provably_total`].
     pub fn op_is_total(&self) -> bool {
         !matches!(

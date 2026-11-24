@@ -405,12 +405,16 @@ pub fn read(buf: &[u8], pos: &mut usize, len: usize) -> Option<Vec<Span>> {
     for _ in 0..count {
         let gap = usize::try_from(crate::describe::read_uvarint(buf, pos)?).ok()?;
         let words = usize::try_from(crate::describe::read_uvarint(buf, pos)?).ok()?;
-        let start = end.checked_add(gap)?;
-        let span = Span { start, words };
-        if words == 0 || words > len / 4 || span.end() > len {
+        if words == 0 || words > len / 4 {
             return None;
         }
-        end = span.end();
+        let start = end.checked_add(gap)?;
+        let stop = start.checked_add(4 * words)?; // `words ≤ len / 4`, so `4 · words` cannot overflow
+        if stop > len {
+            return None;
+        }
+        let span = Span { start, words };
+        end = stop;
         spans.push(span);
     }
     Some(spans)

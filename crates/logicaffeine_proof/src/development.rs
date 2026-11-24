@@ -19,12 +19,16 @@
 //! Grammar (statements terminated by `.`):
 //! * `Axiom <name> : <formula>`
 //! * `Theorem <name> [cites <n1>, <n2>, …] : [given <formula> ;]* prove <formula>`
+//! * `Theorem <name> [cites <n1>, <n2>, …] : [given <formula> ;]* refute <formula>`
+//!
+//! A `refute` theorem claims its formula does not follow: it holds when a finite model of the axioms, its givens and
+//! the statements it cites makes the formula false ([`refute_library_with_axioms`](crate::verify::refute_library_with_axioms)).
 //!
 //! Clauses within a theorem are separated by `;`; cited lemma names by `,`. Formulas are
 //! handed to [`parse_formula`](crate::formula::parse_formula).
 
 use crate::formula::{parse_formula, FormulaError};
-use crate::verify::{prove_library_with_axioms, LibraryResult, LibraryTheorem};
+use crate::verify::{prove_library_with_axioms, LibraryRefutation, LibraryResult, LibraryTheorem};
 use crate::ProofExpr;
 
 /// A parsed formal development: a shared axiom base and the theorems built on it.
@@ -34,9 +38,22 @@ pub struct Development {
     pub axioms: Vec<(String, ProofExpr)>,
     /// Theorems, in source order, each with its premises, goal, and cited lemma names.
     pub theorems: Vec<LibraryTheorem>,
+    /// Refutations, in source order, each with its premises, the formula it refutes, and cited theorem names.
+    pub refutations: Vec<LibraryRefutation>,
+    /// Every theorem and refutation, in source order.
+    pub claims: Vec<Claim>,
     /// Names of `[simp]`-tagged declarations (axioms and theorems), in source
     /// order — the development's default rewrite-rule set.
     pub simp_tagged: Vec<String>,
+}
+
+/// A development's claim, by its place in [`Development::theorems`] or [`Development::refutations`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Claim {
+    /// A theorem to prove.
+    Theorem(usize),
+    /// A formula to refute.
+    Refutation(usize),
 }
 
 impl Development {
@@ -55,6 +72,8 @@ impl Development {
 pub fn parse_development(body: &str) -> Result<Development, FormulaError> {
     let mut axioms = Vec::new();
     let mut theorems = Vec::new();
+    let mut refutations = Vec::new();
+    let mut claims = Vec::new();
 
     let mut simp_tagged = Vec::new();
 
@@ -72,13 +91,19 @@ pub fn parse_development(body: &str) -> Result<Development, FormulaError> {
                 }
                 axioms.push(decl);
             }
-            Some("theorem") => {
-                let (thm, simp) = parse_theorem_decl(stmt)?;
-                if simp {
-                    simp_tagged.push(thm.name.clone());
+            Some("theorem") => match parse_theorem_decl(stmt)? {
+                (Decl::Theorem(thm), simp) => {
+                    if simp {
+                        simp_tagged.push(thm.name.clone());
+                    }
+                    claims.push(Claim::Theorem(theorems.len()));
+                    theorems.push(thm);
                 }
-                theorems.push(thm);
-            }
+                (Decl::Refutation(refutation), _) => {
+                    claims.push(Claim::Refutation(refutations.len()));
+                    refutations.push(refutation);
+                }
+            },
             other => {
                 return Err(FormulaError::new(format!(
                     "expected a declaration starting with 'Axiom' or 'Theorem', found {other:?}"
@@ -90,6 +115,8 @@ pub fn parse_development(body: &str) -> Result<Development, FormulaError> {
     Ok(Development {
         axioms,
         theorems,
+        refutations,
+        claims,
         simp_tagged,
     })
 }
@@ -148,8 +175,14 @@ fn parse_axiom_decl(stmt: &str) -> Result<((String, ProofExpr), bool), FormulaEr
     Ok(((name, formula), simp))
 }
 
-/// `Theorem <name> [simp] [cites <n1>, <n2>, …] : [given <formula> ;]* prove <formula>`
-fn parse_theorem_decl(stmt: &str) -> Result<(LibraryTheorem, bool), FormulaError> {
+/// A `Theorem` declaration: a theorem to prove or a formula to refute.
+enum Decl {
+    Theorem(LibraryTheorem),
+    Refutation(LibraryRefutation),
+}
+
+/// `Theorem <name> [simp] [cites <n1>, <n2>, …] : [given <formula> ;]* (prove | refute) <formula>`
+fn parse_theorem_decl(stmt: &str) -> Result<(Decl, bool), FormulaError> {
     let (header, body) = split_once_top_level(stmt, ':').ok_or_else(|| {
         FormulaError::new("a 'Theorem' declaration needs a ':' before its clauses")
     })?;
@@ -175,15 +208,15 @@ fn parse_theorem_decl(stmt: &str) -> Result<(LibraryTheorem, bool), FormulaError
         }
     }
 
-    // Clauses: `given <formula>` (zero or more) then `prove <formula>`. A new clause
-    // begins at each `given`/`assume`/`prove`/`show` KEYWORD — no separator punctuation is
+    // Clauses: `given <formula>` (zero or more) then `prove <formula>` or `refute <formula>`. A new clause
+    // begins at each `given`/`assume`/`prove`/`show`/`refute` KEYWORD — no separator punctuation is
     // required, so this is robust to the surface NL lexer dropping a `;` (and any stray
     // `;`/`.` left in a formula is absorbed by the formula tokenizer). Formal formulas never
     // contain these keywords, so keyword-delimited splitting is unambiguous.
-    let is_clause_kw = |w: &str| matches!(w, "given" | "assume" | "prove" | "show");
+    let is_clause_kw = |w: &str| matches!(w, "given" | "assume" | "prove" | "show" | "refute");
     let words: Vec<&str> = body.split_whitespace().collect();
     let mut premises = Vec::new();
-    let mut goal: Option<ProofExpr> = None;
+    let mut claim: Option<(bool, ProofExpr)> = None;
     let mut i = 0;
     while i < words.len() {
         let kw = words[i].to_lowercase();
@@ -200,28 +233,25 @@ fn parse_theorem_decl(stmt: &str) -> Result<(LibraryTheorem, bool), FormulaError
         let formula_src = words[start..i].join(" ");
         match kw.as_str() {
             "given" | "assume" => premises.push(parse_formula(&formula_src)?),
-            _ /* prove | show */ => {
-                if goal.is_some() {
+            _ /* prove | show | refute */ => {
+                if claim.is_some() {
                     return Err(FormulaError::new(format!(
-                        "theorem '{name}' has more than one 'prove' clause"
+                        "theorem '{name}' has more than one claim: one 'prove' or one 'refute' clause"
                     )));
                 }
-                goal = Some(parse_formula(&formula_src)?);
+                claim = Some((kw == "refute", parse_formula(&formula_src)?));
             }
         }
     }
 
-    let goal =
-        goal.ok_or_else(|| FormulaError::new(format!("theorem '{name}' has no 'prove' clause")))?;
-    Ok((
-        LibraryTheorem {
-            name,
-            premises,
-            goal,
-            cites,
-        },
-        simp,
-    ))
+    let (refutes, goal) = claim
+        .ok_or_else(|| FormulaError::new(format!("theorem '{name}' has no 'prove' or 'refute' clause")))?;
+    let decl = if refutes {
+        Decl::Refutation(LibraryRefutation { name, premises, goal, cites })
+    } else {
+        Decl::Theorem(LibraryTheorem { name, premises, goal, cites })
+    };
+    Ok((decl, simp))
 }
 
 // ---------------------------------------------------------------------------

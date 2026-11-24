@@ -46,10 +46,13 @@ The subcommands of the clap `Commands` enum in `src/cli.rs`, each dispatched by 
 | `check` | Parse and type-check the entry and every page without producing a binary; `--json` for agents |
 | `test [filter]` | Run the project's `## Test` blocks, each in an isolated world, with a deterministic report |
 | `replay <bundle>` | Re-run a recorded `.replay` bundle: reproduced, fixed, or diverged |
-| `bringup <checkpoint>` | Bring a model (a GGUF file or a Hugging Face directory) up on every chip from its one program: the CPU tiers, the CUDA lane, the D5005 decode engine, the SN50 and the fabric, each artifact naming the cut of the program it was lowered from; `--run` runs it on every chip here — a prompt, or every prompt of a golden with `--prompts` — and reports tokens, speed and agreement |
+| `bringup <checkpoint>` | Bring a model (a GGUF file or a Hugging Face directory) up on every chip from its one program: the general-program tiers, the CPU tier, the CUDA lane, the D5005 decode engine, the SN50 and the fabric, each artifact naming the cut of the program it was lowered from; `--run` runs it on every chip here — a prompt, or every prompt of a golden with `--prompts` — and reports tokens, speed and agreement |
 | `drop <checkpoint>` | Write a self-checking SN50 drop: the certified decode bundle, the checkpoint whose weights it binds (or its sha256, `--fetch-weights`), the goldens our spatial evaluator decodes, and the sha256 of every file |
 | `check-drop <dir>` | Verify a drop on a machine with only `largo`: every file's sha256, every program's certificate, every golden decoded again bit for bit |
 | `expand <file>` | Show the functions an LGX page's components, actions and routes lower to (LGX is the LOGOS web framework) |
+| `points-to <file>` | What each variable of a program may point to (`--contexts` per call path, `--json`) |
+| `datalog <file>` | Evaluate a theory's rules bottom-up as Datalog (`--bdd` over decision diagrams, `--certify` each derived fact in the kernel, `--contexts` in every calling context, `--json`) |
+| `specialize p1 <file>` / `p2` / `p3` | The three Futamura projections through the offline specializer: a program's residual (with its interpretive dispatch), a compiler, a compiler generator (`--check` regenerates the compiler from it) |
 | `repl` | Interactive session: imperative statements plus English→FOL logic mode (`:help` inside) |
 | `dap` | Debug a program over the Debug Adapter Protocol on stdio, reverse execution included (`stepBack`, `reverseContinue`); it serializes the same `DebugSession` the Studio's debugger renders |
 | `explain <topic>` | Look up a diagnostic code or a construct, offline |
@@ -57,7 +60,7 @@ The subcommands of the clap `Commands` enum in `src/cli.rs`, each dispatched by 
 | `logic [sentence]` | English → first-order logic (`--format unicode\|latex\|ascii\|kripke`, `--all-readings`, `--discourse`) |
 | `prove [file]` | Kernel-certified proving of `## Theory` developments and `## Theorem` blocks (`--trace`, `--json`) |
 | `sat <file.cnf>` | The certified SAT solver; `--proof` writes a DRAT (or DPR/SR) refutation; exits `10`/`20` |
-| `lean import` / `lean replay` / `lean check` | Import a Lean 4 declaration as a checked LOGOS package, re-verify a published one, or check a whole export with the kernel core, as the Lean Kernel Arena runs it |
+| `lean import` / `lean replay` / `lean check` | Import a Lean 4 declaration (under every registered Lean profile, Lake and Mathlib projects included), or with `--statement` the proposition it states, as a checked LOGOS package; re-verify a published one; or check a whole export with the kernel core, as the Lean Kernel Arena runs it, held to Lean's assumption policy and bound to an original statement |
 | `fmt [paths…]` | Format sources with the canonical rules the language server uses; `--check` for CI |
 | `emit <target>` | Print or write a compiled translation without building a binary (every target: [docs/cli.md](https://github.com/Brahmastra-Labs/logicaffeine/blob/main/docs/cli.md#emit)) |
 | `doc [--out DIR]` | Generate markdown documentation from a project's `##` blocks |

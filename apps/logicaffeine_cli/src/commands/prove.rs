@@ -9,14 +9,18 @@
 //!   lines) prove one by one through the backward chainer with a rendered
 //!   derivation trace ([`prove_theorem_trace`]).
 //!
-//! Every ✓ is kernel-certified — a derivation alone never counts.
+//! Every ✓ on a theorem is kernel-certified — a derivation alone never counts. A
+//! development's `refute` theorem is a ✓ when a countermodel of its premises,
+//! which falsifies the refuted formula, re-checks premise by premise.
 
 use std::path::PathBuf;
 
 use anstyle::AnsiColor;
 use logicaffeine_compile::kernel::certificate::TheoremCertificate;
+use logicaffeine_compile::testrun::{Inventory, ProvenClaim, RefutedClaim};
 use logicaffeine_compile::ui_bridge::compile_theory_for_ui;
 use logicaffeine_compile::{prove_theorem_trace, theorem_certificate};
+use logicaffeine_proof::counterexample::FiniteModel;
 
 use crate::commands::require_project_root;
 use crate::project::manifest::Manifest;
@@ -25,14 +29,17 @@ use crate::ui::CliError;
 /// One proved (or refuted) theorem, however it was reached.
 pub(crate) struct Outcome {
     pub(crate) name: String,
+    /// Whether the claim holds: the theorem proved, or the refuted formula falsified.
     pub(crate) verified: bool,
+    /// Whether the claim is a development's `refute` theorem.
+    pub(crate) refuted: bool,
     pub(crate) error: Option<String>,
     pub(crate) trace: Option<String>,
-    /// The independently re-checkable proof certificate. Present ONLY for a proved
-    /// English `## Theorem` (the surface that exposes a kernel proof term); `None`
-    /// for the Tarski development path (which does not surface a term yet) and for
-    /// any unproved goal.
+    /// The independently re-checkable proof certificate of a proved theorem, from either
+    /// surface; `None` for an unproved goal, which has no proof term, and for a refutation.
     pub(crate) certificate: Option<TheoremCertificate>,
+    /// The re-checked countermodel of a verified refutation.
+    pub(crate) countermodel: Option<FiniteModel>,
 }
 
 /// Everything one proving pass over a source text established.
@@ -72,15 +79,14 @@ pub(crate) fn prove_outcomes(
         axiom_count = result.axiom_count;
         axiom_names = result.axiom_names;
         for t in result.theorems {
-            // The Tarski development path (`prove_library_with_axioms`) does not
-            // surface a kernel proof term today, so it carries no independent
-            // certificate — reported honestly as `None`, never a fabricated one.
             outcomes.push(Outcome {
                 name: t.name,
                 verified: t.verified,
+                refuted: t.refuted,
                 error: t.error,
                 trace: None,
-                certificate: None,
+                certificate: t.certificate,
+                countermodel: t.countermodel,
             });
         }
     }
@@ -107,9 +113,11 @@ pub(crate) fn prove_outcomes(
                 outcomes.push(Outcome {
                     name,
                     verified: t.verified,
+                    refuted: false,
                     error: t.error,
                     trace: t.trace,
                     certificate,
+                    countermodel: None,
                 });
             }
             Err(e) => {
@@ -135,9 +143,23 @@ pub(crate) fn prove_outcomes(
     // G13-full name-collision gate: a name that is BOTH a theorem and an admitted
     // axiom lets an assumption masquerade as a proved fact. Reject it loudly — the
     // inventory's kinds must partition, so every claim has exactly one kind.
-    let theorem_claims: Vec<logicaffeine_compile::testrun::ProvenClaim> = outcomes
+    inventory(&outcomes, &axiom_names).map_err(CliError::new)?;
+
+    Ok(ProveReport {
+        axiom_count,
+        axiom_names,
+        outcomes,
+    })
+}
+
+/// The claim inventory of a proving pass: each theorem a [`ProvenClaim`], each refutation a
+/// [`RefutedClaim`], and every axiom an assumption. Fails on a name that is both a claim and
+/// an axiom.
+fn inventory(outcomes: &[Outcome], axiom_names: &[String]) -> Result<Inventory, String> {
+    let theorems: Vec<ProvenClaim> = outcomes
         .iter()
-        .map(|o| logicaffeine_compile::testrun::ProvenClaim {
+        .filter(|o| !o.refuted)
+        .map(|o| ProvenClaim {
             name: o.name.clone(),
             verified: o.verified,
             // A kernel/English theorem is an UNBOUNDED proof (no finite bound to
@@ -146,14 +168,16 @@ pub(crate) fn prove_outcomes(
             certificate: o.certificate.clone(),
         })
         .collect();
-    logicaffeine_compile::testrun::Inventory::from_prove(&theorem_claims, &axiom_names, &[])
-        .map_err(CliError::new)?;
-
-    Ok(ProveReport {
-        axiom_count,
-        axiom_names,
-        outcomes,
-    })
+    let refutations: Vec<RefutedClaim> = outcomes
+        .iter()
+        .filter(|o| o.refuted)
+        .map(|o| RefutedClaim {
+            name: o.name.clone(),
+            refuted: o.verified,
+            countermodel: o.countermodel.as_ref().map(FiniteModel::render),
+        })
+        .collect();
+    Inventory::from_prove_with_refutations(&theorems, &refutations, axiom_names, &[])
 }
 
 /// Handle `largo prove [FILE] [--trace] [--json] [--certificate]`.
@@ -226,7 +250,13 @@ fn render_human(path: &std::path::Path, axioms: usize, outcomes: &[Outcome], tra
         anstream::println!("Proving {}", path.display());
     }
     for o in outcomes {
-        if o.verified {
+        if let (true, Some(model)) = (o.verified, &o.countermodel) {
+            anstream::println!(
+                "{green}✓{green:#} {} — refuted: countermodel of {}, every premise re-checked",
+                o.name,
+                model.render()
+            );
+        } else if o.verified {
             anstream::println!("{green}✓{green:#} {}", o.name);
         } else {
             match &o.error {
@@ -262,24 +292,19 @@ fn render_json(
             serde_json::json!({
                 "name": o.name,
                 "verified": o.verified,
+                "refuted": o.refuted,
                 "error": o.error,
+                "countermodel": o.countermodel.as_ref().map(|m| serde_json::json!({
+                    "facts": m.facts.len(),
+                    "domain": m.domain.len(),
+                })),
             })
         })
         .collect();
     // The unified inventory. The name-collision gate already ran in
     // `prove_outcomes`, so this construction cannot fail here.
-    let theorem_claims: Vec<logicaffeine_compile::testrun::ProvenClaim> = outcomes
-        .iter()
-        .map(|o| logicaffeine_compile::testrun::ProvenClaim {
-            name: o.name.clone(),
-            verified: o.verified,
-            finite_bound: None,
-            certificate: o.certificate.clone(),
-        })
-        .collect();
-    let inventory =
-        logicaffeine_compile::testrun::Inventory::from_prove(&theorem_claims, axiom_names, &[])
-            .expect("the name-collision gate already ran in prove_outcomes");
+    let inventory = inventory(outcomes, axiom_names)
+        .expect("the name-collision gate already ran in prove_outcomes");
     serde_json::json!({
         "file": path.display().to_string(),
         "axioms": axioms,
@@ -296,9 +321,8 @@ fn render_json(
 /// Each entry carries the portable [`TheoremCertificate`] (the kernel proof term, the
 /// goal, and the theorem's disclosed premises) AND the verdict of re-checking it HERE
 /// against the kernel — by type-checking the term, not by re-running proof search. A
-/// theorem with no certificate (the Tarski development path, which does not surface a
-/// kernel term yet, or an unproved goal) is reported with `certificate: null` and the
-/// honest `reason` why — never a fabricated proof.
+/// theorem with no certificate is reported with `certificate: null` and the reason —
+/// never a fabricated proof.
 fn render_certificates(path: &std::path::Path, outcomes: &[Outcome]) -> String {
     use logicaffeine_compile::kernel::certificate::recheck_theorem;
 
@@ -316,17 +340,35 @@ fn render_certificates(path: &std::path::Path, outcomes: &[Outcome]) -> String {
                     "recheck_error": out.error,
                 })
             }
-            None => serde_json::json!({
-                "name": o.name,
-                "verified": o.verified,
-                "certificate": serde_json::Value::Null,
-                "reason": if o.verified {
-                    "proved, but this proof surface does not expose a re-checkable kernel term \
-                     (Tarski development path)"
-                } else {
-                    "not proved — an unproved goal has no proof term, hence no certificate"
-                },
-            }),
+            None => match &o.countermodel {
+                Some(model) => serde_json::json!({
+                    "name": o.name,
+                    "verified": o.verified,
+                    "refuted": true,
+                    "certificate": serde_json::Value::Null,
+                    "reason": "refuted — the countermodel is the certificate: every premise holds in it and the refuted formula does not",
+                    "countermodel": {
+                        "domain": model.domain,
+                        "facts": model
+                            .facts
+                            .iter()
+                            .map(|(p, args)| format!("{p}({})", args.join(", ")))
+                            .collect::<Vec<_>>(),
+                    },
+                }),
+                None => serde_json::json!({
+                    "name": o.name,
+                    "verified": o.verified,
+                    "certificate": serde_json::Value::Null,
+                    "reason": if o.verified {
+                        "proved, but the prover handed back no kernel term to certify"
+                    } else if o.refuted {
+                        "not refuted — no countermodel was found, hence no certificate"
+                    } else {
+                        "not proved — an unproved goal has no proof term, hence no certificate"
+                    },
+                }),
+            },
         })
         .collect();
     serde_json::json!({

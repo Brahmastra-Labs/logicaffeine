@@ -321,8 +321,10 @@ impl<'a> EscapeChecker<'a> {
                 self.check_no_escape(end, max_depth)?;
             }
 
-            Expr::Copy { expr }
-            | Expr::Give { value: expr }
+            // A copy is a value of its own: nothing the zone holds leaves with it.
+            Expr::Copy { .. } => {}
+
+            Expr::Give { value: expr }
             | Expr::Length { collection: expr }
             | Expr::Not { operand: expr } => {
                 self.check_no_escape(expr, max_depth)?;

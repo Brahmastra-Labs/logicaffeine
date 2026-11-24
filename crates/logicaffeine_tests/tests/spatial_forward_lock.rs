@@ -12,7 +12,10 @@
 //!   its reader — is stored as before; a store and a load that read different tiles (a matmul's operand blocks) are
 //!   never joined; and no section of any program it composes loads a statement's result that nothing stores;
 //! - what a join keeps: every layout bridge of a run of joined sections, and every interval a value is proven in — a
-//!   join whose carrier would hold more than a load of the tensor read is not made;
+//!   join whose carrier would hold more than a load of the tensor read is not made, and a carrier at a float precision,
+//!   an Int program on the SN50's fp32 pointwise units, holds what its load would have;
+//! - what a joined chain moves: a tensor every link reads is loaded once, so a chain of two hundred links reading it is
+//!   one section;
 //! - a matmul's epilogue joins it once `tile` has planned both — its template walks a work item per output tile, the
 //!   epilogue one for the row — and only under a plan of one item packed once: a product two items wide keeps its
 //!   epilogue apart;
@@ -212,6 +215,75 @@ fn a_pointwise_region_is_one_section_and_one_body() {
         let (want, got) = vm_and_eval(&src, &p, &shows);
         assert_eq!(got, want, "{}: the region is the VM's", target.name);
     }
+}
+
+/// A chain of `n` maps over one row of 16, each the one before plus `B`: every link reads `B`, and only the last is
+/// shown.
+fn chain_reading_b(n: usize) -> String {
+    let mut s = format!("## Main\n{A}{B}Let Y0 be A plus B.\n");
+    for k in 1..n {
+        s += &format!("Let Y{k} be Y{} plus B.\n", k - 1);
+    }
+    for i in 1..=16 {
+        s += &format!("Show item {i} of Y{}.\n", n - 1);
+    }
+    s
+}
+
+/// [`vm_and_eval`] for a program a chip computes through its float datapath — an Int program on the SN50, whose
+/// pointwise units are fp32: every shown value must be the VM's integer exactly.
+fn vm_and_eval_exactly(src: &str, p: &SpatialProgram, shows: &[(&str, usize)]) -> (Vec<i64>, Vec<i64>) {
+    let vm = vm_outcome(src);
+    assert!(vm.error.is_none(), "the VM runs it: {:?}", vm.error);
+    let want: Vec<i64> = vm.output.split_whitespace().map(|v| v.parse().expect("an integer")).collect();
+    let out = eval_choreography_every_tensor(p, &inputs_from_fills(p)).expect("the evaluator runs it");
+    let got = shows
+        .iter()
+        .map(|(name, i)| {
+            let t = p.tensors.iter().find(|t| t.name == *name).unwrap_or_else(|| panic!("the program keeps {name}"));
+            match &out.tensors[&t.id] {
+                Value::Int(v) => v[*i],
+                Value::Float(v) => {
+                    assert_eq!(v[*i].fract(), 0.0, "{name}[{i}] is {}, not an integer", v[*i]);
+                    v[*i] as i64
+                }
+            }
+        })
+        .collect();
+    (want, got)
+}
+
+/// Loads of the tensor `name` in `p`.
+fn loads_of(p: &SpatialProgram, name: &str) -> usize {
+    p.stages.iter().filter(|s| matches!(&s.kind, StageKind::Load { tensor, .. } if p.tensor(*tensor).name == name)).count()
+}
+
+#[test]
+fn a_tensor_every_link_of_a_joined_chain_reads_is_loaded_once() {
+    // Twelve links joined into one section and folded into one body read `B` twelve times: the section moves it once.
+    let src = chain_reading_b(12);
+    for target in [SpatialTarget::sn50_rdu(), board_a(), SpatialTarget::rtx3060()] {
+        let p = composed(&src, &target);
+        assert_eq!(p.sections.len(), 1, "{}: the chain is one section: {:?}", target.name, section_names(&p));
+        assert_eq!(loads_of(&p, "B"), 1, "{}: the section loads B once", target.name);
+        assert_eq!(loads_of(&p, "A"), 1, "{}: and A once", target.name);
+        let shows: Vec<(&str, usize)> = (0..16).map(|i| ("Y11", i)).collect();
+        let (want, got) = vm_and_eval_exactly(&src, &p, &shows);
+        assert_eq!(got, want, "{}: the chain is the VM's", target.name);
+    }
+}
+
+#[test]
+fn a_chain_of_200_links_reading_one_tensor_is_one_section() {
+    // Two hundred links each reading `B` hold one load of it and one of `A` on the site, however long the chain.
+    let src = chain_reading_b(200);
+    let target = SpatialTarget::sn50_rdu();
+    let p = composed(&src, &target);
+    assert_eq!(p.sections.len(), 1, "the chain is one section, not {}", p.sections.len());
+    assert_eq!(loads_of(&p, "B"), 1, "the section loads B once");
+    let shows: Vec<(&str, usize)> = (0..16).map(|i| ("Y199", i)).collect();
+    let (want, got) = vm_and_eval_exactly(&src, &p, &shows);
+    assert_eq!(got, want, "the chain is the VM's");
 }
 
 /// The requant's and the clamp's section templates, as the pipeline makes them from the chain.

@@ -4,9 +4,13 @@
 //! checker, and reads any `3.1.0` export. Intake is the door a *result* goes through, and it holds an
 //! export to an explicit compatibility rule before any declaration is translated:
 //!
-//! * the header names the pinned profile ([`STAGE_A`]: Lean 4.14.0, lean4export 3.1.0, format
-//!   3.1.0) — an unknown format version is [`UnsupportedExportVersion`](DiagnosticCode::UnsupportedExportVersion),
-//!   any other producer is [`UnsupportedToolchain`](DiagnosticCode::UnsupportedToolchain);
+//! * the header names a registered [`profile`](super::profile) exactly — its release, that release's
+//!   own commit and the profile's exporter ([`read_admitted`]), or the one profile a caller holds it
+//!   to ([`read`]); an unknown format version is
+//!   [`UnsupportedExportVersion`](DiagnosticCode::UnsupportedExportVersion), any other producer, an
+//!   unregistered release or a retagged header [`UnsupportedToolchain`](DiagnosticCode::UnsupportedToolchain);
+//! * the export's own `String`, when it declares one, is the release's — a header retagged across
+//!   the `String` change of Lean 4.2x is caught by what the export holds, not only by what it says;
 //! * every record has exactly the fields format 3.1.0 defines for its kind — an unknown field is
 //!   [`UnknownField`](DiagnosticCode::UnknownField), a missing or mistyped one
 //!   [`MalformedExport`](DiagnosticCode::MalformedExport), an unknown kind
@@ -22,46 +26,22 @@ use super::{canonical_name, declined, rejected, DiagnosticCode, Result};
 use serde_json::{Map, Value};
 use std::collections::{HashMap, HashSet};
 
-/// The toolchain and assumption profile a result is produced under.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Profile {
-    pub lean_version: &'static str,
-    pub format_version: &'static str,
-    pub exporter_name: &'static str,
-    pub exporter_version: &'static str,
-    /// The assumptions a verified result may depend on, by Lean name.
-    pub allowed_axioms: &'static [&'static str],
-}
+pub use super::profile::{Profile, STAGE_A};
 
-/// Stage A: Lean 4.14.0, lean4export 3.1.0 (revision [`EXPORTER_REVISION`]), export format 3.1.0,
-/// Lean core only, and Lean's three standard axioms.
-pub const STAGE_A: Profile = Profile {
-    lean_version: "4.14.0",
-    format_version: "3.1.0",
-    exporter_name: "lean4export",
-    exporter_version: "3.1.0",
-    allowed_axioms: &["propext", "Quot.sound", "Classical.choice"],
-};
+/// The kernel name of Lean's `String`.
+const STRING: &str = "/s:\"String\"";
 
-/// The elan toolchain name of the pinned Lean.
-pub const TOOLCHAIN: &str = "leanprover/lean4:v4.14.0";
-/// The pinned lean4export revision.
-pub const EXPORTER_REVISION: &str = "20c4a64aa1b76f7c79a6db15d089084359f8c3dc";
-/// SHA-256 of the pinned exporter's sources at [`EXPORTER_REVISION`]. The exporter is identified by
+/// The elan toolchain name of the Stage-A Lean.
+pub const TOOLCHAIN: &str = STAGE_A.toolchain;
+/// The Stage-A lean4export revision.
+pub const EXPORTER_REVISION: &str = STAGE_A.exporter.revision;
+/// SHA-256 of the Stage-A exporter's sources at [`EXPORTER_REVISION`]. The exporter is identified by
 /// its content, never by the name of the directory holding it.
-pub const EXPORTER_SOURCES: [(&str, &str); 2] = [
-    (
-        "Main.lean",
-        "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
-    ),
-    (
-        "Export.lean",
-        "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b",
-    ),
-];
+pub const EXPORTER_SOURCES: [(&str, &str); 2] =
+    [STAGE_A.exporter.sources[0], STAGE_A.exporter.sources[1]];
 /// The exporter flags every result is produced with: metadata and unsafe declarations are exported
 /// so that the reader, not the exporter, decides what they mean.
-pub const EXPORTER_FLAGS: [&str; 2] = ["--export-mdata", "--export-unsafe"];
+pub const EXPORTER_FLAGS: [&str; 2] = [STAGE_A.exporter.flags[0], STAGE_A.exporter.flags[1]];
 
 /// The export's first record.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -124,6 +104,7 @@ struct Record {
 /// An export that passed intake.
 pub struct Intake {
     header: Header,
+    profile: Profile,
     declarations: Vec<Declaration>,
     records: Vec<Record>,
     by_kernel_name: HashMap<String, usize>,
@@ -136,6 +117,10 @@ pub struct Intake {
 impl Intake {
     pub fn header(&self) -> &Header {
         &self.header
+    }
+    /// The profile the export was admitted under.
+    pub fn profile(&self) -> &Profile {
+        &self.profile
     }
     /// Every declared constant, in export order — which lean4export makes dependency order.
     pub fn declarations(&self) -> &[Declaration] {
@@ -194,6 +179,17 @@ impl Intake {
     }
 }
 
+/// Read and validate an export under the registered profile its header names
+/// ([`profile::admit`](super::profile::admit)).
+pub fn read_admitted(export: &str) -> Result<Intake> {
+    let first = export.lines().next().ok_or_else(|| {
+        declined(DiagnosticCode::MalformedExport, "the export is empty").at_line(1)
+    })?;
+    let header = header_fields(first).map_err(|v| v.at_line(1))?;
+    let profile = super::profile::admit(&header).map_err(|v| v.at_line(1))?;
+    read(export, profile)
+}
+
 /// Read and validate an export under `profile`.
 pub fn read(export: &str, profile: &Profile) -> Result<Intake> {
     let mut lines = export.lines();
@@ -214,12 +210,20 @@ pub fn read(export: &str, profile: &Profile) -> Result<Intake> {
         })?;
         reader.record(&record, line).map_err(|v| v.at_line(line))?;
     }
-    reader.finish(header)
+    reader.finish(header, *profile)
 }
 
 /// The header, held to the profile: the format version first (a newer format may legitimately add
-/// fields), then the header's own fields, then the producing toolchain.
+/// fields), then the header's own fields, then the producing toolchain and its commit.
 pub fn read_header(first: &str, profile: &Profile) -> Result<Header> {
+    let header = header_fields(first)?;
+    super::profile::hold(&header, profile)?;
+    Ok(header)
+}
+
+/// The header's fields, exactly those format 3.1.0 defines. A format version other than 3.1.0 is
+/// refused first: a newer format may legitimately add fields.
+fn header_fields(first: &str) -> Result<Header> {
     let value: Value = serde_json::from_str(first).map_err(|e| {
         declined(
             DiagnosticCode::MalformedExport,
@@ -230,12 +234,12 @@ pub fn read_header(first: &str, profile: &Profile) -> Result<Header> {
         .pointer("/meta/format/version")
         .and_then(Value::as_str)
     {
-        if format != profile.format_version {
+        if format != STAGE_A.format_version {
             return Err(declined(
                 DiagnosticCode::UnsupportedExportVersion,
                 format!(
                     "export format {format} is not the supported format {}",
-                    profile.format_version
+                    STAGE_A.format_version
                 ),
             ));
         }
@@ -257,32 +261,6 @@ pub fn read_header(first: &str, profile: &Profile) -> Result<Header> {
         exporter_version: string(&exporter["version"], "meta.exporter.version")?,
         format_version: string(&format["version"], "meta.format.version")?,
     };
-    if header.format_version != profile.format_version {
-        return Err(declined(
-            DiagnosticCode::UnsupportedExportVersion,
-            format!(
-                "export format {} is not the supported format {}",
-                header.format_version, profile.format_version
-            ),
-        ));
-    }
-    if header.lean_version != profile.lean_version
-        || header.exporter_name != profile.exporter_name
-        || header.exporter_version != profile.exporter_version
-    {
-        return Err(declined(
-            DiagnosticCode::UnsupportedToolchain,
-            format!(
-                "the export was produced by Lean {} with {} {}; the supported profile is Lean {} with {} {}",
-                header.lean_version,
-                header.exporter_name,
-                header.exporter_version,
-                profile.lean_version,
-                profile.exporter_name,
-                profile.exporter_version
-            ),
-        ));
-    }
     Ok(header)
 }
 
@@ -375,6 +353,8 @@ struct Reader {
     records: Vec<Record>,
     by_kernel_name: HashMap<String, usize>,
     declared: HashMap<usize, usize>,
+    /// The constructors (name indices) of the export's `String`, when it declares one, with the line.
+    string_constructors: Option<(Vec<usize>, usize)>,
 }
 
 impl Reader {
@@ -830,10 +810,14 @@ impl Reader {
                 boolean(&t[b], b)?;
             }
             naturals(&t["all"], "all")?;
-            naturals(&t["ctors"], "ctors")?;
+            let constructors = naturals(&t["ctors"], "ctors")?;
             self.level_params(&t["levelParams"], "levelParams")?;
             roots.push(self.expression_ref(&t["type"], "type")?);
-            members.push((self.name_ref(&t["name"])?, DeclarationKind::Inductive));
+            let name = self.name_ref(&t["name"])?;
+            if canonical_name(&self.names[&name]) == STRING {
+                self.string_constructors = Some((constructors, line));
+            }
+            members.push((name, DeclarationKind::Inductive));
         }
         for c in &ctors {
             let c = object(c, "a constructor")?;
@@ -942,9 +926,59 @@ impl Reader {
         Ok(())
     }
 
+    /// The export's `String`, when it declares one, is the profile's release's: its one constructor
+    /// is the release's. A header that names another release than produced the export is caught
+    /// here by what the export holds.
+    fn check_string(&self, profile: &Profile) -> Result<()> {
+        let (Some((constructors, line)), Some(release)) = (
+            &self.string_constructors,
+            super::profile::release(profile.lean_version),
+        ) else {
+            return Ok(());
+        };
+        let expected = release.string_literals.string_constructor();
+        let held: Vec<String> = constructors
+            .iter()
+            .map(|c| {
+                self.names
+                    .get(c)
+                    .map(|n| lean_name(&canonical_name(n)))
+                    .unwrap_or_else(|| format!("name {c}"))
+            })
+            .collect();
+        if held.len() == 1 && kernel_name(&held[0]).ok().as_deref() == Some(expected) {
+            return Ok(());
+        }
+        let producer = super::profile::RELEASES
+            .iter()
+            .filter(|r| {
+                held.len() == 1
+                    && kernel_name(&held[0]).ok().as_deref()
+                        == Some(r.string_literals.string_constructor())
+            })
+            .map(|r| r.version)
+            .collect::<Vec<_>>();
+        Err(declined(
+            DiagnosticCode::UnsupportedToolchain,
+            format!(
+                "the export's String is built by {}, but Lean {}'s String is built by {}: the header names another release than produced the export{}",
+                held.join(", "),
+                profile.lean_version,
+                lean_name(expected),
+                if producer.is_empty() {
+                    String::new()
+                } else {
+                    format!(" (that String is Lean {}'s)", producer.join(", "))
+                }
+            ),
+        )
+        .at_line(*line))
+    }
+
     /// Every referenced constant must be declared somewhere in the export. The refusal names the
     /// first declaration (in export order) whose closure reaches the missing constant.
-    fn finish(self, header: Header) -> Result<Intake> {
+    fn finish(self, header: Header, profile: Profile) -> Result<Intake> {
+        self.check_string(&profile)?;
         let mut missing: Vec<(usize, usize)> = self
             .referenced
             .iter()
@@ -954,6 +988,7 @@ impl Reader {
         missing.sort();
         let intake = Intake {
             header,
+            profile,
             declarations: self.declarations,
             records: self.records,
             by_kernel_name: self.by_kernel_name,

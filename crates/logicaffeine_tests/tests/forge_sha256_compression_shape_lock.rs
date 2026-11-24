@@ -1,4 +1,5 @@
-#![cfg(not(target_arch = "wasm32"))]
+// This suite tests the native tier alone, which exists only on x86_64 outside Windows.
+#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 //! FORGE tiers the SHA-256 COMPRESSION-LOOP SHAPE natively — the crypto core of a real hash. Two
 //! `Seq of Word32` tables read by index (`item i of kk` + `item i of w`, the round constants + message
 //! schedule), loop-carried Word32 scalar state (`a..hh`), and the full FIPS-180-4 round mix (`rotl` × 3

@@ -817,7 +817,8 @@ pub fn drive_main<'a>(
     let program = crate::vm::Compiler::compile_with_types(defs, interner, Some(types))
         .map_err(|e| format!("the VM compiler cannot compile this program: {e}"))?;
     let vm = crate::vm::Vm::new(&program).with_policy_ctx(policies, interner);
-    let mut page = LoweredPage::new(crate::vm::session::Session::new(vm, interner));
+    let mut page = LoweredPage::new(crate::vm::session::Session::new(vm, interner))
+        .driven_by(super::DrivenBy::Program);
     let to_message = |e: DriveError| match e {
         DriveError::Failed(m) | DriveError::Refused(m) => m,
     };

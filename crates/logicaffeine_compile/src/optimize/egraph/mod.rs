@@ -15,6 +15,7 @@
 pub mod convert;
 pub mod enode;
 pub mod extract;
+pub mod kernel_semantics;
 pub mod rules;
 
 pub use enode::CompilerENode;

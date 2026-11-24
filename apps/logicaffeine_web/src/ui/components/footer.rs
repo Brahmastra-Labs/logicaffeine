@@ -301,7 +301,7 @@ pub fn Footer(#[props(default)] variant: FooterVariant) -> Element {
                                 span { class: "footer-logo-text", "LOGICAFFEINE" }
                             }
                             p { class: "footer-brand-tagline",
-                                "Debug your thoughts."
+                                "Code we can all read."
                             }
                         }
                         div { class: "footer-social-links",

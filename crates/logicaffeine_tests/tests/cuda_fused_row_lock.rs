@@ -17,6 +17,8 @@
 //!   cargo nextest run -p logicaffeine-compile -E 'binary(cuda_fused_row_lock)'
 #![cfg(feature = "codegen")]
 
+mod common;
+
 use logicaffeine_compile::codegen_cuda::{emit_fused_row, emit_swiglu, CudaChip, CudaKnobs};
 use logicaffeine_compile::compile::compile_to_cuda_tensor_op;
 use logicaffeine_compile::intern::Symbol;
@@ -518,8 +520,7 @@ fn swiglu_matches_the_cpu_reference_on_the_gpu() {
 
 #[test]
 fn layernorm_matches_the_cpu_reference_on_the_gpu() {
-    if !(have_nvcc() && have_gpu()) {
-        eprintln!("SKIP layernorm fused-row GPU: needs nvcc + /dev/nvidia0.");
+    if !(common::require_tool("nvcc") && common::require_gpu()) {
         return;
     }
     // Per-row LayerNorm on-device: two-pass mean/variance, then scale + shift — numerically ≡ CPU.

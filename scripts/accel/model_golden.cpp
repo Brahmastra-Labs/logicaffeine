@@ -4,7 +4,10 @@
 // precision), at a fixed thread count, so a golden is reproducible on this box and independent of what else holds the
 // GPU. Built and run by scripts/accel/model-golden.sh, which also hides every GPU from it.
 //
-//   model_golden <gguf> <prompts> <out.json> <n_gen> <threads> <flash:0|1|auto> <top> <kv:f16|f32> [batch:0|1] [device:cpu|cuda]
+//   model_golden <gguf> <prompts> <out.json> <n_gen> <threads> <flash:0|1|auto> <top> <kv:f16|f32|q8_0> [batch:0|1] [device:cpu|cuda]
+//
+// The KV cache is llama.cpp's binary16 default, `f32`, or its q8_0 cache (every 32 values of a cached row as int8 codes
+// under one binary16 scale), whose value rows llama.cpp reads only through flash attention: q8_0 takes flash 1.
 //
 // With device cuda it runs as llama-bench runs a checkpoint instead (`-ngl 99`): every layer on the GPU, operations
 // offloaded, llama-bench's batches (2048 tokens, micro-batches of 512), flash attention as given (`auto`, llama-bench's default, lets llama.cpp choose) — llama.cpp's own GPU run,
@@ -111,7 +114,7 @@ static std::string piece(const llama_vocab * v, const std::vector<llama_token> &
 
 int main(int argc, char ** argv) {
     if (argc < 9 || argc > 11) {
-        fprintf(stderr, "usage: model_golden <gguf> <prompts> <out.json> <n_gen> <threads> <flash:0|1|auto> <top> <kv:f16|f32> [batch:0|1] [device:cpu|cuda]\n");
+        fprintf(stderr, "usage: model_golden <gguf> <prompts> <out.json> <n_gen> <threads> <flash:0|1|auto> <top> <kv:f16|f32|q8_0> [batch:0|1] [device:cpu|cuda]\n");
         return 2;
     }
     const bool batched = argc >= 10 && atoi(argv[9]) != 0;
@@ -123,8 +126,12 @@ int main(int argc, char ** argv) {
     const bool gpu = device == "cuda";
     const std::string flash_arg = argv[6];
     const std::string kv = argv[8];
-    if (kv != "f16" && kv != "f32") {
-        fprintf(stderr, "the KV cache is f16 or f32\n");
+    if (kv != "f16" && kv != "f32" && kv != "q8_0") {
+        fprintf(stderr, "the KV cache is f16, f32 or q8_0\n");
+        return 2;
+    }
+    if (kv == "q8_0" && flash_arg != "1") {
+        fprintf(stderr, "a q8_0 cache's value rows are read through flash attention: flash 1\n");
         return 2;
     }
     const std::string model_path = argv[1], prompts_path = argv[2], out_path = argv[3];
@@ -198,7 +205,7 @@ int main(int argc, char ** argv) {
     cp.flash_attn_type = flash < 0 ? LLAMA_FLASH_ATTN_TYPE_AUTO : flash ? LLAMA_FLASH_ATTN_TYPE_ENABLED : LLAMA_FLASH_ATTN_TYPE_DISABLED;
     cp.no_perf = true;
     cp.op_offload = gpu;
-    cp.type_k = kv == "f32" ? GGML_TYPE_F32 : GGML_TYPE_F16;
+    cp.type_k = kv == "f32" ? GGML_TYPE_F32 : kv == "q8_0" ? GGML_TYPE_Q8_0 : GGML_TYPE_F16;
     cp.type_v = cp.type_k;
     llama_context * ctx = llama_init_from_model(model, cp);
     if (!ctx) {

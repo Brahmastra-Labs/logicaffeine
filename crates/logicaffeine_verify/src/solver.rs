@@ -845,7 +845,7 @@ impl<'a> Encoder<'a> {
                 }
                 let body_encoded = {
                     let b = self.encode(body);
-                    b.as_bool().unwrap_or_else(|| Bool::from_bool(true))
+                    b.as_bool().unwrap_or_else(unencodable)
                 };
                 let bound_consts: Vec<Dynamic> = vars
                     .iter()
@@ -862,7 +862,7 @@ impl<'a> Encoder<'a> {
                 }
                 let body_encoded = {
                     let b = self.encode(body);
-                    b.as_bool().unwrap_or_else(|| Bool::from_bool(true))
+                    b.as_bool().unwrap_or_else(unencodable)
                 };
                 let bound_consts: Vec<Dynamic> = vars
                     .iter()
@@ -954,7 +954,7 @@ impl<'a> Encoder<'a> {
                     Dynamic::from_ast(&lb.iff(&rb))
                 } else {
                     // Fallback: encode as (l → r) ∧ (r → l) at value level
-                    Dynamic::from_ast(&l.eq(&r))
+                    Dynamic::from_ast(&equal(&l, &r))
                 }
             }
         }
@@ -1036,55 +1036,55 @@ impl<'a> Encoder<'a> {
                 if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
                     Dynamic::from_ast(&li.gt(&ri))
                 } else {
-                    Dynamic::from_ast(&Bool::from_bool(false))
+                    Dynamic::from_ast(&unencodable())
                 }
             }
             VerifyOp::Lt => {
                 if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
                     Dynamic::from_ast(&li.lt(&ri))
                 } else {
-                    Dynamic::from_ast(&Bool::from_bool(false))
+                    Dynamic::from_ast(&unencodable())
                 }
             }
             VerifyOp::Gte => {
                 if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
                     Dynamic::from_ast(&li.ge(&ri))
                 } else {
-                    Dynamic::from_ast(&Bool::from_bool(false))
+                    Dynamic::from_ast(&unencodable())
                 }
             }
             VerifyOp::Lte => {
                 if let (Some(li), Some(ri)) = (l.as_int(), r.as_int()) {
                     Dynamic::from_ast(&li.le(&ri))
                 } else {
-                    Dynamic::from_ast(&Bool::from_bool(false))
+                    Dynamic::from_ast(&unencodable())
                 }
             }
 
             // Equality
-            VerifyOp::Eq => Dynamic::from_ast(&l.eq(&r)),
-            VerifyOp::Neq => Dynamic::from_ast(&l.eq(&r).not()),
+            VerifyOp::Eq => Dynamic::from_ast(&equal(&l, &r)),
+            VerifyOp::Neq => Dynamic::from_ast(&equal(&l, &r).not()),
 
             // Logic
             VerifyOp::And => {
                 if let (Some(lb), Some(rb)) = (l.as_bool(), r.as_bool()) {
                     Dynamic::from_ast(&Bool::and(&[&lb, &rb]))
                 } else {
-                    Dynamic::from_ast(&Bool::from_bool(false))
+                    Dynamic::from_ast(&unencodable())
                 }
             }
             VerifyOp::Or => {
                 if let (Some(lb), Some(rb)) = (l.as_bool(), r.as_bool()) {
                     Dynamic::from_ast(&Bool::or(&[&lb, &rb]))
                 } else {
-                    Dynamic::from_ast(&Bool::from_bool(false))
+                    Dynamic::from_ast(&unencodable())
                 }
             }
             VerifyOp::Implies => {
                 if let (Some(lb), Some(rb)) = (l.as_bool(), r.as_bool()) {
                     Dynamic::from_ast(&lb.implies(&rb))
                 } else {
-                    Dynamic::from_ast(&Bool::from_bool(true))
+                    Dynamic::from_ast(&unencodable())
                 }
             }
         }
@@ -1128,6 +1128,31 @@ impl<'a> Encoder<'a> {
         let arg_refs: Vec<&dyn Ast> = encoded_args.iter().map(|a| a as &dyn Ast).collect();
 
         Dynamic::from_ast(&func_decl.apply(&arg_refs))
+    }
+}
+
+/// A proposition the solver knows nothing about: the encoding of a term it cannot read. Assumed, it constrains
+/// nothing; as a goal it is never proved, so a construct the encoder does not model can neither make the assumptions
+/// contradictory nor discharge an assertion.
+fn unencodable() -> Bool {
+    Bool::fresh_const("unencodable")
+}
+
+/// Whether two encoded terms have the same sort, so an equation between them is well-sorted.
+fn same_sort(l: &Dynamic, r: &Dynamic) -> bool {
+    l.sort_kind() == r.sort_kind()
+        && match (l.as_bv(), r.as_bv()) {
+            (Some(a), Some(b)) => a.get_size() == b.get_size(),
+            _ => true,
+        }
+}
+
+/// `l = r`, or [`unencodable`] when the two sides have different sorts.
+fn equal(l: &Dynamic, r: &Dynamic) -> Bool {
+    if same_sort(l, r) {
+        l.eq(r)
+    } else {
+        unencodable()
     }
 }
 

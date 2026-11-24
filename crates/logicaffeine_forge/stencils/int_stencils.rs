@@ -683,6 +683,49 @@ pub unsafe extern "C" fn logos_stencil_magicdiv(
     logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
 }
 
+/// `frame[D] = frame[L] / c` (`mul_back == 0`) or `frame[L] % c` (`mul_back == c`) for a divisor `c ≥ 2` via the
+/// SIGNED magic reciprocal: `q = mulhi_s(magic, x)`, `+ x` when the add bit is set, arithmetic `>> shift`, `+ 1`
+/// when `x < 0`. Truncating division for every dividend; no continuation but the next (a `c ≥ 2` never faults).
+///
+/// Holes: 0 = L (dividend slot), 1 = magic (immediate), 2 = shift in the low 6 bits and `0x40` = add,
+/// 3 = mul_back, 4 = D (destination slot).
+///
+/// # Safety
+/// `base` must point at a frame larger than both patched indices.
+#[no_mangle]
+pub unsafe extern "C" fn logos_stencil_magicdivs(
+    base: *mut i64,
+    sp: *mut i64,
+    r0: i64,
+    r1: i64,
+    r2: i64,
+    r3: i64,
+    f0: f64,
+    f1: f64,
+    f2: f64,
+    f3: f64,
+    f4: f64,
+    f5: f64,
+) -> i64 {
+    let x = *base.add(LOGOS_HOLE_I64_0 as usize);
+    let magic = LOGOS_HOLE_I64_1;
+    let bits = LOGOS_HOLE_I64_2;
+    let mul_back = LOGOS_HOLE_I64_3;
+    let mut q = (((magic as i128) * (x as i128)) >> 64) as i64;
+    if bits & 0x40 != 0 {
+        q = q.wrapping_add(x);
+    }
+    q >>= bits & 0x3f;
+    q = q.wrapping_add(((x as u64) >> 63) as i64);
+    let out = if mul_back == 0 {
+        q
+    } else {
+        x.wrapping_sub(q.wrapping_mul(mul_back))
+    };
+    *base.add(LOGOS_HOLE_I64_4 as usize) = out;
+    logos_hole_cont_0(base, sp, r0, r1, r2, r3, f0, f1, f2, f3, f4, f5)
+}
+
 /// Fused compare-and-branch: `frame[L] < frame[R]` → continuation 0, else 1.
 /// No comparison value is materialized — the caller proved the scratch dead.
 ///

@@ -783,3 +783,14 @@ fn a_root_of_a_transcendental_is_computed_to_any_precision() {
     assert_eq!(negative.to_decimal(30), cube.neg().to_decimal(30), "∛(−π) = −∛π");
     assert_eq!(p.neg().nth_root(4).unwrap_err().to_string(), "an even root (4th) of a negative number");
 }
+
+// Every `i32` is an exponent `pow` takes, `i32::MIN` included, whose magnitude does not fit an
+// `i32`. Bases ±1 keep the exact result small.
+#[test]
+fn the_most_negative_i32_power_is_taken_without_negating_it() {
+    let one = ExactReal::from_i64(1).pow(i32::MIN).expect("1^i32::MIN");
+    assert_eq!(one.exact_algebraic(), Some(Algebraic::from_i64(1)));
+    let minus_one = ExactReal::from_i64(-1).pow(i32::MIN).expect("(-1)^i32::MIN");
+    assert_eq!(minus_one.exact_algebraic(), Some(Algebraic::from_i64(1)));
+    assert!(ExactReal::from_i64(0).pow(i32::MIN).is_none());
+}

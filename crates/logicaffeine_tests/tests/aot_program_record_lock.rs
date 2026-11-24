@@ -113,6 +113,50 @@ fn a_function_nothing_calls_still_compiles() {
     );
 }
 
+/// A function the standard library ships and nothing in the run reaches is not carried. A program that decodes bytes
+/// has the loader splice `validUtf8` (the WebAssembly backend validates `text_from_bytes` with it); the Rust tier decodes
+/// through its runtime, so the binary holds no copy of the validator, and the program answers as the tree-walker does.
+#[test]
+fn a_library_function_nothing_reaches_is_not_carried() {
+    let src = "## Main\nLet bytes be [104, 105].\nShow text_from_bytes(bytes).\n";
+    let assembled = logicaffeine_compile::loader::prune_unreachable_prelude(
+        &logicaffeine_compile::loader::apply_prelude(src),
+    );
+    assert!(assembled.contains("## To validUtf8"), "the loader splices the validator:\n{assembled}");
+    let rust = compile_to_rust(src).expect("it compiles to Rust");
+    assert!(!rust.contains("fn validUtf8("), "the validator is not carried:\n{rust}");
+    both(src, &["hi"]);
+}
+
+/// A function the program declared is carried though a run never reaches it, and so is everything it calls.
+/// `ackermann(3, n)` runs through the specializations on `m`; the general form the program wrote is left behind with
+/// the specializations only its own body calls, and those come along, so the binary builds and answers.
+#[test]
+fn a_declared_function_nothing_reaches_carries_what_it_calls() {
+    let src = "## To native args () -> Seq of Text\n## To native parseInt (s: Text) -> Int\n\n\
+               ## To ackermann (m: Int) and (n: Int) -> Int:\n    If m equals 0:\n        Return n + 1.\n\
+               \x20   If n equals 0:\n        Return ackermann(m - 1, 1).\n    Return ackermann(m - 1, ackermann(m, n - 1)).\n\n\
+               ## Main\nLet arguments be args().\nLet n be parseInt(item 2 of arguments).\nShow ackermann(3, n).\n";
+    let rust = compile_to_rust(src).expect("it compiles to Rust");
+    let general = rust
+        .split("#[allow(dead_code)]\nfn ackermann(")
+        .nth(1)
+        .and_then(|rest| rest.split("\n}\n").next())
+        .unwrap_or_else(|| panic!("the declared general form is carried, marked unused:\n{rust}"));
+    let called: Vec<&str> = general
+        .match_indices("ackermann_s")
+        .map(|(at, _)| &general[at..])
+        .filter_map(|rest| rest.split('(').next())
+        .collect();
+    assert!(!called.is_empty(), "the general form calls a specialization:\n{rust}");
+    for f in called {
+        assert!(rust.contains(&format!("fn {f}(")), "`{f}` is called and not carried:\n{rust}");
+    }
+    let run = common::run_logos_with_args(src, &["2"]);
+    assert!(run.success, "the program must build and run: {}", run.stderr);
+    assert_eq!(run.stdout, "29\n", "ackermann(3, 2)");
+}
+
 /// A binding spelled like a browser builtin (`body`) is a name, not a call to the document: the
 /// function holding it needs no document and compiles.
 #[test]

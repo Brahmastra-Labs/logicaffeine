@@ -1,7 +1,7 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::arena::Arena;
-use crate::ast::stmt::{Expr, Literal, MatchArm, Stmt, StringPart};
+use crate::ast::stmt::{BinaryOpKind, Expr, Literal, MatchArm, Stmt, StringPart};
 use crate::intern::Symbol;
 
 /// Collect all symbols read by an expression.
@@ -482,70 +482,107 @@ fn collect_stmt_reads(stmt: &Stmt, reads: &mut HashSet<Symbol>) {
     }
 }
 
-/// Dead Store Elimination: remove Set statements that are overwritten before being read.
-fn dead_store_elimination<'a>(stmts: Vec<Stmt<'a>>) -> Vec<Stmt<'a>> {
-    // Track: symbol → index of last Set (not Let — Let+Set merge conflicts with codegen peepholes)
-    let mut last_set: HashMap<Symbol, usize> = HashMap::new();
-    let mut dead_indices: HashSet<usize> = HashSet::new();
+/// Whether evaluating `e` can neither fail nor do anything: names, literals, `+ - *` (exact, they never fail),
+/// comparisons, `and`/`or`, `not` and lengths of names. Every division, a power (a negative exponent fails) and every
+/// other operator are left out.
+fn infallible(e: &Expr) -> bool {
+    match e {
+        Expr::Identifier(_) | Expr::Literal(_) => true,
+        Expr::Not { operand } => infallible(operand),
+        Expr::Length { collection } => matches!(collection, Expr::Identifier(_)),
+        Expr::BinaryOp { op, left, right } => {
+            matches!(
+                op,
+                BinaryOpKind::Add
+                    | BinaryOpKind::Subtract
+                    | BinaryOpKind::Multiply
+                    | BinaryOpKind::Eq
+                    | BinaryOpKind::NotEq
+                    | BinaryOpKind::Lt
+                    | BinaryOpKind::Gt
+                    | BinaryOpKind::LtEq
+                    | BinaryOpKind::GtEq
+                    | BinaryOpKind::And
+                    | BinaryOpKind::Or
+            ) && infallible(left)
+                && infallible(right)
+        }
+        _ => false,
+    }
+}
 
-    for (i, stmt) in stmts.iter().enumerate() {
-        // 1. Collect reads from this statement
+/// Dead-store elimination, walking `stmts` backward. `dead` holds the names every path after the block overwrites
+/// before it reads them; the statements kept come back with what is dead before the block. A `Set` whose value calls
+/// nothing and whose target is dead goes. An `If`'s arms are walked with what is dead after it, so a store an arm
+/// leaves for the code after the `If` to overwrite goes too, and an `If` left with nothing to do goes whole when its
+/// guard can neither fail nor do anything ([`infallible`]). A `Let` reads its value and kills nothing (never a `Let` —
+/// Let+Set merge conflicts with codegen peepholes — and a `Let` may shadow); a loop, a call and every other statement
+/// may read any name.
+fn drop_dead_stores<'a>(
+    stmts: Vec<Stmt<'a>>,
+    mut dead: HashSet<Symbol>,
+    stmt_arena: &'a Arena<Stmt<'a>>,
+) -> (Vec<Stmt<'a>>, HashSet<Symbol>) {
+    let mut kept = Vec::with_capacity(stmts.len());
+    for stmt in stmts.into_iter().rev() {
         let mut reads = HashSet::new();
-        collect_stmt_reads(stmt, &mut reads);
-
-        // 2. Mark read variables as alive (previous Set is needed)
-        for sym in &reads {
-            last_set.remove(sym);
-        }
-
-        // 3. Process writes
-        match stmt {
-            Stmt::Set { target, value } => {
-                // Only eliminate if the Set's value is fully analyzable
-                let mut value_reads = HashSet::new();
-                let value_analyzable = collect_expr_reads(value, &mut value_reads);
-
-                if value_analyzable {
-                    if let Some(prev_idx) = last_set.remove(target) {
-                        // Previous Set was never read → dead store
-                        dead_indices.insert(prev_idx);
-                    }
-                    last_set.insert(*target, i);
-                } else {
-                    // Opaque value: conservatively clear all tracking
-                    last_set.clear();
+        match &stmt {
+            Stmt::Set { target, value } if collect_expr_reads(value, &mut reads) => {
+                if dead.contains(target) {
+                    continue;
                 }
+                dead.insert(*target);
+                dead.retain(|s| !reads.contains(s));
             }
-            // Control flow (and block bodies that read/write enclosing-scope vars):
-            // conservatively clear tracking.
-            Stmt::If { .. }
-            | Stmt::While { .. }
-            | Stmt::Repeat { .. }
-            | Stmt::Inspect { .. }
-            | Stmt::Zone { .. }
-            | Stmt::Select { .. }
-            | Stmt::Concurrent { .. }
-            | Stmt::Parallel { .. }
-            | Stmt::Reversibly { .. } => {
-                last_set.clear();
+            Stmt::Let { value, .. } if collect_expr_reads(value, &mut reads) => {
+                dead.retain(|s| !reads.contains(s));
             }
-            // Function calls may read/write anything via side effects
-            Stmt::Call { .. } | Stmt::Escape { .. } => {
-                last_set.clear();
+            Stmt::If { cond, then_block, else_block } => {
+                let analyzable = collect_expr_reads(cond, &mut reads);
+                let (then_kept, then_dead) = drop_dead_stores(then_block.to_vec(), dead.clone(), stmt_arena);
+                let (else_kept, else_dead) = match else_block {
+                    Some(block) => {
+                        let (kept, dead_before) = drop_dead_stores(block.to_vec(), dead.clone(), stmt_arena);
+                        (Some(kept), dead_before)
+                    }
+                    None => (None, dead.clone()),
+                };
+                let else_idle = else_kept.as_ref().is_none_or(|kept| kept.is_empty());
+                if then_kept.is_empty() && else_idle && infallible(cond) {
+                    continue;
+                }
+                // An `If` left with nothing to do under a guard that may fail, or with an empty first arm and a
+                // second that still works, stays as it was written.
+                if then_kept.is_empty() {
+                    dead.clear();
+                    kept.push(stmt);
+                    continue;
+                }
+                dead = if analyzable {
+                    then_dead.intersection(&else_dead).filter(|s| !reads.contains(s)).copied().collect()
+                } else {
+                    HashSet::new()
+                };
+                let then_block = if then_kept.len() == then_block.len() {
+                    *then_block
+                } else {
+                    &*stmt_arena.alloc_slice(then_kept)
+                };
+                let else_block = match (else_block, else_kept) {
+                    (_, Some(kept)) if kept.is_empty() => None,
+                    (Some(block), Some(kept)) if kept.len() == block.len() => Some(*block),
+                    (_, Some(kept)) => Some(&*stmt_arena.alloc_slice(kept)),
+                    (_, None) => None,
+                };
+                kept.push(Stmt::If { cond: *cond, then_block, else_block });
+                continue;
             }
-            _ => {}
+            _ => dead.clear(),
         }
+        kept.push(stmt);
     }
-
-    // Rebuild with dead Sets removed
-    let mut result = Vec::with_capacity(stmts.len());
-    for (i, stmt) in stmts.into_iter().enumerate() {
-        if dead_indices.contains(&i) {
-            continue;
-        }
-        result.push(stmt);
-    }
-    result
+    kept.reverse();
+    (kept, dead)
 }
 
 pub fn eliminate_dead_code<'a>(
@@ -553,8 +590,65 @@ pub fn eliminate_dead_code<'a>(
     stmt_arena: &'a Arena<Stmt<'a>>,
     expr_arena: &'a Arena<Expr<'a>>,
 ) -> Vec<Stmt<'a>> {
-    // First: dead store elimination
-    let stmts = dead_store_elimination(stmts);
+    // The outermost call sees the whole program: what its functions and closures reach of Main, for every block
+    // below it.
+    if REACHED.with(|r| r.borrow().is_some()) {
+        return eliminate_dead_code_in(stmts, stmt_arena, expr_arena);
+    }
+    let _program = Program::install(&stmts);
+    eliminate_dead_code_in(stmts, stmt_arena, expr_arena)
+}
+
+/// The program [`eliminate_dead_code`] works on, installed for its length: cleared when it ends, unwinding included.
+struct Program;
+
+impl Program {
+    fn install(stmts: &[Stmt]) -> Self {
+        REACHED.with(|r| *r.borrow_mut() = Some(Reached::of_program(stmts)));
+        IN_FUNCTION.with(|f| f.set(false));
+        Program
+    }
+}
+
+impl Drop for Program {
+    fn drop(&mut self) {
+        REACHED.with(|r| *r.borrow_mut() = None);
+        IN_FUNCTION.with(|f| f.set(false));
+    }
+}
+
+/// The names of Main a call may read or write: what a function or closure body reads or writes without declaring
+/// it, or every name when foreign code runs in one.
+struct Reached {
+    globals: super::writes::CalleeGlobals,
+}
+
+impl Reached {
+    fn of_program(stmts: &[Stmt]) -> Self {
+        Reached { globals: super::writes::CalleeGlobals::of_program(stmts) }
+    }
+
+    fn contains(&self, sym: Symbol) -> bool {
+        self.globals.opaque || self.globals.reads.contains(&sym) || self.globals.symbols.contains(&sym)
+    }
+}
+
+thread_local! {
+    /// The program's [`Reached`], for the length of one [`eliminate_dead_code`].
+    static REACHED: std::cell::RefCell<Option<Reached>> = const { std::cell::RefCell::new(None) };
+    /// Whether the block being eliminated is inside a function's body, whose bindings no call can reach.
+    static IN_FUNCTION: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn eliminate_dead_code_in<'a>(
+    stmts: Vec<Stmt<'a>>,
+    stmt_arena: &'a Arena<Stmt<'a>>,
+    expr_arena: &'a Arena<Expr<'a>>,
+) -> Vec<Stmt<'a>> {
+    // First: dead store elimination (what is dead after the block is not known here)
+    let (stmts, _) = drop_dead_stores(stmts, HashSet::new(), stmt_arena);
+    #[cfg(feature = "codegen")]
+    let stmts = counted_to_the_end(stmts, stmt_arena, expr_arena);
     // Then: dead branch elimination
     let mut result = Vec::with_capacity(stmts.len());
 
@@ -629,11 +723,14 @@ pub fn eliminate_dead_code<'a>(
                 export_target,
                 opt_flags,
             } => {
+                let outside = IN_FUNCTION.with(|f| f.replace(true));
+                let body = dce_block(body, stmt_arena, expr_arena);
+                IN_FUNCTION.with(|f| f.set(outside));
                 result.push(Stmt::FunctionDef {
                     name,
                     params,
                     generics,
-                    body: dce_block(body, stmt_arena, expr_arena),
+                    body,
                     return_type,
                     is_native,
                     native_path,
@@ -699,7 +796,45 @@ pub fn eliminate_dead_code<'a>(
         result.truncate(pos + 1);
     }
 
-    dead_variable_elimination(result)
+    dead_variable_elimination(result, stmt_arena)
+}
+
+/// Each counted `While` of `stmts` that does nothing but count ([`crate::loop_shape::extract_counted_while`], with an
+/// empty body and a bound that can neither fail nor do anything) as the value it leaves the counter: `If <its guard>:
+/// Set i to <the bound>`, the bound plus one for an inclusive loop. A loop that never runs leaves the start. The
+/// counted-loop shape is the codegen feature's, so this is too.
+#[cfg(feature = "codegen")]
+fn counted_to_the_end<'a>(
+    mut stmts: Vec<Stmt<'a>>,
+    stmt_arena: &'a Arena<Stmt<'a>>,
+    expr_arena: &'a Arena<Expr<'a>>,
+) -> Vec<Stmt<'a>> {
+    for k in 0..stmts.len().saturating_sub(1) {
+        let counted = {
+            let refs: Vec<&Stmt<'a>> = stmts.iter().collect();
+            crate::loop_shape::extract_counted_while(&refs, k)
+        };
+        let Some((counted, _)) = counted else { continue };
+        let Stmt::While { cond, .. } = &stmts[k + 1] else { continue };
+        if !counted.body_without_increment.is_empty() || !infallible(counted.limit) || !infallible(cond) {
+            continue;
+        }
+        let end = if counted.inclusive {
+            &*expr_arena.alloc(Expr::BinaryOp {
+                op: BinaryOpKind::Add,
+                left: counted.limit,
+                right: expr_arena.alloc(Expr::Literal(Literal::Number(1))),
+            })
+        } else {
+            counted.limit
+        };
+        stmts[k + 1] = Stmt::If {
+            cond: *cond,
+            then_block: stmt_arena.alloc_slice(vec![Stmt::Set { target: counted.var, value: end }]),
+            else_block: None,
+        };
+    }
+    stmts
 }
 
 fn dce_block<'a>(
@@ -708,7 +843,7 @@ fn dce_block<'a>(
     expr_arena: &'a Arena<Expr<'a>>,
 ) -> &'a [Stmt<'a>] {
     let stmts: Vec<Stmt<'a>> = block.iter().cloned().collect();
-    let dce_result = eliminate_dead_code(stmts, stmt_arena, expr_arena);
+    let dce_result = eliminate_dead_code_in(stmts, stmt_arena, expr_arena);
     stmt_arena.alloc_slice(dce_result)
 }
 
@@ -720,11 +855,92 @@ fn dce_tasks<'a>(
 ) -> &'a [Stmt<'a>] {
     let each: Vec<Stmt<'a>> = tasks
         .iter()
-        .flat_map(|task| eliminate_dead_code(vec![task.clone()], stmt_arena, expr_arena))
+        .flat_map(|task| match task {
+            // A task's binding is the block's: what follows the block reads it.
+            Stmt::Let { .. } => vec![task.clone()],
+            _ => eliminate_dead_code_in(vec![task.clone()], stmt_arena, expr_arena),
+        })
         .collect();
     stmt_arena.alloc_slice(each)
 }
 
-fn dead_variable_elimination<'a>(stmts: Vec<Stmt<'a>>) -> Vec<Stmt<'a>> {
+/// Remove each `Let` of a literal that nothing reads: every later statement of the block that mentions the name only
+/// stores to it ([`only_stored`]), and no call can reach it (a binding inside a function's body, or one of Main that no
+/// function or closure names as a global). Its stores go with it — the counter an unrolled loop leaves behind. A
+/// literal can neither fail nor do anything, so the binding is all there is to it; a refinement-typed `Let` keeps the
+/// check its type makes.
+fn dead_variable_elimination<'a>(mut stmts: Vec<Stmt<'a>>, stmt_arena: &'a Arena<Stmt<'a>>) -> Vec<Stmt<'a>> {
+    let in_function = IN_FUNCTION.with(|f| f.get());
+    let reached = |sym: Symbol| {
+        !in_function && REACHED.with(|r| r.borrow().as_ref().is_none_or(|r| r.contains(sym)))
+    };
+    let mut k = 0;
+    while k < stmts.len() {
+        let dead = match &stmts[k] {
+            Stmt::Let { var, value: Expr::Literal(_), ty, .. }
+                if !matches!(ty, Some(crate::ast::stmt::TypeExpr::Refinement { .. }))
+                    && only_stored(&stmts[k + 1..], *var)
+                    && !reached(*var) =>
+            {
+                Some(*var)
+            }
+            _ => None,
+        };
+        match dead {
+            Some(var) => {
+                let rest = stmts.split_off(k + 1);
+                stmts.pop();
+                stmts.extend(without_stores(rest, var, stmt_arena));
+            }
+            None => k += 1,
+        }
+    }
     stmts
 }
+
+/// Whether `stmts` only store to `var`: every statement that mentions it is a `Set` of it to a value that can neither
+/// fail nor do anything ([`infallible`]; the value may read `var` itself, to compute what is stored in it), or an `If`
+/// or `While` whose own guard does not mention it and whose blocks only store to it.
+fn only_stored(stmts: &[Stmt], var: Symbol) -> bool {
+    use super::mentions::{expr_touches, stmt_touches};
+    stmts.iter().all(|stmt| match stmt {
+        Stmt::Set { target, value } if *target == var => infallible(value),
+        Stmt::If { cond, then_block, else_block } => {
+            !expr_touches(cond, var)
+                && only_stored(then_block, var)
+                && else_block.is_none_or(|block| only_stored(block, var))
+        }
+        Stmt::While { cond, body, decreasing } => {
+            !expr_touches(cond, var)
+                && decreasing.is_none_or(|d| !expr_touches(d, var))
+                && only_stored(body, var)
+        }
+        other => !stmt_touches(other, var),
+    })
+}
+
+/// `stmts` without their stores to `var`, which they only store to ([`only_stored`]).
+fn without_stores<'a>(stmts: Vec<Stmt<'a>>, var: Symbol, stmt_arena: &'a Arena<Stmt<'a>>) -> Vec<Stmt<'a>> {
+    fn block<'a>(block: &'a [Stmt<'a>], var: Symbol, stmt_arena: &'a Arena<Stmt<'a>>) -> &'a [Stmt<'a>] {
+        stmt_arena.alloc_slice(without_stores(block.to_vec(), var, stmt_arena))
+    }
+    stmts
+        .into_iter()
+        .filter_map(|stmt| match stmt {
+            Stmt::Set { target, .. } if target == var => None,
+            Stmt::If { cond, then_block, else_block } => Some(Stmt::If {
+                cond,
+                then_block: block(then_block, var, stmt_arena),
+                else_block: else_block.map(|b| block(b, var, stmt_arena)),
+            }),
+            Stmt::While { cond, body, decreasing } => {
+                Some(Stmt::While { cond, body: block(body, var, stmt_arena), decreasing })
+            }
+            other => Some(other),
+        })
+        .collect()
+}
+
+#[cfg(test)]
+#[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/optimize/dce/tests.rs"]
+mod tests;

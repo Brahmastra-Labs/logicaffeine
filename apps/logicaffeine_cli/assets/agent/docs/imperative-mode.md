@@ -95,10 +95,10 @@ compiles to:
 ```rust
 #[inline]
 fn classify(n: i64) -> String {
-    if (n < 0) {
+    if n < 0 {
         return ::std::string::String::from("negative");
     }
-    return ::std::string::String::from("non-negative");
+    ::std::string::String::from("non-negative")
 }
 ```
 
@@ -289,6 +289,14 @@ use-after-move detection are handled by the ownership analysis
 `readReals("…")` is the `Seq of Real` a file of little-endian binary64 values holds, eight bytes a value: numbers a
 program reads at run time rather than carries as code, such as a model's weights (`Set W to readReals("w/W.f64").`
 fills a declared tensor). A file it cannot read, or one that is not a whole number of values, stops the program.
+`appendFile`, `fileExists`, `listDir`, `makeDirs` and `renameFile` (file.lg) add to a file, ask what is at a path, list a
+directory, make one with its parents, and replace a file atomically; each failure is an `Err`, never a stop.
+`runProcess(program, args, cwd, env, timeoutMs, maxOutput)` (process.lg) runs another program with no shell in
+between — each argument reaches it exactly as written — under a mandatory deadline and output cap, and answers a
+`ProcessResult` (`exitCode`, `stdout`, `stderr`, `timedOut`, `truncated`). The program leads a process group of its own,
+so nothing it starts outlives the run; standard input is empty. A program that could not start is an `Err`; one that
+started and failed is an `Ok` that says so. A sealed `## Test` starts no processes unless it says
+`This test may use the real processes.` and runs under `largo test --live`.
 `Assert that <logic>` with a logic proposition is the **Assert Bridge** into
 [Proof & verification](proof-and-verification.md).
 
@@ -477,7 +485,8 @@ Show item 4 of C.
 Shapes are checked when the program is parsed. `A matmul B`, `A plus B` and `A hadamard B` combine
 two tensors; the model operators each take a declared tensor: `softmax of X` (per row of a 2-D
 tensor), `rmsnorm of X with weight W`, `layernorm of X with weight W and bias B`, `l2norm of X`,
-`silu of X`, `sigmoid of X`, `gelu of X`, `swiglu of Gate and Up`, `rope of Q with cos RC and sin RS`,
+`silu of X`, `sigmoid of X`, `gelu of X` (the tanh approximation), `erf of X` (the error function, which exact GELU is
+written from: `0.5·x·(1 + erf(x/√2))`), `swiglu of Gate and Up`, `rope of Q with cos RC and sin RS`,
 `attention of Q over K and V with H heads KV groups`, `causal attention of …`,
 `full attention of Q over K and V with H heads`, `gated delta of …`, `moe of X with router Wr gate Wg
 up Wu down Wd choosing K of E`, `causal conv of X with weight WC state CS over T taps`,
@@ -489,8 +498,11 @@ with another epsilon names it after the operands: `rmsnorm of X with weight W wi
 An attention keeps a sliding window when the program gives one after its length: `attention of Q over K
 and V with 8 heads 2 groups up to pos within a window of 512` attends position `pos` and the 511 before
 it, `capped at C` before the sinks takes each score `s` as `C·tanh(s/C)` before the softmax (Gemma 2's soft cap), and
-`with sinks S` last gives each head a logit that joins its softmax and takes no value. `X capped at C` caps every element
-of a tensor the same way. `X scaled by
+`with sinks S` gives each head a logit that joins its softmax and takes no value. Three masks may follow, in this order:
+`with linear biases M` (ALiBi) takes `M[h]·|n − j|` off each score of head `h` for a key at `j` of a query at `n`;
+`with a bidirectional prefix of P`, on a causal block, lets the first `P` positions attend one another whole; and
+`with rows starting at R` has each row attend from its own first position `R[r]`, as a block of packed sequences does.
+`X capped at C` caps every element of a tensor the same way. `X scaled by
 C` multiplies every element of a tensor by the number `C`, and `A plus B` with `B` one row as wide as
 `A`'s rows adds that row to each of them (a bias over a block). A mixture takes a bias after any of its
 weights (`router Wr plus Br gate Wg plus Bg …`) and `using a swiglu clamped at 7.0 with slope 1.702`
@@ -499,10 +511,11 @@ each kept expert by its softmax over every expert, as DeepSeek-V2 does, instead 
 weights to sum to one.
 
 Heads are parts of a row, and four more forms take them apart and put them together.
-`the first K of every N of X` (or `the last K`) keeps one part of every group of `N` elements, `A joined
-with B` puts the rows of two tensors side by side (`across H heads`, each head's parts), and `X matmul W
-across H heads` multiplies each head's slice of `X` by its own block of `W`'s rows. An attention's values
-may be narrower or wider than its keys, and `scaled by S` after its window replaces the score scale `1/√HD`.
+`the first K of every N of X` (or `the last K`, or `the K after the first F`) keeps one part of every group of
+`N` elements, `A joined with B` puts the rows of two tensors side by side (`across H heads`, each head's
+parts), and `X matmul W across H heads` multiplies each head's slice of `X` by its own block of `W`'s rows.
+An attention's values may be narrower or wider than its keys, and `scaled by S` after its window replaces
+the score scale `1/√HD`.
 Together they write DeepSeek's latent attention with each head's query absorbed into the cached latent:
 
 ```logos
@@ -540,6 +553,120 @@ Show round(item 3 of O * 100).
 50
 -100
 100
+```
+
+A hyper-connected residual holds each token as `L` lanes side by side, and three forms take its lanes. `rmsnorm of H
+with weight W in L lanes` norms each lane on its own, by its own row of a weight as wide as every lane; `the mean of X
+over L lanes` averages each row's lanes into one; and `O spread over L lanes by S` lays each row of `O` in every lane,
+lane `l` of row `t` times `S`'s entry `(t, l)` (without `by S`, a copy in each lane). Qwen3.8-Flash-Next mixes its
+four lanes into each sublayer's input with the first two and adds the sublayer's output back with the third:
+
+```logos
+## Main
+Let H be a 1 by 4 tensor of Real.
+Set item 1 of H to 2.0.
+Set item 2 of H to 4.0.
+Set item 3 of H to 6.0.
+Set item 4 of H to 8.0.
+Let M be the mean of H over 2 lanes.
+Let S be a 1 by 2 tensor of Real.
+Set item 1 of S to 1.0.
+Set item 2 of S to 0.5.
+Let P be M spread over 2 lanes by S.
+Show item 1 of P.
+Show item 2 of P.
+Show item 3 of P.
+Show item 4 of P.
+```
+
+```output
+4
+6
+2
+3
+```
+
+Two forms gate each lane by how far it agrees with something: `the lane sums of X over L lanes` sums each lane of each
+row on its own (`X` of `L` lanes a row, the result one value a lane), and `the signed root of X` is `sign(x)·√max(|x|, E)`
+of every element (`with epsilon E`, 1e-6 unless given). Qwen3.8-Flash-Next's n-gram embedding gates each lane by the
+sigmoid of the signed root of its key's agreement with the lane:
+
+```logos
+## Main
+Let G be a 1 by 4 tensor of Real.
+Set item 1 of G to 2.0.
+Set item 2 of G to 7.0.
+Set item 3 of G to -1.0.
+Set item 4 of G to -8.0.
+Let S be the lane sums of G over 2 lanes.
+Let R be the signed root of S.
+Show item 1 of S.
+Show item 2 of S.
+Show item 1 of R.
+Show item 2 of R.
+```
+
+```output
+9
+-9
+3
+-3
+```
+
+`the ngram ids of T after R by M modulo V from O ending at E` names the rows of a hashed table each token's n-grams fall
+in: for each token row of `T` (a token's id plus one, as `row t of Emb` reads it) and each order from 2 to `|M|`, the
+token and the ones before it each times its place's multiplier `M`, exclusive-ored, modulo each of the order's heads'
+`V`, plus its `O` — a token beyond the end of a document (row `E`) reading as that end. `R` holds the rows of the tokens
+before the first, `0` where none was, and ends holding the last of them, as a decode step's carried state does. `rows I
+of T side by side` reads the rows a row of `I` names joined into one row:
+
+```logos
+## Main
+Let T be a 1 by 2 tensor of Int.
+Set item 1 of T to 6.
+Set item 2 of T to 3.
+Let R be a 1 by 2 tensor of Int.
+Let M be a 1 by 3 tensor of Int.
+Set item 1 of M to 3.
+Set item 2 of M to 5.
+Set item 3 of M to 7.
+Let V be a 1 by 2 tensor of Int.
+Set item 1 of V to 11.
+Set item 2 of V to 13.
+Let O be a 1 by 2 tensor of Int.
+Set item 2 of O to 11.
+Let I be the ngram ids of T after R by M modulo V from O ending at 1.
+Show item 1 of I.
+Show item 2 of I.
+Show item 3 of I.
+Show item 4 of I.
+Show item 2 of R.
+Let J be a 2 by 2 tensor of Int.
+Set item 1 of J to 3.
+Set item 2 of J to 1.
+Set item 3 of J to 2.
+Set item 4 of J to 3.
+Let P be a 3 by 1 tensor of Real.
+Set item 1 of P to 10.0.
+Set item 2 of P to 20.0.
+Set item 3 of P to 30.0.
+Let E be rows J of P side by side.
+Show item 1 of E.
+Show item 2 of E.
+Show item 3 of E.
+Show item 4 of E.
+```
+
+```output
+5
+14
+10
+17
+3
+30
+10
+20
+30
 ```
 
 An int8 model moves between its layers in integers, and four forms say its steps exactly, every operand a
@@ -1183,8 +1310,9 @@ A standard library ships with the compiler
 | Text and data | `strings`, `chars`, `unicode`, `bytes`, `bits`, `regex`, `encoding`, `convert`, `json` |
 | Numbers | `math`, `statistics`, `random`, `rng`, `operator` |
 | Collections | `collections`, `iter`, `sort`, `heap`, `builder` |
+| Logic | `datalog` |
 | Linear algebra | `blas`, `lapack`, `clapack` |
-| The machine | `io`, `file`, `env`, `time`, `calendar`, `error`, `compress`, `media`, `vision` |
+| The machine | `io`, `file`, `env`, `process`, `time`, `calendar`, `error`, `compress`, `media`, `vision` |
 | The web | `http`, `static`, `session`, `web`, `forms`, `ui`, `postgres`, `vdom` |
 | The network | `tcp`, `net` |
 | Distribution | `crdt`, `concurrency` |
@@ -1194,6 +1322,40 @@ The web modules are the subject of two guides: [Web](web.md) for the server and
 [Frontend](frontend.md) for pages in the browser. `lapack` also backs two statements:
 `Solve M times x equals v for x.` binds `x` to `solveLinear(M, v)`, and
 `Minimize the quadratic Q with linear b over x.` binds it to `minimizeQuadratic(Q, b)`.
+
+The `datalog` module evaluates Datalog in LOGOS itself: ground facts and Horn rules, with negation over lower
+strata, computed semi-naively to their least model. `datalogEvaluate(facts, rules)` answers a `DatalogModel` holding
+every fact once, the given ones first, or a `DatalogRefusal` saying why there is none (a predicate used with two
+arities, a variable no positive literal binds, a negation inside a cycle) in the words `largo datalog` uses. A path is
+an edge, or a path followed by an edge:
+
+```logos
+## Main
+Let mutable facts be a new Seq of DatalogFact.
+Push datalogFact("edge", ["a", "b"]) to facts.
+Push datalogFact("edge", ["b", "c"]) to facts.
+Let x be datalogVar("X").
+Let y be datalogVar("Y").
+Let z be datalogVar("Z").
+Let mutable rules be a new Seq of DatalogRule.
+Push datalogRule("base", datalogAtom("path", [x, y]), [datalogHolds(datalogAtom("edge", [x, y]))]) to rules.
+Push datalogRule("step", datalogAtom("path", [x, z]), [datalogHolds(datalogAtom("path", [x, y])), datalogHolds(datalogAtom("edge", [y, z]))]) to rules.
+Let outcome be datalogEvaluate(facts, rules).
+Inspect outcome:
+    When DatalogModel (model):
+        Repeat for f in model:
+            Show datalogShowFact(f).
+    When DatalogRefusal (reason):
+        Show reason.
+```
+
+```output
+edge(a, b)
+edge(b, c)
+path(a, b)
+path(b, c)
+path(a, c)
+```
 
 The `crypto` and `uuid` modules are themselves written in LOGOS.
 [`crypto.lg`](../crates/logicaffeine_compile/assets/std/crypto.lg) carries:

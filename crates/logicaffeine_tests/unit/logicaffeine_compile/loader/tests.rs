@@ -503,6 +503,19 @@ fn local_bindings_split_callables_from_values() {
     assert!(!b.values.iter().any(|x| x == "clamp" || x == "g"));
 }
 
+/// A header whose text puts a character wider than a byte before a colon (`«#fld0»:`, the `»` two bytes) is
+/// scanned by characters: the word before each colon starts after that character, not inside it.
+#[test]
+fn local_bindings_scan_a_header_that_holds_a_wide_character_before_a_colon() {
+    let b = local_bindings(
+        "## To fst (p: Pair2) -> Nat: Consider p: When Pair a «#fld0»: Yield a.\n\
+         ## To snd (é: Int, q: Int) -> Int:\n    Return q.\n",
+    );
+    for v in ["p", "é", "q"] {
+        assert!(b.values.iter().any(|x| x == v), "{v} is a parameter: {:?}", b.values);
+    }
+}
+
 #[test]
 fn library_ownership_is_decided_by_content_not_spelling() {
     let spliced = apply_prelude("## Main\nShow indexOf(\"hello\", \"l\").\n").into_owned();
@@ -857,11 +870,12 @@ fn the_whole_word_prefilter_hides_no_use() {
     }
 }
 
-/// A native is bound to its runtime implementation by name on every tier, so hygiene can never rename one: a program
-/// that declares one of a module's natives itself keeps that whole module out, even while it calls the module's other
-/// functions, rather than splice a library copy whose native answers to a name no runtime binds.
+/// A native is bound to its runtime implementation by name on every tier, so hygiene can never rename one, and the
+/// program's declaration and the module's name one function. A program that declares one of a module's natives itself
+/// still gets the module's other functions: the module is spliced without its own declaration of that native, so the
+/// native is declared once, by the program, under its own name.
 #[test]
-fn a_program_declaring_a_modules_native_keeps_the_module_out() {
+fn a_program_declaring_a_modules_native_still_gets_the_module() {
     let mut exercised = 0;
     for m in 0..PRELUDE_MODULES.len() {
         let others: Vec<&str> = PRELUDE_NAMES[m]
@@ -890,9 +904,15 @@ fn a_program_declaring_a_modules_native_keeps_the_module_out() {
                 "`{native}` was renamed:\n{spliced}"
             );
             assert!(
-                !spliced.contains(&format!("## To {}", others[0])),
-                "the module declaring `{native}` was spliced beside the program's own `{native}`"
+                spliced.contains(&format!("## To {} ", others[0])) || spliced.contains(&format!("## To {}(", others[0])),
+                "the module declaring `{native}` was not spliced for `{}`:\n{spliced}",
+                others[0]
             );
+            let declared = spliced
+                .lines()
+                .filter(|l| function_header(l).is_some_and(|h| h.name == *native && h.native))
+                .count();
+            assert_eq!(declared, 1, "`{native}` is declared once, by the program:\n{spliced}");
             exercised += 1;
         }
     }

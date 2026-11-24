@@ -35,7 +35,7 @@ use crate::{
     ST_BREQ, ST_BREQF, ST_BRLEF, ST_BRLT, ST_BRLTF, ST_BRZ, ST_CALL, ST_CALL_PRECISE, ST_CALL_SELF,
     ST_CALL_SELF_COPY, ST_CEILF2, ST_CHRGUARD, ST_CONSTST, ST_DEOPT, ST_DEOPT_AT, ST_DIV3C,
     ST_DIVF3C, ST_DIVPOW2, ST_EQ3, ST_EQF3, ST_FLOORF2, ST_FMAF, ST_HOST, ST_I2F2, ST_JUMP, ST_LE3,
-    ST_LEF3, ST_LISTTRIPLE, ST_LIST_CLEAR, ST_LT3, ST_LTF3, ST_LZCNT2, ST_MAGICDIV, ST_MAPHGET,
+    ST_LEF3, ST_LISTTRIPLE, ST_LIST_CLEAR, ST_LT3, ST_LTF3, ST_LZCNT2, ST_MAGICDIV, ST_MAGICDIVS, ST_MAPHGET,
     ST_MAPHHAS, ST_MAPHSET, ST_MEMMEM, ST_MOD3C, ST_MOVSS, ST_MUL3, ST_MULF3, ST_NE3, ST_NEF3,
     ST_NOTB2, ST_NOTI2, ST_OR3, ST_POPCNT2, ST_PUSH, ST_RET2, ST_ROL32_3, ST_ROL64_3, ST_ROR32_3,
     ST_ROR64_3, ST_ROUNDF2, ST_SHL3, ST_SHR3, ST_SQRTF2, ST_SUB3, ST_SUBF3, ST_TZCNT2, ST_USHR3,
@@ -386,6 +386,25 @@ pub enum MicroOp {
         more: u8,
         /// `0` selects the quotient; otherwise the divisor `c` selects the
         /// remainder `x - (x/c)*c`.
+        mul_back: i64,
+    },
+    /// `frame[dst] = frame[lhs] / c` or `frame[lhs] % c` for a divisor `c ≥ 2` through the SIGNED magic reciprocal
+    /// (`logicaffeine_base::reciprocal::SignedReciprocal`): `q = mulhi_s(magic, x)`, `+ x` when `add`, arithmetic
+    /// `>> shift`, `+ 1` when `x < 0`; the remainder is `x - q*c`. Truncating division for EVERY dividend, negative
+    /// ones and `i64::MIN` included, so it needs no sign proof and no side exit (`c ≥ 2` is never `0` or `-1`).
+    /// Emitted where the divisor is a value a region was specialized on, guarded at entry.
+    MagicDivS {
+        /// Destination slot.
+        dst: Slot,
+        /// Dividend slot.
+        lhs: Slot,
+        /// The signed multiplier.
+        magic: i64,
+        /// The arithmetic shift after the multiplication.
+        shift: u8,
+        /// Whether the dividend is added to the high product (exactly when `magic < 0`).
+        add: bool,
+        /// `0` selects the quotient; otherwise the divisor `c` selects the remainder.
         mul_back: i64,
     },
     /// `frame[dst] = frame[lhs] % frame[rhs]` (wrapping; `MIN % -1 = 0`).
@@ -1517,6 +1536,26 @@ fn emit_mem_form(
                 ],
             );
         }
+        MicroOp::MagicDivS {
+            dst,
+            lhs,
+            magic,
+            shift,
+            add,
+            mul_back,
+        } => {
+            buf.push_stencil(
+                &ST_MAGICDIVS,
+                &[
+                    HoleValue::Const(0, lhs as i64),
+                    HoleValue::Const(1, magic),
+                    HoleValue::Const(2, i64::from(shift) | if add { 0x40 } else { 0 }),
+                    HoleValue::Const(3, mul_back),
+                    HoleValue::Const(4, dst as i64),
+                    HoleValue::Cont(0, next),
+                ],
+            );
+        }
         MicroOp::AddF { dst, lhs, rhs }
         | MicroOp::SubF { dst, lhs, rhs }
         | MicroOp::MulF { dst, lhs, rhs } => {
@@ -2239,7 +2278,9 @@ pub fn compile_straightline_pinned_float(
                 reads.extend([lhs, rhs]);
                 writes.push(dst);
             }
-            MicroOp::DivPow2 { dst, lhs, .. } | MicroOp::MagicDivU { dst, lhs, .. } => {
+            MicroOp::DivPow2 { dst, lhs, .. }
+            | MicroOp::MagicDivU { dst, lhs, .. }
+            | MicroOp::MagicDivS { dst, lhs, .. } => {
                 reads.push(lhs);
                 writes.push(dst);
             }
@@ -4142,6 +4183,26 @@ pub fn compile_straightline_coded(
                     ],
                 );
             }
+            MicroOp::MagicDivS {
+                dst,
+                lhs,
+                magic,
+                shift,
+                add,
+                mul_back,
+            } => {
+                buf.push_stencil(
+                    &ST_MAGICDIVS,
+                    &[
+                        HoleValue::Const(0, lhs as i64),
+                        HoleValue::Const(1, magic),
+                        HoleValue::Const(2, i64::from(shift) | if add { 0x40 } else { 0 }),
+                        HoleValue::Const(3, mul_back),
+                        HoleValue::Const(4, dst as i64),
+                        HoleValue::Cont(0, next),
+                    ],
+                );
+            }
         }
     }
 
@@ -4168,6 +4229,25 @@ pub fn compile_straightline_coded(
         status,
         keepalive: Vec::new(),
     })
+}
+
+/// Evaluate the signed magic reciprocal for [`MicroOp::MagicDivS`]: truncating `x / d` when `mul_back == 0`, else
+/// `x % d` (`mul_back == d`), for every `i64` dividend. The quotient is the high half of `magic · x`, plus `x` when
+/// `add`, shifted right arithmetically by `shift`, plus one for a negative `x`; the construction and its proof are
+/// `logicaffeine_base::reciprocal::SignedReciprocal`'s.
+#[inline]
+pub fn magic_eval_signed(x: i64, magic: i64, shift: u8, add: bool, mul_back: i64) -> i64 {
+    let mut q = ((i128::from(magic) * i128::from(x)) >> 64) as i64;
+    if add {
+        q = q.wrapping_add(x);
+    }
+    q >>= shift;
+    q = q.wrapping_add(((x as u64) >> 63) as i64);
+    if mul_back == 0 {
+        q
+    } else {
+        x.wrapping_sub(q.wrapping_mul(mul_back))
+    }
 }
 
 /// Evaluate the unsigned magic reciprocal for [`MicroOp::MagicDivU`]:
@@ -4252,6 +4332,16 @@ pub fn reference_eval(ops: &[MicroOp], frame: &mut [i64], mut fuel: u64) -> Opti
                 mul_back,
             } => {
                 frame[dst as usize] = magic_eval(frame[lhs as usize], magic, more, mul_back);
+            }
+            MicroOp::MagicDivS {
+                dst,
+                lhs,
+                magic,
+                shift,
+                add,
+                mul_back,
+            } => {
+                frame[dst as usize] = magic_eval_signed(frame[lhs as usize], magic, shift, add, mul_back);
             }
             MicroOp::Mod { dst, lhs, rhs } => {
                 let b = frame[rhs as usize];

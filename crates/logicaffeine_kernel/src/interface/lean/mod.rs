@@ -18,13 +18,15 @@ pub mod intake;
 pub mod native_decide;
 pub mod package;
 pub mod pipeline;
+pub mod profile;
 pub mod receipt;
+pub mod statement;
 pub mod reference;
 pub mod taint;
 pub use pipeline::run_cli;
 mod beta;
 mod dag;
-mod metadata;
+pub mod metadata;
 // Experimental trace controls do not alter importer production behavior.
 #[cfg(test)]
 #[path = "../../../../logicaffeine_tests/unit/logicaffeine_kernel/interface/lean/lazy_conversion.rs"]
@@ -3371,6 +3373,14 @@ impl<'a> Importer<'a> {
                         value: value.as_str().expect("validated metadata value").into(),
                     });
                 }
+            }
+            // The elaborator-have contract (`metadata`): an ordinary let, its flag disclosed.
+            if metadata::nondependent(&r) {
+                self.report.metadata_losses.push(MetadataLoss {
+                    expression: i,
+                    key: metadata::NONDEP_KEY.into(),
+                    value: "true".into(),
+                });
             }
             self.expr_depth.insert(i, depth);
             self.exprs.insert(i, r);

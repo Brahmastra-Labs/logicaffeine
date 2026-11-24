@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The encoder's fallback for a term it cannot read is a fresh proposition (`unencodable`), never a constant: an
+  ill-sorted comparison, `And` or `Or` encoded as `false` made the assumptions contradictory, an `Implies` or
+  quantifier over a non-proposition encoded as `true` was proved as a goal, and an equation between different sorts
+  panicked in `z3` (`equal` checks the sorts).
+
 ## [0.11.0] - 2026-11-02
 
 ### Breaking changes

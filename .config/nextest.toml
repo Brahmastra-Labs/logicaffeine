@@ -181,15 +181,15 @@ priority = 90
 max-threads = 12
 
 [[profile.default.overrides]]
-filter = 'binary(/^(e2e_async_cross_cutting|e2e_causal_consistency|e2e_closures|e2e_codegen_collections|e2e_codegen_comparisons|e2e_codegen_control_flow|e2e_codegen_edge_cases|e2e_codegen_enums|e2e_codegen_expressions|e2e_codegen_functions|e2e_codegen_gaps|e2e_codegen_iteration|e2e_codegen_logical|e2e_codegen_maps|e2e_codegen_optimization|e2e_codegen_primitives|e2e_codegen_sets|e2e_codegen_structs|e2e_codegen_tuples|e2e_codegen_types|e2e_codegen_variables|e2e_concurrency|e2e_crdt|e2e_feature_matrix|e2e_gossip|e2e_gossip_edge_cases|e2e_integration|e2e_language_gaps|e2e_math_builtins|e2e_mesh|e2e_multi_node|e2e_network_partition|e2e_policy|e2e_refinement|e2e_ref_semantics|e2e_string_interpolation|e2e_studio_examples|e2e_temporal|e2e_temporal_show|e2e_zones|phase25_type_expr|phase38_stdlib|phase_abstract_interp|phase_autoparallel|phase_break|phase_bta|phase_crdt_language|phase_deforestation|phase_escape_hatch|phase_ffi_requires|phase_futamura|phase_mountain_climb|phase_optimize|phase_optimize_v2|phase_partial_eval|phase_polyhedral|phase_supercompile|test_concurrency|user_concurrency|concurrency_aot|e2e_codegen_rational|opt_toggle_aot_differential|phase_affine_array|phase_aos_interleave|phase_borrow_hoist|phase_construction_opts|phase_de_rc|phase_entry_guard|phase_fast_div|phase_mod_defer|phase_narrow|phase_oracle_bounds|phase_pe_concurrency|phase_prefix_reverse|phase_scratch_hoist|phase_seq_scalarize|phase_strsearch|phase_unroll|phase_zero_based|report1_misc|report1_peephole|stdlib_prelude_invisible)$/)'
+filter = 'binary(/^(e2e_async_cross_cutting|e2e_causal_consistency|e2e_closures|e2e_codegen_collections|e2e_codegen_comparisons|e2e_codegen_control_flow|e2e_codegen_edge_cases|e2e_codegen_enums|e2e_codegen_expressions|e2e_codegen_functions|e2e_codegen_gaps|e2e_codegen_iteration|e2e_codegen_logical|e2e_codegen_maps|e2e_codegen_optimization|e2e_codegen_primitives|e2e_codegen_sets|e2e_codegen_structs|e2e_codegen_tuples|e2e_codegen_types|e2e_codegen_variables|e2e_concurrency|e2e_crdt|e2e_feature_matrix|e2e_gossip|e2e_gossip_edge_cases|e2e_integration|e2e_language_gaps|e2e_math_builtins|e2e_mesh|e2e_multi_node|e2e_network_partition|e2e_policy|e2e_refinement|e2e_ref_semantics|e2e_string_interpolation|e2e_studio_examples|e2e_temporal|e2e_temporal_show|e2e_zones|phase25_type_expr|phase38_stdlib|phase_abstract_interp|phase_autoparallel|phase_break|phase_bta|phase_crdt_language|phase_deforestation|phase_escape_hatch|phase_ffi_requires|phase_futamura|phase_mountain_climb|phase_optimize|phase_optimize_v2|phase_partial_eval|phase_polyhedral|phase_supercompile|test_concurrency|user_concurrency|concurrency_aot|e2e_codegen_rational|opt_toggle_aot_differential|phase_affine_array|phase_aos_interleave|phase_borrow_hoist|phase_construction_opts|phase_de_rc|phase_entry_guard|phase_fast_div|phase_mod_defer|phase_narrow|phase_oracle_bounds|phase_pe_concurrency|phase_prefix_reverse|phase_scratch_hoist|phase_seq_scalarize|phase_strsearch|phase_unroll|phase_zero_based|report1_misc|report1_peephole|stdlib_prelude_invisible|codegen_divergence_lock|generated_rust_lint_lock)$/)'
 test-group = 'e2e-subprocess'
 
 [[profile.ci.overrides]]
-filter = 'binary(/^(e2e_async_cross_cutting|e2e_causal_consistency|e2e_closures|e2e_codegen_collections|e2e_codegen_comparisons|e2e_codegen_control_flow|e2e_codegen_edge_cases|e2e_codegen_enums|e2e_codegen_expressions|e2e_codegen_functions|e2e_codegen_gaps|e2e_codegen_iteration|e2e_codegen_logical|e2e_codegen_maps|e2e_codegen_optimization|e2e_codegen_primitives|e2e_codegen_sets|e2e_codegen_structs|e2e_codegen_tuples|e2e_codegen_types|e2e_codegen_variables|e2e_concurrency|e2e_crdt|e2e_feature_matrix|e2e_gossip|e2e_gossip_edge_cases|e2e_integration|e2e_language_gaps|e2e_math_builtins|e2e_mesh|e2e_multi_node|e2e_network_partition|e2e_policy|e2e_refinement|e2e_ref_semantics|e2e_string_interpolation|e2e_studio_examples|e2e_temporal|e2e_temporal_show|e2e_zones|phase25_type_expr|phase38_stdlib|phase_abstract_interp|phase_autoparallel|phase_break|phase_bta|phase_crdt_language|phase_deforestation|phase_escape_hatch|phase_ffi_requires|phase_futamura|phase_mountain_climb|phase_optimize|phase_optimize_v2|phase_partial_eval|phase_polyhedral|phase_supercompile|test_concurrency|user_concurrency|concurrency_aot|e2e_codegen_rational|opt_toggle_aot_differential|phase_affine_array|phase_aos_interleave|phase_borrow_hoist|phase_construction_opts|phase_de_rc|phase_entry_guard|phase_fast_div|phase_mod_defer|phase_narrow|phase_oracle_bounds|phase_pe_concurrency|phase_prefix_reverse|phase_scratch_hoist|phase_seq_scalarize|phase_strsearch|phase_unroll|phase_zero_based|report1_misc|report1_peephole|stdlib_prelude_invisible)$/)'
+filter = 'binary(/^(e2e_async_cross_cutting|e2e_causal_consistency|e2e_closures|e2e_codegen_collections|e2e_codegen_comparisons|e2e_codegen_control_flow|e2e_codegen_edge_cases|e2e_codegen_enums|e2e_codegen_expressions|e2e_codegen_functions|e2e_codegen_gaps|e2e_codegen_iteration|e2e_codegen_logical|e2e_codegen_maps|e2e_codegen_optimization|e2e_codegen_primitives|e2e_codegen_sets|e2e_codegen_structs|e2e_codegen_tuples|e2e_codegen_types|e2e_codegen_variables|e2e_concurrency|e2e_crdt|e2e_feature_matrix|e2e_gossip|e2e_gossip_edge_cases|e2e_integration|e2e_language_gaps|e2e_math_builtins|e2e_mesh|e2e_multi_node|e2e_network_partition|e2e_policy|e2e_refinement|e2e_ref_semantics|e2e_string_interpolation|e2e_studio_examples|e2e_temporal|e2e_temporal_show|e2e_zones|phase25_type_expr|phase38_stdlib|phase_abstract_interp|phase_autoparallel|phase_break|phase_bta|phase_crdt_language|phase_deforestation|phase_escape_hatch|phase_ffi_requires|phase_futamura|phase_mountain_climb|phase_optimize|phase_optimize_v2|phase_partial_eval|phase_polyhedral|phase_supercompile|test_concurrency|user_concurrency|concurrency_aot|e2e_codegen_rational|opt_toggle_aot_differential|phase_affine_array|phase_aos_interleave|phase_borrow_hoist|phase_construction_opts|phase_de_rc|phase_entry_guard|phase_fast_div|phase_mod_defer|phase_narrow|phase_oracle_bounds|phase_pe_concurrency|phase_prefix_reverse|phase_scratch_hoist|phase_seq_scalarize|phase_strsearch|phase_unroll|phase_zero_based|report1_misc|report1_peephole|stdlib_prelude_invisible|codegen_divergence_lock|generated_rust_lint_lock)$/)'
 test-group = 'e2e-subprocess'
 
 [[profile.full.overrides]]
-filter = 'binary(/^(e2e_async_cross_cutting|e2e_causal_consistency|e2e_closures|e2e_codegen_collections|e2e_codegen_comparisons|e2e_codegen_control_flow|e2e_codegen_edge_cases|e2e_codegen_enums|e2e_codegen_expressions|e2e_codegen_functions|e2e_codegen_gaps|e2e_codegen_iteration|e2e_codegen_logical|e2e_codegen_maps|e2e_codegen_optimization|e2e_codegen_primitives|e2e_codegen_sets|e2e_codegen_structs|e2e_codegen_tuples|e2e_codegen_types|e2e_codegen_variables|e2e_concurrency|e2e_crdt|e2e_feature_matrix|e2e_gossip|e2e_gossip_edge_cases|e2e_integration|e2e_language_gaps|e2e_math_builtins|e2e_mesh|e2e_multi_node|e2e_network_partition|e2e_policy|e2e_refinement|e2e_ref_semantics|e2e_string_interpolation|e2e_studio_examples|e2e_temporal|e2e_temporal_show|e2e_zones|phase25_type_expr|phase38_stdlib|phase_abstract_interp|phase_autoparallel|phase_break|phase_bta|phase_crdt_language|phase_deforestation|phase_escape_hatch|phase_ffi_requires|phase_futamura|phase_mountain_climb|phase_optimize|phase_optimize_v2|phase_partial_eval|phase_polyhedral|phase_supercompile|test_concurrency|user_concurrency|concurrency_aot|e2e_codegen_rational|opt_toggle_aot_differential|phase_affine_array|phase_aos_interleave|phase_borrow_hoist|phase_construction_opts|phase_de_rc|phase_entry_guard|phase_fast_div|phase_mod_defer|phase_narrow|phase_oracle_bounds|phase_pe_concurrency|phase_prefix_reverse|phase_scratch_hoist|phase_seq_scalarize|phase_strsearch|phase_unroll|phase_zero_based|report1_misc|report1_peephole|stdlib_prelude_invisible)$/)'
+filter = 'binary(/^(e2e_async_cross_cutting|e2e_causal_consistency|e2e_closures|e2e_codegen_collections|e2e_codegen_comparisons|e2e_codegen_control_flow|e2e_codegen_edge_cases|e2e_codegen_enums|e2e_codegen_expressions|e2e_codegen_functions|e2e_codegen_gaps|e2e_codegen_iteration|e2e_codegen_logical|e2e_codegen_maps|e2e_codegen_optimization|e2e_codegen_primitives|e2e_codegen_sets|e2e_codegen_structs|e2e_codegen_tuples|e2e_codegen_types|e2e_codegen_variables|e2e_concurrency|e2e_crdt|e2e_feature_matrix|e2e_gossip|e2e_gossip_edge_cases|e2e_integration|e2e_language_gaps|e2e_math_builtins|e2e_mesh|e2e_multi_node|e2e_network_partition|e2e_policy|e2e_refinement|e2e_ref_semantics|e2e_string_interpolation|e2e_studio_examples|e2e_temporal|e2e_temporal_show|e2e_zones|phase25_type_expr|phase38_stdlib|phase_abstract_interp|phase_autoparallel|phase_break|phase_bta|phase_crdt_language|phase_deforestation|phase_escape_hatch|phase_ffi_requires|phase_futamura|phase_mountain_climb|phase_optimize|phase_optimize_v2|phase_partial_eval|phase_polyhedral|phase_supercompile|test_concurrency|user_concurrency|concurrency_aot|e2e_codegen_rational|opt_toggle_aot_differential|phase_affine_array|phase_aos_interleave|phase_borrow_hoist|phase_construction_opts|phase_de_rc|phase_entry_guard|phase_fast_div|phase_mod_defer|phase_narrow|phase_oracle_bounds|phase_pe_concurrency|phase_prefix_reverse|phase_scratch_hoist|phase_seq_scalarize|phase_strsearch|phase_unroll|phase_zero_based|report1_misc|report1_peephole|stdlib_prelude_invisible|codegen_divergence_lock|generated_rust_lint_lock)$/)'
 test-group = 'e2e-subprocess'
 
 # AOT-native tier tests (HOTSWAP §Axis-3) each shell out to `rustc`/`cargo` to build a
@@ -580,10 +580,179 @@ test-group = 'dev-server'
 filter = 'binary_id(logicaffeine-tests::spatial_int64_lock) & test(=every_lowering_carries_a_proof)'
 threads-required = 4
 
-# BEGIN test widths. Generated by `scripts/test/test-ledger-report.py <ledger> --widths 4 --min-cpu 120` from the full
-# gate of 2026-10-24 (logs/test-run-fast-20261024-063551.ledger.tsv). nextest counts every test as one thread; each test
-# here kept n cores busy in that gate (its CPU, with every process it waited for, over its wall clock), so it takes n of
-# the run's threads and the run's load stays near its threads. Regenerate the block from a later full run's ledger;
+# The CUDA lane's compile locks that build their programs nine nvcc at a time (`lane_compile_lock::nvcc_all`,
+# `NVCC_WIDTH`): an expert mixture's program alone is over four minutes of nvcc on a busy box, its eighteen in a row past
+# the gate's cut.
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::lane_compile_lock) & (test(=a_hyper_connected_residual_mixes_its_lanes_on_the_lane) | test(=a_hyper_connected_mix_runs_its_gate_shares_and_mean_in_its_products) | test(=qwen38_flash_next_layers_compile_on_the_lane) | test(=a_q8_projections_norm_fold_takes_the_rows_a_warp_that_fit_one_wave) | test(=a_wide_chunks_experts_run_on_the_tensor_cores) | test(=a_q8_gated_pair_of_one_row_takes_four_rows_a_warp) | test(=a_block_format_gated_pair_of_one_row_takes_four_rows_a_warp) | test(=a_q8_gemv_in_parts_of_one_row_takes_the_rows_a_warp_its_parts_divide) | test(=a_gated_delta_step_takes_two_of_its_memorys_rows_a_warp) | test(=a_gated_delta_layers_q8_inputs_take_two_rows_a_warp) | test(=every_block_format_is_read_in_place_through_its_decoder))'
+threads-required = 9
+
+# BEGIN test backstops. Generated by `scripts/test/test-ledger-report.py <ledger> --backstops 9` from d5005_flow_lock and
+# d5005_rtl_lock run four at a time on a quiet box with no backstop on 2026-11-12 (logs/release-0110/d5005-measure/
+# ledger.tsv: every one of their 316 tests passed, the longest in 1,256 s). The full profile's 30 minutes are a backstop
+# for a hang; a run at a load of 50 to 67 stretched these suites' passing tests 3.3 times over on the median and 8.4 at
+# the most, and cut 13 of them at 30 minutes, every one of which passes alone. Each test here gets nine times its wall
+# clock, in five-minute periods, as a backstop of its own. Regenerate the block from a later measurement;
+# test_ledger_lock holds every entry to a test that exists and outlasts the full profile's.
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_flow_lock) & test(=every_builds_memories_of_thirty_two_words_or_fewer_ask_for_mlabs_or_registers)'
+slow-timeout = { period = "300s", terminate-after = 21 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_flow_lock) & test(=the_cards_array_of_token_pairs_keeps_every_stage_within_a_200_mhz_clock)'
+slow-timeout = { period = "300s", terminate-after = 28 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_flow_lock) & test(=the_cards_build_keeps_every_large_memory_where_quartus_builds_block_ram)'
+slow-timeout = { period = "300s", terminate-after = 10 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_flow_lock) & test(=the_cards_recurrence_making_its_gated_norms_keeps_every_stage_within_a_200_mhz_clock)'
+slow-timeout = { period = "300s", terminate-after = 7 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_flow_lock) & test(=the_cards_vector_unit_keeps_every_stage_within_a_200_mhz_clock)'
+slow-timeout = { period = "300s", terminate-after = 10 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_flow_lock) & test(=the_image_loads_and_verifies_at_both_line_widths)'
+slow-timeout = { period = "300s", terminate-after = 9 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=a_head_lane_flushes_in_fewer_clocks_over_more_flush_units)'
+slow-timeout = { period = "300s", terminate-after = 14 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=a_rows_gated_norm_costs_its_head_lanes_only_the_gates_tail)'
+slow-timeout = { period = "300s", terminate-after = 14 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=every_layer_of_the_pipelined_store_reads_every_clock_as_its_block_ram_reads)'
+slow-timeout = { period = "300s", terminate-after = 8 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=every_memory_rtl_ram_builds_asks_for_the_block_ram_its_depth_fills)'
+slow-timeout = { period = "300s", terminate-after = 37 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=four_head_lanes_at_half_a_line_a_clock_flush_five_heads_in_f16)'
+slow-timeout = { period = "300s", terminate-after = 13 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=four_head_lanes_flush_every_head_over_two_flush_units_as_the_numerics_do)'
+slow-timeout = { period = "300s", terminate-after = 16 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=four_head_lanes_replay_a_share_whose_window_wraps_the_ring_and_a_row_short_of_a_window)'
+slow-timeout = { period = "300s", terminate-after = 7 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=four_head_lanes_replay_each_rows_share_a_window_behind_as_the_numerics_do)'
+slow-timeout = { period = "300s", terminate-after = 9 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=head_lanes_flush_every_head_over_four_flush_units_and_at_the_cards_width)'
+slow-timeout = { period = "300s", terminate-after = 25 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=head_lanes_norm_a_jobs_rows_one_after_another_as_the_machines_gated_norm)'
+slow-timeout = { period = "300s", terminate-after = 9 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=head_lanes_norm_and_gate_every_heads_read_outs_as_the_machines_gated_norm)'
+slow-timeout = { period = "300s", terminate-after = 30 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=head_lanes_reading_far_ahead_read_and_flush_every_head_as_the_numerics_do)'
+slow-timeout = { period = "300s", terminate-after = 18 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=head_lanes_replay_a_jobs_rows_a_window_behind_one_after_another_as_the_numerics_do)'
+slow-timeout = { period = "300s", terminate-after = 7 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=head_lanes_replay_each_rows_share_a_window_behind_at_the_cards_width_and_half_a_line_a_clock)'
+slow-timeout = { period = "300s", terminate-after = 7 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=head_lanes_take_a_row_past_the_first_in_little_more_than_its_rows_stream)'
+slow-timeout = { period = "300s", terminate-after = 9 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=the_column_array_of_paired_cores_multiplies_as_dot_does)'
+slow-timeout = { period = "300s", terminate-after = 7 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=the_column_array_of_token_pairs_multiplies_as_dot_does)'
+slow-timeout = { period = "300s", terminate-after = 38 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=the_column_array_of_token_pairs_runs_a_pair_a_clock)'
+slow-timeout = { period = "300s", terminate-after = 14 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=the_column_array_takes_an_octets_groups_a_clock_each_on_several_lanes)'
+slow-timeout = { period = "300s", terminate-after = 9 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=the_column_array_takes_q8_0_in_octets_on_several_lanes_and_multiplies_as_dot_does)'
+slow-timeout = { period = "300s", terminate-after = 10 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=the_conv_path_convolves_each_row_as_numerics_conv_does_behind_a_store_of_two_to_four_clocks)'
+slow-timeout = { period = "300s", terminate-after = 8 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=the_gdn_side_reads_and_flushes_every_head_as_the_numerics_do_flushing_four_heads_of_two_groups_in_f16)'
+slow-timeout = { period = "300s", terminate-after = 8 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=the_gdn_side_reads_and_flushes_every_head_as_the_numerics_do_through_a_slow_write_port)'
+slow-timeout = { period = "300s", terminate-after = 7 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=the_lane_function_unit_computes_every_function_of_the_instruction_set)'
+slow-timeout = { period = "300s", terminate-after = 7 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=the_matvec_engine_multiplies_a_matrix_as_dot_does)'
+slow-timeout = { period = "300s", terminate-after = 7 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=the_matvec_step_adds_each_block_as_dot_does)'
+slow-timeout = { period = "300s", terminate-after = 10 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=the_streaming_flush_replays_every_row_as_the_numerics_do)'
+slow-timeout = { period = "300s", terminate-after = 8 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=the_user_clock_vector_unit_runs_a_group_of_passes_as_each_pass_alone)'
+slow-timeout = { period = "300s", terminate-after = 28 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=the_user_clock_vector_unit_runs_a_group_past_the_adds_latency_as_each_pass_alone)'
+slow-timeout = { period = "300s", terminate-after = 27 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=the_user_clock_vector_unit_runs_every_instruction_as_the_engines_does)'
+slow-timeout = { period = "300s", terminate-after = 8 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=the_wide_streaming_flush_replays_every_row_as_the_numerics_do)'
+slow-timeout = { period = "300s", terminate-after = 8 }
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_rtl_lock) & test(=two_cores_passes_on_elements_at_twice_their_clock_are_each_cores_own)'
+slow-timeout = { period = "300s", terminate-after = 7 }
+
+# END test backstops
+
+# BEGIN test widths. Generated by `scripts/test/test-ledger-report.py <ledgers> --widths 4 --min-cpu 120` from the full
+# gate of 2026-10-24 (logs/test-run-fast-20261024-063551.ledger.tsv) and the D5005 suites measured on 2026-11-12
+# (logs/release-0110/d5005-measure/ledger.tsv, which the gate could not time). nextest counts every test as one thread;
+# each test here kept n cores busy (its CPU, with every process it waited for, over its wall clock), so it takes n of
+# the run's threads and the run's load stays near its threads. Regenerate the block from later ledgers;
 # test_ledger_lock holds every entry to a test that exists.
 [[profile.full.overrides]]
 filter = 'binary_id(logicaffeine-tests::aot_native_tier) & test(=aot_native_tier_executes_and_is_dispatched)'
@@ -624,6 +793,18 @@ threads-required = 7
 [[profile.full.overrides]]
 filter = 'binary_id(logicaffeine-tests::cuda_lane_lock) & test(=a_branched_step_computes_what_its_launches_compute_in_order)'
 threads-required = 4
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_flow_lock) & test(=the_cards_f32_units_keep_every_stage_within_a_200_mhz_clock)'
+threads-required = 5
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_flow_lock) & test(=the_cards_fast_side_keeps_every_stage_within_a_200_mhz_clock)'
+threads-required = 7
+
+[[profile.full.overrides]]
+filter = 'binary_id(logicaffeine-tests::d5005_flow_lock) & test(=the_cards_matvec_units_keep_every_stage_within_a_200_mhz_clock)'
+threads-required = 5
 
 [[profile.full.overrides]]
 filter = 'binary_id(logicaffeine-tests::diagnostic_bridge) & test(=e2e_test_no_rustc_error_codes_leak_e0382)'

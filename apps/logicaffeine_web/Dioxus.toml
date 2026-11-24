@@ -4,7 +4,7 @@ default_platform = "web"
 asset_dir = "assets"
 
 [web.app]
-title = "LOGICAFFEINE | Debug Your Thoughts"
+title = "LOGICAFFEINE | Code we can all read"
 
 # Pin binaryen's post-link optimizer to the size-first level (dx's release default —
 # pinned so an upstream default change can't silently regrow the bundle).

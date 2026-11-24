@@ -79,6 +79,9 @@ impl DotContext {
     /// Merge another context into this one.
     pub fn merge(&mut self, other: &Self) {
         self.clock.merge_vclock(&other.clock);
+        // A cloud dot the merged clock now covers is no longer out of order.
+        let clock = &self.clock;
+        self.cloud.retain(|dot| dot.counter > clock.get(dot.replica));
         for &dot in &other.cloud {
             if !self.has_seen(&dot) {
                 self.cloud.insert(dot);

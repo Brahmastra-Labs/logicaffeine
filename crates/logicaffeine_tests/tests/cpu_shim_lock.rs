@@ -35,8 +35,15 @@ use logicaffeine_compile::tensor_graph::eval::{eval, filled, Data};
 use logicaffeine_compile::tensor_graph::fuse::{optimize, realizes};
 use logicaffeine_compile::tensor_graph::graph::{Elem, Role, Storage, Sym, TensorGraph};
 
-use logicaffeine_compile::codegen_cpu::kernels::{ATTN_SPLIT, LIBRARY_X86_AVX2_VNNI, LINKED_WHOLE};
+use logicaffeine_compile::codegen_cpu::kernels::{ATTN_SPLIT, FLAGS_X86_AVX2_VNNI, LIBRARY_X86_AVX2_VNNI, LINKED_WHOLE};
 use logicaffeine_compile::codegen_cpu::shim::{CpuActivations, CpuCache, CpuIsa, CpuShim};
+use logicaffeine_compile::codegen_cpu::model::placed_graph;
+use logicaffeine_compile::codegen_cuda::knobs::CudaKnobs;
+use logicaffeine_compile::codegen_cuda::lane::{decode_io, span_io};
+use logicaffeine_compile::codegen_cuda::lane_shim::LaneShim;
+use logicaffeine_compile::model::gguf::Gguf;
+use logicaffeine_compile::model::program::Cut;
+use logicaffeine_compile::model::spec::ModelSpec;
 use logicaffeine_compile::tensor_graph::numerics::{hadamard, Keep};
 use logicaffeine_compile::tensor_graph::shim::{Shim, Support};
 use logicaffeine_compile::tensor_graph::symbols::{ClassId, Exemplar, Kind, CLASSES};
@@ -131,7 +138,7 @@ fn build_and_run(program: &logicaffeine_compile::codegen_cpu::link::CpuProgram, 
     std::fs::create_dir_all(dir.join("out")).unwrap();
     let (cpp, bin) = (dir.join("step.cpp"), dir.join("step"));
     std::fs::write(&cpp, program.source_with_file_driver()).unwrap();
-    let built = Command::new("g++").args(["-O2", "-std=c++17", "-mavx2", "-mfma", "-mavxvnni", "-mf16c", "-pthread", "-o"]).arg(&bin).arg(&cpp).output().unwrap();
+    let built = Command::new("g++").args(["-O2", "-std=c++17"]).args(FLAGS_X86_AVX2_VNNI).args(["-pthread", "-o"]).arg(&bin).arg(&cpp).output().unwrap();
     assert!(built.status.success(), "{what}: the step builds:\n{}", String::from_utf8_lossy(&built.stderr));
     let mut run = Command::new(&bin);
     run.arg(dir).arg("4").stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped());
@@ -241,6 +248,7 @@ fn stage(c: &lane_corpus::LaneCut, dir: &std::path::Path, position: i64) -> BTre
                 Some(Data::Real(meaning))
             }
             Some(Placement::Values(v)) => Some(Data::Real(v.iter().map(|&x| f64::from(x)).collect())),
+            Some(Placement::Ints(v)) => Some(Data::Int(v.clone())),
             None if io.is_some_and(|io| io.position == t.name) => Some(Data::Int(vec![position; t.len()])),
             None if io.is_some_and(|io| io.token == t.name) => Some(Data::Int(vec![7; t.len()])),
             None => match t.fill.as_ref().and_then(|f| filled(f, t.len())) {
@@ -439,6 +447,91 @@ fn judge(c: &lane_corpus::LaneCut, k: usize, root: &std::path::Path, position: i
         }
         (p, w) => panic!("{}: linked at one point only: precise {:?}, one word {:?}", c.what, p.err(), w.err()),
     }
+}
+
+/// A decode step cut at a layer is its spans to the bit: each tiny architecture's decode step over caches of 24
+/// positions at position 6, cut at every layer past the first — its first span `[0, s)` and its second `[s, L)`
+/// (`Cut::DecodeSpan`), each linked under x86 AVX2 and AVX-VNNI at both numerics points with `f32` and binary16 caches,
+/// run from the values the whole step is staged with, the second from the hidden state the first writes — writes the
+/// hidden state at the cut, every cache row, recurrent memory and ring, the logits and the next token, each the whole
+/// step's bytes: a fused op across the cut (a layer's last add inside the next layer's norm) is its parts to the bit.
+/// So too every hyper-connected model, its residual's lanes the hidden state at the cut, and Qwen3.8-Flash-Next's two
+/// tiny models cut past the layer of their n-gram embedding, its token history and ring the first span's.
+#[test]
+fn a_decode_step_cut_between_two_cpu_programs_computes_the_whole_steps_bits() {
+    if !common_tool("g++") {
+        return;
+    }
+    let (ctx, position) = (24usize, 6i64);
+    let root = scratch::dir("logos_cpu_spans");
+    let models: Vec<(String, ModelSpec)> = tiny_models::ALL
+        .iter()
+        .map(|t| (t.name().to_string(), t.spec(ctx)))
+        .chain(tiny_models::hyper_connected_models(ctx).into_iter().enumerate().map(|(k, (_, s))| (format!("hyper-{k}"), s)))
+        .chain(tiny_models::flash_next_models(ctx).into_iter().enumerate().map(|(k, (_, s))| (format!("flash-next-{k}"), s)))
+        .collect();
+    let mut cases = Vec::new();
+    for (name, spec) in &models {
+        tiny_models::write_checkpoint(spec, &scratch::dir("logos_lane_corpus").join(format!("{name}.gguf")));
+        let first = spec.ple.as_ref().map_or(1, |p| p.layer + 1);
+        for at in first..spec.layers.len() {
+            for (activations, cache) in [(CpuActivations::Values, CpuCache::F32), (CpuActivations::OneWord, CpuCache::F32), (CpuActivations::OneWord, CpuCache::F16)] {
+                cases.push((name.as_str(), spec, at, CpuShim { isa: CpuIsa::X86Avx2Vnni, activations, cache, fuse: true }));
+            }
+        }
+    }
+    assert!(cases.len() > 2 * models.len(), "every model is cut at each of its layers past its embedding");
+    each_on_threads(&cases, |k, (name, spec, at, shim)| {
+        let at = *at;
+        let n = spec.layers.len();
+        let what = format!("{name} cut at layer {at} of {n} under {}", shim.name());
+        let mut g = Gguf::open(&scratch::dir("logos_lane_corpus").join(format!("{name}.gguf"))).unwrap();
+        let mut part = |cut: Cut, io| placed_graph(spec, &mut g, cut, io, ctx).unwrap_or_else(|e| panic!("{what}: {e}"));
+        let (whole, wc) = part(Cut::Decode { ctx }, decode_io());
+        let (front, _) = part(Cut::DecodeSpan { from: 0, to: at, ctx }, span_io(spec, 0, at));
+        let (back, _) = part(Cut::DecodeSpan { from: at, to: n, ctx }, span_io(spec, at, n));
+        let hidden = front.io.as_ref().and_then(|io| io.hidden_out.clone()).expect("the first span ends at the cut");
+        assert_eq!(back.io.as_ref().and_then(|io| io.hidden_in.clone()).as_ref(), Some(&hidden), "{what}: the second span starts where the first ends");
+        let linked = |g: &TensorGraph| link(g, shim).unwrap_or_else(|e| panic!("{what}: {e}"));
+        let (pw, pf, pb) = (linked(&whole), linked(&front), linked(&back));
+        // The whole step staged as the evaluator lock stages it, each span from its files by name.
+        let dir = |p: &str| root.join(format!("case{k}-{p}"));
+        let cut = lane_corpus::LaneCut {
+            what: format!("{name} decode"),
+            g: whole.clone(),
+            shim: LaneShim { knobs: CudaKnobs::default(), batch: false, held: Vec::new() },
+            constants: wc,
+            io: decode_io(),
+        };
+        let mut inputs = stage(&cut, &dir("whole"), position);
+        keep_caches(&pw, &dir("whole"), &mut inputs);
+        let copy = |p: &logicaffeine_compile::codegen_cpu::link::CpuProgram, to: &std::path::Path| {
+            std::fs::create_dir_all(to.join("out")).unwrap();
+            for b in &p.buffers {
+                let from = dir("whole").join(format!("{}.bin", b.name));
+                if from.exists() {
+                    std::fs::copy(&from, to.join(format!("{}.bin", b.name))).unwrap();
+                }
+            }
+        };
+        build_and_run(&pw, &dir("whole"), &format!("{what}: the whole step"), false);
+        copy(&pf, &dir("front"));
+        build_and_run(&pf, &dir("front"), &format!("{what}: the first span"), false);
+        copy(&pb, &dir("back"));
+        std::fs::copy(dir("front").join("out").join(format!("{hidden}.bin")), dir("back").join(format!("{hidden}.bin"))).unwrap();
+        build_and_run(&pb, &dir("back"), &format!("{what}: the second span"), false);
+        let io = whole.io.as_ref().expect("the step's names");
+        let mut compared = 0;
+        for t in whole.tensors.values().filter(|t| t.carried || t.name == io.logits || t.name == io.next || t.name == hidden) {
+            let Some(b) = pw.buffers.iter().find(|b| b.name == t.name) else { continue };
+            let want = std::fs::read(dir("whole").join("out").join(format!("{}.bin", b.name))).unwrap();
+            let side = if t.name != hidden && pb.buffers.iter().any(|x| x.name == t.name) { "back" } else { "front" };
+            let got = std::fs::read(dir(side).join("out").join(format!("{}.bin", b.name))).unwrap_or_else(|_| panic!("{what}: the {side} span writes `{}`", t.name));
+            assert!(got == want, "{what}: `{}` from the {side} span is not the whole step's bytes", t.name);
+            compared += 1;
+        }
+        assert!(compared >= 3, "{what}: the hidden state, the logits and the next token at the least");
+    });
 }
 
 /// The CPU link computes what the evaluator computes on every tiny cut: every tiny architecture's decode step, prefill
@@ -755,6 +848,40 @@ fn the_emitted_kernels_use_the_isa_the_shim_declares() {
     }
 }
 
+/// A host without the instruction set the program is built for is refused at load, by name, never with an illegal
+/// instruction: a step linked for x86 AVX2 and AVX-VNNI and built with the library's flags (`FLAGS_X86_AVX2_VNNI`), run
+/// under `qemu-x86_64` as the most capable CPU it models less one of the four features, exits naming that feature among
+/// the ones the host lacks — and only those four — before any of the program runs; on this host it runs.
+#[test]
+fn a_host_without_the_programs_instruction_set_is_refused_at_load_by_name() {
+    if !common_tool("g++") || !common_tool("qemu-x86_64") {
+        return;
+    }
+    let dir = scratch::dir("logos_cpu_isa");
+    let cut = every_lane_cut().into_iter().find(|c| c.what.starts_with("llama")).expect("a Llama cut");
+    let program = link(&cut.g, &CpuShim { isa: CpuIsa::X86Avx2Vnni, activations: CpuActivations::OneWord, cache: CpuCache::F32, fuse: true }).unwrap_or_else(|e| panic!("{}: {e}", cut.what));
+    let (cpp, bin) = (dir.join("step.cpp"), dir.join("step"));
+    std::fs::write(&cpp, program.source_with_file_driver()).unwrap();
+    let built = Command::new("g++").args(["-O2", "-std=c++17"]).args(FLAGS_X86_AVX2_VNNI).args(["-pthread", "-o"]).arg(&bin).arg(&cpp).output().unwrap();
+    assert!(built.status.success(), "the step builds:\n{}", String::from_utf8_lossy(&built.stderr));
+    let named = ["AVX2", "FMA", "F16C", "AVX-VNNI"];
+    for (feature, name) in [("avx2", "AVX2"), ("fma", "FMA"), ("f16c", "F16C"), ("avx-vnni", "AVX-VNNI")] {
+        let o = Command::new("qemu-x86_64").args(["-cpu", &format!("max,-{feature}")]).arg(&bin).arg(&dir).arg("1").output().unwrap();
+        let err = String::from_utf8_lossy(&o.stderr);
+        let said = err.lines().find(|l| l.contains("this host has no")).unwrap_or_else(|| panic!("without {name}: refused by name, not {:?}: {err}", o.status));
+        assert_eq!(o.status.code(), Some(5), "without {name}: the program exits refusing, not {:?}: {err}", o.status);
+        let lacks: Vec<&str> = said.split("this host has no").nth(1).unwrap().split_whitespace().collect();
+        assert!(lacks.contains(&name), "without {name}: the refusal names it: {said}");
+        assert!(lacks.iter().all(|l| named.contains(l)), "without {name}: the refusal names only the program's features: {said}");
+    }
+    let host = std::fs::read_to_string("/proc/cpuinfo").unwrap_or_default();
+    let flags: BTreeSet<&str> = host.lines().find(|l| l.starts_with("flags")).map_or(BTreeSet::new(), |l| l.split_whitespace().collect());
+    if ["avx2", "fma", "f16c", "avx_vnni"].iter().all(|f| flags.contains(f)) {
+        let o = Command::new(&bin).arg(&dir).arg("1").output().unwrap();
+        assert!(!String::from_utf8_lossy(&o.stderr).contains("this host has no"), "a host with every feature runs the program: {}", String::from_utf8_lossy(&o.stderr));
+    }
+}
+
 /// The CPU library computes what its reference computes, the same on every thread count: activations quantized one word
 /// a 32-value block — each code and scale bit for bit as the block's largest magnitude over 127 and each value times 127
 /// over it rounded to the nearest code, ties to even, a zero block all zero, each block's code sum exact; products by
@@ -904,7 +1031,7 @@ int main(int argc, char** argv){
 "#;
     let (cpp, bin) = (dir.join("library.cpp"), dir.join("library"));
     std::fs::write(&cpp, format!("{LIBRARY_X86_AVX2_VNNI}{harness}")).unwrap();
-    let built = Command::new("g++").args(["-O2", "-std=c++17", "-mavx2", "-mfma", "-mavxvnni", "-mf16c", "-pthread", "-o"]).arg(&bin).arg(&cpp).output().unwrap();
+    let built = Command::new("g++").args(["-O2", "-std=c++17"]).args(FLAGS_X86_AVX2_VNNI).args(["-pthread", "-o"]).arg(&bin).arg(&cpp).output().unwrap();
     assert!(built.status.success(), "the library builds:\n{}", String::from_utf8_lossy(&built.stderr));
     let (k, n, rmax) = (512usize, 600usize, 13usize);
     let f32s = |len: usize, salt: u64, m: f64| -> Vec<f32> { (0..len).map(|i| (unit(i, salt) * m) as f32).collect() };

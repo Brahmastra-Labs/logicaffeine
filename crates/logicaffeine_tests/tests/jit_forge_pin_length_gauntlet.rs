@@ -7,6 +7,9 @@
 //! empty lists, and multi-param cross-reference. Each runs its helper ≥ the tier-up threshold through the
 //! forge tier and must be byte-identical to the tree-walker. A divergence here is a live JIT soundness bug.
 
+// This suite tests the native tier alone, which exists only on x86_64 outside Windows.
+#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+
 use logicaffeine_compile::compile::{tw_outcome_with_args, vm_outcome_with_args};
 use logicaffeine_compile::vm::NativeTier;
 use logicaffeine_jit::ForgeTier;

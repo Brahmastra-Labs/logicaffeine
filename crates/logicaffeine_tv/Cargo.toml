@@ -14,6 +14,8 @@ readme = "README.md"
 include = ["src/**", "/README.md", "/CHANGELOG.md", "/LICENSE.md"]
 
 [dependencies]
+logicaffeine-base = { workspace = true }
 logicaffeine-compile = { workspace = true }
 logicaffeine-verify = { workspace = true }
+syn = { version = "2", features = ["full"] }
 z3 = "0.20"

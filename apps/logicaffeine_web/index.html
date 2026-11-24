@@ -75,6 +75,22 @@
         .tok-modal { color: #e06c75; }
         .tok-punctuation { color: #abb2bf; }
 
+        /* The boot skeleton (see #main in the body). Inline so it paints with the shell. */
+        .boot { min-height: 100vh; background: #0b0e14; color: #9aa3b2; font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+        .boot-bar { position: fixed; top: 0; left: 0; height: 3px; width: 40%; background: linear-gradient(90deg, #00d4ff, #818cf8); animation: boot-slide 1.4s ease-in-out infinite; }
+        .boot-nav { display: flex; gap: 24px; align-items: center; padding: 22px 32px; }
+        .boot-logo { width: 150px; height: 28px; border-radius: 6px; }
+        .boot-link { width: 72px; height: 14px; border-radius: 4px; }
+        .boot-hero { max-width: 1100px; margin: 40px auto 0; padding: 0 32px; }
+        .boot-line { display: block; height: 34px; margin: 0 0 16px; border-radius: 8px; }
+        .boot-w60 { width: 60%; } .boot-w40 { width: 40%; } .boot-w75 { width: 75%; height: 16px; }
+        .boot-frame { max-width: 1100px; height: 360px; margin: 32px auto 0; border-radius: 12px; }
+        .boot-logo, .boot-link, .boot-line, .boot-frame { background: #161b26; animation: boot-breathe 1.6s ease-in-out infinite; }
+        .boot-note { text-align: center; margin: 28px 0 0; }
+        @keyframes boot-slide { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+        @keyframes boot-breathe { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+        @media (prefers-reduced-motion: reduce) { .boot-bar, .boot-logo, .boot-link, .boot-line, .boot-frame { animation: none; } }
+
     </style>
 
     <script>
@@ -189,6 +205,17 @@
 </head>
 <body>
     <div id="app"></div>
-    <div id="main"></div>
+    <!-- The boot skeleton: what a visitor sees the instant the shell arrives, while the app's
+         wasm downloads and starts. The takeover script above hides #main the moment the app is
+         live, so this never outlasts the app; a prerendered page carries its own content here. -->
+    <div id="main">
+        <div class="boot" aria-busy="true" aria-live="polite">
+            <div class="boot-bar"></div>
+            <div class="boot-nav"><span class="boot-logo"></span><span class="boot-link"></span><span class="boot-link"></span><span class="boot-link"></span><span class="boot-link"></span></div>
+            <div class="boot-hero"><span class="boot-line boot-w60"></span><span class="boot-line boot-w40"></span><span class="boot-line boot-w75"></span></div>
+            <div class="boot-frame"></div>
+            <p class="boot-note">Loading LOGICAFFEINE…</p>
+        </div>
+    </div>
 </body>
 </html>

@@ -230,8 +230,13 @@ fn failure_under_the_forge_is_the_vm_failure() {
         programs
             .into_iter()
             .filter_map(|(name, src, expected_out, reason)| {
+                #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
                 let tier = logicaffeine_jit::ForgeTier::new();
-                let r = vm_outcome_with_args(&src, &[], Some(&tier as &dyn NativeTier));
+                #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+                let native = Some(&tier as &dyn NativeTier);
+                #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+                let native: Option<&dyn NativeTier> = None;
+                let r = vm_outcome_with_args(&src, &[], native);
                 let expected_err = (!reason.is_empty()).then(|| reason.clone());
                 (r.output.trim() != expected_out || r.error != expected_err).then(|| {
                     format!("{name}: output {:?}, error {:?}; expected {expected_out:?}, {reason:?}\n{src}", r.output.trim(), r.error)

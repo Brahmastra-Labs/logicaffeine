@@ -226,7 +226,6 @@ fn fuse_once(p: &SpatialProgram) -> Option<SpatialProgram> {
             });
 
             // ── Rebuild without stage `ai` and without the intermediate buffer ──────────────────
-            let dead_buf = *feed;
             let mut q = p.clone();
             q.stages[bi].kind = StageKind::Compute(ComputeOp::Generic {
                 iters: bit.clone(),
@@ -235,81 +234,111 @@ fn fuse_once(p: &SpatialProgram) -> Option<SpatialProgram> {
                 body,
             });
             q.stages[bi].ins = ins;
-            let keep_stage: Vec<bool> = (0..q.stages.len()).map(|i| i != ai).collect();
-            let keep_buf: Vec<bool> = q.buffers.iter().map(|x| x.id != dead_buf).collect();
-            let smap: Vec<usize> = keep_stage
-                .iter()
-                .scan(0, |n, k| {
-                    let v = *n;
-                    if *k {
-                        *n += 1
-                    }
-                    Some(v)
-                })
-                .collect();
-            let bmap: Vec<usize> = keep_buf
-                .iter()
-                .scan(0, |n, k| {
-                    let v = *n;
-                    if *k {
-                        *n += 1
-                    }
-                    Some(v)
-                })
-                .collect();
-            let rs = |s: StageId| StageId::new(smap[s.idx()]);
-            let rb = |x: BufferId| BufferId::new(bmap[x.idx()]);
-
-            let mut stages: Vec<Stage> = Vec::new();
-            for (i, s) in q.stages.iter().enumerate() {
-                if !keep_stage[i] {
-                    continue;
-                }
-                let mut s = s.clone();
-                s.id = StageId::new(stages.len());
-                s.ins = s.ins.iter().map(|x| rb(*x)).collect();
-                s.outs = s.outs.iter().map(|x| rb(*x)).collect();
-                s.kind.remap_buffers(&rb);
-                stages.push(s);
-            }
-            let mut buffers: Vec<Buffer> = Vec::new();
-            for (i, x) in q.buffers.iter().enumerate() {
-                if !keep_buf[i] {
-                    continue;
-                }
-                let mut x = x.clone();
-                x.id = BufferId::new(buffers.len());
-                x.alias_of = x.alias_of.map(rb);
-                buffers.push(x);
-            }
-            let mut edges: Vec<Edge> = Vec::new();
-            for e in &q.edges {
-                if e.buffer == dead_buf {
-                    continue; // the hand-off that fusion removed
-                }
-                let mut e = e.clone();
-                // The producer's operand edges now feed the fused stage.
-                let to: Vec<StageId> =
-                    e.to.iter()
-                        .map(|t| {
-                            if *t == StageId::new(ai) {
-                                StageId::new(bi)
-                            } else {
-                                *t
-                            }
-                        })
-                        .collect();
-                e.id = EdgeId::new(edges.len());
-                e.from = rs(e.from);
-                e.to = to.iter().map(|t| rs(*t)).collect();
-                e.buffer = rb(e.buffer);
-                edges.push(e);
-            }
-            q.stages = stages;
-            q.buffers = buffers;
-            q.edges = edges;
+            // The producer's operand edges now feed the fused stage.
+            let q = without(&q, StageId::new(ai), *feed, &|t| if t == StageId::new(ai) { StageId::new(bi) } else { t });
             if q.validate().is_err() {
                 continue; // never hand on a program this pass could not keep legal
+            }
+            return Some(q);
+        }
+    }
+    None
+}
+
+/// `q` without stage `dead_stage` and buffer `dead_buf` — the edge that carried the buffer gone, every other edge's
+/// readers taken through `retarget` — stages, buffers and edges renumbered densely.
+fn without(q: &SpatialProgram, dead_stage: StageId, dead_buf: BufferId, retarget: &dyn Fn(StageId) -> StageId) -> SpatialProgram {
+    let dense = |keep: &[bool]| -> Vec<usize> {
+        keep.iter()
+            .scan(0, |n, k| {
+                let v = *n;
+                if *k {
+                    *n += 1
+                }
+                Some(v)
+            })
+            .collect()
+    };
+    let keep_stage: Vec<bool> = q.stages.iter().map(|s| s.id != dead_stage).collect();
+    let keep_buf: Vec<bool> = q.buffers.iter().map(|x| x.id != dead_buf).collect();
+    let (smap, bmap) = (dense(&keep_stage), dense(&keep_buf));
+    let rs = |s: StageId| StageId::new(smap[s.idx()]);
+    let rb = |x: BufferId| BufferId::new(bmap[x.idx()]);
+
+    let mut stages: Vec<Stage> = Vec::new();
+    for (i, s) in q.stages.iter().enumerate() {
+        if !keep_stage[i] {
+            continue;
+        }
+        let mut s = s.clone();
+        s.id = StageId::new(stages.len());
+        s.ins = s.ins.iter().map(|x| rb(*x)).collect();
+        s.outs = s.outs.iter().map(|x| rb(*x)).collect();
+        s.kind.remap_buffers(&rb);
+        stages.push(s);
+    }
+    let mut buffers: Vec<Buffer> = Vec::new();
+    for (i, x) in q.buffers.iter().enumerate() {
+        if !keep_buf[i] {
+            continue;
+        }
+        let mut x = x.clone();
+        x.id = BufferId::new(buffers.len());
+        x.alias_of = x.alias_of.map(rb);
+        buffers.push(x);
+    }
+    let mut edges: Vec<Edge> = Vec::new();
+    for e in &q.edges {
+        if e.buffer == dead_buf {
+            continue;
+        }
+        let mut e = e.clone();
+        e.id = EdgeId::new(edges.len());
+        e.from = rs(e.from);
+        e.to = e.to.iter().map(|t| rs(retarget(*t))).collect();
+        e.buffer = rb(e.buffer);
+        edges.push(e);
+    }
+    SpatialProgram { stages, buffers, edges, ..q.clone() }
+}
+
+/// ★ ONE TENSOR, ONE LOAD. Maps folded into one body that each read a tensor — a chain adding one bias row link after
+/// link — keep a load of it apiece, and a page apiece on the site. Two loads that move the same tiles of the same
+/// tensor in the same order, into pages alike, waiting on no index and sending to no other site, whose pages the one
+/// compute that reads either is the only reader of, are one load: the second is dropped and the compute reads the
+/// first's page in every slot that read the second's.
+fn share_once(p: &SpatialProgram) -> Option<SpatialProgram> {
+    fn plain(s: &Stage) -> Option<(TensorId, &AccessPattern, usize)> {
+        match &s.kind {
+            StageKind::Load { tensor, pattern, num_blocks, multicast: None } if s.ins.is_empty() && s.outs.len() == 1 && pattern.origin.indirect.is_none() => {
+                Some((*tensor, pattern, *num_blocks))
+            }
+            _ => None,
+        }
+    }
+    let readers = |b: BufferId| -> Vec<StageId> { p.stages.iter().filter(|s| s.ins.contains(&b)).map(|s| s.id).collect() };
+    for (i, a) in p.stages.iter().enumerate() {
+        let Some(la) = plain(a) else { continue };
+        let ba = a.outs[0];
+        let [reader] = readers(ba)[..] else { continue };
+        if !matches!(p.stage(reader).kind, StageKind::Compute(ComputeOp::Generic { .. })) {
+            continue;
+        }
+        for b in &p.stages[i + 1..] {
+            if plain(b) != Some(la) {
+                continue;
+            }
+            let bb = b.outs[0];
+            let (pa, pb) = (p.buffer(ba), p.buffer(bb));
+            if pa.kind != pb.kind || pa.dtype != pb.dtype || readers(bb) != [reader] {
+                continue;
+            }
+            let mut q = p.clone();
+            let r = &mut q.stages[reader.idx()];
+            r.ins = r.ins.iter().map(|x| if *x == bb { ba } else { *x }).collect();
+            let q = without(&q, b.id, bb, &|t| t);
+            if q.validate().is_err() {
+                continue;
             }
             return Some(q);
         }
@@ -323,9 +352,15 @@ pub fn fuse_generic(
     _target: &SpatialTarget,
 ) -> Result<SpatialProgram, SpatialReject> {
     let mut cur = p.clone();
-    // Bounded by the stage count: each fusion removes one stage, so this cannot spin.
+    // Bounded by the stage count: each fusion and each shared load removes one stage, so neither can spin.
     for _ in 0..p.stages.len() {
         match fuse_once(&cur) {
+            Some(next) => cur = next,
+            None => break,
+        }
+    }
+    for _ in 0..cur.stages.len() {
+        match share_once(&cur) {
             Some(next) => cur = next,
             None => break,
         }

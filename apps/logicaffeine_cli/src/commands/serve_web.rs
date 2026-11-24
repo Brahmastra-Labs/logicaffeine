@@ -207,6 +207,33 @@ fn dev_panel(state: &SiteState) -> String {
 /// pages, then the proxy.
 fn route_local(path: &str, state: &SiteState) -> Option<HttpResponse> {
     let path = path.split('?').next().unwrap_or(path);
+    if let Some(resp) = route_exact(path, state) {
+        return Some(resp);
+    }
+    // ★ A STATIC HOST'S DIRECTORY RULE, IN DEVELOPMENT TOO. The export writes a page at `/apps` as
+    // `apps/index.html`, and a host answers that file for `/apps/index.html`, `/apps` and `/apps/`
+    // alike, and a hand-made `static/tour/index.html` for `/tour` and `/tour/`. Answering only the
+    // exact spelling made a link that works on the built site a 404 here.
+    let folder = path
+        .strip_suffix("/index.html")
+        .unwrap_or(path)
+        .trim_end_matches('/');
+    if folder.is_empty() {
+        return None;
+    }
+    if folder != path {
+        if let Some(resp) = route_exact(folder, state) {
+            return Some(resp);
+        }
+    }
+    state
+        .statics
+        .get(&format!("{folder}/index.html"))
+        .map(|bytes| response(200, "text/html; charset=utf-8", bytes.clone()))
+}
+
+/// [`route_local`] for the path exactly as spelled.
+fn route_exact(path: &str, state: &SiteState) -> Option<HttpResponse> {
     if path == "/__gen" {
         return Some(response(
             200,
@@ -384,8 +411,8 @@ fn build_page(
                 favicon,
                 canonical.as_deref(),
                 theme,
-            )
-            .replace("</head>", &format!("{css_links}</head>"));
+                css_links,
+            );
             PageBundle {
                 wasm,
                 js,
@@ -419,11 +446,31 @@ fn message_overlay(message: &str) -> String {
     error_overlay_html(&pe, "", RELOAD_CLIENT)
 }
 
-/// Every `pages/<stem>.lg`, sorted by stem — the enumeration `largo build` and `largo check`
-/// read. A `pages/` that cannot be read serves as no pages; `largo check` is where that is an
-/// error.
+/// Every page in `pages/`, sorted by stem — the enumeration `largo build` and `largo check`
+/// read. A `pages/` that cannot be read serves as no pages, and says why; `largo check` and
+/// `largo build` are where that is an error.
 fn page_entries(pages_dir: &Path) -> Vec<(String, PathBuf)> {
-    crate::commands::web_bundle::page_files(pages_dir).unwrap_or_default()
+    crate::commands::web_bundle::page_files(pages_dir).unwrap_or_else(|e| {
+        ui::warning(e.to_string());
+        Vec::new()
+    })
+}
+
+/// The project's declared dependencies, linked for its pages as `largo build` links them. A
+/// manifest whose dependencies do not resolve serves the pages with none, and says why.
+fn page_dep_roots(pages_dir: &Path) -> Vec<logicaffeine_compile::loader::DepRoot> {
+    crate::commands::web_bundle::page_dep_roots(pages_dir).unwrap_or_else(|e| {
+        ui::warning(e.to_string());
+        Vec::new()
+    })
+}
+
+/// `stem → pages/<file>` for every page, so a message about a page names the file it is in.
+fn page_file_names(pages_dir: &Path) -> BTreeMap<String, String> {
+    page_entries(pages_dir)
+        .into_iter()
+        .map(|(stem, path)| (stem, crate::commands::web_bundle::page_file(&path)))
+        .collect()
 }
 
 /// (Re)build the whole site: every page, and every `## Error page` as the document it publishes.
@@ -443,10 +490,12 @@ fn build_pages(
     // The site's address from `Largo.toml`, for each page's canonical link — the same one the build
     // writes, so the document in development is the document that ships.
     let site = crate::commands::web_bundle::site_url(pages_dir);
+    let dep_roots = page_dep_roots(pages_dir);
     let mut pages = BTreeMap::new();
     let mut error_pages = BTreeMap::new();
     for (stem, path) in page_entries(pages_dir) {
-        let mut fresh = match crate::closure::assemble_closure(&path) {
+        let file = crate::commands::web_bundle::page_file(&path);
+        let mut fresh = match crate::closure::assemble_closure_with_deps(&path, dep_roots.clone()) {
             Ok(closure) => {
                 // An error page is not a page: it has no URL of its own and is published as
                 // `/<status>.html`, which is what the dev server serves it as too.
@@ -463,7 +512,7 @@ fn build_pages(
                     .map(|doc| doc.replace("</body>", &format!("<script>{RELOAD_CLIENT}</script></body>")))
                     .unwrap_or_else(|why| {
                         message_overlay(&format!(
-                            "pages/{stem}.lg declares `## Error page {status}` and it cannot be rendered: {why}"
+                            "{file} declares `## Error page {status}` and it cannot be rendered: {why}"
                         ))
                     });
                     error_pages.insert(status, doc);
@@ -483,7 +532,7 @@ fn build_pages(
                 js: String::new(),
                 html: String::new(),
                 error_overlay: Some(message_overlay(&message)),
-                error_text: Some(format!("pages/{stem}.lg: {message}")),
+                error_text: Some(format!("{file}: {message}")),
                 path: format!("/{}", if stem == "app" { "" } else { stem.as_str() }),
             },
         };
@@ -500,15 +549,18 @@ fn build_pages(
 }
 
 /// Tell the terminal about every page that does not build: which file, and the error itself —
-/// the same text the browser overlay shows.
-fn report_broken_pages(pages: &BTreeMap<String, PageBundle>) {
+/// the same text the browser overlay shows. Answers the files, for the line that sums them up.
+fn report_broken_pages(pages: &BTreeMap<String, PageBundle>, pages_dir: &Path) -> Vec<String> {
+    let files = page_file_names(pages_dir);
+    let mut broken = Vec::new();
     for (stem, page) in pages {
         if let Some(error) = &page.error_text {
-            ui::warning(format!(
-                "pages/{stem}.lg does not build — serving its error overlay:\n{error}"
-            ));
+            let file = files.get(stem).cloned().unwrap_or_else(|| stem.clone());
+            ui::warning(format!("{file} does not build — serving its error overlay:\n{error}"));
+            broken.push(file);
         }
     }
+    broken
 }
 
 /// Load every file under `static/` into the in-memory table, keyed by its
@@ -678,9 +730,14 @@ fn proxy_to_backend(req: &HttpRequest, backend_port: u16) -> Result<HttpResponse
 }
 
 /// Whether `path` is one of the site's page documents — what [`route_local`] answers from a page's
-/// own URL (its declared path, or a path its pattern matches).
+/// own URL (its declared path, or a path its pattern matches), with or without a trailing slash.
 fn serves_a_page(path: &str, state: &SiteState) -> bool {
     let path = path.split('?').next().unwrap_or(path);
+    let folder = path
+        .strip_suffix("/index.html")
+        .unwrap_or(path)
+        .trim_end_matches('/');
+    let path = if folder.is_empty() { path } else { folder };
     state.pages.values().any(|page| {
         crate::commands::web_bundle::page_html_paths_at(&page.path)
             .iter()
@@ -760,7 +817,7 @@ fn bad_gateway(state: &SiteState, detail: &str) -> HttpResponse {
 // ---------------------------------------------------------------------------
 
 /// The newest mtime across an explicit file list plus a recursive directory
-/// sweep (`lg_only` restricts the sweep to `.lg`/`.md` sources; `target/` and
+/// sweep (`sources_only` restricts the sweep to LOGOS modules; `target/` and
 /// dot-directories are never scanned).
 fn zone_fingerprint(files: &[PathBuf], sweep: Option<(&Path, bool)>) -> SystemTime {
     let mut newest = SystemTime::UNIX_EPOCH;
@@ -769,13 +826,13 @@ fn zone_fingerprint(files: &[PathBuf], sweep: Option<(&Path, bool)>) -> SystemTi
             newest = newest.max(m);
         }
     }
-    if let Some((dir, lg_only)) = sweep {
-        scan_tree(dir, lg_only, &mut newest, 0);
+    if let Some((dir, sources_only)) = sweep {
+        scan_tree(dir, sources_only, &mut newest, 0);
     }
     newest
 }
 
-fn scan_tree(dir: &Path, lg_only: bool, newest: &mut SystemTime, depth: usize) {
+fn scan_tree(dir: &Path, sources_only: bool, newest: &mut SystemTime, depth: usize) {
     if depth > 32 {
         return;
     }
@@ -790,11 +847,9 @@ fn scan_tree(dir: &Path, lg_only: bool, newest: &mut SystemTime, depth: usize) {
             if name == "target" || name.starts_with('.') {
                 continue;
             }
-            scan_tree(&f.path(), lg_only, newest, depth + 1);
+            scan_tree(&f.path(), sources_only, newest, depth + 1);
         } else {
-            let path = f.path();
-            let ext = path.extension().and_then(|e| e.to_str());
-            if !lg_only || matches!(ext, Some("lg") | Some("md")) {
+            if !sources_only || logicaffeine_compile::source_files::is_module_file(&f.path()) {
                 if let Ok(m) = f.metadata().and_then(|m| m.modified()) {
                     *newest = (*newest).max(m);
                 }
@@ -829,9 +884,10 @@ fn fingerprints(
 /// Every file that feeds any page: each `pages/<stem>.lg`'s assembled closure
 /// (so an edit to a module a page imports rebuilds it).
 fn all_page_closure_files(pages_dir: &Path) -> Vec<PathBuf> {
+    let dep_roots = page_dep_roots(pages_dir);
     let mut files = Vec::new();
     for (_stem, path) in page_entries(pages_dir) {
-        match crate::closure::assemble_closure(&path) {
+        match crate::closure::assemble_closure_with_deps(&path, dep_roots.clone()) {
             Ok(closure) => files.extend(closure.files),
             Err(_) => files.push(path), // unassemblable: watch the entry itself
         }
@@ -895,9 +951,15 @@ pub(crate) fn cmd_serve_web(
     } else {
         None
     };
+    // The backend links the project's declared dependencies, as `largo build` links them, so an
+    // edit to a dependency's module restarts it too.
+    let backend_deps = match &backend_entry {
+        Some(_) => crate::project::deps::resolve_dep_roots(&root, &project.manifest)?,
+        None => Vec::new(),
+    };
     let backend_files = match &backend_entry {
         Some(entry) => {
-            crate::closure::assemble_closure(entry)
+            crate::closure::assemble_closure_with_deps(entry, backend_deps.clone())
                 .map_err(|e| format!("cannot serve — could not assemble the project: {e}"))?
                 .files
         }
@@ -913,7 +975,7 @@ pub(crate) fn cmd_serve_web(
     let theme = project.manifest.shell_theme();
     let statics = load_statics(&static_dir);
     let (pages, error_pages) = build_pages(&pages_dir, &statics, None, theme);
-    report_broken_pages(&pages);
+    report_broken_pages(&pages, &pages_dir);
     let state = Arc::new(Mutex::new(SiteState {
         generation: 1,
         pages,
@@ -992,12 +1054,7 @@ pub(crate) fn cmd_serve_web(
                     let statics_now = st.statics.clone();
                     let (fresh, fresh_error_pages) =
                         build_pages(&pages_dir, &statics_now, Some(&st.pages), theme);
-                    report_broken_pages(&fresh);
-                    broken = fresh
-                        .iter()
-                        .filter(|(_, p)| p.error_overlay.is_some())
-                        .map(|(stem, _)| format!("pages/{stem}.lg"))
-                        .collect();
+                    broken = report_broken_pages(&fresh, &pages_dir);
                     st.pages = fresh;
                     st.error_pages = fresh_error_pages;
                 }
@@ -1012,7 +1069,9 @@ pub(crate) fn cmd_serve_web(
                         let _ = old.child.kill();
                         let _ = old.child.wait();
                     }
-                    if let Ok(closure) = crate::closure::assemble_closure(entry) {
+                    if let Ok(closure) =
+                        crate::closure::assemble_closure_with_deps(entry, backend_deps.clone())
+                    {
                         backend_files = closure.files;
                     }
                     match spawn_backend(&root, backend_port) {

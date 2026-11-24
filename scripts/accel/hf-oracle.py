@@ -169,6 +169,53 @@ def main():
         with torch.no_grad():
             out = model(torch.tensor([tokens]))
         out = [float(x) for x in out.logits[0, -1]]
+    elif cmd == "logits-nvfp4":
+        # The directory's model in float64 over its NVFP4 weights dequantized as the format defines them: the E2M1 codes
+        # unpacked by compressed-tensors' own `unpack_fp4_from_uint8`, times each block of 16 inputs' E4M3 scale and the
+        # weight's own scale (ModelOpt's `weight_scale_2`, the reciprocal of compressed-tensors' `weight_global_scale`),
+        # written as a dense copy of the directory and read as `logits` reads one.
+        import shutil
+        import tempfile
+        import torch
+        from compressed_tensors.compressors.nvfp4.helpers import unpack_fp4_from_uint8
+        from safetensors.torch import load_file, save_file
+        source = Path(sys.argv[2])
+        tokens = json.load(open(sys.argv[3]))
+        with tempfile.TemporaryDirectory() as tmp:
+            dense = Path(tmp)
+            for f in source.iterdir():
+                if f.suffix != ".safetensors" and f.name not in ("hf_quant_config.json", "model.safetensors.index.json"):
+                    shutil.copy(f, dense / f.name)
+            config = json.loads((source / "config.json").read_text())
+            config.pop("quantization_config", None)
+            (dense / "config.json").write_text(json.dumps(config))
+            weight_map = {}
+            for shard in sorted(source.glob("*.safetensors")):
+                stored = load_file(shard)
+                out = {}
+                for name, t in stored.items():
+                    if name.endswith((".weight_scale", ".weight_scale_2", ".weight_global_scale", ".input_scale",
+                                      ".input_global_scale")):
+                        continue
+                    stem = name.removesuffix("_packed").removesuffix(".weight")
+                    if t.dtype == torch.uint8 and f"{stem}.weight_scale" in stored:
+                        rows, cols = t.shape[0], t.shape[1] * 2
+                        codes = unpack_fp4_from_uint8(t, rows, cols, torch.float64)
+                        blocks = stored[f"{stem}.weight_scale"].to(torch.float64).repeat_interleave(16, -1)
+                        if f"{stem}.weight_scale_2" in stored:
+                            scale2 = stored[f"{stem}.weight_scale_2"].to(torch.float64)
+                        else:
+                            scale2 = 1.0 / stored[f"{stem}.weight_global_scale"].to(torch.float64)
+                        t = codes * blocks * scale2
+                        name = f"{stem}.weight"
+                    out[name] = t.to(torch.float64).contiguous()
+                    weight_map[name] = shard.name
+                save_file(out, dense / shard.name, metadata={"format": "pt"})
+            (dense / "model.safetensors.index.json").write_text(json.dumps({"metadata": {}, "weight_map": weight_map}))
+            model = float64_model(dense)
+            with torch.no_grad():
+                logits = model(torch.tensor([tokens])).logits
+        out = [float(x) for x in logits[0, -1]]
     elif cmd == "logits-at":
         # One pass over the prompt; a position's logits are the prefix's own (the model is causal).
         import torch

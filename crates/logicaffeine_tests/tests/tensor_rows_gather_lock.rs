@@ -10,9 +10,12 @@
 //!      repeated and unordered indices, and one index.
 //!   2. An index outside the table fails at run time with one message on every tier, naming the table and its rows;
 //!      indices that are not Int, and a table that is not declared, are refused by name.
-//!   3. THE SN50 GATHERS THE BLOCK IN ONE SECTION. Rows of whole tiles and rows narrower than a tile, a few indices and
-//!      more than a tile of them, lower whole to ONE section and evaluate to the VM's values exactly on the fp32 twin and
-//!      the bf16 chip alike — a gather moves values, and every value is a multiple of 1/64, which both widths hold.
+//!   3. THE SN50 GATHERS THE BLOCK IN ONE SECTION. Rows of whole tiles and rows narrower than a tile — from a table a
+//!      site's page holds and from one it does not, each width that divides a tile, a last tile of the block the
+//!      indices fill only in part — a few indices and more than a tile of them, lower whole to ONE section and evaluate
+//!      to the VM's values exactly on the fp32 twin and the bf16 chip alike — a gather moves values, and every value is a
+//!      multiple of 1/64, which both widths hold. From a table wider than a page, narrow rows that straddle a tile, and
+//!      rows so narrow that a tile of the block takes more table tiles than a site holds, are refused by name.
 //!   4. THE INDICES ARE DATA: one compiled program, evaluated with other indices, gathers the VM's rows for those
 //!      indices; an index outside the table faults at its guard, against the table's rows.
 //!
@@ -254,14 +257,22 @@ fn shown(src: &str, sp: &SpatialProgram, idx: Option<&[usize]>, what: &str) -> V
     shown_from_outputs(src, &sp, &out).expect("shown")
 }
 
-/// The block's shapes: whole-tile rows and rows narrower than a tile; a few indices and more than a tile of them.
+/// The block's shapes: whole-tile rows and rows narrower than a tile; a few indices and more than a tile of them. The
+/// narrow rows come from tables a site's page holds and from tables it does not, at every width that divides a tile
+/// and whose tiles a site holds — 2, 4, 8 and 16 — with blocks whose last tile the indices fill only in part.
 fn shapes() -> Vec<(usize, usize, Vec<usize>)> {
     let many: Vec<usize> = (0..40).map(|k| (k * 7) % 50 + 1).collect();
+    let many_wide: Vec<usize> = (0..40).map(|k| (k * 37) % 100 + 1).collect();
     vec![
         (50, 64, vec![7, 1, 50]),
         (50, 64, many.clone()),
         (9, 4, vec![3, 1, 9, 3]),
         (50, 4, many),
+        (100, 8, vec![7, 1, 100, 53, 2, 99, 64]),
+        (100, 8, many_wide),
+        (300, 2, vec![300, 1, 150, 17, 5]),
+        (130, 16, vec![130, 1, 65]),
+        (200, 4, (0..37).map(|k| (k * 11) % 200 + 1).collect()),
     ]
 }
 
@@ -305,8 +316,21 @@ fn one_compiled_gather_fetches_whatever_rows_it_is_handed() {
 }
 
 #[test]
+fn narrow_rows_the_sn50_cannot_gather_from_a_table_wider_than_a_page_are_refused_by_name() {
+    // Rows of 12 straddle the SN50's tiles of 32; rows of 1 put 32 rows of the block in a tile, each slot's table tile
+    // held on the site, past what a site holds.
+    for (cols, named) in [(12usize, "straddle its tiles"), (1, "more of the table's tiles than a site holds")] {
+        let src = rounded(&block(400, cols, false, &[3, 1, 2], false));
+        let pl = compile_program_to_spatial(&src, &sn50()).unwrap_or_else(|e| panic!("rows of {cols}: walk refused: {e:?}"));
+        assert!(pl.whole().is_none(), "rows of {cols} from a table wider than a page are not lowered");
+        let why = pl.refusal();
+        assert!(why.contains(named), "rows of {cols}: the refusal says why by name: {why}");
+    }
+}
+
+#[test]
 fn an_index_outside_the_table_faults_at_its_guard() {
-    for (rows, cols) in [(50usize, 64usize), (9, 4)] {
+    for (rows, cols) in [(50usize, 64usize), (9, 4), (100, 8)] {
         let idx = [3usize, 1, 2];
         let (sp, _) = composed(
             &rounded(&block(rows, cols, false, &idx, false)),

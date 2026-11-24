@@ -38,6 +38,9 @@ pub enum Cut {
     DecodeLayer { layer: usize, ctx: usize },
     /// A decode step's final norm, head and arg-max alone ([`author::decode_head`]).
     DecodeHead,
+    /// A decode step's layers `[from, to)` alone ([`author::decode_span`]): its embedding first when `from` is 0, its
+    /// head and arg-max last when `to` is the model's last layer. Spans laid end to end are the decode step.
+    DecodeSpan { from: usize, to: usize, ctx: usize },
     /// The embedding lookups of `rows` stacked rows alone ([`author::decode_batch_embed`]).
     BatchEmbed { rows: usize },
     /// Layer `layer` of a batch of `rows` sequences alone ([`author::stacked_layer`], each row its own sequence).
@@ -64,6 +67,7 @@ impl Cut {
             Cut::DecodeEmbed => author::decode_embed(spec, dir, 1),
             Cut::DecodeLayer { layer, ctx } => author::decode_layer(spec, layer, dir, ctx, 1),
             Cut::DecodeHead => author::decode_head(spec, dir),
+            Cut::DecodeSpan { from, to, ctx } => author::decode_span(spec, dir, ctx, from, to, 1, 1),
             Cut::BatchEmbed { rows } => author::decode_batch_embed(spec, dir, &vec![1; rows]),
             Cut::BatchLayer { layer, rows, ctx } => {
                 author::stacked_layer(spec, layer, dir, ctx, &vec![1; rows], RowState::PerSequence)
@@ -102,6 +106,7 @@ impl fmt::Display for Cut {
             Cut::DecodeEmbed => write!(f, "decode step's embedding"),
             Cut::DecodeLayer { layer, ctx } => write!(f, "decode step's layer {layer}, ctx {ctx}"),
             Cut::DecodeHead => write!(f, "decode step's head"),
+            Cut::DecodeSpan { from, to, ctx } => write!(f, "decode step's layers {from} to {to}, ctx {ctx}"),
             Cut::BatchEmbed { rows } => write!(f, "batch of {rows} sequences' embedding"),
             Cut::BatchLayer { layer, rows, ctx } => write!(f, "batch of {rows} sequences' layer {layer}, ctx {ctx}"),
             Cut::BatchHead { rows } => write!(f, "batch of {rows} sequences' head"),

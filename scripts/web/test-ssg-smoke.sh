@@ -5,8 +5,12 @@
 #   1. a prerendered route (/pricing)  — correct title, #main non-empty, and the
 #      wasm CSR takeover leaves exactly ONE copy of the page content (guards the
 #      #main clear in main.rs: a non-hydrating mount APPENDS without it),
-#   2. an SPA-fallback route (/registry/package/smoke-test) — the shell must boot
-#      the app and client-side render the right page (no hydration-data crash).
+#   2. a client-side route (/registry/package/smoke-test) — the shell must boot
+#      the app and client-side render the right page (no hydration-data crash),
+#   3. an unknown route — a 404 status, and the 404 page boots the app.
+#
+# The build is served through scripts/web/pages-server.py, which answers each path
+# with the status and the document Cloudflare Pages would.
 #
 # Requires a Chrome/Chromium binary (CI's ubuntu runners ship one; set CHROME_BIN
 # to override). Exits 0 with a loud SKIP when no browser exists — verify-ssg.sh
@@ -29,28 +33,8 @@ if [ -z "$CHROME" ]; then
 fi
 [ -d "$PUBLIC" ] || { echo "test-ssg-smoke: build dir $PUBLIC does not exist" >&2; exit 1; }
 
-# Static server with the SPA fallback Cloudflare provides via _redirects.
-python3 - "$PUBLIC" "$PORT" <<'PY' &
-import functools, http.server, os, sys
-
-root, port = sys.argv[1], int(sys.argv[2])
-
-class SpaHandler(http.server.SimpleHTTPRequestHandler):
-    def send_head(self):
-        path = self.translate_path(self.path)
-        if os.path.isdir(path):
-            index = os.path.join(path, "index.html")
-            if os.path.isfile(index):
-                return super().send_head()
-        if not os.path.isfile(path):
-            self.path = "/index.html"
-        return super().send_head()
-
-    def log_message(self, *args):
-        pass
-
-http.server.ThreadingHTTPServer(("127.0.0.1", port), functools.partial(SpaHandler, directory=root)).serve_forever()
-PY
+# The build served the way Cloudflare Pages serves it: _redirects, HTML route matching, 404.html.
+python3 "$ROOT/scripts/web/pages-server.py" "$PUBLIC" "$PORT" >/dev/null &
 SERVER_PID=$!
 trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
 sleep 1
@@ -90,7 +74,18 @@ check() {
 
 fail=0
 check "http://127.0.0.1:$PORT/contact" "prerendered route boots + takes over" "Contact the team" || fail=1
-check "http://127.0.0.1:$PORT/registry/package/smoke-test" "SPA fallback route boots" "app-root" || fail=1
+check "http://127.0.0.1:$PORT/registry/package/smoke-test" "client-side route boots" "app-root" || fail=1
+
+# An unknown address is a real 404 (DAT-171): the status a crawler reads, then the page a person sees.
+unknown="http://127.0.0.1:$PORT/this-route-does-not-exist-xyz"
+status="$(curl -s -o /dev/null -w '%{http_code}' "$unknown")"
+if [ "$status" = "404" ]; then
+    echo "  ok  an unknown route answers 404"
+else
+    echo "FAIL an unknown route answers $status, not 404 (a soft 404 crawlers index as the landing page)"
+    fail=1
+fi
+check "$unknown" "the 404 page boots" "Page not found: /this-route-does-not-exist-xyz" || fail=1
 
 if [ "$fail" -ne 0 ]; then
     echo "test-ssg-smoke: FAILED" >&2

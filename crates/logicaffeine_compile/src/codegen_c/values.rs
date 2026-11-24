@@ -49,6 +49,7 @@ pub(super) fn holds_buffer(
             | CType::MapI64Value(_)
             | CType::SetI64(_)
             | CType::SetStr
+            | CType::SetTuple(_)
             | CType::Tower => true,
             CType::Tuple(elems) => elems.iter().any(|e| walk(e, registry, interner, seen)),
             CType::Opt(inner) => walk(inner, registry, interner, seen),
@@ -181,7 +182,7 @@ fn copy_fn(ty: &CType, ctx: &CContext) -> Option<String> {
             writeln!(body, "    r.state = (__typeof__(r.state))lc_gc_alloc(v.cap); memcpy(r.state, v.state, v.cap);").unwrap();
             writeln!(body, "    r.order = (__typeof__(r.order))lc_gc_alloc(v.cap * sizeof(size_t)); memcpy(r.order, v.order, v.cap * sizeof(size_t));").unwrap();
         }
-        CType::SetI64(_) | CType::SetStr => {
+        CType::SetI64(_) | CType::SetStr | CType::SetTuple(_) => {
             writeln!(body, "    {tn} r = v;").unwrap();
             writeln!(body, "    r.keys = (__typeof__(r.keys))lc_gc_alloc(v.cap * sizeof(*v.keys)); memcpy(r.keys, v.keys, v.cap * sizeof(*v.keys));").unwrap();
             writeln!(body, "    r.state = (__typeof__(r.state))lc_gc_alloc(v.cap); memcpy(r.state, v.state, v.cap);").unwrap();

@@ -1705,3 +1705,96 @@ fn min_and_max_of_reals_order_the_zeros_and_let_a_nan_give_way() {
     assert_eq!(float_min(f64::NEG_INFINITY, f64::INFINITY), f64::NEG_INFINITY);
     assert_eq!(float_max(f64::NEG_INFINITY, f64::INFINITY), f64::INFINITY);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Every `i32` is an exponent `Complex::pow` and `ComplexF::pow` take, `i32::MIN` included: its
+// magnitude, 2^31, does not fit an `i32`, so it is never formed by negation.
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn i_to_the_most_negative_i32_power_is_one() {
+    // i^(-2^31) = (i^4)^(-2^29) = 1.
+    assert!(Complex::i().pow(i32::MIN) == Some(Complex::one()), "i^i32::MIN is not 1");
+}
+
+#[test]
+fn i_to_the_most_negative_i32_power_plus_one_is_i() {
+    // i^(-2^31 + 1) = i^(-(2^31 - 1)), and 2^31 - 1 ≡ 3 (mod 4), so it is i^-3, which is i.
+    assert!(Complex::i().pow(i32::MIN + 1) == Some(Complex::i()), "i^(i32::MIN + 1) is not i");
+}
+
+#[test]
+fn zero_to_the_most_negative_i32_power_is_refused_not_a_panic() {
+    assert!(Complex::zero().pow(i32::MIN).is_none());
+    assert!(ComplexF::new(0.0, 0.0).pow(i32::MIN).is_none());
+}
+
+#[test]
+fn the_float_complex_power_takes_the_most_negative_i32_too() {
+    let one = ComplexF::new(1.0, 0.0);
+    assert_eq!(one.pow(i32::MIN), Some(one));
+    assert_eq!(ComplexF::new(0.0, 1.0).pow(i32::MIN), Some(one));
+}
+
+#[test]
+fn small_negative_complex_powers_are_unchanged() {
+    let two = Complex::from_i64(2);
+    let quarter = Complex::new(Rational::new(BigInt::from_i64(1), BigInt::from_i64(4)).unwrap(), Rational::zero());
+    assert!(two.pow(-2) == Some(quarter), "2^-2 is not 1/4");
+    assert!(Complex::i().pow(-1) == Some(Complex::new(Rational::zero(), Rational::from_i64(-1))), "i^-1 is not -i");
+}
+
+// ---------------------------------------------------------------------------------------------
+// `Rational::to_f64` of an ordinary value is ordinary even when its numerator or denominator is
+// past `f64::MAX`, where dividing the two rounded doubles would give NaN (inf / inf), 0 or inf.
+// Terms that fit keep the two-double division the doc describes.
+// ---------------------------------------------------------------------------------------------
+
+fn ten_to(k: u32) -> BigInt {
+    BigInt::from_i64(10).pow(k)
+}
+
+#[test]
+fn a_ratio_of_two_huge_terms_near_one_converts_to_one_not_nan() {
+    let r = Rational::new(ten_to(400).add(&BigInt::from_i64(1)), ten_to(400)).unwrap();
+    assert_eq!(r.to_f64(), 1.0);
+}
+
+#[test]
+fn a_huge_numerator_over_a_huge_denominator_converts_to_the_ordinary_quotient() {
+    // `+ 1` keeps each fraction from reducing to small terms (`Rational::new` divides out the gcd):
+    // a term ending in 1 shares no factor with a power of ten.
+    let one = BigInt::from_i64(1);
+    let r = Rational::new(ten_to(410).mul(&BigInt::from_i64(3)).add(&one), ten_to(400)).unwrap();
+    assert_eq!(r.to_f64(), 3e10);
+    let tiny = Rational::new(ten_to(400).add(&one), ten_to(410)).unwrap();
+    assert_eq!(tiny.to_f64(), 1e-10);
+}
+
+#[test]
+fn a_huge_value_still_converts_to_infinity_and_a_negative_one_to_minus_infinity() {
+    let big = Rational::new(ten_to(400), BigInt::from_i64(1)).unwrap();
+    assert_eq!(big.to_f64(), f64::INFINITY);
+    assert_eq!(big.negated().to_f64(), f64::NEG_INFINITY);
+}
+
+#[test]
+fn a_ratio_of_two_huge_terms_is_never_nan() {
+    for k in [309u32, 310, 400, 1000] {
+        for (p, q) in [(1i64, 1i64), (1, 3), (-7, 2), (22, 7)] {
+            // `+ 1` keeps the numerator past f64::MAX after `Rational::new` divides out the gcd.
+            let numerator = ten_to(k).mul(&BigInt::from_i64(p)).add(&BigInt::from_i64(1));
+            let r = Rational::new(numerator, ten_to(k).mul(&BigInt::from_i64(q))).unwrap();
+            let f = r.to_f64();
+            assert!(!f.is_nan(), "{p}·10^{k} / {q}·10^{k} converted to NaN");
+            assert_eq!(f, p as f64 / q as f64, "{p}·10^{k} / {q}·10^{k}");
+        }
+    }
+}
+
+#[test]
+fn the_complex_magnitude_of_huge_parts_is_never_nan() {
+    let huge = Rational::new(ten_to(400).add(&BigInt::from_i64(1)), ten_to(400)).unwrap();
+    let z = Complex::new(huge, Rational::zero());
+    assert!(!z.abs_f64().is_nan());
+}

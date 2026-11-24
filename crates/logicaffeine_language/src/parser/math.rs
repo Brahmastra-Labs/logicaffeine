@@ -87,13 +87,37 @@
 //! proposition about `Nat` while proving the ring one; refusing is the loud answer, and the
 //! residue is recorded rather than papered over.
 //!
+//! # Integer ORDER is the proof layer's own two Props
+//!
+//! Besides `equals`, two terms may be ORDERED. The proof layer has exactly two order Props,
+//! `le(a, b) = true` and `lt(a, b) = true` (`engine::le_eq`, `omega_solve::lt_eq`), which
+//! are what `omega`, the Farkas core and the certifier read, so the English spellings lower
+//! onto those and nothing else. The converse words swap the operands rather than inventing a
+//! `ge`/`gt` symbol no decision procedure reads:
+//!
+//! ```text
+//! a is at most b       a is less than or equal to b       a <= b    ⇒  le(a, b) = true
+//! a is at least b      a is greater than or equal to b    a >= b    ⇒  le(b, a) = true
+//! a is less than b                                        a < b     ⇒  lt(a, b) = true
+//! a is greater than b                                     a > b     ⇒  lt(b, a) = true
+//! ```
+//!
+//! `or equal to` belongs to the RELATION: `n is less than or equal to n` is one `≤`, never a
+//! disjunction of `n is less than` and a dangling `equal to n`.
+//!
 //! # Why it cannot steal an English sentence
 //!
-//! The production is attempted only when a cheap pre-scan of the sentence finds an equality
-//! relation (`equals` / `=` / `==`) AND either a `For all`-style binder head or an infix
-//! arithmetic operator — and it is accepted only if it consumes the sentence ALL the way to
-//! its terminator. Anything else rewinds to the entry position and falls through to the
-//! ordinary English parser, so the math layer is strictly additive.
+//! The production is attempted only when a cheap pre-scan of the sentence finds a relation
+//! (`equals` / `=` / `==`, or one of the order spellings above) AND one of three openings:
+//! a `For all`-style binder head, an infix arithmetic operator, or a lowercase VARIABLE
+//! subject directly followed by an order relation (`s is at most w`). That last opening is
+//! the shared case rule at work: a lowercase-leading name is a variable on both surfaces, so
+//! `x is greater than y` is arithmetic, while `Simon is taller than Mary` and
+//! `Buddy's wingspan is greater than Max's` keep their degree readings. A pronoun, an
+//! article or a quantifier word is never a variable, whatever its case. The production is
+//! accepted only if it consumes the sentence ALL the way to its terminator. Anything else
+//! rewinds to the entry position and falls through to the ordinary English parser, so the
+//! math layer is strictly additive.
 
 use super::{ParseResult, Parser, ParserMode};
 use crate::ast::{LogicExpr, NumberKind, QuantifierKind, Term};
@@ -206,6 +230,68 @@ fn is_infix_arithmetic_word(lexeme: &str) -> bool {
         .any(|w| lexeme.eq_ignore_ascii_case(w))
 }
 
+/// An integer ORDER between two terms, named the way English wrote it (left operand first).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Order {
+    AtMost,
+    AtLeast,
+    LessThan,
+    GreaterThan,
+}
+
+impl Order {
+    /// The proof-layer Prop this order lowers to, and whether English's operands SWAP to
+    /// reach it. Only `le` and `lt` exist below this surface, so the converse words swap.
+    fn lowering(self) -> (&'static str, bool) {
+        match self {
+            Order::AtMost => ("le", false),
+            Order::AtLeast => ("le", true),
+            Order::LessThan => ("lt", false),
+            Order::GreaterThan => ("lt", true),
+        }
+    }
+}
+
+/// An order relation found in the token stream: which order, how many tokens spell it, and
+/// the numeral it already CARRIES. The lexer folds `at least five` and `at most five` into a
+/// single `AtLeast(5)` / `AtMost(5)` token, so the relation and the first atom of its right
+/// operand arrive together.
+#[derive(Clone, Copy)]
+struct OrderRelation {
+    order: Order,
+    len: usize,
+    carried: Option<u32>,
+}
+
+/// Comparative words that ORDER two terms but are not one of the spellings above, so a
+/// sentence using them is refused by name rather than handed to the English parser.
+const ORDER_WORDS_WITHOUT_A_PRODUCTION: [&str; 5] =
+    ["greater", "less", "exceeds", "smaller", "larger"];
+
+/// A token that can never be a math VARIABLE however it is cased: a pronoun, an article, a
+/// quantifier or a negative-polarity word. `it is at least five` is English about a referent.
+fn is_function_word(kind: &TokenType) -> bool {
+    matches!(
+        kind,
+        TokenType::Pronoun { .. }
+            | TokenType::Article(_)
+            | TokenType::All
+            | TokenType::No
+            | TokenType::Some
+            | TokenType::Any
+            | TokenType::Both
+            | TokenType::Most
+            | TokenType::Few
+            | TokenType::Many
+            | TokenType::Anything
+            | TokenType::Anyone
+            | TokenType::Nothing
+            | TokenType::Nobody
+            | TokenType::NoOne
+            | TokenType::Nowhere
+    )
+}
+
 /// The English name of a small number, as a term-level numeral. `zero` is included here
 /// because the lexicon's own table starts at `one` — and "adding zero" is the sentence this
 /// whole layer exists to state.
@@ -253,11 +339,22 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         if !is_math_name(self.interner.resolve(self.peek().lexeme)) {
             return MathStart::No;
         }
-        let Some(next) = self.tokens.get(self.current + 1) else {
+        let after = self.current + 1;
+        let Some(next) = self.tokens.get(after) else {
             return MathStart::No;
         };
         if matches!(next.kind, TokenType::LParen) {
             return MathStart::Unambiguous;
+        }
+        // A subject directly ORDERED against something. A lowercase variable needs nothing
+        // more (`s is at most w`), while a capitalised name is English's degree reading
+        // (`Simon is taller than Mary`) unless the sentence also carries arithmetic.
+        if self.order_relation_at(after).is_some() {
+            return if self.subject_is_variable() {
+                MathStart::Unambiguous
+            } else {
+                MathStart::Name
+            };
         }
         if matches!(
             next.kind,
@@ -276,9 +373,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         MathStart::No
     }
 
-    /// Does the upcoming sentence carry an equality relation (and, when `require_arithmetic`
-    /// is set, an infix arithmetic operator)? Bounded by the sentence terminator, no allocation, and
-    /// it stops as soon as both answers are known.
+    /// Does the upcoming sentence carry a relation, equality or order (and, when
+    /// `require_arithmetic` is set, an infix arithmetic operator)? Bounded by the sentence
+    /// terminator, no allocation, and it stops as soon as both answers are known.
     fn sentence_has_relation(&self, require_arithmetic: bool) -> bool {
         let mut found_relation = false;
         let mut found_arithmetic = !require_arithmetic;
@@ -286,6 +383,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         while let Some(token) = self.tokens.get(i) {
             if terminates_sentence(&token.kind) {
                 break;
+            }
+            if self.order_relation_at(i).is_some() {
+                found_relation = true;
             }
             match token.kind {
                 TokenType::Equals | TokenType::Identity | TokenType::Assign | TokenType::EqEq => {
@@ -351,58 +451,125 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         terminates_sentence(&self.peek().kind)
     }
 
-    /// A quantified ARITHMETIC sentence whose relation is an ORDER rather than an equality:
-    /// `For all n, n plus 1 is greater than n.` The term layer relates terms with `equals`
-    /// only, so this is a real residue — and it is refused HERE, by name, instead of being
-    /// handed to the English parser which reports a missing content word and never mentions
-    /// the construct that actually broke.
+    /// A quantified ARITHMETIC sentence that orders its terms with a word this surface has
+    /// no production for: `For all n, n plus 1 exceeds n.` It is refused HERE, by name and
+    /// with the spellings that do work, instead of being handed to the English parser, which
+    /// reports a missing content word and never mentions the construct that actually broke.
     ///
-    /// The gate is deliberately narrow: a math binder prefix AND infix arithmetic AND no
-    /// equality anywhere. "For all cats, the score is greater than five" carries no
-    /// arithmetic, so English keeps it.
+    /// The gate is deliberately narrow: a math binder prefix AND infix arithmetic AND an
+    /// order word AND no relation this surface can read. "For all cats, the score is greater
+    /// than five" carries no arithmetic, so English keeps it.
     fn unsupported_relation_refusal(&self) -> Option<ParseError> {
         if self.at_math_binder().is_none() {
             return None;
         }
         let mut arithmetic = false;
-        let mut equality = false;
-        let mut order = false;
+        let mut relation = false;
+        let mut unspelled_order = false;
         let mut i = self.current;
         while let Some(token) = self.tokens.get(i) {
             if terminates_sentence(&token.kind) {
                 break;
             }
+            if let Some(order) = self.order_relation_at(i) {
+                relation = true;
+                i += order.len;
+                continue;
+            }
             match token.kind {
                 TokenType::Equals | TokenType::Identity | TokenType::Assign | TokenType::EqEq => {
-                    equality = true
+                    relation = true
                 }
                 TokenType::Plus | TokenType::Minus | TokenType::Star | TokenType::Slash => {
                     arithmetic = true
                 }
-                TokenType::Lt | TokenType::Gt | TokenType::LtEq | TokenType::GtEq => order = true,
                 _ => {
                     let lexeme = self.interner.resolve(token.lexeme);
                     if is_infix_arithmetic_word(lexeme) {
                         arithmetic = true;
-                    } else if ["greater", "less", "exceeds", "smaller", "larger"]
+                    } else if ORDER_WORDS_WITHOUT_A_PRODUCTION
                         .iter()
                         .any(|w| lexeme.eq_ignore_ascii_case(w))
                     {
-                        order = true;
+                        unspelled_order = true;
                     }
                 }
             }
             i += 1;
         }
-        (arithmetic && order && !equality).then(|| ParseError {
+        (arithmetic && unspelled_order && !relation).then(|| ParseError {
             kind: ParseErrorKind::Custom(
-                "the English theorem surface relates TERMS with `equals` only — an ORDER \
-                 between arithmetic terms (`is greater than`, `is less than`) has no term \
-                 production here yet. State it as an equality, or use the formal surface"
+                "the English theorem surface relates TERMS with `equals`, or ORDERS them with \
+                 `is at most`, `is at least`, `is less than`, `is greater than` (either of the \
+                 last two may add `or equal to`), `<=`, `>=`, `<` or `>`. This sentence orders \
+                 its terms some other way, which has no term production here"
                     .to_string(),
             ),
             span: self.current_span(),
         })
+    }
+
+    /// Is the token at `i` the word `word` (never a string or char literal)?
+    fn math_word_at(&self, i: usize, word: &str) -> bool {
+        self.tokens.get(i).is_some_and(|t| {
+            !matches!(
+                t.kind,
+                TokenType::StringLiteral(_) | TokenType::CharLiteral(_)
+            ) && self.interner.resolve(t.lexeme).eq_ignore_ascii_case(word)
+        })
+    }
+
+    /// The order relation spelled starting at token `i`, if any. Shared by the pre-scan, the
+    /// refusal and the grammar, so the three can never disagree about what an order IS.
+    fn order_relation_at(&self, i: usize) -> Option<OrderRelation> {
+        let relation = |order, len, carried| Some(OrderRelation { order, len, carried });
+        match self.tokens.get(i)?.kind {
+            TokenType::LtEq => return relation(Order::AtMost, 1, None),
+            TokenType::GtEq => return relation(Order::AtLeast, 1, None),
+            TokenType::Lt => return relation(Order::LessThan, 1, None),
+            TokenType::Gt => return relation(Order::GreaterThan, 1, None),
+            _ => {}
+        }
+        if !self.math_word_at(i, "is") {
+            return None;
+        }
+        match self.tokens.get(i + 1)?.kind {
+            TokenType::AtMost(n) => return relation(Order::AtMost, 2, Some(n)),
+            TokenType::AtLeast(n) => return relation(Order::AtLeast, 2, Some(n)),
+            _ => {}
+        }
+        if self.math_word_at(i + 1, "at") {
+            if self.math_word_at(i + 2, "most") {
+                return relation(Order::AtMost, 3, None);
+            }
+            if self.math_word_at(i + 2, "least") {
+                return relation(Order::AtLeast, 3, None);
+            }
+            return None;
+        }
+        for (word, strict, inclusive) in [
+            ("less", Order::LessThan, Order::AtMost),
+            ("greater", Order::GreaterThan, Order::AtLeast),
+        ] {
+            if self.math_word_at(i + 1, word) && self.math_word_at(i + 2, "than") {
+                let or_equal_to = self.math_word_at(i + 3, "or")
+                    && self.math_word_at(i + 4, "equal")
+                    && self.math_word_at(i + 5, "to");
+                return if or_equal_to {
+                    relation(inclusive, 6, None)
+                } else {
+                    relation(strict, 3, None)
+                };
+            }
+        }
+        None
+    }
+
+    /// Is the subject at the cursor a math VARIABLE by the shared case rule: a lowercase-led
+    /// name that is not a pronoun, article or quantifier word?
+    fn subject_is_variable(&self) -> bool {
+        let token = self.peek();
+        !is_function_word(&token.kind) && !leads_constant(self.interner.resolve(token.lexeme))
     }
 
     /// `For all n : Nat,` — a SORTED binder, which this surface cannot represent (see the
@@ -560,15 +727,15 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(left)
     }
 
-    /// `conjunction := equation ('and' equation)*`
+    /// `conjunction := relation ('and' relation)*`
     fn parse_math_conjunction(
         &mut self,
         scope: &mut Vec<Symbol>,
     ) -> ParseResult<&'a LogicExpr<'a>> {
-        let mut left = self.parse_math_equation(scope)?;
+        let mut left = self.parse_math_relation(scope)?;
         while self.check(&TokenType::And) {
             self.advance();
-            let right = self.parse_math_equation(scope)?;
+            let right = self.parse_math_relation(scope)?;
             left = self.ctx.exprs.alloc(LogicExpr::BinaryOp {
                 left,
                 op: TokenType::And,
@@ -578,30 +745,65 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(left)
     }
 
-    /// `equation := term ('equals' | '=' | '==') term`
-    fn parse_math_equation(&mut self, scope: &[Symbol]) -> ParseResult<&'a LogicExpr<'a>> {
+    /// `relation := term ('equals' | '=' | '==') term | term order term`, where `order` is
+    /// one of the spellings in the module docs and lowers to `le(·, ·) = true` or
+    /// `lt(·, ·) = true`.
+    fn parse_math_relation(&mut self, scope: &[Symbol]) -> ParseResult<&'a LogicExpr<'a>> {
         let left = self.parse_math_sum(scope)?;
-        let is_relation = matches!(
+        if matches!(
             self.peek().kind,
             TokenType::Equals | TokenType::Identity | TokenType::Assign | TokenType::EqEq
-        );
-        if !is_relation {
-            return Err(self.math_error(
-                "a math sentence relates two terms with `equals` (or `=`); \
-                 no other relation has a term grammar on this surface",
-            ));
+        ) {
+            self.advance();
+            let right = self.parse_math_sum(scope)?;
+            return Ok(self.ctx.exprs.alloc(LogicExpr::Identity {
+                left: self.ctx.terms.alloc(left),
+                right: self.ctx.terms.alloc(right),
+            }));
         }
-        self.advance();
-        let right = self.parse_math_sum(scope)?;
-        Ok(self.ctx.exprs.alloc(LogicExpr::Identity {
-            left: self.ctx.terms.alloc(left),
-            right: self.ctx.terms.alloc(right),
-        }))
+        let Some(relation) = self.order_relation_at(self.current) else {
+            return Err(self.math_error(
+                "a math sentence relates two terms with `equals` (or `=`), or orders them \
+                 with `is at most`, `is at least`, `is less than`, `is greater than` (or \
+                 `<=`, `>=`, `<`, `>`); no other relation has a term grammar on this surface",
+            ));
+        };
+        for _ in 0..relation.len {
+            self.advance();
+        }
+        let right = match relation.carried {
+            Some(n) => {
+                let first = Self::carried_numeral(n, scope, self.interner);
+                let product = self.parse_math_product_tail(scope, first)?;
+                self.parse_math_sum_tail(scope, product)?
+            }
+            None => self.parse_math_sum(scope)?,
+        };
+        Ok(self.math_order(relation.order, left, right))
+    }
+
+    /// The first atom of an order's right operand when the lexer folded it into the relation
+    /// token (`at least five`). The lexer read `five` as a number word, but SCOPE outranks the
+    /// word table, so a binder that bound a name spelling that number keeps it a variable.
+    fn carried_numeral(n: u32, scope: &[Symbol], interner: &logicaffeine_base::Interner) -> Term<'a> {
+        scope
+            .iter()
+            .rev()
+            .find(|bound| number_word(interner.resolve(**bound)) == Some(i64::from(n)))
+            .map(|bound| Term::Variable(*bound))
+            .unwrap_or_else(|| Self::math_integer(i64::from(n)))
     }
 
     /// `sum := product (('plus' | '+' | 'minus' | '-') product)*` — left-associative.
     fn parse_math_sum(&mut self, scope: &[Symbol]) -> ParseResult<Term<'a>> {
-        let mut left = self.parse_math_product(scope)?;
+        let first = self.parse_math_product(scope)?;
+        self.parse_math_sum_tail(scope, first)
+    }
+
+    /// The `(('plus' | 'minus') product)*` continuation of a sum whose first product is
+    /// already in hand.
+    fn parse_math_sum_tail(&mut self, scope: &[Symbol], first: Term<'a>) -> ParseResult<Term<'a>> {
+        let mut left = first;
         loop {
             let op = if self.check(&TokenType::Plus) || self.check_word("plus") {
                 "add"
@@ -620,7 +822,18 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     /// `product := atom (('times' | '*' | 'divided by' | '/') atom)*` — left-associative,
     /// binding tighter than `plus`/`minus`.
     fn parse_math_product(&mut self, scope: &[Symbol]) -> ParseResult<Term<'a>> {
-        let mut left = self.parse_math_atom(scope)?;
+        let first = self.parse_math_atom(scope)?;
+        self.parse_math_product_tail(scope, first)
+    }
+
+    /// The `(('times' | 'divided by') atom)*` continuation of a product whose first atom is
+    /// already in hand.
+    fn parse_math_product_tail(
+        &mut self,
+        scope: &[Symbol],
+        first: Term<'a>,
+    ) -> ParseResult<Term<'a>> {
+        let mut left = first;
         loop {
             let op = if self.check(&TokenType::Star) || self.check_word("times") {
                 self.advance();
@@ -765,6 +978,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     fn math_apply(&mut self, op: &str, args: [Term<'a>; 2]) -> Term<'a> {
         let symbol = self.interner.intern(op);
         Term::Function(symbol, self.ctx.terms.alloc_slice(args))
+    }
+
+    /// `left ORDER right` as the proof layer's Prop: `le(a, b) = true` or `lt(a, b) = true`,
+    /// with the operands swapped for the converse words.
+    fn math_order(&mut self, order: Order, left: Term<'a>, right: Term<'a>) -> &'a LogicExpr<'a> {
+        let (symbol, swap) = order.lowering();
+        let operands = if swap { [right, left] } else { [left, right] };
+        let comparison = self.math_apply(symbol, operands);
+        let truth = Term::Constant(self.interner.intern("true"));
+        self.ctx.exprs.alloc(LogicExpr::Identity {
+            left: self.ctx.terms.alloc(comparison),
+            right: self.ctx.terms.alloc(truth),
+        })
     }
 
     fn math_error(&self, message: &str) -> ParseError {

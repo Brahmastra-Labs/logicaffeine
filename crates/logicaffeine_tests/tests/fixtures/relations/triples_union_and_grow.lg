@@ -1,0 +1,16 @@
+## Main
+Let edges be a new Set of (Text, Int, Text).
+Add ("a", 1, "b") to edges.
+Add ("b", 2, "c") to edges.
+Let more be a new Set of (Text, Int, Text).
+Add ("b", 2, "c") to more.
+Add ("c", 3, "d") to more.
+Let all be edges union more.
+Show the count of all.
+Repeat for (x, w, y) in copy of all:
+    If w is greater than 1:
+        Add (y, w * 10, x) to all.
+Show the count of all.
+Show all contains ("d", 30, "c").
+Repeat for (x, w, y) in all:
+    Show "{x} {w} {y}".

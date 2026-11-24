@@ -222,15 +222,31 @@ const CATALOGUE: &[(&str, Scope)] = &[
     ("WIDE_ACC", Scope::InstalledPerProgram),
     ("TURBOFISH", Scope::InstalledPerProgram), // instantiation::install, every compile
     ("PROGRAM", Scope::InstalledPerProgram), // types::set_program_types, first thing codegen_program_inner does
+    // Every function's calling roles (`set_fn_roles`) and the async functions on a cycle of the call graph
+    // (`expr::set_recursive_async`), each overwritten by `codegen_program_body` at codegen entry, every compile.
+    ("FN_ROLES", Scope::InstalledPerProgram),
+    ("RECURSIVE_ASYNC", Scope::InstalledPerProgram),
     // Whether the program declares a `## Session` and lends its program record to a served handler;
     // `stmt::set_serve_facts` overwrites both at codegen entry (program.rs), every compile.
     ("SERVE_FACTS", Scope::InstalledPerProgram),
+    // The names a call of the program may write (`stmt::set_callee_globals`) and the `Let`s whose element nothing
+    // types (`stmt::install_element_free`), each overwritten at codegen entry (program.rs), every compile.
+    ("CALLEE_GLOBALS", Scope::InstalledPerProgram),
+    ("ELEMENT_FREE", Scope::InstalledPerProgram),
+    // What the checker solved for the program (`instantiation::install`, every compile): its generic functions and
+    // the expressions it resolved to an `Int` or a `Seq of Int`. The last two are also cleared when the `Checked`
+    // guard drops.
+    ("GENERIC", Scope::InstalledPerProgram),
+    ("INTS", Scope::InstalledPerProgram),
+    ("INT_SEQS", Scope::InstalledPerProgram),
     // Caller-scoped MODE flags, each set and restored by a `with_*` guard around one compile.
     ("SEEDED_SELECT", Scope::CallerScoped),
     ("OBSERVED_CODEGEN", Scope::CallerScoped),
     ("EMBED_ASSETS", Scope::CallerScoped),
     ("FORCE_DISABLE", Scope::CallerScoped),
     ("EMIT_WIRE_IMPLS", Scope::CallerScoped),
+    // `with_blocking_waits` sets it for one compile of a compiler's own engine and restores it on drop.
+    ("BLOCKING_WAITS", Scope::CallerScoped),
     // Caller-scoped: `GenericParamsInScope` swaps it in for one generic function and restores it on drop.
     ("GENERIC_PARAMS", Scope::CallerScoped),
     // Caller-scoped: `LentParamsInScope` swaps in one function's lent `mutable` collection
@@ -253,6 +269,23 @@ const CATALOGUE: &[(&str, Scope)] = &[
     // Caller-scoped: `control::function` gives a function's or a closure's body a boundary stack of its own and
     // `control::enter` pushes a loop's or a zone's for its statement, each restoring the enclosing one on drop.
     ("BOUNDARIES", Scope::CallerScoped),
+    // `with_threaded_concurrency` sets it for one compile and restores the previous mode on drop.
+    ("THREADED_CONCURRENCY", Scope::CallerScoped),
+    // `tce::exact_accumulator` sets it for one accumulator function's body and restores it on drop.
+    ("EXACT_ACC", Scope::CallerScoped),
+    // Caller-scoped by a guard each compile installs and drops: `int_vec::install` pushes the program's promotable
+    // lists and its `Scope` pops them, `int_vec::enter_body` swaps in the body being emitted, `exact_scalars::install`
+    // pushes the scalar decision and its `Installed` pops it.
+    ("PROMOTING", Scope::CallerScoped),
+    ("OWNER", Scope::CallerScoped),
+    ("SCOPES", Scope::CallerScoped),
+    // The program's word regions (`unboxed::plan_program`) and word twins (`word_twin`), held by the `Plan` and
+    // `Twins` guards for one compile and cleared when they drop.
+    ("REGIONS", Scope::CallerScoped),
+    ("TWINS", Scope::CallerScoped),
+    ("TWIN_NAMES", Scope::CallerScoped),
+    ("TWIN_BODIES", Scope::CallerScoped),
+    ("TWIN_FIRST", Scope::CallerScoped),
     // Set and cleared around ONE statement's emission; never crosses a statement, let alone a
     // program.
     ("MOVABLE_LAST_USE", Scope::StatementLocal),
@@ -263,6 +296,17 @@ const CATALOGUE: &[(&str, Scope)] = &[
     ("FLOW", Scope::StatementLocal),
     // `probe::within` pushes one fused map test's binding for its branch's emission and pops it after.
     ("PROBES", Scope::StatementLocal),
+    // `int_vec`'s views, each set for one expression's or one loop's emission and restored after it: the exact sink's
+    // view of an item (`with_exact_view`), a store's view of its list's words (`through_words`), the word form of a
+    // guarded expression (`guarded`), the word views of the versioned loops being emitted and how deep the emission is
+    // in a continuation (`versioned_while`).
+    ("EXACT_VIEW", Scope::StatementLocal),
+    ("WORDS_VIEW", Scope::StatementLocal),
+    ("GUARDED", Scope::StatementLocal),
+    ("LOOP_VIEWS", Scope::StatementLocal),
+    ("CONTINUING", Scope::StatementLocal),
+    // The regions whose forms are being emitted, each removed when its `unboxed::Emitting` guard drops.
+    ("EMITTING", Scope::StatementLocal),
     // ★ THE ONE THAT ACCUMULATES, and therefore the one that must be reset.
     ("BIGNUM_TMP", Scope::ResetAtEntry),
     // The second of its kind, and the more visible: this one names an EMITTED function
@@ -272,6 +316,14 @@ const CATALOGUE: &[(&str, Scope)] = &[
     ("SIMD_REDUCE_ID", Scope::ResetAtEntry),
     // The third: numbers the `__probeN` binding of each fused map test. Unique within a program, reset across them.
     ("PROBE_ID", Scope::ResetAtEntry),
+    // Number the emitted labels of the versioned `IntVec` loops (`int_vec::reset_loop_labels`) and the `__done{id}`
+    // flags of the word regions (`unboxed::reset_region_ids`), each unique within a program and reset across them.
+    ("LOOP_COUNT", Scope::ResetAtEntry),
+    ("REGION_ID", Scope::ResetAtEntry),
+    // The tentative declarations' ids and the ids a write needs (`tentative::reset`): a need left from an earlier
+    // program, whose line that program dropped, would keep a later program's declaration of the same id.
+    ("NEXT", Scope::ResetAtEntry),
+    ("NEEDED", Scope::ResetAtEntry),
 ];
 
 #[derive(PartialEq, Debug, Clone, Copy)]

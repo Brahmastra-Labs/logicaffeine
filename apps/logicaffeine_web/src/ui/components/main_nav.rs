@@ -489,7 +489,7 @@ pub fn MainNav(
                         if let Some(sub) = subtitle {
                             span { class: "main-nav-brand-subtitle", "{sub}" }
                         } else {
-                            span { class: "main-nav-brand-subtitle", "Debug your thoughts." }
+                            span { class: "main-nav-brand-subtitle", "Code we can all read." }
                         }
                     }
                 }
@@ -513,7 +513,7 @@ pub fn MainNav(
                             "Learn Logic"
                         }
                         Link {
-                            to: Route::Studio { file: None },
+                            to: "/studio",
                             class: if active == ActivePage::Studio { "main-nav-link active" } else { "main-nav-link" },
                             "Studio"
                         }
@@ -676,7 +676,7 @@ pub fn MainNav(
 
                 // Simple links for other pages
                 Link {
-                    to: Route::Studio { file: None },
+                    to: "/studio",
                     class: if active == ActivePage::Studio { "mobile-nav-link active" } else { "mobile-nav-link" },
                     onclick: move |_| drawer_open.set(false),
                     span { class: "mobile-nav-link-icon",

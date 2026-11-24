@@ -615,6 +615,7 @@ mod v2_pipeline {
     use logicaffeine_compile::compile::tw_outcome_with_args;
     use logicaffeine_compile::ui_bridge::with_v2_optimized_program;
     use logicaffeine_compile::vm::NativeTier;
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     use logicaffeine_jit::ForgeTier;
 
     fn norm(s: &str) -> String {
@@ -626,7 +627,12 @@ mod v2_pipeline {
     }
 
     fn v2_outcome(src: &str, argv: &[String]) -> (String, Option<String>) {
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
         let tier = ForgeTier::new();
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+        let native = Some(&tier as &dyn NativeTier);
+        #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+        let native: Option<&dyn NativeTier> = None;
         with_v2_optimized_program(src, |parsed, interner| match parsed {
             Ok((stmts, types, policies)) => logicaffeine_compile::vm::run_to_outcome_with_args(
                 stmts,
@@ -634,7 +640,7 @@ mod v2_pipeline {
                 Some(types),
                 Some(&policies),
                 argv,
-                Some(&tier as &dyn NativeTier),
+                native,
             ),
             Err(advice) => (String::new(), Some(advice)),
         })
@@ -704,7 +710,12 @@ mod v2_pipeline {
                    \x20   Set i to i + 1.\n\
                    Show total.\n";
         let argv = vec!["bench".to_string(), "1000".to_string()];
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
         let tier = ForgeTier::new();
+        #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+        let native = Some(&tier as &dyn NativeTier);
+        #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+        let native: Option<&dyn NativeTier> = None;
         let (out, err, saw_shl) = with_v2_optimized_program(src, |parsed, interner| {
             let (stmts, types, policies) = parsed.expect("v2 parse");
             let saw_shl = any_stmt_expr(stmts, &expr_has_shl);
@@ -714,7 +725,7 @@ mod v2_pipeline {
                 Some(types),
                 Some(&policies),
                 &argv,
-                Some(&tier as &dyn NativeTier),
+                native,
             );
             (out, err, saw_shl)
         });

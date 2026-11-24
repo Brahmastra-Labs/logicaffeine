@@ -4665,6 +4665,7 @@ dependencies = [
 name = "logicaffeine-jit"
 version = "0.11.0"
 dependencies = [
+ "logicaffeine-base",
  "logicaffeine-compile",
  "logicaffeine-forge",
 ]
@@ -4802,6 +4803,7 @@ dependencies = [
  "dioxus-ssr",
  "dirs",
  "fallible-iterator",
+ "flate2",
  "futures",
  "js-sys",
  "libc",
@@ -4841,6 +4843,7 @@ dependencies = [
  "serde",
  "serde_json",
  "syn 2.0.117",
+ "tar",
  "tempfile",
  "tokio",
  "tokio-rustls",
@@ -4855,8 +4858,10 @@ dependencies = [
 name = "logicaffeine-tv"
 version = "0.11.0"
 dependencies = [
+ "logicaffeine-base",
  "logicaffeine-compile",
  "logicaffeine-verify",
+ "syn 2.0.117",
  "z3",
 ]
 

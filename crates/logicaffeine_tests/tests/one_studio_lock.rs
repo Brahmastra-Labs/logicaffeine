@@ -708,6 +708,38 @@ fn a_frame_leads_into_the_studio_and_keeps_the_pages_tools_to_the_page() {
     }
 }
 
+/// A file of sentences is read into logic and offers no Prove: its dock bar says so and carries no
+/// button, and its proof drawer never opens. A theorem's dock bar offers Prove (Collin,
+/// 2026-11-02: a demo must not end in a red proof result).
+#[test]
+fn a_file_of_sentences_offers_no_prove_and_a_theorem_does() {
+    let dock_of = |file: &str| {
+        let html = render_route(&studio_file_url(file));
+        let dock = elements(&html, "div").into_iter().find(|d| has_class(&own_attributes(d), "studio-dock")).unwrap_or_else(|| panic!("{file}: no dock bar"));
+        (visible_text(dock), elements(dock, "button").len())
+    };
+    let (text, buttons) = dock_of("/examples/logic/garden-path.logic");
+    assert_eq!(buttons, 0, "a file of sentences offers {buttons} dock buttons");
+    assert!(text.contains(logicaffeine_web::ui::pages::studio_workbench::SENTENCES_DOCK), "the sentences line is not on the dock: {text}");
+    let (text, buttons) = dock_of("/examples/logic/prover-demo.logic");
+    assert!(buttons >= 1 && text.contains("Prove"), "a theorem's dock offers no Prove: {text}");
+}
+
+/// The Output column of a program offers, in one dropdown, the program's output and the program
+/// in every language the backend writes in the browser, on the Studio page and in the front page's
+/// frame alike (Collin, 2026-11-03).
+#[test]
+fn the_output_column_offers_every_language_the_backend_writes() {
+    let want = ["Output", "Rust", "C", "RISC-V", "WebAssembly"];
+    let code = shelf().files.iter().find(|f| f.starts_with("/examples/code/") && !f.contains("/web/")).expect("a code file on the shelf");
+    for (where_, html) in [("the Studio page", render_route(&studio_file_url(code))), ("the frame", frame_on(code))] {
+        let select = elements(&html, "select").into_iter().find(|s| has_class(&own_attributes(s), "output-target")).unwrap_or_else(|| panic!("{where_} has no output dropdown"));
+        let options: Vec<String> = elements(select, "option").into_iter().map(|o| visible_text(o).trim().to_string()).collect();
+        assert_eq!(options, want, "{where_}'s dropdown");
+    }
+    assert!(STUDIO_STYLE.contains(".output-target {"), "the dropdown has no style");
+}
+
 /// The selectors of every rule in `css`, at every depth of its `@media` blocks.
 fn selectors(css: &str) -> Vec<String> {
     let mut css = css.to_string();
@@ -1013,12 +1045,11 @@ fn phone_pane_faults(html: &str, want: &str) -> Vec<String> {
     faults
 }
 
-/// A phone opens on the pane that shows the file, from the server's render on (`first_pane`): the
-/// output for a file that runs or previews as it opens, the editor for Math. On the Studio page in
-/// every mode, and in a frame on every shelf file.
+/// A phone opens on the program, from the server's render on (`first_pane`, Collin, 2026-11-23: the pane that shows the file is the program). On
+/// the Studio page in every mode, and in a frame on every shelf file.
 #[test]
 fn a_phone_opens_on_the_pane_that_shows_the_file_from_the_first_frame() {
-    let pane = |path: &str| if path.starts_with("/examples/math/") { "col-left" } else { "col-center" };
+    let pane = |_: &str| "col-left";
     let mut faults = Vec::new();
     for path in ["/examples/logic/simple-sentences.logic", "/examples/code/hello-world.logos", "/examples/math/auto-tactic.logos", "/examples/hardware/handshake.hw", "/examples/code/web/counter.logos"] {
         faults.extend(phone_pane_faults(&studio_on(path), pane(path)).into_iter().map(|f| format!("/studio on {path}: {f}")));

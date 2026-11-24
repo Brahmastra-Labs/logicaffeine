@@ -45,7 +45,7 @@ describe('wrangler.toml', () => {
   });
 
   it('sends from datacenter.dev, the domain verified in the Resend account', () => {
-    expect(config.vars.NOTIFY_FROM).toBe('pricing@datacenter.dev');
+    expect(config.vars.NOTIFY_FROM).toBe('team@datacenter.dev');
     expect(env.NOTIFY_FROM).toBe(config.vars.NOTIFY_FROM);
   });
 
@@ -77,7 +77,7 @@ describe('wrangler.toml', () => {
 
   it('declares the Turnstile secret and the Resend key as required secrets, never as vars', () => {
     expect(config.secrets).toEqual({ required: ['TURNSTILE_SECRET', 'RESEND_API_KEY'] });
-    expect(Object.keys(config.vars).sort()).toEqual(['ALLOWED_ORIGINS', 'NOTIFY_FROM', 'NOTIFY_TO']);
+    expect(Object.keys(config.vars).sort()).toEqual(['ALLOWED_ORIGINS', 'NOTIFY_FROM', 'NOTIFY_TO', 'TURNSTILE_ACCEPT_TESTING_KEY']);
   });
 
   it('runs the retention sweep once a day', () => {

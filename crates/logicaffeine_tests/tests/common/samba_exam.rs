@@ -134,6 +134,54 @@ pub fn decode_batch_on_bundle(m: &Model, handed: &[Handoff], toks: &[u32]) -> Ve
     (0..toks.len()).map(|b| out[&format!("logits_s{b}")].clone()).collect()
 }
 
+/// Tokens `toks` decoded at once by the authored batch programs lowered for `target` — its embedding, every layer and its
+/// head — sequence `b` after `handed[b]`, each carried state handed in under its own names as the bundle's: each
+/// sequence's logits.
+pub fn decode_batch_on(m: &Model, target: &SpatialTarget, handed: &[Handoff], toks: &[u32]) -> Vec<Vec<f64>> {
+    assert_eq!(handed.len(), toks.len(), "a token a sequence");
+    let rows = toks.len();
+    // The program counts tokens and positions from 1.
+    let mut given: BTreeMap<String, Vec<f64>> = BTreeMap::from([("toks".to_string(), toks.iter().map(|t| f64::from(t + 1)).collect())]);
+    for (b, h) in handed.iter().enumerate() {
+        given.insert(format!("pos_s{b}"), vec![(h.position + 1) as f64]);
+        for (name, v) in &h.state {
+            given.insert(format!("{name}_s{b}"), v.clone());
+        }
+    }
+    let named = |n: &str| Some(n.to_string());
+    let x = run(m, &authored(m, Cut::BatchEmbed { rows }, target), &named, &given)["X"].clone();
+    given.insert("X".into(), x);
+    for l in 0..m.spec.layers.len() {
+        let out = run(m, &authored(m, Cut::BatchLayer { layer: l, rows, ctx: CTX }, target), &named, &given);
+        let name = format!("bxo{l}");
+        given.insert(name.clone(), out[&name].clone());
+    }
+    let out = run(m, &authored(m, Cut::BatchHead { rows }, target), &named, &given);
+    (0..rows).map(|b| out[&format!("logits_s{b}")].clone()).collect()
+}
+
+/// `got`, a sequence's logits on the SN50, held to the GPU's own bf16 datapath `gpu` — the same sequence prefilled and
+/// decoded on the RTX 3060's lowering: equal to it bit for bit, and within the bf16 datapath's bound of the reference
+/// `want` or the GPU path's own distance from it, whichever is larger, with the reference's token wherever it leads by
+/// more than twice that.
+pub fn within_the_gpu_path(m: &Model, got: &[f64], gpu: &[f64], want: &[f64], what: &str) {
+    assert_eq!(got.len(), want.len(), "{what}: the logits cover the vocabulary");
+    assert_eq!(gpu.len(), want.len(), "{what}: the GPU path's logits cover the vocabulary");
+    let apart = got.iter().zip(gpu).filter(|(a, b)| a.to_bits() != b.to_bits()).count();
+    let most = got.iter().zip(gpu).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+    assert_eq!(apart, 0, "{what}: {apart} logits are not the GPU datapath's own, the furthest {most:.3e} from it");
+    let scale = want.iter().fold(0.0f64, |acc, v| acc.max(v.abs()));
+    let distance = |v: &[f64]| v.iter().zip(want).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+    let bound = (BF16_LOGIT_REL * (m.spec.d as f64 / 64.0).sqrt().max(1.0) * scale).max(distance(gpu));
+    let worst = distance(got);
+    assert!(worst <= bound, "{what}: a logit is {worst:.5} from the reference's, past {bound:.5}");
+    let (top, emitted) = (argmax(want) as usize, argmax(got) as usize);
+    let lead = want[top] - want.iter().enumerate().filter(|(i, _)| *i != top).map(|(_, v)| *v).fold(f64::NEG_INFINITY, f64::max);
+    if lead > 2.0 * bound {
+        assert_eq!(emitted, top, "{what}: the decode emits token {emitted}, the reference {top}, which leads by {lead:.5}");
+    }
+}
+
 /// The byte offset of `tensor`'s bytes in `m`'s checkpoint, and its GGUF type.
 fn located(m: &Model, tensor: &str) -> (u64, u32) {
     let g = Gguf::open(&m.path).expect("the checkpoint");

@@ -10,6 +10,8 @@
 //! | debug | [`C_DEBUG_FLAGS`] |
 //! | release | [`C_RELEASE_FLAGS`] — the flags the benchmark suite builds its hand-written C with |
 //!
+//! Both compile the generated C in the dialect it is written in, [`C_DIALECT_FLAGS`].
+//!
 //! A release build strips its symbol table, as the Rust release profile does. The same override the Rust
 //! build honours keeps it: `CARGO_PROFILE_RELEASE_STRIP=false` (or `none`).
 
@@ -19,6 +21,10 @@ use std::process::Command;
 
 use super::build::{BuildConfig, BuildError, BuildResult};
 use super::manifest::Manifest;
+
+/// The dialect every C build compiles the generated C in: C17 with the GNU extensions it is written with (statement
+/// expressions, `__int128`, `__typeof__`, the `__builtin_` intrinsics).
+pub const C_DIALECT_FLAGS: &[&str] = &["-std=gnu17"];
 
 /// The optimization flags of a debug C build.
 pub const C_DEBUG_FLAGS: &[&str] = &["-O0", "-g"];
@@ -72,14 +78,11 @@ fn release_strips() -> bool {
 /// what the generated C asks for beyond the C library (the exact extension's value runtime,
 /// [`logicaffeine_compile::codegen_c::value_runtime::link_args`]).
 pub fn c_compiler_args(release: bool, source: &Path, output: &Path, links: &[String]) -> Vec<String> {
-    let mut args: Vec<String> = (if release {
-        C_RELEASE_FLAGS
-    } else {
-        C_DEBUG_FLAGS
-    })
-    .iter()
-    .map(|f| f.to_string())
-    .collect();
+    let mut args: Vec<String> = C_DIALECT_FLAGS
+        .iter()
+        .chain(if release { C_RELEASE_FLAGS } else { C_DEBUG_FLAGS })
+        .map(|f| f.to_string())
+        .collect();
     if release && release_strips() {
         args.push("-s".to_string());
     }

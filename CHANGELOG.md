@@ -8,6 +8,105 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Lean 4.14 through 4.34.1, Mathlib included, translate to LOGOS — proofs and statements.** `largo lean import
+  --project` selects a registered Lean profile (4.14.0, 4.28.0, 4.33.1, 4.34.0-rc1, 4.34.1) from `lean-toolchain`,
+  pins its toolchain and its structurally patched `lean4export` by digest (`scripts/lean/install-lean-exporters.py`),
+  compiles only the target's `--module` of a Lake project against its verified, prebuilt dependencies, translates a
+  Lean `have` (a nondependent let) faithfully with its disclosure, and with `--statement` publishes the proposition a
+  theorem or `Prop` definition states as a replayable statement package (`proof_status: not_claimed`), `answer(sorry)`
+  as an open template and an unfinished dependency refused with its path. `largo lean check` gains Lean's assumption
+  policy, a JSON document and statement binding.
+- **A development refutes a formula with a countermodel.** `Theorem <name>: refute <formula>.` claims the formula
+  does not follow from the axioms, the theorem's `given` premises and the statements of the theorems it cites. When
+  those are a Datalog program, their least model is a finite structure in which each of them holds, and the claim is a
+  ✓ when the formula is false there. The model is the certificate: `counterexample::check_countermodel` re-checks it
+  premise by premise over its finite domain, with an evaluator that shares nothing with the Datalog engine that built
+  it, and names a broken premise with the assignment that breaks it. `largo prove` prints the countermodel's size,
+  `--json` marks the claim `refuted`, the inventory counts it as a `refutation`, never a proof, and `--certificate`
+  prints the model whole (`theory_refute_lock`).
+- **The emitted Rust is validated against its source for every input.** `logicaffeine_tv::rust` proves each function
+  the AOT backend emits computes what its source computes, or stops with a loud "Integer overflow" where the source
+  holds a value past 64 bits: it never computes a wrong answer. Guarded fast paths, loops versioned on a guard and the
+  loop a tail call becomes are proved as written; a silent wrap, a guard too wide for its fast path, and a changed
+  operand or comparison are each refuted with an input (`rust_tv_lock`).
+- **The analysis that decides which lists codegen borrows is four Datalog rules.** A `Seq` parameter a function never
+  changes, directly or through what it calls, is borrowed as `&[T]` rather than owned or cloned; `analysis::readonly_rules`
+  states that inference as four rules over facts read off the program and evaluates them with the Datalog engine, and
+  `readonly_rules_lock` holds their answer equal to the hand-written pass's on every program of the benchmark corpus,
+  the examples and the test fixtures.
+- **The JIT compiles a loop without the paths its warm-up never ran.** While a loop warms, the VM counts which way
+  each branch goes; a loop whose body holds an op no region lowers (a `Show`, a text build) on a path that never ran
+  used to stay on bytecode whole, and now compiles without that path, as Whaley's partial method compilation does
+  (OOPSLA 2001): the cold path is an exit that hands the VM the loop's registers at its first op, the VM runs it, and
+  the next crossing of the head enters the region again. A cut region counts its iterations, and one whose cold exits
+  come on more than one iteration in sixteen is demoted. A list literal built every iteration keeps one buffer, refilled
+  in place, and a list the cold path keeps is copied before the next entry refills it. `largo opts --jit` names each
+  region's cold entries and cold exits (`jit_partial_region_lock`).
+- **The VM's bytecode is validated against its source for every input.** `logicaffeine_tv::bytecode` runs a function's
+  source and the bytecode the VM runs for it symbolically, over exact integers, from the entry and from each loop head.
+  Houdini infers which registers equal which variables at each head, and Z3 shows the two end alike on every pair of
+  paths that can run together. A loop is proved for every trip count; a tail call the compiler turned into a jump is
+  proved as that loop. Each op is taken as the VM computes it on every operand, so a strength reduction resting on a
+  wrong oracle fact is a disagreement, not an assumption: the reciprocal division, the mask a remainder lowers to, the
+  power-of-two shift. Every reciprocal the compiler emits for divisors up to 10,000 is decided exact for every `u64`
+  dividend by the Granlund–Montgomery error bound. A seeded miscompile (swapped operands, a changed constant, an
+  inverted branch, a wrong register, a reciprocal one too small, a remainder masked where the dividend can be negative)
+  is refuted with an input on which the two differ (`bytecode_tv_lock`).
+- **The 13 frame-form integer stencils of the copy-and-patch JIT are proved for every input.** `logicaffeine_synth`
+  decodes each stencil's machine code (a closed x86-64 subset that rejects everything outside it) and executes every
+  path through it symbolically over 64-bit words. It proves that the side exit is taken exactly when the spec's
+  precondition fails, that continuation 0 stores the spec's result, that no divide can fault, and that the registers
+  the stencil ABI pins survive. This replaces about 150 witness inputs per op; 15 patched stencils are each refuted
+  (`stencil_proof_lock`).
+
+- **`largo points-to`: what each variable of a program may point to.** A program's statements are read as Datalog
+  facts (allocation sites, copies, field and element writes and reads, calls with their arguments and results) and
+  Whaley and Lam's points-to rules evaluated over them, without contexts or with every call path its own; the identity
+  called on two lists merges them without contexts and keeps them apart with them (`points_to_lock`).
+- **Datalog: a theory's rules evaluated bottom-up, over hash relations or binary decision diagrams.** `largo datalog`
+  reads a `## Theory`'s ground facts and Horn rules (negated body atoms allowed) and evaluates them semi-naively,
+  stratum by stratum, to their least model; `--bdd` evaluates the same program with every relation a decision
+  diagram, bddbddb's representation, and `--certify` proves every derived fact in the kernel. Whaley and Lam's four
+  points-to rules derive exactly the six points-to and two heap facts of their example (`datalog_lock`,
+  `largo_datalog_lock`, `bdd_lock`). `--contexts` makes the evaluation context-sensitive as theirs is: every call path
+  of the theory's `Calls` facts is numbered, a range per call into a method, and the rules read `Context` and
+  `CallContext` computed from the numbering as diagrams, so the identity called twice keeps its two results apart and a
+  call chain forty deep, 2^40 contexts at its bottom, evaluates in a diagram polynomial in the depth; the answer equals
+  the context-insensitive rules run on the program cloned once per call path (`datalog_contexts_lock`). The call graph
+  may be one the rules discover (their Algorithm 6: a virtual call's targets from its receiver's points-to set),
+  numbered once it is complete, and heap objects may carry the context that allocated them, in the rules alone.
+- **Datalog evaluated by LOGOS itself: the standard library's `datalog` module.** `datalogEvaluate(facts, rules)`
+  computes the least model of ground facts and Horn rules, negation over lower strata, semi-naively in pure LOGOS, so it
+  runs on every tier: a `DatalogModel` of every fact, each once, or a `DatalogRefusal` in the words `largo datalog`
+  uses. Whaley and Lam's four points-to rules, random stratified programs and constants a tuple encoding could confuse
+  give the Rust engine's model, fact for fact, on the tree-walker, the VM, the JIT, AOT-Rust, C, bytecode C and the
+  direct WebAssembly backend (`datalog_in_logos_lock`, `wasm_aot_lock`).
+- **The JIT specializes a hot loop on a divisor it never changes.** A `/` or `%` by an `Int` the loop reads but never
+  writes compiles, once the loop is hot, against the value the VM saw: the division becomes a multiply by the
+  divisor's signed magic reciprocal (`logicaffeine_base::reciprocal`, exact for every `i64` dividend) under a value
+  guard, and a loop whose divisor keeps changing between entries falls back to the generic region. A `% k` loop with
+  `k` from the command line runs 1.62× its generic region's speed (`jit_value_specialization_perf_lock`, floor
+  1.25×); `jit_value_specialization_lock` holds every output to the tree-walker's. `largo opts --jit` lists each
+  specialized loop with the register and value, the entries that ran it, the entries that found another value, and
+  whether the generic region replaced it. A branch decided by a flag the loop never changes is folded the same way, its
+  dead side dropped, so a loop whose dead side holds what the JIT cannot lower runs native (`jit_invariant_branch_lock`).
+- **The JIT specializes a hot function on the arguments its callers never change.** The VM records what each `Int` or
+  `Bool` parameter is passed while a function warms; a value every call agreed on is folded into the function's native
+  code (the branches it decides taken, the divisions by it reciprocals), and the function is versioned at its own entry:
+  the folded body when the call passes that value, the generic body otherwise. The check sits in the machine code, so a
+  native loop calling the function and the function's own recursion are held to it as a call from the VM is, and the
+  function is compiled once. A parameter a self tail call passes on unchanged stays specialized. A digit-sum function
+  with its base from the command line runs 2.8× its generic code (`jit_function_value_specialization_perf_lock`, floor
+  1.5×); `jit_function_value_specialization_lock` holds every output to the tree-walker's, and `largo opts --jit` lists
+  each specialized function with the registers and values.
+- **`largo prove --certificate` certifies a `## Theory` development's theorems.** Each proved theorem carries its
+  kernel proof term, its goal and the axioms and cited lemmas it assumed, re-checked with nothing but the kernel, as an
+  English `## Theorem`'s already was (`theory_certificate_lock`, on Andersen points-to as Datalog rules).
+- **`largo specialize`: the Futamura projections from the command line.** `p1 <file>` specializes the
+  self-interpreter to a program through the offline specializer and prints the residual with its interpretive dispatch;
+  `p2` prints the compiler `[[mix]](mix, sint)`; `p3` prints the compiler generator `[[mix]](mix, mix)`, and `--check`
+  runs it on the self-interpreter and says whether it regenerated the compiler. Each artifact is the library's byte for
+  byte (`largo_specialize_lock`).
 - **The wire codec's size bake-off searches representations and entropy-codes what is left.** Floats describe as
   their decimal integers or their bit patterns, a common factor is divided out, wide patterns split at their high bits
   and XOR against the last value sharing them, and the residual is arithmetic-coded under a context-mixing model; a
@@ -18,6 +117,112 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   0.633 of xz -9e's bytes and 1.011× paq8px v217 -8's (0.926× on mozilla, 0.943× on mr). The wire's new forms run at
   `WireCompressionLevel::Max` and `Send smallest`; the default send path is unchanged.
 
+- **BF16 and F16 checkpoints run on the CUDA lane at their own width.** A matrix kept in a 16-bit float format streams
+  two bytes a weight from the checkpoint into every GEMV, widened in registers, where the lane widened it to `f32` on
+  the host and lost every projection fusion: a BF16 Llama-3.2-1B takes 2,425 MiB and 115 launches a token instead of
+  5,785 MiB and 195, and BF16 Qwen3.5 folds its gated-delta inputs as Q8_0 does. Llama, Qwen3, Gemma-3 and Qwen3.5 in
+  BF16 and F16 generate what the f64 reference computes
+  (`cuda_lane_lock::every_weight_format_computes_what_its_dequantized_matrix_computes`, `weight_format_lock`).
+- **A gated delta layer's inputs are one launch on the CUDA lane (K-09).** Each Qwen3.5 and Qwen3.8 recurrent layer's
+  products of its activation, the convolutions of its query, key and values with their SiLU and L2 norms, and its two
+  gates run as `lk_gemv_gdn`: the GEMV in parts carries each row through its convolution tap or gate in the epilogue,
+  and the block that finishes a head norms it; gates kept in `f32` take the launch's last blocks. Three launches a layer
+  become one, Qwen3.5-0.8B's decode step 159 launches a token to 123, each value bit for bit what the launches apart
+  compute (`cuda_lane_lock::the_gdn_input_epilogue_computes_what_its_launches_compute_apart`, `lane_compile_lock`,
+  `fusion_class_lock`). The DeepSeek-V2-Lite and gpt-oss-20b lane censuses are re-recorded at the folds the measured
+  norm-width rule keeps (327 and 123 launches a token).
+- **Every fusion class of the parity ledger compiles on the CUDA lane.** The seven it lacked take
+  `benchmarks/fusion_parity.json` from 29 compiled classes to 36, each held by a census test and a values test: a norm's
+  scale in its row kernel (`norm_scale`); a product's scale and bias in its epilogue on every GEMV and GEMM
+  (`gemm_scale`); ReLU² folded into the epilogue of the product feeding it (`relu_sqr`); soft caps on every attention
+  kernel's scores and on the logits (`softcap`); chunked-local windows beside sliding windows, sinks and caps inside
+  every attention kernel (`attention_variants_inline`); fp8 e4m3 KV caches, rounded as vLLM's scale-one fp8 cache
+  rounds (`kv_cache_quant`, `--cache=e4m3`); and a tensor-parallel step's all-reduce folded into the add and norm its sum
+  feeds (`allreduce_norm`), every rank's slices compiled for one device (`lane::compile_split`). Each fused program
+  computes what its launches compute apart bit for bit, or the f64 reference within its format's bound. Granite, MiniCPM
+  and Arcee checkpoints are read, authored and run to the reference's tokens on the VM and the CUDA lane, Gemma 2 beside
+  them (`bringup_lock`, `cuda_lane_lock::every_tiny_architecture_generates_what_the_reference_computes`). A final soft
+  cap rides the arg-max that reads it (`cap_argmax`, the cap taken in the arg-max's registers, the capped row written as
+  it is read): Gemma 2's step is one launch shorter a token, every capped logit bit for bit; a lane whose host takes only
+  each next token (`CudaKnobs::logits` `Unread`, `model_lane --logits=unread`) writes no logits at all. Z3 proves the
+  arg-max of a capped row is the row's own. A norm of a row split across chips norms each chip's part where it lives by
+  the whole row's sum of squares, a chip sending one value a row (`allreduce_sumsq_norm`): MiniMax-M2's QK norm across
+  every head now splits over chips holding whole KV groups, each chip taking its heads back with the new
+  `the K after the first F of every N of X`. OLMo 2 (and OLMo 3's windowed blocks) is read from its GGUF and its
+  Hugging Face checkpoints, authored and run: no norm before either sublayer, a norm after each, its queries and keys
+  normed across every head — the real model whose split step all-reduces only its QK norms' sums of squares. The
+  reference keeps a cache in int8 rows, each head's row under one binary16 scale, plain or turned first by the
+  Walsh–Hadamard transform, as the shared scheme keeps it (`KvStorage::Int8Rows`, `KvStorage::Int8RowsRotated`), its
+  codes and scales near calls a run may take the other way; the D5005 engine's int8 caches are those schemes.
+- **An attention's masks.** `with linear biases M` (ALiBi), `with a bidirectional prefix of P` (prefix-LM, a causal
+  block's) and `with rows starting at R` (packed sequences, each causal within itself) follow an attention's sinks,
+  computed by the VM, the tree-walker, C and AOT-Rust (`tensor_attention_masks_lock`); the tensor front end does not
+  lift a masked attention yet, and never lifts one as the unmasked attention.
+- **SAT: a faster CDCL core, stable-mode phases with local search, and preprocessing.** `logicaffeine-proof` stores
+  clauses in one flat arena under eight-byte watchers with a value per literal (the same search in half the cycles on
+  random 3-SAT at the threshold); follows target and best phases in stable mode and rephases on Kissat's schedule,
+  whose walking steps run the new ProbSAT walker (`walk`) — random 3-SAT at n = 400–600 that timed out now solves in
+  seconds; tries Kissat's lucky phases before search; offers Kissat's tiered learned-clause reduction, a
+  move-to-front queue and chronological backtracking as options; counts models exactly (`count`); finds symmetry
+  generators by a nauty-style search; and gains `preprocess` (units,
+  equivalent-literal substitution, subsumption, bounded variable elimination through AND/XOR gate definitions, every
+  step RUP-logged, models restored from a reconstruction stack), which the default CDCL route of `solve` now runs
+  first, now with congruence closure over AND, XOR and if-then-else gates (each merge RUP-proved), which refutes
+  equivalence-checking miters before search, bounded variable addition (factoring, its definitions logged as PR
+  steps), and without the mined clause bundle, which lost wherever it changed a run. Proofs with deletions and PR
+  steps are checked and exported by a forward watched-literal checker. The dispatcher's specialist chain, which spent from a second to over four minutes on SAT Competition
+  instances before CDCL began, costs what each formula's structure allows: sparse Markowitz GF(2) elimination
+  (`xorsat::eliminate`, `rank`), XOR gadgets found by sorting (`xorsat::xor_gadgets`), the local-lemma degree counted
+  only up to its bound, and the matching and cutting-plane recognizers run only on coverings. Gauss–Jordan elimination
+  runs inside the search (`xor_engine::WatchedXor`, a watched bit matrix whose propagation is complete), its
+  propagations explained off the clause database and on demand: on SATLIB's par32 parity-learning family, which
+  Kissat does not decide within 120 s, the hybrid-XOR route takes 119.4 s CPU over forty runs against CryptoMiniSat's
+  296.3 s. A solve
+  with restricted decisions no longer answers with a default value for a variable propagation left open, and
+  `IncXor` syncs to the trail by literal. Compacting the clause database no longer reads a stale reason past a
+  shrunken database. The CDCL route's eliminations may add four clauses each, where they added none (the SAT
+  Competition 2024 sample at 60 s: 57 of 62 decided against 47), and the core can bump reason-side literals. A search
+  pauses and resumes (`Solver::begin`, `resume`), and `portfolio` races configurations of the core on threads with a
+  winner that never depends on timing. The core decides by justification over a circuit's gates as an option
+  (`Solver::set_gate`, `set_justifying`), and on it the certified sweeper `fraig` decides the EPFL combinational suite
+  against its `resyn2` optimizations in 6.32 s of CPU, all 20 circuits, against 210.02 s for ABC's `&cec`. A refutation
+  under assumptions names the assumptions it rests on (`Solver::unsat_core`), a justifying search carries clauses beside
+  the gates that it makes true itself (`Solver::add_side_clause`), and the portfolio's searches share their units and
+  binaries between rounds (60 of the sample's 62 decided, PAR-2 769, against 59 apart). Certified engines stand on the
+  core: `cube`, cube-and-conquer whose answer never depends on timing; `pdr`, property-directed reachability over AIGER
+  circuits cut to their cones of influence, on justifying solvers that hold only the gates their queries read, with
+  counterexamples to generalization and the constraints assumed in lifting, every invariant and run checked, the
+  invariant conjunct by conjunct over the logic it reads, the step encoded by a cover with cuts of up to four leaves,
+  k-induction asked at each frame it opens, and a large circuit decided on localization abstractions (`localize`: the
+  latches a tied bounded model check's refutations rest on kept, the rest free) and each cone first reduced by its
+  signal correspondence (`scorr`) (149 of HWMCC'24's 319 designs within 60 s of CPU, each verdict the competition's,
+  against 115 for ABC's `pdr` given each design as AIGER 1.9 describes it, and 122 for the competition's best within 60
+  s of CPU over all its threads); `mc`, which races it against bounded model checking (`itp::bmc`, which unrolls only
+  what its questions read and encodes each clock by a cover with cuts of up to six leaves, a small cone asked a window
+  of 64 clocks a query by turns: 45 runs within 60 s of CPU on the designs the competition did not find safe, against 41
+  for ABC's `bmc3`) for a certificate that never depends on which finished first (135 within 60 s of wall time); and
+  `atpg`, stuck-at test generation whose untestable faults carry LRAT proofs. `mc_check` and `atpg_check` run them from
+  the command line. `rewrite` rewrites and-inverter graphs in place by exact synthesis, counting the logic the graph
+  already holds, from a shipped library of the circuits of all 222 NPN classes of four inputs, each result proven equal
+  by `fraig`: the EPFL suite to 425,711 And nodes, against 437,182 for ABC's `rewrite` run four times and 424,633 for
+  its ten-command `resyn2` script. `count` counts on an incremental engine with clause learning, after preprocessing
+  that keeps the count, branching along the tree decomposition a min-degree elimination makes (36 of the 2024 model
+  counting competition's 200 formulas within 60 s, against 30 before). `cipher` makes planted cryptanalysis instances of
+  reduced-round SHA-1 and Trivium for the crypto arena, and the hybrid-XOR route lets its Gauss–Jordan theory go once it
+  stops refuting. `eda_bench` (`benchmarks/eda/run-eda.sh`) runs the EDA arenas — model checking on HWMCC'24 against
+  ABC's `pdr`, bounded model checking on its designs the competition did not find safe against ABC's `bmc3` (45 runs
+  against 41), rewriting EPFL against ABC's `rewrite` and `resyn2`, counting MCC 2024 — into `benchmarks/results/eda/`,
+  which the benchmarks page's SAT Solver tab shows. `arena_bench` ranks engines by CPU time by default and races
+  CryptoMiniSat; `benchmarks/arena/fetch-satcomp.sh` samples a SAT Competition main track from GBD with each instance's
+  known verdict, and `select-solvable.sh` keeps what a reference solver decides within a budget.
+- **SAT: interpolation, kernel-checked refutations, partial symmetries, and the research algebra in the product.**
+  `logicaffeine-proof` gains Craig interpolants from its own LRAT refutations (`interpolate`) and unbounded safety of
+  AIGER circuits by interpolation with checked invariants and replaying counterexamples (`itp`); SAT refutations as
+  kernel developments both kernels check, the linear-algebra routes' verdicts among them (`kernel_refutation`);
+  substitution redundancy for partial symmetries (`Witness::PartialSymmetry`), the model groupoid, and composable
+  certified conditional symmetry breaking; and `polycalc_gfp`, `polycalc_zm`, `orbit_stability` and `res_width`. The
+  2-SAT, Horn, parity, GF(p)/ℤ/m, SoS and Nullstellensatz routes re-check their certificates in release builds, and
+  the SAT command line writes only proofs checked against the formula (`solve::certified_proof`).
 - **The CI workflows run on your own machine before they run on GitHub.** `scripts/run-ci-locally.py` executes
   `.github/workflows/test.yml` itself, and `release.yml` as the dispatch that releases a pushed tag: each job in its
   own Docker container built from its label's image under `scripts/test/ci-runner/` (ubuntu:24.04 or ubuntu:22.04 with
@@ -97,103 +302,123 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   through a section cache: a new batch, context or chip compiles only the sections it changes, the bundle byte for
   byte the one an uncached compile writes (`samba_exam_fusion_report_lock`, `samba_exam_unit_use_lock`,
   `samba_exam_certificate_lock`, `samba_exam_recompile_lock`).
-
-- **SAT: a faster CDCL core, stable-mode phases with local search, and preprocessing.** `logicaffeine-proof` stores
-  clauses in one flat arena under eight-byte watchers with a value per literal (the same search in half the cycles on
-  random 3-SAT at the threshold); follows target and best phases in stable mode and rephases on Kissat's schedule,
-  whose walking steps run the new ProbSAT walker (`walk`) — random 3-SAT at n = 400–600 that timed out now solves in
-  seconds; tries Kissat's lucky phases before search; offers Kissat's tiered learned-clause reduction, a
-  move-to-front queue and chronological backtracking as options; counts models exactly (`count`); finds symmetry
-  generators by a nauty-style search; and gains `preprocess` (units,
-  equivalent-literal substitution, subsumption, bounded variable elimination through AND/XOR gate definitions, every
-  step RUP-logged, models restored from a reconstruction stack), which the default CDCL route of `solve` now runs
-  first, now with congruence closure over AND, XOR and if-then-else gates (each merge RUP-proved), which refutes
-  equivalence-checking miters before search, bounded variable addition (factoring, its definitions logged as PR
-  steps), and without the mined clause bundle, which lost wherever it changed a run. Proofs with deletions and PR
-  steps are checked and exported by a forward watched-literal checker. The dispatcher's specialist chain, which spent from a second to over four minutes on SAT Competition
-  instances before CDCL began, costs what each formula's structure allows: sparse Markowitz GF(2) elimination
-  (`xorsat::eliminate`, `rank`), XOR gadgets found by sorting (`xorsat::xor_gadgets`), the local-lemma degree counted
-  only up to its bound, and the matching and cutting-plane recognizers run only on coverings. Gauss–Jordan elimination
-  runs inside the search (`xor_engine::WatchedXor`, a watched bit matrix whose propagation is complete), its
-  propagations explained off the clause database and on demand: on SATLIB's par32 parity-learning family, which
-  Kissat does not decide within 120 s, the hybrid-XOR route takes 119.4 s CPU over forty runs against CryptoMiniSat's
-  296.3 s. A solve
-  with restricted decisions no longer answers with a default value for a variable propagation left open, and
-  `IncXor` syncs to the trail by literal. Compacting the clause database no longer reads a stale reason past a
-  shrunken database. The CDCL route's eliminations may add four clauses each, where they added none (the SAT
-  Competition 2024 sample at 60 s: 57 of 62 decided against 47), and the core can bump reason-side literals. A search
-  pauses and resumes (`Solver::begin`, `resume`), and `portfolio` races configurations of the core on threads with a
-  winner that never depends on timing. The core decides by justification over a circuit's gates as an option
-  (`Solver::set_gate`, `set_justifying`), and on it the certified sweeper `fraig` decides the EPFL combinational suite
-  against its `resyn2` optimizations in 6.32 s of CPU, all 20 circuits, against 210.02 s for ABC's `&cec`. A refutation
-  under assumptions names the assumptions it rests on (`Solver::unsat_core`), a justifying search carries clauses beside
-  the gates that it makes true itself (`Solver::add_side_clause`), and the portfolio's searches share their units and
-  binaries between rounds (60 of the sample's 62 decided, PAR-2 769, against 59 apart). Certified engines stand on the
-  core: `cube`, cube-and-conquer whose answer never depends on timing; `pdr`, property-directed reachability over AIGER
-  circuits cut to their cones of influence, on justifying solvers that hold only the gates their queries read, with
-  counterexamples to generalization and the constraints assumed in lifting, every invariant and run checked, the
-  invariant conjunct by conjunct over the logic it reads, the step encoded by a cover with cuts of up to four leaves,
-  k-induction asked at each frame it opens, and a large circuit decided on localization abstractions (`localize`: the
-  latches a tied bounded model check's refutations rest on kept, the rest free) and each cone first reduced by its
-  signal correspondence (`scorr`) (149 of HWMCC'24's 319 designs within 60 s of CPU, each verdict the competition's,
-  against 115 for ABC's `pdr` given each design as AIGER 1.9 describes it, and 122 for the competition's best within 60
-  s of CPU over all its threads); `mc`, which races it against bounded model checking (`itp::bmc`, which unrolls only
-  what its questions read and encodes each clock by a cover with cuts of up to six leaves, a small cone asked a window
-  of 64 clocks a query by turns: 45 runs within 60 s of CPU on the designs the competition did not find safe, against 41
-  for ABC's `bmc3`) for a certificate that never depends on which finished first (135 within 60 s of wall time); and
-  `atpg`, stuck-at test generation whose untestable faults carry LRAT proofs. `mc_check` and `atpg_check` run them from
-  the command line. `rewrite` rewrites and-inverter graphs in place by exact synthesis, counting the logic the graph
-  already holds, from a shipped library of the circuits of all 222 NPN classes of four inputs, each result proven equal
-  by `fraig`: the EPFL suite to 425,711 And nodes, against 437,182 for ABC's `rewrite` run four times and 424,633 for
-  its ten-command `resyn2` script. `count` counts on an incremental engine with clause learning, after preprocessing
-  that keeps the count, branching along the tree decomposition a min-degree elimination makes (36 of the 2024 model
-  counting competition's 200 formulas within 60 s, against 30 before). `cipher` makes planted cryptanalysis instances of
-  reduced-round SHA-1 and Trivium for the crypto arena, and the hybrid-XOR route lets its Gauss–Jordan theory go once it
-  stops refuting. `eda_bench` (`benchmarks/eda/run-eda.sh`) runs the EDA arenas — model checking on HWMCC'24 against
-  ABC's `pdr`, bounded model checking on its designs the competition did not find safe against ABC's `bmc3` (45 runs
-  against 41), rewriting EPFL against ABC's `rewrite` and `resyn2`, counting MCC 2024 — into `benchmarks/results/eda/`,
-  which the benchmarks page's SAT Solver tab shows. `arena_bench` ranks engines by CPU time by default and races
-  CryptoMiniSat; `benchmarks/arena/fetch-satcomp.sh` samples a SAT Competition main track from GBD with each instance's
-  known verdict, and `select-solvable.sh` keeps what a reference solver decides within a budget.
-
-- **SAT: interpolation, kernel-checked refutations, partial symmetries, and the research algebra in the product.**
-  `logicaffeine-proof` gains Craig interpolants from its own LRAT refutations (`interpolate`) and unbounded safety of
-  AIGER circuits by interpolation with checked invariants and replaying counterexamples (`itp`); SAT refutations as
-  kernel developments both kernels check, the linear-algebra routes' verdicts among them (`kernel_refutation`);
-  substitution redundancy for partial symmetries (`Witness::PartialSymmetry`), the model groupoid, and composable
-  certified conditional symmetry breaking; and `polycalc_gfp`, `polycalc_zm`, `orbit_stability` and `res_width`. The
-  2-SAT, Horn, parity, GF(p)/ℤ/m, SoS and Nullstellensatz routes re-check their certificates in release builds, and
-  the SAT command line writes only proofs checked against the formula (`solve::certified_proof`).
+- **Quantized releases read in place, and every weight format ggml defines.** A Hugging Face directory in the
+  quantized formats open releases ship reads as llama.cpp's converter computes its weights, bit for bit: gpt-oss's MXFP4
+  experts (presented as the MXFP4 blocks the converter repacks them into), compressed-tensors' `pack-quantized` integers
+  (Kimi K2 Thinking's int4 experts; zero points where a release stores them) and its FP8 and INT8 channel and block
+  formats, GPTQ (both checkpoint formats, inputs quantized out of order), AutoAWQ's GEMM layout (read as compressed-tensors'
+  own converter reads it), NVIDIA ModelOpt's FP8 (its method stated in `hf_quant_config.json` or `config.json`) and
+  NVFP4 in ModelOpt's and compressed-tensors' layouts (presented as the NVFP4 blocks the converter repacks, each weight's
+  own scale beside it); each format's twin is packed by the format's own producer. The f64 reference and the weight
+  binding honor a weight's own scale (`<weight>.scale`, one a weight or one an expert) as llama.cpp's graph does, so an
+  NVFP4 model computes transformers' forward over its dequantized weights within a millionth. A scheme the converter does not read (another width, layout,
+  group order or algorithm), and a named method whose quantized weights the directory does not hold, are refused by name.
+  The published configurations of gpt-oss, Kimi K2 Thinking, twelve AWQ, GPTQ, FP8, INT8 and ModelOpt releases and
+  NVIDIA's three NVFP4 releases read.
+  GGUF's IQ1_S, IQ1_M, IQ2_XXS, IQ2_XS, IQ2_S, IQ3_XXS, IQ3_S, TQ1_0, TQ2_0, Q1_0, Q2_0 and NVFP4 blocks dequantize as
+  ggml's own reference does, bit for bit, their lattice tables ggml's value for value.
+- **The SN50 gathers narrow rows from a table wider than a site's page, and Qwen3.8-Flash-Next's twin brings up
+  on it.** A row of a table narrower than a tile, gathered from a table no page holds — an n-gram embedding's eight-wide
+  rows — moves the one table tile it lies in through an indirect tile address, the in-tile offset a shift on the
+  integer datapath, every slot of a block's tile guarded against the table's rows and a slot past the last index
+  written as zero. `largo emit rdu` writes the qwen4_exp twin's SN50 bundle over a cache within QSA's dense limit; rows
+  that straddle a tile, and rows so narrow that a tile of the block takes more table tiles than a site holds, are
+  refused by name.
+- **A network `torch.export` exports brings up on the SN50 from its graph alone.** `largo emit rdu --graph net.pt2
+  -o DIR` reads the archive's ATen graph — linear layers with and without their biases, GELU exact and tanh, ReLU, SiLU,
+  sigmoid, sums with their `alpha` and products, over one input to one output, every parameter the archive's raw float32
+  weights — as a model the author writes, lowers that program whole as one certified program, and writes a manifest
+  binding the input and every parameter to the archive; its host rechecks the certificate and runs the program from the
+  archive. An ATen op the importer does not map is refused by its name (`aten.cumsum.default`), and so is every shape of
+  graph it does not take (the Samba exam's E1.12, INTAKE-8).
+- **`erf of X`, and the error function computed alike on every tier.** The library's `erf` is Go's `math.Erf`
+  operation for operation — bit for bit on a grid of every branch, where its tail past 2 was a 1.5e-7 approximation —
+  and `Let Y be erf of X.` maps it over a tensor; exact GELU, `0.5·x·(1 + erf(x/√2))`, is written from it. The IR
+  computes it as one SFPU kind (`erf_tile` on Tensix) that every evaluator takes from the library, so a chip's error
+  function is the VM's bit for bit (Tristen's ruling).
 
 ### Changed
 
-- **The kernel's Lean checker spends 29% fewer instructions on Mathlib.** `logicaffeine-kernel`'s value
-  engine, the Lean Kernel Arena entry's engine, checks the Arena's whole Mathlib export in 409.15 G instructions,
-  from 577.15 G, every verdict unchanged: the Arena entries build with the new `unchecked-access`
-  feature (the `dag` core reads its stores without bounds checks; every other build and every test keep them), cached
-  values and types are found in the caller's frame, a neutral's arguments are stored contiguously and interned in
-  one probe, and an environment remembers its two latest prunings in place of a pruning cache.
-- **The Lean Kernel Arena entry credits the checkers it builds on, says how it is built, and runs the check LOGOS
-  ships.** The kernel README's Acknowledgements, the Arena runbook and both entries' descriptions credit the Lean 4
-  kernel, lean4lean, smalltt, sokonanoda, nanoda, mathgraph, nano-lean, lean4export and the Arena, each for what it
-  gave; the core shares no three-line run with sokonanoda. The descriptions say the entry is the core LOGOS runs in a
-  build tuned for the Arena's instruction count. Its run line is `dag::arena::run`, the check `largo lean check` and
-  `cargo install logicaffeine-kernel`'s new `logos-kernel` binary run, so the Arena measures what LOGOS users run, and
-  `largo lean import`'s independent recheck asks the core to decide the whole export too: a refusal of what the LOGOS
-  kernel accepted stops the import as a disagreement between the kernels. Locked by `arena_entry_lock`.
-- **The value engine holds a Lean export in less memory, in fewer instructions.** The export reader expects one
-  expression per 56 bytes, the densest of the Lean Kernel Arena's large exports, so the persistent table it sizes once
-  for Mathlib takes 1 GiB where it took 2; the content tables that intern the value engine's neutrals and frames keep
-  half of each entry's hash, eight bytes a slot where sixteen were; and `logos_kernel --stats` counts every store the
-  value engine holds. The Arena entry checks Mathlib in 407.18 G instructions (from 409.15), `init` in 18.01 G (from
-  18.16) and `std` in 31.02 G (from 31.22) (`logicaffeine_kernel`; locked by its `dag::sem` and `dag::export` unit
-  tests).
-- **The value engine decides universe levels without allocating.** Deciding `u ≤ v` builds its trees in one arena of
-  nodes that the next decision reuses, where it boxed every node; a known substitution is found, and a substitution
-  into a list is built, on the stack; a constant's inference reads its universe list in place; a spine's arguments are
-  copied into a buffer of sixteen. The Arena entry checks Mathlib in 402.37 G instructions (from 407.26), `init` in
-  17.97 G (from 18.01), `std` in 30.94 G (from 31.02) and `init-prelude` in 2.2% fewer (`logicaffeine_kernel`; locked
-  by `dag_levels` and `dag_level_allocation`).
+- **Heal puts the program back as it was before your changes.** In the Studio and on the home page, Heal now
+  restores the shipped example (or, for a file of your own, the text it opened with), at once and with nothing sent
+  anywhere. A card says so, Undo brings your version back, and Done or Escape keeps the restore. Switching files and
+  coming back finds the restored text. The LLM rewrite and its worker stay in the tree, unused by the button.
+
+- **A recursion whose step is an affine map of its value one below is answered in closed form on every backend.**
+  `f(0) = C; f(n) = k + f(n − 1) + f(n − 1)` — binary_trees' fused check — is `(C + k)·2^n − k`: the shared optimizer
+  answers it for the arguments whose answer fits a word and leaves the recursion as written for the rest, where AST C
+  and bytecode C ran the double recursion (binary_trees at depth 20: 354 ms → 3 ms on AST C, 224 ms → 3 ms on bytecode
+  C). A function answered so is not cached, and AOT Rust runs it as fast as before (`closed_form_recursion_lock`).
+- **`largo build --emit c` states the dialect the generated C is written in.** Both profiles compile it as `-std=gnu17`
+  (C17 with the GNU extensions it uses: statement expressions, `__int128`, `__typeof__`), as the test harness does
+  (`largo_build_emit_c`, `c_build_flags_lock`).
+- **A call of a function declared to return `Bool` is a condition as itself in generated Rust.** `If ok(n):`,
+  `If not ok(n):` and `ok(n) and ok(m)` read `if ok(n)`, `!ok(n)` and `ok(n) && ok(m)` where they read
+  `logos_truthy(&(ok(n)))`, which tests a value that is not a Bool for its truthiness (`phase24_codegen`).
+- **A map key written in place is looked up as the text it is in generated Rust.** `item "the" of counts` reads
+  `counts.get("the")` where it made a `String` of `"the"` for every lookup (`aot_map_key_reuse_lock`).
+- **A comparison with a Text or truth-value literal reads as the test it is in generated Rust.** `If t equals
+  "select"` reads `t == "select"` where it made a `String` of `"select"` for every comparison, `If t equals ""` reads
+  `t.is_empty()`, and `If ok(t) equals false` reads `!ok(t)`, now also for a record's Text field, a function's Text
+  result and a call of a `-> Bool` function (`phase24_codegen`).
+- **`Show` of a Text literal shows the literal itself in generated Rust.** `Show "done".` reads `show(&"done")` where
+  it made a `String` of `"done"` to show it (`phase24_codegen`).
+- **A loop over a collection the iterable computes walks it as it is in generated Rust.** `Repeat for x in
+  squares(n)` walks the call's result where it copied it first, and an item of a list is copied out once, not twice;
+  a collection the program names is still copied, so it is there after the loop (`phase24_codegen`).
+- **A variable handed to a function at its last use is moved in generated Rust.** `Let loud be shout(s).` hands `s`
+  over where it copied it; a variable read again, named twice in the statement or handed over in a loop is still
+  copied (`call_argument_move_lock`).
+- **A variable stored at its last use is moved in generated Rust.** `Push row to grid.`, an item or a map value set
+  to it, hands the variable over where it copied it. A copied list shared its buffer with a variable that lived to the
+  end of its scope, so the first write into the stored list copied all of it; a variable read again or stored in a
+  loop is still copied (`store_move_lock`).
+- **A variable a `Let` names at its last use is moved in generated Rust.** `Let mutable out be xs.` takes `xs` where it
+  copied it, so a function that binds its list parameter to a local it writes no longer copies the list on every
+  call; a variable read again or bound in a loop is still copied (`let_move_lock`).
+- **A function reaches the program's bindings by naming the record it is lent, in generated Rust.** `Set counter to
+  counter + 1` inside a function reads `__program.counter += 1` where it read `(*__program).counter`, and a field of
+  any binding held through a reference reads the same way (`aot_module_globals_lock`).
+- **Generated C compiles without warnings and runs clean under the undefined-behavior sanitizer.** Every runtime-prelude
+  and bytecode-C function is marked as one that may go unused; the prelude's misleadingly indented lines are split; a
+  capture-free closure says `(void)__env;`; an `Inspect` arm takes only the fields it reads; a condition is written in
+  one pair of parentheses and an argument or operand with only those C needs. `-Wall -Wextra` over the benchmark and
+  feature corpora reports 98 warnings where it reported 9,334, and both C emitters run clean under UBSan on 138 of 142
+  corpus programs; the other four link the value runtime's archive (`c_warnings_lock`, `c_sanitized_lock`,
+  `c_readable_lock`).
+- **Generated Rust passes `cargo clippy -D warnings`, held by `generated_rust_lint_lock`.** The Rust of every benchmark
+  program and of a corpus of feature programs (records, enums, maps, sets, options, closures, CRDTs, pipes) builds with
+  no rustc or clippy diagnostic, states every binding's type, restates no assumption a dominating statement made, holds
+  no `if` that literals decide or whose arms are the same, and holds what each block, `match`, `impl`, record and enum
+  holds inside its braces: a loop inside the scope of its hoisted borrows, and both copies of a loop versioned on its
+  bounds hints, now sit one level in. A `Copy` runtime value (a lane vector, a temporal value, a UUID) is read without
+  `.clone()`; a loop variable the body never reads is `_`; a literal binding nothing reads is dropped with its stores; a
+  loop that only counts is the value it leaves; a literal bound folds (`5000`, not `1000.saturating_mul(5)`); a value
+  already a `LogosInt` is not converted to one again; a field filled from the binding of its own name is written by its
+  name. No benchmark runs slower.
+- **A compiled program's tasks, pipes, timers and selects run on the deterministic replay executor.** The schedule,
+  the output and a deadlock's sentence are the tree-walker's and the VM's. `largo build --threads` and
+  `largo run --threads` compile them onto tokio's OS threads instead.
+- **The generated Rust reads as Rust a reviewer writes, and runs as fast.** Every binding states its type; an operand,
+  an argument, a condition or a value is parenthesized only where Rust's grammar needs it (`codegen::precedence`); a
+  function's closing `return`, an arm's included, is the value its body ends with; a counter's `x = x + 1` is
+  `x += 1`; `x >= lo and x <= hi` is `(lo..=hi).contains(&x)`; a constant of `std::f64::consts` is named; a `Copy`
+  value is copied, not cloned; a borrow Rust coerces is not dereferenced by hand; a store to a counter nothing reads
+  after its loop is not written; an `If` whose guard holds for every machine word is its arm; a bounds hint is stated
+  once in a run of statements. The program installs the runtime's failure hook with one call. No benchmark runs
+  slower.
+- **A constant nothing reads is not bound, on every tier.** A `Let` of a literal whose every read constant
+  propagation replaced is removed by dead-code elimination, unless a function or a closure reads or writes the name as
+  a global; Main's liveness keeps a variable alive for a call only then.
+- **A versioner's guard that literals decide is decided before the program runs, and of two bounds on one name the
+  tighter is stated once** (`optimize::guard`).
+- **The D5005 suites' long simulations have backstops of their own in a full run.** Measured alone, every test of
+  `d5005_flow_lock` and `d5005_rtl_lock` passes, the longest in 1,256 s; a run at a load of 50 to 67 stretched them 3.3
+  times over on the median and 8.4 at the most, and the full profile's 30-minute backstop cut 13 of them. The full
+  profile now gives each test that nine times its wall clock would carry past 30 minutes a backstop of nine times its
+  wall clock, and the three timing checks that keep five to seven cores busy their width.
+  `scripts/test/test-ledger-report.py --backstops` writes the backstops from a ledger, and `--widths` reads several
+  ledgers (`test_ledger_lock`).
 - **The Lean Kernel Arena scoreboard holds each test's peak memory to a ceiling, as it holds its instructions.**
   `scripts/lean/arena-crown/scoreboard.py --commit` refuses a run that raises any test's peak resident memory more than
   2% and 8 MiB above its committed ceiling, and an instruction ceiling is now 1% and 10,000 above the measurement, the
@@ -202,6 +427,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   measured on the value engine above, checks Mathlib in 402.37 G instructions at a 7.88 GiB peak (from 409.15 G and
   9.06 GiB), navier-stokes-euler at 3.72 GiB (from 4.16), cslib at 4.47 (from 4.59), `std` at 2.83 (from 2.98) and
   `init` at 2.72 (from 2.84), every verdict correct and first on 234 of the 247 tests.
+- **The value engine decides universe levels without allocating.** Deciding `u ≤ v` builds its trees in one arena of
+  nodes that the next decision reuses, where it boxed every node; a known substitution is found, and a substitution
+  into a list is built, on the stack; a constant's inference reads its universe list in place; a spine's arguments are
+  copied into a buffer of sixteen. The Arena entry checks Mathlib in 402.37 G instructions (from 407.26), `init` in
+  17.97 G (from 18.01), `std` in 30.94 G (from 31.02) and `init-prelude` in 2.2% fewer (`logicaffeine_kernel`; locked
+  by `dag_levels` and `dag_level_allocation`).
+- **The value engine holds a Lean export in less memory, in fewer instructions.** The export reader expects one
+  expression per 56 bytes, the densest of the Lean Kernel Arena's large exports, so the persistent table it sizes once
+  for Mathlib takes 1 GiB where it took 2; the content tables that intern the value engine's neutrals and frames keep
+  half of each entry's hash, eight bytes a slot where sixteen were; and `logos_kernel --stats` counts every store the
+  value engine holds. The Arena entry checks Mathlib in 407.18 G instructions (from 409.15), `init` in 18.01 G (from
+  18.16) and `std` in 31.02 G (from 31.22) (`logicaffeine_kernel`; locked by its `dag::sem` and `dag::export` unit
+  tests).
+- **The Lean Kernel Arena entry credits the checkers it builds on, says how it is built, and runs the check LOGOS
+  ships.** The kernel README's Acknowledgements, the Arena runbook and both entries' descriptions credit the Lean 4
+  kernel, lean4lean, smalltt, sokonanoda, nanoda, mathgraph, nano-lean, lean4export and the Arena, each for what it
+  gave; the core shares no three-line run with sokonanoda. The descriptions say the entry is the core LOGOS runs in a
+  build tuned for the Arena's instruction count. Its run line is `dag::arena::run`, the check `largo lean check` and
+  `cargo install logicaffeine-kernel`'s new `logos-kernel` binary run, so the Arena measures what LOGOS users run, and
+  `largo lean import`'s independent recheck asks the core to decide the whole export too: a refusal of what the LOGOS
+  kernel accepted stops the import as a disagreement between the kernels. Locked by `arena_entry_lock`.
+- **A mixture of experts' prefill runs faster on the CUDA lane: gpt-oss-20b's by 37%, DeepSeek-V2-Lite's by 13%.**
+  gpt-oss-20b's 512-row chunk takes 187.5 ms on the 3060 where it took 257.2 (2,731 tokens a second; llama.cpp 2,503),
+  DeepSeek-V2-Lite's 174.8 ms where its expert GEMM at one block a multiprocessor took 197.6, every token the same. An MXFP4 matrix's rows are regrouped at upload, 16 sub-blocks a group with their
+  exponents before their nibbles, so each sub-block's nibbles are one aligned 16-byte word where the expert GEMM read a
+  17-byte block a byte at a time (4.25 bits a weight kept); and the grouped expert GEMM holds two blocks a
+  multiprocessor under one word, Q2_K, Q3_K and Q5_K kept at one. `weight_format_lock` holds the regroup to the stored
+  matrix under its layout map and the GEMM's one load a sub-block; `lane_compile_lock` holds every other format's two
+  blocks to 128 registers with no spill.
+- **The kernel's Lean checker spends 29% fewer instructions on Mathlib.** `logicaffeine-kernel`'s value
+  engine, the Lean Kernel Arena entry's engine, checks the Arena's whole Mathlib export in 409.15 G instructions,
+  from 577.15 G, every verdict unchanged: the Arena entries build with the new `unchecked-access`
+  feature (the `dag` core reads its stores without bounds checks; every other build and every test keep them), cached
+  values and types are found in the caller's frame, a neutral's arguments are stored contiguously and interned in
+  one probe, and an environment remembers its two latest prunings in place of a pruning cache.
+- **The whole-program engine's Caravel project runs at the 48 ns it is signed off at.** `wpe_caravel::WPE_CARAVEL`
+  returns to 48 ns (20.83 MHz) on the core clock `wb_clk_i` (`WPE_CLOCK` is `HarnessClock::Core`), with the PSRAM edge
+  timed at 20 ns, one engine cycle per SCLK half and bursts cut for 80 ns: the configuration its macro
+  (`RUN_2026.09.28_20.20.58`) and its wrapper are signed off at in `benchmarks/silicon/caravel_macro_signoff.json` and
+  `caravel_signoff_wpe.json`. The 21 ns harden on `user_clock2` met setup and hold at every corner but left six antenna
+  violators and six pins at the slew limit at max RC, and no in-place diode reaches them (met1 and met2 are full over
+  the integer multiplier), so it is not signed and does not ship. The macro's RTL, its testbench and the submission
+  overlay are regenerated; the bring-up bench drives `wb_clk_i` at the engine's period and idles `user_clock2`; the
+  overlay README and the 0.11.0 news article say what is signed. Locked by
+  `wpe_caravel_lock::the_engine_runs_at_the_period_its_macro_and_wrapper_are_signed_off_at`, which holds the engine's
+  period and harness clock to both ledgers.
 - **The SN40L and SN50 hold fp32 islands beside bf16 products.** Each PCU SIMD stage computes in FP32, BF16
   and INT32 (published for the SN40L, modeled on the SN50), so norms, softmaxes, the logits an arg-max reads, routers
   and a gated delta rule's carried state run at fp32 while every product stays on the matrix path's bf16 and int8; a
@@ -211,8 +482,394 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **`largo emit rdu --tp` takes every tensor-parallel width the author writes**: heads in balanced runs where the
   width divides none (24, 40 or 56 heads over 16 chips); a width the author cannot write is refused with its reason, and
   the vLLM-format plan keeps vLLM's divisibility rule.
+- **A section loads a tensor its folded maps share once, and an Int program on the SN50 joins its sections.** Maps
+  `fuse_generic` folds into one body that each read a tensor — a chain adding one bias row link after link — read one
+  load of it where they read one apiece, so a chain of 200 pointwise ops is one section with its results declared (the
+  Samba exam's E11.6) and the exam's dispatch of 64 tokens over 256 experts moves 21% fewer DRAM bytes. A join whose
+  carrier sits at a float precision — an Int program on a chip whose pointwise units are fp32 — widens no interval a
+  load of the tensor would have proven, so it is made: such chains were lowered a section a statement.
+- **A program of many statements lowers in time linear in its length.** The composition's check that no section
+  loads a result nothing stores scanned every statement for each load; it reads a map, and 40,000 statements lower in
+  8.3 s where they took from 18.7 to 31.5 s.
+- **The Samba exam's gpt-oss rows hold each sequence to the GPU's own bf16 datapath.** On the tiny gpt-oss the bf16
+  products' rounding — which the SN50, the SN40L and the RTX 3060 compute alike, bit for bit — passes the 2% bound on
+  two sequences; E6.1 and E6.6 hold each sequence's logits to the RTX 3060 lowering's bit for bit and within 2% of the
+  reference or that path's own distance from it, and E1.8's tied head brings up as every bring-up does, its exact token
+  wherever the reference leads by more than twice the bound (Tristen's rulings).
+
+### Removed
+
+- **The LLM Heal and its worker.** Heal puts a file back as it shipped, on the page, so the Cloudflare worker that sent
+  a program to a model (`services/heal`), its deploy workflow and the Studio's review card are gone.
 
 ### Fixed
+
+- **AOT-Rust Int arithmetic never wraps, whatever bound the operand.** The emitter lowered an `Int` operation to a raw
+  Rust operator where it could not type an operand, and a release build then wrapped silently. That happened for a
+  `Repeat` binder over a list parameter, a local list, a slice or a set; an item `Pop` binds; a map's key and value bound
+  in a loop; a record's field read from a local, a parameter, a list item or a call; an item of a record's list or of a
+  tuple; a generic function's result; a `Maybe`'s payload; and an accumulator over a list parameter lent as a slice,
+  whose hoisted-length tag hid its item type. At 2^62 from the command line, fifteen of those forms printed a wrapped
+  number and six did not compile. Each is now the checked or exact arithmetic every other `Int` operation is. Where the
+  emitter knows no type, the checker's resolved `Int` decides. A generic function's result is no longer typed with the
+  function's own type parameter (`let t: T`) at its call site (`rust_word_arithmetic_never_wraps_lock`: 26 binding
+  forms, seven operations past the word, debug and release, each the exact value or the overflow sentence).
+- **A list of integers outgrows the word on AOT-Rust exactly, as on the tree-walker.** A `Seq of Int` that some store
+  may push past 64 bits (one the range oracle cannot prove stays inside, by the shared exactness decision) is now a
+  `logicaffeine_data::IntVec` in the generated Rust. It holds machine words until the first value past the word is
+  stored, then exact integers. The decision is taken once per flow class of lists (`analysis::seq_flow`, the one AST C
+  uses), so a list keeps its form through a function, a copy, a `Swap` and a return. A list that reaches a reader
+  knowing only machine words (a builtin, a slice, `Pop`, a closure, a record field), or that the exact extension holds,
+  keeps its words and stops with the overflow sentence past the word. A list every store into which the oracle proves
+  stays in the word keeps every fast form a `Vec<i64>` has, and so does a list of counts: born empty, filled with
+  zeros, and advanced by one, at most once a pass, by a loop whose trip count is a word (a histogram's buckets).
+  `overflow.lg`, a value carried through a function 400
+  times past 2^63, prints `9223372036854775957` on AOT-Rust built debug and built release (`rust_exact_seq_flow_lock`).
+- **A list of integers outgrows the word on AST C exactly.** The `Seq_i64` a list is held in gains one `exact` bit: the
+  list keeps machine words until a value past the word is stored, then promotes its cells to tagged exact integers,
+  once. A list promotes only when a store computes a value that may pass the word, or stores a variable that
+  definitely may hold one. A variable that is exact only because arithmetic over words nothing bounds feeds it is
+  stored narrowing, as a checked word is, so a list a word-bounded loop fills keeps its words and its speed: knapsack,
+  collatz and histogram run as before (`c_exact_seq_flow_lock`).
+- **AOT-Rust runs an exact scalar on machine words first.** Wherever generated Rust holds an `Int` as a `LogosInt` (a
+  counter that may climb past the word, a parameter handed an exact value), a pure function gets a word twin it runs
+  first, and a loop whose only effects are on locals runs on machine words; either runs again exactly where a value
+  leaves the word. A value an exact place hands to a machine-word place (an index, a slice bound, a list or tuple item,
+  a map key, a word parameter, a cast, a pipe) narrows into the word there, or stops with the overflow sentence.
+  `codegen::exact_scalars` also takes the shared exactness decision (`analysis::exactness`, the one AST C takes) over a
+  function's scalars; that decision is held off (`exact_scalars::DECIDES_SCALARS`) until a loop that writes a list runs
+  its exact locals on machine words first, and the rows that need it are ignored in `rust_exact_scalars_lock` with that
+  reason.
+- **Five wrong answers on a release build of generated Rust.** A chain of word operations under `%` or `/` was judged
+  to stay in the word by its last step alone, so an overflowing step before the remainder wrapped. `x % -1` was a raw
+  remainder. A division the oracle proved by its divisor's whole range wrapped where that range held 0 or -1. And
+  `abs(i64::MIN)` returned `i64::MIN`. An accumulated recursion (`Return n * f(n - 1)`) also folded its accumulator
+  with a raw operator. Each is now the exact value, or the overflow sentence where a word is taken
+  (`correctness_exact_arith`, `rust_exact_scalars_lock`).
+- **`toBase` refuses a base outside 2 to 36, on every tier.** A base of 1 looped forever and a base past 36 wrote bytes
+  that are no digits; each now stops with `toBase(): the base must be 2 to 36` (`parity_convert`).
+- **The range oracle reads early exits, conjunctions and ranged divisors.** After `If c:` whose block always leaves
+  the function (`Return`, `Fail`), what follows holds `not c`. A conjunction that holds, or a disjunction that fails,
+  narrows by each of its sides. And `x % d` with `d` in a known range is bounded by `d`'s widest magnitude less one.
+- **A citation hands over what a theorem states, never its bare goal.** The library drivers added a cited theorem's
+  goal as a premise and dropped the theorem's own premises, so a lemma proved under a `given` became an
+  unconditional fact: `Theorem t1: given P(A); prove P(A).` then `Theorem t2 cites t1: prove P(A).` reported t2
+  proved, kernel-certified. A citation, and a `[simp]` theorem in the scripted library's pool, now carries the
+  theorem's premises implying its goal (`library_driver`, `tactic_script`, `simp_tactic`, `tarski_geometry`).
+- A `## Theory` or `## Axiom` header names its block by the one word that ends its line, whatever English reads the
+  word as: `## Theory More` named the theory `Anonymous` and left `More` in its body, and a `## Theory` with no name
+  took its body's first word for one (`axiom_theory_blocks`).
+- **Self-contained WebAssembly has the 8- and 16-bit word rings.** `word8(x)`/`word16(x)` and `intOfWord8`/
+  `intOfWord16` refused every module ("builtin not yet lowered"), where the VM, the JIT, both C tiers and AOT-Rust
+  already carried the rings ℤ/2⁸ and ℤ/2¹⁶. `Kind::Word8`/`Kind::Word16` now ride an `i32` local masked to their
+  width (wasm has no narrower integer arithmetic, so the mask IS the ring): construction, `intOfWord8`/`intOfWord16`
+  extraction, wrapping `+`/`-`/`*`, unsigned `/`/`%` and unsigned comparison, and the same unsigned `Show` `Word32`/
+  `Word64` already print through. `wasm_aot_lock`'s corpus gained `word16_ring`, `word8_ring` and
+  `word16_and_word8_past_the_word` (the named repro, `intOfWord16(word16((a * b) / c))`, a product three times past
+  `i64::MAX` divided back within the word).
+- **Records and variants compare by value on self-contained WebAssembly, as members of a set or a list.** `contains`,
+  `Add` and `Remove` refused a record or a variant member by name ("records, variants, maps or sets"); the backend
+  now generates one equality function per record/variant shape — closed under nested record/variant/tuple/list
+  fields exactly as it already did for tuples and lists — comparing a record field for field and a variant by
+  constructor, then (only on a shared constructor) its payload positions. A record's `Int` field may hold a counted
+  integer cell instead of a plain word (the exact extension); its equality decodes the cell through the host's exact
+  comparison whenever either side names one, never by the cell's own handle, which the allocator never interns (two
+  separately computed records holding the identical value past 2⁶³ still compare equal and dedup in a set). A set or
+  a list of maps or sets is still refused by name; the refusal names only what is still missing.
+- **A function returning an arithmetic of its own call runs native.** `Return n % k + digits(k, n / k)` reaches the VM
+  as an accumulator loop, a `While true`, and the bytecode tested the literal, so the code after the loop looked
+  reachable and the JIT, which cannot return nothing from native code, left the function on bytecode. `While true` now
+  compiles with no test (`jit_accumulator_recursion_lock`).
+- **A `Repeat` over a range walks a bound past 64 bits on every engine.** An Int is exact, so `Repeat for i from a to b`
+  with `a` or `b` an Int that grew past `i64` walks every Int between them. The tree-walker and the VM's range value
+  raised "Range requires Int bounds", while the VM's counted loop counted on, so one program printed on the VM what it
+  raised on the tree-walker. The bytecode validator found the divergence: for such an `a`, the source raised and the
+  bytecode returned (`range_exact_bounds_lock`, `bytecode_tv_lock`). AOT-Rust and AST C walk a bound an exact binding
+  holds exactly (`exact_int_every_tier_lock`); a bound computed in machine words that passes the word stops a compiled
+  tier with the sentence it gives any integer too wide for its place (`exact_on_c_lock`, `exact_on_wasm_lock`).
+- **Generated Rust compiles for every program of the corpus the emitter compiled before, and for 133 more that run to
+  the end on the tree-walker.** Emitted and type-checked over the whole program corpus (13,133 programs), no program
+  regresses. A binding states the type of the value it is given, never a type its name carried in from another binding:
+  `Let x be 1.5. … Let x be "{x}!"` stated `let x: String = 1.5f64;`; a name bound again between text and a number is
+  text exactly while its binding is (`y + 1` after `Let y be n * 2` concatenated); a value read from an untracked name,
+  a generic function's `T` at its call, and a copy of a list parameter the function changes (the `Vec` it is copied
+  into) state their own types. A word or lane value a builtin builds (`word32(…)`, `splat16Word16(…)`) is that word. An
+  `Inspect` arm binds a generic variant's field at the scrutinee's type arguments. A `Pair of A and B` or `Triple of A
+  and B and C` is the tuple of its parts. An empty list or `nothing` whose element nothing constrains is a list or
+  option of `i64`. A strided fill up to a literal bound, `abs`, `floor` or `sqrt` of literals joined by operators or
+  `min`/`max`, a destructured tuple of sets, a keyword-named binding filling a variant's field and a store index of any
+  shape compile. A `Return` in `Main` computes its value and ends the program. Every `Box` the emitter writes is
+  `::std::boxed::Box`, and a program's own function named `show` no longer captures the `Show` statement, so a program's
+  names never capture the emitter's. A loop's `% n` by a parameter takes its divider at the function's entry; a filled
+  list is `mut` wherever the emitted code writes it; a copy of the items of a list written as its closed form copies
+  them item by item; a record field stored into a collection is moved only at the record's last use; an `Escape to
+  Rust:` block that starts with an `if` keeps its braces.
+- **A compiled program computes what the tree-walker computes, in six more places.** `wordN(…)` of a quotient divides
+  the exact dividend: a word's wrapping arithmetic holds through `+`, `-`, `*` and the bitwise operators only, and never
+  over a promoted `LogosInt`. A loop whose bound reads its own counter (`While p <= n - p`) re-reads its bound; it was
+  written `for p in 2..((n - p) + 1)`. A value compared with `nothing` is equal to it only if it is `nothing` or an
+  option holding nothing, in generated Rust and AST C alike (Rust wrote `x == ()`, C wrote `nothing` as `0`, so `0 is
+  equal to nothing` held). `Merge` and `Converge` fold any record field by field, `Shared` or not: a set takes the
+  members it lacks, a map the keys it lacks with each value both hold folded the same way, and `Increase`, `Decrease`,
+  `Append` and `Resolve` on a plain field add, subtract, push and assign as the tree-walker does (a set or map field
+  took the incoming value whole). The byte-compare window is written only where its proof holds: a counter bound to 0
+  right before its loop and read by nothing after. A loop's sentinel exit (`Set j to n` inside `While j < n`) leaves the
+  loop at once only where nothing reads the counter afterwards and nothing but its step follows in the pass: `Return
+  matched * 10 + j` after such a loop returned 2 where the tree-walker returns 6.
+- **A string literal that spans lines in an `Escape to Rust:` block holds the text the block wrote, wherever the block
+  sits.** The emitter moved every line of the block in by the depth it sat at, the literal's own lines too, so the same
+  block printed different text in `Main`, in a loop and in a function.
+- **The Rust and C a program compiles to are the same in every process.** Constant tables are hoisted, and functions
+  that tail-call each other merged, in declaration order, and a join's tasks clone what they capture by name; MD5's
+  round tables, a merged pair's name and a task's clones came out in a hash map's order
+  (`emitted_source_determinism_lock`).
+- **What `a new <name>` builds is one rule on every tier, the tree-walker's** (`semantics::collections::built_by`), read
+  by the checker, the type environment, the VM compiler, the supercompiler and the Rust emitter. `Vec` is a list type
+  (`Vec of Int`) but no construction: a program's record named `Vec` is that record everywhere, and the checker checks
+  its fields.
+- **AST C and bytecode C compute what the tree-walker computes for `abs`, records, options and maps.** `abs` keeps the
+  kind it is given: an `Int` is exact (`logos_iabs`, `logos_lint_abs`) where `fabs` rounded past 2^53 and truncated a
+  `Real`, and bytecode C's negation was undefined at the smallest Int. Options, records and enum values compare by what
+  they hold on AST C (they did not build), and bytecode C compares a recursive enum (writing its equality overflowed the
+  emitter's stack). A plain record field merges as the tree-walker merges it: a plain `Int` adds, wrapping, a map folds
+  in key by key, a list comes in as the target's own copy (both records shared one buffer). A record or variant field
+  declared with an applied generic (`Option of Int`, `Seq of (Option of Int)`, `Maybe of Text`, `Result of Int and
+  Text`) holds that type, as does a generic record's `Option` field naming none of its parameters (it was an `int64_t`,
+  so no such record built, nor its JSON reader and writer; `monomorphic_fields_lock`). A map of records, enum values or
+  options builds on AST C, and a loop over it binds its entries; bytecode C removes a key from a map. A set literal
+  builds, `x is none` of a monomorphized `Option` tests its tag, and copying an empty list no longer calls `memcpy` on a
+  null buffer.
+- **A sum never wraps in generated Rust.** `Repeat for x in xs: Set sum to sum + x` adds in `i128` and narrows once,
+  stopping with the tier's overflow sentence where the total passes the word (a release build printed a wrapped
+  number, a debug one panicked). A counted sum (`While i < n: Set sum to sum + i`) takes its fast loop of plain `+`
+  only for inputs whose whole run fits a word: a counter started at an input below zero, or run to a limit past the
+  guard's band, took the fast loop and wrapped (`sk(-4294967296, 0)` printed 9223372034707292160 where the
+  tree-walker prints -9223372039002259456; `accum_bound_guard_lock`, `codegen_divergence_lock`).
+- **A `## Policy` predicate that names itself is refused when its C is written.** AST C resolved `A User is odd if the
+  user is odd.` while writing the program, and never returned; both C emitters refuse it, as they refuse any construct
+  they do not lower (`c_policy_cycle_lock`).
+- **A map lookup no longer consumes its key in generated Rust.** `(item name of a) equals (item name of b)`, two `Let`s
+  reading one key out of two maps, or `Set item k of out to (item k of a) + (item k of b)` passed the key by value to
+  the first lookup, and rustc refused the next ("use of moved value"). A lookup in a map the emitter knows borrows its
+  key through the map's own `get`, now also for an item of a `Seq of Map`, a loop's element of one, a record's map
+  field and a function's map result, whose reads are typed; a lookup in a collection of a type it does not know copies
+  the key in where the program reads it again (`aot_map_key_reuse_lock`).
+- **Comparing what a map holds under a missing key traps in generated Rust,** as every read of a missing key does on
+  every tier: `If item "missing" of m equals 42` answered that they differ (`map_missing_key_traps_lock`).
+- **A `Repeat` that destructures tuples builds in generated Rust whatever it walks.** A list written in place, an item
+  of a list of lists or a slice of a list of tuples gave rustc a Rust tuple pattern over `LogosTuple` items (E0308);
+  each binds its positions as a walk over a variable does (`e2e_codegen_tuples`).
+- **A doubling recursion past the word is exact in generated Rust, and `## No closedform` keeps it a recursion.** AOT
+  Rust answered `pow2(d) = pow2(d − 1) + pow2(d − 1)` with a closed form of its own that wrapped (`pow2(63)` printed
+  -9223372036854775808, where it is 2^63) and that `## No closedform` did not turn off (`closed_form_recursion_lock`).
+- **A range from an `Int` past the word walks exact integers in generated Rust and AST C.** `Repeat for i from big to
+  big + 2` with `big` at 2^63 did not build in generated Rust (its start stayed a `LogosInt`), and AST C stopped on it.
+  A counted loop whose bound an exact binding holds now walks `logicaffeine_data::logos_exact_range` in generated Rust
+  and an `LInt` counter in AST C, and prints `big`, `big + 1` and `big + 2` as every tier does (B27,
+  `codegen_divergence_lock::a_range_from_an_int_past_the_word_builds_and_walks_or_stops`, `exact_int_every_tier_lock`,
+  `rust_exact_scalars_lock`).
+- **A store into a list of copies leaves a copy of the list alone in generated Rust.** After `Let saved be row.`, a
+  `Set item 2 of row to 5.` into a `row` built by `4 copies of 0` changed `saved` too, as a store into a row of a grid
+  of copies changed every copy of the grid: the emitter knew no type for `n copies of x`, and a store into a list of no
+  known type wrote through the list its copy shared. `n copies of x` is a list of `x`'s type, its binding carries that
+  type, and the store copies on write as every engine does
+  (`value_semantics::vs_aot_a_store_into_a_list_of_copies_leaves_a_copy_of_it_alone`,
+  `vs_aot_a_store_into_a_row_of_copies_leaves_a_copy_of_the_grid_alone`).
+- **An `Int` that a chain of machine words carries past the word is exact on AST C.** A sum, difference, product or
+  quotient of machine words that the shared exactness decision (`analysis::exactness`) says can outgrow a word is
+  computed with every step checked and, from the first step that leaves the word, exactly: shown, interpolated,
+  compared, bound, reassigned, returned, combined bitwise and taken a remainder of as the VM does, where AST C printed
+  the wrapped word (`Show (item 1 of xs) + 1` printed -9223372036854775808). A quotient is computed where the reference
+  computes it, so a zero divisor fails before an operand to its right is read, and the bottom of the word divided by -1
+  is 2^63 (`/` and `//`), where `logos_idiv` wrapped it (`exact_int_every_tier_lock`, `c_defined_integers_lock`).
+- **The optimizer divides the bottom of the word by -1 as the VM does.** Its range oracle answered `wrapping_div`'s
+  -2^63, and divided a range starting at -2^63 by -1 outright, which panicked in a debug build of the compiler; the
+  quotient's range is now unbounded above (`exact_int_every_tier_lock`).
+- **AST C shifts as every tier shifts.** A shift takes its count modulo 64, as the VM's `wrapping_shl`/`wrapping_shr`
+  take it, where C's `<<` and `>>` by 64 or more, by a negative count or into the sign bit were undefined; an exact
+  operand meets the runtime's `lint_shl`/`lint_shr`/`lint_bit*`, which refuse a value past the word in the VM's words
+  instead of "integer value out of range for this int64 context".
+- **A shared record's plain fields merge on both C tiers as on the VM.** Two Ints add wrapping as the word does (AST C
+  overflowed a signed sum; bytecode C added them exactly and answered 2^63 where the VM answers -2^63), an integer past
+  the word gives way to the incoming value, two sets merge as their union, and any other field takes the incoming
+  value (bytecode C added the two cells, a Text's and a set's handles included).
+- **The C runtime reads -2^63 back as a word.** A big integer's word was accumulated in a signed word and negated, two
+  signed overflows at -2^63; `lbig_word` accumulates the magnitude unsigned, and every narrowing, index and within-i64
+  test reads through it, so an exact result within the word is held as one.
+- **`c_defined_integers_lock` builds both C tiers with the undefined-behavior sanitizer** on signed overflow and
+  shifts, over shifts at every count, arithmetic at the edges of the word, the bottom of the word narrowed, and shared
+  records merged, and holds each to the VM's output.
+- **`parseInt` reads every digit of the word on every tier, and refuses alike.** The browser runtime and the Node shim
+  read text through JavaScript's `parseInt`, a binary64, so `parseInt("9223372036854775807")` answered 2^63 wrapped to
+  -2^63, and text that was no Int read as 0; AST C read it with `atoll`, so `"12x"` was 12. Every host now reads as the
+  VM reads (`str::trim`, then an `i64` or the VM's "Cannot parse '…' as Int"), the JavaScript hosts through
+  `web_host::EXACT_INT_JS`'s `parseIntExactly` and both C tiers through one `logos_parseInt`.
+- **A `Mount` is the program's call in `## Main` and the test's entry in a `## Test`.** The lowered page's driver made
+  every mount the program's, so a `## Test` whose mount could not paint (a recursion with nothing to stop it) stopped
+  the test where every other tier reports it as the page's failure and runs on; at HEAD it made every mount the page's,
+  so a `## Main` whose `When the page loads:` trapped ran on past it on the tree-walker and nowhere else. The driver is
+  told whose statements it carries out (`page_host::DrivenBy`): the program's own `## Main` calls `__mount_<C>` as the
+  VM and a browser's page main call it, and a host's mount is an entry into the page, its failure delivered to the
+  page's failure door. Chrome's test tier reports a failed mount entry as the page's failure, as it reports a failed
+  event (`mount_entry_lock`, `recursive_component_lock`).
+- **A set of pairs and a pair of sets run on every tier.** `Set of (Text, Text)` with `Add`, `contains` and `count`,
+  `Repeat for (v, h) in` such a set, and a function returning a tuple of sets that its caller destructures ran on the
+  tree-walker and the VM only: AOT-Rust did not build (a tuple had no hash or equality, a set could not ride a
+  `Value`), C did not compile, and WebAssembly refused a sequence of an unknown element kind. Each prints what the
+  tree-walker prints (`param_return_tier_coverage_lock`, `wasm_aot_lock`).
+- **The prover keeps a theory's names and its rules' variables apart.** `largo prove` panicked ("cyclic substitution
+  h1 ↦ h1") when a `## Theory`'s facts named a constant as a rule names a bound variable. A rule's variables are renamed
+  apart from every name the premises use, a premise's own free names stay fixed during search, and a name one premise
+  introduces existentially and another reads freely keeps its name, so the barber still derives
+  (`theory_certificate_lock`, `phase_barber_updated`).
+- **Every way into the toolchain judges ownership on the program as written.** A use after `Give` passed `largo
+  check`, printed the given-away list on the tree-walker, the VM, C and WebAssembly, and failed `largo build` in rustc
+  as a compiler bug. The ownership check now runs before any rewrite on every run and compile path, so `check`, `run
+  --interpret` on each engine, `build`, and `emit rust`/`c`/`wasm` refuse alike (`ownership_front_door_lock`). A `copy
+  of` a zone's value is a value of its own and may leave the zone (`ownership_judges_the_program_as_written`).
+- **`--seed` reaches the scheduler, and the VM runs concurrent programs.** `largo run --interpret --seed S` ran every
+  concurrent program at seed 0, and `--engine vm`/`jit` refused concurrent programs the guide says they run. Every
+  engine now runs them on its seeded scheduler at `--seed`, else `LOGOS_SEED`, else 0 (`interpret_seed_lock`).
+- **`largo run --interpret` reads and writes files.** File I/O failed on every engine ("VFS not initialized"). The
+  interpreter now reads and writes the paths the compiled program does; the MCP sandbox keeps its files in memory,
+  chosen by `ui_bridge::Files` passed down the call, never by the environment (`interpret_files_lock`, `mcp_e2e`). The
+  generated Rust reads and writes files inside functions and tasks too, through one program-wide `logos_vfs()`, where
+  it named a `vfs` only `main` declared.
+- **WebAssembly runs the program the optimizer makes.** The direct WebAssembly path compiled the monomorphized program
+  without the run-path optimizer, so `ackermann 10` recursed about 8,000 frames deep and exhausted Node's stack. One
+  parse seam (`ui_bridge::parse_seam_with`) gives every backend its front end, and every collapse-noted benchmark runs at
+  its reference size under Node (`benchmark_logos_tiers_lock`). A page function the optimizer specializes keeps its
+  role (`partial_eval::specialization_origin`, read by `vm::reach`).
+- **WebAssembly code after a stop no longer types registers it never reads.** A register read after a `Return` or a
+  `Fail`, and written as a different kind before it, refused the module ("register reused across incompatible value
+  types"); the lowering, kind inference and the register splitter now share one notion of a live op
+  (`wasm_aot_lock`).
+- **A compiled program means what the program means, where its generated Rust or C meant something else.** Every row
+  of `codegen_divergence_lock` runs on the tree-walker, the VM, AOT Rust built debug and built release, and AST C, and
+  each prints the same bytes or fails with the same sentence. A shift by a count outside 0..64 panicked in a debug
+  build, and `1 << 60` printed 268435456 in a release one (an unsuffixed literal shifted as an `i32`); a negative
+  count sized a list or a map, and a negative `with capacity` sized any collection, with 2^64 slots; a counted loop
+  ending at the largest Int ran no pass; a counter set from its own value right after its loop read 0; a variable
+  named like the length a loop hoists (`xs_len`) read the length; a memoized or tail-recursive function whose
+  parameter is named like a Rust keyword, a closure bound under its function type, a closure a function returns used twice and a bit intrinsic
+  called only inside a loop did not build; a last-write-wins field was written as a register on another record's
+  field of the same name; a pipe filled past its capacity with no receiver did not deadlock. In C, an `Inspect`
+  returning from every arm fell off the end of its function, a missing key in a map of reals or of money read zero,
+  and a shared record's Text field merged with `+`.
+- **The C backend compiles every benchmark program on an ordinary thread, in an unoptimized build too.** Compiling
+  memoized `fib` to C overflowed a 2 MiB thread in a debug build: the statement emitter's match gave every arm's locals
+  a slot in one frame, tens of KiB a nesting level, and the memoized C nests deep. Each wide arm of the C statement and
+  expression emitters is now a function of its own, as the Rust emitter's are, and `compiler_stack_safety_lock` compiles
+  every benchmark program through every compile entry point on a 2 MiB thread.
+- **A WebAssembly program that owns memory links with the Rust runtime.** The relocatable transform refused any module
+  with a memory or data, so a program with a Text literal, a list, or a memoized function could not be linked. The
+  emitter now writes every address into its static region as a five-byte LEB and declares the layout in a
+  `logos.static` section; the transform imports the linker's memory, turns the static region into one data segment
+  with its addresses and each Text's self-pointer relocated, and seats the heap at `__heap_base`. The allocator grows
+  only past the pages it already owns, so memory another allocator grows is never handed out
+  (`vm::wasm::reloc` unit tests: text, lists, maps and a memo link and match standalone; the shadow stack stays
+  untouched; pages a foreign allocator grew stay its own).
+- **`contains` over a list compares by value on the direct WebAssembly backend.** A `Seq of Text` was refused, and a
+  list of lists, tuples or records lowered to a module WebAssembly validation rejects. A Text now compares by its bytes,
+  a list or a tuple through its shape's equality function (as a set's members already did), a `Real` and a 32-bit word
+  by their own equality; a list of records, variants, maps or sets is refused by name, as a set of them is
+  (`wasm_aot_lock`).
+- **A program whose `## To` header holds a character wider than a byte before a colon compiles.** The prelude's scan
+  for the program's own parameter names stepped one byte past the character before each colon, and a `»` (two bytes)
+  stopped the compile with a panic on every tier.
+- **The VM, the JIT and the optimizer analyze a deeply nested program ten times faster, to the same facts.** The
+  analysis that proves bounds and aliases re-ran every loop's proofs on every pass of every loop around it, recording
+  facts it then threw away: a program using the standard library's Datalog evaluator, eight loops deep, spent 2.7 s
+  there before running. A walk whose facts are thrown away now computes states and records nothing (0.27 s; nine nested
+  loops 1.44 s → 48 ms), and the code generated for 183 programs is byte for byte the same (`compiler_stack_safety_lock`).
+- **A JIT loop region survives a bad entry.** An entry whose registers held kinds the region was not compiled for (an
+  `Int` grown past 64 bits) missed at every crossing of the loop head, so one such entry spent the region's eight
+  misses and the loop ran on bytecode for the rest of the program. A miss is now remembered for the rest of its entry
+  (until the loop exits or its frame returns), so one bad entry is one miss, and a region is demoted only once its
+  misses reach eight and outnumber the entries it ran native, over a window that halves both as it fills. A program
+  with four such entries among forty runs thirty-six native where it ran twenty. `largo opts --jit` lists every loop
+  region with its entries, how they ended and its guard misses (`jit_partial_region_lock`).
+- **Declaring one native of a standard module keeps the module's other names.** A program that declared
+  `## To native args () -> Seq of Text` lost the rest of `env.lg`, so `get` was an unknown function on every tier. A
+  native is bound to its runtime implementation by name, so the module is now spliced without its own declaration of
+  the native the program declares (`stdlib_user_name_hygiene`).
+- **`largo verify` checks every `Assert`, and only proves what the program's facts imply.** An imperative `Assert`
+  (`Stmt::RuntimeAssert`) was never handed to Z3, and the facts it would have met were unsound: `Set` added `x = v`
+  beside the earlier `x = v₀` (so `Let x be 1. Set x to 2. Assert that x equals 7.` verified), a branch's assignments
+  held unconditionally, a loop kept its entry values, a function body's facts joined Main's, every call was the same
+  uninterpreted value however impure, and a `decreasing` clause was checked on the first iteration only. The pass now
+  reads the program in SSA versions under path conditions: branches join under their condition, a loop forgets what
+  its body may write (`WriteSet`) and keeps its exit condition unless it can break out, early returns narrow the rest
+  of the block, functions are scoped, a call stands for its result only when the callee is pure, and termination is
+  checked on every iteration the condition admits. `Require`/`Assume` are assumed (they are enforced at run time).
+  `verification_soundness_lock`.
+- **The Z3 encoder never turns a term it cannot read into `true`, `false` or a crash.** An ill-sorted comparison or
+  connective became `false` (assumed, it proved every goal), an implication or quantifier over a non-proposition
+  became `true` (as a goal, proved), and an equation between different sorts panicked inside `z3`. Each is now a fresh
+  proposition the solver knows nothing about. `logicaffeine_verify` solver tests.
+- **The kernel README documents the `arena-alloc` feature** its manifest declares (`readme_lock`).
+- **`largo lean import` rechecks a `native_decide` proof as the LOGOS kernel read it.** The kernel core's independent
+  recheck decides the export with each native decision re-derived, the proof the LOGOS kernel checked; handed the
+  export as exported, it met the `Lean.ofReduceBool` step only Lean's compiler can check and refused what the LOGOS
+  kernel accepted (`logicaffeine_kernel`).
+- **The generated Rust runs what the tree-walker runs with the clock, durations, sleeps, async calls and slices.**
+  `today` and `now` compile to clock reads (they emitted bare identifiers), reading `LOGOS_FIXED_DAYS` and
+  `LOGOS_FIXED_NANOS` as the C, RISC-V and CUDA runtimes do. A duration is signed (`0ns - 5ns` is `-5ns`; it
+  panicked), a moment moves by a duration or a span either side of `+`, a time of day orders against a moment, `date_of` takes a Date, `Sleep` waits for any duration-typed expression
+  and not at all at or below zero, and a record or variant holds a temporal value. A function that reaches an async function from a constructor field, `not`, a set field, a
+  multi-push, a reversible block or any other expression or block is async; a loop that awaits keeps the collection it
+  walks; a recursion through an async function runs. A slice is a new list wherever it is held, returned, passed or
+  stored (a slice of a call's result did not compile) (`logicaffeine_compile`, `logicaffeine_data`,
+  `logicaffeine_system`).
+- **No optimization treats a clock read as a variable.** Equality saturation forwarded `Let t be now.` into later
+  reads, so `Show now is greater than t.` after time had passed printed `false` on every optimized tier; each read of
+  `today` or `now` is its own opaque leaf. The C and RISC-V `now` read nanoseconds (they read whole seconds).
+- **The C tier holds temporal values in its lists, sets and maps as themselves.** `[today]` showed `[20000]` and a
+  duration taken out of a list added as an Int; `months_between` and `years_between` did not link.
+- **The Futamura projections run and specialize the language as it runs.** The self-interpreter compares values
+  structurally and keys a map by its keys' values (an Int-keyed map iterated its keys as text), the textbook first
+  projection specializes a value it knows only in part instead of leaving the self-interpreter in its residual, and
+  the specializers fold operators, pure builtins and list operations by the language's own tables
+  (`logicaffeine_compile`).
+- The wire decoder checks every int column form's element count against the receiver's budget; six forms did not.
+- **A closure's captured integer and a popped value keep what they are on the collected tiers.** On the bytecode→C
+  tier a closure that captured a loop variable crashed: its body never learned the kinds of what it captured, so `x +
+  i` ran as a machine add while every caller read the result as an exact integer. A closure body's captured values are
+  now settled with the parameters, from every `MakeClosure` that builds it. A popped value is the item it is
+  (`resolve_pop` stops the program before any pop that could find none) rather than a boxed optional, so `length of`
+  and every other operation take it, and a pop allocates nothing. A program that asks for its heap report
+  (`LOGOS_HEAP_REPORT`) gets it even when it allocated nothing, and the RISC-V runtime calls the C library's allocator
+  nowhere: the C runtime's fallback for a build without the collector (`lc_gc_libc_source`) stays out of it, and a
+  RISC-V build where the collector cannot run refuses to compile. Locked by `collected_heap_lock`, its rows sized and
+  shaped so each collects at least twice on every collected tier.
+- **`largo verify` passes a program only when it checked every claim the program makes.** It passed a false `Assert`
+  (the pass skipped every `Assert that …`), a refinement type broken by a later `Set` or by a function's refined
+  return value, and it crashed on a refinement over a call's value (`SortDiffers { Int, Bool }` inside Z3). Each
+  assignment is now a fresh solver name, a branch's facts hold only under its condition, a loop, a call or an
+  unmodelled statement forgets what it may write, and a value the verifier does not model (a call, text, a field,
+  division) is unknown. A claim it cannot model is refused by name, and an internal failure is reported as "not
+  verified", never as a pass.
+- **`Check that x is at most y.` parses, in `## Main` and in functions.** Every `Check` was read as a security guard,
+  so the quick guide's own `Check that balance is at least amount.` failed with "I expected a statement here". A
+  one-token predicate (`Check that the user is admin.`) and a capability are still guards. Every other condition is
+  a value check that stops the program when it is false, like `Require that`.
+- **English theorems state integer order.** `is at most`, `is at least`, `is less than`, `is greater than` (the last
+  two with an optional `or equal to`), `<=`, `>=`, `<` and `>` lower to the proof layer's `le` and `lt`, so
+  `Prove: For all w s, if s is at least 0 then w minus s is at most w.` is kernel-certified by `Proof: omega.` An
+  order word with no production (`exceeds`) is refused with the spellings that work.
+- **A build staged from a checkout of another version says so.** With `LOGOS_WORKSPACE` on a 0.10.1 checkout, largo
+  0.11.0 staged the old runtime and reported rustc's errors as a LOGOS compiler bug. Staging now refuses the
+  mismatch before anything is built, naming both versions and the variable.
+- **The test suite builds and runs on Apple Silicon as well as on x86_64.** libcrux-ml-kem and libcrux-ml-dsa enabled
+  `simd256` (AVX2) in a table every target reads, so libcrux-intrinsics failed to compile on aarch64. Each
+  architecture now enables its own backend (`simd256` on x86_64, `simd128` on aarch64, the portable one elsewhere),
+  and libcrux picks the fastest compiled-in one at run time. The native tier (`logicaffeine_jit`,
+  `logicaffeine_forge`) exists only on x86_64 outside Windows, and the two shared helpers and 87 suites named it
+  under `not(wasm32)` or no gate at all, so 911 test targets failed to build on a Mac. The helpers and the 26 suites
+  that test several tiers now install it only where it exists and hand the VM no native tier elsewhere, which is how
+  the product runs there, so their other tiers run on a Mac. The 61 suites that test the JIT alone open with its own
+  gate, and five JIT suites gated on x86_64 alone now also leave out Windows. On x86_64 Linux every test is
+  unchanged. Locked by `portable_suite_lock`.
 
 - **The release workflow publishes notes longer than a GitHub release holds, and releases a tag pushed before it was
   fixed.** The 0.11.0 section of the changelog is 506,000 characters and GitHub refuses a release body over 125,000,
@@ -239,20 +896,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   start Verilator take 600–3,400 s each; seven added since the on-demand ruling ran into the fast suite's 30-minute
   cap. `ondemand_exclusion_lock` now derives the co-simulations from the test file (each test that starts Verilator,
   directly or through the file's helpers) and holds the silicon selector to exactly them.
-- **The per-push binary-size check installs the linker the test workflow links with.** `test.yml` links every Linux
-  build with mold through clang, and the job that holds the shipped binaries to their budgets installed neither, so it
-  failed at its first build script on every push. It installs both, and `workflow_linker_lock` holds every job that
-  installs Rust to the packages its workflow's link line names.
-- **A closure's captured integer and a popped value keep what they are on the collected tiers.** On the bytecode→C
-  tier a closure that captured a loop variable crashed: its body never learned the kinds of what it captured, so `x +
-  i` ran as a machine add while every caller read the result as an exact integer. A closure body's captured values are
-  now settled with the parameters, from every `MakeClosure` that builds it. A popped value is the item it is
-  (`resolve_pop` stops the program before any pop that could find none) rather than a boxed optional, so `length of`
-  and every other operation take it, and a pop allocates nothing. A program that asks for its heap report
-  (`LOGOS_HEAP_REPORT`) gets it even when it allocated nothing, and the RISC-V runtime calls the C library's allocator
-  nowhere: the C runtime's fallback for a build without the collector (`lc_gc_libc_source`) stays out of it, and a
-  RISC-V build where the collector cannot run refuses to compile. Locked by `collected_heap_lock`, its rows sized and
-  shaped so each collects at least twice on every collected tier.
 - **The published crates build on the Rust they declare, 1.88.** `logicaffeine-compile`'s one-time-pad ledger took
   its file lock with `File::lock`, which Rust 1.89 added, so building 0.11.0 on Rust 1.88 failed. The ledger locks
   through `fs2`, as the crate's other file locks do; CI's `msrv` job checks every published crate on 1.88.
@@ -261,16 +904,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `ip-cache` beside the job directories (`QUARTUS_IP_CACHE` still overrides it). `stall_watch.sh` finds a stalled
   step's processes by their group id (`pkill -g`, `pgrep -g`) instead of signalling a negative pid, the form
   `signal_blast_radius_lock` keeps out of the repository. Locked by `d5005_quartus_queue_lock`.
+- **The per-push binary-size check installs the linker the test workflow links with.** `test.yml` links every Linux
+  build with mold through clang, and the job that holds the shipped binaries to their budgets installed neither, so it
+  failed at its first build script on every push. It installs both, and `workflow_linker_lock` holds every job that
+  installs Rust to the packages its workflow's link line names.
 - **The release builds its Windows binaries.** A Windows runner's git checks text out with CRLF line endings, and
   the prelude's build script reads each module's source line for line against its spliced code, so every Windows
   build of v0.11.0 stopped in `logicaffeine-compile`'s build script ("its spliced code is not a sequence of its
   source's lines"). Each release job that checks out on Windows keeps the tree's own LF line endings first
   (`git config --global core.autocrlf false`). Locked by `release_assets_lock`.
-- **The release's VSIX install gate launches VS Code on macOS.** VS Code 1.110 names its macOS executable for the
-  product (`Code`), and the `@vscode/test-electron` the tag pins (2.5.2) launches `Contents/MacOS/Electron`, so the
-  darwin-arm64 gate died at `spawn … Electron ENOENT` and held the release back. The gate installs
-  `@vscode/test-electron` 3.1.0, which reads the executable's name from the app's `Info.plist`, before it runs.
-  Locked by `release_assets_lock`.
 - **`pi`, `π` and `e` are the `Real` constants wherever no exact type is declared, on every tier.** The quick
   guide's exact-functions row says a bare `pi` or `e` outside an exact context is a `Real`; every tier stopped instead
   with `Undefined variable: pi`, and `largo run` reported the generated Rust's failure as a compiler bug, so
@@ -299,10 +941,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `theorem_certificate` and the Studio's theorem compile answer a presupposition failure naming the premise and what it
   presupposes. A premise is never its own context, and premises inconsistent without the presupposition are no failure
   of it. Locked by `phase142_vandersandt`.
-- **`largo lean import` rechecks a `native_decide` proof as the LOGOS kernel read it.** The kernel core's independent
-  recheck decides the export with each native decision re-derived, the proof the LOGOS kernel checked; handed the
-  export as exported, it met the `Lean.ofReduceBool` step only Lean's compiler can check and refused what the LOGOS
-  kernel accepted (`logicaffeine_kernel`).
+- **The timing model prices the pipelined token-row store as Quartus builds it, and the calibration is held against
+  every synthesis the build ledger records.** The model boxed only the memories each width names, so the store's own
+  layers (`logos_bram_w512_part`) were elaborated: each of its 71 layers took 576 LUTs of byte-lane write logic the
+  M20K's byte enables absorb, and preflight saw the store's logic at nearly three times Quartus's. Every memory the RAM
+  generator writes, its `_part`s included, is now one block RAM in the timing report, preflight and the calibration
+  alike, a read held under an enable with the pass-through Quartus builds beside its block. A synthesis whose memory
+  Quartus built in its fabric (the memory probes declared in a generate block, read in MLABs without a register, or
+  asking for registers) is refused by how many of its bits, as one the model cannot map is: the calibration is
+  re-recorded over the ledger's builds since 10-23 and holds every fit within its spread. Locked by
+  `timing_calibration_lock`, `timing_graph_lock` and `d5005_rtl_lock`.
+- **The release's VSIX install gate launches VS Code on macOS.** VS Code 1.110 names its macOS executable for the
+  product (`Code`), and the `@vscode/test-electron` the tag pins (2.5.2) launches `Contents/MacOS/Electron`, so the
+  darwin-arm64 gate died at `spawn … Electron ENOENT` and held the release back. The gate installs
+  `@vscode/test-electron` 3.1.0, which reads the executable's name from the app's `Info.plist`, before it runs.
+  Locked by `release_assets_lock`.
 - **The Lean checker's quotient cannot be forged.** An export may state the quotient's four constants (`Quot`,
   `Quot.mk`, `Quot.lift`, `Quot.ind`) only as the quotient's own: `logos-kernel` and the `dag` core computed the lift on
   an ordinary axiom named `Quot.mk`, accepting a closed proof of `False`, and admitted `Quot.mk` and `Quot.ind` over an
@@ -312,20 +965,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   kernel declares all four at once; and the lift and the induction principle compute only on the quotient's own
   constructor, in every engine (`logicaffeine_kernel`). Locked by `dag_quotient_integrity`, `dag_crafted` and
   `dag_trusted_prefix`.
-- **The generated Rust runs what the tree-walker runs with the clock, durations, sleeps, async calls and slices.**
-  `today` and `now` compile to clock reads (they emitted bare identifiers), reading `LOGOS_FIXED_DAYS` and
-  `LOGOS_FIXED_NANOS` as the C, RISC-V and CUDA runtimes do. A duration is signed (`0ns - 5ns` is `-5ns`; it
-  panicked), a moment moves by a duration or a span either side of `+`, a time of day orders against a moment, `date_of` takes a Date, `Sleep` waits for any duration-typed expression
-  and not at all at or below zero, and a record or variant holds a temporal value. A function that reaches an async function from a constructor field, `not`, a set field, a
-  multi-push, a reversible block or any other expression or block is async; a loop that awaits keeps the collection it
-  walks; a recursion through an async function runs. A slice is a new list wherever it is held, returned, passed or
-  stored (a slice of a call's result did not compile) (`logicaffeine_compile`, `logicaffeine_data`,
-  `logicaffeine_system`).
-- **No optimization treats a clock read as a variable.** Equality saturation forwarded `Let t be now.` into later
-  reads, so `Show now is greater than t.` after time had passed printed `false` on every optimized tier; each read of
-  `today` or `now` is its own opaque leaf. The C and RISC-V `now` read nanoseconds (they read whole seconds).
-- **The C tier holds temporal values in its lists, sets and maps as themselves.** `[today]` showed `[20000]` and a
-  duration taken out of a list added as an Int; `months_between` and `years_between` did not link.
 - **The Rust tier compiles every variant construction and every key read it emits.** A variant of a recursive enum
   built as a call statement's argument, a variant storing a list parameter its function only reads, and a map a call
   returns read by a Text key read again each failed to compile. RISC-V holds a `Duration` as its own kind.
@@ -336,11 +975,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   specializer compares blocks by equality and decides what an interpolation hole holds by the expression's shape; the
   residual is printed by the decompiler. pe_mini and pe_bti key closures by their bodies, as the online specializer
   does, and the specializer means the same on the reference and the value host (`logicaffeine_compile`).
-- **The Futamura projections run and specialize the language as it runs.** The self-interpreter compares values
-  structurally and keys a map by its keys' values (an Int-keyed map iterated its keys as text), the textbook first
-  projection specializes a value it knows only in part instead of leaving the self-interpreter in its residual, and
-  the specializers fold operators, pure builtins and list operations by the language's own tables
-  (`logicaffeine_compile`).
 - **A specialization never reads the clock, and the offline projections run inside their budgets.** The second
   projection's compiler and the third's compiler generator each held the moment they were built, so the compiler the
   generator writes was the second projection's only up to those two moments; now a read of the run stays in the
@@ -358,16 +992,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Large programs parse in linear time.** The lexer and the parser ran three scans over the rest of the file per
   construct; a 186k-line program parses in 6 s of CPU where it took 157 s (`header_trailing_colon_lock`;
   `logicaffeine_language`).
-- **The timing model prices the pipelined token-row store as Quartus builds it, and the calibration is held against
-  every synthesis the build ledger records.** The model boxed only the memories each width names, so the store's own
-  layers (`logos_bram_w512_part`) were elaborated: each of its 71 layers took 576 LUTs of byte-lane write logic the
-  M20K's byte enables absorb, and preflight saw the store's logic at nearly three times Quartus's. Every memory the RAM
-  generator writes, its `_part`s included, is now one block RAM in the timing report, preflight and the calibration
-  alike, a read held under an enable with the pass-through Quartus builds beside its block. A synthesis whose memory
-  Quartus built in its fabric (the memory probes declared in a generate block, read in MLABs without a register, or
-  asking for registers) is refused by how many of its bits, as one the model cannot map is: the calibration is
-  re-recorded over the ledger's builds since 10-23 and holds every fit within its spread. Locked by
-  `timing_calibration_lock`, `timing_graph_lock` and `d5005_rtl_lock`.
 - **A prompt of one token repeated thousands of times prefills on the spatial chips.** A chunk of the gated delta
   rule inverted its `I + A` by a power series whose partial sums grow as the chunk's binomial coefficients (past 10⁸ on
   32 rows of one repeated key) and cancel back to the answer; fp32 lost it, the state drifted chunk by chunk, and
@@ -380,6 +1004,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **A long prefill chunk with attention sinks lowers on the spatial chips.** gpt-oss's chunk of 1,024 rows spread one
   sink tile per fold item, a section as wide as the chunk's rows that no site held; its sinks are one tile a head, each
   item reading its head's (`spatial_attention_window_lock`).
+- A ModelOpt FP8 export whose method only its `hf_quant_config.json` states reads its weights times their
+  scales, as the converter reads it; the configuration alone was read, and its 8-bit codes taken for the weights.
 
 ## [0.11.0] - 2026-11-02
 

@@ -1,7 +1,9 @@
 #![doc = include_str!("../README.md")]
 
+pub mod bytecode;
 pub mod equiv;
 pub mod parse;
+pub mod rust;
 pub mod symexec;
 pub mod tensor;
 pub mod verdict;

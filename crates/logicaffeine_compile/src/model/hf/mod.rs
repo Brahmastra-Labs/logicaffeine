@@ -107,6 +107,17 @@ pub enum Form {
     Values(Vec<f32>),
     /// `n` zeros of type `ty`: the rows a converter pads a table with (Gemma 3n's embeddings, to the vocabulary).
     Zeros { n: usize, ty: GgmlType },
+    /// An MXFP4 weight in ggml's blocks, as the converter's `repack_mxfp4` moves its bits: source `blocks` (u8
+    /// `[outer, m, nblk, 16]`, two E2M1 codes a byte, the earlier in the low nibble) beside `scales` (u8
+    /// `[outer, m, nblk]`, an E8M0 exponent a block of 32 codes); output row `(b, i)` is source row `(b, rows[i])`.
+    Mxfp4 {
+        blocks: String,
+        scales: String,
+        outer: usize,
+        m: usize,
+        nblk: usize,
+        rows: Vec<usize>,
+    },
 }
 
 impl Form {
@@ -132,6 +143,7 @@ impl Form {
             Form::Map { inner, .. } => inner.elements(),
             Form::Values(v) => v.len(),
             Form::Zeros { n, .. } => *n,
+            Form::Mxfp4 { outer, nblk, rows, .. } => outer * rows.len() * nblk * GgmlType::Mxfp4.block_len(),
         }
     }
 }
@@ -158,30 +170,162 @@ pub struct HfCheckpoint {
     index: HashMap<String, usize>,
     shards: Vec<Shard>,
     located: HashMap<String, usize>,
-    /// An FP8 checkpoint's scaled weights, by name: each read as the converter's `dequant_simple` writes it.
-    scaled: HashMap<String, Scaled>,
-    /// The tensors the converter removes once it has dequantized: the scales, and activation scales nothing reads.
+    /// The weights a quantized checkpoint's converter computes rather than reads, by the name it writes each under.
+    computed: HashMap<String, Computed>,
+    /// The tensors the converter removes once it has dequantized: the parts it computes weights from, and activation
+    /// scales nothing reads.
     consumed: BTreeSet<String>,
     unread: Vec<String>,
     skipped: Vec<String>,
 }
 
-/// A weight stored beside its scale (an FP8 checkpoint's `<name>_scale_inv`), and the block its scale entries cover.
-struct Scaled {
-    scale: String,
-    block: Option<Vec<usize>>,
-    grid: OnceLock<Result<ScaleGrid, String>>,
+/// A weight the converter computes from stored parts: the entry it is presented as (f32, of the weight's shape, no byte
+/// range) and what it is computed from.
+struct Computed {
+    entry: Entry,
+    from: Dequant,
 }
 
-/// The scaled weights and consumed tensors of a checkpoint whose `quantization_config` is FP8 (`quant_method` fp8), as
-/// the converter's `dequant_model` finds them: a `<name>_scale_inv` scales `<name>`, a Mistral `<stem>.qscale_weight`
-/// scales `<stem>.weight`, and activation scales (`.activation_scale`, `_activation_scale`, `.qscale_act`) are dropped.
-fn fp8_scales(h: &Hparams, located: &HashMap<String, usize>) -> io::Result<(HashMap<String, Scaled>, BTreeSet<String>)> {
-    let mut scaled = HashMap::new();
-    let mut consumed = BTreeSet::new();
-    let Some(q) = h.map.get("quantization_config").filter(|q| q.get("quant_method").and_then(Value::as_str) == Some("fp8")) else {
-        return Ok((scaled, consumed));
+/// How a computed weight's values follow from its parts, each as the converter's `dequant_model` computes them.
+enum Dequant {
+    /// The weight's own stored values times `scale`, an entry a block of `block` where one is given (an FP8 checkpoint's
+    /// `<name>_scale_inv`): `dequant_simple`.
+    Scaled { scale: String, block: Option<Vec<usize>>, grid: OnceLock<Result<ScaleGrid, String>> },
+    /// compressed-tensors' `pack-quantized` integers: `dequant_packed`.
+    Packed(Packed),
+    /// GPTQ's packed integers: `dequant_gptq`.
+    Gptq(Gptq),
+    /// AutoAWQ's GEMM integers, read into `pack-quantized` as compressed-tensors' `AutoAWQConverter` reads them, without
+    /// loss, and computed as `dequant_packed` computes those.
+    Awq(Awq),
+    /// NVFP4 codes, presented as the NVFP4 blocks the converter's `_nvfp4_pack` repacks them into, not computed.
+    Nvfp4(Nvfp4),
+}
+
+/// An NVFP4 weight's parts, as the converter's `_generate_nvfp4_tensors` finds them: E2M1 codes two to a byte along each
+/// row of `codes` (the earlier element in the low nibble), an E4M3 scale a block of 16 inputs (`scale`), the weight's own
+/// scale (`scale2`: ModelOpt's `weight_scale_2`, the reciprocal of compressed-tensors' `weight_global_scale`, 1 where
+/// there is none) and its activation's (`input_scale`, likewise).
+struct Nvfp4 {
+    codes: String,
+    scale: String,
+    scale2: f32,
+    input_scale: f32,
+}
+
+/// An AutoAWQ GEMM weight's parts: 4-bit codes of the transposed weight, eight to an int32 word along each input's row
+/// of `qweight` (`[in, out / 8]`), output `8w + k`'s code in word `w`'s nibble [`AWQ_ORDER`]`[k]`; each group's zero
+/// points packed so along each row of `qzeros` (`[groups, out / 8]`), or none (half the codes' range); and each group's
+/// `scales` (`[groups, out]`), a group of `group` inputs.
+struct Awq {
+    qweight: String,
+    qzeros: Option<String>,
+    scales: String,
+    group: usize,
+}
+
+/// The nibble of an AutoAWQ word that holds the code of its `k`th output: `AWQ_REVERSE_ORDER`.
+const AWQ_ORDER: [usize; 8] = [0, 4, 1, 5, 2, 6, 3, 7];
+
+/// A GPTQ weight's parts: `bits`-wide codes of the transposed weight, `32 / bits` to an int32 word down each column of
+/// `qweight` (`[in / pack, out]`, the first in the low bits); each group's zero points packed so along each row of
+/// `qzeros` (`[groups, out / pack]`), stored less one where `minus_one` (the `gptq` checkpoint format); each group's
+/// `scales` (`[groups, out]`); and each input's group, `g_idx`, read at open.
+struct Gptq {
+    qweight: String,
+    qzeros: String,
+    scales: String,
+    g_idx: Vec<usize>,
+    bits: usize,
+    minus_one: bool,
+}
+
+/// A `pack-quantized` weight's parts: `bits`-wide codes packed `32 / bits` to an int32 word along each row of `packed`,
+/// the first in the low bits; less the zero point (`zero`, packed so along each column) or, without one, half the codes'
+/// range; times `scale`, an entry a group of `group` columns.
+struct Packed {
+    packed: String,
+    scale: String,
+    zero: Option<String>,
+    bits: usize,
+    group: usize,
+}
+
+/// A computed weight's presented entry: f32, of `shape`.
+fn computed_entry(shape: Vec<u64>) -> Entry {
+    Entry { dtype: Dtype::F32, shape, begin: 0, end: 0 }
+}
+
+/// The stored entry of tensor `name`.
+fn stored_in<'a>(shards: &'a [Shard], located: &HashMap<String, usize>, name: &str) -> Option<&'a Entry> {
+    located.get(name).map(|&i| &shards[i].tensors[name])
+}
+
+/// The computed weights and consumed tensors of a quantized checkpoint, as the converter's `dequant_model` finds them
+/// for the method its `quantization_config` names. An MXFP4 checkpoint's experts are repacked rather than computed
+/// ([`Form::Mxfp4`]).
+fn quantized(
+    h: &Hparams,
+    shards: &[Shard],
+    located: &HashMap<String, usize>,
+) -> io::Result<(HashMap<String, Computed>, BTreeSet<String>)> {
+    let Some(q) = h.map.get("quantization_config").filter(|q| !q.is_null()) else { return Ok(Default::default()) };
+    let method = q.get("quant_method").and_then(Value::as_str).unwrap_or_default();
+    if let Some(name) = located.keys().filter(|n| n.ends_with(".pre_quant_scale")).min() {
+        return Err(invalid(format!("{name}: an AWQ-style pre-quantization scale, which the converter does not read")));
+    }
+    let nvfp4_and_fp8 = |compressed: bool| -> io::Result<(HashMap<String, Computed>, BTreeSet<String>)> {
+        let (mut computed, mut consumed) = nvfp4_weights(shards, located, compressed)?;
+        let (fp8, dropped) = weight_scales(shards, located, None, &[".input_scale", ".k_scale", ".v_scale"], true, &computed)?;
+        computed.extend(fp8);
+        consumed.extend(dropped);
+        Ok((computed, consumed))
     };
+    let (computed, consumed) = match method {
+        "fp8" => fp8_scales(q, shards, located)?,
+        "compressed-tensors" => match compressed_scheme(q)? {
+            Compressed::Packed { bits, group } => pack_quantized(bits, group, shards, located)?,
+            Compressed::Scaled { block } => weight_scales(shards, located, block, &[], false, &HashMap::new())?,
+            Compressed::Nvfp4 => nvfp4_and_fp8(true)?,
+        },
+        "modelopt" => {
+            modelopt_scheme(q)?;
+            nvfp4_and_fp8(false)?
+        }
+        "gptq" => gptq_weights(q, shards, located)?,
+        "awq" => awq_weights(q, shards, located)?,
+        _ => Default::default(),
+    };
+    // A method a configuration names accounts for weights the directory holds: one that finds none of its quantized
+    // weights would leave the stored codes to be read as the weights themselves. gpt-oss's experts stored unpacked
+    // are read as such, as the converter reads them under an MXFP4 configuration.
+    if method != "mxfp4" && computed.is_empty() {
+        return Err(invalid(format!(
+            "config.json: `quantization_config` names a `{method}` checkpoint, and the directory holds none of its quantized \
+             weights"
+        )));
+    }
+    Ok((computed, consumed))
+}
+
+/// A quantization scheme this reader does not read: the configuration's `method`, and `what` of its scheme is unread.
+fn unread_scheme(method: &str, what: String) -> io::Error {
+    invalid(format!(
+        "config.json: `quantization_config` names a `{method}` checkpoint that {what}, which the quantized-format intake \
+         does not read yet"
+    ))
+}
+
+/// An FP8 checkpoint's weights (`quant_method` fp8): a `<name>_scale_inv` scales `<name>`, a Mistral
+/// `<stem>.qscale_weight` scales `<stem>.weight`, and activation scales (`.activation_scale`, `_activation_scale`,
+/// `.qscale_act`) are dropped.
+fn fp8_scales(
+    q: &Value,
+    shards: &[Shard],
+    located: &HashMap<String, usize>,
+) -> io::Result<(HashMap<String, Computed>, BTreeSet<String>)> {
+    let mut computed = HashMap::new();
+    let mut consumed = BTreeSet::new();
     let block = match q.get("weight_block_size") {
         None | Some(Value::Null) => None,
         Some(Value::Array(b)) => Some(
@@ -200,16 +344,440 @@ fn fp8_scales(h: &Hparams, located: &HashMap<String, usize>) -> io::Result<(Hash
             name.strip_suffix(".qscale_weight").map(|stem| format!("{stem}.weight"))
         };
         if let Some(weight) = weight {
-            if !located.contains_key(&weight) {
+            let Some(stored) = stored_in(shards, located, &weight) else {
                 return Err(invalid(format!("{name} scales {weight}, which the checkpoint does not hold")));
-            }
-            scaled.insert(weight, Scaled { scale: name.clone(), block: block.clone(), grid: OnceLock::new() });
+            };
+            let entry = computed_entry(stored.shape.clone());
+            let from = Dequant::Scaled { scale: name.clone(), block: block.clone(), grid: OnceLock::new() };
+            computed.insert(weight, Computed { entry, from });
             consumed.insert(name.clone());
         } else if name.ends_with(".activation_scale") || name.ends_with("_activation_scale") || name.ends_with(".qscale_act") {
             consumed.insert(name.clone());
         }
     }
-    Ok((scaled, consumed))
+    Ok((computed, consumed))
+}
+
+/// What a compressed-tensors checkpoint's weights are, as the converter's `dequant_model` reads them.
+enum Compressed {
+    /// `pack-quantized`: `bits`-wide integer codes packed into int32 words, a scale a group of `group` inputs.
+    Packed { bits: usize, group: usize },
+    /// `float-quantized`, `int-quantized` and `naive-quantized`: each weight's own 8-bit codes times its `.weight_scale`,
+    /// by output channel or over blocks of `block`.
+    Scaled { block: Option<Vec<usize>> },
+    /// `nvfp4-pack-quantized`: NVFP4 codes beside their block scales and the reciprocal of the weight's own scale.
+    Nvfp4,
+}
+
+/// The scheme of a compressed-tensors checkpoint as the converter's `dequant_model` reads it: one config group, either
+/// `pack-quantized` integers quantized by groups taken in order, or symmetric 8-bit codes scaled by channel or block.
+/// Any other scheme is refused naming what it is.
+fn compressed_scheme(q: &Value) -> io::Result<Compressed> {
+    let refuse = |what: String| -> io::Result<Compressed> { Err(unread_scheme("compressed-tensors", what)) };
+    let format = q.get("format").and_then(Value::as_str).unwrap_or("unnamed");
+    if format == "nvfp4-pack-quantized" {
+        return Ok(Compressed::Nvfp4);
+    }
+    if !matches!(format, "pack-quantized" | "float-quantized" | "int-quantized" | "naive-quantized") {
+        return refuse(format!("stores the format `{format}`"));
+    }
+    let groups: Vec<&Value> = q.get("config_groups").and_then(Value::as_object).map(|g| g.values().collect()).unwrap_or_default();
+    let [group] = groups[..] else {
+        return refuse(format!("holds {} config groups where the converter dequantizes one", groups.len()));
+    };
+    let field = |k: &str| group["weights"].get(k).filter(|v| !v.is_null());
+    let shown = |k: &str| field(k).map_or("none".into(), Value::to_string);
+    let strategy = field("strategy").and_then(Value::as_str).unwrap_or("unnamed");
+    if format != "pack-quantized" {
+        if !matches!(strategy, "channel" | "block") || field("group_size").is_some() {
+            return refuse(format!("scales {format} weights by `{strategy}` with a `group_size` of {}", shown("group_size")));
+        }
+        if field("symmetric").and_then(Value::as_bool) == Some(false) {
+            return refuse(format!("quantizes {format} weights about zero points the converter does not read"));
+        }
+        let block = match field("block_structure") {
+            None => None,
+            Some(b) => match b.as_array().map(|b| b.iter().map(Value::as_u64).collect::<Option<Vec<u64>>>()) {
+                Some(Some(b)) if b.iter().all(|&x| x > 0) => Some(b.into_iter().map(|x| x as usize).collect()),
+                _ => return refuse(format!("scales over a `block_structure` of {b}")),
+            },
+        };
+        return Ok(Compressed::Scaled { block });
+    }
+    let ty = field("type").and_then(Value::as_str).unwrap_or("int");
+    if (strategy, ty) != ("group", "int") {
+        return refuse(format!("quantizes {ty} weights by `{strategy}`"));
+    }
+    if let Some(order) = field("actorder") {
+        return refuse(format!("orders its groups by activation (`actorder` {order}) where the converter takes them in order"));
+    }
+    let bits = field("num_bits").and_then(Value::as_u64).filter(|b| (1..32).contains(b));
+    let size = field("group_size").and_then(Value::as_u64).filter(|&g| g > 0);
+    match (bits, size) {
+        (Some(b), Some(g)) => Ok(Compressed::Packed { bits: b as usize, group: g as usize }),
+        _ => refuse(format!("packs codes of `num_bits` {} by groups of `group_size` {}", shown("num_bits"), shown("group_size"))),
+    }
+}
+
+/// The scheme of a ModelOpt checkpoint the converter reads: no algorithm stated, `FP8` (`dequant_fp8`), or NVFP4 with
+/// 16-bit or 4-bit activations (`_generate_nvfp4_tensors`), for the checkpoint and every layer it lists. Any other
+/// algorithm (an integer AWQ) is refused naming it.
+fn modelopt_scheme(q: &Value) -> io::Result<()> {
+    let algorithms = q.get("quant_algo").into_iter().chain(
+        q.get("quantized_layers").and_then(Value::as_object).into_iter().flat_map(|l| l.values().filter_map(|e| e.get("quant_algo"))),
+    );
+    for algo in algorithms.filter(|a| !a.is_null()) {
+        if !matches!(algo.as_str(), Some("FP8" | "NVFP4" | "W4A16_NVFP4")) {
+            return Err(unread_scheme("modelopt", format!("quantizes by the `quant_algo` {algo}")));
+        }
+    }
+    Ok(())
+}
+
+/// Weights each scaled by the scale stored beside it, `<name>.weight_scale` scaling `<name>.weight` over blocks of `block`
+/// (`dequant_simple`), as compressed-tensors' scaled formats and ModelOpt's FP8 store them. The tensors ending in one of
+/// `dropped` are consumed unread, and with `orphans` so is a scale with no weight beside it, as `dequant_fp8` drops them.
+/// A weight `taken` already (an NVFP4 weight beside its block scales) is left to it.
+fn weight_scales(
+    shards: &[Shard],
+    located: &HashMap<String, usize>,
+    block: Option<Vec<usize>>,
+    dropped: &[&str],
+    orphans: bool,
+    taken: &HashMap<String, Computed>,
+) -> io::Result<(HashMap<String, Computed>, BTreeSet<String>)> {
+    let (mut computed, mut consumed) = (HashMap::new(), BTreeSet::new());
+    let mut names: Vec<&String> = located.keys().collect();
+    names.sort();
+    for name in names {
+        if let Some(weight) = name.strip_suffix(".weight_scale").map(|stem| format!("{stem}.weight")) {
+            if taken.contains_key(&weight) {
+                continue;
+            }
+            match stored_in(shards, located, &weight) {
+                Some(stored) => {
+                    let from = Dequant::Scaled { scale: name.clone(), block: block.clone(), grid: OnceLock::new() };
+                    computed.insert(weight, Computed { entry: computed_entry(stored.shape.clone()), from });
+                }
+                None if orphans => {}
+                None => return Err(invalid(format!("{name} scales {weight}, which the checkpoint does not hold"))),
+            }
+            consumed.insert(name.clone());
+        } else if dropped.iter().any(|d| name.ends_with(d)) {
+            consumed.insert(name.clone());
+        }
+    }
+    Ok((computed, consumed))
+}
+
+/// A checkpoint's NVFP4 weights, as the converter's `_generate_nvfp4_tensors` finds them: a `<name>.weight` of codes
+/// (`<name>.weight_packed` in compressed-tensors' layout) beside a `<name>.weight_scale` of at least two axes, its codes
+/// not 8-bit floats. Their scales are consumed, and each is presented by `<name>.weight` in GGUF's NVFP4 blocks.
+fn nvfp4_weights(
+    shards: &[Shard],
+    located: &HashMap<String, usize>,
+    compressed: bool,
+) -> io::Result<(HashMap<String, Computed>, BTreeSet<String>)> {
+    let (mut computed, mut consumed) = (HashMap::new(), BTreeSet::new());
+    // A scalar part of a weight (its own scale, its activation's), as the converter reads it: `1 / x` in f32 where the
+    // layout stores the reciprocal, 1 where it stores none.
+    let scalar = |name: &str, reciprocal: bool| -> io::Result<Option<f32>> {
+        let Some(e) = stored_in(shards, located, name) else { return Ok(None) };
+        if e.elements() != 1 {
+            return Err(invalid(format!("{name}: {:?} is not one scale", e.shape)));
+        }
+        let raw = shards[located[name]].read(name, 0, e.dtype.bytes())?;
+        let mut v = Vec::with_capacity(1);
+        ggml_type(e.dtype).dequantize(&widen(e.dtype, raw), &mut v);
+        Ok(Some(if reciprocal { 1.0f32 / v[0] } else { v[0] }))
+    };
+    let mut names: Vec<&String> = located.keys().collect();
+    names.sort();
+    for name in names {
+        let weight = match compressed {
+            true => match name.strip_suffix("_packed").filter(|w| w.ends_with(".weight")) {
+                Some(w) => w.to_string(),
+                None => continue,
+            },
+            false if name.ends_with(".weight") => name.clone(),
+            false => continue,
+        };
+        let stem = &weight[..weight.len() - ".weight".len()];
+        let scale = format!("{stem}.weight_scale");
+        let (Some(codes), Some(blocks)) = (stored_in(shards, located, name), stored_in(shards, located, &scale)) else { continue };
+        if blocks.shape.len() < 2 || matches!(codes.dtype, Dtype::F8E4m3 | Dtype::F8E5m2) {
+            continue;
+        }
+        let &[rows, half] = &codes.shape[..] else {
+            return Err(invalid(format!("{name}: {:?} is not NVFP4 codes, two to a byte along each row", codes.shape)));
+        };
+        let cols = 2 * half;
+        if codes.dtype != Dtype::U8 {
+            return Err(invalid(format!("{name}: stored {:?}, not NVFP4 codes two to a byte", codes.dtype)));
+        }
+        if cols % 64 != 0 {
+            return Err(invalid(format!("{weight}: its {cols} inputs are not a whole number of NVFP4's blocks of 64")));
+        }
+        if blocks.dtype.bytes() != 1 || blocks.shape != [rows, cols / 16] {
+            return Err(invalid(format!(
+                "{scale}: {:?} {:?} is not an E4M3 scale for each of {rows} rows' {} blocks of 16",
+                blocks.dtype,
+                blocks.shape,
+                cols / 16
+            )));
+        }
+        if compressed && located.contains_key(&weight) {
+            return Err(invalid(format!("{weight} is stored beside its packed codes {name}")));
+        }
+        let (own, input) = match compressed {
+            true => (format!("{stem}.weight_global_scale"), format!("{stem}.input_global_scale")),
+            false => (format!("{stem}.weight_scale_2"), format!("{stem}.input_scale")),
+        };
+        let scale2 = scalar(&own, compressed)?.unwrap_or(1.0);
+        let input_scale = scalar(&input, compressed)?.unwrap_or(1.0);
+        consumed.extend([scale.clone(), own, input].into_iter().filter(|n| located.contains_key(n)));
+        if compressed {
+            consumed.insert(name.clone());
+        }
+        let from = Dequant::Nvfp4(Nvfp4 { codes: name.clone(), scale, scale2, input_scale });
+        computed.insert(weight, Computed { entry: computed_entry(vec![rows, cols]), from });
+    }
+    Ok((computed, consumed))
+}
+
+/// The scheme of a GPTQ checkpoint as the converter's `dequant_gptq` reads it: codes of 2, 4 or 8 `bits`, and the
+/// `checkpoint_format`, `gptq` (the default) storing each zero point less one and `gptq_v2` storing it whole:
+/// `(bits, minus_one)`. Any other scheme is refused naming what it is.
+fn gptq_scheme(q: &Value) -> io::Result<(usize, bool)> {
+    let refuse = |what: String| -> io::Result<(usize, bool)> { Err(unread_scheme("gptq", what)) };
+    let field = |k: &str| q.get(k).filter(|v| !v.is_null());
+    let bits = match field("bits").and_then(Value::as_u64) {
+        Some(b @ (2 | 4 | 8)) => b as usize,
+        _ => return refuse(format!("packs codes of `bits` {}", field("bits").map_or("none".into(), Value::to_string))),
+    };
+    match field("checkpoint_format").map(|f| f.as_str()) {
+        None | Some(Some("gptq")) => Ok((bits, true)),
+        Some(Some("gptq_v2")) => Ok((bits, false)),
+        Some(_) => refuse(format!("stores the `checkpoint_format` {}", field("checkpoint_format").unwrap())),
+    }
+}
+
+/// A GPTQ checkpoint's weights ([`gptq_scheme`]), as `dequant_model` finds them: each `<name>.qweight` beside its
+/// `.qzeros`, `.scales` and `.g_idx` computes `<name>.weight`.
+fn gptq_weights(
+    q: &Value,
+    shards: &[Shard],
+    located: &HashMap<String, usize>,
+) -> io::Result<(HashMap<String, Computed>, BTreeSet<String>)> {
+    let (bits, minus_one) = gptq_scheme(q)?;
+    let per = (32 / bits) as u64;
+    let (mut computed, mut consumed) = (HashMap::new(), BTreeSet::new());
+    let mut names: Vec<&String> = located.keys().collect();
+    names.sort();
+    for name in names {
+        let Some(base) = name.strip_suffix(".qweight") else { continue };
+        let part = |suffix: &str| format!("{base}.{suffix}");
+        let need = |n: &str| stored_in(shards, located, n).ok_or_else(|| invalid(format!("{name}: no {n} beside it")));
+        let (codes, zeros, scales, order) = (need(name)?, need(&part("qzeros"))?, need(&part("scales"))?, need(&part("g_idx"))?);
+        let (&[words, out], &[groups, scaled]) = (&codes.shape[..], &scales.shape[..]) else {
+            return Err(invalid(format!(
+                "{name} {:?} beside {} {:?} is not GPTQ: int32 [inputs / {per}, outputs] beside [groups, outputs]",
+                codes.shape,
+                part("scales"),
+                scales.shape
+            )));
+        };
+        let inputs = words * per;
+        if codes.dtype != Dtype::I32 || scaled != out || !matches!(scales.dtype, Dtype::F32 | Dtype::F16 | Dtype::Bf16) {
+            return Err(invalid(format!(
+                "{name} ({:?} {:?}) beside {} ({:?} {:?}) is not GPTQ: int32 [inputs / {per}, outputs] beside float \
+                 [groups, outputs]",
+                codes.dtype,
+                codes.shape,
+                part("scales"),
+                scales.dtype,
+                scales.shape
+            )));
+        }
+        if zeros.dtype != Dtype::I32 || out % per != 0 || zeros.shape != [groups, out / per] {
+            return Err(invalid(format!(
+                "{}: {:?} {:?} is not the zero points of {groups} groups of {out} outputs, {per} to an int32 word",
+                part("qzeros"),
+                zeros.dtype,
+                zeros.shape
+            )));
+        }
+        if order.dtype != Dtype::I32 || order.shape != [inputs] {
+            return Err(invalid(format!("{}: {:?} {:?} is not the group of each of {inputs} inputs", part("g_idx"), order.dtype, order.shape)));
+        }
+        let raw = shards[located[&part("g_idx")]].read(&part("g_idx"), 0, inputs as usize * 4)?;
+        let stated: Vec<i32> = raw.chunks_exact(4).map(|c| i32::from_le_bytes(c.try_into().unwrap())).collect();
+        if let Some(g) = stated.iter().find(|&&g| g < 0 || g as u64 >= groups) {
+            return Err(invalid(format!("{}: an input in group {g}, where {} holds {groups} groups", part("g_idx"), part("scales"))));
+        }
+        let g_idx = stated.into_iter().map(|g| g as usize).collect();
+        let weight = part("weight");
+        if located.contains_key(&weight) {
+            return Err(invalid(format!("{weight} is stored beside its packed codes {name}")));
+        }
+        consumed.extend([name.clone(), part("qzeros"), part("scales"), part("g_idx")]);
+        let from = Dequant::Gptq(Gptq { qweight: name.clone(), qzeros: part("qzeros"), scales: part("scales"), g_idx, bits, minus_one });
+        computed.insert(weight, Computed { entry: computed_entry(vec![out, inputs]), from });
+    }
+    Ok((computed, consumed))
+}
+
+/// The scheme of an AutoAWQ checkpoint as compressed-tensors' `AutoAWQConverter` reads it: 4-bit codes in the `gemm`
+/// layout, by groups of `group_size` inputs, about zero points unless `zero_point` is false: `(group_size, zero_point)`.
+/// Any other scheme (the `gemv` layouts, other widths) is refused naming what it is.
+fn awq_scheme(q: &Value) -> io::Result<(usize, bool)> {
+    let refuse = |what: String| -> io::Result<(usize, bool)> { Err(unread_scheme("awq", what)) };
+    let field = |k: &str| q.get(k).filter(|v| !v.is_null());
+    if field("bits").is_some_and(|b| b.as_u64() != Some(4)) {
+        return refuse(format!("packs codes of `bits` {}", field("bits").unwrap()));
+    }
+    let version = field("version").map_or(Some("gemm"), Value::as_str).map(str::to_ascii_lowercase);
+    if version.as_deref() != Some("gemm") {
+        return refuse(format!("stores its codes in the `version` {} layout", field("version").unwrap()));
+    }
+    let group = match field("group_size") {
+        None => 128,
+        Some(g) => match g.as_u64().filter(|&g| g > 0) {
+            Some(g) => g as usize,
+            None => return refuse(format!("groups its codes by `group_size` {g}")),
+        },
+    };
+    let zero_point = match field("zero_point") {
+        None => true,
+        Some(z) => match z.as_bool() {
+            Some(z) => z,
+            None => return refuse(format!("states the `zero_point` {z}")),
+        },
+    };
+    Ok((group, zero_point))
+}
+
+/// An AutoAWQ checkpoint's weights ([`awq_scheme`]): each `<name>.qweight` beside its `.scales` and, about zero points,
+/// its `.qzeros` computes `<name>.weight`.
+fn awq_weights(
+    q: &Value,
+    shards: &[Shard],
+    located: &HashMap<String, usize>,
+) -> io::Result<(HashMap<String, Computed>, BTreeSet<String>)> {
+    let (group, zero_point) = awq_scheme(q)?;
+    let (mut computed, mut consumed) = (HashMap::new(), BTreeSet::new());
+    let mut names: Vec<&String> = located.keys().collect();
+    names.sort();
+    for name in names {
+        let Some(base) = name.strip_suffix(".qweight") else { continue };
+        let part = |suffix: &str| format!("{base}.{suffix}");
+        let need = |n: &str| stored_in(shards, located, n).ok_or_else(|| invalid(format!("{name}: no {n} beside it")));
+        let (codes, scales) = (need(name)?, need(&part("scales"))?);
+        let &[inputs, words] = &codes.shape[..] else {
+            return Err(invalid(format!("{name}: {:?} is not AWQ's int32 [inputs, outputs / 8]", codes.shape)));
+        };
+        let (out, groups) = (words * 8, inputs / group as u64);
+        if codes.dtype != Dtype::I32 || inputs % group as u64 != 0 {
+            return Err(invalid(format!(
+                "{name}: {:?} {:?} is not AWQ's int32 [inputs, outputs / 8] of inputs in groups of {group}",
+                codes.dtype, codes.shape
+            )));
+        }
+        if !matches!(scales.dtype, Dtype::F32 | Dtype::F16 | Dtype::Bf16) || scales.shape != [groups, out] {
+            return Err(invalid(format!(
+                "{}: {:?} {:?} is not a float scale for each of {groups} groups' {out} outputs",
+                part("scales"),
+                scales.dtype,
+                scales.shape
+            )));
+        }
+        let zeros = zero_point.then(|| part("qzeros"));
+        if let Some(z) = &zeros {
+            let e = need(z)?;
+            if e.dtype != Dtype::I32 || e.shape != [groups, words] {
+                return Err(invalid(format!(
+                    "{z}: {:?} {:?} is not the zero points of {groups} groups of {out} outputs, 8 to an int32 word",
+                    e.dtype, e.shape
+                )));
+            }
+        }
+        let weight = part("weight");
+        if located.contains_key(&weight) {
+            return Err(invalid(format!("{weight} is stored beside its packed codes {name}")));
+        }
+        consumed.extend([name.clone(), part("scales")].into_iter().chain(zeros.clone()));
+        let from = Dequant::Awq(Awq { qweight: name.clone(), qzeros: zeros, scales: part("scales"), group });
+        computed.insert(weight, Computed { entry: computed_entry(vec![out, inputs]), from });
+    }
+    Ok((computed, consumed))
+}
+
+/// A compressed-tensors checkpoint's `pack-quantized` weights ([`compressed_scheme`]) of `bits`-wide codes a scale a
+/// group of `group` inputs, as `dequant_model` finds them: each `<name>.weight_packed` beside its `_scale`, its `_shape`
+/// and any `_zero_point` computes `<name>.weight`.
+fn pack_quantized(
+    bits: usize,
+    group: usize,
+    shards: &[Shard],
+    located: &HashMap<String, usize>,
+) -> io::Result<(HashMap<String, Computed>, BTreeSet<String>)> {
+    let per = 32 / bits;
+    let (mut computed, mut consumed) = (HashMap::new(), BTreeSet::new());
+    let mut names: Vec<&String> = located.keys().collect();
+    names.sort();
+    for name in names {
+        let Some(weight) = name.strip_suffix("_packed").filter(|w| w.ends_with(".weight")) else { continue };
+        let part = |suffix: &str| format!("{weight}_{suffix}");
+        let need = |n: &str| stored_in(shards, located, n).ok_or_else(|| invalid(format!("{name}: no {n} beside it")));
+        let (codes, scale, shape) = (need(name)?, need(&part("scale"))?, need(&part("shape"))?);
+        let raw = shards[located[&part("shape")]].read(&part("shape"), 0, (shape.end - shape.begin) as usize)?;
+        let dims: Vec<i64> = match shape.dtype {
+            Dtype::I32 => raw.chunks_exact(4).map(|c| i32::from_le_bytes(c.try_into().unwrap()) as i64).collect(),
+            Dtype::I64 => raw.chunks_exact(8).map(|c| i64::from_le_bytes(c.try_into().unwrap())).collect(),
+            other => return Err(invalid(format!("{}: stored {other:?}, not integers", part("shape")))),
+        };
+        let &[rows, cols] = &dims[..] else {
+            return Err(invalid(format!("{}: {dims:?} is not a weight's rows and columns", part("shape"))));
+        };
+        let (Ok(rows), Ok(cols)) = (u64::try_from(rows), u64::try_from(cols)) else {
+            return Err(invalid(format!("{}: {dims:?} is not a weight's rows and columns", part("shape"))));
+        };
+        if cols % group as u64 != 0 {
+            return Err(invalid(format!("{weight}: `group_size` {group} does not divide its {cols} columns")));
+        }
+        let groups = cols / group as u64;
+        if codes.dtype != Dtype::I32 || codes.shape != [rows, cols.div_ceil(per as u64)] {
+            return Err(invalid(format!(
+                "{name}: {:?} {:?} is not {rows} rows of int32 words, {per} codes of {bits} bits a word",
+                codes.dtype, codes.shape
+            )));
+        }
+        if !matches!(scale.dtype, Dtype::F32 | Dtype::F16 | Dtype::Bf16) || scale.shape != [rows, groups] {
+            return Err(invalid(format!(
+                "{}: {:?} {:?} is not a float scale for each of {rows} rows' {groups} groups",
+                part("scale"),
+                scale.dtype,
+                scale.shape
+            )));
+        }
+        let zero = located.contains_key(&part("zero_point")).then(|| part("zero_point"));
+        if let Some(z) = &zero {
+            let e = need(z)?;
+            if e.dtype != Dtype::I32 || e.shape != [rows.div_ceil(per as u64), groups] {
+                return Err(invalid(format!(
+                    "{z}: {:?} {:?} is not the zero points of {groups} groups, {per} rows to an int32 word",
+                    e.dtype, e.shape
+                )));
+            }
+        }
+        if located.contains_key(weight) {
+            return Err(invalid(format!("{weight} is stored beside its packed codes {name}")));
+        }
+        consumed.extend([name.clone(), part("scale"), part("shape")].into_iter().chain(zero.clone()));
+        let from = Dequant::Packed(Packed { packed: name.clone(), scale: part("scale"), zero, bits, group });
+        computed.insert(weight.to_string(), Computed { entry: computed_entry(vec![rows, cols]), from });
+    }
+    Ok((computed, consumed))
 }
 
 /// The merged hyperparameters, read as the converter's `find_hparam` reads them: the first key present wins, and a
@@ -1057,13 +1625,28 @@ fn validate(f: Family, h: &Hparams) -> io::Result<()> {
     if let Some(k) = unknown.first() {
         return Err(invalid(format!("config.json: `{k}` is a key the {} intake does not read; unknown keys: {unknown:?}", f.arch())));
     }
-    // An FP8 checkpoint's weights are read beside their scales (`fp8_scales`); every other quantized format is refused.
+    // A quantized checkpoint's weights are computed as its converter computes them ([`quantized`]: FP8 beside its
+    // scales, compressed-tensors' scaled and packed formats, ModelOpt's FP8, GPTQ's and AutoAWQ's; NVFP4 repacked), and gpt-oss's MXFP4 experts presented as the converter
+    // repacks them (`Form::Mxfp4`); every other quantized format is refused.
     if let Some(q) = h.map.get("quantization_config").filter(|q| !q.is_null()) {
         let method = q.get("quant_method").and_then(Value::as_str).unwrap_or("unnamed");
-        if method != "fp8" {
-            return Err(invalid(format!(
-                "config.json: `quantization_config` names a `{method}` checkpoint, a format the quantized-format intake does not read yet"
-            )));
+        match (method, f) {
+            ("fp8", _) | ("mxfp4", Family::GptOss) => {}
+            ("compressed-tensors", _) => {
+                compressed_scheme(q)?;
+            }
+            ("modelopt", _) => modelopt_scheme(q)?,
+            ("gptq", _) => {
+                gptq_scheme(q)?;
+            }
+            ("awq", _) => {
+                awq_scheme(q)?;
+            }
+            _ => {
+                return Err(invalid(format!(
+                    "config.json: `quantization_config` names a `{method}` checkpoint, a format the quantized-format intake does not read yet"
+                )))
+            }
         }
     }
     let refuse = |k: &str, why: &str| Err(invalid(format!("config.json: `{k}` {why}")));
@@ -2358,7 +2941,7 @@ impl HfCheckpoint {
                 }
             }
         }
-        let (scaled, consumed) = fp8_scales(&h, &located)?;
+        let (computed, consumed) = quantized(&h, &shards, &located)?;
         let mut c = HfCheckpoint {
             dir: dir.to_path_buf(),
             recompute,
@@ -2371,7 +2954,7 @@ impl HfCheckpoint {
             index: HashMap::new(),
             shards,
             located,
-            scaled,
+            computed,
             consumed,
             unread: Vec::new(),
             skipped: Vec::new(),
@@ -2459,12 +3042,18 @@ impl HfCheckpoint {
         &self.dir
     }
 
+    /// Tensor `name` as presented: a computed weight's f32 entry, every other tensor's stored one.
     fn entry(&self, name: &str) -> Option<&Entry> {
-        self.located.get(name).map(|&i| &self.shards[i].tensors[name])
+        self.computed.get(name).map(|c| &c.entry).or_else(|| stored_in(&self.shards, &self.located, name))
     }
 
     fn need(&self, name: &str) -> io::Result<&Entry> {
         self.entry(name).ok_or_else(|| invalid(format!("{}: no tensor {name}", self.dir.display())))
+    }
+
+    /// Tensor `name` as its shard stores it.
+    fn stored(&self, name: &str) -> io::Result<&Entry> {
+        stored_in(&self.shards, &self.located, name).ok_or_else(|| invalid(format!("{}: no tensor {name}", self.dir.display())))
     }
 
     fn present(&mut self, name: String, form: Form) -> io::Result<()> {
@@ -2477,8 +3066,51 @@ impl HfCheckpoint {
         if n as usize != form.elements() {
             return Err(invalid(format!("{name}: dims {dims:?} hold {n} elements, its view {}", form.elements())));
         }
+        let stem = name.strip_suffix(".weight").map(str::to_string);
         self.index.insert(name.clone(), self.views.len());
         self.views.push(View { name, dims, form });
+        match stem {
+            Some(stem) => self.nvfp4_scales(&stem),
+            None => Ok(()),
+        }
+    }
+
+    /// The scales the converter writes beside the NVFP4 weight `<stem>.weight` just presented: `<stem>.scale`, the
+    /// weight's own scale, and `<stem>.input_scale`, its activation's — one a weight, or one an expert of a stack — each
+    /// unless every entry is 1 (`_write_scale_tensor`, `_write_scales_tensor`).
+    fn nvfp4_scales(&mut self, stem: &str) -> io::Result<()> {
+        let form = &self.views[self.index[&format!("{stem}.weight")]].form;
+        let (parts, stack) = match form {
+            Form::Gather { .. } => (vec![form], false),
+            Form::Concat(parts) => (parts.iter().collect(), true),
+            _ => return Ok(()),
+        };
+        let weights: Vec<&Nvfp4> = parts
+            .iter()
+            .filter_map(|p| match p {
+                Form::Gather { src, .. } => match self.computed.get(src) {
+                    Some(Computed { from: Dequant::Nvfp4(w), .. }) => Some(w),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        if weights.is_empty() || weights.len() != parts.len() {
+            return Ok(());
+        }
+        let sides: Vec<(&str, Vec<f32>)> = vec![
+            ("scale", weights.iter().map(|w| w.scale2).collect()),
+            ("input_scale", weights.iter().map(|w| w.input_scale).collect()),
+        ];
+        for (side, values) in sides {
+            let trivial = match stack {
+                true => values.iter().all(|&v| (f64::from(v) - 1.0).abs() <= 1e-6 + 1e-5),
+                false => (f64::from(values[0]) - 1.0).abs() < 1e-6,
+            };
+            if !trivial {
+                self.push(format!("{stem}.{side}"), vec![values.len() as u64], Form::Values(values))?;
+            }
+        }
         Ok(())
     }
 
@@ -2527,6 +3159,9 @@ impl HfCheckpoint {
             Form::Map { inner, .. } => self.dims_of(inner)?,
             Form::Values(v) => vec![v.len() as u64],
             Form::Zeros { n, .. } => vec![*n as u64],
+            Form::Mxfp4 { outer, nblk, rows, .. } => {
+                vec![(nblk * GgmlType::Mxfp4.block_len()) as u64, rows.len() as u64, *outer as u64]
+            }
         })
     }
 
@@ -2545,47 +3180,236 @@ impl HfCheckpoint {
             }
             Form::Map { .. } | Form::Values(_) => GgmlType::F32,
             Form::Zeros { ty, .. } => *ty,
+            Form::Mxfp4 { .. } => GgmlType::Mxfp4,
         })
     }
 
-    /// The type a stored tensor is presented as: a scaled weight's f32, every other [`ggml_type`]'s.
+    /// The type a tensor is presented as: an NVFP4 weight's NVFP4, every other [`ggml_type`] of its presented entry's
+    /// dtype (a computed weight's f32).
     fn presented(&self, src: &str) -> io::Result<GgmlType> {
-        Ok(if self.scaled.contains_key(src) { GgmlType::F32 } else { ggml_type(self.need(src)?.dtype) })
+        if let Some(Computed { from: Dequant::Nvfp4(_), .. }) = self.computed.get(src) {
+            return Ok(GgmlType::Nvfp4);
+        }
+        Ok(ggml_type(self.need(src)?.dtype))
     }
 
-    /// `count` elements of stored tensor `src` from element `first` (row-major), as [`Self::presented`] gives them: a
-    /// scaled weight widened and multiplied by its scale, as the converter's `dequant_simple` writes it; every other
-    /// widened.
+    /// `count` elements of tensor `src` from element `first` (row-major), as [`Self::presented`] gives them: a computed
+    /// weight as the converter computes it, every other widened.
     fn source(&self, src: &str, first: usize, count: usize) -> io::Result<Vec<u8>> {
-        let entry = self.need(src)?;
-        let es = entry.dtype.bytes();
-        let raw = self.shards[self.located[src]].read(src, (first * es) as u64, count * es)?;
-        let Some(scaled) = self.scaled.get(src) else { return Ok(widen(entry.dtype, raw)) };
-        let grid = scaled.grid.get_or_init(|| self.scale_grid(src, scaled)).as_ref().map_err(|e| invalid(e.clone()))?;
-        let mut values = Vec::with_capacity(count);
-        ggml_type(entry.dtype).dequantize(&widen(entry.dtype, raw), &mut values);
-        grid.apply(first, &mut values);
+        let Some(c) = self.computed.get(src) else {
+            let entry = self.stored(src)?;
+            let es = entry.dtype.bytes();
+            return Ok(widen(entry.dtype, self.stored_bytes(src, first * es, count * es)?));
+        };
+        let values = match &c.from {
+            Dequant::Nvfp4(p) => return self.nvfp4_blocks(&c.entry, p, first, count),
+            Dequant::Scaled { scale, block, grid } => {
+                let stored = self.stored(src)?;
+                let es = stored.dtype.bytes();
+                let raw = self.stored_bytes(src, first * es, count * es)?;
+                let grid = grid
+                    .get_or_init(|| self.scale_grid(src, scale, block.as_deref()))
+                    .as_ref()
+                    .map_err(|e| invalid(e.clone()))?;
+                let mut values = Vec::with_capacity(count);
+                ggml_type(stored.dtype).dequantize(&widen(stored.dtype, raw), &mut values);
+                grid.apply(first, &mut values);
+                values
+            }
+            Dequant::Packed(p) => self.unpacked(&c.entry, p, first, count)?,
+            Dequant::Gptq(p) => self.gptq_values(&c.entry, p, first, count)?,
+            Dequant::Awq(p) => self.awq_values(&c.entry, p, first, count)?,
+        };
         Ok(values.iter().flat_map(|v| v.to_le_bytes()).collect())
     }
 
-    /// The scale of weight `src` over its elements, read whole.
-    fn scale_grid(&self, src: &str, scaled: &Scaled) -> Result<ScaleGrid, String> {
-        let (weight, scale) = (self.need(src).map_err(|e| e.to_string())?, self.need(&scaled.scale).map_err(|e| e.to_string())?);
-        let raw = self.shards[self.located[scaled.scale.as_str()]]
-            .read(&scaled.scale, 0, scale.elements() as usize * scale.dtype.bytes())
-            .map_err(|e| e.to_string())?;
-        let mut values = Vec::with_capacity(scale.elements() as usize);
-        ggml_type(scale.dtype).dequantize(&widen(scale.dtype, raw), &mut values);
+    /// Elements `first..first + count` of an NVFP4 weight as GGUF's NVFP4 blocks, as the converter's `_nvfp4_pack`
+    /// repacks them: each 64 inputs four UE4M3 scales (the E4M3 scales' bits, the sign dropped), then a block of 16's
+    /// eight bytes each, byte `j` holding its code `j` low and its code `j + 8` high.
+    fn nvfp4_blocks(&self, entry: &Entry, p: &Nvfp4, first: usize, count: usize) -> io::Result<Vec<u8>> {
+        let cols = entry.shape[1] as usize;
+        if first % 64 != 0 || count % 64 != 0 {
+            return Err(invalid(format!("{}: elements {first}..{} are not whole NVFP4 blocks", p.codes, first + count)));
+        }
+        let mut out = Vec::with_capacity(count / 64 * GgmlType::Nvfp4.block_bytes());
+        let mut e = first;
+        while e < first + count {
+            let take = (cols - e % cols).min(first + count - e);
+            let codes = self.stored_bytes(&p.codes, e / 2, take / 2)?;
+            let scales = self.stored_bytes(&p.scale, e / 16, take / 16)?;
+            for k in 0..take / 64 {
+                out.extend(scales[4 * k..4 * k + 4].iter().map(|b| b & 0x7f));
+                for s in 0..4 {
+                    let block = &codes[32 * k + 8 * s..32 * k + 8 * s + 8];
+                    let code = |x: usize| (block[x / 2] >> (4 * (x % 2))) & 0x0f;
+                    out.extend((0..8).map(|j| code(j) | (code(j + 8) << 4)));
+                }
+            }
+            e += take;
+        }
+        Ok(out)
+    }
+
+    /// Elements `first..first + count` of a `pack-quantized` weight of `entry`'s rows and columns, as the converter's
+    /// `dequant_packed` computes them: each code less its group's zero point (or half the codes' range), in f32, times
+    /// its group's scale.
+    fn unpacked(&self, entry: &Entry, p: &Packed, first: usize, count: usize) -> io::Result<Vec<f32>> {
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+        let Packed { packed, scale, zero, bits, group } = p;
+        let (bits, group) = (*bits, *group);
+        let cols = entry.shape[1] as usize;
+        let (per, mask) = (32 / bits, (1u32 << bits) - 1);
+        let (words, groups) = (cols.div_ceil(per), cols / group);
+        let (r0, r1) = (first / cols, (first + count).div_ceil(cols));
+        let word = |raw: &[u8], i: usize| u32::from_le_bytes(raw[4 * i..4 * i + 4].try_into().unwrap());
+        let codes = self.stored_bytes(packed, r0 * words * 4, (r1 - r0) * words * 4)?;
+        let s = self.stored(scale)?;
+        let mut scales = Vec::with_capacity((r1 - r0) * groups);
+        let raw = self.stored_bytes(scale, r0 * groups * s.dtype.bytes(), (r1 - r0) * groups * s.dtype.bytes())?;
+        ggml_type(s.dtype).dequantize(&widen(s.dtype, raw), &mut scales);
+        let mut offsets = vec![1i32 << (bits - 1); (r1 - r0) * groups];
+        if let Some(z) = zero.as_deref() {
+            let (w0, w1) = (r0 / per, (r1 - 1) / per + 1);
+            let raw = self.stored_bytes(z, w0 * groups * 4, (w1 - w0) * groups * 4)?;
+            for r in r0..r1 {
+                for g in 0..groups {
+                    let w = word(&raw, (r / per - w0) * groups + g);
+                    offsets[(r - r0) * groups + g] = ((w >> (bits * (r % per))) & mask) as i32;
+                }
+            }
+        }
+        Ok((first..first + count)
+            .map(|e| {
+                let (r, c) = (e / cols - r0, e % cols);
+                let code = (word(&codes, r * words + c / per) >> (bits * (c % per))) & mask;
+                let g = r * groups + c / group;
+                (code as i32 - offsets[g]) as f32 * scales[g]
+            })
+            .collect())
+    }
+
+    /// Elements `first..first + count` of a GPTQ weight of `entry`'s outputs and inputs, as the converter's
+    /// `dequant_gptq` computes them: each input's code less its group's zero point (plus one where stored less one), in
+    /// f32, times its group's scale. An output row is a column of the stored codes, read across every word row.
+    fn gptq_values(&self, entry: &Entry, p: &Gptq, first: usize, count: usize) -> io::Result<Vec<f32>> {
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+        let (out, inputs) = (entry.shape[0] as usize, entry.shape[1] as usize);
+        let (per, mask) = (32 / p.bits, (1u32 << p.bits) - 1);
+        let (r0, r1) = (first / inputs, (first + count).div_ceil(inputs));
+        let span = r1 - r0;
+        let words = |raw: Vec<u8>| raw.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect::<Vec<u32>>();
+        let mut codes = Vec::with_capacity(inputs / per * span);
+        for i in 0..inputs / per {
+            codes.extend(words(self.stored_bytes(&p.qweight, (i * out + r0) * 4, span * 4)?));
+        }
+        let s = self.stored(&p.scales)?;
+        let (groups, es) = (s.shape[0] as usize, s.dtype.bytes());
+        let mut scales = Vec::with_capacity(groups * span);
+        for g in 0..groups {
+            ggml_type(s.dtype).dequantize(&widen(s.dtype, self.stored_bytes(&p.scales, (g * out + r0) * es, span * es)?), &mut scales);
+        }
+        let (w0, w1, row) = (r0 / per, (r1 - 1) / per + 1, out / per);
+        let mut zeros = Vec::with_capacity(groups * span);
+        for g in 0..groups {
+            let packed = words(self.stored_bytes(&p.qzeros, (g * row + w0) * 4, (w1 - w0) * 4)?);
+            zeros.extend((r0..r1).map(|r| ((packed[r / per - w0] >> (p.bits * (r % per))) & mask) as i32 + i32::from(p.minus_one)));
+        }
+        Ok((first..first + count)
+            .map(|e| {
+                let (r, c) = (e / inputs - r0, e % inputs);
+                let code = (codes[(c / per) * span + r] >> (p.bits * (c % per))) & mask;
+                let g = p.g_idx[c] * span + r;
+                scales[g] * (code as i32 - zeros[g]) as f32
+            })
+            .collect())
+    }
+
+    /// Elements `first..first + count` of an AutoAWQ weight of `entry`'s outputs and inputs: each input's code less its
+    /// group's zero point (or 8), in f32, times its group's scale, as `dequant_packed` computes the `pack-quantized`
+    /// weight `AutoAWQConverter` reads it into. An output row is a nibble of one word in every input's row.
+    fn awq_values(&self, entry: &Entry, p: &Awq, first: usize, count: usize) -> io::Result<Vec<f32>> {
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+        let (out, inputs) = (entry.shape[0] as usize, entry.shape[1] as usize);
+        let (r0, r1) = (first / inputs, (first + count).div_ceil(inputs));
+        let (w0, w1, row) = (r0 / 8, (r1 - 1) / 8 + 1, out / 8);
+        let span = w1 - w0;
+        let words = |raw: Vec<u8>| raw.chunks_exact(4).map(|c| u32::from_le_bytes(c.try_into().unwrap())).collect::<Vec<u32>>();
+        let nibble = |word: u32, r: usize| ((word >> (4 * AWQ_ORDER[r % 8])) & 0xf) as i32;
+        let mut codes = Vec::with_capacity(inputs * span);
+        for c in 0..inputs {
+            codes.extend(words(self.stored_bytes(&p.qweight, (c * row + w0) * 4, span * 4)?));
+        }
+        let s = self.stored(&p.scales)?;
+        let (groups, es) = (inputs / p.group, s.dtype.bytes());
+        let mut scales = Vec::with_capacity(groups * (r1 - r0));
+        let mut zeros = Vec::with_capacity(groups * (r1 - r0));
+        for g in 0..groups {
+            ggml_type(s.dtype).dequantize(&widen(s.dtype, self.stored_bytes(&p.scales, (g * out + r0) * es, (r1 - r0) * es)?), &mut scales);
+            match &p.qzeros {
+                Some(z) => {
+                    let packed = words(self.stored_bytes(z, (g * row + w0) * 4, span * 4)?);
+                    zeros.extend((r0..r1).map(|r| nibble(packed[r / 8 - w0], r)));
+                }
+                None => zeros.extend(std::iter::repeat_n(8, r1 - r0)),
+            }
+        }
+        Ok((first..first + count)
+            .map(|e| {
+                let (r, c) = (e / inputs, e % inputs);
+                let g = (c / p.group) * (r1 - r0) + r - r0;
+                (nibble(codes[c * span + r / 8 - w0], r) - zeros[g]) as f32 * scales[g]
+            })
+            .collect())
+    }
+
+    /// `len` bytes of stored tensor `src` from byte `at`, as stored.
+    fn stored_bytes(&self, src: &str, at: usize, len: usize) -> io::Result<Vec<u8>> {
+        self.stored(src)?;
+        self.shards[self.located[src]].read(src, at as u64, len)
+    }
+
+    /// An MXFP4 weight's `[outer, m, nblk]`: its `blocks` u8 `[outer, m, nblk, 16]` beside its `scales` u8
+    /// `[outer, m, nblk]`.
+    fn mxfp4_dims(&self, blocks: &str, scales: &str) -> io::Result<(usize, usize, usize)> {
+        let (b, s) = (self.need(blocks)?, self.need(scales)?);
+        match (b.dtype, &b.shape[..], s.dtype, &s.shape[..]) {
+            (Dtype::U8, &[outer, m, nblk, 16], Dtype::U8, stated) if stated == [outer, m, nblk] => {
+                Ok((outer as usize, m as usize, nblk as usize))
+            }
+            _ => Err(invalid(format!(
+                "{blocks} ({:?} {:?}) beside {scales} ({:?} {:?}) is not MXFP4: u8 [outer, rows, blocks, 16] beside u8 \
+                 [outer, rows, blocks]",
+                b.dtype, b.shape, s.dtype, s.shape
+            ))),
+        }
+    }
+
+    /// The grid `scale` scales weight `src` by over its elements, in blocks of `block` where given, read whole.
+    fn scale_grid(&self, src: &str, scale: &str, block: Option<&[usize]>) -> Result<ScaleGrid, String> {
+        let (weight, stored) = (self.stored(src).map_err(|e| e.to_string())?, self.stored(scale).map_err(|e| e.to_string())?);
+        let raw = self.stored_bytes(scale, 0, stored.elements() as usize * stored.dtype.bytes()).map_err(|e| e.to_string())?;
+        let mut values = Vec::with_capacity(stored.elements() as usize);
+        ggml_type(stored.dtype).dequantize(&widen(stored.dtype, raw), &mut values);
         let axes = |e: &Entry| e.shape.iter().map(|&d| d as usize).collect::<Vec<usize>>();
-        ScaleGrid::new(&axes(weight), &axes(scale), values, scaled.block.as_deref()).map_err(|e| format!("{src} scaled by {}: {e}", scaled.scale))
+        ScaleGrid::new(&axes(weight), &axes(stored), values, block).map_err(|e| format!("{src} scaled by {scale}: {e}"))
     }
 
     /// `count` elements of `form` from element `start`, as bytes of its element type.
     fn read(&self, form: &Form, start: usize, count: usize) -> io::Result<Vec<u8>> {
         match form {
             Form::Gather { src, outer, m, n, rows, cols, transpose } => {
-                let es = self.presented(src)?.block_bytes();
+                let ty = self.presented(src)?;
+                let es = ty.block_bytes();
                 let all_cols = cols.len() == *n && cols.iter().enumerate().all(|(i, &c)| i == c);
+                if ty.block_len() > 1 && (*transpose || !all_cols) {
+                    return Err(invalid(format!("{src}: a {} weight is read only by whole rows", ty.name())));
+                }
                 let identity = !*transpose && all_cols && rows.len() == *m && rows.iter().enumerate().all(|(i, &r)| i == r);
                 if identity {
                     return self.source(src, start, count);
@@ -2665,6 +3489,29 @@ impl HfCheckpoint {
             }
             Form::Values(v) => Ok(v[start..start + count].iter().flat_map(|x| x.to_le_bytes()).collect()),
             Form::Zeros { ty, .. } => Ok(vec![0u8; count * ty.block_bytes()]),
+            Form::Mxfp4 { blocks, scales, m, nblk, rows, .. } => {
+                // A ggml block is its scale byte, then 16 bytes holding code `k` in byte `k`'s low nibble and code
+                // `16 + k` in its high one.
+                let q = GgmlType::Mxfp4.block_len();
+                if start % q != 0 || count % q != 0 {
+                    return Err(invalid(format!("{blocks}: elements {start}..{} are not whole blocks of {q}", start + count)));
+                }
+                let (mut g, last) = (start / q, (start + count) / q);
+                let mut out = Vec::with_capacity((last - g) * GgmlType::Mxfp4.block_bytes());
+                while g < last {
+                    let (row, k) = (g / nblk, g % nblk);
+                    let take = (nblk - k).min(last - g);
+                    let at = ((row / rows.len()) * m + rows[row % rows.len()]) * nblk + k;
+                    let (codes, exponents) = (self.stored_bytes(blocks, at * 16, take * 16)?, self.stored_bytes(scales, at, take)?);
+                    for (packed, &exponent) in codes.chunks_exact(16).zip(&exponents) {
+                        let code = |x: usize| (packed[x / 2] >> (4 * (x % 2))) & 0x0f;
+                        out.push(exponent);
+                        out.extend((0..16).map(|k| code(k) | (code(16 + k) << 4)));
+                    }
+                    g += take;
+                }
+                Ok(out)
+            }
             Form::Map { inner, op } => {
                 let ty = self.ty_of(inner)?;
                 let raw = self.read(inner, start, count)?;
@@ -2691,12 +3538,9 @@ impl HfCheckpoint {
 
     /// Present every tensor, and record what nothing reads.
     fn build_views(&mut self, f: Family, h: &Hparams, rope: &Map<String, Value>) -> io::Result<()> {
-        let names: Vec<String> = {
-            let mut v: Vec<String> = self.located.keys().cloned().collect();
-            v.sort();
-            v
-        };
-        // The scales an FP8 checkpoint's weights are read with, and the activation scales the converter drops.
+        // The checkpoint's tensors as the converter names them: the stored ones and the weights it computes.
+        let names: Vec<String> = self.located.keys().chain(self.computed.keys()).cloned().collect::<BTreeSet<String>>().into_iter().collect();
+        // The parts a quantized checkpoint's weights are computed from, and the activation scales the converter drops.
         let mut read: BTreeSet<String> = self.consumed.clone();
         let p = decoder_prefix(&h.architecture, &names);
         let head = if p == "language_model.model." { "language_model.lm_head.weight" } else { "lm_head.weight" };
@@ -3316,6 +4160,22 @@ impl HfCheckpoint {
                     ))
                 }
                 (Family::GptOss, "mlp.experts.down_proj_bias") => Some((blk("ffn_down_exps.bias"), whole)),
+                // OpenAI's release stores each expert projection in MXFP4, read with its scales and presented in ggml's
+                // blocks; the gate and up rows interleave in one tensor, split by rows as the unpacked one is.
+                (Family::GptOss, "mlp.experts.gate_up_proj_blocks" | "mlp.experts.down_proj_blocks") => {
+                    let scales = format!("{}_scales", name.strip_suffix("_blocks").unwrap());
+                    let (outer, m, nblk) = self.mxfp4_dims(name, &scales)?;
+                    read.insert(scales.clone());
+                    let form = |rows: Vec<usize>| Form::Mxfp4 { blocks: name.clone(), scales: scales.clone(), outer, m, nblk, rows };
+                    if rest.ends_with("down_proj_blocks") {
+                        Some((blk("ffn_down_exps.weight"), form((0..m).collect())))
+                    } else if m % 2 != 0 {
+                        return Err(invalid(format!("{name}: {m} rows are not gate and up rows in pairs")));
+                    } else {
+                        self.present(blk("ffn_gate_exps.weight"), form((0..m / 2).map(|j| 2 * j).collect()))?;
+                        Some((blk("ffn_up_exps.weight"), form((0..m / 2).map(|j| 2 * j + 1).collect())))
+                    }
+                }
                 (Family::Qwen4Exp, r) if r.starts_with("attn_hyper_connection.") || r.starts_with("mlp_hyper_connection.") => {
                     let (sub, part) = r.split_once('.').unwrap();
                     let which = if sub == "attn_hyper_connection" { "hc_attn" } else { "hc_ffn" };
@@ -3848,11 +4708,40 @@ fn configuration(dir: &Path) -> io::Result<(Family, Hparams)> {
             map.insert(k, v);
         }
     }
+    hf_quant_config(dir, &mut map)?;
     let family =
         Family::of(&architecture).ok_or_else(|| invalid(format!("config.json: architecture `{architecture}` is not one this reader presents")))?;
     let h = Hparams { map, architecture };
     validate(family, &h)?;
     Ok((family, h))
+}
+
+/// A ModelOpt export's `hf_quant_config.json`, read as the converter's `prepare_tensors` reads it where the
+/// configuration's `quantization_config` states no algorithm or no quantized layers: the method, where the configuration
+/// names none, is the file's producer, and the file's algorithm and quantized layers stand over the configuration's.
+fn hf_quant_config(dir: &Path, map: &mut Map<String, Value>) -> io::Result<()> {
+    let path = dir.join("hf_quant_config.json");
+    let stated = |k: &str| map.get("quantization_config").and_then(|q| q.get(k)).is_some_and(|v| !v.is_null());
+    if (stated("quant_algo") && stated("quantized_layers")) || !path.is_file() {
+        return Ok(());
+    }
+    let text = std::fs::read_to_string(&path).map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))?;
+    let file: Value = serde_json::from_str(&text).map_err(|e| invalid(format!("{}: {e}", path.display())))?;
+    let q = map.entry("quantization_config").or_insert(Value::Null);
+    if !q.is_object() {
+        *q = Value::Object(Map::new());
+    }
+    let q = q.as_object_mut().unwrap();
+    if q.get("quant_method").is_none_or(Value::is_null) {
+        let producer = file["producer"]["name"].as_str().unwrap_or_default().to_lowercase();
+        q.insert("quant_method".into(), Value::String(producer));
+    }
+    for k in ["quant_algo", "quantized_layers"] {
+        if let Some(v) = file["quantization"].get(k) {
+            q.insert(k.into(), v.clone());
+        }
+    }
+    Ok(())
 }
 
 /// The draft blocks the converter counts in the stack, as the configuration states them: Qwen3.5's (`mtp.*`) and

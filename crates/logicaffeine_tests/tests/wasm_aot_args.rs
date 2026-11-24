@@ -17,36 +17,6 @@ use std::rc::Rc;
 #[path = "compile_common/mod.rs"]
 mod common;
 
-/// Build an argv `Seq of Text` in `data` at a fixed high address (clear of the small programs'
-/// bump-allocated heap) — the exact layout the AOT reads: a 16-byte header `[len][cap][data_ptr]`
-/// for the sequence and for each `Text`, sequence elements in 8-byte slots holding a `Text` handle.
-fn build_argv(data: &mut [u8], args: &[String]) -> i32 {
-    let seq = 60000usize;
-    let n = args.len();
-    let seq_data = seq + 16;
-    let mut p = seq_data + n * 8;
-    let mut handles = Vec::new();
-    for s in args {
-        let t = p;
-        let b = s.as_bytes();
-        let td = t + 16;
-        data[t..t + 4].copy_from_slice(&(b.len() as i32).to_le_bytes());
-        data[t + 4..t + 8].copy_from_slice(&(b.len() as i32).to_le_bytes());
-        data[t + 8..t + 12].copy_from_slice(&(td as i32).to_le_bytes());
-        data[td..td + b.len()].copy_from_slice(b);
-        handles.push(t as i64);
-        p = (td + b.len() + 7) & !7;
-    }
-    data[seq..seq + 4].copy_from_slice(&(n as i32).to_le_bytes());
-    data[seq + 4..seq + 8].copy_from_slice(&(n as i32).to_le_bytes());
-    data[seq + 8..seq + 12].copy_from_slice(&(seq_data as i32).to_le_bytes());
-    for (i, h) in handles.iter().enumerate() {
-        let sl = seq_data + i * 8;
-        data[sl..sl + 8].copy_from_slice(&h.to_le_bytes());
-    }
-    seq as i32
-}
-
 /// Read the `i64` element slots of a `Seq`/`Set` at `handle` (header `[len][cap][data_ptr]`, then
 /// 8-byte slots) out of the module's exported memory — the host side of the collection formatters.
 fn read_i64_slots(c: &wasmi::Caller<'_, Rc<RefCell<Vec<String>>>>, handle: i32) -> Vec<i64> {
@@ -242,7 +212,7 @@ fn run_aot(module: &[u8], argv: Vec<String>) -> String {
         move |mut c: wasmi::Caller<'_, Rc<RefCell<Vec<String>>>>| -> i32 {
             let mem = c.get_export("memory").unwrap().into_memory().unwrap();
             let d = mem.data_mut(&mut c);
-            build_argv(d, &av)
+            common::wasm_host::build_argv(d, &av)
         },
     )
     .unwrap();

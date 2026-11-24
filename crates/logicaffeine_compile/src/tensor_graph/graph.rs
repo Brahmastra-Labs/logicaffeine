@@ -145,7 +145,10 @@ impl Dst {
 /// The names a step reads and writes across steps: its token(s), its position, its logits and its next token — its first
 /// sequence's, and a batch's every other sequence's in `more`, sequence `b`'s next token written to item `b` of the
 /// token tensor. `logits_read` when the host reads every sequence's logits; where it does not, it takes the next tokens
-/// alone.
+/// alone. A span of the step's layers (`Cut::DecodeSpan`) hands its host the hidden state at its edges: the one it reads
+/// where it starts past the first layer (`hidden_in`, its token then unnamed), the one it writes where it ends before
+/// the last (`hidden_out`, its logits and next token then unnamed) — what a model cut between two tiers sends across.
+/// An unnamed name is empty.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StepIo {
     pub token: String,
@@ -154,6 +157,8 @@ pub struct StepIo {
     pub next: String,
     pub more: Vec<SeqIo>,
     pub logits_read: bool,
+    pub hidden_in: Option<String>,
+    pub hidden_out: Option<String>,
 }
 
 impl StepIo {
@@ -163,7 +168,7 @@ impl StepIo {
     }
 
     /// Every name the step reads or writes across steps: its tokens and every sequence's position, logits (where the host
-    /// reads them) and next token.
+    /// reads them) and next token, and the hidden states at a span's edges.
     pub fn names(&self) -> Vec<&str> {
         let mut out = vec![self.token.as_str(), self.position.as_str()];
         out.extend(self.logits_read.then_some(self.logits.as_str()));
@@ -173,6 +178,9 @@ impl StepIo {
             out.extend(self.logits_read.then_some(q.logits.as_str()));
             out.push(q.next.as_str());
         }
+        out.extend(self.hidden_in.as_deref());
+        out.extend(self.hidden_out.as_deref());
+        out.retain(|n| !n.is_empty());
         out
     }
 }
@@ -397,6 +405,7 @@ pub fn out_len(op: &TensorOpSpec) -> usize {
         TensorOpSpec::Silu(s) => s.n,
         TensorOpSpec::Sigmoid(s) => s.n,
         TensorOpSpec::Gelu(g) => g.n,
+        TensorOpSpec::Erf(e) => e.n,
         TensorOpSpec::Scale(c) => c.n,
         TensorOpSpec::Softcap(c) => c.n,
         TensorOpSpec::Decay(d) => d.n,
@@ -535,10 +544,18 @@ impl TensorGraph {
         let range = |t: &str| (!floats.contains(t)).then(|| ranges.get(t).copied()).flatten().filter(|r| *r != UNBOUNDED);
         let carried: BTreeSet<String> = super::front::carried_state(rp).into_iter().collect();
         let mut tensors = BTreeMap::new();
+        let hidden_in = io.as_ref().and_then(|io| io.hidden_in.clone());
+        // The token and the positions the step reads across steps are its parameters whether or not an op indexes by
+        // them: a span of recurrent layers alone still runs at its step's position.
+        let stepped: BTreeSet<&str> = io
+            .iter()
+            .flat_map(|io| [io.token.as_str(), io.position.as_str()].into_iter().chain(io.more.iter().map(|q| q.position.as_str())))
+            .filter(|n| !n.is_empty())
+            .collect();
         for d in &rp.declared {
-            let role = if params.contains(&d.name) {
+            let role = if params.contains(&d.name) || stepped.contains(d.name.as_str()) {
                 Role::Param
-            } else if state.contains(&d.name) {
+            } else if state.contains(&d.name) || hidden_in.as_deref() == Some(d.name.as_str()) {
                 Role::State
             } else {
                 Role::Constant

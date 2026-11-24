@@ -23,11 +23,14 @@
 use std::collections::BTreeSet;
 use std::path::PathBuf;
 
-use logicaffeine_compile::compile::{
-    compile_to_c_traced, compile_to_c_via_bytecode_traced, optimizations_fired,
-    optimizations_fired_run, optimizations_fired_vm,
-};
-use logicaffeine_compile::optimization::{BackendOptimizationTrace, OptWork, REGISTRY};
+use logicaffeine_compile::compile::{optimizations_fired, optimizations_fired_run, optimizations_fired_vm};
+use logicaffeine_compile::optimization::{OptWork, REGISTRY};
+// The per-row check reads the JIT's own trace, so it runs where the JIT exists.
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+use logicaffeine_compile::compile::{compile_to_c_traced, compile_to_c_via_bytecode_traced};
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+use logicaffeine_compile::optimization::BackendOptimizationTrace;
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_jit::optimization_trace_jit;
 
 fn benchmarks_dir() -> PathBuf {
@@ -35,6 +38,7 @@ fn benchmarks_dir() -> PathBuf {
 }
 
 /// `column` of benchmark `id`'s row in benchmarks.tsv.
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn registry_field(id: &str, column: &str) -> String {
     let text = std::fs::read_to_string(benchmarks_dir().join("lib/benchmarks.tsv"))
         .expect("benchmarks.tsv");
@@ -145,6 +149,7 @@ fn every_algorithm_changing_optimization_is_disclosed_in_its_own_words() {
 /// The LOGOS rows the publishable run times, by the label a note names them with, and the optimizations that fire for
 /// `src` on each: the Rust and both C compiles, the JIT running the program at `n` through its eager optimizer, the VM
 /// compile and the run path the tree-walker executes.
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn fired_by_tier(src: &str, n: &str) -> Vec<(&'static str, BTreeSet<&'static str>)> {
     let keywords = |trace: BackendOptimizationTrace| -> BTreeSet<&'static str> {
         trace.all_fired().keywords().into_iter().collect()
@@ -186,6 +191,7 @@ fn fired_by_tier(src: &str, n: &str) -> Vec<(&'static str, BTreeSet<&'static str
 /// optimization fires on is named outside such a clause, unless the note speaks for "every LOGOS tier"; and a note
 /// that names no row speaks for every row, so each must change the algorithm.
 #[test]
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn every_collapse_note_names_the_rows_it_collapses_on() {
     let less = less_work();
     let mut wrong = Vec::new();

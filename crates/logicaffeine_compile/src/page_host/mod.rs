@@ -35,7 +35,7 @@ mod snapshot;
 mod trace;
 
 pub use ledger::{ledger_map, parse_ledger, stale_rows, LedgerRow, LedgerTier};
-pub use lowered::{DriveError, LoweredCalls, LoweredHost, LoweredPage};
+pub use lowered::{DriveError, DrivenBy, LoweredCalls, LoweredHost, LoweredPage};
 pub use scenario::{
     arrange, assemble_stable, auto_mounted_page_component, auto_mounted_page_path,
     boot_at_declared_route, classify, compare_tests, defs_auto_mount_a_page, drive_main,

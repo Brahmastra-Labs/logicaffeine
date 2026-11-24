@@ -15,6 +15,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `file::append`, `exists`, `list_dir` (and `list_dir_names`), `make_dirs`, `rename`, each sealed-world aware
   (`testworld::intercept_append`, `intercept_exists`, `intercept_list_dir`, `intercept_make_dirs`,
   `intercept_rename`; `TestWorld::dirs`).
+- `Showable for logicaffeine_data::IntVec`: a list that may have promoted shows its words, or its exact integers, in
+  the bracket notation every list uses.
+- `failure::speculate`: runs the word form of an exact region, answering `None` where it stopped at a value past the
+  word, for the caller to run the region again exactly.
+- `failure::install_hook(ends_the_program)`: the panic hook a compiled program installs first thing in `main` — the
+  output shown so far flushed, then the failure's reason alone on standard error; with `ends_the_program`, a failure
+  no boundary catches ends the program with exit status 1, and without it the panic unwinds on for a replay
+  scheduler to fail the task.
 - `temporal::today()` and `temporal::now()`: the day and the instant the clock reads, the ones `LOGOS_FIXED_DAYS` and
   `LOGOS_FIXED_NANOS` pin when the environment pins them. `Showable` for `LogosDuration` and the crate-root
   re-export of it.

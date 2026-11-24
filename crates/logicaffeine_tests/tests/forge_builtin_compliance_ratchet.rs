@@ -23,6 +23,9 @@
 //! fall back (the ground-truth catches it), and a NEW builtin trips the frozen catalog count, forcing an
 //! explicit Tiered / ShouldTier / HostNA decision. Tasks #58–#60 (numeric → Word32/64 → `chr`) all cleared.
 
+// This suite tests the native tier alone, which exists only on x86_64 outside Windows.
+#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+
 use logicaffeine_compile::compile::{tw_outcome_with_args, vm_outcome_with_args};
 use logicaffeine_compile::semantics::builtins::BuiltinId;
 use logicaffeine_compile::vm::NativeTier;

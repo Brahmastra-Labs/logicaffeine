@@ -839,6 +839,7 @@ fn logos_reconstructs_leans_recursors_and_both_kernels_check_the_witness() {
         .collect(),
         toolchain: p["toolchain"].as_str().unwrap().into(),
         exporter: format!("lean4export {}", p["exporter_commit"].as_str().unwrap()),
+        dependencies: Vec::new(),
     };
     for root in ["LF_NF.mirror_mixed", "LF_NF.TFn.swap"] {
         let checked = check_export(EXPORT, root, &evidence, &Limits::default());

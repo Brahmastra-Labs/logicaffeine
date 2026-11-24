@@ -87,8 +87,15 @@ pub const PACKAGE_SCHEMA: &str = "logos-lean-package/1";
 /// The schema of a package whose proof is the export's with the native decisions of the target's
 /// closure re-derived by kernel evaluation.
 pub const NATIVE_REDERIVED_SCHEMA: &str = "logos-lean-package/2";
-/// Every package schema this crate writes and replays.
+/// Every proof package schema this crate writes and replays.
 pub const PACKAGE_SCHEMAS: [&str; 2] = [PACKAGE_SCHEMA, NATIVE_REDERIVED_SCHEMA];
+/// Every package schema this crate writes and replays: the proof contracts and the statement
+/// contract ([`statement`](super::statement)).
+pub const ALL_SCHEMAS: [&str; 3] = [
+    PACKAGE_SCHEMA,
+    NATIVE_REDERIVED_SCHEMA,
+    super::statement::PACKAGE_SCHEMA,
+];
 pub const REPLAY_SCHEMA: &str = "logos-lean-replay/1";
 pub const CORRESPONDENCE_SCHEMA: &str = "logos-lean-correspondence/1";
 
@@ -99,6 +106,22 @@ pub const MANIFEST: &str = "manifest.json";
 pub const CERTIFICATE: &str = "certificate.json";
 pub const CORRESPONDENCE: &str = "correspondence.json";
 pub const EXPORT: &str = "source/export.ndjson";
+/// The project configuration a package carries beside the Lean sources: the files that pin the
+/// toolchain and every Lake dependency the producing run reused.
+pub const PROJECT_CONFIGURATION: [&str; 4] = [
+    "lean-toolchain",
+    "lakefile.toml",
+    "lakefile.lean",
+    "lake-manifest.json",
+];
+
+/// Whether `relative` (under `source/`) names a carried Lean source or a project configuration file.
+fn carried_source(relative: &str) -> bool {
+    relative.ends_with(".lean") || PROJECT_CONFIGURATION.contains(&relative)
+}
+
+/// The information-loss category of a source metadata key or flag the translation does not carry.
+pub const SOURCE_METADATA: &str = "SOURCE_METADATA";
 
 /// Lean's three standard axioms, in the kernel's spelling of their Lean names — the only
 /// assumptions a verified result may rest on.
@@ -238,6 +261,22 @@ pub struct Manifest {
     pub trusted_base: Vec<String>,
     /// The producing run's receipt, stage by stage.
     pub receipt: BTreeMap<String, StageRecord>,
+    /// A statement package's relation to its original declaration; absent from a proof package.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub statement: Option<StatementRecord>,
+}
+
+/// What a statement package states about its artifact: the proposition of which original
+/// declaration it is, how it was derived, and that no proof of it is claimed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StatementRecord {
+    pub relation: super::statement::StatementRelation,
+    /// The carried original export the artifact is derived from, and its digest.
+    pub original: String,
+    pub original_sha256: String,
+    /// Always `not_claimed`: a statement package proves nothing about its proposition.
+    pub proof_status: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -686,11 +725,13 @@ fn build_observed_on_stack(
     for (name, bytes) in &options.lean_sources {
         // Project-relative, so a multi-module project keeps its layout (`Demo/Defs.lean`).
         if unsafe_path(&format!("source/{name}"), &PackageLimits::default()).is_some()
-            || !name.ends_with(".lean")
+            || !carried_source(name)
         {
             return Err(declined(
                 DiagnosticCode::Infrastructure,
-                format!("{name:?} is not a project-relative Lean source path"),
+                format!(
+                    "{name:?} is not a project-relative Lean source or project configuration path"
+                ),
             ));
         }
         if std::str::from_utf8(bytes).is_err() {
@@ -832,7 +873,7 @@ fn build_observed_on_stack(
         .metadata_losses
         .iter()
         .map(|loss| InformationLoss {
-            category: "SOURCE_METADATA".into(),
+            category: SOURCE_METADATA.into(),
             detail: format!(
                 "expression {}: {} = {}",
                 loss.expression, loss.key, loss.value
@@ -916,6 +957,7 @@ fn build_observed_on_stack(
         information_losses: losses,
         trusted_base: TRUSTED_BASE.iter().map(|s| s.to_string()).collect(),
         receipt: receipt_records(&receipt),
+        statement: None,
     };
     files.insert(MANIFEST.into(), canonical_json(&manifest));
     Ok(Build {
@@ -923,6 +965,53 @@ fn build_observed_on_stack(
         receipt,
         audit,
     })
+}
+
+/// Build the statement package of the original export's declaration `relation.original`: the
+/// package of its derived artifact ([`build_observed`] over `derived`, the artifact its target),
+/// carrying the original export beside the derived one, its manifest stating the relation under the
+/// statement schema, with the artifact's construction and every answer hole disclosed.
+pub fn build_statement_observed(
+    original: &str,
+    derived: &super::statement::Derived,
+    options: &BuildOptions,
+    lean_print_axioms: Option<&[String]>,
+) -> Result<Build> {
+    let mut build = build_observed(
+        &derived.export,
+        &derived.relation.artifact,
+        options,
+        lean_print_axioms,
+    )?;
+    let mut manifest: Manifest =
+        serde_json::from_slice(&build.files[MANIFEST]).expect("the builder's own manifest");
+    build.files.remove(MANIFEST);
+    build.files.insert(
+        super::statement::ORIGINAL.into(),
+        original.as_bytes().to_vec(),
+    );
+    manifest.files = build
+        .files
+        .iter()
+        .map(|(p, b)| (p.clone(), sha256_hex(b)))
+        .collect();
+    manifest.schema = super::statement::PACKAGE_SCHEMA.into();
+    manifest.information_losses.extend(
+        super::statement::information_changes(&derived.relation)
+            .into_iter()
+            .map(|(category, detail)| InformationLoss { category, detail }),
+    );
+    manifest.statement = Some(StatementRecord {
+        relation: derived.relation.clone(),
+        original: super::statement::ORIGINAL.into(),
+        original_sha256: manifest.files[super::statement::ORIGINAL].clone(),
+        proof_status: "not_claimed".into(),
+    });
+    manifest.result_id = result_id_in(&manifest.schema, &manifest.target.lean, &manifest.files);
+    build
+        .files
+        .insert(MANIFEST.into(), canonical_json(&manifest));
+    Ok(build)
 }
 
 /// The schema of the contract `native`, the re-derivations of a target's closure, decides.
@@ -940,7 +1029,11 @@ fn states_contract(
     manifest: &Manifest,
     native: &Elimination,
 ) -> std::result::Result<(), (&'static str, String)> {
-    let schema = contract_schema(native);
+    let schema = if manifest.statement.is_some() {
+        super::statement::PACKAGE_SCHEMA
+    } else {
+        contract_schema(native)
+    };
     if manifest.schema != schema {
         return Err((
             "native_rederivation_schema",
@@ -965,6 +1058,84 @@ fn states_contract(
                 .map(|loss| (loss.category.as_str(), loss.detail.as_str())),
         )
         .map_err(|detail| ("native_rederivation_disclosure", detail))
+}
+
+/// The manifest discloses exactly the `SOURCE_METADATA` the carried export requires — every metadata
+/// key and every nondependent let's flag, recomputed from the export's raw records — no more, no
+/// fewer, none altered. A loss the translation incurred cannot be dropped from a package, and none
+/// can be claimed that the export does not carry.
+fn discloses_source_metadata(
+    manifest: &Manifest,
+    reference: &Reference,
+) -> std::result::Result<(), (&'static str, String)> {
+    let expected = reference.source_metadata();
+    let mut stated: Vec<&str> = manifest
+        .information_losses
+        .iter()
+        .filter(|loss| loss.category == SOURCE_METADATA)
+        .map(|loss| loss.detail.as_str())
+        .collect();
+    stated.sort_unstable();
+    if stated.len() == expected.len() && stated.iter().zip(&expected).all(|(s, e)| *s == e) {
+        return Ok(());
+    }
+    let expected_set: BTreeSet<&str> = expected.iter().map(String::as_str).collect();
+    let stated_set: BTreeSet<&str> = stated.iter().copied().collect();
+    let missing: Vec<&str> = expected_set
+        .difference(&stated_set)
+        .copied()
+        .take(3)
+        .collect();
+    let extra: Vec<&str> = stated_set
+        .difference(&expected_set)
+        .copied()
+        .take(3)
+        .collect();
+    Err((
+        "disclosure_mismatch",
+        format!(
+            "the manifest states {} {SOURCE_METADATA} disclosure(s), but the carried export requires {} (missing: {missing:?}; not in the export: {extra:?})",
+            stated.len(),
+            expected.len()
+        ),
+    ))
+}
+
+/// A statement package discloses exactly its artifact's construction and every answer hole, as
+/// recomputed from its (already bound) relation; a proof package discloses neither.
+fn discloses_statement(manifest: &Manifest) -> std::result::Result<(), (&'static str, String)> {
+    let categories = [
+        super::statement::INFORMATION_CATEGORY,
+        super::statement::ANSWER_CATEGORY,
+    ];
+    let mut stated: Vec<(&str, &str)> = manifest
+        .information_losses
+        .iter()
+        .filter(|loss| categories.contains(&loss.category.as_str()))
+        .map(|loss| (loss.category.as_str(), loss.detail.as_str()))
+        .collect();
+    let expected = manifest
+        .statement
+        .as_ref()
+        .map(|s| super::statement::information_changes(&s.relation))
+        .unwrap_or_default();
+    let mut expected: Vec<(&str, &str)> = expected
+        .iter()
+        .map(|(c, d)| (c.as_str(), d.as_str()))
+        .collect();
+    stated.sort_unstable();
+    expected.sort_unstable();
+    if stated == expected {
+        return Ok(());
+    }
+    Err((
+        "disclosure_mismatch",
+        format!(
+            "the manifest states {} statement disclosure(s), but its statement relation requires {}",
+            stated.len(),
+            expected.len()
+        ),
+    ))
 }
 
 /// Lean's `#print axioms` for the target (Lean names), held against the transitive assumptions the
@@ -2282,6 +2453,8 @@ struct Admitted {
     correspondence: CorrespondenceFile,
     export: String,
     document: Option<String>,
+    /// A statement package's original export.
+    original: Option<String>,
 }
 
 /// An unknown field is an extension this replay does not implement; anything else is malformed.
@@ -2339,13 +2512,13 @@ fn admit(
     let manifest_value: serde_json::Value = serde_json::from_slice(manifest_bytes)
         .map_err(|e| ("malformed", format!("{MANIFEST}: {e}")))?;
     match manifest_value.get("schema").and_then(|s| s.as_str()) {
-        Some(schema) if PACKAGE_SCHEMAS.contains(&schema) => {}
+        Some(schema) if ALL_SCHEMAS.contains(&schema) => {}
         Some(other) => {
             return Err((
                 "unsupported_format",
                 format!(
                     "{MANIFEST} declares {other:?}; this replay reads {}",
-                    PACKAGE_SCHEMAS.join(" and ")
+                    ALL_SCHEMAS.join(", ")
                 ),
             ))
         }
@@ -2401,6 +2574,31 @@ fn admit(
         .collect();
     roles.extend(manifest.document.iter().cloned());
     roles.extend(manifest.source.lean_sources.iter().cloned());
+    match (
+        &manifest.statement,
+        manifest.schema == super::statement::PACKAGE_SCHEMA,
+    ) {
+        (Some(statement), true) => {
+            if statement.original != super::statement::ORIGINAL
+                || manifest.files.get(super::statement::ORIGINAL)
+                    != Some(&statement.original_sha256)
+                || statement.proof_status != "not_claimed"
+            {
+                return Err((
+                    "manifest_mismatch",
+                    "the statement record does not name the carried original export, or claims a proof".into(),
+                ));
+            }
+            roles.insert(super::statement::ORIGINAL.to_string());
+        }
+        (None, false) => {}
+        _ => {
+            return Err((
+                "manifest_mismatch",
+                "a statement record belongs to exactly the statement schema".into(),
+            ))
+        }
+    }
     for path in manifest.files.keys() {
         if !roles.contains(path) {
             return Err((
@@ -2426,10 +2624,13 @@ fn admit(
         }
     }
     for source in &manifest.source.lean_sources {
-        if !source.starts_with("source/") || !source.ends_with(".lean") {
+        if !source
+            .strip_prefix("source/")
+            .is_some_and(|carried| carried_source(carried) && carried != "export.ndjson")
+        {
             return Err((
                 "unsafe_path",
-                format!("{source:?} is not a Lean source under source/"),
+                format!("{source:?} is not a Lean source or project configuration under source/"),
             ));
         }
     }
@@ -2521,13 +2722,75 @@ fn admit(
         ),
         None => None,
     };
+    let original = match &manifest.statement {
+        Some(statement) => Some(
+            String::from_utf8(files[&statement.original].clone())
+                .map_err(|_| ("malformed", format!("{} is not UTF-8", statement.original)))?,
+        ),
+        None => None,
+    };
     Ok(Admitted {
         manifest,
         certificate,
         correspondence,
         export,
         document,
+        original,
     })
+}
+
+/// A statement package's artifact is the one its original export derives: the carried derived
+/// export is, byte for byte, what [`derive`](super::statement::derive) writes for the recorded
+/// original declaration, the relation is the derivation's, and the manifest's target is the
+/// artifact — a definition of a proposition (or, for a template, of a function to one).
+fn binds_statement(admitted: &Admitted) -> std::result::Result<(), (&'static str, String)> {
+    let (Some(statement), Some(original)) = (&admitted.manifest.statement, &admitted.original)
+    else {
+        return Ok(());
+    };
+    let relation = &statement.relation;
+    let derived = super::statement::derive(original, &relation.original).map_err(|verdict| {
+        (
+            "statement_derivation_mismatch",
+            format!(
+                "the carried original export derives no statement of {}: {}",
+                relation.original,
+                verdict.reason().message()
+            ),
+        )
+    })?;
+    if derived.export != admitted.export {
+        return Err((
+            "statement_derivation_mismatch",
+            format!(
+                "the carried statement export is not the one the original export derives for {}",
+                relation.original
+            ),
+        ));
+    }
+    if &derived.relation != relation {
+        return Err((
+            "statement_derivation_mismatch",
+            format!(
+                "the manifest's statement relation is not the derivation's: it states {relation:?}, the original derives {:?}",
+                derived.relation
+            ),
+        ));
+    }
+    let manifest = &admitted.manifest;
+    if manifest.target.lean != relation.artifact
+        || manifest.target.kind != "def"
+        || manifest.target.level_params != relation.level_params
+    {
+        return Err((
+            "manifest_mismatch",
+            format!(
+                "a statement package's target is its artifact {}, a definition with the original's universe parameters",
+                relation.artifact
+            ),
+        ));
+    }
+    Ok(())
 }
 
 type StageOutcome = (StageStatus, Option<String>, String);
@@ -2629,6 +2892,12 @@ fn replay_admitted(
         && checks.independent.0 == StageStatus::Passed
     {
         if let Err((code, detail)) = states_contract(manifest, &native) {
+            translated = failed(code, detail);
+        } else if let Err((code, detail)) = discloses_source_metadata(manifest, reference) {
+            translated = failed(code, detail);
+        } else if let Err((code, detail)) = binds_statement(admitted) {
+            translated = failed(code, detail);
+        } else if let Err((code, detail)) = discloses_statement(manifest) {
             translated = failed(code, detail);
         }
     }
@@ -2985,6 +3254,26 @@ pub fn publish(dir: &std::path::Path, files: &PackageFiles) -> std::io::Result<(
 }
 
 /// The replay receipt as a `logos-lean-replay/1` document.
+/// The replay document of `files`: [`receipt_document`] for a proof package, and for a statement
+/// package the `logos-lean-replay/2` document, which says what was replayed — a statement, its
+/// relation to the original declaration, and that no proof of it is claimed.
+pub fn replay_document(files: &PackageFiles, receipt: &Receipt) -> serde_json::Value {
+    let manifest_sha256 = files.get(MANIFEST).map(|m| sha256_hex(m));
+    let mut document = receipt_document(receipt, manifest_sha256.as_deref());
+    let statement = files
+        .get(MANIFEST)
+        .and_then(|m| serde_json::from_slice::<Manifest>(m).ok())
+        .and_then(|m| m.statement);
+    if let Some(statement) = statement {
+        document["schema"] = super::statement::REPLAY_SCHEMA.into();
+        document["purpose"] = "statement".into();
+        document["proof_status"] = statement.proof_status.into();
+        document["statement"] =
+            serde_json::to_value(&statement.relation).expect("a relation serializes");
+    }
+    document
+}
+
 pub fn receipt_document(receipt: &Receipt, manifest_sha256: Option<&str>) -> serde_json::Value {
     serde_json::json!({
         "schema": REPLAY_SCHEMA,

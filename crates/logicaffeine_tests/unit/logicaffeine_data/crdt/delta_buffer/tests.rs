@@ -95,3 +95,36 @@ fn test_buffer_overflow_partial() {
     let deltas = buf.deltas_since(&v2).unwrap();
     assert_eq!(deltas, vec![3]);
 }
+
+// A peer on another replica's line has seen none of the evicted deltas, so the buffer cannot catch
+// it up: it must fall back to full state rather than receive part of the history.
+#[test]
+fn a_concurrent_peer_is_not_served_after_an_eviction() {
+    let mut buf: DeltaBuffer<i32> = DeltaBuffer::new(1);
+    let mut a1 = VClock::new();
+    a1.increment(1);
+    let mut a2 = a1.clone();
+    a2.increment(1);
+    buf.push(a1, 1);
+    buf.push(a2, 2); // evicts delta 1
+    let mut b3 = VClock::new();
+    for _ in 0..3 {
+        b3.increment(2);
+    }
+    assert_eq!(buf.deltas_since(&b3), None, "a peer that never saw delta 1 was served without it");
+    assert!(!buf.can_serve(&b3));
+}
+
+#[test]
+fn a_peer_past_the_evicted_delta_is_still_served() {
+    let mut buf: DeltaBuffer<i32> = DeltaBuffer::new(1);
+    let mut a1 = VClock::new();
+    a1.increment(1);
+    let mut a2 = a1.clone();
+    a2.increment(1);
+    buf.push(a1.clone(), 1);
+    buf.push(a2, 2);
+    let mut peer = a1;
+    peer.increment(2); // saw delta 1, and wrote on its own line
+    assert_eq!(buf.deltas_since(&peer), Some(vec![2]));
+}

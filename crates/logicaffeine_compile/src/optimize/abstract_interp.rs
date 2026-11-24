@@ -96,10 +96,11 @@ impl Bound {
 
     /// Truncating division by a nonzero constant `k` (toward zero, matching
     /// Rust `i64` `/`). An infinite endpoint divided by a finite divisor stays
-    /// infinite, its sign flipping when `k < 0`.
+    /// infinite, its sign flipping when `k < 0`; the bottom of the word divided
+    /// by -1 is 2^63, past every finite bound.
     fn div_by(&self, k: i64) -> Bound {
         match self {
-            Bound::Finite(a) => Bound::Finite(a / k),
+            Bound::Finite(a) => a.checked_div(k).map_or(Bound::PosInf, Bound::Finite),
             Bound::NegInf => {
                 if k > 0 {
                     Bound::NegInf
@@ -383,9 +384,8 @@ impl Interval {
     fn div(&self, other: &Interval) -> Interval {
         if let (Some(a), Some(b)) = (self.is_exact(), other.is_exact()) {
             if b != 0 {
-                // `wrapping_div` matches the runtime (semantics/arith.rs) and
-                // avoids the `i64::MIN / -1` overflow panic of raw `/`.
-                return Interval::exact(a.wrapping_div(b));
+                // `i64::MIN / -1` is 2^63 on the runtime (semantics/arith.rs promotes it), which no i64 interval holds.
+                return a.checked_div(b).map_or(Interval::top(), Interval::exact);
             }
         }
         // Constant nonzero divisor, arbitrary dividend range. Truncating
@@ -440,6 +440,18 @@ impl Interval {
                 };
                 return Interval { lo, hi };
             }
+        }
+        // A divisor of known range bounds the remainder as a constant does, by its largest magnitude less one
+        // (`m % base` with `base` in `[2, 36]` is in `[-35, 35]`, in `[0, 35]` for `m >= 0`).
+        if let (Bound::Finite(dlo), Bound::Finite(dhi)) = (&other.lo, &other.hi) {
+            let widest = dlo.checked_abs().unwrap_or(i64::MAX).max(dhi.checked_abs().unwrap_or(i64::MAX));
+            let m = widest.saturating_sub(1).max(0);
+            let nonneg = matches!(self.lo, Bound::Finite(v) if v >= 0);
+            let nonpos = matches!(self.hi, Bound::Finite(v) if v <= 0);
+            return Interval {
+                lo: if nonneg { Bound::Finite(0) } else { Bound::Finite(-m) },
+                hi: if nonpos { Bound::Finite(0) } else { Bound::Finite(m) },
+            };
         }
         // VARIABLE (or otherwise non-constant) divisor. The truncated
         // remainder's SIGN still follows the dividend, so a provably
@@ -1489,6 +1501,16 @@ fn narrow_by_comparison(cond: &Expr, state: &mut AbstractState, negated: bool) {
     let Expr::BinaryOp { op, left, right } = cond else {
         return;
     };
+    // `a and b` holding, or `a or b` failing, says the same of each side; a disjunction that holds says neither.
+    match (op, negated) {
+        (BinaryOpKind::And, false) | (BinaryOpKind::Or, true) => {
+            narrow_by_comparison(left, state, negated);
+            narrow_by_comparison(right, state, negated);
+            return;
+        }
+        (BinaryOpKind::And, true) | (BinaryOpKind::Or, false) => return,
+        _ => {}
+    }
     let holds = match (op, negated) {
         (BinaryOpKind::Lt, false) | (BinaryOpKind::GtEq, true) => BinaryOpKind::Lt,
         (BinaryOpKind::LtEq, false) | (BinaryOpKind::Gt, true) => BinaryOpKind::LtEq,
@@ -2276,6 +2298,12 @@ pub struct OracleFacts {
     /// How many loop fixpoints are open on the current walk — [`rich_walk_loop`] bounds the nesting
     /// at which a loop still gets its own fixpoint.
     loop_depth: usize,
+    /// How many times the walks recorded a loop's facts ([`OracleFacts::loop_recordings`]).
+    loop_recordings: u64,
+    /// These facts are thrown away: the walk is an enclosing fixpoint's ascent or narrowing pass, which computes
+    /// states only. A loop met in it computes the state it leaves and records nothing — no state transfer reads a
+    /// fact, so the facts the analysis returns are the same.
+    discarded: bool,
     exprs: HashMap<usize, AbstractValue>,
     /// Length interval of the collection an Identifier expression denotes,
     /// at that occurrence — the bounds-elision query's other half.
@@ -2364,6 +2392,12 @@ pub struct HoistDesc {
 }
 
 impl OracleFacts {
+    /// How many times the analysis recorded a loop's facts, in every walk it made. Each loop's are recorded once:
+    /// an enclosing fixpoint's ascent and narrowing passes compute states only (`compiler_stack_safety_lock`).
+    pub fn loop_recordings(&self) -> u64 {
+        self.loop_recordings
+    }
+
     /// Region-entry bounds hoists for the loop at `loop_ptr` (the `While`/
     /// `Repeat` statement's arena address). The compiler lowers each to a
     /// `RegionBoundsGuard` at the loop head.
@@ -2442,6 +2476,22 @@ impl OracleFacts {
         match self.exprs.get(&(e as *const Expr as usize)) {
             Some(av) => matches!(av.interval.lo, Bound::Finite(v) if v >= k),
             None => false,
+        }
+    }
+
+    /// This occurrence's proven upper bound, whatever its lower bound.
+    pub fn expr_upper_bound(&self, e: &Expr) -> Option<i64> {
+        match self.exprs.get(&(e as *const Expr as usize))?.interval.hi {
+            Bound::Finite(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// This occurrence's proven lower bound, whatever its upper bound.
+    pub fn expr_lower_bound(&self, e: &Expr) -> Option<i64> {
+        match self.exprs.get(&(e as *const Expr as usize))?.interval.lo {
+            Bound::Finite(v) => Some(v),
+            _ => None,
         }
     }
 
@@ -7140,8 +7190,28 @@ fn rich_walk_if(
                 rich_walk_block(eb, &mut else_st, facts);
             }
 
-            *st = rich_join(&then_st, &else_st);
+            // A branch that always leaves the function reaches nothing after the `If`: what follows holds the
+            // other branch's facts (`If base is less than 2: Fail with …` leaves `base` at least 2).
+            let then_leaves = leaves_the_function(then_block);
+            let else_leaves = else_block.is_some_and(leaves_the_function);
+            *st = match (then_leaves, else_leaves) {
+                (true, false) => else_st,
+                (false, true) => then_st,
+                _ => rich_join(&then_st, &else_st),
+            };
         }
+    }
+}
+
+/// Whether every path through `block` leaves the function: its last statement is a `Return` or a `Fail`, or an `If`
+/// both of whose branches do. A `Break` or `Continue` leaves only the loop, whose exit takes that path's facts.
+fn leaves_the_function(block: &[Stmt]) -> bool {
+    match block.last() {
+        Some(Stmt::Return { .. } | Stmt::Fail { .. }) => true,
+        Some(Stmt::If { then_block, else_block: Some(eb), .. }) => {
+            leaves_the_function(then_block) && leaves_the_function(eb)
+        }
+        _ => false,
     }
 }
 
@@ -7262,6 +7332,13 @@ fn rich_walk_loop_widened(
         st.intervals.set_length(m, Interval::non_negative());
         st.length_def.remove(&m);
     }
+    if facts.discarded {
+        if let Some(c) = cond.filter(|_| !breaks) {
+            narrow_state_negated(c, &mut st.intervals);
+        }
+        return;
+    }
+    facts.loop_recordings += 1;
     let mut record_state = st.clone();
     if let Some(c) = cond {
         narrow_state(c, &mut record_state.intervals);
@@ -7334,6 +7411,7 @@ fn rich_walk_loop_fixpoint(
     // ascent (intermediate states are not loop invariants).
     let mut sink = OracleFacts::default();
     sink.loop_depth = facts.loop_depth;
+    sink.discarded = true;
     let mut converged = false;
     for pass in 0..12 {
         let mut next = inside.clone();
@@ -7547,12 +7625,13 @@ fn rich_walk_loop_fixpoint(
             break;
         }
     }
+    facts.loop_recordings += sink.loop_recordings;
 
     if converged {
         // The converged alias graph IS the loop invariant — snapshot it for
         // the distinctness queries (borrow hoisting). Non-converged loops
         // record nothing: queries refuse by default.
-        if let Some(key) = loop_key {
+        if let Some(key) = loop_key.filter(|_| !facts.discarded) {
             match facts.loop_aliases.entry(key) {
                 std::collections::hash_map::Entry::Occupied(mut e) => {
                     e.get_mut().union_from(&inside.aliases);
@@ -7579,7 +7658,9 @@ fn rich_walk_loop_fixpoint(
             let mut probe = inside.clone();
             let mut narrow_sink = OracleFacts::default();
             narrow_sink.loop_depth = facts.loop_depth;
+            narrow_sink.discarded = true;
             rich_walk_block(body, &mut probe, &mut narrow_sink);
+            facts.loop_recordings += narrow_sink.loop_recordings;
             if let Some(c) = cond {
                 narrow_state(c, &mut probe.intervals);
             }
@@ -7601,37 +7682,40 @@ fn rich_walk_loop_fixpoint(
         // body only runs when it holds), then build the after-state: the
         // loop may run zero times (entry state) or exit from the invariant
         // — join, then apply the negated condition.
-        let mut record_state = inside.clone();
-        if let Some(c) = cond {
-            narrow_state(c, &mut record_state.intervals);
-        }
-        // RELATIONAL induction-variable bound (V8/LLVM SCEV): a guard that
-        // bounds an index variable by an array's length lets every
-        // `item i of arr` read in the body skip its bounds check. Then the
-        // SPECULATIVE hoist: arrays whose length is not statically known get a
-        // single region-entry runtime check instead.
-        let header = record_state.clone();
-        if let Some(c) = cond {
-            record_loop_index_bounds(c, body, &record_state, facts);
-            // GENERAL multi-variable proof (kernel LIA): catches the affine
-            // indices the single-var recognizer above cannot — knapsack's
-            // `prev[w-wi+1]` under a path guard, nested-loop windows, scatter
-            // indices bounded through element ranges. Idempotent with the
-            // single-var path (both feed the same `relational_inbounds` set).
-            record_affine_index_bounds(c, body, &record_state, st, facts, false);
-            if let Some(key) = loop_key {
-                record_hoist_speculation(c, body, &record_state, facts, key);
+        if !facts.discarded {
+            facts.loop_recordings += 1;
+            let mut record_state = inside.clone();
+            if let Some(c) = cond {
+                narrow_state(c, &mut record_state.intervals);
             }
-        }
-        rich_walk_block(body, &mut record_state, facts);
-        // The condition is evaluated again after every iteration, at what the body leaves: its facts join that
-        // state to the entry state `record_stmt_exprs` recorded them at.
-        if let Some(c) = cond {
-            record_expr(c, &record_state, facts);
-        }
-        // The equalities each access is evaluated under are recorded now: prove from them.
-        if let Some(c) = cond {
-            record_affine_index_bounds(c, body, &header, st, facts, true);
+            // RELATIONAL induction-variable bound (V8/LLVM SCEV): a guard that
+            // bounds an index variable by an array's length lets every
+            // `item i of arr` read in the body skip its bounds check. Then the
+            // SPECULATIVE hoist: arrays whose length is not statically known get a
+            // single region-entry runtime check instead.
+            let header = record_state.clone();
+            if let Some(c) = cond {
+                record_loop_index_bounds(c, body, &record_state, facts);
+                // GENERAL multi-variable proof (kernel LIA): catches the affine
+                // indices the single-var recognizer above cannot — knapsack's
+                // `prev[w-wi+1]` under a path guard, nested-loop windows, scatter
+                // indices bounded through element ranges. Idempotent with the
+                // single-var path (both feed the same `relational_inbounds` set).
+                record_affine_index_bounds(c, body, &record_state, st, facts, false);
+                if let Some(key) = loop_key {
+                    record_hoist_speculation(c, body, &record_state, facts, key);
+                }
+            }
+            rich_walk_block(body, &mut record_state, facts);
+            // The condition is evaluated again after every iteration, at what the body leaves: its facts join that
+            // state to the entry state `record_stmt_exprs` recorded them at.
+            if let Some(c) = cond {
+                record_expr(c, &record_state, facts);
+            }
+            // The equalities each access is evaluated under are recorded now: prove from them.
+            if let Some(c) = cond {
+                record_affine_index_bounds(c, body, &header, st, facts, true);
+            }
         }
         let mut after = rich_join(st, &inside);
         if breaks {

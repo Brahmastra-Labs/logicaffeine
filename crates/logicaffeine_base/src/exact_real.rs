@@ -1230,6 +1230,10 @@ impl ExactReal {
 
     /// `self^k`; `None` only for zero to a negative power.
     pub fn pow(&self, k: i32) -> Option<ExactReal> {
+        // `-k` overflows for `i32::MIN`, so that one exponent is taken as the square of `x^(MIN/2)`.
+        if k == i32::MIN {
+            return self.pow(i32::MIN / 2)?.pow(2);
+        }
         if k < 0 {
             return self.recip().ok()?.pow(-k);
         }

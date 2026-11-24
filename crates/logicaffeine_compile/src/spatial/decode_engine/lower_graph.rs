@@ -203,7 +203,7 @@ impl<'a> Reader<'a> {
             TensorOpSpec::FusedRow(r)
                 if r.reduce == RowReduceKind::RmsNorm && r.bias.is_none() && r.residual.is_none() && r.weight_rows == 1 => {}
             other => {
-                return Err(LowerError::Unexpected { op: self.at - 1, kind: other.kind(), block: self.block.clone(), expected: "an RMS norm with a weight".into() });
+                return Err(LowerError::Unexpected { op: self.at - 1, kind: other.kind(), block: self.block.clone(), expected: "an RMS norm with one row of weight".into() });
             }
         }
         self.reads(op, 0, x)?;
@@ -252,6 +252,9 @@ impl<'a> Reader<'a> {
         let spec: &'a ModelSpec = self.spec;
         let layer = &spec.layers[l];
         let refuse = |what: &str| Err(LowerError::Unsupported { layer: Some(l), what: what.into() });
+        if !layer.pre_norms {
+            return refuse("sublayers that read the residual unnormed");
+        }
         if layer.post_mixer_norm || layer.post_ffn_norm {
             return refuse("a norm after the mixer or the FFN");
         }

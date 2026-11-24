@@ -7,11 +7,7 @@
 //!
 //!   • E11.4 — 64 tokens each routed to 8 of 256 experts, a mixture a token as the author writes a batch: the values
 //!     the VM's, and the weights each touched expert holds read once for the batch, not once a token;
-//!   • E11.5 — a LayerNorm over one row of 16,384 whose mean is large beside its spread, every input exact in bf16;
-//!   • E11.6 — a chain of 200 pointwise ops over one row, one section;
-//!   • E11.7 — chains of 1,250 and 10,000 pointwise statements, the compile time linear in the statements;
-//!   • E11.9 — a gather of rows with repeated indices, and a scatter of rows with repeated indices written as the VM's
-//!     own loop, the last write to a row kept, and the scatter that adds;
+//!   • E11.7 — chains of 1,250 and 10,000 pointwise statements, the compile time linear in the statements.
 //!
 //! A ticket that lands a row moves its test, unchanged, into `samba_exam_kernel_lock`.
 //!
@@ -47,15 +43,6 @@ fn filled(name: &str, rows: usize, cols: usize, value: &dyn Fn(usize) -> f64) ->
     let mut s = format!("Let {name} be a {rows} by {cols} tensor of Real.\n");
     for i in 0..rows * cols {
         s.push_str(&format!("Set item {} of {name} to {:?}.\n", i + 1, value(i)));
-    }
-    s
-}
-
-/// `name` declared `1 by n` of Int and filled with `values`.
-fn ints(name: &str, values: &[i64]) -> String {
-    let mut s = format!("Let {name} be a 1 by {} tensor of Int.\n", values.len());
-    for (k, v) in values.iter().enumerate() {
-        s.push_str(&format!("Set item {} of {name} to {v}.\n", k + 1));
     }
     s
 }
@@ -139,43 +126,6 @@ fn dispatch_of_256_experts_top_8_at_batch_64() {
     );
 }
 
-#[test]
-fn layernorm_over_16384_accumulates_in_fp32() {
-    // A row of 16,384 about a mean of 64 with a spread of a quarter: every input a multiple of 1/4 in [63, 65], which bf16
-    // holds exactly, so what is measured is the sums. Over 16,384 terms of about 4,096 the square's sum reaches 2^26,
-    // where bf16 keeps 8 bits and fp32 24: a mean and a variance accumulated in bf16 lose the spread entirely.
-    let n = 16_384;
-    let x = |i: usize| 64.0 + (((i * 7919) % 9) as f64 - 4.0) / 4.0;
-    let src = format!(
-        "## Main\n{}{}{}Let Y be layernorm of X with weight W and bias B.\n{}",
-        filled("X", 1, n, &x),
-        filled("W", 1, n, &|i| 1.0 + seeded("W", i) / 4.0),
-        filled("B", 1, n, &|i| seeded("B", i) / 8.0),
-        shows("Y", 64),
-    );
-    on_the_sn50_as_the_vm(&src, "a layernorm over 16,384");
-}
-
-#[test]
-fn a_chain_of_200_pointwise_ops_is_one_section() {
-    // Two hundred elementwise ops over one row of 64 — sums, products, a sigmoid, a silu and a scale in turn — read one
-    // row and write one: a single section, its intermediates never leaving the site.
-    let mut src = format!("## Main\n{}{}Let Y0 be X plus C.\n", filled("X", 1, 64, &|i| seeded("X", i)), filled("C", 1, 64, &|i| seeded("C", i) / 4.0));
-    for k in 1..200 {
-        let p = k - 1;
-        src.push_str(&match k % 5 {
-            0 => format!("Let Y{k} be Y{p} plus C.\n"),
-            1 => format!("Let Y{k} be Y{p} hadamard C.\n"),
-            2 => format!("Let Y{k} be sigmoid of Y{p}.\n"),
-            3 => format!("Let Y{k} be silu of Y{p}.\n"),
-            _ => format!("Let Y{k} be Y{p} scaled by 2.0.\n"),
-        });
-    }
-    src.push_str(&shows("Y199", 64));
-    let sp = on_the_sn50_as_the_vm(&src, "a chain of 200 pointwise ops");
-    assert_eq!(sp.sections.len(), 1, "a chain of 200 pointwise ops is one section, not {}", sp.sections.len());
-}
-
 /// A chain of `n` pointwise statements over one row of 64.
 fn chain(n: usize) -> String {
     let mut src = format!("## Main\n{}Let Y0 be X plus X.\n", filled("X", 1, 64, &|i| seeded("X", i)));
@@ -195,43 +145,31 @@ fn lowering_seconds(src: &str, what: &str) -> f64 {
 #[test]
 fn a_graph_of_10000_nodes_compiles_linearly() {
     // 10,000 statements take at most 12 times what 1,250 take — eight times the work, with half again for the
-    // machine's noise — and the larger lowering is waited on no longer than that, so a superlinear one fails at its
-    // bound instead of running on.
-    let small = lowering_seconds(&chain(1_250), "1,250 statements");
+    // machine's noise — each size timed as the fastest of three runs, so a burst of the box's other work slows no size's
+    // measure (Tristen, 2026-11-12). The larger lowering is waited on no longer than three of its bounds, so a
+    // superlinear one fails there instead of running on.
+    const RUNS: usize = 3;
+    let small = (0..RUNS).map(|_| lowering_seconds(&chain(1_250), "1,250 statements")).fold(f64::INFINITY, f64::min);
     let bound = 12.0 * small;
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let _ = tx.send(lowering_seconds(&chain(10_000), "10,000 statements"));
+        for _ in 0..RUNS {
+            if tx.send(lowering_seconds(&chain(10_000), "10,000 statements")).is_err() {
+                return;
+            }
+        }
     });
-    match rx.recv_timeout(std::time::Duration::from_secs_f64(bound)) {
-        Ok(large) => assert!(large <= bound, "10,000 statements lower in {large:.2}s, 1,250 in {small:.2}s"),
-        Err(_) => panic!("10,000 statements are not lowered within {bound:.2}s, twelve times the {small:.2}s 1,250 take"),
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs_f64(RUNS as f64 * bound);
+    let mut fastest = f64::INFINITY;
+    for _ in 0..RUNS {
+        let left = deadline.saturating_duration_since(std::time::Instant::now());
+        match rx.recv_timeout(left) {
+            Ok(large) => fastest = fastest.min(large),
+            Err(_) => panic!("10,000 statements are not lowered {RUNS} times within {:.2}s, {RUNS} times twelve times the {small:.2}s 1,250 take", RUNS as f64 * bound),
+        }
+        if fastest <= bound {
+            return;
+        }
     }
-}
-
-#[test]
-fn gather_and_scatter_with_repeated_indices() {
-    // A gather: rows I of T, I naming rows 3, 3, 1, 8, 3 and 1 of eight.
-    let index = [3, 3, 1, 8, 3, 1];
-    let table = filled("T", 8, 16, &|i| seeded("T", i));
-    let gather = format!("## Main\n{table}{}Let G be rows I of T.\n{}", ints("I", &index), shows("G", 6 * 16));
-    on_the_sn50_as_the_vm(&gather, "a gather of rows with repeated indices");
-    // A scatter: row k of X written at row I[k] of T in turn, so a row named twice keeps the later; and the scatter that
-    // adds each row of X into its row of T, so a row named twice takes both.
-    let rows_of_x = filled("X", 6, 16, &|i| seeded("X", i));
-    let scatter = |body: &str| {
-        format!(
-            "## Main\n{table}{rows_of_x}{}Repeat for k from 1 to 6:\n    Let at be item k of I.\n{body}{}",
-            ints("I", &index),
-            shows("T", 8 * 16)
-        )
-    };
-    on_the_sn50_as_the_vm(
-        &scatter("    Let r be row k of X.\n    Set row at of T to r.\n"),
-        "a scatter of rows with repeated indices, the last kept",
-    );
-    on_the_sn50_as_the_vm(
-        &scatter("    Let r be row k of X.\n    Let old be row at of T.\n    Let sum be old plus r.\n    Set row at of T to sum.\n"),
-        "a scatter of rows with repeated indices, each added",
-    );
+    panic!("10,000 statements lower in {fastest:.2}s at the fastest of {RUNS} runs, past twelve times the {small:.2}s 1,250 take");
 }

@@ -23,12 +23,12 @@ use crate::spatial::passes::SpatialReject;
 use crate::intern::{Interner, Symbol};
 use crate::tensor_recognize::qwen::{
     recognize_argmax, recognize_attention, recognize_causal_attention, recognize_causal_conv,
-    recognize_decay, recognize_full_attention, recognize_gated_delta, recognize_gelu, recognize_head_slice,
+    recognize_decay, recognize_erf, recognize_full_attention, recognize_gated_delta, recognize_gelu, recognize_head_slice,
     recognize_int_clamp, recognize_int_requant, recognize_join, recognize_l2norm, recognize_lane_mean, recognize_lane_spread,
     recognize_lane_sums, recognize_lut_attention, recognize_moe, recognize_ngram_ids, recognize_signed_root,
     recognize_relu, recognize_rope, recognize_row_gather, recognize_rows_gather, recognize_scale, recognize_scatter, recognize_set_row,
     recognize_sigmoid, recognize_silu, recognize_softcap, recognize_transpose, ArgMaxSpec, AttentionSpec, CausalConvSpec,
-    DecaySpec,
+    DecaySpec, ErfSpec,
     FullAttentionSpec, GatedDeltaSpec, GeluSpec, HeadSliceSpec, IntClampSpec, IntRequantSpec, JoinSpec, L2NormSpec,
     LaneMeanSpec, LaneSpreadSpec, LaneSumsSpec, LutAttentionSpec, MoeSpec, NgramIdsSpec, SignedRootSpec, ReluSpec, RopeSpec, RowGatherSpec, RowIndex, RowsGatherSpec, ScaleSpec, ScatterSpec, SetRowSpec,
     SigmoidSpec, SiluSpec, SoftcapSpec, TransposeSpec,
@@ -51,6 +51,7 @@ pub enum TensorOpSpec {
     Silu(SiluSpec),
     Sigmoid(SigmoidSpec),
     Gelu(GeluSpec),
+    Erf(ErfSpec),
     Scale(ScaleSpec),
     Softcap(SoftcapSpec),
     Decay(DecaySpec),
@@ -93,6 +94,7 @@ impl TensorOpSpec {
             TensorOpSpec::Silu(_) => "Silu",
             TensorOpSpec::Sigmoid(_) => "Sigmoid",
             TensorOpSpec::Gelu(_) => "Gelu",
+            TensorOpSpec::Erf(_) => "Erf",
             TensorOpSpec::Scale(_) => "Scale",
             TensorOpSpec::Softcap(_) => "Softcap",
             TensorOpSpec::Decay(_) => "Decay",
@@ -136,6 +138,7 @@ impl TensorOpSpec {
             TensorOpSpec::Silu(s) => s.out,
             TensorOpSpec::Sigmoid(s) => s.out,
             TensorOpSpec::Gelu(g) => g.out,
+            TensorOpSpec::Erf(e) => e.out,
             TensorOpSpec::Scale(s) => s.out,
             TensorOpSpec::Softcap(s) => s.out,
             TensorOpSpec::Decay(d) => d.out,
@@ -193,6 +196,7 @@ impl TensorOpSpec {
             TensorOpSpec::Silu(s) => vec![s.x],
             TensorOpSpec::Sigmoid(s) => vec![s.x],
             TensorOpSpec::Gelu(g) => vec![g.x],
+            TensorOpSpec::Erf(e) => vec![e.x],
             TensorOpSpec::Scale(s) => vec![s.x],
             TensorOpSpec::Softcap(s) => vec![s.x],
             TensorOpSpec::Decay(d) => vec![d.ar, d.dt, d.alog],
@@ -444,6 +448,9 @@ fn r_sigmoid(s: &[Stmt], _: &Interner) -> Option<TensorOpSpec> {
 fn r_gelu(s: &[Stmt], _: &Interner) -> Option<TensorOpSpec> {
     recognize_gelu(s).map(TensorOpSpec::Gelu)
 }
+fn r_erf(s: &[Stmt], i: &Interner) -> Option<TensorOpSpec> {
+    recognize_erf(s, i).map(TensorOpSpec::Erf)
+}
 fn r_scale(s: &[Stmt], _: &Interner) -> Option<TensorOpSpec> {
     recognize_scale(s).map(TensorOpSpec::Scale)
 }
@@ -524,6 +531,7 @@ pub const RECOGNIZER_ORDER: &[(&str, Recognizer)] = &[
     ("silu", r_silu),
     ("sigmoid", r_sigmoid),
     ("gelu", r_gelu),
+    ("erf", r_erf),
     ("scale", r_scale),
     ("decay", r_decay),
     ("causal_conv", r_causal_conv),
@@ -630,9 +638,12 @@ pub fn walk_in(stmts: &[Stmt], interner: &Interner, library: &dyn Fn(&str) -> bo
             loop_meaning(s, interner, &rp, &fills, &tensors)
         } else {
             let constant = |t: Symbol| constants.get(&t).filter(|(at, _)| *at < i).map(|(_, c)| c.clone());
+            // `erf of X` calls `erf` by name: the library's error function, unless the program wrote its own.
+            let theirs = |op: &TensorOpSpec| matches!(op, TensorOpSpec::Erf(_)) && functions.keys().any(|f| interner.resolve(*f) == "erf");
             RECOGNIZER_ORDER
                 .iter()
                 .find_map(|(_, r)| r(std::slice::from_ref(s), interner))
+                .filter(|op| !theirs(op))
                 .or_else(|| written_map(s, interner, &rp, &tensors, &staged, &functions, &constant))
         };
         match lifted {
@@ -733,9 +744,9 @@ fn written_map(
         computed(name).filter(|st| super::graph::out_len(&st.op) == 1).map(|_| floats.contains(name))
     };
     let fresh = |t: Symbol| tensors.contains(&t) && !staged.contains(interner.resolve(t));
-    // A function the program does not define itself — the library's `exp`, `ln` and `tanh`, the builtins — is called by
-    // its meaning; one it defines is inlined, whatever its name.
-    let library = |f: Symbol| matches!(interner.resolve(f), "exp" | "ln" | "tanh" | "sqrt" | "abs" | "min" | "max") && !functions.contains_key(&f);
+    // A function the program does not define itself — the library's `exp`, `ln`, `tanh` and `erf`, the builtins — is
+    // called by its meaning; one it defines is inlined, whatever its name.
+    let library = |f: Symbol| matches!(interner.resolve(f), "exp" | "ln" | "tanh" | "erf" | "sqrt" | "abs" | "min" | "max") && !functions.contains_key(&f);
     let cx = MapContext { tensor: &tensor, scalar: &scalar, constant, fresh: &fresh, functions, library: &library };
     recognize_map(s, interner, &cx).map(TensorOpSpec::Map)
 }

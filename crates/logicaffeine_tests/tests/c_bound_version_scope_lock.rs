@@ -17,19 +17,21 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use logicaffeine_compile::compile::{compile_to_c, vm_outcome};
 
-/// A `Let mutable i` drives a counted nest whose index `i * n + j` (with `n` folded to a literal)
-/// escapes i64 for unbounded leaves — so `bound_version` fires and emits its `bound <= 2^57` guard —
-/// and is then REUSED via `Set i to 0` in a second counted loop. Pre-fix, the guard branches
+/// A `Let mutable i` drives a counted nest whose index `i * 50 + j` escapes i64 for unbounded leaves,
+/// bounded by `n`, which only the run knows — so `bound_version` fires and emits its `n <= 2^57`
+/// guard — and is then REUSED via `Set i to 0` in a second counted loop. Pre-fix, the guard branches
 /// re-declared `i`, so the reuse hit `'i' undeclared` under gcc/nvcc while the VM ran fine.
 const REUSED_INDEX_ACROSS_VERSIONED_NEST: &str = "\
+## To native parseInt (s: Text) -> Int
+
 ## Main
-Let n be 50.
+Let n be parseInt(\"50\").
 Let mutable a be a new Seq of Int.
 Let mutable i be 0.
 While i is less than n:
     Let mutable j be 0.
     While j is less than n:
-        Push (i * n + j) % 100 to a.
+        Push (i * 50 + j) % 100 to a.
         Set j to j + 1.
     Set i to i + 1.
 Let mutable checksum be 0.
@@ -119,4 +121,42 @@ fn reused_index_across_versioned_nest_compiles_and_runs_equiv_vm() {
         vm.output.trim(),
         "C output diverged from the VM for the reused-index nest"
     );
+}
+
+/// The same nest bounded by a literal: the guard `50 <= 2^57` holds on every run, so it is decided before the program
+/// runs — the fast nest is the program, no guard reaches the C, and the reused index still compiles ≡VM.
+const LITERAL_BOUND_NEST: &str = "\
+## Main
+Let n be 50.
+Let mutable a be a new Seq of Int.
+Let mutable i be 0.
+While i is less than n:
+    Let mutable j be 0.
+    While j is less than n:
+        Push (i * n + j) % 100 to a.
+        Set j to j + 1.
+    Set i to i + 1.
+Let mutable checksum be 0.
+Set i to 0.
+While i is less than n * n:
+    Set checksum to (checksum + item (i + 1) of a) % 1000000007.
+    Set i to i + 1.
+Show checksum.
+";
+
+#[test]
+fn a_literal_bound_emits_no_guard() {
+    let c = compile_to_c(LITERAL_BOUND_NEST).expect("compiles to C");
+    assert!(
+        !c.contains(GUARD_THRESHOLD_2_POW_57),
+        "a guard every run passes reached the emitted C:\n{c}"
+    );
+    let vm = vm_outcome(LITERAL_BOUND_NEST);
+    assert!(vm.error.is_none(), "the reference VM run must succeed: {:?}", vm.error);
+    if !have_gcc() {
+        eprintln!("SKIP: gcc not present — cannot prove the emitted C compiles");
+        return;
+    }
+    let out = gcc_compile_and_run(&c).expect("the emitted C must gcc-compile and run");
+    assert_eq!(out.trim(), vm.output.trim(), "C output diverged from the VM for the literal-bound nest");
 }

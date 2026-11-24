@@ -9,7 +9,7 @@ export const SITEVERIFY = 'https://challenges.cloudflare.com/turnstile/v0/siteve
 export const RESEND = 'https://api.resend.com/emails';
 export const CLIENT_IP = '203.0.113.7';
 export const CLIENT_IPV6 = '2001:db8::7';
-export const TURNSTILE_ACTION = 'pricing-lead';
+export const TURNSTILE_ACTION = 'contact-lead';
 export const SALES_INBOX = 'team@datacenter.dev';
 
 export function validBody(overrides = {}) {
@@ -17,14 +17,14 @@ export function validBody(overrides = {}) {
     email: 'buyer@example.com',
     phone: '+1 (555) 123-4567',
     turnstile_token: 'turnstile-token-ok',
-    source: 'pricing',
+    source: 'contact',
     website: '',
     ...overrides,
   };
 }
 
 /**
- * A request as a browser on the pricing page sends it. `null` for `origin`, `ip` or `contentType`
+ * A request as a browser on the contact page sends it. `null` for `origin`, `ip` or `contentType`
  * leaves that header out; `raw` replaces the JSON body with a string, bytes or a stream.
  */
 export function leadRequest({
@@ -66,6 +66,8 @@ export function siteverifyAnswer({
   hostname = SITE_HOST,
   errorCodes = [],
   status = 200,
+  /** Cloudflare's own mark on a verdict made with its public testing keys. */
+  testingKey = false,
 } = {}) {
   return () =>
     new Response(
@@ -76,6 +78,7 @@ export function siteverifyAnswer({
         'error-codes': errorCodes,
         action,
         cdata: '',
+        ...(testingKey ? { metadata: { result_with_testing_key: true } } : {}),
       }),
       { status, headers: { 'Content-Type': 'application/json' } },
     );
@@ -156,6 +159,7 @@ export function harness({
     ALLOWED_ORIGINS: env.ALLOWED_ORIGINS,
     NOTIFY_TO: env.NOTIFY_TO,
     NOTIFY_FROM: env.NOTIFY_FROM,
+    TURNSTILE_ACCEPT_TESTING_KEY: env.TURNSTILE_ACCEPT_TESTING_KEY,
     TURNSTILE_SECRET: inject('turnstileSecret'),
     RESEND_API_KEY: inject('resendKey'),
     LEAD_IP_LIMIT: limiter('ip', ipAllows),

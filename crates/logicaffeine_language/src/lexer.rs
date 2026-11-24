@@ -1969,7 +1969,11 @@ impl<'a> Lexer<'a> {
             }
 
             let first_word = self.pos;
-            let kind = self.classify_with_lookahead(&word);
+            let kind = if self.names_its_block(&tokens, word_start, trailing_punct) {
+                TokenType::ProperName(self.interner.intern(&word))
+            } else {
+                self.classify_with_lookahead(&word)
+            };
             // A token read from several words ("at least three", "all but finitely many") covers
             // its whole phrase: its lexeme and span run to its last word, and the punctuation
             // after that word follows it. A block header's further words are its data (a route's
@@ -2001,9 +2005,14 @@ impl<'a> Lexer<'a> {
                     | TokenType::What
                     | TokenType::Where
             );
+            let names_nothing = trailing_punct.is_none() && self.header_names_nothing(&kind, word_end);
             let lexeme = self.interner.intern(&word);
             let span = Span::new(word_start, word_end);
             tokens.push(Token::new(kind, lexeme, span));
+            if names_nothing {
+                let sym = self.interner.intern("");
+                tokens.push(Token::new(TokenType::Newline, sym, Span::new(word_end, word_end)));
+            }
 
             if let Some(punct) = trailing_punct {
                 if punct == '\'' {
@@ -2805,6 +2814,40 @@ impl<'a> Lexer<'a> {
             '¥' => "JPY",
             _ => return None,
         })
+    }
+
+    /// Whether the current word names the `## Theory` or `## Axiom` block whose header precedes it: the header line's
+    /// one word, ending the line or followed by its `:`. It names the block whatever English would read it as, so
+    /// `## Theory More` is the theory More, not a comparative.
+    fn names_its_block(&self, tokens: &[Token], word_start: usize, trailing_punct: Option<char>) -> bool {
+        let Some(header) = tokens.last() else { return false };
+        if !matches!(
+            header.kind,
+            TokenType::BlockHeader { block_type: BlockType::Theory | BlockType::Axiom }
+        ) {
+            return false;
+        }
+        let word = &self.words[self.pos].word;
+        let plain = word.chars().next().is_some_and(char::is_alphabetic)
+            && word.chars().all(|c| c.is_alphanumeric() || c == '_');
+        let on_header_line = self
+            .source
+            .get(header.span.end..word_start)
+            .is_some_and(|gap| !gap.contains('\n'));
+        let ends_header = trailing_punct == Some(':')
+            || self.words.get(self.pos + 1).is_none_or(|next| {
+                self.source.get(self.words[self.pos].end..next.start).is_some_and(|gap| gap.contains('\n'))
+            });
+        plain && on_header_line && ends_header
+    }
+
+    /// Whether `kind` is a `## Theory` or `## Axiom` header with no word after it on its line, so the parser sees,
+    /// through a `Newline` at the header's end, that the block is unnamed and the next line is its body.
+    fn header_names_nothing(&self, kind: &TokenType, header_end: usize) -> bool {
+        matches!(kind, TokenType::BlockHeader { block_type: BlockType::Theory | BlockType::Axiom })
+            && self.words.get(self.pos + 1).is_none_or(|next| {
+                self.source.get(header_end..next.start).is_some_and(|gap| gap.contains('\n'))
+            })
     }
 
     fn classify_with_lookahead(&mut self, word: &str) -> TokenType {

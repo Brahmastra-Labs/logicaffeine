@@ -38,7 +38,7 @@ ledger for the RDU class. The split:
 - this book owns the RDU lowering, the schedule, the chip model and the time model, the model intake a bring-up test
   needs, the exam and the scorecard.
 
-**Counts.** 187 tickets on the board, 105 exam tests, 1,493 checkboxes, 255 ticked.
+**Counts.** 187 tickets on the board, 108 exam tests, 1,500 checkboxes, 292 ticked.
 
 Read at:
 
@@ -658,7 +658,7 @@ their production rows [HC26] [SN50PR] [SN50MM].
 | Gemma 4 | gemma4 | a mixture at 26B-A4B, per-layer embeddings at E2B and E4B, local layers with heads of their own width, key-value layers shared down the stack, scores unscaled | INTAKE-2, INTAKE-9 |
 | Qwen3.5-MoE | qwen3_5_moe | read from GGUF and Hugging Face and written (`model_hf_intake_lock`, `model_conformance_lock`); its decode step equals the VM on the SN50 at a tiny shape (`spatial_moe_routing_lock`); the gate merged with the router owed | ARCH-SHARED-GATE, DEPLOY tickets |
 | Qwen3-Next | qwen3_next | read from GGUF and Hugging Face and opened in Qwen3.5's layout (`model::layout`); its logits from a directory are transformers' within a millionth (`model_hf_intake_lock`); on the SN50 it lowers whole and runs from its directory and its GGUF, its logits past the bf16 bound (E1.13); the gate merged with the router owed | INTAKE-2, ARCH-SHARED-GATE, DEPLOY tickets |
-| Kimi K2, Kimi Linear | kimi | latent attention, sigmoid group routing; delta attention; Kimi K2 read (its configurations, and its tiktoken vocabulary to its published GGUF's without running its code) and its twin deployed (`deploy_kimi_glm_lock`); its 384 experts lowered at real width in blocks of the router row (QWEN4-7), Kimi K2 Thinking's int4 experts owed (INTAKE-3), Kimi Linear's delta attention owed | ARCH-MLA, ARCH-ROUTING, ARCH-KDA, DEPLOY-KIMI-GLM |
+| Kimi K2, Kimi Linear | kimi | latent attention, sigmoid group routing; delta attention; Kimi K2 read (its configurations, and its tiktoken vocabulary to its published GGUF's without running its code) and its twin deployed (`deploy_kimi_glm_lock`); its 384 experts lowered at real width in blocks of the router row (QWEN4-7), Kimi K2 Thinking's int4 experts read in place (INTAKE-3), Kimi Linear's delta attention owed | ARCH-MLA, ARCH-ROUTING, ARCH-KDA, DEPLOY-KIMI-GLM |
 | GLM-4 | glm4 | half of each head rotated by interleaved pairs, sandwich norms, one gate-and-up projection, biased projections at 9B; GLM-4 0414 read, written and deployed (`deploy_glm_lock`), GLM-4V's multimodal rotation refused by name | AUTHOR-1, ARCH-ROPE, ARCH-NORMS |
 | GLM-4.5, GLM-5 | glm4_moe, glm5 | routing variants, partial rotation, indexed sparse attention; GLM-4.5, 4.6, 4.7 and 4.5-Air read, written and deployed (`deploy_kimi_glm_lock`), the draft block read as the converter writes it; GLM-5's indexer owed | ARCH-ROUTING, ARCH-SPARSE, DEPLOY-KIMI-GLM |
 | DeepSeek V3.2 | deepseek_v32 | the lightning indexer and block top-k | ARCH-SPARSE, KERNEL-1 |
@@ -718,8 +718,8 @@ their production rows [HC26] [SN50PR] [SN50MM].
 | Vision towers | Qwen3-VL, qwen4_exp, Llama 4 | none | none | none | ARCH-VISION, QWEN4-11 |
 | Cross-attention, encoder and decoder | Whisper, T5 | single-query only | none | none | ARCH-CROSS |
 | Pooling heads, bidirectional attention | embedding and reranking models | none | none | none | ARCH-POOLING |
-| FP8 block-scaled weights | DeepSeek V3 and R1, Kimi K2, MiniMax-M2, FP8 releases | read in place: a directory's FP8 weights dequantized to f32 as the converter writes them (INTAKE-3); no FP8 datapath | none | none | INTAKE-3, NUM-2 |
-| NVFP4, AWQ, GPTQ weights | quantized releases | none | none | none | INTAKE-3, NUM-4, NUM-5 |
+| FP8 block-scaled weights | DeepSeek V3 and R1, Kimi K2, MiniMax-M2, FP8 releases | read in place: a directory's FP8 weights (DeepSeek's blocks, compressed-tensors' channels and blocks, ModelOpt's) dequantized to f32 as the converter writes them (INTAKE-3); no FP8 datapath | none | none | INTAKE-3, NUM-2 |
+| NVFP4, MXFP4, AWQ, GPTQ, int4 and int8 weights | gpt-oss, Kimi K2 Thinking, quantized releases | read in place (INTAKE-3): MXFP4 and NVFP4 as the GGUF blocks the converter repacks, NVFP4's own scales honored by the reference and the binding; AWQ, GPTQ and compressed-tensors' int4 and int8 dequantized to f32 as the converter computes them; GGUF's lattice, ternary and 1- and 2-bit formats dequantized as ggml's | bound dequantized | an NVFP4 release brings up from its directory (E1.18) | INTAKE-3, NUM-4, NUM-5 |
 | Contexts to 262,144 and 1M | qwen4_exp, Qwen3.8 | yes | written | tested to 4,096 | MEM-3, QWEN4-6, EXAM-3 |
 
 - [ ] Every row's RDU column reads "lowered" or names the refusal a deployment lock pins (the DEPLOY tickets, INTAKE-9).
@@ -1089,29 +1089,30 @@ lock passes on the tree, with the log beside it. CLIMB-7 grows this catalog from
 ### 10.1 E1: Cold bring-up of unseen configurations
 
 A compiler team that wants to know whether a compiler brings up *any* model sends one it was not built for: odd widths, odd head counts, a new architecture string, a configuration key nobody has seen.
-The rows that hold are in `samba_exam_bringup_lock`; the rows still open are handed REDs in `samba_exam_bringup_reds_lock`,
-written by EXAM-1, and a ticket that lands one moves its test, unchanged, into the lock. Both run a row the same way:
-the checkpoint on disk, `largo emit rdu --chip sn50 --model <checkpoint>`, the bundle read back off disk, one decode step
-in the spatial evaluator with every tensor filled from the checkpoint as a host fills it (`model::bind`), the token held
-to the f64 reference's.
+Every row holds in `samba_exam_bringup_lock`, written by EXAM-1; each was a handed RED its ticket moved there, unchanged,
+when it landed. A row runs as a host would: the checkpoint on disk, `largo emit rdu --chip sn50 --model <checkpoint>`,
+the bundle read back off disk, one decode step in the spatial evaluator with every tensor filled from the checkpoint as a
+host fills it (`model::bind`), the token held to the f64 reference's; E1.12 lowers an exported graph instead
+(`largo emit rdu --graph`).
 
 - [x] **E1.1** A Llama-family checkpoint read from its Hugging Face directory alone, with no GGUF anywhere: its first token equals the reference's. Lock: `samba_exam_bringup_lock::a_hugging_face_directory_brings_up_with_no_gguf`. Ticket: INTAKE-6 (receipt: `logs/samba/exam1-green-3.log`).
 - [x] **E1.2** Hidden widths of 2,880 (gpt-oss) and 7,168 (DeepSeek-V3): widths that are not powers of two tile with no remainder lost. Lock: `samba_exam_bringup_lock::hidden_widths_of_2880_and_7168_bring_up`. Ticket: INTAKE-6, the configuration from INTAKE-5's generator (receipt: `logs/samba/exam1-green-3.log`).
 - [x] **E1.3** Head dimensions 64, 80, 96, 112, 128 and 256, and latent attention's 192 = 128 + 64 split. Lock: `samba_exam_bringup_lock::every_published_head_dim_brings_up`. Ticket: INTAKE-6, CHIP-2, ARCH-ROPE, the configuration from INTAKE-5's generator. Every head dimension holds with Qwen3.5's partial rotation of 24 dimensions, and latent attention's split holds. A full rotation of a head of 80 or 112 brings up too (E1.16): its rotary rows (40 and 56 wide) start mid-tile, and a cache of them past the page is read through the window of whole tiles around the block's rows (`spatial_rope_window_lock::a_flat_rotation_whose_cache_is_past_a_page_reads_its_rows_through_a_window`; receipt `logs/samba/broad-sitemem.log`). Over a cache past one site, a prefill block and a decode of heads of 80 and 112 bring up too (E1.17).
 - [x] **E1.4** Vocabularies of 151,936, 163,840, 201,088 and 248,320: the head and its arg-max over each, padded and unpadded (GPT-2's 50,257, which no tile divides). Lock: `samba_exam_bringup_lock::every_published_vocabulary_brings_up`. Ticket: INTAKE-6, the configuration from INTAKE-5's generator (receipt: `logs/samba/exam1-green-2.log`).
 - [x] **E1.5** One KV head (multi-query) and as many KV heads as query heads. Lock: `samba_exam_bringup_lock::one_kv_head_and_all_kv_heads_bring_up`. Ticket: INTAKE-6, the configuration from INTAKE-5's generator (receipt: `logs/samba/exam1-green-2.log`).
-- [ ] **E1.6** Query-head counts no tensor-parallel width of 16 divides (24, 40, 56). Lock: `samba_exam_bringup_reds_lock::head_counts_no_width_divides_bring_up_at_16_sockets`. Ticket: MULTI-4. The authored program shards them over 16 chips (MULTI-4's balanced runs); `largo emit rdu --tp 16` refuses them before anything lowers by the serving stacks' rule, every head count divided by the width (`fit::admits_tp`: "the 24 query heads do not split over 16 chips", `logs/samba/probe-e16-1.log`), which `emit_rdu_e2e::a_tensor_parallel_width_the_model_does_not_split_over_is_refused` pins. Tristen (2026-11-09): `--tp` takes every width the author writes; its refusal lock moves to the widths the author cannot write, and a vLLM-format plan keeps vLLM's rule that the width divides every head count.
-- [ ] **E1.7** A prime layer count (61, as DeepSeek-V3) and a single layer. Lock: `samba_exam_bringup_reds_lock::prime_and_single_layer_counts_bring_up`. Ticket: INTAKE-6, NUM-1, the configuration from INTAKE-5's generator. Today the single (Llama) layer brings up, and the 61-layer hybrid lowers and runs but emits the wrong token: the bf16 datapath's logits drift from the f64 reference's by up to 1.6% of the largest logit at 3 layers, 3.9% at 13, 6.3% at 25 and 17.8% at 61, past the 0.32 margin (6.6%) between this checkpoint's top two tokens (`logs/samba/diag-2.log`). The drift is NUM-1's: fp32 islands in the bf16 datapath.
-- [ ] **E1.8** Tied and untied embeddings, QKV biases and an output bias. Lock: `samba_exam_bringup_reds_lock::tied_untied_and_biased_checkpoints_bring_up`. Ticket: INTAKE-6, the configuration from INTAKE-5's generator. Today the untied head and gpt-oss's biased projections bring up token for token; the tied head's reference leads its second token (44) by 0.014, an eighth of the bf16 bound's 0.106 (`logs/samba/e1-8-lead.log`), and the bundle emits 44 on the bf16 datapath and with the SIMD path's fp32 witness alike (`logs/samba/e1-8-simd-fp32.log`): a near-tie the matrix path's bf16 inputs reorder, held within the bound by `rdu_bringup_lock`. An exact token on a lead under the datapath's bound is Tristen's ruling (the row's criterion, or an fp32 matrix path).
+- [x] **E1.6** Query-head counts no tensor-parallel width of 16 divides (24, 40, 56). Lock: `samba_exam_bringup_lock::head_counts_no_width_divides_bring_up_at_16_sockets`. Ticket: MULTI-4. The authored program shards them over 16 chips (MULTI-4's balanced runs); `largo emit rdu --tp 16` refuses them before anything lowers by the serving stacks' rule, every head count divided by the width (`fit::admits_tp`: "the 24 query heads do not split over 16 chips", `logs/samba/probe-e16-1.log`), which `emit_rdu_e2e::a_tensor_parallel_width_the_model_does_not_split_over_is_refused` pins. Tristen (2026-11-09): `--tp` takes every width the author writes; its refusal lock moves to the widths the author cannot write, and a vLLM-format plan keeps vLLM's rule that the width divides every head count. `largo emit rdu --tp 16` now writes the 16-socket plan for 24, 40 and 56 heads in balanced runs; failed: 24 heads at 16 sockets refused, splitting over 1 or 2 chips (`logs/samba/exam1-red-6.log`) (receipt `logs/samba/green-graduate-exam1.log`).
+- [x] **E1.7** A prime layer count (61, as DeepSeek-V3) and a single layer. Lock: `samba_exam_bringup_lock::prime_and_single_layer_counts_bring_up`. Ticket: INTAKE-6, NUM-1, the configuration from INTAKE-5's generator. Today the single (Llama) layer brings up, and the 61-layer hybrid lowers and runs but emits the wrong token: the bf16 datapath's logits drift from the f64 reference's by up to 1.6% of the largest logit at 3 layers, 3.9% at 13, 6.3% at 25 and 17.8% at 61, past the 0.32 margin (6.6%) between this checkpoint's top two tokens (`logs/samba/diag-2.log`). The drift is NUM-1's: fp32 islands in the bf16 datapath. With NUM-1's islands the 61-layer hybrid emits the reference's token; failed: the bundle's token 79 against the reference's 95 (`logs/samba/exam1-red-6.log`) (receipt `logs/samba/green-graduate-exam1.log`).
+- [x] **E1.8** Tied and untied embeddings, QKV biases and an output bias. Lock: `samba_exam_bringup_lock::tied_untied_and_biased_checkpoints_bring_up`. Ticket: INTAKE-6, the configuration from INTAKE-5's generator. Each brings up as every bring-up does (`brings_up_close`: logits within the bf16 datapath's bound, the reference's token wherever it leads by more than twice that; Tristen, 2026-11-12): the tied head's reference leads its second token (44) by 0.014, an eighth of the bound's 0.106 (`logs/samba/e1-8-lead.log`), a near-tie the matrix path's bf16 inputs reorder on every datapath (`logs/samba/e1-8-simd-fp32.log`) (receipt: `logs/samba/green-e18.log`).
 - [x] **E1.9** An architecture string the compiler has never seen: refused within a second, every missing piece named. Lock: `samba_exam_bringup_lock::an_unknown_architecture_is_refused_with_its_missing_pieces`. Ticket: INTAKE-9.
 - [x] **E1.10** A configuration key the compiler does not understand, on a known architecture: refused by name, never ignored. Lock: `model_hf_intake_lock::an_unknown_key_is_refused_by_name`. Ticket: INTAKE-1 (receipt: `logs/samba/green-2.log`).
-- [ ] **E1.11** The bring-up clock, from an unseen checkpoint to a golden-matching first token from the RDU bundle, recorded for every Tier A model. Lock: `samba_exam_bringup_reds_lock::the_bring_up_clock_is_recorded_for_every_tier_a_model`. Ticket: INTAKE-7.
-- [ ] **E1.12** An exported PyTorch graph of a model no spec arm describes. Lock: `samba_exam_bringup_reds_lock::an_exported_graph_brings_up_without_a_spec_arm`. Ticket: INTAKE-8.
-- [ ] **E1.13** A Qwen3-Next checkpoint as its converter writes it (value heads grouped by key head, each key head's betas and alphas one projection, a gated shared expert in every block, a draft block after the last), from its Hugging Face directory and from its converted GGUF: each brings up within the bf16 datapath's bound. Lock: `samba_exam_bringup_reds_lock::a_qwen3next_checkpoint_brings_up_from_its_directory_and_its_gguf`. Ticket: INTAKE-2. Today both lower whole and run, the same bundle from either source, and a logit lands 0.106 from the reference's against the datapath's 0.071 (`logs/samba/green-gd-subtile-4.log`). The lowering is exact: on the SN50's fp32 twin the same model's decode is the reference's to fp32's rounding (`spatial_mixed_precision_lock::qwen3next_decodes_on_the_fp32_twin_as_the_reference_computes`, `logs/samba/q3next-fp32twin-2.log`), so the drift is the bf16 datapath's and closes with NUM-1.
+- [x] **E1.11** The bring-up clock, from an unseen checkpoint to a golden-matching first token from the RDU bundle, recorded for every Tier A model. Lock: `samba_exam_bringup_lock::the_bring_up_clock_is_recorded_for_every_tier_a_model`. Ticket: INTAKE-7. Each Tier A family's twin read cold from its Hugging Face directory, its SN50 bundle written and run and its first token held to the f64 reference, timed three times by `samba_bringup_clock_lock::every_tier_a_family_brings_up_on_the_clock` and recorded as a measured `C-SN50-*-BRINGUP` row of `benchmarks/silicon/samba_cells.json`, the slowest of each 1.7 s to 43.5 s against a budget of 300 s; failed: 0 bring-up clocks recorded for 7 Tier A models (`logs/samba/land-reds.log`) (receipts `logs/samba/bringup-e1_11.log`, `logs/samba/green-e111.log`).
+- [x] **E1.12** An exported PyTorch graph of a model no spec arm describes. Lock: `samba_exam_bringup_lock::an_exported_graph_brings_up_without_a_spec_arm`. Ticket: INTAKE-8. The two-layer network `torch.export` writes is read from its ATen graph alone, written by the author with its exact GELU through `erf of`, lowered whole on the SN50 and certified; `model_graph_import_lock` holds what the bundle computes to the graph's `f64` forward and to torch's own output (receipts: `logs/samba/green-e112.log`, `logs/samba/green-graph-import.log`).
+- [x] **E1.13** A Qwen3-Next checkpoint as its converter writes it (value heads grouped by key head, each key head's betas and alphas one projection, a gated shared expert in every block, a draft block after the last), from its Hugging Face directory and from its converted GGUF: each brings up within the bf16 datapath's bound. Lock: `samba_exam_bringup_lock::a_qwen3next_checkpoint_brings_up_from_its_directory_and_its_gguf`. Ticket: INTAKE-2. Today both lower whole and run, the same bundle from either source, and a logit lands 0.106 from the reference's against the datapath's 0.071 (`logs/samba/green-gd-subtile-4.log`). The lowering is exact: on the SN50's fp32 twin the same model's decode is the reference's to fp32's rounding (`spatial_mixed_precision_lock::qwen3next_decodes_on_the_fp32_twin_as_the_reference_computes`, `logs/samba/q3next-fp32twin-2.log`), so the drift is the bf16 datapath's and closes with NUM-1. With NUM-1's islands both sources bring up within the bound; failed: a logit 0.10551 from the reference's, past the datapath's 0.07085 (`logs/samba/qwen3next-red-now.log`) (receipt `logs/samba/green-graduate-exam1.log`).
 - [x] **E1.14** Gated DeltaNet heads that are not whole tiles (16, 8, 48 and 80), their memory past one tile, in a decode step and a block. Lock: `tensor_gdn_row_blocks_lock::a_gated_delta_whose_heads_are_not_whole_tiles_lowers_on_sn50_and_computes_the_vms_values`. Ticket: ARCH-GDN-VARIANTS (receipt: `logs/samba/green-gd-subtile-4.log`).
 - [x] **E1.15** A fused query-key-value projection (Phi-3's) and one with its bias (GLM-4's), both under Llama's interleaved rotation, and values half and twice as wide as the keys. Lock: `samba_exam_bringup_lock::a_fused_projection_and_values_unlike_the_keys_bring_up`. Ticket: AUTHOR-1 (receipt: `logs/samba/deploy-1.log`).
 - [x] **E1.16** Heads of 80 and of 112 under a full rotation, NeoX's and Llama's interleaved one: rotary rows that start mid-tile, read through a window of a cache past the page. Lock: `samba_exam_bringup_lock::heads_that_are_not_whole_tiles_turned_whole_bring_up`. Ticket: ARCH-ROPE. Each brings up from its checkpoint to the reference's token (receipt `logs/samba/slot5-rerun.log`).
 - [x] **E1.17** Heads of 80 and of 112 over a cache past one site: a prompt of 37 prefilled into a cache of 64 on the SN50 and the token after it decoded there, Qwen 3's QK-norm over grouped K/V heads, Gemma 3's sliding windows and Gemma 2's capped scores, each within the bf16 datapath's bound of the f64 reference. Lock: `samba_exam_bringup_lock::heads_that_are_not_whole_tiles_bring_up_over_a_cache_past_a_site`. Ticket: ARCH-ROPE. The prefill's and every decode layer's attention stream the cache past the flash fold with each head read through its window, the block's rotation turns a head an item through the same windows, and the heads are packed after (receipt `logs/samba/green-heads.log`). Tiny Llama (no QK-norm) and tiny gpt-oss (an expert router) miss the bound at this context with heads of whole tiles too; that is the bf16 products' drift, NUM-1's (`logs/samba/probe-e117arch-1.log`).
+- [x] **E1.18** An NVFP4 release brought up from its Hugging Face directory, in ModelOpt's layout over an expert mixture and in compressed-tensors' over Llama. Lock: `samba_exam_bringup_lock::an_nvfp4_release_brings_up_from_its_directory`. Ticket: INTAKE-3. Every weight bound from its NVFP4 blocks times its own scale (`model::bind::own_scale`), one a weight or one an expert, as llama.cpp's graph multiplies its products; the bundle's first token within the datapath of the f64 reference's; failed with the scale left out of the binding: a logit 2.55689 from the reference's against the datapath's 0.03555 (`logs/samba/red-e118.log`) (receipt `logs/samba/green-e118.log`).
 
 ### 10.2 E2: Correctness against the references
 
@@ -1127,8 +1128,8 @@ windowed model and the expert mixture, and waits in the reds suite on Qwen 3.5's
 - [ ] **E2.3** Perplexity on a fixed text within the contract's bound. Lock: `samba_exam_quality_lock::perplexity_on_a_fixed_text_is_within_the_contract`. Ticket: NUM-7.
 - [ ] **E2.4** Batch invariance: a sequence's tokens are bit-identical alone and beside 63 others. Lock: `samba_exam_correctness_reds_lock::a_sequence_decodes_alike_alone_and_in_a_batch_of_64`. Ticket: NUM-8.
 - [x] **E2.5** Determinism: two runs of one bundle give bit-identical logits. Lock: `samba_exam_correctness_lock::two_runs_of_one_bundle_are_bit_identical`. Ticket: NUM-8.
-- [ ] **E2.6** An empty prompt and a prompt of one beginning-of-sequence token. Lock: `samba_exam_correctness_reds_lock::empty_and_bos_only_prompts_decode_as_the_reference`. Ticket: NUM-1.
-- [ ] **E2.7** A prompt that fills the context to its last position, and one past it refused by name. Lock: `samba_exam_correctness_reds_lock::the_last_position_decodes_and_the_next_is_refused`. Ticket: MEM-3.
+- [x] **E2.6** An empty prompt and a prompt of one beginning-of-sequence token. Lock: `samba_exam_correctness_lock::empty_and_bos_only_prompts_decode_as_the_reference`. Ticket: NUM-1. An empty prompt is refused by name, and a prompt of the beginning token alone decodes the reference's logits within the datapath on every shared architecture; failed: Qwen3.5 after a BOS-only prompt, a logit 0.25618 from the reference's past the datapath's 0.11217 (`logs/samba/live-new-1.log`) (receipt `logs/samba/green-graduate-exams.log`).
+- [x] **E2.7** A prompt that fills the context to its last position, and one past it refused by name. Lock: `samba_exam_correctness_lock::the_last_position_decodes_and_the_next_is_refused`. Ticket: MEM-3. A prompt of CTX − 1 tokens prefills on the fp32 twin and the token after it decodes into the cache's last row within the datapath; a decode past it is refused by its position; failed: the prefill of 7 rows into a cache of 8 did not lower whole, a per-row norm past one site's page (`logs/samba/e27-1.log`) (receipt `logs/samba/green-graduate-exams.log`).
 - [x] **E2.8** 4,096 repetitions of one token. Lock: `samba_exam_numerics_lock::a_long_repetition_decodes_as_the_reference`. Ticket: NUM-1. Qwen 3, Qwen 3.5, Gemma 3 and gpt-oss, each prefilled in chunks of 1,024 rows on the SN50, decode the next token within the datapath's bound of the reference (receipt `logs/samba/e28-direct.log`, 1,843 s): Qwen 3.5's chunked gated delta solved by halves, gpt-oss's chunk taking its sinks a tile a head.
 - [x] **E2.9** A residual channel at 1e4 (the outlier channels large models carry) through bf16 sums. Lock: `samba_exam_correctness_lock::an_outlier_channel_survives_bf16_sums`. Ticket: NUM-1.
 - [x] **E2.10** A NaN or an infinity in an input, propagated as the reference propagates it and never masked. Lock: `samba_exam_correctness_lock::nan_and_infinity_propagate_as_the_reference_propagates_them`. Ticket: NUM-7.
@@ -1173,17 +1174,16 @@ The suite is `samba_exam_scaling_lock`, written by EXAM-5.
 ### 10.6 E6: Adversarial expert routing
 
 Routing is data. A team that knows where a mixture-of-experts mapping breaks sends the routing that breaks it.
-The suites are `samba_exam_moe_lock` (the rows that hold) and `samba_exam_moe_reds_lock` (the rows still open),
-written by EXAM-6; the rows that need expert parallelism across sockets (MULTI-2) are written into
+The suite is `samba_exam_moe_lock`, every row of it holding, written by EXAM-6; the rows that need expert parallelism across sockets (MULTI-2) are written into
 `samba_exam_scaling_lock` and the row that needs experts streamed from memory (MEM-6) into `samba_exam_overflow_lock`,
 each when what it needs exists.
 
-- [ ] **E6.1** Every token of a batch of 64 routed to one expert. Lock: `samba_exam_moe_reds_lock::a_batch_routed_to_one_expert_decodes`. Ticket: NUM-1 (the batch decodes each sequence as it decodes alone, within 0.015, on its one hot expert — the reference routed by its own logits lies 5 to 9 away — and the bf16 datapath's error after a prompt reaches 0.22 against a bound of 0.12 on 2 of 8 sequences, `logs/samba/e61-batch-evidence.log`).
+- [x] **E6.1** Every token of a batch of 64 routed to one expert. Lock: `samba_exam_moe_lock::a_batch_routed_to_one_expert_decodes`. Ticket: NUM-1. Each sequence's logits are the GPU's own bf16 datapath's bit for bit — the RTX 3060's lowering of the same batch, prefilled and decoded — and within the 2% bound of its reference or that path's own distance from it (Tristen, 2026-11-12): on the tiny gpt-oss the bf16 products' rounding, which the SN50, the SN40L and the RTX 3060 compute alike bit for bit, passes 2% on two sequences (1.11 and 1.09 of the bound), where the exact twin decoding the exact state stored bf16 stays within it (0.42 and 0.23) — the products, not the cache and not the sinks (`logs/samba/e6-oss-every-bf16-path.log`) (receipt: `logs/samba/green-e61-e66.log`).
 - [ ] **E6.2** Every token routed to experts that live on one socket. Lock: `samba_exam_scaling_lock::a_batch_routed_to_one_socket_decodes`. Ticket: MULTI-2.
 - [ ] **E6.3** Uniform routing at batch 128 over 512 experts, 471 touched. Lock: `samba_exam_overflow_lock::uniform_routing_over_512_experts_decodes`. Ticket: MEM-6.
-- [ ] **E6.4** Router ties at the k-th place broken in the reference's order. Lock: `samba_exam_moe_reds_lock::router_ties_break_in_the_references_order`. Ticket: NUM-1 (the tie is broken in the reference's order — the bundle's logits lie 0.115 from the reference's and 6.7 from the other order's, `logs/samba/e64-tie-order-evidence.log` — and the bf16 datapath's error on this checkpoint is 2.6% of its largest logit, past the 2% the exam allows).
+- [x] **E6.4** Router ties at the k-th place broken in the reference's order. Lock: `samba_exam_moe_lock::router_ties_break_in_the_references_order`. Ticket: NUM-1 (the tie is broken in the reference's order — the bundle's logits lie 0.115 from the reference's and 6.7 from the other order's, `logs/samba/e64-tie-order-evidence.log` — and the bf16 datapath's error on this checkpoint is 2.6% of its largest logit, past the 2% the exam allows). With NUM-1's islands the bundle's logits are the reference's within the datapath; failed: a logit 0.11540 from the reference's past the datapath's 0.09026 (`logs/samba/e6-classify-1.log`) (receipt `logs/samba/green-graduate-exams.log`).
 - [x] **E6.5** Group-limited routing where the best experts sit in a group the limit excludes. Lock: `samba_exam_moe_lock::group_limits_exclude_the_best_experts`. Ticket: ARCH-ROUTING (receipt: `logs/samba/e6-classify-1.log`).
-- [ ] **E6.6** A router that produces NaN for one token. Lock: `samba_exam_moe_reds_lock::a_nan_router_row_is_handled_as_the_reference`. Ticket: NUM-1 (the reference ranks a NaN score below every number, as the chip does: a NaN router score leaves the decode finite and the reference's within the datapath, and a sequence whose router row is all NaN decodes to NaN alone; a sequence beside it lies 0.114 from its reference after its prompt against a bound of 0.109, `logs/samba/e66-nan-policy-evidence.log`).
+- [x] **E6.6** A router that produces NaN for one token. Lock: `samba_exam_moe_lock::a_nan_router_row_is_handled_as_the_reference`. Ticket: NUM-1. The reference ranks a NaN score below every number, as the chip does: a NaN router score leaves the decode finite, and a sequence whose router row is all NaN decodes to NaN alone; every other sequence is the GPU's own bf16 datapath's bit for bit and within its reach of the reference, as E6.1 is held (Tristen, 2026-11-12; `logs/samba/e6-oss-every-bf16-path.log`) (receipt: `logs/samba/green-e61-e66.log`).
 - [ ] **E6.7** Both dispatch forms compute alike, and the time model's choice is the faster in simulation. Lock: `samba_exam_scaling_lock::both_dispatch_forms_agree_and_the_faster_is_chosen`. Ticket: MULTI-2.
 
 ### 10.7 E7: Speculative decoding
@@ -1205,11 +1205,13 @@ The suite is `samba_exam_compiler_lock`, written by EXAM-8.
 - [ ] **E8.1** Compile time for 70B, 405B and 671B models inside the budget. Lock: `samba_exam_compile_time_lock::large_models_compile_inside_the_budget`. Ticket: SCHED-8.
 - [x] **E8.2** One program a layer kind: 64 layers compile as their distinct kinds. Lock: `samba_exam_compiler_lock::layers_of_one_kind_compile_once`. Ticket: SCHED-8. A checkpoint of 64 layers, its architecture's layers repeated, emits the files and the kinds its own 3 layers do, each layer bound to the program of the few layers' layer it equals (receipt `logs/samba/slot5-rerun.log`).
 - [x] **E8.3** One checkpoint compiled twice gives byte-identical bundles. Lock: `samba_exam_compiler_lock::a_checkpoint_compiles_to_identical_bytes`. Ticket: SCHED-8. Two compiles into two directories: every file of the bundle the same bytes (receipt `logs/samba/slot5-rerun.log`).
-- [ ] **E8.4** A new batch size recompiles only what the batch changes. Lock: `samba_exam_recompile_lock::a_new_batch_size_recompiles_only_what_it_changes`. Ticket: SCHED-8.
-- [ ] **E8.5** PCU, PMU and SRAM use reported for every section. Lock: `samba_exam_unit_use_lock::every_section_reports_its_unit_use`. Ticket: TIME-6.
+- [x] **E8.4** A new batch size recompiles only what the batch changes. Lock: `samba_exam_recompile_lock::a_new_batch_size_recompiles_only_what_it_changes`. Ticket: SCHED-8. Each shared architecture's SN50 decode bundle at a batch of 2 then 3 through one section cache (`largo emit rdu --cache DIR`): the batch of 3 is the empty cache's bundle byte for byte, and it compiles exactly the sections the batch changes; failed: no `--cache` argument (`logs/samba/land-red-reports.log`) (receipt `logs/samba/land-green.log`).
+- [x] **E8.5** PCU, PMU and SRAM use reported for every section. Lock: `samba_exam_unit_use_lock::every_section_reports_its_unit_use`. Ticket: TIME-6. Every section of every program's `report.json` states the PCUs, PMUs and SRAM it holds and the SRAM-resident tensors it moves, counted again off the program on disk and within the chip it names; failed: no `report.json` (`logs/samba/land-red-reports.log`) (receipt `logs/samba/land-green.log`).
 - [x] **E8.6** Every refusal names its statement and reason; no partial program exits 0. Lock: `samba_exam_refusal_lock::no_partial_program_exits_zero`. Ticket: SCHED-10. An attention over more positions than its cache holds — wrong on every tier — beside a SiLU that lowers, and two such attentions: `largo emit rdu` exits 1, writes no file of a bundle and nothing to stdout, and names each refused statement by its index, binder and op with its reason, counting what it cannot host (receipt `logs/samba/green-heads.log`).
-- [ ] **E8.7** The fusion report lists every class fired and declined in every section. Lock: `samba_exam_fusion_report_lock::the_fusion_report_covers_every_section`. Ticket: SCHED-10.
-- [ ] **E8.8** Every program's placement certificate passes the independent checker. Lock: `samba_exam_certificate_lock::every_placement_certificate_rechecks`. Ticket: ACCESS-3.
+- [x] **E8.7** The fusion report lists every class fired and declined in every section. Lock: `samba_exam_fusion_report_lock::the_fusion_report_covers_every_section`. Ticket: SCHED-10. Every section lists, decision for decision, the shared optimizer's own fired and declined fusions over the statements it stores, a fusion split across sections `fired, run apart` with the sections it runs in; failed: no `report.json` (`logs/samba/land-red-reports.log`) (receipt `logs/samba/land-green.log`).
+- [x] **E8.8** Every program's placement certificate passes the independent checker. Lock: `samba_exam_certificate_lock::every_placement_certificate_rechecks`. Ticket: ACCESS-3. Every program's `certificate.whole.json`, read off disk, passes `ChoreographyCertificate::recheck` against its own `neutral.json`, every refutation replayed; a reordered liveness witness, another program and a dropped refutation step are refused; failed with the bundle written as before its whole certificate existed: `certificate.whole.json` absent (`logs/samba/reports-1109-bundle-mutants.log`) (receipt `logs/samba/land-green.log`).
+- [x] **E8.9** A certificate carrying a sound refutation of another formula in place of its stage's obligation is refused, naming the stage. Lock: `samba_exam_certificate_lock::a_certificate_refuting_another_formula_is_refused`. Ticket: ACCESS-3. The integer product's certificate forged twice, once with a formula of one variable and once with the obligation's own variable and clause counts: the checker rebuilds every stage's obligation from the program and refuses both; failed: the forged certificate was accepted (`logs/samba/land-red-reports-recheck.log`) (receipt `logs/samba/land-green.log`).
+- [x] **E8.10** A placement certificate refuting another formula is refused by every reader of one. Lock: `samba_exam_certificate_lock::a_placement_certificate_refuting_another_formula_is_refused`. Ticket: ACCESS-3. A placement's certificate forged the same way and padded to the placement obligation's shape is refused by `certify_external_placement`, by every target backend's `TargetBackend::certify` and by the loop lane's reader of the proof its row ships, each naming what the certificate was offered for; failed: the import-and-certify reader accepted it (`logs/samba/land-red-reports-recheck.log`) (receipt `logs/samba/land-green.log`).
 
 ### 10.9 E9: Programs larger than a chip
 
@@ -1227,11 +1229,11 @@ The suite is `samba_exam_overflow_lock`, written by EXAM-9.
 A team that will send models nobody has built yet tests how fast a new op runs at all, and how fast it runs well.
 The suite is `samba_exam_agility_lock`, written by EXAM-10.
 
-- [ ] **E10.1** A novel activation written in LOGOS runs on the RDU as a generic section on its first compile. Lock: `samba_exam_agility_lock::a_new_activation_runs_on_its_first_compile`. Ticket: SCHED-10.
-- [ ] **E10.2** A novel attention mask written in LOGOS runs on its first compile. Lock: `samba_exam_agility_lock::a_new_attention_mask_runs_on_its_first_compile`. Ticket: ARCH-WINDOW.
-- [ ] **E10.3** A novel recurrence written in LOGOS runs as a sequential section, then chunked. Lock: `samba_exam_agility_lock::a_new_recurrence_runs_then_chunks`. Ticket: KERNEL-3.
-- [ ] **E10.4** The time from a written op to its fused, certified form, recorded. Lock: `samba_exam_agility_lock::the_time_to_a_fused_new_op_is_recorded`. Ticket: CLIMB-6. Recorded as an AGILITY row of `benchmarks/silicon/samba_cells.json` (measured, with its log), the lock failing past 60 s (Tristen, 2026-11-09).
-- [ ] **E10.5** A novel routing function written in LOGOS. Lock: `samba_exam_agility_lock::a_new_routing_function_runs`. Ticket: ARCH-ROUTING.
+- [x] **E10.1** A novel activation written in LOGOS runs on the RDU as a generic section on its first compile. Lock: `samba_exam_agility_lock::a_new_activation_runs_on_its_first_compile`. Ticket: SCHED-10. Squareplus through a function the program defines, and a piecewise activation branching on its input through the library's `exp`, each lift as one map and lower as one section, computing what the VM prints; failed: the loop did not lift as one map (`logs/samba/land-red-agility.log`) (receipt `logs/samba/land-green.log`).
+- [x] **E10.2** A novel attention mask written in LOGOS runs on its first compile. Lock: `samba_exam_agility_lock::a_new_attention_mask_runs_on_its_first_compile`. Ticket: ARCH-WINDOW. A dilated causal mask and Llama 4's chunked-local one over a hand-written attention, each a map of the scores by their positions between the products and the softmax; failed: the mask did not lift as one map (`logs/samba/land-red-agility.log`) (receipt `logs/samba/land-green.log`).
+- [x] **E10.3** A novel recurrence written in LOGOS runs as a sequential section, then chunked. Lock: `samba_exam_agility_lock::a_new_recurrence_runs_then_chunks`. Ticket: KERNEL-3. A channel decaying by a gate computed from its own input, written turn by turn, runs as a section taking its turns in order and lowers chunked, a carry nonlinear in the state still turn by turn; failed: the loop did not lift as one recurrence (`logs/samba/land-red-agility.log`) (receipt `logs/samba/land-green.log`).
+- [x] **E10.4** The time from a written op to its fused, certified form, recorded. Lock: `samba_exam_agility_lock::the_time_to_a_fused_new_op_is_recorded`. Ticket: CLIMB-6. Recorded as an AGILITY row of `benchmarks/silicon/samba_cells.json` (measured, with its log), the lock failing past 60 s (Tristen, 2026-11-09): cell `C-SN50-SQUAREPLUS-AGILITY`, one compile inside a minute; failed: squareplus did not lower (`Unrecognized`) (`logs/samba/land-red-agility.log`) (receipts `logs/samba/land-record-e104.log`, `logs/samba/land-green.log`).
+- [x] **E10.5** A novel routing function written in LOGOS. Lock: `samba_exam_agility_lock::a_new_routing_function_runs`. Ticket: ARCH-ROUTING. Biased, sharpened sigmoid scores, the top two by two arg-maxes and their scores normalized into the combine, each lifting as a map and running as the VM computes it; failed: the router's scores, masks and weights did not lift (`logs/samba/land-red-agility.log`) (receipt `logs/samba/land-green.log`).
 
 ### 10.11 E11: The kernel micro-exam
 
@@ -1242,15 +1244,15 @@ EXAM-11 writes them: the rows that hold in `samba_exam_kernel_lock`, the open on
 - [ ] **E11.1** A 7,168 × 18,432 bf16 GEMM at its modeled share of peak. Lock: `samba_exam_kernel_rates_lock::a_large_gemm_reaches_its_modeled_share_of_peak`. Ticket: CHIP-2. Unwritten: a share needs the program's modeled time, which no artifact states yet (TIME-1), and where a bundle states it is Tristen's ruling.
 - [ ] **E11.2** Decode attention at 131,072 positions at its modeled share of HBM bandwidth. Lock: `samba_exam_kernel_rates_lock::long_decode_attention_reaches_its_bandwidth_share`. Ticket: TIME-6. Unwritten, as E11.1.
 - [ ] **E11.3** Top-2,048 among 131,072 scores. Lock: `samba_exam_kernel_select_lock::top_2048_of_131072_selects_as_the_reference`. Ticket: KERNEL-1. Unwritten: the language has no top-k, and its surface is Tristen's ruling (proposed: `the indices of the top K of X`, largest first, ties by position).
-- [ ] **E11.4** Expert dispatch: 256 experts, top 8, batch 64. Lock: `samba_exam_kernel_reds_lock::dispatch_of_256_experts_top_8_at_batch_64`. Ticket: KERNEL-2. The batch's 64 mixtures one statement a row as the author writes them; its values the VM's, and its DRAM bytes (`spatial::work`) at most its touched experts' worth of one token's, the touched experts computed from the router in the test. It fails today for its shape, not for KERNEL-2's reason: at d 16 and experts of 8, widths no tile divides, the mixture takes the flat form, which loads the router and all 256 experts whole and fits no site (`NoLegalTiling`, `logs/samba/red-e114.log`); every published mixture's widths are whole tiles and take the blocked form, which the row means to measure. Tristen (2026-11-09): re-pinned at d 32 and experts of 32. There the batch lowers whole (512 sections) and reads 14,680,064 DRAM bytes, 64 times one token's 229,376, against the bound's 7,418,880 for its 207 touched experts: each token reads its own experts, KERNEL-2's gap (`logs/samba/kernel2-probe-1.log`).
-- [ ] **E11.5** LayerNorm over 16,384 with fp32 accumulation. Lock: `samba_exam_kernel_reds_lock::layernorm_over_16384_accumulates_in_fp32`. Ticket: ARCH-NORMS. The SN50 had no blocked LayerNorm — a row of 16,384 needed 512 accumulator tiles against 8 (`logs/samba/kernel-red-2.log`) — and lowers it now in two passes, its sums crossing sections at the accumulator's fp32 (`spatial_stacked_rows_lock::a_wide_layernorm_of_rows_far_from_zero_keeps_their_spread`: rows of 16,384 about 64 on bf16-exact inputs, `logs/samba/red-ln-shift.log`). The frozen test still fails, on its own inputs: multiples of a quarter in [63, 65] are not all bf16 values (above 64 bf16 steps by a half), so loading them moves some by an eighth against a spread of about 0.6 and the first value lands 4.7% from the VM's (`logs/samba/slot3-red.log`); inputs a half apart in [62, 66] are exact. Re-pinning it so is Tristen's call.
+- [ ] **E11.4** Expert dispatch: 256 experts, top 8, batch 64. Lock: `samba_exam_kernel_reds_lock::dispatch_of_256_experts_top_8_at_batch_64`. Ticket: KERNEL-2. The batch's 64 mixtures one statement a row as the author writes them; its values the VM's, and its DRAM bytes (`spatial::work`) at most its touched experts' worth of one token's, the touched experts computed from the router in the test. It fails today for its shape, not for KERNEL-2's reason: at d 16 and experts of 8, widths no tile divides, the mixture takes the flat form, which loads the router and all 256 experts whole and fits no site (`NoLegalTiling`, `logs/samba/red-e114.log`); every published mixture's widths are whole tiles and take the blocked form, which the row means to measure. Tristen (2026-11-09): re-pinned at d 32 and experts of 32. There the batch lowers whole (512 sections) and reads 11,534,336 DRAM bytes, 64 times one token's 180,224, against the bound's 5,829,120 for its 207 touched experts: each token reads its own experts, KERNEL-2's gap (`logs/samba/kernel2-probe-1.log`; the bytes since a section loads a tensor its folded maps share once, `logs/samba/green-graduate-1112.log`).
+- [x] **E11.5** LayerNorm over 16,384 with fp32 accumulation. Lock: `samba_exam_kernel_lock::layernorm_over_16384_accumulates_in_fp32`. Ticket: ARCH-NORMS. The SN50 had no blocked LayerNorm — a row of 16,384 needed 512 accumulator tiles against 8 (`logs/samba/kernel-red-2.log`) — and lowers it now in two passes, its sums crossing sections at the accumulator's fp32 (`spatial_stacked_rows_lock::a_wide_layernorm_of_rows_far_from_zero_keeps_their_spread`: rows of 16,384 about 64 on bf16-exact inputs, `logs/samba/red-ln-shift.log`). The frozen test still fails, on its own inputs: multiples of a quarter in [63, 65] are not all bf16 values (above 64 bf16 steps by a half), so loading them moves some by an eighth against a spread of about 0.6 and the first value lands 4.7% from the VM's (`logs/samba/slot3-red.log`); inputs a half apart in [62, 66] are exact. Re-pinning it so is Tristen's call. The frozen test passes as written on the landed tree, so the re-pin it awaited is not needed; failed first: 512 accumulator tiles needed against 8 (`logs/samba/kernel-red-1.log`) (receipt `logs/samba/green-graduate-exams.log`).
 comment says: multiples of a quarter in [63, 65] are not all bf16 values (above 64 bf16 steps by a half), so loading
 them moves some by an eighth against a spread of about 0.6; inputs a half apart in [62, 66] are exact. Re-pinning it so
 is Tristen's call.
-- [ ] **E11.6** A chain of 200 pointwise ops fused into one section. Lock: `samba_exam_kernel_reds_lock::a_chain_of_200_pointwise_ops_is_one_section`. Ticket: SCHED-10. Today the chain computes as the VM does in 200 sections (`logs/samba/kernel-red-2.log`). The lock lowers with every named tensor a result, so each of the chain's 199 intermediates is stored and none is forwarded; declared results (`compile_program_to_spatial_returning`) join every pair of the five ops into one section and a run of up to 24 statements, past which a run's sections fit no site and fall back to its statements apart (`logs/samba/probe-chainjoin-2.log`, `-3.log`). Two pieces stand between that and one section: `fuse_generic` keeps two maps apart across a bf16 page, which rounds what a fused body would carry in its registers (a rounding the fused body would have to state), and a run past a site splits into none of the runs that would fit. Which results the lock lowers with is Tristen's ruling.
-- [ ] **E11.7** A graph of 10,000 nodes compiles in time linear in its size. Lock: `samba_exam_kernel_reds_lock::a_graph_of_10000_nodes_compiles_linearly`. Ticket: SCHED-8. Today a chain's lowering is superlinear: 10,000 statements are not lowered within twelve times the 45 s that 1,250 take (`logs/samba/slot3-red.log`), the time in the fuser's `elementwise_regions` (SCHED-8).
+- [x] **E11.6** A chain of 200 pointwise ops fused into one section. Lock: `samba_exam_kernel_lock::a_chain_of_200_pointwise_ops_is_one_section`. Ticket: SCHED-10. The lock lowers with the program's results declared, as a deployment declares them (Tristen, 2026-11-12): the chain is one section, the VM's within the datapath. It needed `fuse_generic` to load a tensor the folded maps all read once — the chain read `C` through a load a link, 80 pages that outgrew the site — where it joined runs of up to 25 statements and fell back to its statements apart past them; on the island SN50 its pointwise pages are fp32, so no page between two of its maps rounds (`spatial_forward_lock::a_tensor_every_link_of_a_joined_chain_reads_is_loaded_once`, `…::a_chain_of_200_links_reading_one_tensor_is_one_section`; failed: 200 sections, `logs/samba/red-e116-declared.log`, `logs/samba/red-load-once.log`) (receipt: `logs/samba/green-load-once.log`).
+- [ ] **E11.7** A graph of 10,000 nodes compiles in time linear in its size. Lock: `samba_exam_kernel_reds_lock::a_graph_of_10000_nodes_compiles_linearly`. Ticket: SCHED-8. The quadratic term was the composition's check that no section loads a result nothing stores, which scanned every statement for each load (`lower_program_stored`); it now reads a map, and a statement's lowering costs 0.19 to 0.21 ms from 10,000 statements to 40,000, where it grew from 0.34 to 0.79 ms (40,000 lowered in 8.3 s, from 18.7 to 31.5 s). Timed as the fastest of three runs of each size (Tristen, 2026-11-12; one run of each passed one run in three at load 13 to 20, 10,000 statements swinging from 2.2 s to 4.5 s run to run, `logs/samba/green-e117-1.log` to `-3.log`), it passes two runs in three at load 31 to 35 on the box's 32 cores (`logs/samba/green-e117-best3-1.log` to `-3.log`); the lowering's own fastest of five is 9.45 times as long at 10,000 statements as at 1,250, 0.112 ms a statement against 0.132. It moves to the green suite when it holds under the gate's load.
 - [x] **E11.8** One tensor fanned out to 64 consumers. Lock: `samba_exam_kernel_lock::one_tensor_feeds_64_consumers`. Ticket: SCHED-2 (receipt: `logs/samba/kernel-red-2.log`, where it held before it moved to the green suite).
-- [ ] **E11.9** Random gather and scatter with repeated indices. Lock: `samba_exam_kernel_reds_lock::gather_and_scatter_with_repeated_indices`. Ticket: KERNEL-4. Today the gather holds and the scatter, written as the VM's own loop, is refused by name (`logs/samba/kernel-red-2.log`); before the walk listed a loop the program wrote, it lowered whole as the loop's one row read (`spatial_recognize_stages_lock::a_loop_holding_an_op_is_listed_never_lifted_as_the_op`).
+- [x] **E11.9** Random gather and scatter with repeated indices. Lock: `samba_exam_kernel_lock::gather_and_scatter_with_repeated_indices`. Ticket: KERNEL-4. Today the gather holds and the scatter, written as the VM's own loop, is refused by name (`logs/samba/kernel-red-2.log`); before the walk listed a loop the program wrote, it lowered whole as the loop's one row read (`spatial_recognize_stages_lock::a_loop_holding_an_op_is_listed_never_lifted_as_the_op`). The gather and both scatters, the later row kept and each row added, lower whole on the SN50 and compute what the VM prints (`spatial_scatter_lock`); failed: the loop's index had no deterministic fill (`logs/samba/kernel-red-1.log`) (receipt `logs/samba/green-graduate-exams.log`).
 - [x] **E11.10** Ragged sequence lengths in one batch. Lock: `samba_exam_kernel_lock::ragged_lengths_in_one_batch`. Ticket: SERVE-RDU-4 (receipt: `logs/samba/kernel-2.log`).
 - [ ] **E11.11** A 248,320-way sampling step: temperature, top-p, top-k, min-p, seeded. Lock: `samba_exam_kernel_select_lock::sampling_over_248320_is_seeded_and_exact`. Ticket: SERVE-RDU-2. Unwritten: neither the language nor a bundle has a sampler, and its surface and seeded generator are Tristen's ruling.
 - [x] **E11.12** 64-bit hash arithmetic on 32-bit lanes, exact on every input class. Lock: `samba_exam_kernel_lock::hash_arithmetic_is_exact_on_32_bit_lanes`. Ticket: KERNEL-6 (receipt: `logs/samba/kernel-2.log`).
@@ -3438,7 +3440,7 @@ cargo nextest run -p logicaffeine-tests --test model_hf_intake_lock --test model
 | Phase | intake |
 | Labels | `infrastructure` `area:intake` `area:quant` |
 | Depends on | INTAKE-1 |
-| Touches | `crates/logicaffeine_compile/src/model/quant.rs` |
+| Touches | `crates/logicaffeine_compile/src/model/quant.rs`, `crates/logicaffeine_compile/src/model/hf/mod.rs`, `scripts/accel/hf-tiny-twin.py` |
 | Status | open |
 
 **Goal.** The format reader covers the GGUF block formats and MXFP4. Read the formats published checkpoints use: FP8
@@ -3462,20 +3464,92 @@ and the remaining GGUF IQ formats.
   place, each weight beside a `_scale_inv` read through `ScaleGrid` under every view the reader presents (the latent
   attention's split, the experts' stack), the scales consumed; any other quantized format is refused naming it; failed:
   `quantization_config` an unknown key (`logs/samba/red-fp8-intake.log`) (receipt: `logs/samba/green-fp8.log`).
-- [ ] `model_quant_lock::nvfp4_dequantizes_as_the_reference`: fails today: no reader.
-- [ ] `model_quant_lock::awq_and_gptq_dequantize_as_the_reference`: fails today: no reader.
-- [ ] `model_hf_config_reds_lock::gpt_oss_published_configurations_read` and
-  `…::kimi_k2_thinking_published_configuration_reads`: handed REDs: gpt-oss's MXFP4 experts and Kimi K2 Thinking's int4
-  compressed-tensors experts are refused by name.
+- [x] `model_quant_lock::every_format_matches_ggmls_reference_bit_for_bit`, `…::every_grid_is_ggmls`,
+  `…::every_format_has_ggmls_block_size` and `…::known_blocks_decode_to_their_values`: every weight format ggml defines
+  dequantizes as ggml's own `dequantize_row_*` does, bit for bit on 1,024 random blocks of each — NVFP4 (four E4M3
+  scales a block of 64, `0x7f` read as zero), the lattice formats IQ1_S, IQ1_M, IQ2_XXS, IQ2_XS, IQ2_S, IQ3_XXS and IQ3_S
+  (their tables `model::quant::grids`, held to the pinned `ggml-common.h` value for value), the ternary TQ1_0 and TQ2_0,
+  and Q1_0 and Q2_0; retired and activation-only ids refused; failed: none of them a `GgmlType`
+  (`logs/samba/red-ggml-formats.log`) (receipt: `logs/samba/green-formats-3.log`).
+- [x] `model_hf_intake_lock::an_nvfp4_directory_reads_as_its_converted_gguf`,
+  `…::an_nvfp4_directory_computes_what_transformers_computes` and `…::an_nvfp4_weight_is_read_only_as_its_scheme_says`:
+  NVFP4 as NVIDIA's releases store it, in ModelOpt's layout (`qwen3moe-nvfp4`, every expert's projections too, the method
+  stated only in `hf_quant_config.json`) and compressed-tensors' `nvfp4-pack-quantized` (`llama-nvfp4`, its query and key
+  rows permuted, codes and block scales alike), the codes packed by compressed-tensors' own `pack_fp4_to_uint8`, reads in
+  place as the NVFP4 blocks the converter's `_nvfp4_pack` writes, bit for bit, beside the scales it writes
+  (`<weight>.scale`, `<weight>.input_scale`, one a weight or one an expert); the f64 reference and the weight binding
+  multiply a weight's products by its own scale as llama.cpp's graph does (Gemma 4's expert down scale by the same rule),
+  so each twin computes transformers' forward over its dequantized weights (`hf-oracle.py logits-nvfp4`) within a
+  millionth; inputs past whole blocks of 64 and AWQ-style pre-quantization scales are refused by name; the handed RED
+  `model_hf_config_reds_lock::nvfp4_published_configurations_read` moved into `every_published_configuration_reads`
+  (Llama 3.3 70B, DeepSeek-R1-0528 and Qwen3-235B-A22B in NVFP4), the last of that file's, which left with it; failed:
+  `quantization_config` names a `modelopt` checkpoint that quantizes by NVFP4, and compressed-tensors' format
+  `nvfp4-pack-quantized` (`logs/samba/red-nvfp4.log`) (receipt: `logs/samba/green-nvfp4.log`,
+  `logs/samba/green-nvfp4-handed.log`).
+- [x] `model_hf_intake_lock::a_gptq_directory_reads_as_its_converted_gguf` and
+  `…::a_gptq_weight_is_read_only_as_its_scheme_says`: GPTQ as AutoGPTQ and GPTQModel store it, packed by vLLM's own
+  `gptq_pack` and `pack_cols` (`hf-tiny-twin.py qwen3-gptq`: 4-bit codes, symmetric, the `gptq` format storing each zero
+  point less one; `llama-gptq`: 8-bit codes about zero points in `gptq_v2`, the inputs quantized in an order of their own
+  so each input's group is read through `g_idx`, Llama's query and key rows permuted over the computed weights), each
+  weight read in place as the converter's `dequant_gptq` computes it, bit for bit; 3-bit codes, another checkpoint format
+  (Marlin's), codes without their zero points or stored as floats, and an input in a group the scales do not hold are
+  refused by name; failed: `quantization_config` names a `gptq` checkpoint (`logs/samba/red-formats.log`) (receipt:
+  `logs/samba/green-formats-3.log`).
+- [x] `model_hf_intake_lock::an_awq_directory_reads_as_its_converted_gguf` and
+  `…::an_awq_weight_is_read_only_as_its_scheme_says`: AutoAWQ's GEMM layout, packed by vLLM's own `awq_pack`
+  (`qwen3-awq` about zero points, `llama-awq` about 8), reads in place as compressed-tensors' own `AutoAWQConverter`
+  converts it without loss into `pack-quantized` and the converter's `dequant_packed` computes that, bit for bit (the
+  converter does not read AWQ; the twin's GGUF is its conversion of the converted directory); the `gemv` layout, 8-bit
+  codes, a group size that does not divide the inputs and missing zero points are refused by name; failed:
+  `quantization_config` names a `awq` checkpoint (`logs/samba/red-formats.log`) (receipt: `logs/samba/green-formats-3.log`).
+- [x] `model_hf_intake_lock::a_scaled_compressed_tensors_directory_reads_as_its_converted_gguf`,
+  `…::a_modelopt_fp8_directory_reads_as_its_converted_gguf` and `…::a_scaled_weight_is_read_only_as_its_scheme_says`:
+  compressed-tensors' scaled formats as llm-compressor's FP8 and INT8 releases store them (`qwen3-fp8-channel`, e4m3
+  codes a bf16 scale an output channel; `qwen3-fp8-block`, 16 × 24 blocks of float32 scales cropped at the axes;
+  `qwen3-int8-channel`) and NVIDIA ModelOpt's FP8 export (`llama-modelopt-fp8`: a scale a weight, the activation and
+  cache scales dropped, the method stated only in `hf_quant_config.json`, which the reader merges as the converter's
+  `prepare_tensors` does) read in place as the converter's `dequant_simple` computes each weight, bit for bit;
+  zero-pointed or grouped scaled weights, a scale without its weight and a ModelOpt algorithm other than FP8 are refused
+  by name; failed: `quantization_config` names the compressed-tensors format `float-quantized`, and the ModelOpt twin's
+  FP8 codes read raw as weights (`blk.0.attn_k.weight[0]` 48 where the converter wrote 0.0225), its method unread
+  (`logs/samba/red-formats.log`) (receipt: `logs/samba/green-formats-3.log`).
+- [x] `model_hf_intake_lock::an_mxfp4_directory_reads_as_its_converted_gguf` and
+  `…::an_mxfp4_weight_is_read_only_beside_its_scales`: gpt-oss as OpenAI's release stores it (`hf-tiny-twin.py
+  gpt-oss-mxfp4`: each expert projection's E2M1 codes two to a byte beside an E8M0 exponent a block of 32 inputs, the
+  gate and up rows interleaved) reads in place, each expert table presented as the ggml MXFP4 blocks the converter's
+  `repack_mxfp4` writes, bit for bit, the scales read; codes without their scales, scales that do not tile them and codes
+  of another dtype are refused naming the tensors, and MXFP4 outside gpt-oss is refused as the converter refuses it; the
+  handed RED `model_hf_config_reds_lock::gpt_oss_published_configurations_read` moved into
+  `every_published_configuration_reads` (gpt-oss 20B and 120B); failed: `quantization_config` names a `mxfp4`
+  checkpoint (`logs/samba/red-mxfp4.log`, `logs/samba/red-mxfp4-scales.log`) (receipt: `logs/samba/green-mxfp4.log`,
+  `logs/samba/green-mxfp4-handed.log`).
+- [x] `model_hf_intake_lock::a_pack_quantized_directory_reads_as_its_converted_gguf` and
+  `…::a_pack_quantized_weight_is_read_only_as_its_scheme_says`: compressed-tensors' `pack-quantized` integers, as Kimi
+  K2 Thinking's release stores its routed experts (`kimi_k2-int4`: 4-bit codes eight to an int32 word, a bf16 scale a
+  group of 32 inputs, symmetric) and an asymmetric release every projection (`qwen3-int4`, zero points packed along the
+  outputs), each packed by compressed-tensors' own `pack_to_int32` and read back by its `unpack_from_int32`, read in place
+  as the converter's `dequant_packed` computes each weight, bit for bit; codes without their scales or of another dtype, a
+  group size that does not divide a row, another format, two config groups and activation-ordered groups are refused by
+  name; the handed RED `model_hf_config_reds_lock::kimi_k2_thinking_published_configuration_reads` moved into
+  `every_published_configuration_reads`; failed: `quantization_config` names a `compressed-tensors` checkpoint
+  (`logs/samba/red-packed.log`) (receipt: `logs/samba/green-packed.log`, `logs/samba/green-formats-3.log`,
+  `logs/samba/green-formats-handed-3.log`).
 
 **Edge cases.**
-- [ ] FP8 subnormals, NaN encodings and saturation.
-- [ ] A group size that does not divide a row.
+- [x] FP8 subnormals, NaN encodings and saturation: every e4m3 and e5m2 code, subnormals and NaNs among them, widened as
+  the converter's `dequant_simple` widens it (`model_quant_lock::fp8_block_scaled_dequantizes_as_the_reference`, receipt
+  `logs/samba/green-formats-3.log`), and every f32 rounded to its nearest e4m3 code, saturating at ±448
+  (`model_reference_lock::e4m3_rounds_every_f32_to_its_nearest_code_ties_to_even`, receipt `logs/samba/broad-heads.log`).
+- [x] A group size that does not divide a row: refused by name for `pack-quantized` and AWQ weights, as the converter's
+  reshape refuses it (`…::a_pack_quantized_weight_is_read_only_as_its_scheme_says`,
+  `…::an_awq_weight_is_read_only_as_its_scheme_says`; receipt: `logs/samba/green-formats-3.log`).
 
 **Implementation.** One reader per format, each checked bit for bit against its reference implementation's dequantizer.
 
 **Success.**
-- [ ] Every format dequantizes bit for bit (receipt: the lock).
+- [x] Every format dequantizes bit for bit: every GGUF format against ggml's own `dequantize_row_*`, every Hugging Face
+  format against the converter's dequantization of its twin (receipts: `logs/samba/green-formats-3.log`,
+  `logs/samba/green-nvfp4.log`).
 
 **Mutants to kill.**
 - [ ] An exponent bias off by one.
@@ -3699,7 +3773,7 @@ cargo nextest run -p logicaffeine-tests --test bringup_lock
 | Labels | `infrastructure` `area:intake` |
 | Depends on | INTAKE-2 |
 | Touches | the graph importer (new); `crates/logicaffeine_compile/src/model/author.rs` through S12 |
-| Status | open |
+| Status | in progress |
 
 **Goal.** A test can hand over a PyTorch module, as the Plasticine kit does (`get_model_info`: the model, dummy inputs,
 an optional loss and its arguments [PTUT]). Export it (`torch.export`) to an ATen graph, map each ATen op to the one IR's
@@ -3713,7 +3787,7 @@ models still holds. Tristen (2026-11-09): an imported graph enters as a spec kin
 **RED tests.**
 - [ ] `model_graph_import_lock::resnet50_imports_and_equals_pytorch`: fails today: no importer.
 - [ ] `model_graph_import_lock::a_get_model_info_module_with_its_own_loss_imports`: fails today.
-- [ ] `model_graph_import_lock::an_unmapped_aten_op_is_refused_by_name`: fails today.
+- [x] `model_graph_import_lock::an_unmapped_aten_op_is_refused_by_name`: failed: no importer; passes (receipt: `logs/samba/green-graph-import.log`).
 
 **Edge cases.**
 - [ ] Dynamic shapes in the export: the batch dimension symbolic, the rest fixed.
@@ -3722,6 +3796,17 @@ models still holds. Tristen (2026-11-09): an imported graph enters as a spec kin
 
 **Implementation.** An exporter script writes the ATen graph and weights; a Rust importer maps them; the author writes
 the program from the imported spec kind.
+
+Landed (2026-11-12): `crates/logicaffeine_compile/src/model/pt2.rs` reads the archive in place, and
+`crates/logicaffeine_compile/src/model/graph.rs` imports its graph — linear layers with and without their biases, GELU
+exact and tanh, ReLU, SiLU, sigmoid, sums with their `alpha` and products, over one input to one output, every parameter
+raw float32 — refusing an unmapped op by its name and every other shape it does not take (a buffer, a constant, a
+second input or output, a dtype other than float32, a weight not stored contiguously, a broadcast). `model::author::graph`
+writes the forward, exact GELU through the error function (`erf of X`, the library's `erf` made Go's `math.Erf` and the
+IR's `SfpuKind::Erf`, Tristen 2026-11-12), and `largo emit rdu --graph` lowers it whole as one certified program whose
+manifest binds the input and every parameter to the archive (`spatial::drop::run_graph_bundle` its host). Open: the
+convolutions, pooling, batch norm and losses ResNet-50, SqueezeNet and a `get_model_info` loss need, and the symbolic
+batch dimension.
 
 **Success.**
 - [ ] ResNet-50, SqueezeNet and a decoder layer import and equal PyTorch on the CPU (receipt: the lock).
@@ -5119,9 +5204,12 @@ the tiny random checkpoint [TINYQ4] and on a short prompt of the real checkpoint
   the two projections side by side, its own hyper-connection mix); the draft cut is AUTHOR-3's.
 - [x] The n-gram table read lazily, never loaded whole: the reader presents its shards as one table read by row, and
   a step gathers one row a head a token (`every_tensor_of_the_table_is_bound`).
-- [x] Every part the author does not write is refused by name, by the author and by `largo emit rdu`
-  (`qwen4_exp_intake_lock::every_part_the_author_does_not_write_is_refused_by_name`); the published configuration
-  reads (`model_hf_intake_lock::every_published_configuration_reads`).
+- [x] Every part the author does not write is refused by name — an n-gram embedding off a hyper-connected residual, QSA
+  over a cache of no known length — and over a cache within QSA's dense limit the author writes the twin whole and
+  `largo emit rdu` writes its SN50 bundle, the n-gram table's eight-wide rows gathered a table tile a row
+  (`qwen4_exp_intake_lock::every_part_the_author_does_not_write_is_refused_by_name`, rewritten when the author came to
+  write hyper-connections, Tristen 2026-11-12; receipt: `logs/samba/green-narrow-gather-3.log`); the published
+  configuration reads (`model_hf_intake_lock::every_published_configuration_reads`).
 
 **Implementation.** The spec arm; the bind map; the reference's new components, each checked against its reference
 implementation's tests under `external/competitors/vllm/tests/models/qwen4_exp`.
@@ -5881,6 +5969,14 @@ the primitive under qwen4_exp's n-gram table and under cold experts.
 - [ ] Two ids hitting one row. Ids spread across every shard.
 
 **Implementation.** An indirect tile load whose source is the DDR tier; the time model prices its latency.
+
+The gather on chip (2026-11-12): rows narrower than a tile, from a table wider than a site's page, gather a table tile
+a row through an `IndirectTile` that divides the row by the rows a tile holds, the in-tile offset a shift on the
+integer datapath (`narrow_rows_gather` in `crates/logicaffeine_compile/src/spatial/passes/from_qwen_ops/gathers.rs`;
+`tensor_rows_gather_lock`, failed: refused by name, `logs/samba/red-narrow-gather.log`; receipt:
+`logs/samba/green-narrow-gather-3.log`). Rows that straddle a tile, and rows so narrow that a tile of the block takes
+more table tiles than a site holds (one element a row on the SN50), are refused by name; the DDR tier and the overlap
+are this ticket's.
 
 **Success.**
 - [ ] Equal to the VM; latency hidden in the modeled step (receipt: the lock).
@@ -6983,9 +7079,12 @@ the landing tree's own failures, against `logs/samba/land-green.log`):
 The locks that held the SN50 as the bf16 chip moved as ruled, old against new in `logs/samba/num1-lock-moves.md`:
 `sn50_target_lock`'s precisions (the SIMD stages' modeled formats beside the witnessed matrix path), the true fp32 twins
 of `spatial_attention_real_width_lock` and `tensor_latent_attention_lock`, and `spatial_op_gap_ledger_lock`, whose four
-compositions now all work. `spatial_nope_attention_lock`'s CHIP bound is crossed by a near-tie: tiny Llama 4's layer-1
-router separates its top two experts by 0.00133 of logits near 0.63, below one bf16 rounding of its input, and the island
-chip routes the other (`logs/samba/nope-near-tie-evidence.log`).
+compositions now all work. `spatial_nope_attention_lock`'s CHIP bound was crossed by a near-tie: after the harness's
+prompt, tiny Llama 4's layer-1 router separated its top two experts by 0.00133 of logits near 0.63, below one bf16
+rounding of its input, and the island chip routed the other (`logs/samba/nope-near-tie-evidence.log`). The lock now
+decodes a step whose every router decides by more than half of its largest logit, and asserts a sixteenth on the fp32
+twin, so its 2% bound measures the chip (Tristen, 2026-11-11, with the census rows of the op-family split, the two frozen
+re-pins, the held cache's tile bytes and the Section 6 intake's reader: `logs/samba/approved-test-edits-1111.md`).
 
 Tristen's rulings (2026-11-07), on which the pass lands:
 - A key or value cache is stored at the products' float: bf16 on the SN50, the island rounding a key or value once on
@@ -6995,7 +7094,9 @@ Tristen's rulings (2026-11-07), on which the pass lands:
 - The locks that hold the SN50 as the bf16 chip move to the island chip, each change shown old against new in its
   receipt, none weakened; the identity and fabric-segment pins are re-recorded.
 - gpt-oss keeps the 2% bound: the error in layer 0's windowed attention with sinks is found and fixed, gpt-oss a handed
-  RED until it is.
+  RED until it is. Found 2026-11-12: with the islands the sixth position's attention is within bf16's rounding as every
+  other is, and what remains past 2% on E6.1's and E6.6's sequences is the bf16 products' rounding, the RTX 3060's own
+  bit for bit; Tristen ruled those rows hold each sequence to the GPU's datapath (`logs/samba/e6-oss-every-bf16-path.log`).
 - `fp32_twin` (`crates/logicaffeine_tests/tests/common/samba_exam.rs`) replaces bf16, products included, so the rows
   that use it compare against an exact lowering.
 
@@ -8702,7 +8803,6 @@ file alone.
 
 ```
 cargo nextest run -p logicaffeine-tests --cargo-profile test-opt --test samba_exam_bringup_lock
-cargo nextest run -p logicaffeine-tests --features handed-reds --cargo-profile test-opt --test samba_exam_bringup_reds_lock
 cargo nextest run -p logicaffeine-tests --test frozen_reds_lock
 ```
 
@@ -8949,7 +9049,6 @@ handed-reds gate; inputs generated by the fixtures the intake and fuzz tickets p
 
 ```
 cargo nextest run -p logicaffeine-tests --cargo-profile test-opt --test samba_exam_moe_lock
-cargo nextest run -p logicaffeine-tests --features handed-reds --cargo-profile test-opt --test samba_exam_moe_reds_lock
 cargo nextest run -p logicaffeine-tests --test frozen_reds_lock
 ```
 

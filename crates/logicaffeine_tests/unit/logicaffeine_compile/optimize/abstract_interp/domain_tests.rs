@@ -405,3 +405,25 @@ fn a_comparison_with_a_name_narrows_by_its_interval() {
     let (x, _) = narrowed(Lt, false, iv(0, 100), Interval { lo: Bound::NegInf, hi: Bound::Finite(i64::MIN) }, None);
     assert!(same(&x, &iv(0, 100)), "a strict bound past the word's edge narrows nothing: {x:?}");
 }
+
+#[test]
+fn a_remainder_by_a_ranged_divisor_is_bounded_by_its_widest_magnitude() {
+    let ends = |i: Interval| (i.lo, i.hi);
+    assert_eq!(ends(iv(0, 1000).modulo(&iv(2, 36))), ends(iv(0, 35)));
+    assert_eq!(ends(iv(-1000, 0).modulo(&iv(2, 36))), ends(iv(-35, 0)));
+    assert_eq!(ends(iv(-50, 50).modulo(&iv(-7, 3))), ends(iv(-6, 6)));
+    // Sound over an exhaustive grid: every truncated remainder lies in the interval the divisor's range gives.
+    for (dlo, dhi) in [(2, 36), (-7, 3), (-9, -2), (1, 1)] {
+        let bounded = iv(-40, 40).modulo(&iv(dlo, dhi));
+        for a in -40i64..=40 {
+            for b in dlo..=dhi {
+                if b == 0 {
+                    continue;
+                }
+                let r = a.wrapping_rem(b);
+                let within = matches!(bounded.lo, Bound::Finite(lo) if lo <= r) && matches!(bounded.hi, Bound::Finite(hi) if r <= hi);
+                assert!(within, "{a} % {b} = {r} escapes {bounded:?}");
+            }
+        }
+    }
+}

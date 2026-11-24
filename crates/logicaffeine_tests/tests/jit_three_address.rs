@@ -8,7 +8,8 @@
 //! (a chain's code shrinks materially vs the stack model), and (b) full
 //! semantic agreement of the fused forms with `reference_eval` and the VM.
 
-#![cfg(not(target_arch = "wasm32"))]
+// This suite tests the native tier alone, which exists only on x86_64 outside Windows.
+#![cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 
 use logicaffeine_compile::compile::{tw_outcome_with_args, vm_outcome_with_args};
 use logicaffeine_compile::vm::NativeTier;

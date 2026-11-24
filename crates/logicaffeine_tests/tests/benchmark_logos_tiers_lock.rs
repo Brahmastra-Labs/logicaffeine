@@ -72,6 +72,36 @@ fn benchmarks() -> Vec<Bench> {
     rows
 }
 
+/// Every benchmark the optimizer collapses — its `collapse` note says how — at its `ref_size`, the size the timed
+/// suite runs. The collapse is what puts that size in reach: a backend that compiles the program without it recurses
+/// out of stack, or loops out of time, where every other tier answers at once.
+fn collapsed_benchmarks() -> Vec<Bench> {
+    let text = std::fs::read_to_string(repo_root().join("benchmarks/lib/benchmarks.tsv"))
+        .expect("benchmarks.tsv");
+    let mut lines = text.lines().filter(|l| !l.trim().is_empty());
+    let header: Vec<&str> = lines.next().expect("a header row").split('\t').collect();
+    let col = |name: &str| {
+        header
+            .iter()
+            .position(|h| *h == name)
+            .unwrap_or_else(|| panic!("no `{name}` column"))
+    };
+    let (id, size, collapse) = (col("id"), col("ref_size"), col("collapse"));
+    let rows: Vec<Bench> = lines
+        .map(|l| l.split('\t').collect::<Vec<&str>>())
+        .filter(|f| !f[collapse].trim().is_empty())
+        .map(|f| Bench {
+            id: f[id].to_string(),
+            size: f[size].to_string(),
+        })
+        .collect();
+    assert!(
+        rows.iter().any(|b| b.id == "ackermann"),
+        "ackermann's collapse note is gone from the registry; this lock reads which benchmarks collapse from it"
+    );
+    rows
+}
+
 fn program_dir(bench: &Bench) -> PathBuf {
     repo_root().join("benchmarks/programs").join(&bench.id)
 }
@@ -130,7 +160,11 @@ fn failed(what: &str, out: &Output) -> String {
 
 /// Run `check` over every benchmark on a few threads and gather every failure, so one red names them all.
 fn every_benchmark(threads: usize, check: impl Fn(&Bench) -> Result<(), String> + Sync) {
-    let benches = benchmarks();
+    each_of(benchmarks(), threads, check)
+}
+
+/// Run `check` over `benches` on a few threads and gather every failure, so one red names them all.
+fn each_of(benches: Vec<Bench>, threads: usize, check: impl Fn(&Bench) -> Result<(), String> + Sync) {
     let next = Mutex::new(0usize);
     let failures = Mutex::new(Vec::new());
     std::thread::scope(|scope| {
@@ -330,30 +364,44 @@ fn every_benchmark_built_through_rust_prints_its_expected_bytes() {
     });
 }
 
+/// `largo run --emit wasm` under its Node host prints the expected bytes.
+fn on_webassembly(bench: &Bench) -> Result<(), String> {
+    let dir = project(bench);
+    let out = product_largo(dir.path())
+        .args(["-q", "run", "--emit", "wasm", "--", &bench.size])
+        .output()
+        .map_err(|e| format!("spawn largo: {e}"))?;
+    if !out.status.success() {
+        return Err(failed("largo run --emit wasm", &out));
+    }
+    let want = expected(bench);
+    if out.stdout != want {
+        return Err(format!(
+            "LOGOS (WebAssembly) printed\n{}\nexpected\n{}",
+            show(&out.stdout),
+            show(&want)
+        ));
+    }
+    Ok(())
+}
+
 #[test]
 fn every_benchmark_compiled_to_webassembly_prints_its_expected_bytes() {
     if !require_tool("node") {
         return;
     }
-    every_benchmark(8, |bench| {
-        let dir = project(bench);
-        let out = product_largo(dir.path())
-            .args(["-q", "run", "--emit", "wasm", "--", &bench.size])
-            .output()
-            .map_err(|e| format!("spawn largo: {e}"))?;
-        if !out.status.success() {
-            return Err(failed("largo run --emit wasm", &out));
-        }
-        let want = expected(bench);
-        if out.stdout != want {
-            return Err(format!(
-                "LOGOS (WebAssembly) printed\n{}\nexpected\n{}",
-                show(&out.stdout),
-                show(&want)
-            ));
-        }
-        Ok(())
-    });
+    every_benchmark(8, on_webassembly);
+}
+
+/// WebAssembly lowers the program the VM runs, the optimizer's residual: Ackermann(3, n) specialized on its constant
+/// first argument and evaluated in closed form, not the source's recursion, which at the reference size nests deeper
+/// than Node's stack.
+#[test]
+fn every_collapsed_benchmark_runs_at_its_reference_size_on_webassembly() {
+    if !require_tool("node") {
+        return;
+    }
+    each_of(collapsed_benchmarks(), 4, on_webassembly);
 }
 
 #[test]

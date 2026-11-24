@@ -146,6 +146,36 @@ pub(crate) fn cmd_opts(
                 },
                 "declines": jit_trace.declines,
                 "execution": jit_trace.execution,
+                "value_specializations": jit_trace.value_specializations.iter().map(|spec| {
+                    serde_json::json!({
+                        "head_pc": spec.head_pc,
+                        "guards": guards_json(&spec.guards),
+                        "entries": spec.entries,
+                        "misses": spec.misses,
+                        "generic_entries": spec.generic_entries,
+                        "replaced": spec.replaced,
+                    })
+                }).collect::<Vec<_>>(),
+                "function_specializations": jit_trace.function_specializations.iter().map(|spec| {
+                    serde_json::json!({
+                        "function": spec.function,
+                        "entry_pc": spec.entry_pc,
+                        "guards": guards_json(&spec.guards),
+                    })
+                }).collect::<Vec<_>>(),
+                "regions": jit_trace.regions.iter().map(|region| {
+                    serde_json::json!({
+                        "head_pc": region.head_pc,
+                        "entries": region.entries,
+                        "completions": region.completions,
+                        "exits": region.exits,
+                        "deopts": region.deopts,
+                        "guard_misses": region.guard_misses,
+                        "demoted": region.demoted,
+                        "cold_entries": region.cold_entries,
+                        "cold_exits": region.cold_exits,
+                    })
+                }).collect::<Vec<_>>(),
             });
         }
 
@@ -155,39 +185,38 @@ pub(crate) fn cmd_opts(
 
     if fired.is_empty() {
         println!("No optimizations fired for {}.", file.display());
-        return Ok(());
-    }
-
-    let fired_set: std::collections::BTreeSet<&str> = fired.iter().copied().collect();
-    println!(
-        "Optimizations that fired for {} ({} of {}):",
-        file.display(),
-        fired.len(),
-        REGISTRY.len()
-    );
-    // List in registry order, grouped by category.
-    let mut last_group = "";
-    for m in REGISTRY {
-        if !fired_set.contains(m.keyword) {
-            continue;
+    } else {
+        let fired_set: std::collections::BTreeSet<&str> = fired.iter().copied().collect();
+        println!(
+            "Optimizations that fired for {} ({} of {}):",
+            file.display(),
+            fired.len(),
+            REGISTRY.len()
+        );
+        // List in registry order, grouped by category.
+        let mut last_group = "";
+        for m in REGISTRY {
+            if !fired_set.contains(m.keyword) {
+                continue;
+            }
+            if m.group != last_group {
+                println!("  {}", m.group);
+                last_group = m.group;
+            }
+            println!("    {:<14} {}", m.keyword, m.label);
+            println!("      paths: {}", paths_of(m.keyword).join(", "));
         }
-        if m.group != last_group {
-            println!("  {}", m.group);
-            last_group = m.group;
+        if !dependencies.is_empty() {
+            println!("Dependencies (one fired only because another was on):");
+            for (dependent, dep) in &dependencies {
+                println!("    {dependent:<14} depends on {dep}");
+            }
         }
-        println!("    {:<14} {}", m.keyword, m.label);
-        println!("      paths: {}", paths_of(m.keyword).join(", "));
-    }
-    if !dependencies.is_empty() {
-        println!("Dependencies (one fired only because another was on):");
-        for (dependent, dep) in &dependencies {
-            println!("    {dependent:<14} depends on {dep}");
-        }
-    }
-    if !blockers.is_empty() {
-        println!("Blockers (one took precedence, skipping another):");
-        for (winner, loser) in &blockers {
-            println!("    {winner:<14} blocks    {loser}");
+        if !blockers.is_empty() {
+            println!("Blockers (one took precedence, skipping another):");
+            for (winner, loser) in &blockers {
+                println!("    {winner:<14} blocks    {loser}");
+            }
         }
     }
     #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
@@ -206,6 +235,89 @@ pub(crate) fn cmd_opts(
         if !jit_trace.declines.is_empty() {
             println!("JIT declines: {}", jit_trace.declines);
         }
+        if !jit_trace.value_specializations.is_empty() {
+            println!("JIT value specializations:");
+            for spec in &jit_trace.value_specializations {
+                let values = guards_text(&spec.guards);
+                let generic = if spec.generic_entries > 0 {
+                    format!(" ({} run by the generic region)", spec.generic_entries)
+                } else {
+                    String::new()
+                };
+                let fallback = if spec.replaced { ", then the generic region" } else { "" };
+                println!(
+                    "    loop at pc {}: specialized on {values}; {}, {}{generic}{fallback}",
+                    spec.head_pc,
+                    counted(spec.entries as u64, "entry", "entries"),
+                    counted(spec.misses as u64, "value-guard miss", "value-guard misses"),
+                );
+            }
+        }
+        if !jit_trace.function_specializations.is_empty() {
+            println!("JIT function specializations:");
+            for spec in &jit_trace.function_specializations {
+                println!(
+                    "    function {} at pc {}: specialized on {}, beside the generic code it runs for any other value",
+                    spec.function,
+                    spec.entry_pc,
+                    guards_text(&spec.guards),
+                );
+            }
+        }
+        if !jit_trace.regions.is_empty() {
+            println!("JIT loop regions:");
+            for region in &jit_trace.regions {
+                let demoted = if region.demoted { ", then demoted to bytecode" } else { "" };
+                let cold = match region.cold_entries.len() {
+                    0 => String::new(),
+                    n => format!(
+                        ", {} ({})",
+                        counted(n as u64, "cold entry", "cold entries"),
+                        counted(region.cold_exits as u64, "cold exit", "cold exits")
+                    ),
+                };
+                println!(
+                    "    region at pc {}: {} ({} completed, {}, {}), {}{cold}{demoted}",
+                    region.head_pc,
+                    counted(region.entries as u64, "entry", "entries"),
+                    region.completions,
+                    counted(region.exits as u64, "exit", "exits"),
+                    counted(region.deopts as u64, "side exit", "side exits"),
+                    counted(region.guard_misses as u64, "guard miss", "guard misses"),
+                );
+            }
+        }
     }
     Ok(())
+}
+
+/// `n` and its noun, singular when `n` is one.
+fn counted(n: u64, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
+}
+
+/// The registers native code was specialized on, with their values: `r0 = 7, r2 = true`.
+fn guards_text(guards: &[(u16, logicaffeine_compile::vm::ScalarValue)]) -> String {
+    guards
+        .iter()
+        .map(|(slot, value)| match value {
+            logicaffeine_compile::vm::ScalarValue::Int(n) => format!("r{slot} = {n}"),
+            logicaffeine_compile::vm::ScalarValue::Bool(b) => format!("r{slot} = {b}"),
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// The registers native code was specialized on, with their values, as `[{slot, value}]`.
+fn guards_json(guards: &[(u16, logicaffeine_compile::vm::ScalarValue)]) -> Vec<serde_json::Value> {
+    guards
+        .iter()
+        .map(|&(slot, value)| {
+            let value = match value {
+                logicaffeine_compile::vm::ScalarValue::Int(n) => serde_json::json!(n),
+                logicaffeine_compile::vm::ScalarValue::Bool(b) => serde_json::json!(b),
+            };
+            serde_json::json!({ "slot": slot, "value": value })
+        })
+        .collect()
 }

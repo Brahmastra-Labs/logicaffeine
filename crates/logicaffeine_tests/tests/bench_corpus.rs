@@ -19,6 +19,7 @@
 
 use logicaffeine_compile::compile::{tw_outcome_with_args, vm_outcome_with_args};
 use logicaffeine_compile::vm::NativeTier;
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_jit::ForgeTier;
 
 /// (program, argv[1], min JIT function successes, min JIT region successes).
@@ -75,6 +76,7 @@ fn norm(s: &str) -> String {
         .join("\n")
 }
 
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn program_source(name: &str) -> String {
     let path = format!(
         "{}/../../benchmarks/programs/{}/main.lg",
@@ -87,6 +89,7 @@ fn program_source(name: &str) -> String {
 
 /// Run one corpus program on both engines and return the private tier's
 /// (function successes, region successes).
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn assert_engines_agree(name: &str, size: &str) -> (u32, u32) {
     let source = program_source(name);
     let argv = vec!["bench".to_string(), size.to_string()];
@@ -113,8 +116,13 @@ fn assert_engines_agree(name: &str, size: &str) -> (u32, u32) {
 
 /// Differential helper for the M1 mechanical-optimization nets below.
 fn assert_both_engines(src: &str, expected: &str) {
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
-    let vm = vm_outcome_with_args(src, &[], Some(&tier as &dyn NativeTier));
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
+    let vm = vm_outcome_with_args(src, &[], native);
     let tw = tw_outcome_with_args(src, &[]);
     assert_eq!(
         (norm(&vm.output), &vm.error),
@@ -262,8 +270,13 @@ fn add_assign_chain_error_parity() {
                Let b be true.\n\
                Set x to x + 1 + b.\n\
                Show x.\n";
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
     let tier = ForgeTier::new();
-    let vm = vm_outcome_with_args(src, &[], Some(&tier as &dyn NativeTier));
+    #[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
+    let native = Some(&tier as &dyn NativeTier);
+    #[cfg(not(all(target_arch = "x86_64", not(target_os = "windows"))))]
+    let native: Option<&dyn NativeTier> = None;
+    let vm = vm_outcome_with_args(src, &[], native);
     let tw = tw_outcome_with_args(src, &[]);
     assert_eq!(
         (norm(&vm.output), &vm.error),
@@ -297,6 +310,7 @@ fn map_operations_differential() {
 }
 
 #[test]
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn corpus_vm_matches_treewalker_and_tier_floors_hold() {
     // The tree-walker evaluates recursively; debug-build frames on the
     // recursion-heavy programs (quicksort, mergesort, binary_trees) outgrow

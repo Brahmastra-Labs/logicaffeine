@@ -169,6 +169,17 @@ fn as_literal(t: &ProofTerm) -> Option<logicaffeine_base::BigInt> {
     }
 }
 
+/// The value of a CLOSED operand: a literal, or ring arithmetic over literals (`2 times 3`).
+/// The kernel's δ-rules compute `add`/`sub`/`mul` on literals, so `refl` certifies a ground
+/// comparison over such a term exactly as it does over a bare numeral.
+fn ground_value(t: &ProofTerm) -> Option<logicaffeine_base::BigInt> {
+    as_literal(t).or_else(|| {
+        crate::linarith_solve::parse_lin(t)
+            .filter(|l| l.is_const())
+            .map(|l| logicaffeine_base::BigInt::from(l.constant))
+    })
+}
+
 /// Prove `a ≤ b` (as the `Identity` `goal`) from the known facts, WITHOUT any
 /// case split: by computation when both operands are literals, else by chaining
 /// the in-scope `≤` facts through `le_trans`/`le_refl`.
@@ -178,7 +189,7 @@ fn prove_le_directly(
     b: &ProofTerm,
     goal: &ProofExpr,
 ) -> Option<DerivationTree> {
-    if let (Some(av), Some(bv)) = (as_literal(a), as_literal(b)) {
+    if let (Some(av), Some(bv)) = (ground_value(a), ground_value(b)) {
         // `le m n` δ-reduces, so `refl` closes the goal exactly when it holds.
         return (av <= bv).then(|| DerivationTree::leaf(goal.clone(), InferenceRule::Reflexivity));
     }
@@ -189,6 +200,9 @@ fn prove_le_directly(
 ///
 /// * a ground `≤`/`<` by computation;
 /// * a `≤` goal by chaining the in-scope `≤` facts;
+/// * a `≤` goal as a non-negative linear combination of the facts, strict ones
+///   tightened first (`engine::cert_le_by_farkas`), which reaches goals with no
+///   slack (`0 ≤ s ⊢ w - s ≤ w`) that the split below cannot;
 /// * an `Int` EQUALITY by the proof-producing ring oracle (the `ArithDecision`
 ///   channel), which is how `n + 0 = n` is discharged;
 /// * otherwise, for a `≤` goal, SPLIT on `le_total a b`: the left disjunct IS
@@ -202,6 +216,11 @@ pub(crate) fn omega_prove(
     if let Some((a, b)) = as_le_pair(goal) {
         if let Some(direct) = prove_le_directly(known, &a, &b, goal) {
             return Some(direct);
+        }
+        let tightened: Vec<(ProofExpr, DerivationTree)> =
+            known.iter().filter_map(|(p, t)| to_le_fact(p, t)).collect();
+        if let Some(combination) = crate::engine::cert_le_by_farkas(&tightened, &a, &b, goal) {
+            return Some(combination);
         }
         // `(a ≤ b) ∨ (b ≤ a)` — totality, a certified leaf.
         let flipped = le_eq(b.clone(), a.clone());
@@ -232,7 +251,7 @@ pub(crate) fn omega_prove(
         // CONCLUDES a `lt` (`lt_succ_le`/`lt_add1_le` both take one as a premise) —
         // so the tightened `a + 1 ≤ b` is the strongest thing provable here. See
         // the module comment: the converse `le_succ_lt` is the missing axiom.
-        if let (Some(av), Some(bv)) = (as_literal(&a), as_literal(&b)) {
+        if let (Some(av), Some(bv)) = (ground_value(&a), ground_value(&b)) {
             return (av < bv)
                 .then(|| DerivationTree::leaf(goal.clone(), InferenceRule::Reflexivity));
         }

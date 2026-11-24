@@ -285,3 +285,15 @@ fn a_power_past_the_degree_bound_names_the_root_it_counts_in() {
     );
     assert_eq!(field(h(0)).pow(-1).unwrap_err().describe("dt"), "zero cannot be raised to a negative power");
 }
+
+// Every `i32` is an exponent `pow` takes, `i32::MIN` included, whose magnitude does not fit an
+// `i32`. Bases ±1 keep the exact result small.
+#[test]
+fn the_most_negative_i32_power_is_taken_without_negating_it() {
+    let one = Closed::Field(h(1));
+    let minus_one = Closed::Field(h(-1));
+    assert_eq!(one.pow(i32::MIN).ok(), Some(one.clone()));
+    assert_eq!(minus_one.pow(i32::MIN).ok(), Some(one.clone()));
+    assert_eq!(minus_one.pow(i32::MIN + 1).ok(), Some(minus_one.clone()));
+    assert!(Closed::Field(h(0)).pow(i32::MIN).is_err());
+}

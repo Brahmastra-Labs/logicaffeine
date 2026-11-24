@@ -605,7 +605,6 @@ fn walker_preamble() -> String {
         .replace("@UTF8_2@", &utf8[1])
         .replace("@UTF8_3@", &utf8[2])
         .replace("@UTF8_INCOMPLETE@", &utf8[3])
-        .replace("@NOT_AN_INT@", &words::not_an_int())
         .replace("@NOT_A_CHARACTER@", &words::not_a_character())
         .replace("@CANNOT_READ_FILE@", &words::cannot_read_file())
         .replace("@RANDOM_BOUNDS@", &words::random_bounds_refused())
@@ -613,20 +612,20 @@ fn walker_preamble() -> String {
 
 const WALKER_PREAMBLE: &str = "\
 #include <errno.h>
-static inline double as_f64(int64_t b){ double d; __builtin_memcpy(&d,&b,8); return d; }
-static inline int64_t as_bits(double d){ int64_t b; __builtin_memcpy(&b,&d,8); return b; }
-static inline int64_t ipow64(int64_t b, int64_t e){ int64_t r=1; if(e<0) logos_fatalf(@NEGATIVE_EXPONENT@); while(e){ if(e&1) r*=b; e>>=1; if(e) b*=b; } return r; }
-static inline int64_t fldiv64(int64_t a, int64_t b){ if(b==0) logos_fatalf(@FLOOR_DIVISION_BY_ZERO@); if(b==-1) return (int64_t)(0-(uint64_t)a); int64_t q=a/b, r=a%b; if(r!=0 && ((r<0)!=(b<0))) q--; return q; }
-static inline double lc_rfldiv(double a, double b){ if(b==0.0) logos_fatalf(@REAL_FLOOR_DIVISION_BY_ZERO@); return floor(a/b); }
-static inline void lc_exact_divisor(int zero){ if(zero) logos_fatalf(@EXACT_DIVISION_BY_ZERO@); }
-static inline int lc_approx_eq(double a, double b){ if(a==b) return 1; double d=(a-b)<0?(b-a):(a-b); double x=a<0?-a:a, y=b<0?-b:b, m=x>y?x:y, t=1e-9*m; if(t<1e-12) t=1e-12; return d<=t; }
+__attribute__((unused)) static inline double as_f64(int64_t b){ double d; __builtin_memcpy(&d,&b,8); return d; }
+__attribute__((unused)) static inline int64_t as_bits(double d){ int64_t b; __builtin_memcpy(&b,&d,8); return b; }
+__attribute__((unused)) static inline int64_t ipow64(int64_t b, int64_t e){ int64_t r=1; if(e<0) logos_fatalf(@NEGATIVE_EXPONENT@); while(e){ if(e&1) r*=b; e>>=1; if(e) b*=b; } return r; }
+__attribute__((unused)) static inline int64_t fldiv64(int64_t a, int64_t b){ if(b==0) logos_fatalf(@FLOOR_DIVISION_BY_ZERO@); if(b==-1) return (int64_t)(0-(uint64_t)a); int64_t q=a/b, r=a%b; if(r!=0 && ((r<0)!=(b<0))) q--; return q; }
+__attribute__((unused)) static inline double lc_rfldiv(double a, double b){ if(b==0.0) logos_fatalf(@REAL_FLOOR_DIVISION_BY_ZERO@); return floor(a/b); }
+__attribute__((unused)) static inline void lc_exact_divisor(int zero){ if(zero) logos_fatalf(@EXACT_DIVISION_BY_ZERO@); }
+__attribute__((unused)) static inline int lc_approx_eq(double a, double b){ if(a==b) return 1; double d=(a-b)<0?(b-a):(a-b); double x=a<0?-a:a, y=b<0?-b:b, m=x>y?x:y, t=1e-9*m; if(t<1e-12) t=1e-12; return d<=t; }
 /* Each enum cell buffer is a traced object; its children live exactly as long as a reachable parent. */
 __attribute__((unused)) static int64_t *lc_enum_alloc(size_t n){
     if(n > SIZE_MAX / sizeof(int64_t)) logos_fatal(\"memory allocation failed\");
     return (int64_t*)lc_gc_alloc(n * sizeof(int64_t));
 }
-static Set_i64 lc_set_i64_copy(Set_i64 *s){ Set_i64 r=set_i64_new(); for(size_t oi=0;oi<s->ord_len;oi++){ size_t si=s->order[oi]; if(s->state[si]) set_i64_add(&r,s->keys[si]); } return r; }
-static Set_str lc_set_str_copy(Set_str *s){ Set_str r=set_str_new(); for(size_t oi=0;oi<s->ord_len;oi++){ size_t si=s->order[oi]; if(s->state[si]) set_str_add(&r,s->keys[si]); } return r; }
+__attribute__((unused)) static Set_i64 lc_set_i64_copy(Set_i64 *s){ Set_i64 r=set_i64_new(); for(size_t oi=0;oi<s->ord_len;oi++){ size_t si=s->order[oi]; if(s->state[si]) set_i64_add(&r,s->keys[si]); } return r; }
+__attribute__((unused)) static Set_str lc_set_str_copy(Set_str *s){ Set_str r=set_str_new(); for(size_t oi=0;oi<s->ord_len;oi++){ size_t si=s->order[oi]; if(s->state[si]) set_str_add(&r,s->keys[si]); } return r; }
 __attribute__((unused)) static Map_i64_i64 lc_map_i64_i64_copy(Map_i64_i64 *m){ Map_i64_i64 r=map_i64_i64_new(); for(size_t oi=0;oi<m->ord_len;oi++){ size_t si=m->order[oi]; if(m->state[si]) map_i64_i64_set(&r,m->keys[si],m->vals[si]); } return r; }
 __attribute__((unused)) static Map_i64_str lc_map_i64_str_copy(Map_i64_str *m){ Map_i64_str r=map_i64_str_new(); for(size_t oi=0;oi<m->ord_len;oi++){ size_t si=m->order[oi]; if(m->state[si]) map_i64_str_set(&r,m->keys[si],m->vals[si]); } return r; }
 __attribute__((unused)) static Map_str_i64 lc_map_str_i64_copy(Map_str_i64 *m){ Map_str_i64 r=map_str_i64_new(); for(size_t oi=0;oi<m->ord_len;oi++){ size_t si=m->order[oi]; if(m->state[si]) map_str_i64_set(&r,m->keys[si],m->vals[si]); } return r; }
@@ -638,12 +637,12 @@ __attribute__((unused)) static Seq_i64 *lc_seq_i64_as_ldec(Seq_i64 *s){
     return r;
 }
 /* The byte length of the UTF-8 character that starts with `lead`. */
-static inline size_t lc_utf8_len(unsigned char lead){ return lead<0x80?1:lead<0xE0?2:lead<0xF0?3:4; }
+__attribute__((unused)) static inline size_t lc_utf8_len(unsigned char lead){ return lead<0x80?1:lead<0xE0?2:lead<0xF0?3:4; }
 /* Every ASCII character as its own one-character Text, so reading one out of a text allocates nothing. */
 static char lc_ascii_texts[128][2];
-static inline char *lc_ascii_text(unsigned char c){ lc_ascii_texts[c][0]=(char)c; lc_ascii_texts[c][1]=0; return lc_ascii_texts[c]; }
+__attribute__((unused)) static inline char *lc_ascii_text(unsigned char c){ lc_ascii_texts[c][0]=(char)c; lc_ascii_texts[c][1]=0; return lc_ascii_texts[c]; }
 /* `item i of text`: the i-th character (not byte), as its own Text. */
-static char *lc_text_item(const char *s, int64_t i){
+__attribute__((unused)) static char *lc_text_item(const char *s, int64_t i){
     size_t chars=0; for(const unsigned char *p=(const unsigned char*)s; *p; p++) if((*p&0xC0)!=0x80) chars++;
     size_t k=logos_idx0(i, chars), at=0;
     const unsigned char *p=(const unsigned char*)s;
@@ -661,7 +660,7 @@ __attribute__((noreturn)) static void lc_utf8_fail(int error_len, size_t at){
 }
 /* `text_from_bytes(bytes)`: each Int's low byte, validated as UTF-8 exactly as Rust's `str::from_utf8` validates
    it, so bytes that are not UTF-8 fail at the same offset with the same sentence. */
-static char *lc_text_from_bytes(Seq_i64 *b){
+__attribute__((unused)) static char *lc_text_from_bytes(Seq_i64 *b){
     size_t n=b->len; unsigned char *v=(unsigned char*)lc_gc_alloc_atomic(n+1);
     for(size_t k=0;k<n;k++) v[k]=(unsigned char)(b->data[k]&0xff);
     v[n]=0;
@@ -697,12 +696,12 @@ static char *lc_text_from_bytes(Seq_i64 *b){
    bits); odd, a boxed `LInt*` with its low bit set. Each operation stays on the word while its result fits one, and
    goes through the `lint_*` tower when it does not. */
 #define LC_XLIM ((int64_t)1 << 62)
-static inline LInt lc_xget(int64_t w){ return (w & 1) ? *(LInt*)(intptr_t)(w ^ 1) : lint_small(w >> 1); }
-static inline int64_t lc_xput(LInt v){
+__attribute__((unused)) static inline LInt lc_xget(int64_t w){ return (w & 1) ? *(LInt*)(intptr_t)(w ^ 1) : lint_small(w >> 1); }
+__attribute__((unused)) static inline int64_t lc_xput(LInt v){
     if(!v.big && v.small >= -LC_XLIM && v.small < LC_XLIM) return (int64_t)((uint64_t)v.small << 1);
     LInt *b=(LInt*)lc_gc_alloc(sizeof(LInt)); *b=v; return (int64_t)(intptr_t)b | 1;
 }
-static inline int64_t lc_xof(int64_t v){ return (v >= -LC_XLIM && v < LC_XLIM) ? (int64_t)((uint64_t)v << 1) : lc_xput(lint_small(v)); }
+__attribute__((unused)) static inline int64_t lc_xof(int64_t v){ return (v >= -LC_XLIM && v < LC_XLIM) ? (int64_t)((uint64_t)v << 1) : lc_xput(lint_small(v)); }
 /* The exact integer as a machine one, where only a machine integer can go. */
 __attribute__((unused)) static inline int64_t lc_xnarrow(int64_t w){ return (w & 1) ? lint_expect_i64(*(LInt*)(intptr_t)(w ^ 1)) : (w >> 1); }
 /* The low 64 bits of an exact integer, reduced modulo 2^64 whatever its width and sign: what a word built from it holds. */
@@ -782,30 +781,20 @@ __attribute__((unused)) static int64_t lc_xbitor(int64_t a, int64_t b){ if(!((a|
 __attribute__((unused)) static int64_t lc_xbitxor(int64_t a, int64_t b){ if(!((a|b)&1)) return (a>>1) ^ (b>>1); return lint_bitxor(lc_xget(a), lc_xget(b)); }
 __attribute__((unused)) static int64_t lc_xshl(int64_t a, int64_t b){ if(!((a|b)&1)) return (int64_t)((uint64_t)(a>>1) << ((uint32_t)(b>>1) & 63u)); return lint_shl(lc_xget(a), lc_xget(b)); }
 __attribute__((unused)) static int64_t lc_xshr(int64_t a, int64_t b){ if(!((a|b)&1)) return (a>>1) >> ((uint32_t)(b>>1) & 63u); return lint_shr(lc_xget(a), lc_xget(b)); }
-/* `parseInt(text)`: the text trimmed as Rust trims it, read as Rust reads an i64 — an optional sign, then only
-   digits, within range — or the VM's failure naming the text as given. */
-__attribute__((unused)) static int64_t lc_parse_int(const char *s){
-    char *t=logos_trim(s); const char *p=t; int neg=0;
-    if(*p=='+'||*p=='-'){ neg=(*p=='-'); p++; }
-    if(!*p) logos_fatalf(@NOT_AN_INT@, s);
-    uint64_t v=0, limit=neg?(uint64_t)INT64_MAX+1u:(uint64_t)INT64_MAX;
-    for(; *p; p++){
-        if(*p<'0'||*p>'9') logos_fatalf(@NOT_AN_INT@, s);
-        uint64_t d=(uint64_t)(*p-'0');
-        if(v>(limit-d)/10) logos_fatalf(@NOT_AN_INT@, s);
-        v=v*10+d;
-    }
-    return neg?(int64_t)(0-v):(int64_t)v;
-}
+/* A shared record's Int field merged as the VM's `crdt_merge_field` merges it: two Ints add, wrapping as the word does,
+   and an integer past the word, which is no Int to the VM, gives way to the incoming value. `Join`
+   (`crdt_join_field`) keeps the larger of two Ints instead. */
+__attribute__((unused)) static int64_t lc_xcrdt_merge(int64_t t, int64_t s){ int64_t a, b; if(lint_i64(lc_xget(t), &a) && lint_i64(lc_xget(s), &b)) return lc_xof((int64_t)((uint64_t)a + (uint64_t)b)); return s; }
+__attribute__((unused)) static int64_t lc_xcrdt_join(int64_t t, int64_t s){ int64_t a, b; if(lint_i64(lc_xget(t), &a) && lint_i64(lc_xget(s), &b)) return a >= b ? t : s; return s; }
 /* A text a register grows by appending: the characters are preceded by this head, which keeps what a plain C
    string would have to rescan for — its byte length, its capacity, its character count, whether it is ASCII.
    Only a register whose owned flag is set holds one (it built it, and nothing else holds it), so only such a
    register ever reads the head or grows the text in place. */
 typedef struct { size_t len, cap, chars; int ascii; } lc_text_head;
-static inline lc_text_head *lc_head(int64_t text){ return ((lc_text_head*)(intptr_t)text) - 1; }
+__attribute__((unused)) static inline lc_text_head *lc_head(int64_t text){ return ((lc_text_head*)(intptr_t)text) - 1; }
 /* `text + tail`, appended in place when the register owns its text (`owned`), otherwise into a fresh growable
    text the register will own — amortized linear, however long the text grows. */
-static int64_t lc_text_append(int64_t text, int owned, const char *tail){
+__attribute__((unused)) static int64_t lc_text_append(int64_t text, int owned, const char *tail){
     size_t tl=strlen(tail), tc=0; int ta=1;
     for(const unsigned char *p=(const unsigned char*)tail; *p; p++){ if((*p&0xC0)!=0x80) tc++; if(*p>=0x80) ta=0; }
     lc_text_head *h;
@@ -825,7 +814,7 @@ static int64_t lc_text_append(int64_t text, int owned, const char *tail){
 }
 /* Append an Int without allocating through logos_dyn_sprintf. The unsigned
    subtraction preserves INT64_MIN's magnitude without signed overflow. */
-static int64_t lc_text_append_i64(int64_t text, int owned, int64_t value){
+__attribute__((unused)) static int64_t lc_text_append_i64(int64_t text, int owned, int64_t value){
     char digits[21]; size_t at=sizeof digits;
     uint64_t magnitude=value<0 ? (uint64_t)0-(uint64_t)value : (uint64_t)value;
     do {
@@ -857,9 +846,9 @@ static int64_t lc_text_append_i64(int64_t text, int owned, int64_t value){
     return (int64_t)(intptr_t)(char*)(h+1);
 }
 /* `length of text` — from the head when the register owns its growing text. */
-static inline int64_t lc_text_len(int64_t text, int owned){ return owned ? (int64_t)lc_head(text)->len : (int64_t)strlen((const char*)(intptr_t)text); }
+__attribute__((unused)) static inline int64_t lc_text_len(int64_t text, int owned){ return owned ? (int64_t)lc_head(text)->len : (int64_t)strlen((const char*)(intptr_t)text); }
 /* `item i of text` — in constant time when the register owns an ASCII growing text. */
-static inline char *lc_text_item_of(int64_t text, int owned, int64_t i){
+__attribute__((unused)) static inline char *lc_text_item_of(int64_t text, int owned, int64_t i){
     if(owned){ lc_text_head *h=lc_head(text); if(h->ascii && i>=1 && (uint64_t)i<=(uint64_t)h->len) return lc_ascii_text((unsigned char)((const char*)(intptr_t)text)[i-1]); }
     return lc_text_item((const char*)(intptr_t)text, i);
 }
@@ -1042,6 +1031,7 @@ pub fn compile_program_to_c_offloaded<'a>(
             std::collections::HashMap::new(),
         ]),
         number_entries: std::cell::RefCell::new(std::collections::HashMap::new()),
+        eq_fns: Vec::new(),
     };
     let fn_ret: Vec<Kind> = prog
         .functions
@@ -1050,6 +1040,7 @@ pub fn compile_program_to_c_offloaded<'a>(
         .collect();
     em.fn_ret = fn_ret;
     em.compile()?;
+    em.place_equality_functions();
     Ok(OffloadedC {
         c: em.out,
         kept: em.kept,
@@ -1203,6 +1194,9 @@ struct Emitter<'a> {
     number_entries: std::cell::RefCell<
         std::collections::HashMap<usize, (Vec<(u16, Kind, Kind)>, Vec<crate::vm::variables::Site>)>,
     >,
+    /// The equality functions the program's comparisons of records and enums call ([`Emitter::eq_call`]), by name, in
+    /// the order first asked for, each with its definition (empty while it is being written).
+    eq_fns: Vec<(String, String)>,
 }
 
 impl<'a> Emitter<'a> {
@@ -1750,7 +1744,8 @@ impl<'a> Emitter<'a> {
             )
             .unwrap();
         }
-        // Forward-declare every function; a closure body takes a hidden trailing closure-object pointer arg.
+        // Forward-declare every function, each one the C compiler drops where no call reaches it; a closure body takes
+        // a hidden trailing closure-object pointer arg.
         for (fi, f) in self.prog.functions.iter().enumerate() {
             let mut params: Vec<String> =
                 (0..f.param_count).map(|i| self.param_decl(fi, i)).collect();
@@ -1761,14 +1756,14 @@ impl<'a> Emitter<'a> {
             // pass NULL; collection callers pass the result register's flag.
             params.push("unsigned char *__ret_own".to_string());
             let sig = params.join(", ");
-            writeln!(self.out, "static int64_t fn_{fi}({sig});").unwrap();
+            writeln!(self.out, "__attribute__((unused)) static int64_t fn_{fi}({sig});").unwrap();
             if self.word_twins.contains(&fi) {
-                writeln!(self.out, "static lc_wret fn_{fi}_w({sig});").unwrap();
+                writeln!(self.out, "__attribute__((unused)) static lc_wret fn_{fi}_w({sig});").unwrap();
                 // The region held exact runs only once a value outgrows a word: cold, so every path into it
                 // leaves the word entry's own code.
                 writeln!(
                     self.out,
-                    "__attribute__((cold, noinline)) static lc_wret fn_{fi}_x(int __resume, int __owned, unsigned char *__ret_own);"
+                    "__attribute__((cold, noinline, unused)) static lc_wret fn_{fi}_x(int __resume, int __owned, unsigned char *__ret_own);"
                 )
                 .unwrap();
             }
@@ -5464,6 +5459,47 @@ impl<'a> Emitter<'a> {
         }
     }
 
+    /// Merge the map in cell `cell` of the record in `source` into the same cell of the record in `target` (kind `rk`),
+    /// the map holding keys and values of the kinds `map_pair(idx)` names, as the VM's `crdt_merge_field` merges two
+    /// maps: the target's map made its own, the incoming one folds in key by key in its insertion order — a key both
+    /// hold adds two `Int`s (wrapping) and merges two exact values as an exact field does (`lc_xcrdt_merge`), any other
+    /// by taking the incoming value; a new key takes its value.
+    fn emit_crdt_map_fold(&mut self, target: u16, source: u16, rk: Kind, cell: usize, idx: u16) {
+        let t_lv = format!("((int64_t*)(intptr_t)r[{target}])[{cell}]");
+        let s_lv = format!("((int64_t*)(intptr_t)r[{source}])[{cell}]");
+        let (key, value) = self.map_pair(idx);
+        let (ty, family) = if key == Kind::Text { ("Map_str_i64", "map_str_i64") } else { ("Map_i64_i64", "map_i64_i64") };
+        let n = self.fresh();
+        if let Some(word) = self.field_owner_word(target, rk).filter(|_| cell < 64) {
+            self.line(&format!(
+                "if (!(({word} >> {cell}) & 1)) {{ {ty} *_mc{n} = ({ty}*)lc_gc_alloc(sizeof({ty})); *_mc{n} = lc_{family}_copy(({ty}*)(intptr_t){t_lv}); {t_lv} = (int64_t)(intptr_t)_mc{n}; {word} |= 1ULL << {cell}; }}"
+            ));
+        }
+        let held = format!("{family}_get(_mt{n}, _ms{n}->keys[_mi{n}])");
+        let merged = match value {
+            Kind::BigInt => format!("lc_xcrdt_merge({held}, _ms{n}->vals[_mi{n}])"),
+            Kind::Int => format!("(int64_t)((uint64_t){held} + (uint64_t)_ms{n}->vals[_mi{n}])"),
+            _ => format!("_ms{n}->vals[_mi{n}]"),
+        };
+        self.line(&format!(
+            "{{ {ty} *_mt{n} = ({ty}*)(intptr_t){t_lv}; {ty} *_ms{n} = ({ty}*)(intptr_t){s_lv}; for (size_t _mo{n} = 0; _mo{n} < _ms{n}->ord_len; _mo{n}++) {{ size_t _mi{n} = _ms{n}->order[_mo{n}]; if (!_ms{n}->state[_mi{n}]) continue; {family}_set(_mt{n}, _ms{n}->keys[_mi{n}], {family}_contains(_mt{n}, _ms{n}->keys[_mi{n}]) ? {merged} : _ms{n}->vals[_mi{n}]); }} }}"
+        ));
+    }
+
+    /// Cell `cell` of the record in `target` (kind `rk`) takes the incoming value from the same cell of the record in
+    /// `source`, as the VM's `crdt_merge_field` takes any value it does not combine. Both records hold it from then on,
+    /// so the field's sole-holder bit is cleared in each, and the next change to either copies it first.
+    fn emit_crdt_incoming(&mut self, target: u16, source: u16, rk: Kind, cell: usize) {
+        self.line(&format!(
+            "((int64_t*)(intptr_t)r[{target}])[{cell}] = ((int64_t*)(intptr_t)r[{source}])[{cell}];"
+        ));
+        for obj in [target, source] {
+            if let Some(word) = self.field_owner_word(obj, rk).filter(|_| cell < 64) {
+                self.line(&format!("{word} &= ~(1ULL << {cell});"));
+            }
+        }
+    }
+
     /// The C lvalue of the field-ownership word of the record in register `obj` (of struct kind `k`): bit `c` is
     /// set while the record is the only holder of the collection in field cell `c`.
     fn field_owner_word(&self, obj: u16, k: Kind) -> Option<String> {
@@ -5787,64 +5823,9 @@ impl<'a> Emitter<'a> {
                 if self.struct_name_of_kind(x) != self.struct_name_of_kind(y) || x != y {
                     return Ok("0".to_string());
                 }
-                let name = self.struct_name_of_kind(x).unwrap_or_default();
-                let fields: Vec<(usize, Kind)> = match x {
-                    Kind::Struct(si) => {
-                        let sd = self.prog.struct_types[si as usize].clone();
-                        sd.fields
-                            .iter()
-                            .enumerate()
-                            .map(|(c, (_, _))| (c, self.field_storage_kind(x, c).unwrap()))
-                            .collect()
-                    }
-                    Kind::StructSynth(idx) => self.synth_structs.borrow()[idx as usize]
-                        .1
-                        .iter()
-                        .enumerate()
-                        .map(|(c, (_, _))| (c, self.field_storage_kind(x, c).unwrap()))
-                        .collect(),
-                    _ => unreachable!(),
-                };
-                let mut parts = Vec::new();
-                for (c, fk) in fields {
-                    let fk = if self.counter_fields.contains(&(name.clone(), c)) {
-                        Kind::CrdtCounter
-                    } else {
-                        fk
-                    };
-                    let (ca, cb) = (format!("_s{n}[{c}]"), format!("_t{n}[{c}]"));
-                    parts.push(if fk == Kind::CrdtCounter {
-                        format!("(logos_crdt_sum((logos_crdt*)(intptr_t){ca}) == logos_crdt_sum((logos_crdt*)(intptr_t){cb}))")
-                    } else {
-                        self.eq_expr(&ca, fk, &cb, fk)?
-                    });
-                }
-                let all = if parts.is_empty() {
-                    "1".to_string()
-                } else {
-                    parts.join(" && ")
-                };
-                format!("({{ int64_t *_s{n} = (int64_t*)(intptr_t)({a}), *_t{n} = (int64_t*)(intptr_t)({b}); {all}; }})")
+                self.eq_call(a, b, x)?
             }
-            (Kind::Enum(x), Kind::Enum(y)) if x == y => {
-                let ed = self.prog.enum_types[x as usize].clone();
-                let arms: Vec<(String, Option<Vec<Kind>>)> = ed
-                    .variants
-                    .iter()
-                    .map(|var| {
-                        (
-                            var.name.clone(),
-                            Some(
-                                var.field_types
-                                    .iter()
-                                    .map(|t| self.boundary_kind(&Some(t.clone())))
-                                    .collect(),
-                            ),
-                        )
-                    })
-                    .collect();
-                self.eq_constructors(a, b, &arms, n)?
-            }
+            (Kind::Enum(x), Kind::Enum(y)) if x == y => self.eq_call(a, b, ka)?,
             (Kind::Inductive(x), Kind::Inductive(y)) => {
                 let (tx, _) = self.inductive(x);
                 let (ty, _) = self.inductive(y);
@@ -5854,11 +5835,7 @@ impl<'a> Emitter<'a> {
                 let merged = self
                     .unify_inductive(x, y)
                     .ok_or("an equality of two differently-shaped enums")?;
-                let Kind::Inductive(m) = merged else {
-                    unreachable!()
-                };
-                let arms = self.inductive(m).1;
-                self.eq_constructors(a, b, &arms, n)?
+                self.eq_call(a, b, merged)?
             }
             (
                 Kind::SetInt | Kind::SetWord(_) | Kind::SetText | Kind::SetUnknown,
@@ -5900,6 +5877,119 @@ impl<'a> Emitter<'a> {
             }
             _ => "0".to_string(),
         })
+    }
+
+    /// The C call testing the values `a` and `b` (`int64_t` C expressions) of the record or enum kind `k` equal: one
+    /// generated function per kind, named before its body is written, so a type that holds itself (a tree's subtrees,
+    /// a record's list of records) compares by recursion.
+    fn eq_call(&mut self, a: &str, b: &str, k: Kind) -> Result<String, String> {
+        let name = match k {
+            Kind::Struct(i) => format!("lc_eq_struct{i}"),
+            Kind::StructSynth(i) => format!("lc_eq_synth{i}"),
+            Kind::Enum(i) => format!("lc_eq_enum{i}"),
+            Kind::Inductive(i) => format!("lc_eq_inductive{i}"),
+            other => return Err(format!("a generated equality of {other:?}")),
+        };
+        if !self.eq_fns.iter().any(|(held, _)| *held == name) {
+            self.eq_fns.push((name.clone(), String::new()));
+            let body = self.eq_body("a", "b", k)?;
+            let def = format!("__attribute__((unused)) static int {name}(int64_t a, int64_t b) {{ return {body}; }}\n");
+            if let Some(slot) = self.eq_fns.iter_mut().find(|(held, _)| *held == name) {
+                slot.1 = def;
+            }
+        }
+        Ok(format!("{name}({a}, {b})"))
+    }
+
+    /// The comparison [`Emitter::eq_call`]'s function for kind `k` makes of `a` and `b`: a record field by field, an
+    /// enum by constructor and payloads.
+    fn eq_body(&mut self, a: &str, b: &str, k: Kind) -> Result<String, String> {
+        let n = self.fresh();
+        let x = k;
+        Ok(match k {
+            Kind::Struct(_) | Kind::StructSynth(_) => {
+                let name = self.struct_name_of_kind(x).unwrap_or_default();
+                let fields: Vec<(usize, Kind)> = match x {
+                    Kind::Struct(si) => {
+                        let sd = self.prog.struct_types[si as usize].clone();
+                        sd.fields
+                            .iter()
+                            .enumerate()
+                            .map(|(c, (_, _))| (c, self.field_storage_kind(x, c).unwrap()))
+                            .collect()
+                    }
+                    Kind::StructSynth(idx) => self.synth_structs.borrow()[idx as usize]
+                        .1
+                        .iter()
+                        .enumerate()
+                        .map(|(c, (_, _))| (c, self.field_storage_kind(x, c).unwrap()))
+                        .collect(),
+                    _ => unreachable!(),
+                };
+                let mut parts = Vec::new();
+                for (c, fk) in fields {
+                    let fk = if self.counter_fields.contains(&(name.clone(), c)) {
+                        Kind::CrdtCounter
+                    } else {
+                        fk
+                    };
+                    let (ca, cb) = (format!("_s{n}[{c}]"), format!("_t{n}[{c}]"));
+                    parts.push(if fk == Kind::CrdtCounter {
+                        format!("(logos_crdt_sum((logos_crdt*)(intptr_t){ca}) == logos_crdt_sum((logos_crdt*)(intptr_t){cb}))")
+                    } else {
+                        self.eq_expr(&ca, fk, &cb, fk)?
+                    });
+                }
+                let all = if parts.is_empty() {
+                    "1".to_string()
+                } else {
+                    parts.join(" && ")
+                };
+                format!("({{ int64_t *_s{n} = (int64_t*)(intptr_t)({a}), *_t{n} = (int64_t*)(intptr_t)({b}); {all}; }})")
+            }
+            Kind::Enum(x) => {
+                let ed = self.prog.enum_types[x as usize].clone();
+                let arms: Vec<(String, Option<Vec<Kind>>)> = ed
+                    .variants
+                    .iter()
+                    .map(|var| {
+                        (
+                            var.name.clone(),
+                            Some(
+                                var.field_types
+                                    .iter()
+                                    .map(|t| self.boundary_kind(&Some(t.clone())))
+                                    .collect(),
+                            ),
+                        )
+                    })
+                    .collect();
+                self.eq_constructors(a, b, &arms, n)?
+            }
+            Kind::Inductive(m) => {
+                let arms = self.inductive(m).1;
+                self.eq_constructors(a, b, &arms, n)?
+            }
+            other => return Err(format!("a generated equality of {other:?}")),
+        })
+    }
+
+    /// The program's equality functions ([`Emitter::eq_call`]) where its program part begins: every one declared, then
+    /// every one defined, so each may call any other.
+    fn place_equality_functions(&mut self) {
+        if self.eq_fns.is_empty() {
+            return;
+        }
+        let mut placed = String::new();
+        for (name, _) in &self.eq_fns {
+            placed.push_str(&format!("__attribute__((unused)) static int {name}(int64_t a, int64_t b);\n"));
+        }
+        for (_, def) in &self.eq_fns {
+            placed.push_str(def);
+        }
+        let marker = format!("{}\n", super::USER_CODE_SENTINEL);
+        let at = self.out.find(&marker).expect("the program part's sentinel") + marker.len();
+        self.out.insert_str(at, &placed);
     }
 
     /// Equality of two values of one enum whose constructors, in tag order, carry the payload kinds `arms`:
@@ -6352,9 +6442,7 @@ impl<'a> Emitter<'a> {
                         Kind::Float => {
                             self.line(&format!("r[{dst}] = as_bits(fabs(as_f64(r[{a}])));"))
                         }
-                        Kind::Int => {
-                            self.line(&format!("r[{dst}] = (r[{a}] < 0) ? -r[{a}] : r[{a}];"))
-                        }
+                        Kind::Int => self.line(&format!("r[{dst}] = logos_iabs(r[{a}]);")),
                         k => return Err(format!("abs of a non-number kind {k:?}")),
                     },
                     BuiltinId::Floor | BuiltinId::Ceil | BuiltinId::Round => match ak {
@@ -6630,7 +6718,7 @@ impl<'a> Emitter<'a> {
                     // `parseInt(text)` — refused as the VM refuses anything but Text.
                     BuiltinId::ParseInt => match ak {
                         Kind::Text => {
-                            self.line(&format!("r[{dst}] = lc_parse_int({});", as_cstr(a)))
+                            self.line(&format!("r[{dst}] = logos_parseInt({});", as_cstr(a)))
                         }
                         k => {
                             let sample =
@@ -7262,6 +7350,15 @@ impl<'a> Emitter<'a> {
                     "set_{infix}_add({ptr}, {});",
                     as_elem_push(*value, sk.elem())
                 ));
+            }
+            Op::RemoveFrom { collection, value } if self.resolve_map_kv(kind_at(kinds, *collection)).is_some() => {
+                // `Remove k from m`: the key's entry goes, the rest keep their order, and a key the map lacks
+                // changes nothing (`semantics::collections::remove_from`).
+                let ck = kind_at(kinds, *collection);
+                let (kk, vk) = self.resolve_map_kv(ck).expect("a map");
+                self.own_target(*collection, ck)?;
+                let (pre, ptr) = (map_fn(kk, vk).unwrap(), map_ptr_kv(*collection, kk, vk).unwrap());
+                self.line(&format!("{pre}_remove({ptr}, {});", map_key_arg(*value, kk)));
             }
             Op::RemoveFrom { collection, value } => {
                 let ck = kind_at(kinds, *collection);
@@ -8142,8 +8239,8 @@ impl<'a> Emitter<'a> {
             }
             Op::CrdtMerge { target, source } | Op::CrdtJoin { target, source } => {
                 // Field-wise lattice join of `source` into `target`, in place. A counter field takes the
-                // per-replica MAX (idempotent, `logos_crdt_merge`); a plain field ADDs (`Merge`, a grow-counter)
-                // or MAXes (`Join`, the state-based join) — the VM's `crdt_merge_field`. Both structs share the
+                // per-replica MAX (idempotent, `logos_crdt_merge`); a plain field merges as the VM's
+                // `crdt_merge_field` (`Merge`) or `crdt_join_field` (`Join`) merges it. Both structs share the
                 // type, so iterate its cells.
                 let is_join = matches!(op, Op::CrdtJoin { .. });
                 let tk = kind_at(kinds, *target);
@@ -8153,6 +8250,7 @@ impl<'a> Emitter<'a> {
                 let n = self
                     .struct_cell_count(tk)
                     .ok_or("CRDT merge of an unknown struct type")?;
+                self.own_target(*target, tk)?;
                 for cell in 0..n {
                     let t_lv = format!("((int64_t*)(intptr_t)r[{target}])[{cell}]");
                     let s_lv = format!("((int64_t*)(intptr_t)r[{source}])[{cell}]");
@@ -8160,18 +8258,23 @@ impl<'a> Emitter<'a> {
                         self.line(&format!(
                             "logos_crdt_merge((logos_crdt*)(intptr_t){t_lv}, (logos_crdt*)(intptr_t){s_lv});"
                         ));
-                    } else if self.field_storage_kind(tk, cell) == Some(Kind::BigInt) {
-                        if is_join {
-                            self.line(&format!(
-                                "if (lc_xcmp({s_lv}, {t_lv}) > 0) {t_lv} = {s_lv};"
-                            ));
-                        } else {
-                            self.line(&format!("{t_lv} = lc_xadd({t_lv}, {s_lv});"));
-                        }
-                    } else if is_join {
-                        self.line(&format!("if ({s_lv} > {t_lv}) {t_lv} = {s_lv};"));
                     } else {
-                        self.line(&format!("{t_lv} += {s_lv};"));
+                        match self.field_storage_kind(tk, cell) {
+                            Some(Kind::BigInt) => {
+                                let f = if is_join { "lc_xcrdt_join" } else { "lc_xcrdt_merge" };
+                                self.line(&format!("{t_lv} = {f}({t_lv}, {s_lv});"));
+                            }
+                            Some(set) if resolve_set(set).is_some() => {
+                                let sk = resolve_set(set).expect("a set kind");
+                                let (ty, infix) = (sk.set_c_type().unwrap(), sk.seq_infix().unwrap());
+                                let t = self.fresh();
+                                self.line(&format!(
+                                    "{ty} *_su{t} = ({ty}*)lc_gc_alloc(sizeof({ty})); *_su{t} = set_{infix}_union(({ty}*)(intptr_t){t_lv}, ({ty}*)(intptr_t){s_lv}); {t_lv} = (int64_t)(intptr_t)_su{t};"
+                                ));
+                            }
+                            Some(Kind::Map(idx)) => self.emit_crdt_map_fold(*target, *source, tk, cell, idx),
+                            _ => self.emit_crdt_incoming(*target, *source, tk, cell),
+                        }
                     }
                 }
             }
@@ -8433,6 +8536,13 @@ impl<'a> Emitter<'a> {
                             .map(|p| p.condition.clone())
                     })
                 };
+                let mut resolving = if *is_capability { Vec::new() } else { vec![*predicate] };
+                if cond
+                    .as_ref()
+                    .is_some_and(|c| super::emit::policy_names_itself(policies, type_sym, c, &mut resolving))
+                {
+                    return Err("a policy predicate that names itself".to_string());
+                }
                 match cond {
                     Some(c) => {
                         let expr = self.policy_condition_expr(

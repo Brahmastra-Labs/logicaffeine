@@ -21,6 +21,8 @@ pub fn io_of(io: LaneIo) -> StepIo {
         next: io.next,
         more: io.more.into_iter().map(|q| SeqIo { position: q.position, logits: q.logits, next: q.next }).collect(),
         logits_read: io.logits_read,
+        hidden_in: io.hidden_in,
+        hidden_out: io.hidden_out,
     }
 }
 

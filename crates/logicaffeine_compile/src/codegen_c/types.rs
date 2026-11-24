@@ -254,6 +254,11 @@ pub(super) enum CType {
     /// but the element is the synthesized `LTuple_…` struct; the backend emits a `Seq_<LTuple>` helper
     /// family (new/push/get/set/len) beside the tuple's typedef.
     SeqTuple(Vec<CType>),
+    /// A set of tuples — `Set of (Text, Text)` → `Set_LTuple_str_str`: the insertion-ordered open-addressing
+    /// table `Set_i64` and `Set_str` are, keyed by the tuple's synthesized struct, each key hashed by the
+    /// tuple's `_hash` and compared by its `_eq`. Only a tuple whose every element hashes and compares in C
+    /// as the VM compares it keys one (see [`tuple_is_set_key`]); any other is refused by name.
+    SetTuple(Vec<CType>),
     /// A NESTED sequence — `Seq of (Seq of Int)` → `Seq_Seq_i64`. The element is itself a `Seq_…` (already a
     /// defined type), so the backend emits only the OUTER wrapper `typedef struct { <inner> *data; … }` +
     /// its new/push/get/set/len family. Preserves the full nesting the flat `Seq*` variants dropped to int64.
@@ -325,6 +330,7 @@ pub(super) fn c_type_str(ty: &CType) -> &'static str {
         CType::SeqStruct(_) => "/* Seq of struct */",
         CType::Tuple(_) | CType::Record(_) => "/* tuple */",
         CType::SeqTuple(_) => "/* Seq of tuple */",
+        CType::SetTuple(_) => "/* Set of tuple */",
         CType::SeqSeq(_) => "/* Seq of Seq */",
         CType::SeqValue(_) => "/* Seq of value */",
         CType::MapStrValue(_) | CType::MapI64Value(_) => "/* Map of value */",
@@ -351,23 +357,14 @@ pub(super) fn is_c_value_type(ty: &CType) -> bool {
     )
 }
 
-/// A type usable as a string-keyed Map's VALUE via the generic `Map_str_<V>` family: the value types
-/// (fixed families), a scalar or value-type Seq (`Map of Text to Seq of Int` → `Map_str_Seq_i64`) and a value
-/// of the exact extension (`Map_str_LTower`).
-/// The generic map family is emitted BEFORE struct definitions (so a struct can hold such a map), which
-/// is only sound when the value's `Seq_…` type is already defined by then — true for scalar seqs
-/// (`C_RUNTIME`) and value-type seqs, but NOT struct/nested seqs (emitted later), so those are excluded.
+/// A type a Map holds as its VALUE through the generic `Map_str_<V>` / `Map_i64_<V>` family (a text-keyed map of a
+/// value type through its fixed family): a value type, any sequence, a record, an enum value, a tuple, and a value of
+/// the exact extension. The family is part of the aggregate unit (`codegen_c_aggregates`): its typedef holds the values
+/// behind a pointer, so it needs the value's type only declared, and its functions follow every body.
 pub(super) fn is_c_map_value(ty: &CType) -> bool {
     is_c_value_type(ty)
-        || matches!(
-            ty,
-            CType::SeqI64(_)
-                | CType::SeqBool
-                | CType::SeqStr
-                | CType::SeqF64
-                | CType::SeqValue(_)
-                | CType::Tower
-        )
+        || is_seq_ctype(ty)
+        || matches!(ty, CType::Struct(_) | CType::Enum(_) | CType::Tuple(_) | CType::Tower)
 }
 
 /// The C map a `Map of K to V` lowers to, from its key and value types — the one table every map type
@@ -386,6 +383,7 @@ pub(super) fn map_ctype(key: &CType, val: &CType) -> CType {
         // A `Real` value is a double in the generic family, never an integer map's word.
         (CType::String, CType::Float64, ..) => CType::MapStrValue(Box::new(CType::Float64)),
         (_, CType::Float64, Some(Ints::Int), _) => CType::MapI64Value(Box::new(CType::Float64)),
+        (_, v, Some(Ints::Int), _) if is_c_map_value(v) => CType::MapI64Value(Box::new(v.clone())),
         (_, _, k, v) => CType::MapI64I64(k.unwrap_or(Ints::Int), v.unwrap_or(Ints::Int)),
     }
 }
@@ -557,7 +555,7 @@ pub(super) fn c_ctype_showable(
         CType::SeqSeq(inner) => c_ctype_showable(inner, registry, interner, visited),
         // A tuple / record (`(a, b)`) renders `(…)` via `<LTuple>_to_string`; a Seq of tuples via
         // `seq_<LTuple>_to_string`. Showable when every element is.
-        CType::Tuple(elems) | CType::SeqTuple(elems) => elems
+        CType::Tuple(elems) | CType::SeqTuple(elems) | CType::SetTuple(elems) => elems
             .iter()
             .all(|e| c_ctype_showable(e, registry, interner, visited)),
         CType::Record(fields) => fields
@@ -566,15 +564,15 @@ pub(super) fn c_ctype_showable(
         // An enum renders `Variant(a, …)` via its `<Name>_to_string`. A recursive reference to an
         // enum already being checked renders through that same function (its field is boxed).
         CType::Enum(sym) => visited.contains(sym) || c_enum_showable(*sym, registry, interner),
-        // Map/Set fields render `{k: v, …}` / `{a, …}` in insertion order via their `*_to_string`.
+        // Map/Set fields render `{k: v, …}` / `{a, …}` in insertion order via their `*_to_string`; a generic map's
+        // renders each value as the value's type does, so it is showable when its values are.
         CType::MapI64I64(_, _)
         | CType::MapStrI64(_)
         | CType::MapStrStr
         | CType::MapI64Str(_)
-        | CType::MapStrValue(_)
-        | CType::MapI64Value(_)
         | CType::SetI64(_)
         | CType::SetStr => true,
+        CType::MapStrValue(v) | CType::MapI64Value(v) => c_ctype_showable(v, registry, interner, visited),
         _ => false,
     }
 }
@@ -628,7 +626,8 @@ pub(super) fn seq_of(elem: CType) -> CType {
         | CType::MapStrValue(_)
         | CType::MapI64Value(_)
         | CType::SetI64(_)
-        | CType::SetStr) => CType::SeqSeq(Box::new(seq)),
+        | CType::SetStr
+        | CType::SetTuple(_)) => CType::SeqSeq(Box::new(seq)),
         v if is_c_value_type(&v) => CType::SeqValue(Box::new(v)),
         // Items that may be nothing are held as values-or-nothing, whatever they hold.
         opt @ CType::Opt(_) => CType::SeqValue(Box::new(opt)),
@@ -647,12 +646,49 @@ pub(super) fn list_item_type(elems: &[&Expr], ctx: &CContext) -> CType {
     types.into_iter().next().unwrap_or(CType::Int64)
 }
 
-/// The set type holding elements of `elem`: a `Set_str` of texts, and a `Set_i64` of anything else, read as
-/// the integers or words it holds.
+/// The set type holding elements of `elem`: a `Set_str` of texts, a `Set_<LTuple>` of tuples (or records,
+/// which share the tuple's struct), and a `Set_i64` of anything else, read as the integers or words it holds.
 pub(super) fn set_of(elem: CType) -> CType {
     match elem {
         CType::String => CType::SetStr,
+        CType::Tuple(elems) => CType::SetTuple(elems),
+        CType::Record(fields) => CType::SetTuple(fields.into_iter().map(|(_, t)| t).collect()),
         other => CType::SetI64(Ints::of(&other).unwrap_or(Ints::Int)),
+    }
+}
+
+/// Whether a tuple of these element types can key a set: each element hashes and compares in C as the VM's
+/// `==` compares it — an integer, a machine word, a truth value, a real (IEEE `==`, so `-0.0` and `0.0` are
+/// one key), a text, or a tuple of those.
+pub(super) fn tuple_is_set_key(elems: &[CType]) -> bool {
+    elems.iter().all(|e| match e {
+        CType::Int64 | CType::Word(_) | CType::Bool | CType::Float64 | CType::String => true,
+        CType::Tuple(inner) => tuple_is_set_key(inner),
+        CType::Record(fields) => fields.iter().all(|(_, t)| tuple_is_set_key(std::slice::from_ref(t))),
+        _ => false,
+    })
+}
+
+/// The C expression hashing the set-key element `access` of type `ty` (see [`tuple_is_set_key`]).
+pub(super) fn set_key_hash(ty: &CType, access: &str, interner: &Interner) -> String {
+    match ty {
+        CType::Float64 => format!("__logos_hash_f64({access})"),
+        CType::String => format!("__logos_hash_text({access})"),
+        CType::Tuple(_) | CType::Record(_) => {
+            format!("{}_hash({access})", c_type_str_resolved(ty, interner))
+        }
+        _ => format!("(uint64_t)({access})"),
+    }
+}
+
+/// The C expression comparing the set-key elements `a` and `b` of type `ty` as the VM's `==` does.
+pub(super) fn set_key_equal(ty: &CType, a: &str, b: &str, interner: &Interner) -> String {
+    match ty {
+        CType::String => format!("(strcmp({a}, {b}) == 0)"),
+        CType::Tuple(_) | CType::Record(_) => {
+            format!("{}_eq({a}, {b})", c_type_str_resolved(ty, interner))
+        }
+        _ => format!("({a} == {b})"),
     }
 }
 
@@ -792,6 +828,9 @@ pub(super) fn c_field_to_string_expr(ct: &CType, access: &str, interner: &Intern
         CType::SeqTuple(elems) => {
             format!("seq_{}_to_string(&{access})", tuple_c_name(elems, interner))
         }
+        CType::SetTuple(elems) => {
+            format!("set_{}_to_string(&{access})", tuple_c_name(elems, interner))
+        }
         CType::Moment => format!("logos_moment_to_string({access})"),
         CType::Date => format!("logos_date_to_string({access})"),
         CType::Time => format!("logos_format_time_of_day({access})"),
@@ -884,6 +923,7 @@ pub(super) fn c_type_str_resolved(ty: &CType, interner: &Interner) -> String {
             tuple_c_name(&elems, interner)
         }
         CType::SeqTuple(elems) => format!("Seq_{}", tuple_c_name(elems, interner)),
+        CType::SetTuple(elems) => format!("Set_{}", tuple_c_name(elems, interner)),
         CType::SeqSeq(inner) => format!("Seq_{}", c_type_str_resolved(inner, interner)),
         // `Seq of Money` → `Seq_LMoney` etc. (the value-type element's C struct name).
         CType::SeqValue(inner) => format!("Seq_{}", c_type_str(inner)),
@@ -1000,18 +1040,22 @@ pub(super) fn set_element(ty: &CType) -> Option<CType> {
     match ty {
         CType::SetI64(ints) => Some(ints.ctype()),
         CType::SetStr => Some(CType::String),
+        CType::SetTuple(elems) => Some(CType::Tuple(elems.clone())),
         _ => None,
     }
 }
 
-/// A map's key and value types — the two halves of each entry a loop over it binds — for a map the C tier
-/// iterates by bucket.
+/// A map's key and value types — the two halves of each entry a loop over it binds — for every map the C tier
+/// holds: the fixed families and the generic `Map_str_<V>` / `Map_i64_<V>`, all laid out alike (`keys`, `vals`,
+/// `state`, `order`).
 pub(super) fn map_entry_types(ty: &CType) -> Option<(CType, CType)> {
     match ty {
         CType::MapI64I64(key, val) => Some((key.ctype(), val.ctype())),
         CType::MapStrI64(val) => Some((CType::String, val.ctype())),
         CType::MapStrStr => Some((CType::String, CType::String)),
         CType::MapI64Str(key) => Some((key.ctype(), CType::String)),
+        CType::MapStrValue(val) => Some((CType::String, (**val).clone())),
+        CType::MapI64Value(val) => Some((CType::Int64, (**val).clone())),
         _ => None,
     }
 }
@@ -1058,11 +1102,11 @@ pub(super) fn resolve_type_expr_with_registry(
                 "Map" | "HashMap" => {
                     let key_type = params
                         .first()
-                        .map(|p| resolve_type_expr(p, interner))
+                        .map(|p| resolve_type_expr_with_registry(p, interner, registry))
                         .unwrap_or(CType::Int64);
                     let val_type = params
                         .get(1)
-                        .map(|p| resolve_type_expr(p, interner))
+                        .map(|p| resolve_type_expr_with_registry(p, interner, registry))
                         .unwrap_or(CType::Int64);
                     map_ctype(&key_type, &val_type)
                 }
@@ -1143,6 +1187,13 @@ pub(super) struct CContext<'a> {
     /// value the Oracle cannot bound to i64 (a self-referential product/growth, or a statically-huge
     /// literal, or a copy of another such value). Recomputed per function by the BigInt pre-pass.
     pub(super) bigint_vars: std::collections::HashSet<Symbol>,
+    /// The current body's variables the shared decision makes exact, as it made them: a guarded fast path that
+    /// holds some of them in machine words takes on their arithmetic, so a chain over one is not speculated.
+    pub(super) exact_vars: std::collections::HashSet<Symbol>,
+    /// The current body's `Seq of Int` locals that may promote (the current function's own slice of
+    /// `ExactSlots::seq_elem_exact`, or `main_seq_elem_exact` for the program's root) — scoped the same way
+    /// `bigint_vars` is, so a local of this spelling in a different body is never read through its bit.
+    pub(super) seq_exact_vars: std::collections::HashSet<Symbol>,
     /// The scope's locals whose bindings give them numbers of different forms: the C type each is declared with,
     /// and those no C type holds ([`super::numbers`]).
     pub(super) number_locals: super::numbers::NumberLocals,
@@ -1176,6 +1227,9 @@ pub(super) struct CContext<'a> {
     /// `codegen_expr` reads each as its cell. The stepped tier runs calls ahead of their statement; an
     /// operator over a value-or-nothing reads the value once it knows it is there.
     pub(super) precomputed: std::cell::RefCell<HashMap<usize, String>>,
+    /// Chains of machine words already computed ahead of the expression that reads them, as a speculation does
+    /// (`emit::speculation`), keyed by the node: its number (`__word{n}`, `__over{n}`) and its exact form.
+    pub(super) speculated: std::cell::RefCell<HashMap<usize, (usize, String)>>,
     /// The operands, by address, an expression being lowered reads as the value a value-or-nothing holds (its cell
     /// among `precomputed`), with that value's type.
     pub(super) unpacked: std::cell::RefCell<HashMap<usize, CType>>,
@@ -1339,6 +1393,19 @@ impl<'a> CContext<'a> {
         }
     }
 
+    /// Whether the list `collection` evaluates to may promote (`Seq_i64.exact`), in the body being emitted: a local in
+    /// the current function's or Main's own slice of the decision (`seq_exact_vars`, set up the way `bigint_vars` is),
+    /// a call whose return may be promoted, or a literal built promoted (`exact::settle_tagged_seqs`).
+    pub(super) fn seq_may_promote(&self, collection: &Expr) -> bool {
+        match collection {
+            Expr::Identifier(t) => self.seq_exact_vars.contains(t),
+            Expr::Call { function, .. } => self.exact.seq_elem_returns.contains(function),
+            // An inline list literal read in place (`item k of [c, 7]`): the decision its build reads too.
+            Expr::List(_) => self.exact.literal_is_tagged(collection),
+            _ => false,
+        }
+    }
+
     pub(super) fn new(interner: &'a Interner, registry: &'a TypeRegistry) -> Self {
         Self {
             vars: HashMap::new(),
@@ -1352,6 +1419,8 @@ impl<'a> CContext<'a> {
             lifted: std::cell::RefCell::new(Vec::new()),
             lambda_ctr: std::cell::Cell::new(0),
             bigint_vars: std::collections::HashSet::new(),
+            exact_vars: std::collections::HashSet::new(),
+            seq_exact_vars: std::collections::HashSet::new(),
             number_locals: super::numbers::NumberLocals::default(),
             nonnegative_vars: std::collections::HashSet::new(),
             current_fn_returns: CType::Void,
@@ -1361,6 +1430,7 @@ impl<'a> CContext<'a> {
             stepped: None,
             stepped_fns: std::collections::HashSet::new(),
             precomputed: std::cell::RefCell::new(HashMap::new()),
+            speculated: std::cell::RefCell::new(HashMap::new()),
             unpacked: std::cell::RefCell::new(HashMap::new()),
             uses_concurrency: false,
             select_ctr: std::cell::Cell::new(0),
@@ -2054,6 +2124,10 @@ pub(super) fn collect_float_vars(
 /// What the C tier knows that the shared exactness decision ([`crate::analysis::exactness`]) does not: its locals
 /// that hold no `Int` (Reals and words), the variables that arrive exact, and the slots settled so far.
 struct CExactHost<'s> {
+    /// Whether arithmetic over machine words that nothing bounds may outgrow one (the program's decision), or is
+    /// taken to stay in one, so only a constant past the word or an exact source makes a variable exact (what a
+    /// variable DEFINITELY may hold past the word).
+    speculate: bool,
     bounded_updates: &'s std::collections::HashSet<usize>,
     no_int: &'s std::collections::HashSet<Symbol>,
     arriving: &'s std::collections::HashSet<Symbol>,
@@ -2101,6 +2175,9 @@ impl crate::analysis::exactness::AstHost for CExactHost<'_> {
     }
 
     fn fits_word(&self, e: &Expr) -> bool {
+        if !self.speculate {
+            return !int_exceeds_i64(e);
+        }
         let guarded_raw =
             matches!(
                 e,
@@ -2125,7 +2202,7 @@ pub(super) fn collect_bigint_vars(
     oracle: Option<&crate::optimize::OracleFacts>,
     seeds: &std::collections::HashSet<Symbol>,
 ) -> std::collections::HashSet<Symbol> {
-    exact_decision(body, None, no_int, interner, slots, oracle, seeds).vars
+    exact_decision(body, None, no_int, interner, slots, oracle, seeds, true).vars
 }
 
 /// The shared exactness decision ([`crate::analysis::exactness::body_exactness`]) for `body`, the body of `function`
@@ -2141,10 +2218,17 @@ pub(super) fn exact_decision(
     slots: &super::exact::ExactSlots,
     oracle: Option<&crate::optimize::OracleFacts>,
     seeds: &std::collections::HashSet<Symbol>,
+    speculate: bool,
 ) -> crate::analysis::exactness::BodyDecision {
     use logicaffeine_language::ast_depth::{walk_nodes, Visited, Walk};
     let mut arriving: std::collections::HashSet<Symbol> = seeds.iter().copied().collect();
-    arriving.extend(slots.program.iter().copied());
+    // A program binding a body reads arrives as exact as the decision being taken holds it: only a definitely exact
+    // one where the decision asks what definitely may pass the word.
+    if speculate {
+        arriving.extend(slots.program.iter().copied());
+    } else {
+        arriving.extend(slots.definite_program.iter().copied());
+    }
     walk_nodes(body, |node| {
         let (function, args) = match node {
             Visited::Stmt(Stmt::FunctionDef { .. }) | Visited::Expr(Expr::Closure { .. }) => {
@@ -2164,6 +2248,7 @@ pub(super) fn exact_decision(
     arriving.retain(|s| !no_int.contains(s));
     let empty = std::collections::HashSet::new();
     let host = CExactHost {
+        speculate,
         bounded_updates: &empty,
         no_int,
         arriving: &arriving,
@@ -2515,15 +2600,19 @@ pub(super) fn infer_expr_type(expr: &Expr, ctx: &CContext) -> CType {
                 // `complex(re, im)` → `LComplex`, whether the parts are integer (exact) or float
                 // (dyadic-rational, mirroring the interpreter's `ComplexF` — `cplx_reals` in emit.rs).
                 "complex" if args.len() == 2 => CType::Complex,
+                // `{a, b, …}` → the set of its items' type.
+                "setOf" if !args.is_empty() => set_of(infer_expr_type(&args[0], ctx)),
                 // Real / imaginary part extraction yields an `f64`.
                 "re" | "im" if args.len() == 1 => CType::Float64,
-                // |z| of an exact complex is its `f64` modulus.
+                // |z| of an exact complex is its `f64` modulus, and |x| of a `Real` is a `Real`.
                 "abs"
                     if args.len() == 1
-                        && matches!(infer_expr_type(&args[0], ctx), CType::Complex) =>
+                        && matches!(infer_expr_type(&args[0], ctx), CType::Complex | CType::Float64) =>
                 {
                     CType::Float64
                 }
+                // |n| of an exact integer is an exact integer.
+                "abs" if args.len() == 1 && infer_expr_type(&args[0], ctx) == CType::BigInt => CType::BigInt,
                 // `abs` of an exact Rational/Decimal stays exact (`LDec`) and of its own type; `floor`/`ceil`/`round`
                 // of one yield the exact integer (a tagged `LInt`, which may exceed i64 for a huge rational).
                 "abs"
@@ -2657,11 +2746,11 @@ pub(super) fn infer_expr_type(expr: &Expr, ctx: &CContext) -> CType {
                 "Map" => {
                     let key_type = type_args
                         .first()
-                        .map(|p| resolve_type_expr(p, ctx.interner))
+                        .map(|p| resolve_type_expr_with_registry(p, ctx.interner, Some(ctx.registry)))
                         .unwrap_or(CType::Int64);
                     let val_type = type_args
                         .get(1)
-                        .map(|p| resolve_type_expr(p, ctx.interner))
+                        .map(|p| resolve_type_expr_with_registry(p, ctx.interner, Some(ctx.registry)))
                         .unwrap_or(CType::Int64);
                     map_ctype(&key_type, &val_type)
                 }

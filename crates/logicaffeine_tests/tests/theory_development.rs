@@ -149,3 +149,133 @@ Theorem outer_five_segment: given not (A = B); given Bet(A, B, C); given Bet(Ap,
     }
     assert!(result.all_verified());
 }
+
+/// Andersen points-to as a development: allocation, assignment, store and load as four Horn rules,
+/// and the facts of one program as axioms. Every name in a fact is lowercase, so each is a free
+/// variable of the development — a fixed, arbitrary value (a context local), never instantiated —
+/// and several (`h1`, `h2`, `f`) share their spelling with the rules' bound variables. A rule's
+/// binder and a local of the same name are different variables: the search must keep them apart,
+/// prove what the rules derive, and refuse what they do not.
+fn points_to_development(extra: &str) -> String {
+    format!(
+        "\
+## Theory PointsTo
+
+Axiom new_x: VP0(x, h1).
+Axiom new_y: VP0(y, h2).
+Axiom copy_z: Assign(z, x).
+Axiom store_xf: Store(x, f, y).
+Axiom load_wzf: Load(z, f, w).
+
+Axiom alloc: for all v h, if VP0(v, h) then VP(v, h).
+Axiom assign: for all v1 v2 h, if Assign(v1, v2) and VP(v2, h) then VP(v1, h).
+Axiom store: for all v1 f v2 h1 h2, if Store(v1, f, v2) and VP(v1, h1) and VP(v2, h2) then HP(h1, f, h2).
+Axiom load: for all v1 f v2 h1 h2, if Load(v1, f, v2) and VP(v1, h1) and HP(h1, f, h2) then VP(v2, h2).
+
+{extra}"
+    )
+}
+
+#[test]
+fn a_rule_binder_never_captures_a_local_of_the_same_name() {
+    let result = compile_theory_for_ui(&points_to_development(
+        "\
+Theorem z_points_to_h1: prove VP(z, h1).
+Theorem field_holds_h2: prove HP(h1, f, h2).
+Theorem w_points_to_h2: prove VP(w, h2).
+",
+    ));
+    assert!(result.parse_error.is_none(), "parse error: {:?}", result.parse_error);
+    assert_eq!(result.axiom_count, 9);
+    assert_eq!(result.theorems.len(), 3);
+    for t in &result.theorems {
+        assert!(t.verified, "'{}' follows from the rules and must certify: {:?}", t.name, t.error);
+    }
+}
+
+#[test]
+fn a_fact_the_rules_do_not_derive_is_refused_not_a_panic() {
+    let result = compile_theory_for_ui(&points_to_development(
+        "\
+Theorem y_points_to_h1: prove VP(y, h1).
+Theorem w_points_to_h1: prove VP(w, h1).
+Theorem field_holds_h1: prove HP(h1, f, h1).
+",
+    ));
+    assert!(result.parse_error.is_none(), "parse error: {:?}", result.parse_error);
+    assert_eq!(result.theorems.len(), 3);
+    for t in &result.theorems {
+        assert!(!t.verified, "'{}' is not derivable and must be refused", t.name);
+        assert!(t.error.is_some(), "a refusal names its reason: '{}'", t.name);
+    }
+}
+
+#[test]
+fn the_same_development_with_constants_agrees_with_the_locals() {
+    // The constants reading (uppercase names) is the control: the verdicts must not depend on
+    // whether a fact's names are constants or locals.
+    let lower = points_to_development(
+        "\
+Theorem z_points_to_h1: prove VP(z, h1).
+Theorem y_points_to_h1: prove VP(y, h1).
+",
+    );
+    let upper = lower
+        .replace("(x, h1)", "(X, H1)")
+        .replace("(y, h2)", "(Y, H2)")
+        .replace("Assign(z, x)", "Assign(Z, X)")
+        .replace("Store(x, f, y)", "Store(X, F, Y)")
+        .replace("Load(z, f, w)", "Load(Z, F, W)")
+        .replace("VP(z, h1)", "VP(Z, H1)")
+        .replace("VP(y, h1)", "VP(Y, H1)");
+    let verdicts = |src: &str| -> Vec<bool> {
+        compile_theory_for_ui(src).theorems.iter().map(|t| t.verified).collect()
+    };
+    assert_eq!(verdicts(&upper), vec![true, false]);
+    assert_eq!(verdicts(&lower), verdicts(&upper));
+}
+
+#[test]
+fn a_rule_instantiated_at_a_local_certifies() {
+    // The witness of the instantiation is the local `x`: the certifier must apply the rule to the
+    // context local, not to a declaration of that spelling.
+    let result = compile_theory_for_ui(
+        "\
+## Theory Locals
+
+Axiom fact: P(x).
+Axiom rule: for all v, if P(v) then Q(v).
+
+Theorem direct: prove P(x).
+Theorem chained: prove Q(x).
+",
+    );
+    assert!(result.parse_error.is_none(), "parse error: {:?}", result.parse_error);
+    for t in &result.theorems {
+        assert!(t.verified, "'{}' must certify: {:?}", t.name, t.error);
+    }
+}
+
+#[test]
+fn a_local_spelled_like_a_hypothesis_still_rechecks() {
+    // `h1` and `h2` are locals here and also the names the trust door gives its first two
+    // hypotheses. The independent re-checker promotes locals to declarations; each must get a
+    // name of its own, or a hypothesis's type comes to mention itself.
+    let result = compile_theory_for_ui(
+        "\
+## Theory Locals
+
+Axiom f1: VP0(x, h1).
+Axiom f2: VP0(y, h2).
+Axiom f3: Store(x, f, y).
+Axiom alloc: for all p q, if VP0(p, q) then VP(p, q).
+Axiom store: for all s1 g s2 k1 k2, if Store(s1, g, s2) and VP(s1, k1) and VP(s2, k2) then HP(k1, g, k2).
+
+Theorem t1: prove HP(h1, f, h2).
+Theorem t2: prove HP(h2, f, h1).
+",
+    );
+    assert!(result.parse_error.is_none(), "parse error: {:?}", result.parse_error);
+    let verdicts: Vec<(&str, bool)> = result.theorems.iter().map(|t| (t.name.as_str(), t.verified)).collect();
+    assert_eq!(verdicts, vec![("t1", true), ("t2", false)]);
+}

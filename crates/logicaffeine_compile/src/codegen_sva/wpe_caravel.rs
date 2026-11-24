@@ -1,6 +1,6 @@
 //! The whole-program engine as a Caravel user project: the off-chip engine
 //! ([`wpe_offchip`](super::wpe_offchip)) on the Caravel user interface, its UART and its PSRAM on user
-//! GPIOs, clocked by `user_clock2` ([`WPE_CLOCK`]) and reset by the management SoC.
+//! GPIOs, clocked by the core clock `wb_clk_i` ([`WPE_CLOCK`]) and reset by the management SoC.
 //!
 //! One pin plan ([`WpePins`]) is the source of every place a pin appears: the macro's `io_out`/`io_oeb`
 //! wiring, the power-on GPIO modes of `user_defines.v`, and the testbench that runs a program through the
@@ -270,35 +270,35 @@ pub const WPE_CARAVEL_CAPS: [usize; 10] = [48, 32, 1072, 112, 16, 56, 64, 32_768
 /// The config image reaches the walk through a registered port only under the config-in-BRAM backend.
 pub const WPE_CARAVEL_BACKEND: MemBackend = MemBackend::ConfigBram;
 
-/// The harness clock the engine runs on. Caravel's chip signoff times the core clock, `wb_clk_i`, at 25 ns, and the
-/// management SoC and the bus run on it; `user_clock2` is the PLL's 90-degree phase through a divider of its own, so
-/// the engine runs at its own period while the management SoC stays at the one the chip is signed for.
-pub const WPE_CLOCK: HarnessClock = HarnessClock::User2;
+/// The harness clock the engine runs on: the core clock, `wb_clk_i`, which the management SoC and the bus run on too.
+/// Caravel's chip signoff times it at 25 ns; the engine's 48 ns is slower, so the chip runs the clock at the engine's
+/// period. A faster engine moves to `user_clock2`, the PLL's 90-degree phase through a divider of its own, which
+/// takes its own period while the management SoC keeps the one the chip is signed for.
+pub const WPE_CLOCK: HarnessClock = HarnessClock::Core;
 
-/// The shipped wiring: the pin plan, the 21 ns clock (47.62 MHz on `user_clock2`) and a 115200-baud host.
+/// The shipped wiring: the pin plan, the 48 ns clock (20.83 MHz on the core clock) and a 115200-baud host.
 ///
-/// The clock is the engine's own. Every float unit, the integer multiplier and the conversions are staged so no
-/// stage holds more than one carry chain, leading-one search, barrel shift or compressor tree, and the macro is
-/// hardened at this period (`CaravelProject::macro_period_ns`). The period is what the engine's slow corner meets
-/// (`signoff_blocks::honest_period_ns`): hardened at 18.5 ns and routed, its paths through a compare chain into the
-/// control and out through a fanout tree missed setup at ss_100C_1v60 by 1.13 ns on extracted parasitics, where the
-/// routing stage's repairs had closed on global-route estimates; hardened at 16 ns, the paths from the frame cache's
-/// hit into the stall that freezes every register, and from `blk_term_kind_r`, had missed by 1.48 ns. The off-chip
-/// memory follows it: the edge runs two engine cycles per SCLK half, so the 42 ns half period still covers a read's
-/// round trip through the harness and the board ([`WpeCaravel::read_round_trip_ps`]).
+/// 48 ns is the period the macro and its wrapper are signed off at, clean on every gate
+/// (`benchmarks/silicon/caravel_macro_signoff.json`, `caravel_signoff_wpe.json`; RUN_2026.09.28_20.20.58). Faster
+/// periods are not signed: hardened at 21 ns on `user_clock2`, the macro met timing at every corner but kept six
+/// antenna violators and six pins at the slew limit at max RC (RUN_2026.10.26_17.59.47); at 18.5 ns its paths through
+/// a compare chain into the control missed setup at ss_100C_1v60 by 1.13 ns on extracted parasitics; at 16 ns the
+/// paths from the frame cache's hit into the stall that freezes every register missed by 1.48 ns. The off-chip memory
+/// follows the clock: one engine cycle per SCLK half, a 48 ns half period that covers a read's round trip through the
+/// harness and the board ([`WpeCaravel::read_round_trip_ps`]).
 pub const WPE_CARAVEL: WpeCaravel = WpeCaravel {
-    clk_period_ps: 21_000,
+    clk_period_ps: 48_000,
     baud: 115_200,
     pins: WPE_PINS,
 };
 
-/// The shipped off-chip memories: the edge's cycle counts are timed at 16 ns with two engine cycles per SCLK
-/// half (a 64 ns SCLK), so every slower clock meets tPU, tRST, tCPH, tCLK and tACLK too, and its bursts are cut
-/// for 40 ns, where tCEM leaves two words a line; heap, frame stack and config image each get eight such lines.
+/// The shipped off-chip memories: the edge's cycle counts are timed at 20 ns with one engine cycle per SCLK half
+/// (a 40 ns SCLK), so every slower clock meets tPU, tRST, tCPH, tCLK and tACLK too, and its bursts are cut for 80 ns,
+/// where tCEM leaves two words a line; heap, frame stack and config image each get eight such lines.
 pub fn wpe_caravel_memory() -> OffchipMemory {
-    let edge = PsramEdge::new(APS6404L_3SQN, 16_000, 2)
-        .and_then(|e| e.clocked_down_to(40_000))
-        .expect("the part runs from 16 to 40 ns");
+    let edge = PsramEdge::new(APS6404L_3SQN, 20_000, 1)
+        .and_then(|e| e.clocked_down_to(80_000))
+        .expect("the part runs from 20 to 80 ns");
     let cache = PsramCache::new(&edge, 3, 1).expect("eight two-word lines");
     OffchipMemory {
         edge,
@@ -314,8 +314,8 @@ pub fn wpe_caravel_memory() -> OffchipMemory {
 ///
 /// The engine's reset crosses into its clock domain through two flops, asserted at once and released on the second
 /// edge after its source falls. The source is `wb_rst_i`, or logic-analyzer probe 0 while the management SoC drives
-/// it (`la_oenb[0]` low, efabless's override in `user_proj_example.v`): at power-on the PLL is bypassed and
-/// `user_clock2` is the pad clock, `caravel_clocking.v` moves it to the PLL with a plain select between the two, and
+/// it (`la_oenb[0]` low, efabless's override in `user_proj_example.v`): at power-on the PLL is bypassed and the
+/// engine's clock is the pad clock, `caravel_clocking.v` moves it to the PLL with a plain select between the two, and
 /// the firmware resets the engine after that switch, which a chip reset cannot do without bypassing the PLL again.
 /// The Wishbone slave runs on `wb_clk_i`, acknowledges every access and reads zero, so the management SoC never
 /// waits on the user area; the rest of the logic analyzer and the interrupts are unused.
@@ -508,6 +508,22 @@ pub fn emit_wpe_user_project_testbench(
     );
     let ns = |ps: u64| format!("{}.{:03}", ps / 1000, ps % 1000);
     let (d_out, d_oeb, d_in) = (ns(pads.out_ps), ns(pads.oeb_ps), ns(pads.in_ps));
+    // The engine's clock is the board's `clk`. On the core clock the chip runs `wb_clk_i` at the engine's period and
+    // `user_clock2` idles; on `user_clock2` the management SoC's `wb_clk_i` runs beside it at the period Caravel's
+    // chip signoff times the core clock at.
+    let (clocks, wb_clk, user_clock2) = match WPE_CLOCK {
+        HarnessClock::Core => (String::new(), "clk", "1'b0"),
+        HarnessClock::User2 => (
+            format!(
+                "\x20 // The management SoC's clock, at the period Caravel's chip signoff times it at; the engine's is clk.\n\
+                 \x20 reg wb_clk = 0;\n\
+                 \x20 always #{} wb_clk = ~wb_clk;\n",
+                core_clock_period_ns() / 2.0
+            ),
+            "wb_clk",
+            "clk",
+        ),
+    };
     let sio_in = p
         .psram_sio
         .iter()
@@ -559,14 +575,12 @@ pub fn emit_wpe_user_project_testbench(
          \x20 assign #({d_out}) psram_sclk = io_out[{sclk}];\n\
          {sio_out}\
          \x20 wire wbs_ack_o; wire [31:0] wbs_dat_o; wire [127:0] la_data_out; wire [2:0] user_irq;\n\
-         \x20 // The management SoC's clock, at the period Caravel's chip signoff times it at; the engine's is clk.\n\
-         \x20 reg wb_clk = 0;\n\
-         \x20 always #{wb_half} wb_clk = ~wb_clk;\n\
+         {clocks}\
          \x20 wpe_user_project dut (\n\
-         \x20   .wb_clk_i(wb_clk), .wb_rst_i(rst), .wbs_stb_i(1'b0), .wbs_cyc_i(1'b0), .wbs_we_i(1'b0), .wbs_sel_i(4'd0),\n\
+         \x20   .wb_clk_i({wb_clk}), .wb_rst_i(rst), .wbs_stb_i(1'b0), .wbs_cyc_i(1'b0), .wbs_we_i(1'b0), .wbs_sel_i(4'd0),\n\
          \x20   .wbs_dat_i(32'd0), .wbs_adr_i(32'd0), .wbs_ack_o(wbs_ack_o), .wbs_dat_o(wbs_dat_o),\n\
          \x20   .la_data_in(128'd0), .la_data_out(la_data_out), .la_oenb({{128{{1'b1}}}}),\n\
-         \x20   .io_in(io_in), .io_out(io_out), .io_oeb(io_oeb), .{clk}(clk), .user_irq(user_irq));\n\
+         \x20   .io_in(io_in), .io_out(io_out), .io_oeb(io_oeb), .user_clock2({user_clock2}), .user_irq(user_irq));\n\
          {directions}",
         rx = p.uart_rx,
         tx = p.uart_tx,
@@ -576,8 +590,9 @@ pub fn emit_wpe_user_project_testbench(
         s1 = p.psram_sio[1],
         s2 = p.psram_sio[2],
         s3 = p.psram_sio[3],
-        wb_half = core_clock_period_ns() / 2.0,
-        clk = WPE_CLOCK.port(),
+        clocks = clocks,
+        wb_clk = wb_clk,
+        user_clock2 = user_clock2,
     );
     board
         .replace(&dut, &user)

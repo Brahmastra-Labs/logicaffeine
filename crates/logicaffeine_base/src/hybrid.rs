@@ -60,8 +60,10 @@ fn quotient(a: &Algebraic, b: &Algebraic) -> Algebraic {
     a.div(b).expect("a divisor the run has checked is nonzero")
 }
 
+/// `m!`, exactly. The Lie series runs to `MAX_LIE_ORDER = 32` terms and `21!` is past `i64::MAX`,
+/// so the product is built in the exact field rather than in `i64`.
 fn factorial(m: usize) -> Algebraic {
-    alg((1..=m as i64).product::<i64>().max(1))
+    (2..=m).fold(alg(1), |acc, i| acc.mul(&alg(i as i64)))
 }
 
 /// `base^e` for any integer `e`, `base` nonzero when `e < 0`.

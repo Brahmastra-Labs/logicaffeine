@@ -12,6 +12,20 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SchedSeed(pub u64);
 
+impl SchedSeed {
+    /// The seed a run is scheduled under when its caller names none: `LOGOS_SEED` — what
+    /// `largo run --seed` sets and every compiled tier reads — and 0 when it is unset or not a
+    /// number. Off a host with an environment (the browser) it is always 0.
+    pub fn from_env() -> Self {
+        SchedSeed(
+            std::env::var("LOGOS_SEED")
+                .ok()
+                .and_then(|s| s.trim().parse::<u64>().ok())
+                .unwrap_or(0),
+        )
+    }
+}
+
 /// A small, deterministic, WASM-safe PRNG (SplitMix64).
 ///
 /// SplitMix64 is chosen for being tiny, allocation-free, and identical on every

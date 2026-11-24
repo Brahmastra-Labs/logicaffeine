@@ -823,27 +823,30 @@ impl ProofState {
 // proved lemma becoming a citable premise for later ones, every step kernel-checked.
 // =============================================================================
 
-/// One theorem of a scripted library: proved from its own `premises` plus the
-/// conclusions of the theorems it `cites`, by running `script` to a kernel-checked
-/// proof. The unit the [`prove_scripted_library`] driver discharges in citation order.
+/// One theorem of a scripted library: proved from its own `premises` plus what the
+/// theorems it `cites` state (each its premises implying its goal), by running `script`
+/// to a kernel-checked proof. The unit the [`prove_scripted_library`] driver discharges
+/// in citation order.
+#[derive(Debug, Clone)]
 pub struct ScriptedTheorem {
     pub name: String,
     pub premises: Vec<ProofExpr>,
     pub goal: ProofExpr,
     /// An English-esque proof script (see [`parse_script`]).
     pub script: String,
-    /// Names of earlier theorems whose conclusions this proof relies on.
+    /// Names of earlier theorems whose statements this proof relies on.
     pub cites: Vec<String>,
-    /// `[simp]`-tagged: once proved, this conclusion joins the simp pool and
-    /// is in scope for every LATER theorem's `simp` even without a citation.
+    /// `[simp]`-tagged: once proved, what this theorem states joins the simp pool
+    /// and is in scope for every LATER theorem's `simp` even without a citation.
     pub simp: bool,
 }
 
 /// Discharge a library of scripted theorems in citation order, on a shared `axioms`
 /// base. Each theorem is proved by its [`ScriptedTheorem::script`] from its premises,
-/// the axioms, and the conclusions of the theorems it cites (already proved); a proved
-/// conclusion becomes a citable lemma for later theorems — the scraped-Euclid-graph
-/// discipline, now driven by tactic scripts. Results come back in INPUT order.
+/// the axioms, and what the theorems it cites state (already proved); a proved theorem's
+/// statement, its premises implying its goal, becomes a citable lemma for later theorems —
+/// the scraped-Euclid-graph discipline, now driven by tactic scripts. Results come back in
+/// INPUT order.
 pub fn prove_scripted_library(
     axioms: &[ProofExpr],
     theorems: &[ScriptedTheorem],
@@ -861,7 +864,7 @@ pub fn prove_scripted_library(
 
     let mut proved: HashMap<String, ProofExpr> = HashMap::new();
     let mut by_name: HashMap<String, LibraryResult> = HashMap::new();
-    // Conclusions of proved `[simp]`-tagged theorems, in proof order: in scope
+    // Statements of proved `[simp]`-tagged theorems, in proof order: in scope
     // for every later theorem without an explicit citation.
     let mut simp_pool: Vec<ProofExpr> = Vec::new();
 
@@ -870,8 +873,8 @@ pub fn prove_scripted_library(
         let mut premises = axioms.to_vec();
         premises.extend(t.premises.iter().cloned());
         for cite in &t.cites {
-            if let Some(goal) = proved.get(cite) {
-                premises.push(goal.clone());
+            if let Some(statement) = proved.get(cite) {
+                premises.push(statement.clone());
             }
         }
         for lemma in &simp_pool {
@@ -881,18 +884,22 @@ pub fn prove_scripted_library(
         }
 
         let mut st = ProofState::start(premises, t.goal.clone());
-        let (verified, error) = match st.run_script(&t.script).err() {
-            Some(e) => (false, Some(e.0)),
+        let (verified, error, proof) = match st.run_script(&t.script).err() {
+            Some(e) => (false, Some(e.0), None),
             None => match st.qed() {
-                Ok(vp) => (vp.verified, vp.verification_error),
-                Err(e) => (false, Some(format!("{e:?}"))),
+                Ok(vp) => {
+                    let proof = vp.certified_proof();
+                    (vp.verified, vp.verification_error, proof)
+                }
+                Err(e) => (false, Some(format!("{e:?}")), None),
             },
         };
         if verified {
-            proved.insert(t.name.clone(), t.goal.clone());
+            let statement = crate::verify::theorem_statement(&t.premises, &t.goal);
             if t.simp {
-                simp_pool.push(t.goal.clone());
+                simp_pool.push(statement.clone());
             }
+            proved.insert(t.name.clone(), statement);
         }
         by_name.insert(
             t.name.clone(),
@@ -900,6 +907,7 @@ pub fn prove_scripted_library(
                 name: t.name.clone(),
                 verified,
                 verification_error: error,
+                proof,
             },
         );
     }

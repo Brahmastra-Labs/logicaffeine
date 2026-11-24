@@ -8,6 +8,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `interface::lean::profile`: the registered Lean import profiles — Lean 4.14.0 (Stage A, unchanged), 4.28.0, 4.33.1,
+  4.34.0-rc1 and 4.34.1 — each binding its toolchain, the release's commit, its `lean4export` (upstream revision,
+  structural-key patch, every source's SHA-256, the executable's reproducible digest per platform) and the axioms a
+  result may rest on, and the release facts the reader consults (each release's string-literal reading).
+  `intake::read_admitted` admits an export only under the profile its header names, with that release's own commit;
+  a header retagged to another release is `unsupported_toolchain`, also when the export's own `String` contradicts it.
+- The elaborator-have contract: a `letE` with `nondep: true` is translated and checked exactly as the ordinary let
+  Lean's kernel reads, and disclosed as the `SOURCE_METADATA` loss `letE.nondep = true` at its expression; a package's
+  replay recomputes every source-metadata disclosure from its carried export (`disclosure_mismatch`).
+- `interface::lean::statement`: statement packages (`logos-lean-statement-package/1`, results `logos-lean-result/2`,
+  replays `logos-lean-replay/2`, `proof_status: not_claimed`). `derive` writes the artifact `T.logos_statement`
+  deterministically from the original export — a theorem's type or a `Prop` definition's value, its selected closure
+  only, `answer(sorry)` holes as template parameters — `package::build_statement_observed` packages it with the
+  original export, and replay re-derives it and refuses any other proposition (`statement_derivation_mismatch`).
+  `statement::fingerprint` identifies a statement independently of export numbering. `pipeline::check_statement` runs
+  the stages over it.
+- `dag::assumptions`: Lean's assumption policy over an accepted export (`#print axioms` semantics, canonical
+  statements of `propext`, `Quot.sound`, `Classical.choice`), with one dependency path per refused axiom; and
+  `dag::arena::run_checked` (`largo lean check --assumptions/--json/--target/--bind`).
+- `arena-alloc` (off by default): mimalloc as the `logos_kernel` example's global allocator, for the forked workers'
+  concurrent allocation; the Arena entries build with it, every other build keeps the system allocator.
 - `lia::fourier_motzkin_unsat_within(constraints, budget) -> Option<bool>`: Fourier–Motzkin elimination that gives up
   (`None`) once a step would leave more than `budget` constraints. `fourier_motzkin_unsat` is the unbounded case and
   decides as before.
@@ -30,6 +51,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   tune it.
 
 ### Changed
+
+- The reference translator spells a Lean name as Lean prints it (`«0912.2382»`), and matches a lookup by that
+  spelling or by the unescaped dotted one, refusing the ambiguity the latter can create.
+- A package may carry the producing project's `lean-toolchain`, lakefile and `lake-manifest.json` under `source/`.
 
 - **The value engine checks Mathlib in 399.22 G instructions, from 402.35 G, every Arena verdict unchanged.** `is_def_eq` answers a settled pair before it spends a conversion step: a pair it has proven equal from the top of the call, before the machinery that first proved it, and a pair whose complete decision — every rule, η and proof irrelevance included — found unequal from a negative cache kept beside the proven one. A `false` verdict is total (running out of steps is an error, never a `false`) and conversion is a function of the interned pair, so the fact keeps; a lambda is left out, its η-inequality not the pair's alone. `whnf` returns a stuck local variable or an opaque head (an axiom, an opaque definition or an inductive type) without entering the reduction loop, neither ever head-reducing. Two applications of one head are compared without rebuilding it: when both neutrals carry one interned head id, the head is equal to itself, so neither its bare value nor its proof positions are read a second time. A spine is read and compared by index rather than copied to a list: `is_def_eq_app` and `type_of` step over its arguments through `Arena::spine_arg`/`arg`, skipping the proof positions, and `eqv_is_equiv` and `note_neq` write the proven and negative caches straight. Inferring a spine binds each argument where the function's type needs it — a Π in the environment, a lambda's type in the context — so the codomain is evaluated or inferred without a round trip; a recursor reads its major premise before the rest of its spine, so a stuck one copies none of it; `eval_app` reads the function value once a step; a checked inference the inference cache already holds is not redone; and a projection's type is read as the four numbers it needs, not a cloned inductive. The entry stays first on 234 of 247 tests and its peak holds at 7.87 GiB.
 - **The value engine checks Mathlib in 29% fewer instructions.** `logos_kernel --check sem`, built as the Lean Kernel Arena entry builds it, checks the Arena's whole Mathlib export in 409.15 G instructions, from 577.15 G (its first 2 GB in 118.60 G, from 163.86 G); the heavy `perf` cases fall by more than a quarter too (`magma-list-pair-n21` 25.92 → 18.98 G, `magma-list-deep-n36` 27.54 → 20.56 G), every verdict unchanged.

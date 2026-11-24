@@ -239,3 +239,76 @@ fn the_profile_page_is_not_sitemapped() {
     );
     assert!(!generate_sitemap().contains("/profile"));
 }
+
+/// The not-found page is prerendered (it becomes the site's root `404.html`) but is never a page of
+/// the sitemap, and its route is the router's catch-all.
+#[test]
+fn the_not_found_page_is_prerendered_but_never_sitemapped() {
+    assert!(
+        static_routes().contains(&NOT_FOUND_ROUTE.to_string()),
+        "the build does not prerender {NOT_FOUND_ROUTE}"
+    );
+    assert!(
+        !prerender_routes().contains(&NOT_FOUND_ROUTE.to_string()),
+        "{NOT_FOUND_ROUTE} is a sitemap route"
+    );
+    assert!(
+        !generate_sitemap().contains(&format!("{BASE_URL}{NOT_FOUND_ROUTE}<")),
+        "the sitemap lists {NOT_FOUND_ROUTE}"
+    );
+    let route = Route::from_str(NOT_FOUND_ROUTE).expect("the not-found route parses");
+    assert!(
+        matches!(route, Route::NotFound { .. }),
+        "{NOT_FOUND_ROUTE} is a real page, not the catch-all"
+    );
+    let mut expected = prerender_routes();
+    expected.push(NOT_FOUND_ROUTE.to_string());
+    assert_eq!(
+        static_routes(),
+        expected,
+        "the build prerenders more than the sitemap and the not-found page"
+    );
+}
+
+/// Every route with a parameter is either prerendered for each value it takes (the news articles)
+/// or a client-side route that `_redirects` rewrites to the app shell, so a new parameterized page
+/// can never fall through to the 404 page unnoticed.
+#[test]
+fn every_parameterized_route_is_prerendered_or_client_side() {
+    use dioxus::prelude::Routable;
+    use dioxus::router::routable::SegmentType;
+
+    // Parameterized routes whose every value is prerendered.
+    const ENUMERATED: &[&str] = &["/news/*"];
+
+    let mut parameterized = std::collections::BTreeSet::new();
+    for segment in Route::SITE_MAP {
+        for chain in segment.flatten() {
+            if chain.iter().any(|part| matches!(part, SegmentType::CatchAll(_))) {
+                continue;
+            }
+            let Some(first_parameter) = chain.iter().position(|part| part.to_static().is_none()) else {
+                continue;
+            };
+            let prefix: Vec<&str> = chain[..first_parameter]
+                .iter()
+                .filter_map(SegmentType::to_static)
+                .filter(|part| !part.is_empty())
+                .collect();
+            parameterized.insert(format!("/{}/*", prefix.join("/")));
+        }
+    }
+    assert!(
+        parameterized.contains("/news/*") && parameterized.contains("/workspace/*"),
+        "site-map walk looks broken, found only: {parameterized:?}"
+    );
+    let declared: std::collections::BTreeSet<String> = CLIENT_SIDE_ROUTES
+        .iter()
+        .chain(ENUMERATED)
+        .map(|route| route.to_string())
+        .collect();
+    assert_eq!(
+        parameterized, declared,
+        "the parameterized routes are not the client-side and enumerated ones"
+    );
+}

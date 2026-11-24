@@ -14,20 +14,24 @@ ALLOWED_ORIGINS = "https://logicaffeine.com,https://www.logicaffeine.com,https:/
 # The one recipient the worker ever mails; the prospect appears only as reply_to.
 NOTIFY_TO = "team@datacenter.dev"
 # On datacenter.dev, the domain verified in the Resend account that owns RESEND_API_KEY.
-NOTIFY_FROM = "pricing@datacenter.dev"
+NOTIFY_FROM = "team@datacenter.dev"
+# INTERIM (2026-11-04): the live page still carries Cloudflare's public testing site key, so verdicts
+# Cloudflare marks as made with its testing keys are accepted, with TURNSTILE_SECRET set to the
+# matching testing secret. Set this to "false" and the real secret the day the page ships the real
+# site key. The honeypot, the validators and both rate limits hold either way.
+TURNSTILE_ACCEPT_TESTING_KEY = "true"
 
-# GO-LIVE: `npx wrangler secret put TURNSTILE_SECRET` (the pricing form widget's secret key) and
+# GO-LIVE: `npx wrangler secret put TURNSTILE_SECRET` (the contact form widget's secret key) and
 # `npx wrangler secret put RESEND_API_KEY` (a Resend key with Sending access only, restricted to
 # datacenter.dev). Neither value ever goes in the repository, a file or chat.
 [secrets]
 required = ["TURNSTILE_SECRET", "RESEND_API_KEY"]
 
-# GO-LIVE: replace database_id with the id `npm run db:create` prints. The all-zero placeholder
-# fails the deploy workflow on purpose; without an id, wrangler would provision a database itself.
+# The leads database, created in the account that owns logicaffeine.com on 2026-11-04.
 [[d1_databases]]
 binding = "DB"
 database_name = "logos-leads"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "a5402bb8-7f6b-4f2e-8860-b56e81ca3cfa"
 migrations_dir = "migrations"
 
 # GO-LIVE: rate limit namespace ids are unique per account; confirm 1301 and 1302 are free.

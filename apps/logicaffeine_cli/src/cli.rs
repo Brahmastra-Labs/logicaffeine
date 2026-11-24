@@ -218,6 +218,12 @@ pub enum Commands {
         #[arg(long, short)]
         release: bool,
 
+        /// Lower the program's tasks and pipes onto OS threads (tokio) instead of the deterministic replay
+        /// executor, whose schedule every other tier runs. For work that truly runs in parallel; the order of
+        /// output from concurrent tasks may then differ from run to run.
+        #[arg(long)]
+        threads: bool,
+
         /// Run Z3 static verification after compilation (the full build).
         #[arg(long)]
         verify: bool,
@@ -314,6 +320,12 @@ pub enum Commands {
         /// Build with optimizations enabled.
         #[arg(long, short)]
         release: bool,
+
+        /// Lower the program's tasks and pipes onto OS threads (tokio) instead of the deterministic replay
+        /// executor, whose schedule every other tier runs. For work that truly runs in parallel; the order of
+        /// output from concurrent tasks may then differ from run to run.
+        #[arg(long)]
+        threads: bool,
 
         /// Run in-process on the bytecode VM (JIT where available) instead of building Rust.
         /// Gives fast feedback but lacks full compiled-Rust performance.
@@ -777,7 +789,7 @@ pub enum Commands {
     /// Node.js host shim. Without FILE, uses the current project's entry;
     /// with FILE, works on any standalone `.lg`/`.md` source.
     #[command(
-        after_help = "Examples:\n  largo emit rust\n  largo emit rust -o generated.rs\n  largo emit c standalone.lg\n  largo emit wasm\n  largo emit wasm-linked -o dist/app.wasm\n  largo emit rdu --chip sn50 qwen38_tiny.lg -o out/\n  largo emit rdu --format vllm qwen38_tiny.lg\n  largo emit rdu --model qwen38 -o qwen38_sn50/\n  largo emit rdu --model qwen38 --ctx 4096 -o qwen38_sn50_decode/\n  largo emit rdu --model qwen38 --ctx 4096 --batch 8 -o qwen38_sn50_batch8/\n  largo emit rdu --model qwen38 --ctx 4096 --tp 8 -o qwen38_sn50_tp8/\n  largo emit rdu --model qwen38 --ctx 4096 --prefill 512 -o qwen38_sn50_prefill/"
+        after_help = "Examples:\n  largo emit rust\n  largo emit rust -o generated.rs\n  largo emit c standalone.lg\n  largo emit wasm\n  largo emit wasm-linked -o dist/app.wasm\n  largo emit rdu --chip sn50 qwen38_tiny.lg -o out/\n  largo emit rdu --format vllm qwen38_tiny.lg\n  largo emit rdu --model qwen38 -o qwen38_sn50/\n  largo emit rdu --model qwen38 --ctx 4096 -o qwen38_sn50_decode/\n  largo emit rdu --model qwen38 --ctx 4096 --batch 8 -o qwen38_sn50_batch8/\n  largo emit rdu --model qwen38 --ctx 4096 --tp 8 -o qwen38_sn50_tp8/\n  largo emit rdu --model qwen38 --ctx 4096 --prefill 512 -o qwen38_sn50_prefill/\n  largo emit rdu --graph net.pt2 -o net_sn50/"
     )]
     Emit {
         /// What to emit.
@@ -813,6 +825,13 @@ pub enum Commands {
         /// Needs `-o DIR`.
         #[arg(long, value_name = "MODEL")]
         model: Option<String>,
+
+        /// `emit rdu`: lower a network exported by `torch.export` (`torch.export.save`'s `.pt2` archive) from its graph
+        /// alone — its linear layers, GELU (exact or tanh), ReLU, SiLU, sigmoid, sums and products, an ATen op it does
+        /// not map refused by name — as one certified program, the program the author writes of the graph
+        /// (`program.lg`) and a manifest binding its input and every parameter to the archive. Needs `-o DIR`.
+        #[arg(long, value_name = "PT2", conflicts_with = "model")]
+        graph: Option<PathBuf>,
 
         /// `emit rdu --model`: lower the DECODE deployment with a KV cache of CTX positions — an embedding
         /// program, layer kinds whose attention appends to and reads the cache, and a head that emits the next
@@ -865,7 +884,7 @@ pub enum Commands {
     Bringup {
         /// The model's GGUF checkpoint.
         checkpoint: PathBuf,
-        /// The chips to bring the model up on, comma-separated: `vm`, `jit`, `c`, `rust`, `riscv-qemu`, `wasm`, `cuda`, `d5005`, `sn50`, `fabric`. Every one when absent.
+        /// The chips to bring the model up on, comma-separated: `vm`, `jit`, `c`, `rust`, `riscv-qemu`, `wasm`, `cpu`, `cuda`, `d5005`, `sn50`, `fabric`. Every one when absent.
         #[arg(long = "target", value_name = "CHIP", value_delimiter = ',')]
         targets: Vec<String>,
         /// The positions the decode step's caches hold.
@@ -945,6 +964,83 @@ pub enum Commands {
     Expand {
         /// The source file to expand.
         file: PathBuf,
+    },
+
+    /// Evaluate a theory's rules bottom-up as Datalog: every relation they derive, its least model.
+    ///
+    /// The file's `## Theory` (and `## Axiom` blocks) are read as ground facts and Horn rules and evaluated
+    /// semi-naively, stratum by stratum under stratified negation. `--bdd` evaluates again over binary decision
+    /// diagrams and gives each relation's diagram size; `--certify` proves every derived fact in the kernel.
+    /// `--contexts` numbers every call path of the theory's `Calls(caller, site, callee)` facts and evaluates over
+    /// diagrams with the rules reading each method's contexts, bddbddb's context sensitivity.
+    #[command(
+        after_help = "Examples:\n  largo datalog points_to.lg\n  largo datalog points_to.lg --bdd --certify\n  largo datalog points_to.lg --json\n  largo datalog calls.lg --contexts"
+    )]
+    Datalog {
+        /// The `.lg` file whose `## Theory` (and `## Axiom` blocks) state the facts and rules.
+        file: PathBuf,
+
+        /// Also evaluate over binary decision diagrams and give each relation's diagram size.
+        #[arg(long)]
+        bdd: bool,
+
+        /// Prove every derived fact in the kernel from the theory's axioms.
+        #[arg(long)]
+        certify: bool,
+
+        /// Print the model as JSON.
+        #[arg(long)]
+        json: bool,
+
+        /// Number every call path of the theory's `Calls(caller, site, callee)` facts and evaluate over binary decision
+        /// diagrams, the rules reading `Context(method, c)` and `CallContext(c, site, d, callee)`.
+        #[arg(long, conflicts_with = "certify")]
+        contexts: bool,
+    },
+
+    /// What each variable of a program may point to: its statements read as facts and Whaley and Lam's points-to
+    /// rules evaluated over them.
+    ///
+    /// Prints each function's variables with the allocation sites each may hold, the heap's field edges and what each
+    /// site allocates. `--contexts` analyzes every call path as its own context.
+    #[command(after_help = "Examples:\n  largo points-to src/main.lg\n  largo points-to src/main.lg --contexts --json")]
+    PointsTo {
+        /// The program to analyze.
+        file: PathBuf,
+
+        /// Analyze every call path as its own context.
+        #[arg(long)]
+        contexts: bool,
+
+        /// Print the analysis as JSON.
+        #[arg(long)]
+        json: bool,
+    },
+
+    /// Build a Futamura projection with the offline specializer.
+    ///
+    /// `p1 FILE` specializes the self-interpreter to a program and prints the residual program, reporting its
+    /// interpretive dispatch (zero is Jones optimality); `p2` specializes the specializer to the self-interpreter and
+    /// prints the compiler; `p3` specializes the specializer to itself and prints the compiler generator, which
+    /// `--check` runs on the self-interpreter to confirm it regenerates the second projection's compiler.
+    #[command(
+        after_help = "Examples:\n  largo specialize p1 fact.lg\n  largo specialize p2 -o compiler.lg\n  largo specialize p3 -o cogen.lg --check"
+    )]
+    Specialize {
+        /// Which projection: `p1` (a residual program), `p2` (a compiler), `p3` (a compiler generator).
+        #[arg(value_enum)]
+        projection: crate::commands::specialize::Projection,
+
+        /// The program the first projection specializes the self-interpreter to.
+        file: Option<PathBuf>,
+
+        /// Write the artifact here instead of stdout.
+        #[arg(long, short)]
+        output: Option<PathBuf>,
+
+        /// `p3`: run the compiler generator on the self-interpreter and check it regenerates `p2`'s compiler.
+        #[arg(long)]
+        check: bool,
     },
 
     /// Remove build artifacts.
@@ -1161,11 +1257,16 @@ pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
             commands::new::cmd_new(&name, scaffold)
         }
         Commands::Init { name } => commands::new::cmd_init(name.as_deref()),
-        Commands::Build { release, verify, lib, target, native_functions, emit, json, manifest, r#static } => {
+        Commands::Build { release, threads, verify, lib, target, native_functions, emit, json, manifest, r#static } => {
             if r#static {
                 return commands::build::cmd_build_static();
             }
-            commands::build::cmd_build(release, verify, lib, target, native_functions, emit, json, manifest)
+            let build = || commands::build::cmd_build(release, verify, lib, target, native_functions, emit, json, manifest);
+            if threads {
+                logicaffeine_compile::codegen::with_threaded_concurrency(build)
+            } else {
+                build()
+            }
         }
         Commands::Run { emit: Some(e), args, .. } if e == "wasm" => commands::run::cmd_run_wasm(&args, false),
         Commands::Run { emit: Some(e), args, .. } if e == "wasm-linked" => commands::run::cmd_run_wasm(&args, true),
@@ -1195,16 +1296,23 @@ pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
                     .unwrap_or(logicaffeine_compile::ui_bridge::Engine::Auto),
             )
         }
-        Commands::Run { release, args, max_steps, timeout, seed, json, .. } => {
-            commands::run::cmd_run(
-                release,
-                crate::project::build::Backend::Rust,
-                &args,
-                max_steps,
-                timeout.as_deref(),
-                seed,
-                json,
-            )
+        Commands::Run { release, threads, args, max_steps, timeout, seed, json, .. } => {
+            let run = || {
+                commands::run::cmd_run(
+                    release,
+                    crate::project::build::Backend::Rust,
+                    &args,
+                    max_steps,
+                    timeout.as_deref(),
+                    seed,
+                    json,
+                )
+            };
+            if threads {
+                logicaffeine_compile::codegen::with_threaded_concurrency(run)
+            } else {
+                run()
+            }
         }
         Commands::Serve { timeout, seed, watch, open, port, host, as_backend, args } => {
             // The hidden child mode first: the full-stack parent spawned us to
@@ -1249,7 +1357,9 @@ pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
         Commands::Add { spec, path, git } => commands::deps::cmd_add(spec, path, git),
         Commands::Remove { name } => commands::deps::cmd_remove(name),
         Commands::Fmt { paths, check, json } => commands::fmt::cmd_fmt(paths, check, json),
-        Commands::Emit { target, file, output, chip, format, bridge, model, ctx, batch, tp, prefill, cache } => commands::emit::cmd_emit(target, file, output, chip, format, bridge, model, ctx, batch, tp, prefill, cache),
+        Commands::Emit { target, file, output, chip, format, bridge, model, graph, ctx, batch, tp, prefill, cache } => {
+            commands::emit::cmd_emit(target, file, output, chip, format, bridge, model, graph, ctx, batch, tp, prefill, cache)
+        }
         Commands::Bringup { checkpoint, targets, ctx, output, run, tokens, prompt, golden, prompts } => {
             let run = run.then_some(commands::bringup::RunArgs { tokens, prompt, golden, prompts });
             commands::bringup::cmd_bringup(checkpoint, targets, ctx, output, run)
@@ -1259,6 +1369,13 @@ pub fn run_cli() -> Result<(), Box<dyn std::error::Error>> {
         }
         Commands::CheckDrop { dir, weights } => commands::drop::cmd_check_drop(dir, weights),
         Commands::Expand { file } => commands::expand::cmd_expand(file),
+        Commands::PointsTo { file, contexts, json } => commands::points_to::cmd_points_to(file, contexts, json),
+        Commands::Datalog { file, bdd, certify, json, contexts } => {
+            commands::datalog::cmd_datalog(file, bdd, certify, json, contexts)
+        }
+        Commands::Specialize { projection, file, output, check } => {
+            commands::specialize::cmd_specialize(projection, file, output, check)
+        }
         Commands::Clean { all } => commands::clean::cmd_clean(all),
         Commands::Completions { shell } => commands::completions::cmd_completions(shell),
         Commands::Replay { file, verify } => commands::replay::cmd_replay(file, verify),

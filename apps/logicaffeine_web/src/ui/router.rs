@@ -73,7 +73,7 @@ pub enum Route {
     /// Privacy policy at `/privacy`.
     ///
     /// `/privacy#<section>` opens at that section of the policy; the contact form's privacy note
-    /// links `#pricing-requests`.
+    /// links `#contact-requests`.
     #[route("/privacy#:section")]
     Privacy {
         /// The section to open at (an id in the policy), or empty for the top of the page.
@@ -209,9 +209,15 @@ pub fn replace_bar_url(url: &str) {
 #[path = "../../../../crates/logicaffeine_tests/unit/logicaffeine_web/ui/router/tests.rs"]
 mod tests;
 
+/// The 404 page. It is prerendered at [`crate::sitemap::NOT_FOUND_ROUTE`] into the site's root
+/// `404.html`, so it names no canonical address and asks crawlers not to index it.
 #[component]
 fn NotFound(route: Vec<String>) -> Element {
     rsx! {
+        document::Title { "Page not found | LOGICAFFEINE" }
+        if cfg!(not(target_arch = "wasm32")) {
+            document::Meta { name: "robots", content: "noindex" }
+        }
         div {
             style: "min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%); color: #e8e8e8;",
             h1 { style: "font-size: 48px; margin-bottom: 16px;", "404" }

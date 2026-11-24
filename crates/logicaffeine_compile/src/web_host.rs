@@ -214,7 +214,36 @@ pub fn browser_host_html_with_head(
 }
 
 /// The HTML shell that loads a LOGOS→WASM DOM app, with a page's own `Head:` merged
-/// over the defaults.
+/// over the defaults — [`browser_host_html_composed`] for a page linking no site stylesheets.
+pub fn browser_host_html_themed(
+    name: &str,
+    declared: Option<&str>,
+    favicon: Option<&str>,
+    theme: ShellTheme,
+) -> String {
+    browser_host_html_composed(name, declared, favicon, theme, "")
+}
+
+/// Is `tag` a `<link rel="stylesheet">`?
+fn is_stylesheet_link(tag: &str) -> bool {
+    crate::semantics::dom::parse_head(tag).first().is_some_and(|t| {
+        t.tag == "link"
+            && t.attrs.get("rel").is_some_and(|rel| {
+                rel.split_ascii_whitespace()
+                    .any(|r| r.eq_ignore_ascii_case("stylesheet"))
+            })
+    })
+}
+
+/// The HTML shell that loads a LOGOS→WASM DOM app, with a page's own `Head:` merged
+/// over the defaults, and `site_stylesheets` — the `<link>`s a site gives every page — linked
+/// in their place in the cascade.
+///
+/// ★ THE THEME COMES FIRST, SO ANYTHING A SITE WRITES BEATS IT. A stylesheet cascades over
+/// everything before it, so the order is the order of authority: the built-in theme, then the
+/// site's own stylesheets, then the ones the page links in its `Head:`, in the order it wrote
+/// them. A page's own links used to land BEFORE the theme, so every rule of equal weight in them
+/// lost to it while the same rules in a site stylesheet won.
 ///
 /// The one merge every document builder reads — `largo build`'s pre-render, `largo serve`'s dev
 /// response and `largo emit` — so development and production serve the same document.
@@ -222,11 +251,12 @@ pub fn browser_host_html_with_head(
 /// stands in for the built-in clay-λ data URI as the DEFAULT — so a page that declares
 /// its own `<link rel="icon">` still wins over both. `theme` is whether the built-in theme
 /// comes with it.
-pub fn browser_host_html_themed(
+pub fn browser_host_html_composed(
     name: &str,
     declared: Option<&str>,
     favicon: Option<&str>,
     theme: ShellTheme,
+    site_stylesheets: &str,
 ) -> String {
     let declared: Vec<String> = declared.map(split_head_tags).unwrap_or_default();
     // A page declares its language in `Head:` as `<html lang="…">` (default `en`). `lang` is what
@@ -250,7 +280,10 @@ pub fn browser_host_html_themed(
         .into_iter()
         .filter(|d| head_identity(d).is_none_or(|k| !claimed.contains(&k)))
         .collect();
+    let (page_stylesheets, declared): (Vec<String>, Vec<String>) =
+        declared.into_iter().partition(|t| is_stylesheet_link(t));
     head.extend(declared);
+    let page_stylesheets: String = page_stylesheets.iter().map(|t| format!("{t}\n")).collect();
     // The module script sits in the HEAD (module scripts run after parsing, so placement does not
     // delay it), which leaves the body holding exactly the page: a pre-render replaces the
     // `<body>\n` line with the body and its markup, and the host adopts every child of the body as
@@ -260,11 +293,19 @@ pub fn browser_host_html_themed(
         ShellTheme::None => String::new(),
     };
     format!(
-        "<!doctype html>\n<html lang=\"{lang}\">\n<head>\n{head}\n{style}\
-         <script type=\"module\" src=\"./{name}.js\"></script>\n</head>\n<body>\n</body>\n</html>\n",
+        "<!doctype html>\n<html lang=\"{lang}\">\n<head>\n{head}\n{style}{site_stylesheets}{page_stylesheets}{script}\n</head>\n<body>\n</body>\n</html>\n",
         lang = escape_html(&lang),
         head = head.join("\n"),
+        script = module_script_tag(&format!("./{name}.js")),
     )
+}
+
+/// The `<script>` a page's document loads its module with, from `src`.
+///
+/// One spelling, so a build that renames the module rewrites exactly this tag — never a stretch of
+/// the page's own text that happens to name a file like the page.
+pub fn module_script_tag(src: &str) -> String {
+    format!("<script type=\"module\" src=\"{src}\"></script>")
 }
 
 /// `document` carrying the visitor's CSRF `token` in its head, as `<meta name="csrf-token">` — what
@@ -388,7 +429,13 @@ pub fn error_overlay_html_in(
 /// fires event/fetch callbacks through the exported `__logos_call_closure`
 /// trampoline. Loading the emitted `.wasm` and calling `main()` builds the page.
 pub fn browser_host_js(name: &str) -> String {
-    let wasm_ref = serde_json::to_string(&format!("./{name}.wasm")).expect("json");
+    browser_host_js_at(&format!("./{name}.wasm"))
+}
+
+/// [`browser_host_js`] loading its module from `wasm_url` — the address a build publishes the
+/// module at, which may be a content-addressed name.
+pub fn browser_host_js_at(wasm_url: &str) -> String {
+    let wasm_ref = serde_json::to_string(wasm_url).expect("json");
     // The runtime is a real file (`assets/web/runtime.js`), read at build time. The only thing
     // that varies per page is where the module lives, so that is all the caller supplies.
     format!("const WASM_URL = {wasm_ref};\n{}", BROWSER_RUNTIME_JS)
@@ -473,8 +520,10 @@ pub const FMT_F64_JS: &str = "const fmtF = (v) => {
 /// tagged word is `BigInt`, an even one the integer `t >> 1`, an odd one a slot of `exactHeld` that a dropped
 /// handle gives back to `exactFree`. The arithmetic is `BigInt`'s, which truncates a quotient and gives a
 /// remainder the dividend's sign as the reference tier does; a floored quotient corrects the truncated one.
-/// `Number` of a `BigInt` is the nearest binary64, ties to even, as an `Int` widens to a Real. The node shim
-/// interpolates it and `runtime.js` carries the same text (`exact_int_every_tier_lock`).
+/// `Number` of a `BigInt` is the nearest binary64, ties to even, as an `Int` widens to a Real. Text reads as an
+/// integer as the reference's `parseInt` reads it (`str::trim`, then `str::parse::<i64>`): every digit of the word,
+/// and a refusal in its words of anything else. The node shim interpolates it and `runtime.js` carries the same text
+/// (`exact_int_every_tier_lock`).
 pub const EXACT_INT_JS: &str = "const exactHeld = [], exactFree = [];
 const exactValue = (t) => ((t & 1n) === 0n ? t >> 1n : exactHeld[Number(t >> 1n)]);
 const exactWord = (v) => {
@@ -482,6 +531,14 @@ const exactWord = (v) => {
   const h = exactFree.length > 0 ? exactFree.pop() : exactHeld.length;
   exactHeld[h] = v;
   return (BigInt(h) << 1n) | 1n;
+};
+const parseIntExactly = (text) => {
+  const s = text.replace(/^\\p{White_Space}+|\\p{White_Space}+$/gu, '');
+  if (/^[+-]?[0-9]+$/.test(s)) {
+    const v = BigInt(s);
+    if (v >= -(1n << 63n) && v < (1n << 63n)) return v;
+  }
+  throw new Error(`Cannot parse '${text}' as Int`);
 };
 const exactImports = {
   exact_box: (v) => exactWord(v),
@@ -504,14 +561,27 @@ const exactImports = {
 /// into the document it ships, and [`assemble_preview_painted`] into a preview's frame; either way
 /// the page's mount adopts it (`data-logos-prerendered`) rather than drawing it again.
 pub fn first_paint(source: &str) -> Result<String, String> {
+    first_paint_at(source, None)
+}
+
+/// [`first_paint`] with the page booted AT `location` — a URL its `Paths:` declared, optionally
+/// with a query — so a parameterized page's markup is the page for that address, its parameters
+/// bound exactly as a browser binds them. `None` boots it at its own declared path.
+pub fn first_paint_at(source: &str, location: Option<&str>) -> Result<String, String> {
     crate::semantics::dom::reset();
-    // The markup a reader without scripts sees is the page at its own URL: `routePath()` answers
-    // the `## Page` path during the render, as it does on every tier a `## Test` runs.
-    crate::ui_bridge::with_parsed_program(source, |parsed, interner| {
-        if let Ok((stmts, ..)) = parsed {
-            crate::page_host::boot_at_declared_route(stmts, interner);
+    match location {
+        Some(url) => {
+            let (path, query) = url.split_once('?').unwrap_or((url, ""));
+            crate::semantics::dom::init_route(path, query);
         }
-    });
+        // The markup a reader without scripts sees is the page at its own URL: `routePath()`
+        // answers the `## Page` path during the render, as it does on every tier a `## Test` runs.
+        None => crate::ui_bridge::with_parsed_program(source, |parsed, interner| {
+            if let Ok((stmts, ..)) = parsed {
+                crate::page_host::boot_at_declared_route(stmts, interner);
+            }
+        }),
+    }
     let out = crate::compile::vm_outcome(source);
     if let Some(e) = out.error {
         return Err(e);
@@ -818,7 +888,7 @@ const env = {{
   fmt_seq_i64_into: (buf, h) => writeStr(buf, '[' + seqInts(h, (d, a) => d.getBigInt64(a, true).toString()).join(', ') + ']'),
   fmt_seq_bool_into: (buf, h) => writeStr(buf, '[' + seqInts(h, (d, a) => (d.getBigInt64(a, true) !== 0n).toString()).join(', ') + ']'),
   fmt_set_i64_into: (buf, h) => writeStr(buf, '{{' + seqInts(h, (d, a) => d.getBigInt64(a, true).toString()).join(', ') + '}}'),
-  parse_int: (h) => BigInt(parseInt(readText(h).trim(), 10) || 0),
+  parse_int: (h) => parseIntExactly(readText(h)),
   parse_float: (h) => parseFloat(readText(h).trim()),
   read_reals: (h) => {{
     // The file's binary64 values, little-endian as the module's memory is, on a page the shim grows (the

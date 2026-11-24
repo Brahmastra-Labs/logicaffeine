@@ -192,3 +192,39 @@ fn test_session_logic_and_or() {
     )));
     assert!(result.is_ok(), "!(true && false) should be provable");
 }
+
+#[test]
+fn an_equation_between_different_sorts_is_never_proved_and_never_crashes() {
+    let mut session = VerificationSession::new();
+    session.declare("n", VerifyType::Int);
+    session.declare("p", VerifyType::Bool);
+    let mixed = VerifyExpr::eq(VerifyExpr::var("n"), VerifyExpr::var("p"));
+    assert!(session.verify(&mixed).is_err(), "an ill-sorted equation is not a theorem");
+    assert!(session.verify(&VerifyExpr::not(mixed)).is_err(), "nor is its negation");
+}
+
+#[test]
+fn an_assumption_the_encoder_cannot_read_never_makes_a_false_goal_provable() {
+    let mut session = VerificationSession::new();
+    session.declare("n", VerifyType::Int);
+    session.declare("p", VerifyType::Bool);
+    // `p > n` compares a Bool with an Int: unreadable. Assumed, it must constrain nothing.
+    session.assume(&VerifyExpr::gt(VerifyExpr::var("p"), VerifyExpr::var("n")));
+    session.assume(&VerifyExpr::and(VerifyExpr::var("n"), VerifyExpr::var("p")));
+    session.assume(&VerifyExpr::eq(VerifyExpr::var("n"), VerifyExpr::var("p")));
+    assert!(
+        session.verify(&VerifyExpr::bool(false)).is_err(),
+        "unreadable assumptions made `false` provable: they were encoded as a contradiction"
+    );
+}
+
+#[test]
+fn a_goal_the_encoder_cannot_read_is_never_proved() {
+    let mut session = VerificationSession::new();
+    session.declare("n", VerifyType::Int);
+    session.declare("p", VerifyType::Bool);
+    let unreadable_implication = VerifyExpr::implies(VerifyExpr::var("n"), VerifyExpr::var("p"));
+    assert!(session.verify(&unreadable_implication).is_err(), "an implication between non-propositions was proved");
+    let unreadable_body = VerifyExpr::forall(vec![("x".to_string(), VerifyType::Int)], VerifyExpr::var("x"));
+    assert!(session.verify(&unreadable_body).is_err(), "a quantifier over a non-proposition was proved");
+}

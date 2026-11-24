@@ -115,9 +115,13 @@ pub(crate) fn extract_counted_while<'a>(
     }
 
     // No symbol appearing in the limit may be mutated (value or collection) in
-    // the body — otherwise the trip count is not loop-invariant.
+    // the body — otherwise the trip count is not loop-invariant. The counter is
+    // one: its increment moves a bound that reads it (`While p <= n - p`).
     let mut limit_syms = Vec::new();
     collect_expr_symbols(limit_expr, &mut limit_syms);
+    if limit_syms.contains(&counter_sym) {
+        return None;
+    }
     for sym in &limit_syms {
         if body_modifies_var(body_without_increment, *sym)
             || body_mutates_collection(body_without_increment, *sym)

@@ -1,0 +1,107 @@
+{
+  "schema": "logos-lean-exporter-recipes/1",
+  "repository": "https://github.com/leanprover/lean4export",
+  "archive_url": "https://codeload.github.com/leanprover/lean4export/tar.gz/{revision}",
+  "structural_patch": "lean4export-structural.json",
+  "structural_patch_sha256": "ef137e3990e9205d3b172ce7f129565def6fcd4f00cd46471a91b5b08cccba5b",
+  "exporters": {
+    "4.14.0": {
+      "toolchain": "leanprover/lean4:v4.14.0",
+      "lean_githash": "410fab7284703f41660ca2454218dcca9b2ec896",
+      "revision": "20c4a64aa1b76f7c79a6db15d089084359f8c3dc",
+      "upstream_tag": null,
+      "archive_sha256": "8c602d35c28462b924b57f4b519b817dd17d963fa75764732889af6c121d1cf3",
+      "structural": false,
+      "form": "interpreted",
+      "sources": {
+        "Export.lean": "16fa1fec370500f4ca03f042fc3e65cac27839b640b32c5a921e085206c7031b",
+        "Export/Parse.lean": "76ce7b55426d48a750b7a478ee16dc599a58ee6bf24964867881ee3f2b174f4b",
+        "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+        "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+        "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+        "lean-toolchain": "6faf6530819a0bc6d6092a2d9b974ea8e8adfec955d0e51e02e1f82734264d14"
+      },
+      "binary": {}
+    },
+    "4.28.0": {
+      "toolchain": "leanprover/lean4:v4.28.0",
+      "lean_githash": "7e01a1bf5c70fc6167d49c345d3bf80596e9a79b",
+      "revision": "d065b0009aed0520e9e99752847a33b337661690",
+      "upstream_tag": "v4.28.0",
+      "archive_sha256": "82f317a35664e8b90007b6e754a08cdc5f0065b5d3846dd2ec849817397a39e8",
+      "structural": true,
+      "form": "executable",
+      "sources": {
+        "Export.lean": "1dee205b41b6cad4f17c1f79c9c1921d69b2d264ab711aeee40ea56a5bb1e2ec",
+        "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+        "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+        "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+        "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+        "lean-toolchain": "db7bb24b756d745bbde83fe92718b51bd3625dae3701ba0f598d0eedcd3f3028"
+      },
+      "binary": {
+        "x86_64-unknown-linux-gnu": "1e5347101f199f2b06852fe9231b2092a231e13cfba3ca15d3457c025159f2c6"
+      }
+    },
+    "4.33.1": {
+      "toolchain": "leanprover/lean4:v4.33.1",
+      "lean_githash": "819816b2e0a3bf405af45ae5c7af2491d8f5bee6",
+      "revision": "15f6055e299ad5b89345e533cc2192f4cc00f659",
+      "upstream_tag": "v4.33.0",
+      "archive_sha256": "266271a9c062e31535518475a20b69e92f8516d74832d3866f00298e7192eade",
+      "structural": true,
+      "form": "executable",
+      "sources": {
+        "Export.lean": "e77e2ab2f85e39eed95779b92b90837edf807e14aadffeb7569ef85015e8805f",
+        "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+        "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+        "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+        "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+        "lean-toolchain": "3aac669c7a910ec2389f4e4f921b605adf6ebf2d1e0c9b9cd0be4d33f3f5db71"
+      },
+      "binary": {
+        "x86_64-unknown-linux-gnu": "a38ef42f19a4e5cc33591a37ba9c478472b1528bd4995e9890c5681474baad70"
+      }
+    },
+    "4.34.0-rc1": {
+      "toolchain": "leanprover/lean4:v4.34.0-rc1",
+      "lean_githash": "3447a668783dbce1a8fdb97101dd067687b2b418",
+      "revision": "b18d673bd29b476466a51a3be1012df2ed322b10",
+      "upstream_tag": "v4.34.0-rc1",
+      "archive_sha256": "e1a22bb11b1fff7bcf36fd1546c11d36ca0a72601d81b08e65673469d54e0003",
+      "structural": true,
+      "form": "executable",
+      "sources": {
+        "Export.lean": "e77e2ab2f85e39eed95779b92b90837edf807e14aadffeb7569ef85015e8805f",
+        "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+        "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+        "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+        "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+        "lean-toolchain": "cdbc6c372a2b37ad94430a6cec69cedfa4d36f255bfd968773fd91bf7a1746bf"
+      },
+      "binary": {
+        "x86_64-unknown-linux-gnu": "3bf07d7048ae1b731537dd0324e9eee316ab202fc8ba1c2b5f832186fa7f841d"
+      }
+    },
+    "4.34.1": {
+      "toolchain": "leanprover/lean4:v4.34.1",
+      "lean_githash": "5045d0056413266e57c625dcd7c365b10e377c52",
+      "revision": "076e8e57707e813375e8f9da8bf989799ace9680",
+      "upstream_tag": "v4.34.0",
+      "archive_sha256": "6841a09bbb920432388c6f260e3c43db3b9f73589b20658e0341c3b65104eb29",
+      "structural": true,
+      "form": "executable",
+      "sources": {
+        "Export.lean": "82938dc1c3654f52dbbb92786ae93e4b23822798951a2279b46661f7bfeb176b",
+        "Export/Parse.lean": "1f943b5cc776eece6d528937b976509c8bd57d10bc69a39b1c119bfb6d664286",
+        "Main.lean": "bd8e350903f1382b25fe767f9086dd9882000f01085f7046ea06545e7848842a",
+        "lake-manifest.json": "f1b9d60d0ebd46f79f48e6833deefeaa835fdee12b4078241635ee14b6a0f07a",
+        "lakefile.toml": "54dde3aba280f32035c882dcd2f2039e738e20ed45ca538337b65cc69c02f7df",
+        "lean-toolchain": "d5edba4e4b8faad9c1baeadb265716d20d03be4d1a2647dc5e35b0c0325bea7b"
+      },
+      "binary": {
+        "x86_64-unknown-linux-gnu": "34c93120387a834450c6c8c8cfaab19ecb4d7660be66a585f2940e47c6534ea1"
+      }
+    }
+  }
+}

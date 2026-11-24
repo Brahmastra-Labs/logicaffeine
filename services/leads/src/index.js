@@ -6,14 +6,14 @@ const MAX_TOKEN_LENGTH = 2048;
 const SITEVERIFY_URL = 'https://challenges.cloudflare.com/turnstile/v0/siteverify';
 const SITEVERIFY_TIMEOUT_MS = 10_000;
 const SITEVERIFY_ATTEMPTS = 2;
-const TURNSTILE_ACTION = 'pricing-lead';
+const TURNSTILE_ACTION = 'contact-lead';
 const NOTIFY_WINDOW_MS = 10 * 60 * 1000;
 const RESEND_URL = 'https://api.resend.com/emails';
 const RESEND_TIMEOUT_MS = 10_000;
 const RESEND_ATTEMPTS = 2;
 const RETENTION_MONTHS = 24;
 const RETRY_AFTER_SECONDS = '60';
-const SENDER_NAME = 'LOGICAFFEINE pricing form';
+const SENDER_NAME = 'LOGICAFFEINE contact form';
 const DNS_LABEL = '[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?';
 const COUNTRY = /^[A-Z0-9]{2}$/;
 
@@ -87,7 +87,8 @@ async function acceptLead(request, env, ctx, grant) {
     return refuse(403, 'turnstile_failed');
   }
   const clientIp = request.headers.get('CF-Connecting-IP');
-  if (!(await passesTurnstile(env.TURNSTILE_SECRET, token, clientIp, new URL(grant).hostname))) {
+  const acceptTestingKey = env.TURNSTILE_ACCEPT_TESTING_KEY === 'true';
+  if (!(await passesTurnstile(env.TURNSTILE_SECRET, token, clientIp, new URL(grant).hostname, acceptTestingKey))) {
     return refuse(403, 'turnstile_failed');
   }
 
@@ -196,7 +197,14 @@ function honeypotFilled(website) {
  * Siteverify, retried once on an outage with the same idempotency key. Fails closed: a token passes
  * only when siteverify says so for this action on the page that sent the lead.
  */
-async function passesTurnstile(secret, token, clientIp, hostname) {
+/**
+ * Whether Cloudflare vouches for the token: a verdict for this site and this form's action. While
+ * the live page still carries Cloudflare's public testing site key (until the next export of main
+ * replaces it), `acceptTestingKey` lets a verdict Cloudflare marks as made with its testing keys
+ * through as well, logged each time; that verdict names no site and no action, so nothing else
+ * about it is checked. The honeypot, the validators and both rate limits still apply.
+ */
+async function passesTurnstile(secret, token, clientIp, hostname, acceptTestingKey = false) {
   const form = new URLSearchParams({ secret, response: token, idempotency_key: crypto.randomUUID() });
   if (clientIp) form.set('remoteip', clientIp);
 
@@ -228,6 +236,11 @@ async function passesTurnstile(secret, token, clientIp, hostname) {
     } catch {
       logError('turnstile_unusable', { status: response.status });
       return false;
+    }
+    const testingKey = result?.metadata?.result_with_testing_key === true;
+    if (result.success === true && testingKey && acceptTestingKey) {
+      log('turnstile_testing_key_accepted');
+      return true;
     }
     const passed = result.success === true && result.action === TURNSTILE_ACTION && result.hostname === hostname;
     if (!passed) {
@@ -314,7 +327,7 @@ async function sendThroughResend(env, lead) {
     headers: {
       Authorization: `Bearer ${env.RESEND_API_KEY}`,
       'Content-Type': 'application/json',
-      'Idempotency-Key': `pricing-lead/${lead.id}/${lead.createdAt}`,
+      'Idempotency-Key': `contact-lead/${lead.id}/${lead.createdAt}`,
     },
     body: JSON.stringify(notification(env, lead)),
   };
@@ -346,12 +359,12 @@ function notification(env, lead) {
   const fields = [
     ['Email', lead.email],
     ['Phone', lead.phone ?? 'not given'],
-    ['Source', lead.source ?? 'not given'],
+    ['Source', sourceName(lead.source)],
     ['Country', lead.country ?? 'unknown'],
     ['Received', lead.createdAt],
     ['Lead', `#${lead.id}`],
   ];
-  const intro = 'A pricing request came in through the pricing page.';
+  const intro = 'A request to talk came in through the contact page.';
   const outro = 'Reply to this email to answer the prospect.';
   const text = [intro, '', ...fields.map(([name, value]) => `${`${name}:`.padEnd(10)}${value}`), '', outro, ''].join(
     '\n',
@@ -364,10 +377,16 @@ function notification(env, lead) {
     from: `${SENDER_NAME} <${env.NOTIFY_FROM}>`,
     to: [env.NOTIFY_TO],
     reply_to: lead.email,
-    subject: `Pricing request \u2014 ${lead.email}`,
+    subject: `Contact request \u2014 ${lead.email}`,
     text,
     html,
   };
+}
+
+/** The page a lead came from, in words: the contact page sends `contact` (`pricing` before it was renamed). */
+function sourceName(source) {
+  if (source === 'contact' || source === 'pricing') return 'contact page';
+  return source ?? 'not given';
 }
 
 function escapeHtml(value) {

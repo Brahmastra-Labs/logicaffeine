@@ -8,6 +8,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `counterexample::FiniteModel`, `least_countermodel` and `check_countermodel`: a formula refuted from Datalog premises
+  by their least model, and any finite model re-checked premise by premise by an evaluator of its own, a broken
+  premise named with the assignment that breaks it (`theory_refute_lock`).
+- `verify::LibraryRefutation`, `RefutationResult` and `refute_library_with_axioms`; `development::Claim`, and
+  `Development::refutations` and `claims`: a theorem's `refute` clause, its premises, citations and place in source
+  order.
+- `datalog`: function-free Horn rules evaluated bottom-up to their least model. `Program::from_axioms` reads a
+  theory's facts and rules; `evaluate` is semi-naive and stratified, `evaluate_naive` the reference, `evaluate_bdd` the
+  same model over decision diagrams; every fact carries its derivation. `datalog_lock` holds semi-naive, naive and
+  the program grounded and solved by `hornsat` to one model on random programs, every derived fact of the points-to
+  rules kernel-proved, and unsafe, non-Horn and unstratifiable programs refused by name.
+- `datalog::Contexts` and `evaluate_bdd_with_contexts`: the call paths of a program's `Calls` facts numbered as Whaley
+  and Lam number them, and the rules evaluated over diagrams reading `Context` and `CallContext` computed from the
+  numbering; `BddModel::count` counts a relation without listing it. `datalog_contexts_lock` holds the numbering a
+  bijection from call paths, the diagrams equal to the hash engine over the numbering written out, the answer equal
+  to the program cloned per call path, and a 2^40-context chain in a polynomial diagram. `Contexts::number` takes a
+  call graph the rules discover, evaluated to completion first, and refuses one derived from its own contexts.
+- `bdd`: reduced ordered binary decision diagrams (unique table, memoized `ite`, `exists`, `rel_prod`, `rename`,
+  `sat_count` and `sat_count_over` a subset of the variables, assignment enumeration), held to brute-force truth
+  tables by `bdd_lock`.
+- `verify::LibraryResult::proof`: the kernel proof term of a proved library theorem and a context it type-checks in
+  with nothing left local, from `prove_library_with_axioms` and `tactic_script::prove_scripted_library`, so a
+  development's theorem can be handed out as a re-checkable certificate. `VerifiedProof::certified_proof` is that view:
+  a theorem's free variables, locals of the context the kernel checked, are disclosed as declarations, so a theorem
+  over lowercase names re-checks (`theory_certificate_lock`).
 - **`preprocess`: formula preprocessing before search.** Level-0 units, equivalent-literal substitution over the
   binary-implication graph, subsumption with self-subsuming strengthening, and bounded variable elimination that
   resolves only through an AND or XOR gate definition when one defines the variable. Every created clause is logged as
@@ -426,6 +451,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- `verify::prove_library_with_axioms` and `tactic_script::prove_scripted_library` cite what a theorem states, its
+  premises implying its goal, where they cited the bare goal: a lemma proved under premises of its own let a citer
+  that held none of them prove its conclusion. A `[simp]` theorem joins the scripted library's pool the same way.
+  `ScriptedTheorem` derives `Debug` and `Clone`.
+- A rule's bound variables are renamed apart from every name a theory's premises use (`unify::standardize_apart`), a
+  premise's free names stay fixed during search, and a discourse referent — a name one premise introduces existentially
+  and another reads freely — keeps its name, where a `## Theory` whose facts named a constant as a rule names a variable
+  panicked ("cyclic substitution h1 ↦ h1") (`theory_certificate_lock`, `phase_barber_updated`).
 - A solve with restricted decisions (`Solver::set_decision_vars`) answered SAT once every decision variable was
   assigned, a variable left to propagation that propagation never reached taking false: a model that could violate a
   clause. Such a variable is now decided.
@@ -441,6 +474,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `logos-sat` and `largo sat` write only proofs checked against the formula: a CDCL refutation that leaned on a
   Gaussian-derived clause is re-derived rather than left unexportable, and a verdict with no clausal proof gets a note
   saying it rests on the route's own certificate, not a claim of internal verification.
+- `omega` proves an order goal with no slack (`0 ≤ s ⊢ w - s ≤ w`) by a Farkas certificate
+  (`engine::cert_le_by_farkas`, built from `le_refl`, `le_sub`, `le_mul_nonneg`, `le_add_mono` and positional ring
+  rewrites, no new axiom), introduces `For all` and `if` and splits `and` hypotheses first the way Lean's `omega`
+  does, decides ground comparisons over closed arithmetic, and restores the proof state when it declines.
+- `linarith_solve::parse_lin` reads the canonical `Add`/`Sub`/`Mul` spellings English and the formal surface lower
+  to, not only the kernel's `add`/`sub`/`mul`, so user-written terms are no longer silently unreadable.
 
 ## [0.11.0] - 2026-11-02
 

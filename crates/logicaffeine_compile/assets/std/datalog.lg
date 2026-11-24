@@ -1,0 +1,586 @@
+# Datalog
+
+The least model of a Datalog program — ground facts and function-free Horn rules, with negation over lower strata —
+computed semi-naively in pure LOGOS and compiled through every execution tier. Auto-imported on reference.
+
+A program is a `Seq of DatalogFact` and a `Seq of DatalogRule`. `datalogEvaluate` answers a `DatalogModel` holding
+every fact of the stratified least model, each once, the given facts first and every derived fact after the facts it
+was derived from; or a `DatalogRefusal` saying why the program has none, in the words `logicaffeine_proof::datalog`
+refuses it with: a predicate used with two arities, a variable of a rule's head or of a negated literal that no
+positive literal binds, or predicates that depend on one another through a negation.
+
+Evaluation is the textbook's. The predicates are ordered by the dependency graph (body predicate → head predicate):
+a group of predicates that reach one another is evaluated as one stratum, after every stratum that reaches it, so a
+negated literal only ever reads a relation already complete. Within a stratum each rule fires once over everything
+known, and then, round after round, only on joins that read at least one fact the previous round derived — one
+positive literal over those new facts, the others over all of them — until a round derives nothing.
+
+## Note
+A term of an atom: a variable its rule binds, or a constant.
+
+## A DatalogTerm is either:
+    A DatalogVar (name: Text).
+    A DatalogConst (value: Text).
+
+## Note
+An atom `predicate(terms…)`.
+
+## A DatalogAtom has:
+    a predicate, which is Text.
+    a terms, which is Seq of DatalogTerm.
+
+## Note
+A body literal: an atom that must hold, or one that must not (negation as failure, over a lower stratum).
+
+## A DatalogLiteral is either:
+    A DatalogPos (atom: DatalogAtom).
+    A DatalogNeg (atom: DatalogAtom).
+
+## Note
+A rule `head :- body`, named for the facts it derives.
+
+## A DatalogRule has:
+    a name, which is Text.
+    a head, which is DatalogAtom.
+    a body, which is Seq of DatalogLiteral.
+
+## Note
+A ground fact `predicate(values…)`.
+
+## A DatalogFact has:
+    a predicate, which is Text.
+    a values, which is Seq of Text.
+
+## Note
+What `datalogEvaluate` answers: the least model's facts, or why the program has no stratified least model.
+
+## A DatalogOutcome is either:
+    A DatalogModel (facts: Seq of DatalogFact).
+    A DatalogRefusal (reason: Text).
+
+## Note
+The variable `name`.
+
+## To datalogVar (name: Text) -> DatalogTerm:
+    Return a new DatalogVar with name name.
+
+## Note
+The constant `value`.
+
+## To datalogConst (value: Text) -> DatalogTerm:
+    Return a new DatalogConst with value value.
+
+## Note
+The atom `predicate(terms…)`.
+
+## To datalogAtom (predicate: Text) and (terms: Seq of DatalogTerm) -> DatalogAtom:
+    Return a new DatalogAtom with predicate predicate and terms terms.
+
+## Note
+The literal that holds when `a` does.
+
+## To datalogHolds (a: DatalogAtom) -> DatalogLiteral:
+    Return a new DatalogPos with atom a.
+
+## Note
+The literal that holds when `a` does not.
+
+## To datalogNot (a: DatalogAtom) -> DatalogLiteral:
+    Return a new DatalogNeg with atom a.
+
+## Note
+The rule `name: head :- body`.
+
+## To datalogRule (name: Text) and (head: DatalogAtom) and (body: Seq of DatalogLiteral) -> DatalogRule:
+    Return a new DatalogRule with name name and head head and body body.
+
+## Note
+The fact `predicate(values…)`.
+
+## To datalogFact (predicate: Text) and (values: Seq of Text) -> DatalogFact:
+    Return a new DatalogFact with predicate predicate and values values.
+
+## Note
+True when the term is a variable.
+
+## To datalogIsVar (t: DatalogTerm) -> Bool:
+    Let mutable answer be false.
+    Inspect t:
+        When DatalogVar (v):
+            Set answer to true.
+        When DatalogConst (c):
+            Set answer to false.
+    Return answer.
+
+## Note
+A variable's name, or a constant's value.
+
+## To datalogTermText (t: DatalogTerm) -> Text:
+    Let mutable answer be "".
+    Inspect t:
+        When DatalogVar (v):
+            Set answer to v.
+        When DatalogConst (c):
+            Set answer to c.
+    Return answer.
+
+## Note
+The atom a literal asserts or denies.
+
+## To datalogLiteralAtom (l: DatalogLiteral) -> DatalogAtom:
+    Let mutable answer be a new DatalogAtom.
+    Inspect l:
+        When DatalogPos (a):
+            Set answer to a.
+        When DatalogNeg (a):
+            Set answer to a.
+    Return answer.
+
+## Note
+True when the literal denies its atom.
+
+## To datalogIsNegated (l: DatalogLiteral) -> Bool:
+    Let mutable answer be false.
+    Inspect l:
+        When DatalogPos (a):
+            Set answer to false.
+        When DatalogNeg (a):
+            Set answer to true.
+    Return answer.
+
+## Note
+The atoms of a rule's body that must hold (`negated` false) or must not (`negated` true), in body order.
+
+## To datalogBodyAtoms (r: DatalogRule) and (negated: Bool) -> Seq of DatalogAtom:
+    Let mutable atoms be a new Seq of DatalogAtom.
+    Repeat for l in r's body:
+        If datalogIsNegated(l) is equal to negated:
+            Push datalogLiteralAtom(l) to atoms.
+    Return atoms.
+
+## Note
+The text a fact's predicate and values are kept under: each as its length in bytes, a colon and its bytes, so two
+different facts never share it whatever their values hold.
+
+## To datalogKey (predicate: Text) and (values: Seq of Text) -> Text:
+    Let n be length of text_bytes(predicate).
+    Let mutable key be "{n}:{predicate}".
+    Repeat for v in values:
+        Let m be length of text_bytes(v).
+        Set key to key + "{m}:{v}".
+    Return key.
+
+## Note
+`predicate(values…)`, as the model is printed.
+
+## To datalogShowFact (f: DatalogFact) -> Text:
+    Let p be f's predicate.
+    Let shown be join(f's values, ", ").
+    Return "{p}({shown})".
+
+## Note
+The first predicate used with two arities — the facts' first, then each rule's head and body in order — as the
+refusal names it, or "" when every predicate has one arity.
+
+## To datalogArityClash (facts: Seq of DatalogFact) and (rules: Seq of DatalogRule) -> Text:
+    Let mutable names be a new Seq of Text.
+    Let mutable arities be a new Seq of Int.
+    Repeat for f in facts:
+        Push f's predicate to names.
+        Push length of f's values to arities.
+    Repeat for r in rules:
+        Let h be r's head.
+        Push h's predicate to names.
+        Push length of h's terms to arities.
+        Repeat for l in r's body:
+            Let a be datalogLiteralAtom(l).
+            Push a's predicate to names.
+            Push length of a's terms to arities.
+    Let mutable seen be a new Map of Text to Int.
+    Let mutable i be 1.
+    While i is at most length of names:
+        Let p be item i of names.
+        Let found be item i of arities.
+        If seen contains p:
+            Let expected be item p of seen.
+            If expected is not found:
+                Return "`{p}` is used with {expected} arguments and with {found}".
+        Otherwise:
+            Set item p of seen to found.
+        Set i to i + 1.
+    Return "".
+
+## Note
+The first rule with a variable in its head or in a negated literal that no positive literal binds, as the refusal
+names it, or "" when every rule is safe.
+
+## To datalogUnsafe (rules: Seq of DatalogRule) -> Text:
+    Repeat for r in rules:
+        Let mutable bound be a new Set of Text.
+        Repeat for a in datalogBodyAtoms(r, false):
+            Repeat for t in a's terms:
+                If datalogIsVar(t):
+                    Add datalogTermText(t) to bound.
+        Let rule be r's name.
+        Let negated be datalogBodyAtoms(r, true).
+        Let mutable mustBind be a new Seq of DatalogAtom.
+        Push r's head to mustBind.
+        Repeat for a in negated:
+            Push a to mustBind.
+        Repeat for a in mustBind:
+            Repeat for t in a's terms:
+                If datalogIsVar(t):
+                    Let v be datalogTermText(t).
+                    If not (bound contains v):
+                        Return "rule `{rule}`: `{v}` appears in no positive body literal, so nothing bounds it".
+    Return "".
+
+## Note
+The predicates the rules name, each once, in the order the rules first name them: each rule's head, then its body.
+
+## To datalogRulePredicates (rules: Seq of DatalogRule) -> Seq of Text:
+    Let mutable preds be a new Seq of Text.
+    Let mutable seen be a new Set of Text.
+    Repeat for r in rules:
+        Let h be r's head.
+        Let p be h's predicate.
+        If not (seen contains p):
+            Add p to seen.
+            Push p to preds.
+        Repeat for l in r's body:
+            Let a be datalogLiteralAtom(l).
+            Let q be a's predicate.
+            If not (seen contains q):
+                Add q to seen.
+                Push q to preds.
+    Return preds.
+
+## Note
+Which predicate reaches which through one or more rules: entry `(i - 1) * n + j` is true when predicate `j` of `preds`
+can be derived, through a chain of rules, from predicate `i`.
+
+## To datalogReach (rules: Seq of DatalogRule) and (preds: Seq of Text) -> Seq of Bool:
+    Let n be length of preds.
+    Let mutable rank be a new Map of Text to Int.
+    Let mutable i be 1.
+    While i is at most n:
+        Set item (item i of preds) of rank to i.
+        Set i to i + 1.
+    Let mutable reach be a new Seq of Bool.
+    Let mutable k be 1.
+    While k is at most n * n:
+        Push false to reach.
+        Set k to k + 1.
+    Repeat for r in rules:
+        Let h be item (r's head's predicate) of rank.
+        Repeat for l in r's body:
+            Let a be datalogLiteralAtom(l).
+            Let b be item (a's predicate) of rank.
+            Set item ((b - 1) * n + h) of reach to true.
+    Let mutable via be 1.
+    While via is at most n:
+        Let mutable src be 1.
+        While src is at most n:
+            If item ((src - 1) * n + via) of reach:
+                Let mutable dst be 1.
+                While dst is at most n:
+                    If item ((via - 1) * n + dst) of reach:
+                        Set item ((src - 1) * n + dst) of reach to true.
+                    Set dst to dst + 1.
+            Set src to src + 1.
+        Set via to via + 1.
+    Return reach.
+
+## Note
+`names` in byte order.
+
+## To datalogSortTexts (names: Seq of Text) -> Seq of Text:
+    Let mutable ordered be a new Seq of Text.
+    Repeat for x in names:
+        Let mutable placed be a new Seq of Text.
+        Let mutable done be false.
+        Repeat for y in ordered:
+            If not done:
+                If compareText(x, y) is less than 0:
+                    Push x to placed.
+                    Set done to true.
+            Push y to placed.
+        If not done:
+            Push x to placed.
+        Set ordered to placed.
+    Return ordered.
+
+## Note
+The first negation inside a cycle of the rules, which no stratum order can finish before it is read, as the refusal
+names it: every predicate of that cycle, in byte order. "" when there is none.
+
+## To datalogUnstratifiable (rules: Seq of DatalogRule) -> Text:
+    Let preds be datalogRulePredicates(rules).
+    Let n be length of preds.
+    Let reach be datalogReach(rules, preds).
+    Let mutable rank be a new Map of Text to Int.
+    Let mutable i be 1.
+    While i is at most n:
+        Set item (item i of preds) of rank to i.
+        Set i to i + 1.
+    Repeat for r in rules:
+        Let h be item (r's head's predicate) of rank.
+        Repeat for a in datalogBodyAtoms(r, true):
+            Let q be item (a's predicate) of rank.
+            Let together be (q is equal to h) or (item ((q - 1) * n + h) of reach and item ((h - 1) * n + q) of reach).
+            If together:
+                Let mutable cycle be a new Seq of Text.
+                Let mutable m be 1.
+                While m is at most n:
+                    If (m is equal to h) or (item ((m - 1) * n + h) of reach and item ((h - 1) * n + m) of reach):
+                        Push item m of preds to cycle.
+                    Set m to m + 1.
+                Let names be join(datalogSortTexts(cycle), ", ").
+                Return "{names} depend on one another through a negation".
+    Return "".
+
+## Note
+The least model of `facts` and `rules`, or why they have none.
+
+## To datalogEvaluate (facts: Seq of DatalogFact) and (rules: Seq of DatalogRule) -> DatalogOutcome:
+    Let arity be datalogArityClash(facts, rules).
+    If arity is not "":
+        Return a new DatalogRefusal with reason arity.
+    Let unbound be datalogUnsafe(rules).
+    If unbound is not "":
+        Return a new DatalogRefusal with reason unbound.
+    Let cyclic be datalogUnstratifiable(rules).
+    If cyclic is not "":
+        Return a new DatalogRefusal with reason cyclic.
+    Let rulePreds be datalogRulePredicates(rules).
+    Let n be length of rulePreds.
+    Let reach be datalogReach(rules, rulePreds).
+    Let mutable rank be a new Map of Text to Int.
+    Let mutable i be 1.
+    While i is at most n:
+        Set item (item i of rulePreds) of rank to i.
+        Set i to i + 1.
+    Let mutable preds be copy of rulePreds.
+    Repeat for f in facts:
+        Let p be f's predicate.
+        If not (rank contains p):
+            Push p to preds.
+            Set item p of rank to length of preds.
+    Let np be length of preds.
+    Let mutable keys be a new Set of Text.
+    Let mutable factPred be a new Seq of Int.
+    Let mutable factStart be a new Seq of Int.
+    Let mutable factValues be a new Seq of Text.
+    Repeat for f in facts:
+        Let key be datalogKey(f's predicate, f's values).
+        If not (keys contains key):
+            Add key to keys.
+            Push item (f's predicate) of rank to factPred.
+            Push length of factValues + 1 to factStart.
+            Repeat for v in f's values:
+                Push v to factValues.
+    Let mutable earlier be a new Seq of Int.
+    Set i to 1.
+    While i is at most n:
+        Let mutable before be 0.
+        Let mutable j be 1.
+        While j is at most n:
+            If item ((j - 1) * n + i) of reach and not item ((i - 1) * n + j) of reach:
+                Set before to before + 1.
+            Set j to j + 1.
+        Push before to earlier.
+        Set i to i + 1.
+    Let mutable level be 0.
+    While level is less than n:
+        Let mutable stratum be a new Seq of DatalogRule.
+        Repeat for r in rules:
+            If item (item (r's head's predicate) of rank) of earlier is equal to level:
+                Push r to stratum.
+        Let mutable deltaFrom be 0.
+        Let mutable more be length of stratum is greater than 0.
+        While more:
+            Let total be length of factPred.
+            Let roundStart be total + 1.
+            Let mutable blockStart be a new Seq of Int.
+            Let mutable old be a new Seq of Int.
+            Let mutable sizes be a new Seq of Int.
+            Let mutable p be 1.
+            While p is at most np:
+                Push 0 to sizes.
+                Push 0 to old.
+                Set p to p + 1.
+            Let mutable f be 1.
+            While f is at most total:
+                Let fp be item f of factPred.
+                Set item fp of sizes to item fp of sizes + 1.
+                If f is less than deltaFrom:
+                    Set item fp of old to item fp of old + 1.
+                Set f to f + 1.
+            Push 1 to blockStart.
+            Set p to 1.
+            While p is at most np:
+                Push item p of blockStart + item p of sizes to blockStart.
+                Set p to p + 1.
+            Let mutable cursor be copy of blockStart.
+            Let mutable order be a new Seq of Int.
+            Set f to 1.
+            While f is at most total:
+                Push 0 to order.
+                Set f to f + 1.
+            Set f to 1.
+            While f is at most total:
+                Let fp be item f of factPred.
+                Let slot be item fp of cursor.
+                Set item slot of order to f.
+                Set item fp of cursor to item fp of cursor + 1.
+                Set f to f + 1.
+            Repeat for r in stratum:
+                Let positive be datalogBodyAtoms(r, false).
+                Let negative be datalogBodyAtoms(r, true).
+                Let mutable vars be a new Seq of Text.
+                Repeat for a in positive:
+                    Repeat for t in a's terms:
+                        If datalogIsVar(t) and not (vars contains datalogTermText(t)):
+                            Push datalogTermText(t) to vars.
+                Let nv be length of vars.
+                Let mutable firing be 0.
+                Let mutable last be 0.
+                If deltaFrom is greater than 0:
+                    Set firing to 1.
+                    Set last to length of positive.
+                While firing is at most last:
+                    Let mutable live be true.
+                    If firing is greater than 0:
+                        Let fired be item firing of positive.
+                        Let dp be item (fired's predicate) of rank.
+                        Set live to item dp of sizes is greater than item dp of old.
+                    If live:
+                        Let mutable rows be a new Seq of Text.
+                        Let mutable rowCount be 1.
+                        Let mutable k be 1.
+                        While k is at most nv:
+                            Push "" to rows.
+                            Set k to k + 1.
+                        Let mutable bound be a new Seq of Bool.
+                        Set k to 1.
+                        While k is at most nv:
+                            Push false to bound.
+                            Set k to k + 1.
+                        Let mutable j be 1.
+                        While j is at most length of positive:
+                            Let a be item j of positive.
+                            Let ap be item (a's predicate) of rank.
+                            Let mutable lo be item ap of blockStart.
+                            If j is equal to firing:
+                                Set lo to lo + item ap of old.
+                            Let hi be item (ap + 1) of blockStart - 1.
+                            Let width be length of a's terms.
+                            Let mutable slots be a new Seq of Int.
+                            Repeat for t in a's terms:
+                                If datalogIsVar(t):
+                                    Let name be datalogTermText(t).
+                                    Let mutable s be 1.
+                                    While item s of vars is not name:
+                                        Set s to s + 1.
+                                    Push s to slots.
+                                Otherwise:
+                                    Push 0 to slots.
+                            Let mutable nextRows be a new Seq of Text.
+                            Let mutable nextCount be 0.
+                            Let mutable joined be 0.
+                            While joined is less than rowCount:
+                                Let mutable c be lo.
+                                While c is at most hi:
+                                    Let fact be item c of order.
+                                    Let base be item fact of factStart.
+                                    Let mutable cand be a new Seq of Text.
+                                    Let mutable known be copy of bound.
+                                    Set k to 1.
+                                    While k is at most nv:
+                                        Push item (joined * nv + k) of rows to cand.
+                                        Set k to k + 1.
+                                    Let mutable ok be true.
+                                    Let mutable t be 1.
+                                    While ok and t is at most width:
+                                        Let v be item (base + t - 1) of factValues.
+                                        Let s be item t of slots.
+                                        If s is equal to 0:
+                                            If datalogTermText(item t of a's terms) is not v:
+                                                Set ok to false.
+                                        Otherwise:
+                                            If item s of known:
+                                                If item s of cand is not v:
+                                                    Set ok to false.
+                                            Otherwise:
+                                                Set item s of cand to v.
+                                                Set item s of known to true.
+                                        Set t to t + 1.
+                                    If ok:
+                                        Repeat for v in cand:
+                                            Push v to nextRows.
+                                        Set nextCount to nextCount + 1.
+                                    Set c to c + 1.
+                                Set joined to joined + 1.
+                            Repeat for s in slots:
+                                If s is greater than 0:
+                                    Set item s of bound to true.
+                            Set rows to nextRows.
+                            Set rowCount to nextCount.
+                            Set j to j + 1.
+                        Let mutable row be 0.
+                        While row is less than rowCount:
+                            Let mutable holds be true.
+                            Repeat for a in negative:
+                                Let mutable denied be a new Seq of Text.
+                                Repeat for t in a's terms:
+                                    If datalogIsVar(t):
+                                        Let name be datalogTermText(t).
+                                        Let mutable s be 1.
+                                        While item s of vars is not name:
+                                            Set s to s + 1.
+                                        Push item (row * nv + s) of rows to denied.
+                                    Otherwise:
+                                        Push datalogTermText(t) to denied.
+                                If keys contains datalogKey(a's predicate, denied):
+                                    Set holds to false.
+                            If holds:
+                                Let h be r's head.
+                                Let mutable derived be a new Seq of Text.
+                                Repeat for t in h's terms:
+                                    If datalogIsVar(t):
+                                        Let name be datalogTermText(t).
+                                        Let mutable s be 1.
+                                        While item s of vars is not name:
+                                            Set s to s + 1.
+                                        Push item (row * nv + s) of rows to derived.
+                                    Otherwise:
+                                        Push datalogTermText(t) to derived.
+                                Let key be datalogKey(h's predicate, derived).
+                                If not (keys contains key):
+                                    Add key to keys.
+                                    Push item (h's predicate) of rank to factPred.
+                                    Push length of factValues + 1 to factStart.
+                                    Repeat for v in derived:
+                                        Push v to factValues.
+                            Set row to row + 1.
+                    Set firing to firing + 1.
+            Set deltaFrom to roundStart.
+            Set more to length of factPred is at least roundStart.
+        Set level to level + 1.
+    Let mutable model be a new Seq of DatalogFact.
+    Let stored be length of factPred.
+    Let mutable g be 1.
+    While g is at most stored:
+        Let mutable vs be a new Seq of Text.
+        Let mutable past be length of factValues + 1.
+        If g is less than stored:
+            Set past to item (g + 1) of factStart.
+        Let mutable k be item g of factStart.
+        While k is less than past:
+            Push item k of factValues to vs.
+            Set k to k + 1.
+        Let name be item (item g of factPred) of preds.
+        Let fact be a new DatalogFact with predicate name and values vs.
+        Push fact to model.
+        Set g to g + 1.
+    Return a new DatalogModel with facts model.

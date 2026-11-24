@@ -25,7 +25,7 @@
 //! | `If x > 0 then...` | `if x > 0 { ... }` |
 //! | `Repeat while x > 0...` | `while x > 0 { ... }` |
 //! | `Zone "name"...` | `{ /* zone scope */ }` |
-//! | `Mount x at "path".` | `x.mount(vfs, "path").await;` |
+//! | `Mount x at "path".` | `x.mount(logos_vfs(), "path").await;` |
 //! | `Sync x on "topic".` | `x.subscribe("topic").await;` |
 //!
 //! # Key Features
@@ -65,6 +65,9 @@
 mod absent;
 pub(crate) mod affine_array;
 pub(crate) mod bigint_promote;
+mod exact_scalars;
+pub(crate) mod unboxed;
+pub(crate) mod word_twin;
 pub(crate) mod bindings;
 pub(crate) mod context;
 mod control;
@@ -77,6 +80,7 @@ pub(crate) mod flow;
 pub(crate) mod hoist;
 pub(crate) mod i64_map;
 pub(crate) mod instantiation;
+pub(crate) mod int_vec;
 pub(crate) mod lent;
 pub(crate) mod lowbits;
 pub(crate) mod marshal;
@@ -84,6 +88,8 @@ pub(crate) mod bits;
 pub(crate) mod narrow;
 pub(crate) mod outline;
 pub(crate) mod peephole;
+pub(crate) mod precedence;
+pub(crate) mod tentative;
 pub(crate) mod probe;
 mod policy;
 pub(crate) mod program;
@@ -94,6 +100,7 @@ pub(crate) mod strsearch;
 pub(crate) mod tce;
 pub(crate) mod tower;
 pub(crate) mod types;
+pub(crate) mod word_calls;
 pub(crate) mod worklist;
 // Per-function codegen slicing for the AOT-native tier (HOTSWAP Axis-3 / P14a).
 pub(crate) mod slice;
@@ -119,17 +126,20 @@ pub use program::{codegen_program, codegen_program_mapped, codegen_program_with_
 pub use slice::function_slice;
 pub use stmt::codegen_stmt;
 
-// ─── Mode-B (deterministic-replay) codegen gate ─────────────────────────────
+// ─── Concurrency lowering: the replay executor (Mode B), or threads (Mode A) ───
 //
-// A compile-global flag: when set, a program that runs on the scheduler lowers every task, pipe,
-// timer and select onto `logicaffeine_system::replay` — the interpreter's scheduler, ported — so the
-// binary replays the interpreter's schedule at the seed `LOGOS_SEED` names. The DEFAULT (Mode A) is
-// off, so default emission is untouched. Codegen is single-threaded per compile, so a thread-local is
-// the natural home; `compile::compile_to_rust_deterministic` sets it for the extent of one compile,
-// and `codegen_program` narrows it to the programs that use the scheduler.
+// A program that runs on the scheduler lowers every task, pipe, timer and select onto
+// `logicaffeine_system::replay` — the interpreter's scheduler, ported — so the binary runs the
+// interpreter's schedule at the seed `LOGOS_SEED` names, and prints, fails and deadlocks as every
+// other tier does. That is the default. A compile that asks for threads ([`with_threaded_concurrency`])
+// lowers onto tokio instead (Mode A). Codegen is single-threaded per compile, so thread-locals are the
+// natural home: `SEEDED_SELECT` holds whether the replay lowering is active while a program is
+// emitted (`codegen_program` sets it for exactly the programs that use the scheduler), and
+// `THREADED_CONCURRENCY` the opt-in.
 
 thread_local! {
     static SEEDED_SELECT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static THREADED_CONCURRENCY: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static OBSERVED_CODEGEN: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static EMBED_ASSETS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static BLOCKING_WAITS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -222,6 +232,28 @@ pub fn with_deterministic_replay<R>(f: impl FnOnce() -> R) -> R {
     with_replay_mode(true, f)
 }
 
+/// Run `f` with a program's concurrency lowered onto threads (tokio, Mode A) instead of the replay executor,
+/// restoring the previous mode afterwards (panic-safe). Returns `f`'s result.
+pub fn with_threaded_concurrency<R>(f: impl FnOnce() -> R) -> R {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            THREADED_CONCURRENCY.with(|c| c.set(self.0));
+        }
+    }
+    let _guard = THREADED_CONCURRENCY.with(|c| {
+        let prev = c.get();
+        c.set(true);
+        Restore(prev)
+    });
+    f()
+}
+
+/// Whether this compile lowers concurrency onto threads ([`with_threaded_concurrency`]).
+pub(crate) fn threaded_concurrency() -> bool {
+    THREADED_CONCURRENCY.with(|c| c.get())
+}
+
 /// Run `f` with the deterministic-replay lowering set to `on`, restoring the previous mode afterwards (panic-safe).
 pub(crate) fn with_replay_mode<R>(on: bool, f: impl FnOnce() -> R) -> R {
     struct Restore(bool);
@@ -250,9 +282,7 @@ pub(crate) use peephole::{
     try_emit_for_range_pattern, try_emit_prefix_reverse, try_emit_swap_pattern,
     try_emit_vec_fill_pattern,
 };
-pub(crate) use stmt::{
-    get_root_identifier, has_copy_element_type, has_copy_value_type, is_copy_type,
-};
+pub(crate) use stmt::{get_root_identifier, has_copy_element_type, is_copy_type};
 pub(crate) use types::field_is_boxed;
 
 /// Check if a name is a Rust keyword (needs `r#` escaping in generated code).

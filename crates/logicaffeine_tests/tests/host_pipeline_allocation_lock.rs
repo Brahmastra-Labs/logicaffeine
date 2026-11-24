@@ -10,6 +10,7 @@ use logicaffeine_compile::compile::{
     vm_outcome, vm_outcome_tiered,
 };
 use logicaffeine_compile::optimization::Tier;
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 use logicaffeine_jit::ForgeTier;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -126,6 +127,7 @@ fn repeated_optimized_vm_runs_release_host_allocations() {
 }
 
 #[test]
+#[cfg(all(target_arch = "x86_64", not(target_os = "windows")))]
 fn repeated_private_native_tiers_release_host_allocations() {
     balanced(|| {
         let tier = ForgeTier::new();

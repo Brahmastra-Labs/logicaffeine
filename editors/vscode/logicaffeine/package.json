@@ -32,6 +32,7 @@
           "lg"
         ],
         "extensions": [
+          ".logos",
           ".lg"
         ],
         "configuration": "./language-configuration.json",
@@ -65,7 +66,7 @@
             "properties": {
               "program": {
                 "type": "string",
-                "description": "Path to the .lg program to debug.",
+                "description": "Path to the LOGOS program (.logos or .lg) to debug.",
                 "default": "${file}"
               },
               "source": {

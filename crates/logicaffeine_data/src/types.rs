@@ -334,6 +334,11 @@ impl<T: Clone> LogosSeq<T> {
         self.0.borrow().clone()
     }
 
+    /// The items, taken whole where this is the list's only handle and copied where another holds it too.
+    pub fn into_vec(self) -> Vec<T> {
+        Rc::try_unwrap(self.0).map(RefCell::into_inner).unwrap_or_else(|shared| shared.borrow().clone())
+    }
+
     pub fn extend_from_slice(&self, other: &[T]) {
         self.0.borrow_mut().extend_from_slice(other);
     }
@@ -580,7 +585,12 @@ impl<K: Eq + Hash + Clone, V: Clone> LogosMap<K, V> {
         Self(Rc::new(RefCell::new(self.0.borrow().clone())))
     }
 
-    pub fn get(&self, key: &K) -> Option<V> {
+    /// The value the map holds under `key`, by any form the key type borrows as (`&str` for a `String` key).
+    pub fn get<Q>(&self, key: &Q) -> Option<V>
+    where
+        K: std::borrow::Borrow<Q>,
+        Q: Hash + Eq + ?Sized,
+    {
         self.0.borrow().get(key).cloned()
     }
 
@@ -590,6 +600,23 @@ impl<K: Eq + Hash + Clone, V: Clone> LogosMap<K, V> {
 
     pub fn keys(&self) -> Vec<K> {
         self.0.borrow().keys().cloned().collect()
+    }
+
+    /// Fold `other`'s entries into this map, the language's join of two maps (`Merge`, `Converge`): a key only
+    /// `other` holds joins with its value, after the keys this map holds, and a key both hold has its value folded by
+    /// `fold(&mut held, &theirs)`. The map is copied on write first, so no other holder of it sees the fold.
+    pub fn merge_entries(&mut self, other: &Self, mut fold: impl FnMut(&mut V, &V)) {
+        let theirs: Vec<(K, V)> = other.0.borrow().iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        self.cow();
+        let mut held = self.0.borrow_mut();
+        for (key, value) in theirs {
+            match held.get_mut(&key) {
+                Some(mine) => fold(mine, &value),
+                None => {
+                    held.insert(key, value);
+                }
+            }
+        }
     }
 }
 
@@ -2121,7 +2148,7 @@ impl<T: Eq + Hash + Clone, B: crate::crdt::SetBias> LogosContains<T> for crate::
 /// let y = Value::Int(2);
 /// assert_eq!(x * y, Value::Float(5.0));
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub enum Value {
     /// Integer values.
     Int(i64),
@@ -2142,8 +2169,76 @@ pub enum Value {
     /// beside scalars and lists. Built by the `From<T: Boxable>` impl, read back by
     /// [`Value::logos_boxed`], rendered by the type's own `Show`.
     Boxed(LogosBoxed),
+    /// A tuple riding as an element of a tuple or of a boxed collection: the members of a
+    /// `Set of (Text, Text)` held in a `(Set of (Text, Text), Set of Int)`. Built by
+    /// `From<LogosTuple>`, read back by [`Value::logos_tuple`].
+    Tuple(LogosTuple),
+    /// A boxed set — the carrier that lets a tuple hold a `Set`, as [`Value::Seq`] lets it hold a
+    /// `Seq`. Members are boxed `Value`s in their insertion order. Built by the `From<Set<T>>` impl,
+    /// read back by [`Value::logos_set`].
+    Set(Set<Value>),
     /// Unit/null value.
     Nothing,
+}
+
+impl PartialEq for Value {
+    /// The tree-walker's `==` (`semantics::compare::values_equal`), so a tuple key in a compiled `Set`
+    /// is found exactly when the interpreter finds it: structural for sequences and tuples, by content
+    /// and order-insensitive for sets, exact across `Int` and `Real` (`1 == 1.0`), IEEE on floats
+    /// (`-0.0 == 0.0`, `NaN != NaN`), and a boxed record or variant equal only to one of its own type.
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Value::Int(a), Value::Int(b)) => a == b,
+            (Value::Float(a), Value::Float(b)) => a == b,
+            (Value::Int(i), Value::Float(f)) | (Value::Float(f), Value::Int(i)) => {
+                logicaffeine_base::numeric::cmp_i64_f64_exact(*i, *f)
+                    == Some(std::cmp::Ordering::Equal)
+            }
+            (Value::Bool(a), Value::Bool(b)) => a == b,
+            (Value::Text(a), Value::Text(b)) => a == b,
+            (Value::Char(a), Value::Char(b)) => a == b,
+            (Value::Seq(a), Value::Seq(b)) => a == b,
+            (Value::Tuple(a), Value::Tuple(b)) => a == b,
+            (Value::Set(a), Value::Set(b)) => a.len() == b.len() && a.iter().all(|x| b.contains(x)),
+            (Value::Boxed(a), Value::Boxed(b)) => a == b,
+            (Value::Nothing, Value::Nothing) => true,
+            _ => false,
+        }
+    }
+}
+
+/// `eq` is IEEE on floats, so a `NaN` member is never found again — the interpreter's set does the
+/// same, and the trade keeps membership identical to the language's `==`. Every other value is a total
+/// equivalence.
+impl Eq for Value {}
+
+impl Hash for Value {
+    /// Equal values hash equal. `Int` and `Real` are equal across types, so both write the unified
+    /// numeric hash (`logicaffeine_base::numeric`, value mod 2⁶¹ − 1) with no discriminant, which also
+    /// makes `-0.0` and `0.0` one hash. Every other variant writes its discriminant, then its content;
+    /// a `Seq` and a `Set` hash by length (equal ⇒ equal length; a set's order is not part of it), and a
+    /// boxed value by the type it holds.
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        use logicaffeine_base::numeric;
+        match self {
+            Value::Int(n) => state.write_u64(numeric::numeric_hash_i64(*n)),
+            Value::Float(x) => state.write_u64(numeric::numeric_hash_f64(*x)),
+            other => {
+                std::mem::discriminant(other).hash(state);
+                match other {
+                    Value::Int(_) | Value::Float(_) => unreachable!("hashed above"),
+                    Value::Bool(b) => b.hash(state),
+                    Value::Text(s) => s.hash(state),
+                    Value::Char(c) => c.hash(state),
+                    Value::Seq(xs) => xs.0.borrow().len().hash(state),
+                    Value::Tuple(t) => t.hash(state),
+                    Value::Set(xs) => xs.len().hash(state),
+                    Value::Boxed(b) => b.held_type().hash(state),
+                    Value::Nothing => {}
+                }
+            }
+        }
+    }
 }
 
 impl std::fmt::Display for Value {
@@ -2156,6 +2251,17 @@ impl std::fmt::Display for Value {
             Value::Char(c) => write!(f, "{}", c),
             Value::Seq(xs) => write!(f, "{}", xs),
             Value::Boxed(b) => write!(f, "{}", b),
+            Value::Tuple(t) => write!(f, "{}", t),
+            Value::Set(xs) => {
+                write!(f, "{{")?;
+                for (i, v) in xs.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", v)?;
+                }
+                write!(f, "}}")
+            }
             Value::Nothing => write!(f, "nothing"),
         }
     }
@@ -2219,6 +2325,12 @@ impl LogosBoxed {
             ),
         }
     }
+
+    /// The type of the held value: two boxes can be equal only when this is the same.
+    #[inline]
+    pub fn held_type(&self) -> std::any::TypeId {
+        self.0.as_any().type_id()
+    }
 }
 
 impl PartialEq for LogosBoxed {
@@ -2251,7 +2363,7 @@ impl<T: Boxable> From<T> for Value {
 /// unchanged; it exists ONLY to carry a distinct display: a tuple renders with PARENS `(a, b)` and — the
 /// whole point — stays distinguishable from a `Seq` even when nested (`[(1, 2), (3, 4)]`), which a bare
 /// `Vec<Value>` (shown as `[…]`, identical to a Seq) could not.
-#[derive(Clone, Debug, PartialEq, Default)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub struct LogosTuple(pub Vec<Value>);
 
 impl std::ops::Deref for LogosTuple {
@@ -2332,6 +2444,22 @@ impl<T: Into<Value> + Clone> From<LogosSeq<T>> for Value {
         Value::Seq(LogosSeq::from_vec(
             xs.0.borrow().iter().cloned().map(Into::into).collect(),
         ))
+    }
+}
+
+/// BOX a tuple so it rides as an element of another tuple or of a boxed collection. Pairs with
+/// [`Value::logos_tuple`].
+impl From<LogosTuple> for Value {
+    fn from(t: LogosTuple) -> Self {
+        Value::Tuple(t)
+    }
+}
+
+/// BOX a set so it rides as a tuple element, each member boxed by its own `Into<Value>` and kept in
+/// insertion order. Pairs with [`Value::logos_set`].
+impl<T: Into<Value> + Clone> From<Set<T>> for Value {
+    fn from(xs: Set<T>) -> Self {
+        Value::Set(xs.iter().cloned().map(Into::into).collect())
     }
 }
 
@@ -2436,6 +2564,26 @@ impl Value {
     #[inline]
     pub fn logos_seq_seq_string(self) -> LogosSeq<LogosSeq<String>> {
         self.logos_seq(Value::logos_seq_string)
+    }
+
+    /// UNBOX the [`Value::Tuple`] carrier back to its `LogosTuple`.
+    #[inline]
+    pub fn logos_tuple(self) -> LogosTuple {
+        match self {
+            Value::Tuple(t) => t,
+            other => panic!("expected a tuple tuple/record element, found {other}"),
+        }
+    }
+
+    /// UNBOX the [`Value::Set`] carrier back to a typed `Set<T>`, unboxing each member with `f` and
+    /// keeping their insertion order. A non-`Set` value is a program-type error and panics like the
+    /// other unboxers.
+    #[inline]
+    pub fn logos_set<T: Hash + Eq>(self, f: impl Fn(Value) -> T) -> Set<T> {
+        match self {
+            Value::Set(xs) => xs.into_iter().map(f).collect(),
+            other => panic!("expected a Set tuple/record element, found {other}"),
+        }
     }
 }
 
@@ -3742,6 +3890,24 @@ impl LogosInt {
         LogosInt::Small(x)
     }
 
+    /// The integer a 128-bit word holds: itself while it fits 64 bits, else the big integer of its digits.
+    pub fn from_i128(x: i128) -> Self {
+        if let Ok(small) = i64::try_from(x) {
+            return LogosInt::Small(small);
+        }
+        let magnitude = x.unsigned_abs();
+        let limb = logicaffeine_base::BigInt::from_i64(1 << 32);
+        let mut acc = logicaffeine_base::BigInt::from_i64(0);
+        for shift in [96, 64, 32, 0] {
+            let digit = ((magnitude >> shift) & 0xFFFF_FFFF) as i64;
+            acc = acc.mul(&limb).add(&logicaffeine_base::BigInt::from_i64(digit));
+        }
+        if x < 0 {
+            acc = acc.negated();
+        }
+        LogosInt::from_big(acc)
+    }
+
     pub fn from_big(b: logicaffeine_base::BigInt) -> Self {
         match b.to_i64() {
             Some(x) => LogosInt::Small(x),
@@ -3815,8 +3981,43 @@ impl LogosInt {
     pub fn expect_i64(&self, what: &str) -> i64 {
         match self.to_i64() {
             Some(x) => x,
-            None => panic!("Integer overflow: {self} does not fit a 64-bit {what}"),
+            None => crate::ops::raise_overflow(self, what),
         }
+    }
+
+    /// The magnitude of this integer, exact (`abs(i64::MIN)` is `2^63`).
+    pub fn abs(&self) -> LogosInt {
+        if *self < 0 {
+            self.neg()
+        } else {
+            self.clone()
+        }
+    }
+
+    /// The binary64 nearest to this integer, ties to even: the conversion every tier makes where an `Int` meets a
+    /// `Real` (`logicaffeine_base::BigInt::to_f64`).
+    pub fn to_f64(&self) -> f64 {
+        match self {
+            LogosInt::Small(x) => *x as f64,
+            LogosInt::Big(b) => b.to_f64(),
+        }
+    }
+
+    /// How this integer compares with the real `other`, by both exact values; `None` against NaN.
+    pub fn cmp_real(&self, other: f64) -> Option<std::cmp::Ordering> {
+        match self {
+            LogosInt::Small(x) => crate::ops::logos_cmp_i64_f64(*x, other),
+            LogosInt::Big(b) => logicaffeine_base::numeric::cmp_rational_f64_exact(
+                &logicaffeine_base::Rational::from_bigint((**b).clone()),
+                other,
+            ),
+        }
+    }
+
+    /// This integer where the language takes a machine word, or `past_word`, the interpreter's refusal for the place
+    /// (a list's index, a slice's bound, a range's end) when it is past the word.
+    pub fn integer_at(&self, past_word: &str) -> Result<i64, String> {
+        self.to_i64().ok_or_else(|| past_word.to_string())
     }
 
     #[inline]

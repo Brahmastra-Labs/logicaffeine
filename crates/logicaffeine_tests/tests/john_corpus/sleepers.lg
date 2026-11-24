@@ -1,0 +1,9 @@
+## To nap (n: Int):
+    Sleep 5.
+    Show n.
+
+## Main
+Launch a task to nap with 1.
+Launch a task to nap with 2.
+Launch a task to nap with 3.
+Launch a task to nap with 4.

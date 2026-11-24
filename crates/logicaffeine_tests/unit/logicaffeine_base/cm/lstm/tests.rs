@@ -320,8 +320,7 @@ impl Lstm {
             let mut node = 1usize;
             for i in (0..8).rev() {
                 let bit = (step.target >> i) & 1 == 1;
-                let x = f64::from(net.front.logit(&step, node));
-                let p1 = 1.0 / (1.0 + (-x).exp());
+                let p1 = f64::from(net.front.unit(&step, node));
                 loss -= if bit { p1 } else { 1.0 - p1 }.ln();
                 node = node << 1 | usize::from(bit);
             }
@@ -361,4 +360,66 @@ fn each_trained_window_is_one_step_down_the_rate() {
     };
     let (once, twice) = (steps(140), steps(280));
     assert!(once > 0 && twice + 1 >= 2 * once, "{once} steps after 140 bytes, {twice} after 280");
+}
+
+#[test]
+fn the_next_byte_is_one_softmax_over_all_256_values() {
+    let mut net = Lstm::new(12, 2, 6);
+    let width = net.current.features.len();
+    assert_eq!(net.front.output.len(), SYMBOLS * width, "one output row per byte value");
+    let mut checked = 0;
+    for &b in b"every byte value has its own row, and the rows share one normaliser. ".repeat(3).iter() {
+        net.update(b);
+        if net.filled == 0 {
+            // A window was just handed over: this prediction ran on the weights before the swap.
+            continue;
+        }
+        checked += 1;
+        let z: Vec<f64> =
+            (0..SYMBOLS).map(|s| f64::from(dot(&net.front.output[s * width..(s + 1) * width], &net.current.features))).collect();
+        let top = z.iter().copied().fold(f64::MIN, f64::max);
+        let total: f64 = z.iter().map(|x| (x - top).exp()).sum();
+        for s in [0u8, b' ', b'e', b'v', 255] {
+            let want = (z[usize::from(s)] - top).exp() / total;
+            let got = f64::from(probability(&net, s));
+            assert!((got - want).abs() < 1e-5 + 1e-4 * want, "byte {s}: {got} against the softmax's {want}");
+        }
+    }
+    assert!(checked > 150, "{checked} predictions checked");
+}
+
+#[test]
+fn every_output_row_learns_from_every_byte() {
+    // Two windows of one repeated byte: the first window's Adam step is the weights the second window ends on.
+    let mut net = Lstm::new(8, 1, 4).in_place();
+    let width = net.current.features.len();
+    let before = net.front.output.clone();
+    for _ in 0..8 {
+        net.update(b'q');
+    }
+    let rows = net.front.output.len() / width;
+    let changed = (0..rows).filter(|&r| net.front.output[r * width..(r + 1) * width] != before[r * width..(r + 1) * width]).count();
+    assert_eq!(changed, SYMBOLS, "{changed} of {rows} output rows moved after a window of q's");
+}
+
+#[test]
+fn the_output_rows_step_at_twice_the_rate_of_the_rest() {
+    // Adam's first step moves a parameter by its rate times g / (|g| + ε): with a gradient of one everywhere, each
+    // group of parameters moves by its own rate.
+    let net = Lstm::new(8, 2, 4).in_place();
+    let mut trainer = net.trainer.clone().expect("a fresh network's trainer is home");
+    let before = trainer.master.clone();
+    trainer.grad.output.fill(1.0);
+    for w in &mut trainer.grad.weights {
+        w.fill(1.0);
+    }
+    trainer.train(&before, &[]);
+    let step = |after: &[f32], was: &[f32]| f64::from(was.iter().zip(after).map(|(w, a)| w - a).sum::<f32>()) / after.len() as f64;
+    let rate = f64::from(learning_rate(1));
+    for l in 0..before.layers.len() {
+        let moved = step(&trainer.master.layers[l].weights, &before.layers[l].weights);
+        assert!((moved / rate - 1.0).abs() < 0.001, "layer {l}'s weights stepped {moved} against the rate {rate}");
+    }
+    let moved = step(&trainer.master.output, &before.output);
+    assert!((moved / rate - 2.0).abs() < 0.002, "the output rows stepped {moved} against the rate {rate}");
 }

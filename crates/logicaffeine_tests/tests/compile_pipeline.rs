@@ -26,11 +26,9 @@ use std::panic;
 use logicaffeine_language::compile;
 use logicaffeine_web::content::{ContentEngine, ExerciseType};
 
-/// Exercise ids whose prompt currently PANICS `compile()` (the "No one is X
-/// unless he or she is Y" construction). A compiler bug, tracked here.
-const KNOWN_COMPILER_PANIC: &[&str] = &[
-    "A_1.20", "A_1.73", "A_1.76", "A_1.79", "A_1.83", "A_1.87", "A_1.91", "A_1.95",
-];
+/// Exercise ids whose prompt currently PANICS `compile()`. None: the "No one is X
+/// unless he or she is Y" prompts that did are now refused with a parse error.
+const KNOWN_COMPILER_PANIC: &[&str] = &[];
 
 enum Outcome {
     Compiled,

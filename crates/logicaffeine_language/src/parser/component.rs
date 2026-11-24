@@ -318,7 +318,7 @@ fn place_root(expr: &Expr<'_>) -> Option<Symbol> {
 }
 
 /// The section words that only mean something inside a component definition.
-pub(super) const SECTION_WORDS: &[&str] = &["State", "Actions", "View", "Style", "Head"];
+pub(super) const SECTION_WORDS: &[&str] = &["State", "Actions", "View", "Style", "Head", "Paths"];
 
 /// The first word of every UI sentence a test may write OUTSIDE a component.
 ///
@@ -379,7 +379,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         self.lgx_components.insert(name);
         let bound = self.page_param_state(path, &params, span)?;
         let mut def = self.parse_component_sections(
-            ComponentKind::Page { path, params },
+            ComponentKind::Page {
+                path,
+                params,
+                paths: None,
+            },
             name,
             Vec::new(),
             span,
@@ -878,6 +882,44 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 def.head = Some(self.head_from_raw(raw, head_span)?);
                 continue;
             }
+            if self.lexeme_is(0, "Paths") && self.next_is_colon() {
+                let paths_span = self.current_span();
+                self.advance();
+                self.expect_colon()?;
+                // ★ ONLY A PAGE WITH PARAMETERS HAS MORE THAN ONE ADDRESS. A `## Page /about` is
+                // built at `/about`, which its header already says; a list beside it could only
+                // repeat that or contradict it. A component is placed, never addressed.
+                let refusal = match &def.kind {
+                    ComponentKind::Page { path, .. }
+                        if self.interner.resolve(*path).contains("/:") =>
+                    {
+                        None
+                    }
+                    ComponentKind::Page { path, .. } => Some(format!(
+                        "A `Paths:` section lists the addresses a page with `:name` segments is \
+                         built at, and `## Page {}` has none — it is built at exactly that address. \
+                         Remove the section, or give the path a parameter (`/learn/:chapter`).",
+                        self.interner.resolve(*path)
+                    )),
+                    _ => Some(
+                        "A `Paths:` section belongs to a `## Page` whose path has `:name` segments \
+                         — it lists the addresses that page is built at. A component has no address \
+                         of its own; it is placed by a page."
+                            .to_string(),
+                    ),
+                };
+                if let Some(message) = refusal {
+                    return Err(ParseError {
+                        kind: ParseErrorKind::Custom(message),
+                        span: paths_span,
+                    });
+                }
+                let body = self.parse_indented_block()?;
+                if let ComponentKind::Page { paths, .. } = &mut def.kind {
+                    *paths = Some(body);
+                }
+                continue;
+            }
             if self.lexeme_is(0, "Style") && self.next_is_colon() {
                 let style_span = self.current_span();
                 self.advance();
@@ -935,7 +977,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 kind: ParseErrorKind::Custom(format!(
                     "`{}` is not part of a component. Its sections are `State:` (the data), `Actions:` \
                      (the only things that change it), `View:` (the HTML), `Style:` (its CSS) and, on a \
-                     `## Page`, `Head:` (the document's title and metadata), plus `Use <Store>.` to \
+                     `## Page`, `Head:` (the document's title and metadata) and `Paths:` (the \
+                     addresses a page with `:name` segments is built at), plus `Use <Store>.` to \
                      read a store.",
                     self.interner.resolve(self.peek().lexeme)
                 )),
@@ -2042,9 +2085,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                                 *span,
                             )
                         }
-                        TAttr::Dynamic { name, parts, span } => {
-                            (name, self.expr_from_attr_parts(parts, map)?, *span)
-                        }
+                        // A quoted prop is text, whatever its holes hold: `n="{s's n}"` hands a
+                        // `Text` prop the number as text, the way a text hole shows it.
+                        TAttr::Dynamic {
+                            name,
+                            parts,
+                            quoted,
+                            span,
+                        } => (name, self.expr_from_attr_parts(parts, *quoted, map)?, *span),
                         TAttr::Bind { span, .. }
                         | TAttr::Class { span, .. }
                         | TAttr::On { span, .. } => {
@@ -2200,9 +2248,11 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                             .alloc_imperative_expr(Expr::Literal(Literal::Text(text))),
                     });
                 }
-                TAttr::Dynamic { name, parts, span } => {
+                TAttr::Dynamic {
+                    name, parts, span, ..
+                } => {
                     let name_sym = self.interner.intern(name);
-                    let value = self.expr_from_attr_parts(parts, map)?;
+                    let value = self.expr_from_attr_parts(parts, false, map)?;
                     if self.directives.contains(&name_sym) {
                         out.push(Attr::Directive {
                             name: name_sym,
@@ -2259,13 +2309,14 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     /// A dynamic attribute value: one `{expr}` is that expression; text and holes mixed
-    /// become an interpolated string.
+    /// become an interpolated string, and so does a lone hole when `as_text` asks for text.
     fn expr_from_attr_parts(
         &mut self,
         parts: &[AttrPart],
+        as_text: bool,
         map: &RawMap,
     ) -> ParseResult<&'a Expr<'a>> {
-        if let [AttrPart::Brace { inner, span }] = parts {
+        if let (false, [AttrPart::Brace { inner, span }]) = (as_text, parts) {
             return self.expr_from_texpr(
                 &TExpr {
                     text: inner.clone(),
