@@ -7859,6 +7859,81 @@
       "features": [
         "Transitive"
       ]
+    },
+    {
+      "lemma": "Fuse",
+      "class": "Achievement",
+      "regular": true
+    },
+    {
+      "lemma": "Insulate",
+      "class": "Accomplishment",
+      "regular": true
+    },
+    {
+      "lemma": "Ground",
+      "class": "Achievement",
+      "regular": true
+    },
+    {
+      "lemma": "Wire",
+      "class": "Accomplishment",
+      "regular": true
+    },
+    {
+      "lemma": "Torque",
+      "class": "Achievement",
+      "regular": true
+    },
+    {
+      "lemma": "Crimp",
+      "class": "Achievement",
+      "regular": true
+    },
+    {
+      "lemma": "Disconnect",
+      "class": "Achievement",
+      "regular": true
+    },
+    {
+      "lemma": "Anchor",
+      "class": "Achievement",
+      "regular": true
+    },
+    {
+      "lemma": "Bond",
+      "class": "Achievement",
+      "regular": true
+    },
+    {
+      "lemma": "Discharge",
+      "class": "Accomplishment",
+      "regular": true
+    },
+    {
+      "lemma": "Clamp",
+      "class": "Achievement",
+      "regular": true
+    },
+    {
+      "lemma": "Bolt",
+      "class": "Achievement",
+      "regular": true
+    },
+    {
+      "lemma": "Solder",
+      "class": "Accomplishment",
+      "regular": true
+    },
+    {
+      "lemma": "Replenish",
+      "class": "Accomplishment",
+      "regular": true
+    },
+    {
+      "lemma": "Ventilate",
+      "class": "Activity",
+      "regular": true
     }
   ],
   "nouns": [
@@ -12705,6 +12780,66 @@
     {
       "lemma": "Transfer",
       "sort": "Abstract"
+    },
+    {
+      "lemma": "Fuse",
+      "sort": "Physical"
+    },
+    {
+      "lemma": "Panel",
+      "sort": "Physical"
+    },
+    {
+      "lemma": "Controller",
+      "sort": "Physical"
+    },
+    {
+      "lemma": "Breaker",
+      "sort": "Physical"
+    },
+    {
+      "lemma": "Hazard",
+      "sort": "Abstract"
+    },
+    {
+      "lemma": "Helper",
+      "sort": "Human"
+    },
+    {
+      "lemma": "Kit",
+      "sort": "Physical"
+    },
+    {
+      "lemma": "Frame",
+      "sort": "Physical"
+    },
+    {
+      "lemma": "Terminal",
+      "sort": "Physical"
+    },
+    {
+      "lemma": "Inverter",
+      "sort": "Physical"
+    },
+    {
+      "lemma": "Enclosure",
+      "sort": "Physical"
+    },
+    {
+      "lemma": "Disconnect",
+      "sort": "Physical"
+    },
+    {
+      "lemma": "Conductor",
+      "sort": "Physical"
+    },
+    {
+      "lemma": "Array",
+      "sort": "Physical"
+    },
+    {
+      "lemma": "Module",
+      "sort": "Physical"
     }
   ],
   "adjectives": [
@@ -15554,6 +15689,27 @@
     },
     {
       "lemma": "Corresponding",
+      "regular": true,
+      "features": [
+        "Intersective"
+      ]
+    },
+    {
+      "lemma": "Live",
+      "regular": true,
+      "features": [
+        "Intersective"
+      ]
+    },
+    {
+      "lemma": "Bare",
+      "regular": true,
+      "features": [
+        "Intersective"
+      ]
+    },
+    {
+      "lemma": "Faulty",
       "regular": true,
       "features": [
         "Intersective"

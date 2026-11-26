@@ -4024,11 +4024,7 @@ impl<'a> Lexer<'a> {
         // Kept Ambiguous with a Noun reading so it can still head an NP where a
         // noun is expected; the parser picks the verb reading in VP position.
         if lower.len() >= 4 && lower.ends_with("ed") {
-            let stem = if lower.ends_with("ied") {
-                format!("{}y", &lower[..lower.len() - 3])
-            } else {
-                lower[..lower.len() - 2].to_string()
-            };
+            let stem = lexicon::regular_past_stem(&lower);
             let verb_token = TokenType::Verb {
                 lemma: self.interner.intern(&Self::capitalize(&stem)),
                 time: Time::Past,

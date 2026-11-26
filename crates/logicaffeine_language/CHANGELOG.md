@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `Parser::reads_de_dicto`: one de dicto decision for an opaque verb's indefinite object, shared by the name-subject,
+  quantified-subject and relative-clause paths. `lexicon::regular_past_stem`: an unknown `-ed` word is stemmed by the
+  lexicon's rules.
 - A word in the lexicon's not-a-verb list (`string`, `ring`, `thing`) is never read as an `-ing` form.
 - A number followed by a unit is a quantity for every spelling the unit catalog knows: several-word names
   (`50 amp hours`), case-sensitive symbols (`50 Ah`, `2 Ω`, `25 °C`), negative magnitudes, and `… in <unit>`

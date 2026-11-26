@@ -742,7 +742,9 @@ impl<'a, 'ctx, 'int> QuantifierParsing<'a, 'ctx, 'int> for Parser<'a, 'ctx, 'int
 
                 let object = self.parse_noun_phrase(false)?;
 
-                if let Some(obj_q) = obj_quantifier {
+                if self.reads_de_dicto(verb, obj_quantifier.as_ref(), &object) {
+                    args.push(Term::Intension(object.noun));
+                } else if let Some(obj_q) = obj_quantifier {
                     let obj_var = self.next_var_name();
 
                     // Introduce object referent in DRS for cross-sentence anaphora (telescoping)

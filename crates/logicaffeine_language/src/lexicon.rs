@@ -55,6 +55,12 @@ impl LexiconTrait for StaticLexicon {
 /// Lexicon struct for verb lookup with inflection handling
 pub struct Lexicon {}
 
+/// The base form of a regular past form (`stopped` → `stop`, `studied` → `study`, `insulated` →
+/// `insulate` once `insulate` is a known verb), by the same rules a known verb's past is read with.
+pub fn regular_past_stem(word: &str) -> String {
+    Lexicon::new().strip_ed(&word.to_lowercase())
+}
+
 impl Lexicon {
     pub fn new() -> Self {
         Lexicon {}

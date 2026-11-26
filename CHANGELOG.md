@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **An opaque verb reads its object the same in every clause shape.** `needs`, `seeks`, `wants` with a bare
+  indefinite object are de dicto (`Theme(e, ^Helper)`) under a quantified subject, in a relative-clause rule and under
+  a name alike, so "every step that has a lifting hazard needs a helper" proves "T20B needs a helper"; a modified object
+  ("an insulated glove") keeps its restrictors. The decision lives in one parser method. An unknown participle is
+  stemmed by the lexicon's own rules (`insulated` → `Insulate`, `fused` → `Fuse`), and the lexicon gains the vocabulary
+  of electrical work (fuse, insulate, ground, crimp, torque, bond, panel, controller, breaker, terminal, inverter, …).
 - **The English prover certifies the rules a technical standard is written in** (`technical_rules_prove_lock`). An
   individual named like a kernel prelude constant (`B1`, the prelude's bit) is the problem's own entity, filed under a
   name of its own, so `B1 is a man` is no longer dropped as ill-typed. A curried rule, `every controller protects every

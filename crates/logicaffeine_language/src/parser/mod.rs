@@ -2305,6 +2305,19 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
     }
 
     /// Register an indefinite's referent in the DRS as its scope decides.
+    /// Whether `verb` takes the object just parsed de dicto: an opaque verb ("needs", "seeks", "wants")
+    /// with a bare indefinite object and no clause after it reads the concept, `^Helper`. One decision
+    /// for every clause shape, so "every step needs a helper" and "T20B needs a helper" agree.
+    pub(super) fn reads_de_dicto(&self, verb: Symbol, obj_q: Option<&TokenType>, object: &crate::ast::NounPhrase<'a>) -> bool {
+        matches!(obj_q, Some(TokenType::Some))
+            && object.adjectives.is_empty()
+            && object.pps.is_empty()
+            && !self.check_verb()
+            && lexicon::lookup_verb_db(&self.interner.resolve(verb).to_lowercase())
+                .map(|meta| meta.features.contains(&lexicon::Feature::Opaque))
+                .unwrap_or(false)
+    }
+
     pub(super) fn introduce_indefinite(
         &mut self,
         var: Symbol,
@@ -28202,8 +28215,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         return self.wrap_with_definiteness_full(&subject, with_time);
                     }
 
-                    if is_opaque && matches!(obj_q, TokenType::Some) {
-                        // De dicto reading: use Term::Intension for the theme
+                    if self.reads_de_dicto(verb, Some(&obj_q), &object_np) {
+                        // De dicto reading: use Term::Intension for the theme. A modified object
+                        // ("an insulated glove") keeps its restrictors on the extensional reading below.
                         let intension_term = Term::Intension(object_np.noun);
 
                         // Register intensional entity for anaphora resolution

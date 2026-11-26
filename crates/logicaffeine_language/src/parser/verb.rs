@@ -3734,7 +3734,12 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
             self.nominal_np_context = false;
             let object_np = object_np_result?;
 
-            if let Some(obj_q) = obj_quantifier {
+            let de_dicto = self.reads_de_dicto(verb, obj_quantifier.as_ref(), &object_np);
+            if de_dicto {
+                let term = Term::Intension(object_np.noun);
+                object_term = Some(term);
+                args.push(term);
+            } else if let Some(obj_q) = obj_quantifier {
                 let obj_var = self.next_var_name();
 
                 // Introduce object referent in DRS for cross-sentence anaphora

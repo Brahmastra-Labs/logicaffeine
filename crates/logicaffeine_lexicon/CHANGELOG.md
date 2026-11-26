@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Electrical-work vocabulary: the verbs fuse, insulate, ground, wire, torque, crimp, disconnect, anchor, bond, discharge,
+  clamp, bolt, solder, replenish, ventilate; the nouns fuse, panel, controller, breaker, hazard, helper, kit, frame,
+  terminal, inverter, enclosure, disconnect, conductor, array, module; the adjectives live, bare, faulty.
+
 ## [0.11.0] - 2026-11-02
 
 ### Added

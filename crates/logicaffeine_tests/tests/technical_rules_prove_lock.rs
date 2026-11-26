@@ -86,3 +86,48 @@ fn a_relative_clause_with_has_restricts_its_universal() {
         "Kitty has a fuse.",
     );
 }
+
+#[test]
+fn an_opaque_verb_reads_its_object_the_same_under_a_universal() {
+    certifies(
+        "Lift_Needs_A_Helper",
+        &["Every step that has a lifting hazard needs a helper.", "T20B is a step.", "T20B has a lifting hazard."],
+        "T20B needs a helper.",
+    );
+    refuses(
+        "No_Hazard_No_Helper",
+        &["Every step that has a lifting hazard needs a helper.", "T10 is a step."],
+        "T10 needs a helper.",
+    );
+}
+
+#[test]
+fn a_technical_participle_keeps_its_verb() {
+    for (sentence, lemma, not) in [
+        ("The wire is insulated.", "Insulate", "Insulat("),
+        ("Every battery is fused.", "Fuse", "Fus("),
+        ("The frame is grounded.", "Ground", "Grounde"),
+    ] {
+        let fol = logicaffeine_compile::compile_for_ui(sentence);
+        let text = fol.logic.clone().unwrap_or_default();
+        assert!(fol.error.is_none(), "{sentence}: {:?}", fol.error);
+        assert!(text.contains(lemma), "{sentence} names {lemma}: {text}");
+        assert!(!text.contains(not), "{sentence} is not stemmed to {not}: {text}");
+    }
+    certifies(
+        "Gloves",
+        &["Every step that has a battery hazard requires insulated gloves.", "T30 is a step.", "T30 has a battery hazard."],
+        "T30 requires insulated gloves.",
+    );
+}
+
+#[test]
+fn a_live_conductor_is_an_adjective_not_the_verb_to_live() {
+    certifies(
+        "Live_String_Is_Dangerous",
+        &["Every step that touches a live string is dangerous.", "T22 is a step.", "T22 touches a live string."],
+        "T22 is dangerous.",
+    );
+    let fol = logicaffeine_compile::compile_for_ui("John lives in Paris.");
+    assert!(fol.logic.unwrap_or_default().contains("Live(e)"), "the verb `live` still reads as a verb");
+}
