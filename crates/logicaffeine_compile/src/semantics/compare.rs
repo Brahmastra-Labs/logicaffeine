@@ -146,6 +146,17 @@ fn values_equal_depth(left: &RuntimeValue, right: &RuntimeValue, depth: usize) -
         // ignored, so `2 inches == 5.08 cm`); a Uuid by its 128 bits.
         (RuntimeValue::Money(a), RuntimeValue::Money(b)) => a == b,
         (RuntimeValue::Quantity(a), RuntimeValue::Quantity(b)) => a.q == b.q,
+        (RuntimeValue::Quantity(_), n) | (n, RuntimeValue::Quantity(_))
+            if crate::semantics::arith::quantity_operand(n).is_some() =>
+        {
+            match (
+                crate::semantics::arith::quantity_operand(left),
+                crate::semantics::arith::quantity_operand(right),
+            ) {
+                (Some(a), Some(b)) => logicaffeine_base::quantity::equal(&a, &b),
+                _ => false,
+            }
+        }
         (RuntimeValue::Uuid(a), RuntimeValue::Uuid(b)) => a == b,
         (RuntimeValue::Inductive(a), RuntimeValue::Inductive(b)) => {
             a.inductive_type == b.inductive_type
@@ -356,6 +367,16 @@ pub fn compare(
                 a.q.magnitude_si().cmp(b.q.magnitude_si()),
             ))))
         }
+        // A quantity whose dimensions cancel is a number, and orders against one.
+        (RuntimeValue::Quantity(_), n) | (n, RuntimeValue::Quantity(_))
+            if crate::semantics::arith::quantity_operand(n).is_some() =>
+        {
+            let a = crate::semantics::arith::quantity_operand(left).expect("a quantity side");
+            let b = crate::semantics::arith::quantity_operand(right).expect("a number side");
+            logicaffeine_base::quantity::compare(&a, &b)
+                .map(|ord| RuntimeValue::Bool(rel(Some(ord))))
+                .map_err(|e| logicaffeine_data::failure::quantity(&e))
+        }
         // Money orders by amount within the SAME currency; ordering across currencies is meaningless
         // without a rate context, so it is a typed error (the dimension-mismatch precedent).
         (RuntimeValue::Money(a), RuntimeValue::Money(b)) => {
@@ -431,3 +452,4 @@ pub fn compare(
 #[cfg(test)]
 #[path = "../../../logicaffeine_tests/unit/logicaffeine_compile/semantics/compare/tests.rs"]
 mod tests;
+

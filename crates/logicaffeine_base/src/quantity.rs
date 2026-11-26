@@ -40,6 +40,24 @@ impl Unit {
         }
     }
 
+    /// Whether the unit's zero is not the SI zero (°C, °F, °Ré): its values are points on a scale,
+    /// and two of them subtract to a difference rather than add.
+    pub fn is_offset(&self) -> bool {
+        !self.offset.is_zero()
+    }
+
+    /// The unit a difference of two values on this scale is measured in: the same scale with no
+    /// offset, `Δ°C` for `°C`. A unit without an offset is its own difference unit.
+    pub fn difference(&self) -> Unit {
+        let symbol = match self.symbol {
+            "°C" => "Δ°C",
+            "°F" => "Δ°F",
+            "°Ré" => "Δ°Ré",
+            other => other,
+        };
+        Unit::linear(symbol, self.dimension, self.scale.clone())
+    }
+
     /// An affine unit (`si = value · scale + offset`) — temperatures.
     pub fn affine(
         symbol: &'static str,
@@ -177,6 +195,140 @@ impl Quantity {
             });
         }
         best
+    }
+}
+
+/// How a quantity in `unit` shows: its magnitude in that unit and the unit's symbol (`42/127 ft`,
+/// `20 °C`). A synthetic unit (no symbol: a product or quotient whose dimension has no named unit)
+/// shows the dimension signature (`12 L^2`), and one whose dimensions cancel the bare number (`25`).
+pub fn show(q: &Quantity, unit: &Unit) -> String {
+    let magnitude = q
+        .in_unit(unit)
+        .expect("a quantity's display unit shares its dimension");
+    match (unit.symbol, q.dimension()) {
+        ("", Dimension::DIMENSIONLESS) => magnitude.to_string(),
+        ("", dimension) => format!("{magnitude} {dimension}"),
+        (symbol, _) => format!("{magnitude} {symbol}"),
+    }
+}
+
+/// One side of a quantity operation: a quantity with the unit it shows in, or an exact number (an
+/// integer, rational, decimal, or a float read as the decimal it prints as). A duration is a
+/// quantity of time ([`Operand::seconds`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Operand {
+    Quantity(Quantity, Unit),
+    Number(Rational),
+}
+
+/// An arithmetic operator a quantity takes part in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Op {
+    Add,
+    Sub,
+    Mul,
+    Div,
+}
+
+/// Why a quantity operation has no answer. Each tier words it through the one failure catalog.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum QuantityError {
+    /// `+ −` or a comparison across dimensions: the verb, then each side's dimension.
+    DimensionsDiffer(&'static str, Dimension, Dimension),
+    /// Two values on an offset temperature scale added: each side as it shows.
+    TemperaturesAdded(String, String),
+    /// Division by a quantity whose magnitude is zero.
+    DivideByZeroQuantity,
+    /// A quantity divided by the number zero.
+    DivideQuantityByZero,
+    /// A quantity that still has a dimension met a plain number in `+ −` or a comparison.
+    NotANumber(Dimension),
+}
+
+impl Operand {
+    /// A duration of `nanoseconds` as a quantity of time.
+    pub fn seconds(nanoseconds: i64) -> Operand {
+        let unit = units::second();
+        let seconds = Rational::from_ratio_i64(nanoseconds, 1_000_000_000).expect("nonzero denominator");
+        Operand::Quantity(Quantity::of(seconds, &unit), unit)
+    }
+
+    /// A quantity in the SI unit of its dimension with a name of its own (`A × V` is `W`), or in a
+    /// synthetic unit shown by its signature when the dimension has none.
+    pub fn combined(q: Quantity) -> Operand {
+        let unit = units::named(q.dimension()).unwrap_or_else(|| Unit::linear("", q.dimension(), Rational::one()));
+        Operand::Quantity(q, unit)
+    }
+
+    /// The exact number a quantity whose dimensions cancel is, or the number itself.
+    fn number(&self) -> Result<Rational, QuantityError> {
+        match self {
+            Operand::Number(n) => Ok(n.clone()),
+            Operand::Quantity(q, _) if q.dimension() == Dimension::DIMENSIONLESS => Ok(q.magnitude_si().clone()),
+            Operand::Quantity(q, _) => Err(QuantityError::NotANumber(q.dimension())),
+        }
+    }
+}
+
+/// `a op b` where at least one side is a quantity — the one definition every tier runs:
+/// - `+ −` need equal dimensions and keep the left unit, except that two values on an offset scale
+///   subtract to a difference (`Δ°C`) and do not add ([`units::sum_unit`]); a quantity whose
+///   dimensions cancel meets a number as the number it is;
+/// - `× ÷` of two quantities combine dimensions into the named SI unit, if any ([`Operand::combined`]);
+/// - a number scales a quantity under `× ÷`, keeping its unit, and a number over a quantity is the
+///   reciprocal dimension.
+pub fn apply(op: Op, a: &Operand, b: &Operand) -> Result<Operand, QuantityError> {
+    use Operand::{Number, Quantity as Q};
+    match (op, a, b) {
+        (Op::Add | Op::Sub, Q(x, xu), Q(y, yu)) => {
+            let subtract = op == Op::Sub;
+            let verb = if subtract { "subtract" } else { "add" };
+            let sum = if subtract { x.sub(y) } else { x.add(y) }
+                .ok_or(QuantityError::DimensionsDiffer(verb, x.dimension(), y.dimension()))?;
+            let unit = units::sum_unit(xu, yu, subtract)
+                .map_err(|_| QuantityError::TemperaturesAdded(show(x, xu), show(y, yu)))?;
+            Ok(Q(sum, unit))
+        }
+        (Op::Add | Op::Sub, _, _) => {
+            let (x, y) = (a.number()?, b.number()?);
+            Ok(Number(if op == Op::Add { x.add(&y) } else { x.sub(&y) }))
+        }
+        (Op::Mul, Q(x, _), Q(y, _)) => Ok(Operand::combined(x.mul(y))),
+        (Op::Div, Q(x, _), Q(y, _)) => x.div(y).map(Operand::combined).ok_or(QuantityError::DivideByZeroQuantity),
+        (Op::Mul, Q(x, xu), Number(k)) | (Op::Mul, Number(k), Q(x, xu)) => {
+            Ok(Q(Quantity::si(x.magnitude_si().mul(k), x.dimension()), xu.clone()))
+        }
+        (Op::Div, Q(x, xu), Number(k)) => x
+            .magnitude_si()
+            .div(k)
+            .map(|m| Q(Quantity::si(m, x.dimension()), xu.clone()))
+            .ok_or(QuantityError::DivideQuantityByZero),
+        (Op::Div, Number(k), Q(y, _)) => k
+            .div(y.magnitude_si())
+            .map(|m| Operand::combined(Quantity::si(m, y.dimension().recip())))
+            .ok_or(QuantityError::DivideByZeroQuantity),
+        (Op::Mul | Op::Div, Number(_), Number(_)) => unreachable!("one side of a quantity operation is a quantity"),
+    }
+}
+
+/// How `a` orders against `b`: two quantities of one dimension by magnitude, and a quantity whose
+/// dimensions cancel against a number.
+pub fn compare(a: &Operand, b: &Operand) -> Result<std::cmp::Ordering, QuantityError> {
+    match (a, b) {
+        (Operand::Quantity(x, _), Operand::Quantity(y, _)) if x.dimension() != y.dimension() => {
+            Err(QuantityError::DimensionsDiffer("compare", x.dimension(), y.dimension()))
+        }
+        (Operand::Quantity(x, _), Operand::Quantity(y, _)) => Ok(x.magnitude_si().cmp(y.magnitude_si())),
+        _ => Ok(a.number()?.cmp(&b.number()?)),
+    }
+}
+
+/// Whether `a` is `b`: two quantities by physical value, a quantity and a number only when the
+/// quantity's dimensions cancel to that number.
+pub fn equal(a: &Operand, b: &Operand) -> bool {
+    match (a, b) {
+        (Operand::Quantity(x, _), Operand::Quantity(y, _)) => x == y,
+        _ => matches!((a.number(), b.number()), (Ok(x), Ok(y)) if x == y),
     }
 }
 
@@ -1211,9 +1363,10 @@ pub mod units {
             "week" | "weeks" | "wk" => week(),
             "year" | "years" | "yr" | "yrs" => julian_year(),
             // Temperature (affine).
-            "kelvin" | "k" => kelvin(),
-            "celsius" | "centigrade" | "°c" | "c" => celsius(),
-            "fahrenheit" | "°f" | "f" => fahrenheit(),
+            "kelvin" | "kelvins" | "degree kelvin" | "degrees kelvin" | "k" => kelvin(),
+            "celsius" | "centigrade" | "degree celsius" | "degrees celsius" | "degree centigrade"
+            | "degrees centigrade" | "°c" | "c" => celsius(),
+            "fahrenheit" | "degree fahrenheit" | "degrees fahrenheit" | "°f" | "f" => fahrenheit(),
             "rankine" | "°r" => rankine(),
             "reaumur" | "réaumur" | "°ré" => reaumur(),
             // Volume (incl. cooking).
@@ -1247,13 +1400,25 @@ pub mod units {
             "kilohertz" | "khz" => kilohertz(),
             "megahertz" | "mhz" => megahertz(),
             "gigahertz" | "ghz" => gigahertz(),
+            // Force.
+            "newton" | "newtons" => newton(),
+            "kilonewton" | "kilonewtons" => kilonewton(),
+            "dyne" | "dynes" => dyne(),
+            "kilogram force" | "kilogram-force" | "kilograms force" | "kgf" => kilogram_force(),
+            "pound force" | "pound-force" | "pounds force" | "lbf" => pound_force(),
+            "pound foot" | "pound feet" | "pound-foot" | "pound-feet" | "foot pound" | "foot pounds"
+            | "foot-pound" | "foot-pounds" | "lb·ft" => pound_foot(),
             // Energy.
             "joule" | "joules" | "j" => joule(),
             "kilojoule" | "kilojoules" | "kj" => kilojoule(),
             "calorie" | "calories" | "cal" => calorie(),
             "kilocalorie" | "kilocalories" | "kcal" => kilocalorie(),
-            "watt hour" | "watt hours" | "wh" => watt_hour(),
-            "kilowatt hour" | "kilowatt hours" | "kwh" => kilowatt_hour(),
+            "watt hour" | "watt hours" | "watt-hour" | "watt-hours" | "wh" => watt_hour(),
+            "kilowatt hour" | "kilowatt hours" | "kilowatt-hour" | "kilowatt-hours" | "kwh" => {
+                kilowatt_hour()
+            }
+            "newton meter" | "newton meters" | "newton metre" | "newton metres" | "newton-meter"
+            | "newton-meters" | "newton-metre" | "newton-metres" | "n·m" => newton_metre(),
             "electronvolt" | "electronvolts" | "ev" => electronvolt(),
             // Power.
             "watt" | "watts" | "w" => watt(),
@@ -1301,8 +1466,11 @@ pub mod units {
             "ampere" | "amperes" | "amp" | "amps" => ampere(),
             "milliampere" | "milliamperes" | "milliamp" | "milliamps" => milliampere(),
             "coulomb" | "coulombs" => coulomb(),
-            "ampere hour" | "ampere hours" | "ah" => ampere_hour(),
-            "milliampere hour" | "milliampere hours" | "mah" => milliampere_hour(),
+            "ampere hour" | "ampere hours" | "ampere-hour" | "ampere-hours" | "amp hour" | "amp hours"
+            | "amp-hour" | "amp-hours" | "ah" => ampere_hour(),
+            "milliampere hour" | "milliampere hours" | "milliamp hour" | "milliamp hours" | "mah" => {
+                milliampere_hour()
+            }
             "ohm" | "ohms" | "ω" => ohm(),
             "siemens" => siemens(),
             "millisiemens" => millisiemens(),
@@ -1372,6 +1540,345 @@ pub mod units {
             _ => return None,
         };
         Some(u)
+    }
+
+    /// Every unit of the catalog, each once. The symbol index ([`by_symbol`]) and the catalog locks
+    /// read it; a unit added above is added here.
+    pub fn catalog() -> Vec<Unit> {
+        vec![
+            metre(),
+            kilometre(),
+            hectometre(),
+            dekametre(),
+            decimetre(),
+            centimetre(),
+            millimetre(),
+            micrometre(),
+            nanometre(),
+            angstrom(),
+            inch(),
+            foot(),
+            yard(),
+            mile(),
+            nautical_mile(),
+            fathom(),
+            furlong(),
+            chain(),
+            rod(),
+            hand(),
+            point(),
+            pica(),
+            thou(),
+            astronomical_unit(),
+            light_year(),
+            kilogram(),
+            gram(),
+            milligram(),
+            microgram(),
+            tonne(),
+            pound(),
+            ounce(),
+            stone(),
+            short_ton(),
+            long_ton(),
+            hundredweight(),
+            grain(),
+            dram(),
+            carat(),
+            troy_ounce(),
+            troy_pound(),
+            second(),
+            millisecond(),
+            microsecond(),
+            nanosecond(),
+            minute(),
+            hour(),
+            day(),
+            week(),
+            fortnight(),
+            julian_year(),
+            decade(),
+            century(),
+            kelvin(),
+            celsius(),
+            fahrenheit(),
+            rankine(),
+            reaumur(),
+            cubic_metre(),
+            litre(),
+            millilitre(),
+            centilitre(),
+            decilitre(),
+            cubic_centimetre(),
+            cubic_inch(),
+            cubic_foot(),
+            us_gallon(),
+            us_quart(),
+            us_pint(),
+            us_cup(),
+            us_gill(),
+            us_fluid_ounce(),
+            tablespoon(),
+            teaspoon(),
+            oil_barrel(),
+            imperial_gallon(),
+            imperial_pint(),
+            imperial_fluid_ounce(),
+            square_metre(),
+            square_kilometre(),
+            square_centimetre(),
+            square_inch(),
+            square_foot(),
+            square_yard(),
+            square_mile(),
+            hectare(),
+            are(),
+            acre(),
+            metre_per_second(),
+            kilometre_per_hour(),
+            mile_per_hour(),
+            foot_per_second(),
+            knot(),
+            hertz(),
+            kilohertz(),
+            megahertz(),
+            gigahertz(),
+            rpm(),
+            newton(),
+            kilonewton(),
+            dyne(),
+            kilogram_force(),
+            pound_force(),
+            joule(),
+            kilojoule(),
+            megajoule(),
+            calorie(),
+            kilocalorie(),
+            watt_hour(),
+            kilowatt_hour(),
+            erg(),
+            electronvolt(),
+            watt(),
+            kilowatt(),
+            megawatt(),
+            horsepower(),
+            pascal(),
+            kilopascal(),
+            bar(),
+            millibar(),
+            atmosphere(),
+            psi(),
+            bit(),
+            byte(),
+            kilobit(),
+            kilobyte(),
+            megabyte(),
+            gigabyte(),
+            kibibyte(),
+            mebibyte(),
+            gibibyte(),
+            turn(),
+            degree(),
+            gradian(),
+            arcminute(),
+            arcsecond(),
+            ampere(),
+            milliampere(),
+            coulomb(),
+            ampere_hour(),
+            milliampere_hour(),
+            volt(),
+            millivolt(),
+            kilovolt(),
+            ohm(),
+            mole(),
+            candela(),
+            stick_of_butter(),
+            dash(),
+            pinch(),
+            smidgen(),
+            bushel(),
+            peck(),
+            dry_gallon(),
+            dry_quart(),
+            dry_pint(),
+            cable(),
+            league(),
+            nautical_league(),
+            light_second(),
+            light_minute(),
+            light_hour(),
+            light_day(),
+            lunar_distance(),
+            solar_radius(),
+            earth_radius(),
+            solar_mass(),
+            earth_mass(),
+            jupiter_mass(),
+            gray(),
+            sievert(),
+            rad_unit(),
+            rem(),
+            becquerel(),
+            curie(),
+            roentgen(),
+            katal(),
+            lumen(),
+            lux(),
+            phot(),
+            foot_candle(),
+            nit(),
+            bit_per_second(),
+            kilobit_per_second(),
+            megabit_per_second(),
+            gigabit_per_second(),
+            byte_per_second(),
+            megabyte_per_second(),
+            cubic_metre_per_second(),
+            litre_per_second(),
+            litre_per_minute(),
+            gallon_per_minute(),
+            cubic_foot_per_minute(),
+            molar(),
+            millimolar(),
+            micromolar(),
+            molal(),
+            pascal_second(),
+            poise(),
+            centipoise(),
+            square_metre_per_second(),
+            stokes(),
+            centistokes(),
+            mile_per_gallon(),
+            km_per_litre(),
+            newton_metre(),
+            pound_foot(),
+            megametre(),
+            gigametre(),
+            picometre(),
+            femtometre(),
+            nanogram(),
+            picosecond(),
+            gigawatt(),
+            terawatt(),
+            gigajoule(),
+            terajoule(),
+            terabit(),
+            terabyte(),
+            petabyte(),
+            siemens(),
+            millisiemens(),
+            farad(),
+            microfarad(),
+            nanofarad(),
+            picofarad(),
+            weber(),
+            maxwell(),
+            henry(),
+            millihenry(),
+            microhenry(),
+            tesla(),
+            millitesla(),
+            gauss(),
+            newton_per_metre(),
+            dyne_per_centimetre(),
+            each(),
+            pair(),
+            dozen(),
+            baker_dozen(),
+            score(),
+            gross(),
+            great_gross(),
+            ream(),
+            percent(),
+            permille(),
+            ppm(),
+            ppb(),
+            basis_point(),
+        ]
+    }
+
+    /// A unit by its exact symbol, case-sensitive as SI symbols are: `A` is the ampere and `a` the
+    /// are, `S` the siemens and `s` the second, `mS` the millisiemens and `ms` the millisecond. When
+    /// two units print the same symbol, the first in the catalog is the one the symbol names.
+    pub fn by_symbol(symbol: &str) -> Option<Unit> {
+        use std::collections::HashMap;
+        use std::sync::OnceLock;
+        static INDEX: OnceLock<HashMap<&'static str, Unit>> = OnceLock::new();
+        let index = INDEX.get_or_init(|| {
+            let mut index = HashMap::new();
+            for unit in catalog() {
+                index.entry(unit.symbol).or_insert(unit);
+            }
+            for unit in [celsius(), fahrenheit(), reaumur()] {
+                let difference = unit.difference();
+                index.entry(difference.symbol).or_insert(difference);
+            }
+            index
+        });
+        index.get(symbol.trim()).cloned()
+    }
+
+    /// A unit named in text, as `quantity(2, "…")`, `convert(q, "…")` and a value's carried symbol
+    /// name it: its exact symbol first ([`by_symbol`]), then any spelling of its name ([`by_name`]).
+    pub fn lookup(text: &str) -> Option<Unit> {
+        by_symbol(text).or_else(|| by_name(text))
+    }
+
+    /// The SI unit with a name of its own whose dimension is `dimension`, if there is exactly one:
+    /// a product or quotient of quantities is shown in it (`A × V` is `W`, `V ÷ Ω` is `A`). A
+    /// dimension two named units share (`T⁻¹` is both hertz and becquerel) or none has (`L²`) has
+    /// no name here and is shown by its signature.
+    pub fn named(dimension: Dimension) -> Option<Unit> {
+        named_units().into_iter().find(|unit| unit.dimension == dimension)
+    }
+
+    /// The SI units [`named`] shows products and quotients in, each the only named unit of its
+    /// dimension: the base units and the coherent derived units with names of their own.
+    pub fn named_units() -> Vec<Unit> {
+        vec![
+            metre(),
+            kilogram(),
+            second(),
+            ampere(),
+            kelvin(),
+            mole(),
+            candela(),
+            newton(),
+            joule(),
+            watt(),
+            pascal(),
+            coulomb(),
+            volt(),
+            ohm(),
+            siemens(),
+            farad(),
+            weber(),
+            henry(),
+            tesla(),
+        ]
+    }
+
+    /// The unit `left ± right` is shown in, or why the sum means nothing. Two values on an offset
+    /// scale subtract to a difference (`25 °C − 20 °C` is `5 Δ°C`) and do not add (`20 °C + 5 °C`
+    /// has no meaning: one of them was meant as a difference); otherwise the result keeps the left
+    /// operand's unit, so a temperature plus a difference is a temperature.
+    pub fn sum_unit(left: &Unit, right: &Unit, subtract: bool) -> Result<Unit, OffsetSum> {
+        match (left.is_offset() && right.is_offset(), subtract) {
+            (true, true) => Ok(left.difference()),
+            (true, false) => Err(OffsetSum {
+                left: left.symbol,
+                right: right.symbol,
+            }),
+            (false, _) => Ok(left.clone()),
+        }
+    }
+
+    /// Two values on an offset scale added together.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct OffsetSum {
+        pub left: &'static str,
+        pub right: &'static str,
     }
 }
 

@@ -3921,9 +3921,82 @@ impl BackwardChainer {
                     }
                 }
             }
+
+            // Case C: a curried rule ∀x̄(A₁ → ∀ȳ(A₂ → … → C)) — "every controller protects every
+            // string". Unify C with the goal, prove each Aᵢ in turn, and apply the rule layer by
+            // layer: instantiate a layer's binders, discharge its antecedent, step inside.
+            if let Some(tree) = self.try_curried_rule(&forall_expr, bound_vars, body, goal, depth)? {
+                return Ok(Some(tree));
+            }
         }
 
         Ok(None)
+    }
+
+    /// [`Self::try_universal_inst`]'s Case C. `body` is the matrix under the rule's leading
+    /// binders `outer`. `None` unless the rule nests a second layer (`A → ∀ȳ …` or `A → B → C`),
+    /// which Case B leaves alone.
+    fn try_curried_rule(
+        &mut self,
+        forall_expr: &ProofExpr,
+        outer: Vec<String>,
+        body: &ProofExpr,
+        goal: &ProofGoal,
+        depth: usize,
+    ) -> ProofResult<Option<DerivationTree>> {
+        // Each layer: its binders, the implication under them, and its antecedent.
+        let mut layers: Vec<(Vec<String>, &ProofExpr, &ProofExpr)> = Vec::new();
+        let mut binders = outer;
+        let mut at = body;
+        while let ProofExpr::Implies(ant, rest) = at {
+            layers.push((std::mem::take(&mut binders), at, ant.as_ref()));
+            at = rest.as_ref();
+            while let ProofExpr::ForAll { variable, body: inner } = at {
+                binders.push(variable.clone());
+                at = inner.as_ref();
+            }
+        }
+        if layers.len() < 2 || !binders.is_empty() {
+            return Ok(None);
+        }
+        let conclusion = at;
+        let Some(mut subst) = unify_with_conclusion(&goal.target, conclusion) else {
+            return Ok(None);
+        };
+        let mut antecedent_proofs = Vec::new();
+        for (_, _, ant) in &layers {
+            let ant_inst = apply_subst_to_expr(ant, &subst);
+            match self.prove_rule_antecedent(&ant_inst, &subst, &goal.context, depth + 1) {
+                Ok((proof, next)) => {
+                    antecedent_proofs.push(proof);
+                    subst = next;
+                }
+                Err(_) => return Ok(None),
+            }
+        }
+        let mut node = DerivationTree::leaf(forall_expr.clone(), InferenceRule::PremiseMatch);
+        for ((layer_binders, implication, _), ant_proof) in layers.iter().zip(antecedent_proofs) {
+            let Some(witnesses) = instantiation_witnesses(layer_binders, &subst, implication) else {
+                return Ok(None);
+            };
+            let instantiated = apply_subst_to_expr(implication, &subst);
+            for witness in &witnesses {
+                node = DerivationTree::new(
+                    instantiated.clone(),
+                    InferenceRule::UniversalInst(format!("{}", witness)),
+                    vec![node],
+                );
+            }
+            let ProofExpr::Implies(_, rest) = implication else {
+                unreachable!("every layer is an implication");
+            };
+            node = DerivationTree::new(
+                apply_subst_to_expr(rest, &subst),
+                InferenceRule::ModusPonens,
+                vec![node, ant_proof],
+            );
+        }
+        Ok(project_goal(node, &goal.target).map(|projected| projected.with_substitution(subst)))
     }
 
     /// Prove the antecedent of an instantiated rule, returning both its proof and
@@ -3995,7 +4068,7 @@ impl BackwardChainer {
             let g = apply_subst_to_expr(sg, subst);
             let score = if matches!(g, ProofExpr::And(_, _)) {
                 3
-            } else if self.collect_variables(&g).is_empty() {
+            } else if crate::unify::free_names(&g).is_empty() {
                 0
             } else if self.subgoal_pinnable(&g, context) {
                 1
@@ -4058,12 +4131,13 @@ impl BackwardChainer {
             .collect();
         let g = apply_subst_to_expr(first, subst);
 
-        // Ground subgoal (no open variable): prove it with the full strategy
+        // Ground subgoal (no open variable — a variable its own quantifier binds is not open, so a
+        // closed `∃y(Battery(y) ∧ Have(k, y))` is ground): prove it with the full strategy
         // suite, so non-Horn antecedents (negations, disjunctions, induction, …)
         // stay exactly as provable as a top-level goal. No new bindings arise.
         // Recurse at `depth + 1` so a recursive axiom (whose antecedent re-enters the
         // chainer) is bounded by `max_depth` instead of overflowing the stack.
-        if self.collect_variables(&g).is_empty() {
+        if crate::unify::free_names(&g).is_empty() {
             let proof = self.prove_goal(
                 ProofGoal::with_context(g.clone(), context.to_vec()),
                 depth + 1,

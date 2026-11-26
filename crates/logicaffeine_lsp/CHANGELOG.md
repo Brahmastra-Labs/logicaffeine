@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- A `## Theory` or `## Axiom` body is one formal raw section: completion offers nothing inside it.
+
 ## [0.11.0] - 2026-11-02
 
 ### Added

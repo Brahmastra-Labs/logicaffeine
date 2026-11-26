@@ -526,15 +526,21 @@ largo specialize p3 -o cogen.lg --check
 ### `datalog`
 
 Reads the file's `## Theory` (and its `## Axiom` blocks) as a Datalog program, every ground atom a fact and every
-`for all …, if … then …` whose condition is a conjunction of atoms and negated atoms a Horn rule, and evaluates it to
-its least model: semi-naively, stratum by stratum, so a negated atom reads a relation already complete. It prints
-each relation the rules derive with its facts, then how many facts were derived and how many rule instances were
-joined. `--bdd` evaluates the program again with every relation a binary decision diagram (constants as binary codes,
-a join as a relational product) and gives each relation's diagram size; `--certify` proves every derived fact in the
-kernel from the theory's axioms and fails if one is not proved; `--json` prints `{relations, derived, given,
-rule_instances}`, with `bdd_nodes` and `certified` when asked for. A theory that is not Datalog (an existential, a
-disjunctive conclusion, a function symbol), a rule whose head names a variable its body does not bind, and a negation
-through recursion are refused, naming the axiom or the predicates.
+`for all …, if … then …` whose condition is a conjunction of atoms, negated atoms and comparisons a Horn rule, and
+evaluates it to its least model: semi-naively, stratum by stratum, so a negated atom reads a relation already complete.
+A comparison guards a rule with values its atoms bind: `x ≤ y`, `x < y`, `x ≥ y`, `x > y` (and `<=`, `>=`) order
+numbers as exact rationals (`107.1`, `-10`, `3/4`), and `x = y`, `x ≠ y` (`!=`) tell any two constants apart, numbers by
+value, so `if ColdVoc(a, x) and VocMax(c, y) and x ≤ y then Fits(a, c)` states a limit. An ordering of a name that is
+not a number is refused. It prints each relation the rules derive with its facts, then how many facts were derived and
+how many rule instances were joined. `--bdd` evaluates the program again with every relation a binary decision diagram
+(constants as binary codes, a join as a relational product) and gives each relation's diagram size; a rule with a
+comparison has no diagram and is refused by name. `--certify` proves every derived fact in the kernel from the theory's
+axioms and fails if one is not proved; a fact that rests on a negation or a comparison reads the closed world (that a
+fact is absent, that two names differ, that one number lies below another), which no axiom states, so it is listed as
+such and not disputed. `--json` prints `{relations, derived, given, rule_instances}`, with `bdd_nodes`, and
+`certified`, `unproved` and `closed_world` when asked for. A theory that is not Datalog (an existential, a disjunctive
+conclusion, a function symbol), a rule whose head, negation or comparison names a variable no atom of its body binds,
+and a negation through recursion are refused, naming the axiom or the predicates.
 
 `--contexts` makes the evaluation context-sensitive the way bddbddb does. It numbers every call path of the theory's
 `Calls(caller, site, callee)` facts: a method no call enters has one context, every other one context per path that

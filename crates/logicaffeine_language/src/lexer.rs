@@ -506,6 +506,11 @@ impl<'a> Lexer<'a> {
 
         let mut i = 0;
         while i < lines.len() {
+            if let Some(range) = Self::formal_body_range(&lines, &line_starts, i, source.len()) {
+                ranges.push(range);
+                i += 1;
+                continue;
+            }
             let trimmed = lines[i].trim();
             // Check if this line contains an escape header: "Escape to Rust:"
             // Matches both statement position (whole line) and expression position
@@ -621,6 +626,38 @@ impl<'a> Lexer<'a> {
         }
 
         ranges
+    }
+
+    /// The body of the `## Theory` or `## Axiom` block whose header is line `at`, captured exactly as written: a
+    /// formal development or formula is another language, whose symbols (`≤`, `≠`, `-0.5`) English words would
+    /// split or drop. It begins after the header's `:` when the header line has one (`## Axiom flip: for all a b,
+    /// …`), on the next line otherwise (`## Theory Tarski`), and runs to the next `##` line. `None` for any other
+    /// line, and for a block with no body.
+    fn formal_body_range(
+        lines: &[&str],
+        line_starts: &[usize],
+        at: usize,
+        source_len: usize,
+    ) -> Option<(usize, usize, usize, String, char, usize)> {
+        let header = lines[at].trim_start().strip_prefix("##")?;
+        let word = header.trim_start().split(|c: char| c.is_whitespace() || c == ':').next()?;
+        if !matches!(word.to_ascii_lowercase().as_str(), "theory" | "axiom") {
+            return None;
+        }
+        let end_line = (at + 1..lines.len()).find(|&j| lines[j].trim_start().starts_with("##")).unwrap_or(lines.len());
+        let end = if end_line < lines.len() { line_starts[end_line] } else { source_len };
+        let header_end = line_starts[at] + lines[at].len();
+        let after_colon = lines[at].find(':').map(|k| line_starts[at] + k + 1).filter(|&k| k < header_end);
+        let from = after_colon.unwrap_or_else(|| (header_end + 1).min(end));
+        let text = lines[at..end_line].join("\n");
+        let within = &text[from - line_starts[at]..(end - line_starts[at]).min(text.len())];
+        let lead = within.len() - within.trim_start().len();
+        let body = within.trim();
+        if body.is_empty() {
+            return None;
+        }
+        let content_start = from + lead;
+        Some((content_start, end, content_start, body.to_string(), 'F', 0))
     }
 
     /// The whitespace-delimited words after the current `## Header` word on its line,
@@ -1647,6 +1684,29 @@ impl<'a> Lexer<'a> {
                     }
                     current_word.push(c);
                 }
+                // The degree sign begins a unit symbol (`°C`, `°F`, or `°` alone), its own word even
+                // against the numeral it follows (`25°C`); a middle dot joins the letters of one
+                // (`N·m`).
+                '°' => {
+                    if !current_word.is_empty() && current_word.chars().all(|ch| ch.is_ascii_digit() || ch == '.') {
+                        items.push(WordItem {
+                            word: std::mem::take(&mut current_word),
+                            trailing_punct: None,
+                            start: word_start,
+                            end: i,
+                            punct_pos: None,
+                        });
+                    }
+                    if current_word.is_empty() {
+                        word_start = i;
+                    }
+                    current_word.push(c);
+                }
+                '·' if current_word.chars().last().is_some_and(|ch| ch.is_alphabetic())
+                    && chars.get(char_idx + 1).is_some_and(|ch| ch.is_alphabetic()) =>
+                {
+                    current_word.push(c);
+                }
                 '&' => {
                     // "&" is COLOR coordination ("black & red" → emit "and" →
                     // Black ∧ Red) when its neighbour is LOWERCASE, but a FIRM-NAME
@@ -1919,6 +1979,7 @@ impl<'a> Lexer<'a> {
                 let kind = match parts.next() {
                     Some("S") => RawKind::Style,
                     Some("H") => RawKind::Head,
+                    Some("F") => RawKind::Formal,
                     _ => RawKind::View,
                 };
                 let content_start: usize = parts
@@ -3761,8 +3822,9 @@ impl<'a> Lexer<'a> {
         }
 
         // Check for gerunds/progressive verbs BEFORE ProperName check
-        // "Running" at start of sentence should be Verb, not ProperName
-        if lower.ends_with("ing") && lower.len() > 4 {
+        // "Running" at start of sentence should be Verb, not ProperName. A word that only ends in
+        // the letters (`string`, `ring`, `thing`) is no -ing form of any verb.
+        if lower.ends_with("ing") && lower.len() > 4 && !lexicon::is_disambiguation_not_verb(&lower) {
             // Participial ADJECTIVE in attributive position ("the
             // corresponding output line"): the word has an adjective entry
             // and a content word follows it. -ing PREPOSITIONS ("during")

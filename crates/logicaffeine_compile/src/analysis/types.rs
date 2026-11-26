@@ -578,9 +578,17 @@ impl TypeEnv {
                         }
                     }
 
-                    // Exact division always yields a Rational (`7 / 2 → 7/2`); the
-                    // resolve pass only emits it in a Rational-typed context.
-                    BinaryOpKind::ExactDivide => LogosType::Rational,
+                    // Exact division yields a Rational (`7 / 2 → 7/2`) — the resolve pass only emits
+                    // it in an exact context — unless a quantity is divided, which stays a quantity.
+                    BinaryOpKind::ExactDivide => {
+                        let lt = self.infer_expr_with(left, interner, field);
+                        let rt = self.infer_expr_with(right, interner, field);
+                        if matches!(lt, LogosType::Quantity) || matches!(rt, LogosType::Quantity) {
+                            LogosType::Quantity
+                        } else {
+                            LogosType::Rational
+                        }
+                    }
 
                     // Other arithmetic: numeric promotion
                     BinaryOpKind::Subtract

@@ -57,7 +57,7 @@ while [ $# -gt 0 ]; do
   shift
 done
 EXCLUDE_ARGS=()
-for c in "${EXCLUDE_CRATES[@]}"; do EXCLUDE_ARGS+=(--exclude "$c"); done
+for c in ${EXCLUDE_CRATES[@]+"${EXCLUDE_CRATES[@]}"}; do EXCLUDE_ARGS+=(--exclude "$c"); done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -207,7 +207,7 @@ if [[ -d "${TT_METAL_HOME:-$HOME/tt-metal}/build_Release" ]]; then
 fi
 
 run_doctests() {
-  cargo test --workspace "${EXCLUDE_ARGS[@]}" --features verification,logicaffeine-tests/web-tests --profile test-opt --doc --no-fail-fast -- "${DOCTEST_IGNORED_ARGS[@]}" \
+  cargo test --workspace ${EXCLUDE_ARGS[@]+"${EXCLUDE_ARGS[@]}"} --features verification,logicaffeine-tests/web-tests --profile test-opt --doc --no-fail-fast -- ${DOCTEST_IGNORED_ARGS[@]+"${DOCTEST_IGNORED_ARGS[@]}"} \
     > "$DOCTEST_LOG" 2>&1
 }
 DOCTEST_BG=""
@@ -334,7 +334,7 @@ NEXTEST_IGNORED_ARGS=()
 LEDGER_FILE="${LOG_FILE%.log}.ledger.tsv"
 printf 'run_id\tbinary_id\ttest\tstart\tend\twall_s\tuser_s\tsys_s\tmaxrss_kb\toutcome\n' > "$LEDGER_FILE"
 export LOGOS_TEST_LEDGER="$LEDGER_FILE"
-cargo nextest run --workspace "${EXCLUDE_ARGS[@]}" --features verification,logicaffeine-tests/web-tests --profile full --cargo-profile test-opt "${NEXTEST_IGNORED_ARGS[@]}" -E "$RESEARCH_EXCLUDE and $OPT_AUDIT_EXCLUDE and $HEAVY_ONDEMAND_EXCLUDE and $KERNEL_PENDING_EXCLUDE and $QEMU_CORPUS_EXCLUDE and $ARENA_MATHLIB_EXCLUDE and $MODEL_BARS_EXCLUDE" \
+cargo nextest run --workspace ${EXCLUDE_ARGS[@]+"${EXCLUDE_ARGS[@]}"} --features verification,logicaffeine-tests/web-tests --profile full --cargo-profile test-opt ${NEXTEST_IGNORED_ARGS[@]+"${NEXTEST_IGNORED_ARGS[@]}"} -E "$RESEARCH_EXCLUDE and $OPT_AUDIT_EXCLUDE and $HEAVY_ONDEMAND_EXCLUDE and $KERNEL_PENDING_EXCLUDE and $QEMU_CORPUS_EXCLUDE and $ARENA_MATHLIB_EXCLUDE and $MODEL_BARS_EXCLUDE" \
   2>&1 | tee -a "$LOG_FILE"
 NEXTEST_EXIT="${PIPESTATUS[0]}"
 PASS1_EPOCH="$(date +%s)"

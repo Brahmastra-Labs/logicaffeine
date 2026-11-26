@@ -188,84 +188,56 @@ fn decimal_binop(
     Some(RuntimeValue::Float(flt(a, b)))
 }
 
-/// Physical-quantity arithmetic. `+ −` require equal dimensions (the result keeps the LEFT operand's
-/// display unit), `× ÷` combine dimensions (the result is shown in SI/dimension form), and a quantity
-/// may be scaled by a dimensionless number under `× ÷` (its unit preserved). Returns `None` when
-/// neither operand is a `Quantity` (so the normal numeric dispatch runs); `Some(Err)` on a dimension
-/// mismatch or division by zero. The magnitude rides the exact rational tower, so it never drifts.
+/// Physical-quantity arithmetic: the one definition in `logicaffeine_base::quantity::apply`, which the
+/// compiled tiers run too. A duration is a quantity of time, a float a decimal read as it prints, and a
+/// result whose dimensions cancel is the number it is. Returns `None` when neither operand is a
+/// `Quantity` (so the normal numeric dispatch runs), or when the other operand is no number.
 fn quantity_binop(
     left: &RuntimeValue,
     right: &RuntimeValue,
     op: char,
 ) -> Option<Result<RuntimeValue, String>> {
-    use crate::interpreter::QuantityValue;
-    use logicaffeine_base::{Quantity, Unit};
+    use logicaffeine_base::quantity::{self, Op};
     if !matches!(left, RuntimeValue::Quantity(_)) && !matches!(right, RuntimeValue::Quantity(_)) {
         return None;
     }
-    let mk = |q: Quantity, unit: Unit| RuntimeValue::Quantity(Rc::new(QuantityValue { q, unit }));
-    // A synthetic SI-base unit (empty symbol) for a combined dimension — `display` renders it as the
-    // magnitude plus the dimension signature until a named compound unit is chosen.
-    let si_unit = |q: &Quantity| Unit::linear("", q.dimension(), Rational::one());
-    Some(match (left, right) {
-        (RuntimeValue::Quantity(a), RuntimeValue::Quantity(b)) => match op {
-            '+' => a.q.add(&b.q).map(|q| mk(q, a.unit.clone())).ok_or_else(|| {
-                logicaffeine_data::failure::quantities_differ(
-                    "add",
-                    a.q.dimension(),
-                    b.q.dimension(),
-                )
-            }),
-            '-' => a.q.sub(&b.q).map(|q| mk(q, a.unit.clone())).ok_or_else(|| {
-                logicaffeine_data::failure::quantities_differ(
-                    "subtract",
-                    a.q.dimension(),
-                    b.q.dimension(),
-                )
-            }),
-            '*' => {
-                let q = a.q.mul(&b.q);
-                let u = si_unit(&q);
-                Ok(mk(q, u))
-            }
-            '/' => match a.q.div(&b.q) {
-                Some(q) => {
-                    let u = si_unit(&q);
-                    Ok(mk(q, u))
-                }
-                None => Err(logicaffeine_data::failure::DIVIDE_BY_ZERO_QUANTITY.to_string()),
-            },
-            _ => unreachable!("quantity_binop only handles + - * /"),
-        },
-        // Scale a quantity by a dimensionless number, preserving its unit: `q * k`, `q / k`.
-        (RuntimeValue::Quantity(a), scalar) if matches!(op, '*' | '/') => match rat_of(scalar) {
-            Some(k) => {
-                let mag = if op == '*' {
-                    a.q.magnitude_si().mul(&k)
-                } else {
-                    match a.q.magnitude_si().div(&k) {
-                        Some(m) => m,
-                        None => {
-                            return Some(Err(
-                                logicaffeine_data::failure::DIVIDE_QUANTITY_BY_ZERO.to_string()
-                            ))
-                        }
-                    }
-                };
-                Ok(mk(Quantity::si(mag, a.q.dimension()), a.unit.clone()))
-            }
-            None => return None,
-        },
-        // `k * q` — scalar on the left (multiplication commutes).
-        (scalar, RuntimeValue::Quantity(b)) if op == '*' => match rat_of(scalar) {
-            Some(k) => Ok(mk(
-                Quantity::si(b.q.magnitude_si().mul(&k), b.q.dimension()),
-                b.unit.clone(),
-            )),
-            None => return None,
-        },
-        _ => return None,
-    })
+    let op = match op {
+        '+' => Op::Add,
+        '-' => Op::Sub,
+        '*' => Op::Mul,
+        '/' => Op::Div,
+        _ => unreachable!("quantity_binop only handles + - * /"),
+    };
+    for side in [left, right] {
+        if let RuntimeValue::Float(f) = side {
+            return Some(Err(logicaffeine_data::failure::quantity_float_inexact(f)));
+        }
+    }
+    let (a, b) = (quantity_operand(left)?, quantity_operand(right)?);
+    Some(
+        quantity::apply(op, &a, &b)
+            .map(quantity_value)
+            .map_err(|e| logicaffeine_data::failure::quantity(&e)),
+    )
+}
+
+/// A value as one side of a quantity operation, if it can be one.
+pub(crate) fn quantity_operand(v: &RuntimeValue) -> Option<logicaffeine_base::quantity::Operand> {
+    use logicaffeine_base::quantity::Operand;
+    match v {
+        RuntimeValue::Quantity(q) => Some(Operand::Quantity(q.q.clone(), q.unit.clone())),
+        RuntimeValue::Duration(ns) => Some(Operand::seconds(*ns)),
+        other => rat_of(other).map(Operand::Number),
+    }
+}
+
+/// The value a quantity operation answers: a quantity, or the exact number a cancelled one is.
+fn quantity_value(result: logicaffeine_base::quantity::Operand) -> RuntimeValue {
+    use logicaffeine_base::quantity::Operand;
+    match result {
+        Operand::Quantity(q, unit) => RuntimeValue::Quantity(Rc::new(crate::interpreter::QuantityValue { q, unit })),
+        Operand::Number(n) => RuntimeValue::from_rational(n),
+    }
 }
 
 /// Money arithmetic. `+ −` require the SAME currency (a typed error otherwise, like a dimension
@@ -1298,6 +1270,9 @@ pub fn floor_divide(left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeVa
 /// runs where the type says the result is a `Rational`, so floor code is untouched.
 pub fn exact_divide(left: RuntimeValue, right: RuntimeValue) -> Result<RuntimeValue, String> {
     if let Some(r) = exact::arith(exact::Op::ExactDiv, &left, &right, &exact_recurse) {
+        return r;
+    }
+    if let Some(r) = quantity_binop(&left, &right, '/') {
         return r;
     }
     match (&left, &right) {

@@ -13221,31 +13221,20 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                     args: vec![expr, zone],
                 }));
             }
-            let unit_lexeme = self.tokens.get(self.current + 1).and_then(|t| {
-                if matches!(
-                    t.kind,
-                    TokenType::Identifier | TokenType::Noun(_) | TokenType::Adjective(_)
-                ) {
-                    Some(t.lexeme)
-                } else {
-                    None
+            if let Some((words, unit)) = self.unit_phrase(self.current + 1) {
+                let unit = self.interner.intern(&unit);
+                self.advance(); // consume "in"
+                for _ in 0..words {
+                    self.advance(); // consume the unit's words
                 }
-            });
-            if let Some(unit_lexeme) = unit_lexeme {
-                if logicaffeine_base::quantity::units::by_name(self.interner.resolve(unit_lexeme))
-                    .is_some()
-                {
-                    self.advance(); // consume "in"
-                    self.advance(); // consume the unit word
-                    let unit_expr = self.ctx.alloc_imperative_expr(crate::ast::Expr::Literal(
-                        crate::ast::Literal::Text(unit_lexeme),
-                    ));
-                    let func = self.interner.intern("convert");
-                    return Ok(self.ctx.alloc_imperative_expr(crate::ast::Expr::Call {
-                        function: func,
-                        args: vec![expr, unit_expr],
-                    }));
-                }
+                let unit_expr = self.ctx.alloc_imperative_expr(crate::ast::Expr::Literal(
+                    crate::ast::Literal::Text(unit),
+                ));
+                let func = self.interner.intern("convert");
+                return Ok(self.ctx.alloc_imperative_expr(crate::ast::Expr::Call {
+                    function: func,
+                    args: vec![expr, unit_expr],
+                }));
             }
             // Currency conversion: `<money> in EUR` → `to_currency(money, "EUR")` via the ambient
             // rate context. Checked AFTER units (a unit word never reads as a currency); gated on a
@@ -13337,7 +13326,7 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                         return false;
                     }
                     let name = self.interner.resolve(t.lexeme);
-                    logicaffeine_base::quantity::units::by_name(name).is_some()
+                    self.unit_phrase(self.current + 1).is_some()
                         || logicaffeine_base::money::currency::by_code(name).is_some()
                 }
                 _ => false,
@@ -21217,29 +21206,8 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 // Imperative-only (this path allocs imperative exprs), so natural-language phrases
                 // like "ran 2 miles" — parsed by the clause grammar — are untouched. An exact
                 // (decimal) magnitude rides the `decimal(..)` constructor so it never float-drifts.
-                if matches!(
-                    self.peek().kind,
-                    TokenType::Identifier | TokenType::Noun(_) | TokenType::Adjective(_)
-                ) {
-                    let unit_lexeme = self.peek().lexeme;
-                    let is_unit =
-                        logicaffeine_base::quantity::units::by_name(self.interner.resolve(unit_lexeme)).is_some();
-                    if is_unit {
-                        self.advance(); // consume the unit word
-                        let num_expr = if num_str.contains('.') || num_str.contains('e') || num_str.contains('E') {
-                            let text = self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(*sym)));
-                            let dec = self.interner.intern("decimal");
-                            self.ctx.alloc_imperative_expr(Expr::Call { function: dec, args: vec![text] })
-                        } else {
-                            let num = self.parse_i64_numeral(&num_str)?;
-                            self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(num)))
-                        };
-                        let unit_expr = self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(unit_lexeme)));
-                        let func = self.interner.intern("quantity");
-                        return Ok(self
-                            .ctx
-                            .alloc_imperative_expr(Expr::Call { function: func, args: vec![num_expr, unit_expr] }));
-                    }
+                if let Some(quantity) = self.quantity_after_numeral(&num_str)? {
+                    return Ok(quantity);
                 }
 
                 // `19.99 USD` / `5 EUR` desugars to `money(num, "CODE")` — the same shape as the unit
@@ -22228,6 +22196,67 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
         Ok(left)
     }
 
+    /// The unit the words starting at token `at` name, and how many tokens they span: the longest run of
+    /// up to three words that is a spelling of a unit's name (`amp hours`, `newton meters`, `degrees
+    /// Celsius`), else one word that is a unit's exact symbol or name (`Ah`, `V`, `Ω`, `°C`, `meters`).
+    /// A name a program binds is that binding, never a unit.
+    fn unit_phrase(&self, at: usize) -> Option<(usize, String)> {
+        use logicaffeine_base::quantity::units;
+        let word_at = |parser: &Self, i: usize, first: bool| -> Option<String> {
+            let t = parser.tokens.get(i)?;
+            let text = parser.interner.resolve(t.lexeme);
+            let worded = match t.kind {
+                TokenType::Identifier
+                | TokenType::Noun(_)
+                | TokenType::Adjective(_)
+                | TokenType::ProperName(_) => true,
+                TokenType::CalendarUnit(_) => !first,
+                TokenType::Article(_) => text == "A",
+                _ => text.starts_with('°'),
+            };
+            (worded && !parser.user_bound.contains(&t.lexeme)).then(|| text.to_string())
+        };
+        for span in (2..=3).rev() {
+            let words: Option<Vec<String>> = (0..span).map(|k| word_at(self, at + k, k == 0)).collect();
+            if let Some(words) = words {
+                let phrase = words.join(" ");
+                if units::by_name(&phrase).is_some() {
+                    return Some((span, phrase));
+                }
+            }
+        }
+        let word = word_at(self, at, true)?;
+        let is_unit = units::by_symbol(&word).is_some() || units::by_name(&word).is_some();
+        is_unit.then_some((1, word))
+    }
+
+    /// A numeral (`num_str`, already consumed, `-` leading a negative one) followed by a unit: the quantity
+    /// `quantity(num, "unit")`, an exact (decimal) magnitude riding `decimal(..)` so it never float-drifts.
+    /// `None`, consuming nothing more, when no unit follows.
+    fn quantity_after_numeral(&mut self, num_str: &str) -> ParseResult<Option<&'a Expr<'a>>> {
+        use crate::ast::{Expr, Literal};
+        let Some((words, unit)) = self.unit_phrase(self.current) else {
+            return Ok(None);
+        };
+        let unit = self.interner.intern(&unit);
+        let digits = num_str.trim_start_matches('-');
+        let num_expr = if !Self::is_radix_numeral(digits) && (digits.contains('.') || digits.contains('e') || digits.contains('E')) {
+            let text = self.interner.intern(num_str);
+            let text = self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(text)));
+            let dec = self.interner.intern("decimal");
+            self.ctx.alloc_imperative_expr(Expr::Call { function: dec, args: vec![text] })
+        } else {
+            let num = self.parse_i64_numeral_signed(digits, num_str.starts_with('-'))?;
+            self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Number(num)))
+        };
+        for _ in 0..words {
+            self.advance(); // consume the unit's words
+        }
+        let unit_expr = self.ctx.alloc_imperative_expr(Expr::Literal(Literal::Text(unit)));
+        let func = self.interner.intern("quantity");
+        Ok(Some(self.ctx.alloc_imperative_expr(Expr::Call { function: func, args: vec![num_expr, unit_expr] })))
+    }
+
     /// Parse unary expressions (currently just unary minus)
     fn parse_unary_expr(&mut self) -> ParseResult<&'a Expr<'a>> {
         use crate::ast::{Expr, Literal};
@@ -22257,6 +22286,9 @@ impl<'a, 'ctx, 'int> Parser<'a, 'ctx, 'int> {
                 self.advance(); // consume '-'
                 self.advance(); // consume the numeral
                 let num_str = self.interner.resolve(sym).to_string();
+                if let Some(quantity) = self.quantity_after_numeral(&format!("-{num_str}"))? {
+                    return Ok(quantity);
+                }
                 if !Self::is_radix_numeral(&num_str)
                     && (num_str.contains('.') || num_str.contains('e') || num_str.contains('E'))
                 {

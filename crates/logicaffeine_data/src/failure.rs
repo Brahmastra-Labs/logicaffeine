@@ -114,6 +114,45 @@ pub fn quantities_uncomparable(a: impl std::fmt::Display, b: impl std::fmt::Disp
     format!("Cannot compare quantities of different dimensions ({a} vs {b})")
 }
 
+/// Two values on an offset temperature scale added together: one of them was meant as a difference.
+pub fn temperatures_do_not_add(a: impl std::fmt::Display, b: impl std::fmt::Display) -> String {
+    format!(
+        "cannot add two temperatures ({a} + {b}): subtract two temperatures for a difference, or add a \
+         difference such as 5 kelvin"
+    )
+}
+
+/// A quantity that still has a dimension met a plain number in `+ −` or a comparison.
+pub fn quantity_is_not_a_number(dimension: impl std::fmt::Display) -> String {
+    format!(
+        "a quantity measured in {dimension} cannot be added to or compared with a plain number; give the \
+         number a unit, or divide the quantity by one"
+    )
+}
+
+/// A Float met a quantity: a binary double is not the number it was written as, so it would make the quantity
+/// inexact.
+pub fn quantity_float_inexact(value: impl std::fmt::Display) -> String {
+    format!(
+        "a quantity takes an exact number, and {value} is a Float: write it with its unit (2.5 volts), as \
+         decimal(\"2.5\"), or as a Rational (5 / 2)"
+    )
+}
+
+/// The words for a quantity operation with no answer ([`logicaffeine_base::quantity::QuantityError`]), the
+/// same on every tier.
+pub fn quantity(error: &logicaffeine_base::quantity::QuantityError) -> String {
+    use logicaffeine_base::quantity::QuantityError;
+    match error {
+        QuantityError::DimensionsDiffer("compare", a, b) => quantities_uncomparable(a, b),
+        QuantityError::DimensionsDiffer(verb, a, b) => quantities_differ(verb, a, b),
+        QuantityError::TemperaturesAdded(a, b) => temperatures_do_not_add(a, b),
+        QuantityError::DivideByZeroQuantity => DIVIDE_BY_ZERO_QUANTITY.to_string(),
+        QuantityError::DivideQuantityByZero => DIVIDE_QUANTITY_BY_ZERO.to_string(),
+        QuantityError::NotANumber(dimension) => quantity_is_not_a_number(dimension),
+    }
+}
+
 /// A quantity divided by a quantity whose magnitude is zero.
 pub const DIVIDE_BY_ZERO_QUANTITY: &str = "cannot divide by a zero quantity";
 

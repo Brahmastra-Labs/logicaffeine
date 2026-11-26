@@ -56,8 +56,7 @@ use crate::optimize::writes::{self, Bind, EffectSink};
 /// in an exact context, unless the program defines its own.
 pub(crate) fn resolve_divisions<'a>(
     stmts: &[Stmt<'a>],
-    stmt_arena: &'a Arena<Stmt<'a>>,
-    expr_arena: &'a Arena<Expr<'a>>,
+    arenas: Arenas<'a>,
     interner: &mut Interner,
     fold_constants: bool,
     library: &HashSet<String>,
@@ -92,8 +91,7 @@ pub(crate) fn resolve_divisions<'a>(
     .bound;
     let names = Names::intern(interner);
     let mut cx = Cx {
-        stmt_arena,
-        expr_arena,
+        arenas,
         interner,
         fold_constants,
         own,
@@ -353,9 +351,46 @@ impl EffectSink for Scope {
     }
 }
 
+/// [`Cx::through`]'s walk: the resolution's own rules for every expression and block the walk reaches.
+struct Through<'c, 'a, 'i> {
+    cx: &'c mut Cx<'a, 'i>,
+    known: &'c mut Known,
+    ret: Expect,
+    changed: bool,
+}
+
+impl<'c, 'a, 'i> AstMap<'a> for Through<'c, 'a, 'i> {
+    fn arenas(&self) -> Arenas<'a> {
+        self.cx.arenas
+    }
+
+    fn map_expr(&mut self, e: &'a Expr<'a>) -> &'a Expr<'a> {
+        match self.cx.expr(e, self.known, Expect::Plain).0 {
+            Some(resolved) => {
+                self.changed = true;
+                resolved
+            }
+            None => e,
+        }
+    }
+
+    fn map_type(&mut self, t: &'a TypeExpr<'a>) -> &'a TypeExpr<'a> {
+        t
+    }
+
+    fn map_block(&mut self, block: &'a [Stmt<'a>]) -> &'a [Stmt<'a>] {
+        match self.cx.block(block, self.known, self.ret) {
+            Some(resolved) => {
+                self.changed = true;
+                resolved
+            }
+            None => block,
+        }
+    }
+}
+
 struct Cx<'a, 'i> {
-    stmt_arena: &'a Arena<Stmt<'a>>,
-    expr_arena: &'a Arena<Expr<'a>>,
+    arenas: Arenas<'a>,
     interner: &'i mut Interner,
     /// Whether the closed-form constant fold (the `Opt::Comptime` optimization) is on.
     fold_constants: bool,
@@ -392,7 +427,7 @@ impl<'a, 'i> Cx<'a, 'i> {
                 (None, None) => {}
             }
         }
-        out.map(|v| self.stmt_arena.alloc_slice(v))
+        out.map(|v| self.arenas.stmts.alloc_slice(v))
     }
 
     fn stmt(&mut self, s: &Stmt<'a>, known: &mut Known, ret: Expect) -> Option<Stmt<'a>> {
@@ -510,8 +545,25 @@ impl<'a, 'i> Cx<'a, 'i> {
                     body: nb,
                 })
             }
-            _ => None,
+            // A test runs in a world of its own: it sees the program's functions, never what `## Main`
+            // binds, so it starts from no known exact variables.
+            Stmt::TestDef { .. } => self.through(s, &mut Known::default(), Expect::Plain),
+            _ => self.through(s, known, ret),
         }
+    }
+
+    /// A statement with no resolution rule of its own: each expression it holds resolved for what its
+    /// own exact operands make it, and each block it holds resolved in order, through the exhaustive
+    /// rebuilding walk, so no statement that carries arithmetic is passed over.
+    fn through(&mut self, s: &Stmt<'a>, known: &mut Known, ret: Expect) -> Option<Stmt<'a>> {
+        let mut walk = Through {
+            cx: self,
+            known,
+            ret,
+            changed: false,
+        };
+        let rebuilt = ast_map::walk_stmt(&mut walk, s);
+        walk.changed.then_some(rebuilt)
     }
 
     /// The arguments of a call to `function`: one at a parameter the program declares exact is that
@@ -648,7 +700,7 @@ impl<'a, 'i> Cx<'a, 'i> {
         match expr {
             Expr::Identifier(sym) => match self.exact_constant(*sym, expect) {
                 Some(constant) => (
-                    Some(self.expr_arena.alloc(Expr::Call {
+                    Some(self.arenas.exprs.alloc(Expr::Call {
                         function: constant,
                         args: Vec::new(),
                     })),
@@ -672,7 +724,7 @@ impl<'a, 'i> Cx<'a, 'i> {
                 if exact.is_none() && nargs.is_none() {
                     return (None, kind);
                 }
-                let call = self.expr_arena.alloc(Expr::Call {
+                let call = self.arenas.exprs.alloc(Expr::Call {
                     function: callee,
                     args: nargs.unwrap_or_else(|| args.clone()),
                 });
@@ -704,7 +756,7 @@ impl<'a, 'i> Cx<'a, 'i> {
                     // runs, still exact).
                     if op_field && self.fold_constants && !pow {
                         if let Some(rat) = const_rational(expr) {
-                            if let Some(closed) = closed_form(self.expr_arena, &rat) {
+                            if let Some(closed) = closed_form(self.arenas.exprs, &rat) {
                                 return (Some(closed), Expect::Field);
                             }
                         }
@@ -723,7 +775,7 @@ impl<'a, 'i> Cx<'a, 'i> {
                         && !matches!(left, Expr::Literal(Literal::Float(_)))
                         && !self.own.contains(&self.names.exact_power)
                     {
-                        let call = self.expr_arena.alloc(Expr::Call {
+                        let call = self.arenas.exprs.alloc(Expr::Call {
                             function: self.names.exact_power,
                             args: vec![nl.unwrap_or(left), nr.unwrap_or(right)],
                         });
@@ -741,7 +793,7 @@ impl<'a, 'i> Cx<'a, 'i> {
                     };
                     let changed = nl.is_some() || nr.is_some() || new_op != *op;
                     let result = changed.then(|| {
-                        &*self.expr_arena.alloc(Expr::BinaryOp {
+                        &*self.arenas.exprs.alloc(Expr::BinaryOp {
                             op: new_op,
                             left: nl.unwrap_or(left),
                             right: nr.unwrap_or(right),
@@ -768,7 +820,7 @@ impl<'a, 'i> Cx<'a, 'i> {
             },
             Expr::Not { operand } => match self.expr(operand, known, Expect::Plain).0 {
                 Some(o) => (
-                    Some(self.expr_arena.alloc(Expr::Not { operand: o })),
+                    Some(self.arenas.exprs.alloc(Expr::Not { operand: o })),
                     Expect::Plain,
                 ),
                 None => (None, Expect::Plain),
@@ -790,7 +842,7 @@ impl<'a, 'i> Cx<'a, 'i> {
         let nl = self.expr(left, known, left_expect).0;
         let nr = self.expr(right, known, right_expect).0;
         let rewritten = (nl.is_some() || nr.is_some()).then(|| {
-            &*self.expr_arena.alloc(Expr::BinaryOp {
+            &*self.arenas.exprs.alloc(Expr::BinaryOp {
                 op,
                 left: nl.unwrap_or(left),
                 right: nr.unwrap_or(right),

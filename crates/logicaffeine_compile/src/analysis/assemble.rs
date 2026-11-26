@@ -1057,9 +1057,10 @@ fn mangle_names_in_code(code: &str, map: &HashMap<String, String>) -> String {
             // whitespace stripped), so a hole's offset inside it is not a flat shift from the
             // file the way an interpolated string's is — `RawMap` is the one place that maps
             // it back. `Style:` is CSS, never scanned: a private LOGOS name colliding with a
-            // property or selector would otherwise get rewritten inside someone's stylesheet.
+            // property or selector would otherwise get rewritten inside someone's stylesheet, and a
+            // `## Theory` or `## Axiom` body is formal logic, whose names are the theory's own.
             TokenType::RawBlock {
-                kind: RawKind::Style,
+                kind: RawKind::Style | RawKind::Formal,
                 ..
             } => {}
             TokenType::RawBlock {

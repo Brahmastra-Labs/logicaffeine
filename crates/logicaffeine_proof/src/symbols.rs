@@ -428,12 +428,52 @@ impl SymbolCollector {
             .collect()
     }
 
-    /// The kernel's names for the problem's predicates (see [`KernelNames`]). A predicate the
-    /// kernel also declares as an individual — one of [`Self::constants`] — is filed as
-    /// `is_<name>`, with `_` appended while that spelling is `taken` (one of the kernel's own
+    /// The kernel's names for the problem's predicates and individuals (see [`KernelNames`]). A
+    /// predicate the kernel also declares as an individual — one of [`Self::constants`] — is filed
+    /// as `is_<name>`, with `_` appended while that spelling is `taken` (one of the kernel's own
     /// globals) or names another symbol of the problem. A predicate that is itself one of the
     /// kernel's globals keeps its name.
-    pub(crate) fn kernel_names(&self, taken: impl Fn(&str) -> bool) -> KernelNames {
+    ///
+    /// An individual the problem names only as an argument of its own predicates, whose spelling is
+    /// one of the kernel's globals of another sort (`foreign`: the prelude's `B1 : Bit`), is the
+    /// problem's own entity, not that global: it is filed as `<name>_`, with `_` appended while that
+    /// spelling is taken. An individual used inside a function, an equation or arithmetic, and a
+    /// constructor the problem reasons over inductively (`Zero`), is the kernel's.
+    pub(crate) fn kernel_names(&self, taken: impl Fn(&str) -> bool, foreign: impl Fn(&str) -> bool) -> KernelNames {
+        let mut renamed: HashMap<String, String> = HashMap::new();
+        let mut individuals_renamed: HashMap<String, String> = HashMap::new();
+        let mut elsewhere: HashSet<&str> = HashSet::new();
+        for (l, r) in &self.identities {
+            constants_in(l, &mut elsewhere);
+            constants_in(r, &mut elsewhere);
+        }
+        for (_, args) in &self.applications {
+            for arg in args {
+                constants_in(arg, &mut elsewhere);
+            }
+        }
+        let mut own: Vec<&String> = self
+            .constants()
+            .into_iter()
+            .filter(|name| {
+                foreign(name)
+                    && !elsewhere.contains(name.as_str())
+                    && !self.int_atoms.contains(*name)
+                    && constructor_domain(&ProofTerm::Constant((*name).clone())).is_none()
+            })
+            .collect();
+        own.sort();
+        own.dedup();
+        for name in own {
+            let mut kernel_name = format!("{name}_");
+            while taken(&kernel_name)
+                || self.spells(&kernel_name)
+                || individuals_renamed.values().any(|other| *other == kernel_name)
+            {
+                kernel_name.push('_');
+            }
+            individuals_renamed.insert(name.clone(), kernel_name);
+        }
         let individuals: HashSet<&String> = self.constants().into_iter().collect();
         let mut shared: Vec<&String> = self
             .predicates
@@ -441,18 +481,18 @@ impl SymbolCollector {
             .filter(|name| individuals.contains(name) && !taken(name))
             .collect();
         shared.sort();
-        let mut renamed: HashMap<String, String> = HashMap::new();
         for name in shared {
             let mut kernel_name = format!("is_{name}");
             while taken(&kernel_name)
                 || self.spells(&kernel_name)
                 || renamed.values().any(|other| *other == kernel_name)
+                || individuals_renamed.values().any(|other| *other == kernel_name)
             {
                 kernel_name.push('_');
             }
             renamed.insert(name.clone(), kernel_name);
         }
-        KernelNames { renamed }
+        KernelNames { renamed, individuals: individuals_renamed }
     }
 
     /// Whether some symbol of the problem is spelled `name`.
@@ -467,15 +507,17 @@ impl SymbolCollector {
     }
 }
 
-/// The names the kernel files a problem's predicates under. First-order logic keeps predicates
-/// and individuals apart, so the noun `butler` and "the butler" it names can share a spelling
-/// (`butler(butler)`); the kernel has one namespace, where the second declaration would find the
-/// first and the fact would apply the predicate to itself. So a predicate that shares its name
-/// with an individual takes a name of its own there, and every other predicate keeps its own.
-/// The renaming reaches every premise, the goal and the derivation alike, so it changes nothing a
-/// proof proves — only where the kernel files the predicate.
+/// The names the kernel files a problem's predicates and individuals under. First-order logic
+/// keeps predicates and individuals apart, so the noun `butler` and "the butler" it names can share
+/// a spelling (`butler(butler)`); the kernel has one namespace, where the second declaration would
+/// find the first and the fact would apply the predicate to itself. So a predicate that shares its
+/// name with an individual takes a name of its own there, and every other predicate keeps its own.
+/// Likewise the problem's own individual `B1` (a battery, a kit) is not the prelude's bit `B1`, and
+/// takes a name of its own. The renaming reaches every premise, the goal and the derivation alike,
+/// so it changes nothing a proof proves — only where the kernel files the symbol.
 pub(crate) struct KernelNames {
     renamed: HashMap<String, String>,
+    individuals: HashMap<String, String>,
 }
 
 impl KernelNames {
@@ -484,20 +526,40 @@ impl KernelNames {
         self.renamed.get(name).map_or(name, String::as_str)
     }
 
-    /// `expr` as the kernel reads it — borrowed untouched when no predicate is renamed.
+    /// The kernel's name for the individual `name`.
+    pub(crate) fn individual<'a>(&'a self, name: &'a str) -> &'a str {
+        self.individuals.get(name).map_or(name, String::as_str)
+    }
+
+    fn is_identity(&self) -> bool {
+        self.renamed.is_empty() && self.individuals.is_empty()
+    }
+
+    fn term(&self, term: &ProofTerm) -> ProofTerm {
+        match term {
+            ProofTerm::Constant(name) => ProofTerm::Constant(self.individual(name).to_string()),
+            ProofTerm::Function(name, args) => {
+                ProofTerm::Function(name.clone(), args.iter().map(|arg| self.term(arg)).collect())
+            }
+            ProofTerm::Group(terms) => ProofTerm::Group(terms.iter().map(|t| self.term(t)).collect()),
+            other => other.clone(),
+        }
+    }
+
+    /// `expr` as the kernel reads it — borrowed untouched when nothing is renamed.
     pub(crate) fn expr<'e>(&self, expr: &'e ProofExpr) -> Cow<'e, ProofExpr> {
-        if self.renamed.is_empty() {
+        if self.is_identity() {
             Cow::Borrowed(expr)
         } else {
             Cow::Owned(self.rename(expr))
         }
     }
 
-    /// `tree` as the kernel reads it — borrowed untouched when no predicate is renamed. Rule
-    /// payloads and substitutions name individuals and variables, never predicates, so only the
-    /// conclusions change.
+    /// `tree` as the kernel reads it — borrowed untouched when nothing is renamed. Rule payloads
+    /// and substitutions name individuals and variables, never predicates, so they change only
+    /// where an individual is renamed.
     pub(crate) fn tree<'t>(&self, tree: &'t DerivationTree) -> Cow<'t, DerivationTree> {
-        if self.renamed.is_empty() {
+        if self.is_identity() {
             Cow::Borrowed(tree)
         } else {
             Cow::Owned(self.rename_tree(tree))
@@ -505,12 +567,25 @@ impl KernelNames {
     }
 
     fn rename_tree(&self, tree: &DerivationTree) -> DerivationTree {
+        use crate::InferenceRule;
+        let rule = match &tree.rule {
+            InferenceRule::UniversalInst(w) => InferenceRule::UniversalInst(self.individual(w).to_string()),
+            InferenceRule::UniversalInstTerm(t) => InferenceRule::UniversalInstTerm(self.term(t)),
+            InferenceRule::ExistentialIntro { witness, witness_type } => InferenceRule::ExistentialIntro {
+                witness: self.individual(witness).to_string(),
+                witness_type: witness_type.clone(),
+            },
+            InferenceRule::ExistentialIntroTerm { witness, witness_type } => {
+                InferenceRule::ExistentialIntroTerm { witness: self.term(witness), witness_type: witness_type.clone() }
+            }
+            other => other.clone(),
+        };
         DerivationTree {
             conclusion: self.rename(&tree.conclusion),
-            rule: tree.rule.clone(),
+            rule,
             premises: tree.premises.iter().map(|premise| self.rename_tree(premise)).collect(),
             depth: tree.depth,
-            substitution: tree.substitution.clone(),
+            substitution: tree.substitution.iter().map(|(v, t)| (v.clone(), self.term(t))).collect(),
         }
     }
 
@@ -519,7 +594,7 @@ impl KernelNames {
         match expr {
             ProofExpr::Predicate { name, args, world } => ProofExpr::Predicate {
                 name: self.predicate(name).to_string(),
-                args: args.clone(),
+                args: args.iter().map(|arg| self.term(arg)).collect(),
                 world: world.clone(),
             },
             ProofExpr::And(l, r) => ProofExpr::And(under(l), under(r)),
@@ -573,14 +648,14 @@ impl KernelNames {
             ProofExpr::Fixpoint { name, body } => {
                 ProofExpr::Fixpoint { name: name.clone(), body: under(body) }
             }
-            // No predicate symbol: terms, atoms, holes — and events, which are abstracted to
+            ProofExpr::Identity(l, r) => ProofExpr::Identity(self.term(l), self.term(r)),
+            ProofExpr::Term(t) => ProofExpr::Term(self.term(t)),
+            // No predicate symbol and no term: atoms, holes — and events, which are abstracted to
             // predicates before anything reaches the kernel.
-            ProofExpr::Identity(..)
-            | ProofExpr::Atom(_)
+            ProofExpr::Atom(_)
             | ProofExpr::NeoEvent { .. }
             | ProofExpr::TypedVar { .. }
             | ProofExpr::Hole(_)
-            | ProofExpr::Term(_)
             | ProofExpr::Unsupported(_) => expr.clone(),
         }
     }
@@ -592,6 +667,21 @@ impl KernelNames {
 /// inductive type, not `Entity`, so it can serve as a structural-induction motive
 /// `λx:Ind. P(x)`. (The `E`-prefixed list names are the prelude's monomorphic
 /// `EList`, distinct from a user program's parametric `List`/`Nil`/`Cons`.)
+/// Every constant `term` names, at any depth.
+fn constants_in<'t>(term: &'t ProofTerm, out: &mut HashSet<&'t str>) {
+    match term {
+        ProofTerm::Constant(name) => {
+            out.insert(name.as_str());
+        }
+        ProofTerm::Function(_, args) | ProofTerm::Group(args) => {
+            for arg in args {
+                constants_in(arg, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn constructor_domain(t: &ProofTerm) -> Option<&'static str> {
     let name = match t {
         ProofTerm::Constant(s) => s.as_str(),

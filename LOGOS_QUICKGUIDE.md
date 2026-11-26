@@ -232,6 +232,15 @@ intersection/union/symmetric-difference/difference (`a without b` is the English
 | Calendar span | `2 weeks` · `3 months` · `1 year and 2 months and 5 days` |
 | Combined | `2026-05-20 at 4pm` |
 
+### Quantities
+
+| Kind | Examples |
+|------|----------|
+| Unit by name | `3 newtons` · `50 amp hours` · `25 degrees Celsius` |
+| Unit by symbol (case-sensitive) | `5 V` · `50 Ah` · `9 mA` · `2 Ω` · `25 °C` |
+| Built / converted | `quantity(1, "kWh")` · `1 kWh in watt hours` · `convert(q, "watts")` |
+| Arithmetic | `10 amperes * 20 volts` → `200 W` · `25 celsius - 20 celsius` → `5 Δ°C` · `200 watts * 2 hours` |
+
 ---
 
 ## 12. Distributed: CRDT, concurrency, networking, zones

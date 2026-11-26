@@ -142,3 +142,36 @@ fn contexts_are_not_certified() {
     assert!(!ok, "the numbering is not among the theory's axioms, so the kernel has nothing to prove VPC from");
     assert!(err.contains("--certify"), "the refusal names the flag: {err}");
 }
+
+const PORTS: &str = "## Theory Ports
+
+Axiom p1: Provides(Ctrl, Dc).
+Axiom p2: Requires(Radio, Dc).
+Axiom p3: Requires(Camera, Poe).
+Axiom p4: Watts(Radio, 9).
+Axiom met: for all a b c, if Requires(a, b) and Provides(c, b) then Met(a, b).
+Axiom unmet: for all a b, if Requires(a, b) and not Met(a, b) then Unmet(a, b).
+Axiom small: for all a w, if Watts(a, w) and w ≤ 10 then Small(a).
+";
+
+#[test]
+fn with_certify_a_fact_that_reads_the_closed_world_is_named_not_disputed() {
+    let (ok, out, err) = datalog(&["--certify"], PORTS);
+    assert!(ok, "a fact resting on a negation or a comparison is no disagreement:\n{out}\n{err}");
+    assert!(out.contains("1 of 3 derived facts kernel-certified"), "Met is proved from the axioms:\n{out}");
+    assert!(out.contains("2 rest on the closed world"), "Unmet and Small read the closed world:\n{out}");
+    assert!(out.contains("closed world: Small(Radio)"), "{out}");
+    assert!(out.contains("closed world: Unmet(Camera, Poe)"), "{out}");
+    assert!(!out.contains("not proved"), "{out}");
+    assert!(!err.contains("disagree"), "{err}");
+}
+
+#[test]
+fn with_json_certify_lists_the_closed_world_facts() {
+    let (ok, out, err) = datalog(&["--certify", "--json"], PORTS);
+    assert!(ok, "{err}");
+    let model: serde_json::Value = serde_json::from_str(out.trim()).expect("JSON");
+    assert_eq!(model["certified"], serde_json::json!(1));
+    assert_eq!(model["closed_world"], serde_json::json!(["Small(Radio)", "Unmet(Camera, Poe)"]));
+    assert_eq!(model["unproved"], serde_json::json!([]));
+}

@@ -483,6 +483,57 @@ pub(super) fn file_not_found() -> String {
     with_text_hole(&crate::semantics::builtins::vfs_read_failure(&e))
 }
 
+/// A sentence of the failure catalog as a C format: each hole in `holes` becomes a `%s`, in order.
+fn with_holes(sentence: &str, holes: &[&str]) -> String {
+    let mut rest = sentence;
+    let mut out = String::from("\"");
+    for hole in holes {
+        let (before, after) = rest
+            .split_once(hole)
+            .unwrap_or_else(|| panic!("the sentence {sentence:?} does not carry {hole:?}"));
+        out.push_str(&c_format_body(before));
+        out.push_str("%s");
+        rest = after;
+    }
+    out.push_str(&c_format_body(rest));
+    out.push('"');
+    out
+}
+
+/// Two values on an offset temperature scale added — the format takes each side as it shows.
+pub(super) fn temperatures_added() -> String {
+    let (a, b) = ("\u{1}left\u{1}", "\u{1}right\u{1}");
+    with_holes(&logicaffeine_data::failure::temperatures_do_not_add(a, b), &[a, b])
+}
+
+/// A quantity that still has a dimension met a plain number — the format takes the dimension.
+pub(super) fn quantity_not_a_number() -> String {
+    let d = "\u{1}dimension\u{1}";
+    with_holes(&logicaffeine_data::failure::quantity_is_not_a_number(d), &[d])
+}
+
+/// A Float met a quantity — the format takes the Float as it shows.
+pub(super) fn quantity_float_inexact() -> String {
+    let v = "\u{1}value\u{1}";
+    with_holes(&logicaffeine_data::failure::quantity_float_inexact(v), &[v])
+}
+
+/// The named SI unit table the C runtime shows products and quotients in
+/// ([`named_units`](logicaffeine_base::quantity::units::named_units)): `{{exponents}, "symbol"}` rows.
+pub(super) fn quantity_named_units() -> String {
+    logicaffeine_base::quantity::units::named_units()
+        .iter()
+        .map(|unit| {
+            let exponents: Vec<String> = logicaffeine_base::dimension::BaseDim::ALL
+                .iter()
+                .map(|d| unit.dimension.exponent(*d).to_string())
+                .collect();
+            format!("{{{{{}}}, {}}}", exponents.join(", "), super::emit::c_string_literal(unit.symbol))
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// `parseInt(text)` over text that is not an Int — the format takes the text as given.
 pub(super) fn not_an_int() -> String {
     let text = RuntimeValue::Text(Rc::new(TEXT_HOLE.to_string()));

@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `largo datalog --certify` lists the facts that rest on the closed world (a negation or a comparison in a rule that
+  derived them) apart from the ones it proves, and fails only when a fact that rests on the axioms alone is not
+  proved; `--json` gives them as `closed_world`.
 - `largo lean import --project` selects the Lean profile from the project's `lean-toolchain` (4.14.0, 4.28.0, 4.33.1,
   4.34.0-rc1, 4.34.1), holds the toolchain to the profile's release and commit and the exporter to its pinned sources
   and executable digest, found by `--exporter`, else in the exporter registry (`$LOGOS_LEAN_EXPORTERS`, default

@@ -4887,6 +4887,11 @@ pub(super) fn is_modular_expr(
     }
 }
 
+/// Whether `expr` is a float binding (`f64`): a magnitude `quantity()` refuses at run time, as every tier does.
+fn variable_types_of_float(expr: &Expr, variable_types: &HashMap<Symbol, String>) -> bool {
+    matches!(expr, Expr::Identifier(sym) if variable_types.get(sym).map_or(false, |t| t == "f64"))
+}
+
 /// Does `expr` evaluate to a `LogosQuantity`? True for a `quantity(..)`/`convert(..)` call, an
 /// identifier bound to a `LogosQuantity`, `+ −` over two quantities, and `× ÷` where AT LEAST one
 /// operand is a quantity (the other scales it). Mirrors the interpreter's quantity dispatch.
@@ -4898,17 +4903,15 @@ pub(super) fn is_quantity_expr(
     match expr {
         Expr::Call { function, .. } => {
             matches!(interner.resolve(*function), "quantity" | "convert")
+                || FN_RETURN_TYPES.with(|c| c.borrow().get(function).map_or(false, |t| t == "LogosQuantity"))
         }
         Expr::BinaryOp {
             op: BinaryOpKind::Add | BinaryOpKind::Subtract,
             left,
             right,
-        } => {
-            is_quantity_expr(left, variable_types, interner)
-                && is_quantity_expr(right, variable_types, interner)
         }
-        Expr::BinaryOp {
-            op: BinaryOpKind::Multiply | BinaryOpKind::Divide,
+        | Expr::BinaryOp {
+            op: BinaryOpKind::Multiply | BinaryOpKind::Divide | BinaryOpKind::ExactDivide,
             left,
             right,
         } => {
@@ -4918,6 +4921,7 @@ pub(super) fn is_quantity_expr(
         Expr::Identifier(sym) => variable_types
             .get(sym)
             .map_or(false, |t| t == "LogosQuantity"),
+        Expr::FieldAccess { .. } => read_field_type(expr, variable_types).map_or(false, |t| t == "LogosQuantity"),
         _ => false,
     }
 }
@@ -5741,6 +5745,7 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                     | BinaryOpKind::Subtract
                     | BinaryOpKind::Multiply
                     | BinaryOpKind::Divide
+                    | BinaryOpKind::ExactDivide
                     | BinaryOpKind::Lt
                     | BinaryOpKind::Gt
                     | BinaryOpKind::LtEq
@@ -5750,55 +5755,29 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
             ) && (is_quantity_expr(left, variable_types, interner)
                 || is_quantity_expr(right, variable_types, interner))
             {
-                let l_q = is_quantity_expr(left, variable_types, interner);
-                let r_q = is_quantity_expr(right, variable_types, interner);
-                let code: Option<std::string::String> = match (op, l_q, r_q) {
-                    (BinaryOpKind::Add, true, true) => {
-                        Some(format!("{}.add(&{})", left_str, right_str))
-                    }
-                    (BinaryOpKind::Subtract, true, true) => {
-                        Some(format!("{}.sub(&{})", left_str, right_str))
-                    }
-                    (BinaryOpKind::Multiply, true, true) => {
-                        Some(format!("{}.mul(&{})", left_str, right_str))
-                    }
-                    (BinaryOpKind::Divide, true, true) => {
-                        Some(format!("{}.div_exact(&{})", left_str, right_str))
-                    }
-                    // Scale a quantity by an integer (the common case), commuting for ×.
-                    (BinaryOpKind::Multiply, true, false) => {
-                        Some(format!("{}.scale_int({})", left_str, right_str))
-                    }
-                    (BinaryOpKind::Multiply, false, true) => {
-                        Some(format!("{}.scale_int({})", right_str, left_str))
-                    }
-                    (BinaryOpKind::Divide, true, false) => {
-                        Some(format!("{}.div_int({})", left_str, right_str))
-                    }
-                    // Comparison / equality over two quantities (PartialOrd / physical PartialEq).
-                    (BinaryOpKind::Lt, true, true) => {
-                        Some(format!("({} < {})", left_str, right_str))
-                    }
-                    (BinaryOpKind::Gt, true, true) => {
-                        Some(format!("({} > {})", left_str, right_str))
-                    }
-                    (BinaryOpKind::LtEq, true, true) => {
-                        Some(format!("({} <= {})", left_str, right_str))
-                    }
-                    (BinaryOpKind::GtEq, true, true) => {
-                        Some(format!("({} >= {})", left_str, right_str))
-                    }
-                    (BinaryOpKind::Eq, true, true) => {
-                        Some(format!("({} == {})", left_str, right_str))
-                    }
-                    (BinaryOpKind::NotEq, true, true) => {
-                        Some(format!("({} != {})", left_str, right_str))
-                    }
-                    _ => None,
+                // Both sides go to the one quantity definition the interpreter runs
+                // (`logicaffeine_base::quantity`): a duration is a quantity of time, any exact number
+                // or float scales, and a cancelled quantity meets numbers as one.
+                let (l, r) = (&left_str, &right_str);
+                let apply = |name: &str| {
+                    format!("LogosQuantity::apply(logicaffeine_data::QuantityOp::{name}, &({l}), &({r}))")
                 };
-                if let Some(c) = code {
-                    return c;
-                }
+                let order = |ordering: &str| {
+                    format!("(LogosQuantity::order(&({l}), &({r})) {ordering})")
+                };
+                return match op {
+                    BinaryOpKind::Add => apply("Add"),
+                    BinaryOpKind::Subtract => apply("Sub"),
+                    BinaryOpKind::Multiply => apply("Mul"),
+                    BinaryOpKind::Divide | BinaryOpKind::ExactDivide => apply("Div"),
+                    BinaryOpKind::Lt => order("== ::std::cmp::Ordering::Less"),
+                    BinaryOpKind::Gt => order("== ::std::cmp::Ordering::Greater"),
+                    BinaryOpKind::LtEq => order("!= ::std::cmp::Ordering::Greater"),
+                    BinaryOpKind::GtEq => order("!= ::std::cmp::Ordering::Less"),
+                    BinaryOpKind::Eq => format!("LogosQuantity::same(&({l}), &({r}))"),
+                    BinaryOpKind::NotEq => format!("!LogosQuantity::same(&({l}), &({r}))"),
+                    _ => unreachable!("the quantity operators are matched above"),
+                };
             }
 
             // Money arithmetic. `+ −` require the same currency, `× ÷` scale by an integer, and a
@@ -6805,8 +6784,14 @@ pub(crate) fn codegen_expr_ctx(expr: &Expr, ecx: &ExprCtx) -> String {
                 // A dimensioned quantity from an exact magnitude and a unit name (`quantity(2, "inch")`).
                 // The magnitude rides the rational tower (integers embed as `n/1`), so it never truncates.
                 "quantity" if args_str.len() == 2 => {
-                    let mag = rational_operand(&args[0], &args_str[0], variable_types);
-                    format!("LogosQuantity::from_rational({}, &({}).to_string())", mag, args_str[1])
+                    if is_decimal_expr(&args[0], variable_types, interner) {
+                        format!("LogosQuantity::from_rational(({}).to_rational(), &({}).to_string())", args_str[0], args_str[1])
+                    } else if matches!(args[0], Expr::Literal(Literal::Float(_))) || variable_types_of_float(&args[0], variable_types) {
+                        format!("LogosQuantity::from_f64({}, &({}).to_string())", args_str[0], args_str[1])
+                    } else {
+                        let mag = rational_operand(&args[0], &args_str[0], variable_types);
+                        format!("LogosQuantity::from_rational({}, &({}).to_string())", mag, args_str[1])
+                    }
                 }
                 // Re-express a quantity in another unit of the same dimension (`convert(q, "foot")`).
                 "convert" if args_str.len() == 2 => {

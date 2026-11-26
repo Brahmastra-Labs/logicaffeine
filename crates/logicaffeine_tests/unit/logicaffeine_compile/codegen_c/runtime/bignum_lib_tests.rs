@@ -402,7 +402,7 @@ int main(void) {
     );
     let run = std::process::Command::new(&bin).output().expect("run");
     let got = String::from_utf8_lossy(&run.stdout);
-    let want = "5 m\n2 in\n3 kg\n5 m\n3 m\n6250/381 ft\n6 L^2\n25 1\n10 m\n";
+    let want = "5 m\n2 in\n3 kg\n5 m\n3 m\n6250/381 ft\n6 L^2\n25\n10 m\n";
     assert_eq!(got, want, "quantity runtime output mismatch");
     let _ = std::fs::remove_dir_all(&dir);
 }

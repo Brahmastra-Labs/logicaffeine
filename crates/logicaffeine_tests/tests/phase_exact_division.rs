@@ -414,3 +414,91 @@ fn random_rational_arithmetic_matches_the_exact_oracle() {
         );
     }
 }
+
+// ---- EVERY BLOCK IS AN EXACT CONTEXT: a `Rational` declared inside a test, a match arm, a property
+//      or an expected failure resolves exactly as it does in `## Main` — no statement that holds a
+//      block is passed over by the resolution. ----
+
+fn assert_tests_pass(src: &str) {
+    let report = logicaffeine_compile::testrun::run_tests(src, &Default::default()).expect("the tests run");
+    assert!(
+        report.all_passed() && report.passed > 0,
+        "{}",
+        logicaffeine_compile::testrun::render_report(&report)
+    );
+}
+
+#[test]
+fn a_rational_binding_inside_a_test_is_exact() {
+    assert_tests_pass(
+        "## Test: a temperature coefficient keeps its sign\n\
+         Let beta: Rational be (0 - 3) / 1000.\n\
+         Expect that beta is less than 0.\n\
+         Expect that beta * 1000 is equal to 0 - 3.\n",
+    );
+}
+
+#[test]
+fn a_rational_binding_inside_a_case_table_test_is_exact() {
+    assert_tests_pass(
+        "## Test: halves over a table\n\
+         \n\
+         For each of these cases:\n\
+         \n\
+         | n | twice |\n\
+         |---|-------|\n\
+         | 7 | 7     |\n\
+         | 3 | 3     |\n\
+         \n\
+         Let h: Rational be n / 2.\n\
+         Expect that h * 2 is equal to twice.\n",
+    );
+}
+
+#[test]
+fn a_rational_binding_inside_a_property_is_exact() {
+    assert_tests_pass(
+        "## Test: a half doubled is the whole\n\
+         For all integers n where n is greater than 0:\n\
+         \x20   Let h: Rational be n / 2.\n\
+         \x20   Expect that h * 2 is equal to n.\n",
+    );
+}
+
+#[test]
+fn a_rational_binding_inside_an_expected_failure_is_exact() {
+    assert_tests_pass(
+        "## Test: the exact value reaches the failure\n\
+         Expect this to fail with \"7/2\":\n\
+         \x20   Let h: Rational be 7 / 2.\n\
+         \x20   Fail with format(h).\n",
+    );
+}
+
+#[test]
+fn a_rational_binding_inside_a_match_arm_is_exact() {
+    assert_interpreter_output(
+        "## Main\n\
+         Let o be some 7.\n\
+         Inspect o:\n\
+         \x20   When Some (v):\n\
+         \x20       Let h: Rational be v / 2.\n\
+         \x20       Show h.\n\
+         \x20   When None:\n\
+         \x20       Show 0.\n",
+        "7/2",
+    );
+}
+
+#[test]
+fn a_test_does_not_inherit_main_exactness() {
+    // A test runs in its own world: `k` declared Rational in `## Main` is not the test's `k`, so the
+    // test's integer division still floors.
+    assert_tests_pass(
+        "## Main\nLet k: Rational be 1 / 3.\nShow k.\n\n\
+         ## Test: an integer k floors\n\
+         Let k be 7.\n\
+         Let q be k / 2.\n\
+         Expect that q is equal to 3.\n",
+    );
+}

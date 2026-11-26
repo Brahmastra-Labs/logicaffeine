@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- The prover files an individual whose name is a prelude constant of another sort (`B1 : Bit`) under a fresh kernel
+  name, applies curried rules (`∀x(A → ∀y(B → C))`) layer by layer, and treats a subgoal closed by its own quantifiers
+  as ground.
+- Datalog comparisons: `datalog::{Comparison, Guard, number}` and `Rule::guards`. A rule's condition may compare
+  values its atoms bind, numbers as exact rationals and any constants by identity (numbers by value);
+  `DatalogError::NotANumber` refuses an ordering of a name and `DatalogError::Guarded` a comparison in the diagram
+  evaluation. `Model::closed_world` says which facts rest on a negation or a comparison.
+- The formula parser reads `<`, `≤`/`<=`, `>`, `≥`/`>=`, `≠`/`!=` between terms as the relations `Lt`, `Le`, `Gt`,
+  `Ge`, `Neq`, and decimal and negative numerals (`107.1`, `-10`) as constants.
 - `counterexample::FiniteModel`, `least_countermodel` and `check_countermodel`: a formula refuted from Datalog premises
   by their least model, and any finite model re-checked premise by premise by an evaluator of its own, a broken
   premise named with the assignment that breaks it (`theory_refute_lock`).

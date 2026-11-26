@@ -230,7 +230,7 @@ native_domain!(uuid_bytes_roundtrip, "## Main\nShow uuid_bytes(uuid(\"550e8400-e
 // quantity (the C mirror LQuant — exact-Rational SI magnitude + a 10-axis dimension vector + a display
 // unit) on both native tiers: construction (natural `N unit` + `quantity(v, "unit")`), same-dimension
 // +/-, scalar scaling (keeps the unit), exact rational `in`-conversion, and dimension-combining ×/÷
-// that render the dimension SIGNATURE (`6 L^2`, dimensionless `25 1`). Units resolve at codegen time.
+// that render the dimension SIGNATURE (`6 L^2`) and cancel to a plain number (`25`). Units resolve at codegen time.
 native_domain!(
     quantity_construct,
     "## Main\nShow 5 meters.\nShow quantity(2, \"inch\").\nShow 3 kilograms.\n",
@@ -249,7 +249,7 @@ native_domain!(
 native_domain!(
     quantity_dimension,
     "## Main\nShow 2 meters * 3 meters.\nShow 100 meters / 4 meters.\nShow 6 meters / 3 meters.\n",
-    "6 L^2\n25 1\n2 1"
+    "6 L^2\n25\n2"
 );
 
 // Value types inside COLLECTIONS on the C tier — the runtime's `Seq_<E>` families (`Seq of Money` →

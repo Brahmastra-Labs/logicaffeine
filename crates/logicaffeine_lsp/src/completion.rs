@@ -45,7 +45,7 @@ pub fn completions(doc: &DocumentState, position: Position) -> Option<Completion
             add_style_completions(doc, offset, &mut items);
             return Some(CompletionResponse::Array(items));
         }
-        None => {}
+        Some(RawKind::Formal) | None => {}
     }
 
     match prev_token.map(|t| &t.kind) {

@@ -9,12 +9,12 @@ use super::types::{
     seq_fn, seq_of, seq_struct_fn, seq_struct_type, tuple_c_name, CContext, CType, Ints,
 };
 
-/// Resolve a quantity unit NAME via the base `units::by_name` at CODEGEN time, rendering the C
+/// Resolve a quantity unit, by symbol or name, via the base `units::lookup` at CODEGEN time, rendering the C
 /// fragments for its exact scale/offset (`rat_ratio(n, d)`), its 10-axis dimension vector
 /// (`(const int[]){…}` numerators & denominators), and its symbol string. The unit catalog stays
 /// single-sourced in Rust; the C runtime only carries the dimensional algebra. `None` on unknown name.
 fn resolve_quantity_unit(name: &str) -> Option<(String, String, String, String, String)> {
-    let unit = logicaffeine_base::quantity::units::by_name(name)?;
+    let unit = logicaffeine_base::quantity::units::lookup(name)?;
     let ratio = |s: String| -> (i64, i64) {
         match s.split_once('/') {
             Some((n, d)) => (n.parse().unwrap(), d.parse().unwrap()),
@@ -44,6 +44,18 @@ fn resolve_quantity_unit(name: &str) -> Option<(String, String, String, String, 
         format!("(const int[]){{{}}}", dens.join(", ")),
         sym,
     ))
+}
+
+/// An exact number of C type `ty` as an `LRat` (an integer, a decimal or fraction; a Float is refused at run
+/// time, since it is not exact), or `None` for a value that is no number.
+fn c_exact_number(code: &str, ty: &CType) -> Option<String> {
+    match ty {
+        CType::Int64 => Some(format!("rat_from_i64((int64_t)({}))", code)),
+        CType::Rational | CType::Decimal => Some(format!("rat_from_ldec({})", code)),
+        CType::BigInt => Some(format!("rat_from_ldec(ldec_from_lint({}))", code)),
+        CType::Float64 => Some(format!("rat_from_f64_refused({})", code)),
+        _ => None,
+    }
 }
 
 /// The unit name of a `quantity`/`convert` second argument, if it is a compile-time string literal.
@@ -1569,7 +1581,8 @@ fn temporal_binary(
     ctx: &CContext,
 ) -> Option<String> {
     use BinaryOpKind::{Add, Eq, Gt, GtEq, Lt, LtEq, NotEq, Subtract};
-    if !is_temporal(lt) && !is_temporal(rt) {
+    // A duration beside a quantity is a quantity of time: quantity arithmetic answers it.
+    if (!is_temporal(lt) && !is_temporal(rt)) || *lt == CType::Quantity || *rt == CType::Quantity {
         return None;
     }
     let bind = |ty: &CType, name: &str, expr: &Expr| {
@@ -2269,34 +2282,48 @@ fn codegen_binary_op_expr(expr: &Expr, ctx: &CContext) -> String {
         };
         return format!("money_scale({}, (int64_t)({}))", money, k);
     }
-    // Quantity arithmetic — same-dimension `+ −`, dimension-combining `× ÷` (synthetic unit),
-    // and scalar scaling (`q × k`, `k × q`, `q ÷ k`) which preserves the quantity's unit.
-    if lt == CType::Quantity && rt == CType::Quantity {
-        let f = match op {
-            BinaryOpKind::Add => Some("quant_add"),
-            BinaryOpKind::Subtract => Some("quant_sub"),
-            BinaryOpKind::Multiply => Some("quant_mul"),
-            BinaryOpKind::Divide | BinaryOpKind::ExactDivide => Some("quant_div"),
+    // Quantity arithmetic — the C mirror of `logicaffeine_base::quantity`: same-dimension `+ −` (two
+    // offset temperatures subtract to a difference and do not add), `× ÷` into the named SI unit of
+    // the result, a number scaling a quantity and keeping its unit, a duration as a quantity of time,
+    // and a quantity whose dimensions cancel meeting numbers as the number it is.
+    if lt == CType::Quantity || rt == CType::Quantity {
+        let quantity = |code: &str, ty: &CType| match ty {
+            CType::Duration => Some(format!("quant_seconds({})", code)),
+            CType::Quantity => Some(code.to_string()),
+            _ => c_exact_number(code, ty).map(|k| format!("quant_number({})", k)),
+        };
+        let (a, b) = (quantity(&l, &lt), quantity(&r, &rt));
+        let number = |code: &str, ty: &CType| c_exact_number(code, ty);
+        let both = |f: &str| a.as_ref().zip(b.as_ref()).map(|(a, b)| format!("{}({}, {})", f, a, b));
+        let plain_number = !matches!(lt, CType::Quantity | CType::Duration) || !matches!(rt, CType::Quantity | CType::Duration);
+        let code = match op {
+            BinaryOpKind::Add | BinaryOpKind::Subtract if plain_number => a
+                .as_ref()
+                .zip(b.as_ref())
+                .map(|(a, b)| format!("quant_add_numbers({}, {}, {})", a, b, matches!(op, BinaryOpKind::Subtract) as i32)),
+            BinaryOpKind::Add => both("quant_add"),
+            BinaryOpKind::Subtract => both("quant_sub"),
+            BinaryOpKind::Multiply if lt == CType::Quantity && number(&r, &rt).is_some() => {
+                number(&r, &rt).map(|k| format!("quant_scale_mul({}, {})", l, k))
+            }
+            BinaryOpKind::Multiply if rt == CType::Quantity && number(&l, &lt).is_some() => {
+                number(&l, &lt).map(|k| format!("quant_scale_mul({}, {})", r, k))
+            }
+            BinaryOpKind::Multiply => both("quant_mul"),
+            BinaryOpKind::Divide | BinaryOpKind::ExactDivide if lt == CType::Quantity && number(&r, &rt).is_some() => {
+                number(&r, &rt).map(|k| format!("quant_scale_div({}, {})", l, k))
+            }
+            BinaryOpKind::Divide | BinaryOpKind::ExactDivide => both("quant_div"),
+            BinaryOpKind::Lt => both("quant_cmp").map(|c| format!("({} < 0)", c)),
+            BinaryOpKind::Gt => both("quant_cmp").map(|c| format!("({} > 0)", c)),
+            BinaryOpKind::LtEq => both("quant_cmp").map(|c| format!("({} <= 0)", c)),
+            BinaryOpKind::GtEq => both("quant_cmp").map(|c| format!("({} >= 0)", c)),
+            BinaryOpKind::Eq => both("quant_eq"),
+            BinaryOpKind::NotEq => both("quant_eq").map(|c| format!("(!{})", c)),
             _ => None,
         };
-        if let Some(f) = f {
-            return format!("{}({}, {})", f, l, r);
-        }
-    }
-    if (lt == CType::Quantity) != (rt == CType::Quantity)
-        && matches!(
-            op,
-            BinaryOpKind::Multiply | BinaryOpKind::Divide | BinaryOpKind::ExactDivide
-        )
-    {
-        let q_left = lt == CType::Quantity;
-        let (q, k) = if q_left { (&l, &r) } else { (&r, &l) };
-        if matches!(op, BinaryOpKind::Multiply) {
-            // `q × k` or `k × q` — scale, preserving the unit.
-            return format!("quant_scale_mul({}, rat_from_i64((int64_t)({})))", q, k);
-        } else if q_left {
-            // `q ÷ k` — scalar division (scalar-on-the-left `k ÷ q` falls through, failing loud).
-            return format!("quant_scale_div({}, rat_from_i64((int64_t)({})))", q, k);
+        if let Some(code) = code {
+            return code;
         }
     }
     // `uuid == uuid` / `uuid != uuid` — a 16-byte compare (`uuid_eq`) yielding a C bool.
@@ -2807,8 +2834,12 @@ fn codegen_call_expr(expr: &Expr, ctx: &CContext) -> String {
                 .and_then(|n| resolve_quantity_unit(&n))
             {
                 Some((scale, offset, dnums, ddens, sym)) => format!(
-                    "quant_of(rat_from_i64((int64_t)({})), {}, {}, {}, {}, {})",
-                    codegen_expr(&args[0], ctx),
+                    "quant_of({}, {}, {}, {}, {}, {})",
+                    {
+                        let magnitude = codegen_expr(&args[0], ctx);
+                        c_exact_number(&magnitude, &infer_expr_type(&args[0], ctx))
+                            .unwrap_or_else(|| format!("rat_from_i64((int64_t)({}))", magnitude))
+                    },
                     scale,
                     offset,
                     dnums,

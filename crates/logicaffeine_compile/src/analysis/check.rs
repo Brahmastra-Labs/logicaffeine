@@ -801,12 +801,17 @@ impl<'r> CheckEnv<'r> {
                 }
             }
 
-            // Exact division always yields a Rational (`7 / 2 → 7/2`); the resolve pass
-            // only emits it in a Rational-typed context.
+            // Exact division yields a Rational (`7 / 2 → 7/2`) — the resolve pass only emits it in
+            // an exact context — unless an operand's type is not known here (a quantity), whose
+            // quotient is not known either.
             BinaryOpKind::ExactDivide => {
-                self.infer_expr(left)?;
-                self.infer_expr(right)?;
-                Ok(InferType::Rational)
+                let lt = self.infer_expr(left)?;
+                let rt = self.infer_expr(right)?;
+                if lt == InferType::Unknown || rt == InferType::Unknown {
+                    Ok(InferType::Unknown)
+                } else {
+                    Ok(InferType::Rational)
+                }
             }
 
             BinaryOpKind::Subtract

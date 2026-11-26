@@ -45,10 +45,13 @@ pub use types::{
     Int, IntoRate, LogosBits, LogosBoxed,
     LogosComplex, LogosComplexF, LogosContains, LogosDecimal, LogosDenseI64Map,
     LogosDenseI64MapNoPresence, LogosDenseI64Set, LogosDivU64, LogosI32Map, LogosI32Set,
-    LogosI64Map, LogosI64Set, LogosInt, LogosMap, LogosModular, LogosMoney, LogosQuantity,
+    LogosI64Map, LogosI64Set, LogosInt, LogosMap, LogosModular, LogosMoney, LogosQuantity, QuantityArg,
     LogosRational, LogosSeq, LogosTuple, LogosUuid, Map, Nat, Real, Seq, Set, Text, ToRationals, Tuple,
     Unit, Value, VecCowNoop,
 };
 pub use exact::LogosValue;
 pub use int_vec::IntVec;
 pub use opt::LogosOpt;
+
+/// The operator of a quantity operation, as generated code names it (`QuantityOp::Mul`).
+pub use logicaffeine_base::quantity::Op as QuantityOp;

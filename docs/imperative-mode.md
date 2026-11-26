@@ -83,6 +83,41 @@ comparisons `== != < > <= >=` (also `is less than`, `is at most`, `is greater th
 shifts and xor. A `Text` literal interpolates `{expr}` holes (any expression, read whole or
 refused), and `{{`/`}}` are literal braces; `r"…"` is a raw string with no holes.
 
+## Quantities
+
+A number followed by a unit is a quantity: an exact magnitude with its physical dimension. The unit is any spelling
+the catalog knows, a name of one or several words (`3 newtons`, `50 amp hours`, `25 degrees Celsius`) or the symbol SI
+writes, case-sensitive (`5 V`, `50 Ah`, `9 mA`, `2 Ω`, `25 °C`); `quantity(n, "unit")` builds one from a value, and
+`… in <unit>` or `convert(q, "unit")` re-expresses one. A product or quotient shows in its named SI unit, and one whose
+dimension cancels is a plain number. A duration is a quantity of time. Two temperatures subtract to a difference
+(`Δ°C`), which adds back onto a temperature or converts to kelvin; adding two temperatures, or quantities of different
+dimensions, is refused. An exact `Rational` or `Decimal` (`decimal("1.1")`) scales a quantity; a `Real` is refused,
+since a binary double is not the number it was written as.
+
+```logos
+## Main
+Show 10.2 amperes * 20.4 volts.
+Show 24 volts / 2 ohms.
+Show -10 celsius - 25 celsius.
+Show convert(200 watts * 2 hours, "watt hours").
+Show convert(quantity(100, "ah") * 51.2 volts * 2, "watt hours").
+Show 77 °F in celsius.
+Show (22.8 volts * 3) / 1 volt > 60.
+Let derate: Rational be 3 / 4.
+Show 1200 watts * derate.
+```
+
+```output
+5202/25 W
+12 A
+-35 Δ°C
+400 Wh
+10240 Wh
+25 °C
+true
+900 W
+```
+
 ## Functions
 
 ```logos

@@ -4,7 +4,8 @@
 //! `for all …, if … then …` a Horn rule (`logicaffeine_proof::datalog`). The command evaluates it semi-naively and
 //! prints each relation the rules derive. `--bdd` evaluates it again over binary decision diagrams, bddbddb's
 //! representation, and gives each relation's diagram size; `--certify` proves every derived fact in the kernel from
-//! the theory's axioms; `--json` prints the model as data. `--contexts` numbers the call paths of the theory's
+//! the theory's axioms, and names the facts that rest on the closed world (a negation or a comparison in a rule that
+//! derived them), which the least model holds and the axioms alone do not entail; `--json` prints the model as data. `--contexts` numbers the call paths of the theory's
 //! `Calls(caller, site, callee)` facts and evaluates over diagrams with the rules reading each method's contexts
 //! (`logicaffeine_proof::datalog::Contexts`); a relation over contexts is given by its size, not its tuples.
 
@@ -49,8 +50,13 @@ pub(crate) fn cmd_datalog(
         let axioms: Vec<logicaffeine_proof::ProofExpr> = development.axioms.iter().map(|(_, e)| e.clone()).collect();
         let mut proved = 0usize;
         let mut unproved = Vec::new();
+        let mut closed = Vec::new();
         for (predicate, args) in &derived_facts {
             let atom = format!("{predicate}({})", args.join(", "));
+            if model.closed_world(predicate, args) {
+                closed.push(atom);
+                continue;
+            }
             let goal = logicaffeine_proof::formula::parse_formula(&atom)
                 .map_err(|e| CliError::new(format!("{atom}: {e}")))?;
             if logicaffeine_proof::verify::prove_certify_check(&axioms, &goal).verified {
@@ -59,7 +65,7 @@ pub(crate) fn cmd_datalog(
                 unproved.push(atom);
             }
         }
-        Some((proved, unproved))
+        Some((proved, unproved, closed))
     } else {
         None
     };
@@ -82,9 +88,10 @@ pub(crate) fn cmd_datalog(
                 .map(|p| (p.to_string(), serde_json::json!(d.nodes(p))))
                 .collect::<serde_json::Map<_, _>>());
         }
-        if let Some((proved, unproved)) = &certified {
+        if let Some((proved, unproved, closed)) = &certified {
             report["certified"] = serde_json::json!(proved);
             report["unproved"] = serde_json::json!(unproved);
+            report["closed_world"] = serde_json::json!(closed);
         }
         println!("{report}");
     } else {
@@ -101,17 +108,28 @@ pub(crate) fn cmd_datalog(
             program.rules().len(),
             model.work()
         );
-        if let Some((proved, unproved)) = &certified {
+        if let Some((proved, unproved, closed)) = &certified {
             println!("{proved} of {} derived facts kernel-certified", derived_facts.len());
+            if !closed.is_empty() {
+                println!(
+                    "{} rest on the closed world: a rule that derived them has a negation or a comparison, which the \
+                     axioms alone do not entail",
+                    closed.len()
+                );
+                for atom in closed {
+                    println!("  closed world: {atom}");
+                }
+            }
             for atom in unproved {
                 println!("  not proved: {atom}");
             }
         }
     }
-    if let Some((_, unproved)) = &certified {
+    if let Some((_, unproved, _)) = &certified {
         if !unproved.is_empty() {
             return Err(CliError::new(format!(
-                "{} derived facts the kernel did not prove: the evaluation and the prover disagree",
+                "{} derived facts that rest on the axioms alone the kernel did not prove: the evaluation and the prover \
+                 disagree",
                 unproved.len()
             ))
             .into());

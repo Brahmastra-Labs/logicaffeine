@@ -177,7 +177,7 @@ pub enum BlockType {
     ErrorPage { status: u16 },
 }
 
-/// Which LGX section a [`TokenType::RawBlock`] body belongs to.
+/// Which language a [`TokenType::RawBlock`] body is written in: an LGX section, or formal logic.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RawKind {
     /// A `View:` body (or a `-> View:` function body): HTML with `{…}` template tags.
@@ -188,6 +188,9 @@ pub enum RawKind {
     /// (title, description, social card, canonical). Parsed by the same
     /// template machinery as a `View:`, because it is HTML with holes.
     Head,
+    /// A `## Theory` development or a `## Axiom` formula: formal first-order logic, captured
+    /// exactly as written (`x ≤ 107.1`, `a ≠ b`, `-0.5`) for the formal parser downstream.
+    Formal,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

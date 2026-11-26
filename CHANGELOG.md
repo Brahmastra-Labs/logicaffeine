@@ -8,6 +8,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **The English prover certifies the rules a technical standard is written in** (`technical_rules_prove_lock`). An
+  individual named like a kernel prelude constant (`B1`, the prelude's bit) is the problem's own entity, filed under a
+  name of its own, so `B1 is a man` is no longer dropped as ill-typed. A curried rule, `every controller protects every
+  string`, applies layer by layer. A closed subgoal whose only variables its own quantifiers bind (`∃y(Battery(y) ∧
+  Has(k, y))`) is ground, so a premise that states it discharges it: `every kit that has a battery has a fuse` proves.
+  A word that only ends in `ing` (`string`, `ring`, `thing`) is no progressive verb.
+- **Quantities carry engineering arithmetic exactly, the same on every tier.** Two temperatures on an offset scale
+  subtract to a difference (`25 celsius - 20 celsius` is `5 Δ°C`), which adds back onto a temperature, scales a
+  coefficient and converts `in kelvin`, and adding two temperatures is refused. A product or quotient shows in its named
+  SI unit (`A × V` is `W`, `V ÷ Ω` is `A`), and one whose dimension cancels is a plain number. A duration multiplies a
+  quantity (`200 watts * 2 hours` is energy), an exact `Rational` or `Decimal` scales one, and a `Float` is refused,
+  since a binary double is not the number it was written as. The rules live once, in
+  `logicaffeine_base::quantity::{apply, compare, equal}`, which the interpreter, the VM, the compiled Rust and the C
+  runtime all call (`quantity_engineering_lock`).
+- **A quantity is written the way an engineer writes it.** A unit follows its number by any spelling the catalog
+  knows: a name of several words (`50 amp hours`, `1.6 newton meters`, `25 degrees Celsius`), a symbol exactly as SI
+  writes it, case-sensitive (`50 Ah`, `5 V`, `9 mA`, `2 Ω`, `25 °C`), a negative magnitude (`-10 celsius`), and
+  `… in watt hours` (`quantity_literal_lock`).
+- **Datalog rules compare numbers and tell constants apart.** A rule's condition may hold `x ≤ y`, `x < y`, `x ≥ y`,
+  `x > y` (and `<=`, `>=`) over numbers, read as exact rationals, and `x = y`, `x ≠ y` (`!=`) over any constants, so a
+  limit is one rule: `if ColdVoc(a, x) and VocMax(c, y) and x ≤ y then Fits(a, c)`. An ordering of a name that is not a
+  number is refused, a comparison over a variable no atom binds is unsafe, and the diagram evaluation refuses a rule
+  with a comparison by name. `Model::closed_world` names the facts that rest on a negation or a comparison, and
+  `largo datalog --certify` lists them as reading the closed world instead of reporting that the evaluation and the
+  prover disagree (`datalog_comparison_lock`, `largo_datalog_lock`).
+- **A `## Theory` or `## Axiom` body reaches the formal parser exactly as written.** The lexer captures it whole, as it
+  does a `View:` or `Style:` body, so `≤`, `≠`, `107.1` and `-0.5` are no longer split or dropped by English word
+  rules on the way.
 - **Lean 4.14 through 4.34.1, Mathlib included, translate to LOGOS — proofs and statements.** `largo lean import
   --project` selects a registered Lean profile (4.14.0, 4.28.0, 4.33.1, 4.34.0-rc1, 4.34.1) from `lean-toolchain`,
   pins its toolchain and its structurally patched `lean4export` by digest (`scripts/lean/install-lean-exporters.py`),

@@ -357,7 +357,7 @@ const CHECK_BUDGET: u64 = 50_000_000;
 /// Fails when the premises are not a Datalog program (ground facts and safe, function-free Horn rules, negation
 /// stratified), or when the goal holds in the least model, which then cannot refute it.
 pub fn least_countermodel(premises: &[(String, ProofExpr)], goal: &ProofExpr) -> Result<FiniteModel, String> {
-    use crate::datalog::{evaluate, Literal, Program};
+    use crate::datalog::{evaluate, Program};
 
     let program =
         Program::from_axioms(premises).map_err(|e| format!("the premises are not a Datalog program: {e}"))?;
@@ -369,7 +369,7 @@ pub fn least_countermodel(premises: &[(String, ProofExpr)], goal: &ProofExpr) ->
     }
     let model = FiniteModel { domain: domain.into_iter().collect(), facts: least.facts().into_iter().collect() };
     if Structure::new(&model).holds(goal, &mut Vec::new())? {
-        let definite = program.rules().iter().all(|r| r.body.iter().all(|l| matches!(l, Literal::Pos(_))));
+        let definite = program.rules().iter().all(|r| !r.reads_closed_world());
         let follows = if definite && is_positive(goal) {
             ", and the premises are definite Horn clauses and the statement positive, so it holds in every model of \
              them: it follows"

@@ -1673,17 +1673,10 @@ pub struct QuantityValue {
 impl QuantityValue {
     /// The faithful display: the magnitude expressed in the carried unit, then its symbol —
     /// `42/127 ft`, `2 in`, `20 °C`. A synthetic SI unit (empty symbol, produced by a
-    /// dimension-combining `× ÷`) shows the dimension signature instead (`12 L^2`).
+    /// dimension-combining `× ÷` whose dimension has no named unit) shows the dimension signature
+    /// instead (`12 L^2`), and one whose dimensions cancel shows the bare number (`25`).
     pub fn display(&self) -> String {
-        let magnitude = self
-            .q
-            .in_unit(&self.unit)
-            .expect("a Quantity's display unit always shares its dimension");
-        if self.unit.symbol.is_empty() {
-            format!("{} {}", magnitude, self.q.dimension())
-        } else {
-            format!("{} {}", magnitude, self.unit.symbol)
-        }
+        logicaffeine_base::quantity::show(&self.q, &self.unit)
     }
 }
 

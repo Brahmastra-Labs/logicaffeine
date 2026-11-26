@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Quantity arithmetic, comparison and display on the interpreter, the VM, the Rust AOT and the C runtime all follow
+  `logicaffeine_base::quantity`: temperature differences, named SI units, durations, exact `Rational` and `Decimal`
+  scaling, a `Float` refused (`quantity_engineering_lock`). `quantity()` and `convert()` find a unit by symbol or by
+  any spelling of its name. An exact division in a `## Test` block or any nested block is typed as in `## Main`.
+- A `## Theory` or `## Axiom` body is never rewritten by module assembly: its names are the theory's own.
 - `process.lg`, a new auto-imported standard-library module: `runProcess(program, args, cwd, env, timeoutMs, maxOutput)
   -> Result of ProcessResult and Text` over the native `runProcessParts`, through `BuiltinId::ProcessRun` on the
   tree-walker and the VM and `logicaffeine_system::process::run_parts` on the Rust backend — no shell, a mandatory

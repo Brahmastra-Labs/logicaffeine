@@ -18,6 +18,10 @@ pub(super) fn c_runtime() -> String {
         )
         .replace("@MODULO_BY_ZERO@", &super::words::modulo_by_zero())
         .replace("@NOT_AN_INT@", &super::words::not_an_int())
+        .replace("@QUANT_TEMPERATURES_ADD@", &super::words::temperatures_added())
+        .replace("@QUANT_NOT_A_NUMBER@", &super::words::quantity_not_a_number())
+        .replace("@QUANT_FLOAT_INEXACT@", &super::words::quantity_float_inexact())
+        .replace("@QUANT_NAMED_UNITS@", &super::words::quantity_named_units())
 }
 
 /// [`C_GC_COLLECTOR`]'s source, as a literal a runtime written as one `concat!` can embed (the RISC-V shim's).
@@ -3481,25 +3485,92 @@ __attribute__((unused)) static int quant_same_dim(const LQuant *a, const int *dn
         if (a->dnum[i] != dnum[i] || a->dden[i] != dden[i]) return 0;
     return 1;
 }
+__attribute__((unused)) static char *quant_to_string(LQuant q);
+__attribute__((unused)) static void quant_dim_string(const LQuant *q, char *out);
+/* the SI units with names of their own that a product or quotient shows in — generated from
+   `logicaffeine_base::quantity::units::named_units`, so the table cannot drift from the Rust tiers. */
+typedef struct { int d[10]; const char *sym; } QNamed;
+static const QNamed QUANT_NAMED[] = { @QUANT_NAMED_UNITS@ };
+__attribute__((unused)) static void quant_name(LQuant *r) {
+    r->usym[0] = 0;
+    for (size_t k = 0; k < sizeof QUANT_NAMED / sizeof QUANT_NAMED[0]; k++) {
+        int same = 1;
+        for (int i = 0; i < 10; i++) if (r->dden[i] != 1 || r->dnum[i] != QUANT_NAMED[k].d[i]) { same = 0; break; }
+        if (same) { strncpy(r->usym, QUANT_NAMED[k].sym, 23); r->usym[23] = 0; return; }
+    }
+}
+__attribute__((unused)) static int quant_is_number(const LQuant *q) {
+    for (int i = 0; i < 10; i++) if (q->dnum[i] != 0) return 0;
+    return 1;
+}
+__attribute__((unused)) static int quant_offset_scale(const LQuant *q) { return !rat_is_zero(&q->uoffset); }
 __attribute__((unused)) static LQuant quant_add(LQuant a, LQuant b) {
     if (!quant_same_dim(&a, b.dnum, b.dden)) logos_fatal("cannot add quantities of different dimensions");
+    if (quant_offset_scale(&a) && quant_offset_scale(&b)) logos_fatalf(@QUANT_TEMPERATURES_ADD@, quant_to_string(a), quant_to_string(b));
     LQuant r = a; r.mag = rat_add(&a.mag, &b.mag); return r;
 }
+/* two values on an offset scale subtract to a difference: the same scale with no offset, `Δ°C`. */
 __attribute__((unused)) static LQuant quant_sub(LQuant a, LQuant b) {
     if (!quant_same_dim(&a, b.dnum, b.dden)) logos_fatal("cannot subtract quantities of different dimensions");
-    LQuant r = a; r.mag = rat_sub(&a.mag, &b.mag); return r;
+    LQuant r = a; r.mag = rat_sub(&a.mag, &b.mag);
+    if (quant_offset_scale(&a) && quant_offset_scale(&b)) {
+        char sym[24]; snprintf(sym, sizeof sym, "\xce\x94%s", a.usym);
+        r.uoffset = rat_ratio(0, 1); strncpy(r.usym, sym, 23); r.usym[23] = 0;
+    }
+    return r;
+}
+/* a number as a dimensionless quantity, and the number a quantity whose dimensions cancel is. */
+__attribute__((unused)) static LQuant quant_number(LRat k) {
+    LQuant r; r.mag = k;
+    for (int i = 0; i < 10; i++) { r.dnum[i] = 0; r.dden[i] = 1; }
+    r.uscale = rat_ratio(1, 1); r.uoffset = rat_ratio(0, 1); r.usym[0] = 0; return r;
+}
+__attribute__((unused)) static LRat quant_as_number(const LQuant *q) {
+    if (!quant_is_number(q)) { char dim[160]; quant_dim_string(q, dim); logos_fatalf(@QUANT_NOT_A_NUMBER@, dim); }
+    return q->mag;
+}
+/* `a ± b` where one side is a number: both must be numbers (a quantity whose dimensions cancel). */
+__attribute__((unused)) static LQuant quant_add_numbers(LQuant a, LQuant b, int subtract) {
+    LRat x = quant_as_number(&a), y = quant_as_number(&b);
+    return quant_number(subtract ? rat_sub(&x, &y) : rat_add(&x, &y));
+}
+/* a duration of `ns` nanoseconds as a quantity of time, shown in seconds. */
+__attribute__((unused)) static LQuant quant_seconds(int64_t ns) {
+    LQuant r = quant_number(rat_ratio(ns, 1000000000));
+    r.dnum[2] = 1; strcpy(r.usym, "s"); return r;
+}
+__attribute__((unused)) static int quant_cmp(LQuant a, LQuant b) {
+    if (quant_is_number(&a) != quant_is_number(&b) || !quant_same_dim(&a, b.dnum, b.dden)) {
+        char da[160], db[160]; quant_dim_string(&a, da); quant_dim_string(&b, db);
+        if (quant_is_number(&a) || quant_is_number(&b)) logos_fatalf(@QUANT_NOT_A_NUMBER@, quant_is_number(&a) ? db : da);
+        logos_fatalf("Cannot compare quantities of different dimensions (%s vs %s)", da, db);
+    }
+    LRat d = rat_sub(&a.mag, &b.mag); int c = rat_is_zero(&d) ? 0 : (rat_is_neg(&d) ? -1 : 1);
+    lbig_free(&d.num); lbig_free(&d.den); return c;
+}
+__attribute__((unused)) static int quant_eq(LQuant a, LQuant b) {
+    if (!quant_same_dim(&a, b.dnum, b.dden)) return 0;
+    LRat d = rat_sub(&a.mag, &b.mag); int z = rat_is_zero(&d); lbig_free(&d.num); lbig_free(&d.den); return z;
 }
 /* `× ÷` of two quantities combine dimensions (axiswise exponent add/sub) and reset to a SYNTHETIC
    SI unit (empty symbol, scale 1, offset 0) → Display shows the dimension signature. */
 __attribute__((unused)) static LQuant quant_mul(LQuant a, LQuant b) {
     LQuant r; r.mag = rat_mul(&a.mag, &b.mag);
     for (int i = 0; i < 10; i++) { int nn = a.dnum[i] * b.dden[i] + b.dnum[i] * a.dden[i], dd = a.dden[i] * b.dden[i]; qexp_reduce(&nn, &dd); r.dnum[i] = nn; r.dden[i] = dd; }
-    r.uscale = rat_ratio(1, 1); r.uoffset = rat_ratio(0, 1); r.usym[0] = 0; return r;
+    r.uscale = rat_ratio(1, 1); r.uoffset = rat_ratio(0, 1); quant_name(&r); return r;
 }
 __attribute__((unused)) static LQuant quant_div(LQuant a, LQuant b) {
     LQuant r; r.mag = rat_div(&a.mag, &b.mag);
     for (int i = 0; i < 10; i++) { int nn = a.dnum[i] * b.dden[i] - b.dnum[i] * a.dden[i], dd = a.dden[i] * b.dden[i]; qexp_reduce(&nn, &dd); r.dnum[i] = nn; r.dden[i] = dd; }
-    r.uscale = rat_ratio(1, 1); r.uoffset = rat_ratio(0, 1); r.usym[0] = 0; return r;
+    r.uscale = rat_ratio(1, 1); r.uoffset = rat_ratio(0, 1); quant_name(&r); return r;
+}
+/* the exact value of a decimal (or exact fraction) `LDec`. */
+__attribute__((unused)) static LRat rat_from_ldec(LDec d) { LBig n, dd; ldec_as_rat(&d, &n, &dd); return rat_reduce(n, dd); }
+/* a Float met a quantity: refused, since a binary double is not the number it was written as. */
+__attribute__((unused)) static LRat rat_from_f64_refused(double d) {
+    char shown[48]; snprintf(shown, sizeof shown, "%.17g", d);
+    logos_fatalf(@QUANT_FLOAT_INEXACT@, shown);
+    return rat_ratio(0, 1);
 }
 /* scale a quantity by a dimensionless scalar, preserving its unit. */
 __attribute__((unused)) static LQuant quant_scale_mul(LQuant a, LRat k) { LQuant r = a; r.mag = rat_mul(&a.mag, &k); return r; }
@@ -3524,6 +3595,7 @@ __attribute__((unused)) static void quant_dim_string(const LQuant *q, char *out)
 }
 __attribute__((unused)) static char *quant_to_string(LQuant q) {
     LRat m = quant_in_unit(&q); char *ms = rat_to_string(&m); lbig_free(&m.num); lbig_free(&m.den);
+    if (q.usym[0] == 0 && quant_is_number(&q)) return ms;
     char dim[160]; const char *tail = q.usym[0] == 0 ? (quant_dim_string(&q, dim), dim) : q.usym;
     char *out = (char *) lc_gc_alloc_atomic(strlen(ms) + strlen(tail) + 2); sprintf(out, "%s %s", ms, tail); lc_gc_free(ms); return out;
 }

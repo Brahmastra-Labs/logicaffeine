@@ -12,6 +12,13 @@
 //! already complete. A negation inside a cycle has no such order and is refused ([`DatalogError::Unstratifiable`]).
 //! [`evaluate_naive`] re-fires every rule over the whole model each round: the same model, by the definition.
 //!
+//! A rule's condition may also compare values its positive atoms bind ([`Guard`]): `x ≤ y`, `x < y`, `x ≥ y`, `x > y`
+//! between numbers, read as exact rationals (`107.1`, `-10`, `3/4`), and `x = y`, `x ≠ y` between any two constants,
+//! numbers by value. A guard filters a rule's instances and is no premise of them. An ordering of a constant that is not a
+//! number is refused ([`DatalogError::NotANumber`]). A fact that rests on a guard or a negation reads the closed world (that
+//! two names differ, that a number lies below another, that nothing else holds), which the axioms alone do not state
+//! ([`Model::closed_world`]).
+//!
 //! Every fact carries the rule and the premises that first derived it ([`Model::derivation`]), so each answer can be
 //! replayed as a proof. A relation is a list of interned tuples in derivation order with a hash set for membership and,
 //! per column, an index from value to tuples, built the first time a join looks a column up and grown as tuples
@@ -91,6 +98,105 @@ impl Literal {
     }
 }
 
+/// How a guard compares its two values.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Comparison {
+    /// `<`
+    Lt,
+    /// `≤`
+    Le,
+    /// `>`
+    Gt,
+    /// `≥`
+    Ge,
+    /// `=`: the same constant, or numbers of the same value.
+    Eq,
+    /// `≠`
+    Neq,
+}
+
+impl Comparison {
+    /// The comparison a theory's relation name stands for (`Lt`, `Le`, `Gt`, `Ge`, `Neq`), as the formula parser
+    /// names `<`, `≤`, `>`, `≥`, `≠`.
+    pub fn named(name: &str) -> Option<Comparison> {
+        Some(match name {
+            "Lt" => Comparison::Lt,
+            "Le" => Comparison::Le,
+            "Gt" => Comparison::Gt,
+            "Ge" => Comparison::Ge,
+            "Neq" => Comparison::Neq,
+            _ => return None,
+        })
+    }
+
+    /// The comparison that holds exactly where this one does not.
+    pub fn negated(self) -> Comparison {
+        match self {
+            Comparison::Lt => Comparison::Ge,
+            Comparison::Le => Comparison::Gt,
+            Comparison::Gt => Comparison::Le,
+            Comparison::Ge => Comparison::Lt,
+            Comparison::Eq => Comparison::Neq,
+            Comparison::Neq => Comparison::Eq,
+        }
+    }
+
+    /// Whether it orders numbers, rather than telling constants apart.
+    pub fn orders(self) -> bool {
+        !matches!(self, Comparison::Eq | Comparison::Neq)
+    }
+
+    /// The symbol it is written with.
+    pub fn symbol(self) -> &'static str {
+        match self {
+            Comparison::Lt => "<",
+            Comparison::Le => "≤",
+            Comparison::Gt => ">",
+            Comparison::Ge => "≥",
+            Comparison::Eq => "=",
+            Comparison::Neq => "≠",
+        }
+    }
+
+    /// Whether `left` and `right` stand in this comparison: `Err` names a value an ordering finds is not a number.
+    pub fn holds<'v>(self, left: &'v str, right: &'v str) -> Result<bool, &'v str> {
+        let (a, b) = (number(left), number(right));
+        if self.orders() {
+            let a = a.ok_or(left)?;
+            let b = b.ok_or(right)?;
+            return Ok(match self {
+                Comparison::Lt => a < b,
+                Comparison::Le => a <= b,
+                Comparison::Gt => a > b,
+                _ => a >= b,
+            });
+        }
+        let same = match (a, b) {
+            (Some(a), Some(b)) => a == b,
+            _ => left == right,
+        };
+        Ok(same == (self == Comparison::Eq))
+    }
+}
+
+/// A constant's value as an exact rational, when it is a numeral: an integer (`145`, `-10`), a decimal (`107.1`,
+/// `-0.5`) or a fraction (`3/4`).
+pub fn number(constant: &str) -> Option<logicaffeine_base::Rational> {
+    logicaffeine_base::Rational::parse(constant)
+        .or_else(|| logicaffeine_base::Decimal::parse(constant).map(|d| d.to_rational()))
+}
+
+/// A comparison a rule's condition makes between two of its values: `left op right`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Guard {
+    /// How the values compare.
+    pub op: Comparison,
+    /// The value on the left.
+    pub left: Term,
+    /// The value on the right.
+    pub right: Term,
+}
+
 /// A Horn rule `head :- body`, named for the derivations it makes.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Rule {
@@ -100,12 +206,24 @@ pub struct Rule {
     pub head: Atom,
     /// What must hold (and not hold) for it to fire.
     pub body: Vec<Literal>,
+    /// The comparisons its values must pass.
+    pub guards: Vec<Guard>,
 }
 
 impl Rule {
     /// The rule `name: head :- body`.
     pub fn new(name: impl Into<String>, head: Atom, body: Vec<Literal>) -> Self {
-        Rule { name: name.into(), head, body }
+        Rule { name: name.into(), head, body, guards: Vec::new() }
+    }
+
+    /// The rule `name: head :- body, guards`.
+    pub fn guarded(name: impl Into<String>, head: Atom, body: Vec<Literal>, guards: Vec<Guard>) -> Self {
+        Rule { name: name.into(), head, body, guards }
+    }
+
+    /// Whether a fact it derives reads the closed world: it rests on a negation or a comparison.
+    pub fn reads_closed_world(&self) -> bool {
+        !self.guards.is_empty() || self.body.iter().any(|l| matches!(l, Literal::Neg(_)))
     }
 
     /// Every variable the rule names.
@@ -113,6 +231,7 @@ impl Rule {
         std::iter::once(&self.head)
             .chain(self.body.iter().map(Literal::atom))
             .flat_map(|a| a.terms.iter())
+            .chain(self.guards.iter().flat_map(|g| [&g.left, &g.right]))
             .filter_map(|t| match t {
                 Term::Var(v) => Some(v.clone()),
                 Term::Const(_) => None,
@@ -143,8 +262,8 @@ pub enum DatalogError {
         /// What it holds instead.
         reason: String,
     },
-    /// A variable of a rule's head or of a negated literal appears in no positive body literal, so the rule would
-    /// range over a domain nothing bounds.
+    /// A variable of a rule's head, of a negated literal or of a comparison appears in no positive body literal, so the
+    /// rule would range over a domain nothing bounds.
     Unsafe {
         /// The rule's name.
         rule: String,
@@ -189,6 +308,18 @@ pub enum DatalogError {
         /// The method.
         method: String,
     },
+    /// A rule orders a constant that is not a number.
+    NotANumber {
+        /// The rule's name.
+        rule: String,
+        /// The constant.
+        value: String,
+    },
+    /// The diagram evaluation met a rule that compares values: a diagram encodes constants as codes with no order.
+    Guarded {
+        /// The rule's name.
+        rule: String,
+    },
 }
 
 impl fmt::Display for DatalogError {
@@ -221,6 +352,13 @@ impl fmt::Display for DatalogError {
             DatalogError::ContextOverflow { method } => {
                 write!(f, "more call paths reach `{method}` than 64 bits number")
             }
+            DatalogError::NotANumber { rule, value } => {
+                write!(f, "rule `{rule}` orders `{value}`, which is not a number: only numbers are ordered")
+            }
+            DatalogError::Guarded { rule } => write!(
+                f,
+                "rule `{rule}` compares values, which a decision diagram cannot: evaluate it without diagrams"
+            ),
         }
     }
 }
@@ -243,7 +381,7 @@ impl Program {
     }
 
     /// The program a theory's axioms state: each ground atom a fact, each `for all …, if … then …` with a conjunction
-    /// of atoms and negated atoms for its condition and one atom for its conclusion a rule. A name the axiom does not
+    /// of atoms, negated atoms and comparisons for its condition and one atom for its conclusion a rule. A name the axiom does not
     /// quantify is a constant, as it is to the prover. The program is checked for safety and consistent arities.
     pub fn from_axioms(axioms: &[(String, ProofExpr)]) -> Result<Self, DatalogError> {
         let mut facts = Vec::new();
@@ -261,8 +399,9 @@ impl Program {
                 ProofExpr::Implies(condition, conclusion) => {
                     let head = atom_of(conclusion, &bound).map_err(|r| not_datalog(&r))?;
                     let mut literals = Vec::new();
-                    conjuncts(condition, &bound, &mut literals).map_err(|r| not_datalog(&r))?;
-                    rules.push(Rule::new(name.clone(), head, literals));
+                    let mut guards = Vec::new();
+                    conjuncts(condition, &bound, &mut literals, &mut guards).map_err(|r| not_datalog(&r))?;
+                    rules.push(Rule::guarded(name.clone(), head, literals, guards));
                 }
                 _ => {
                     let atom = atom_of(body, &bound).map_err(|r| not_datalog(&r))?;
@@ -296,6 +435,7 @@ impl Program {
             .iter()
             .chain(self.rules.iter().flat_map(|r| std::iter::once(&r.head).chain(r.body.iter().map(Literal::atom))))
             .flat_map(|a| a.terms.iter())
+            .chain(self.rules.iter().flat_map(|r| r.guards.iter().flat_map(|g| [&g.left, &g.right])))
             .filter_map(|t| match t {
                 Term::Const(c) => Some(c.clone()),
                 Term::Var(_) => None,
@@ -335,7 +475,8 @@ impl Program {
                     Literal::Neg(a) => Some(a),
                     Literal::Pos(_) => None,
                 }))
-                .flat_map(|a| a.terms.iter());
+                .flat_map(|a| a.terms.iter())
+                .chain(rule.guards.iter().flat_map(|g| [&g.left, &g.right]));
             for t in must_bind {
                 if let Term::Var(v) = t {
                     if !positive.contains(v.as_str()) {
@@ -415,6 +556,7 @@ impl fmt::Display for Program {
                     Literal::Pos(a) => atom(a),
                     Literal::Neg(a) => format!("not {}", atom(a)),
                 })
+                .chain(rule.guards.iter().map(|g| format!("{} {} {}", term(&g.left), g.op.symbol(), term(&g.right))))
                 .collect();
             writeln!(f, "{} :- {}.   % {}", atom(&rule.head), body.join(", "), rule.name)?;
         }
@@ -425,19 +567,7 @@ impl fmt::Display for Program {
 fn atom_of(expr: &ProofExpr, bound: &[String]) -> Result<Atom, String> {
     match expr {
         ProofExpr::Predicate { name, args, world: None } => {
-            let terms = args
-                .iter()
-                .map(|t| match t {
-                    ProofTerm::Variable(v) | ProofTerm::BoundVarRef(v) if bound.contains(v) => Ok(Term::Var(v.clone())),
-                    ProofTerm::Variable(v) | ProofTerm::BoundVarRef(v) | ProofTerm::Constant(v) => {
-                        Ok(Term::Const(v.clone()))
-                    }
-                    ProofTerm::Function(f, _) => Err(format!("`{f}(…)` is a function symbol")),
-                    ProofTerm::Group(_) => Err("a tuple term".to_string()),
-                    #[allow(unreachable_patterns)]
-                    other => Err(format!("the term {other:?}")),
-                })
-                .collect::<Result<Vec<_>, _>>()?;
+            let terms = args.iter().map(|t| term_of(t, bound)).collect::<Result<Vec<_>, _>>()?;
             Ok(Atom { predicate: name.clone(), terms })
         }
         ProofExpr::Predicate { world: Some(w), .. } => Err(format!("an atom at world `{w}`")),
@@ -451,20 +581,57 @@ fn atom_of(expr: &ProofExpr, bound: &[String]) -> Result<Atom, String> {
     }
 }
 
-fn conjuncts(expr: &ProofExpr, bound: &[String], out: &mut Vec<Literal>) -> Result<(), String> {
+fn conjuncts(expr: &ProofExpr, bound: &[String], out: &mut Vec<Literal>, guards: &mut Vec<Guard>) -> Result<(), String> {
     match expr {
         ProofExpr::And(a, b) => {
-            conjuncts(a, bound, out)?;
-            conjuncts(b, bound, out)
+            conjuncts(a, bound, out, guards)?;
+            conjuncts(b, bound, out, guards)
         }
-        ProofExpr::Not(inner) => {
-            out.push(Literal::Neg(atom_of(inner, bound)?));
-            Ok(())
-        }
-        other => {
-            out.push(Literal::Pos(atom_of(other, bound)?));
-            Ok(())
-        }
+        ProofExpr::Not(inner) => match guard_of(inner, bound)? {
+            Some(g) => {
+                guards.push(Guard { op: g.op.negated(), ..g });
+                Ok(())
+            }
+            None => {
+                out.push(Literal::Neg(atom_of(inner, bound)?));
+                Ok(())
+            }
+        },
+        other => match guard_of(other, bound)? {
+            Some(g) => {
+                guards.push(g);
+                Ok(())
+            }
+            None => {
+                out.push(Literal::Pos(atom_of(other, bound)?));
+                Ok(())
+            }
+        },
+    }
+}
+
+/// The comparison `expr` makes, when it makes one: an equation `a = b`, or a relation the formula parser names for a
+/// comparison (`Lt(a, b)` for `a < b`, …).
+fn guard_of(expr: &ProofExpr, bound: &[String]) -> Result<Option<Guard>, String> {
+    let (op, left, right) = match expr {
+        ProofExpr::Identity(l, r) => (Comparison::Eq, l, r),
+        ProofExpr::Predicate { name, args, world: None } if args.len() == 2 => match Comparison::named(name) {
+            Some(op) => (op, &args[0], &args[1]),
+            None => return Ok(None),
+        },
+        _ => return Ok(None),
+    };
+    Ok(Some(Guard { op, left: term_of(left, bound)?, right: term_of(right, bound)? }))
+}
+
+fn term_of(t: &ProofTerm, bound: &[String]) -> Result<Term, String> {
+    match t {
+        ProofTerm::Variable(v) | ProofTerm::BoundVarRef(v) if bound.contains(v) => Ok(Term::Var(v.clone())),
+        ProofTerm::Variable(v) | ProofTerm::BoundVarRef(v) | ProofTerm::Constant(v) => Ok(Term::Const(v.clone())),
+        ProofTerm::Function(f, _) => Err(format!("`{f}(…)` is a function symbol")),
+        ProofTerm::Group(_) => Err("a tuple term".to_string()),
+        #[allow(unreachable_patterns)]
+        other => Err(format!("the term {other:?}")),
     }
 }
 
@@ -589,9 +756,11 @@ struct CompiledAtom {
 }
 
 struct CompiledRule {
+    name: String,
     head: CompiledAtom,
     positive: Vec<CompiledAtom>,
     negative: Vec<CompiledAtom>,
+    guards: Vec<(Comparison, Slot, Slot)>,
     vars: usize,
 }
 
@@ -602,6 +771,8 @@ struct Engine {
     pred_ids: HashMap<String, usize>,
     relations: Vec<Relation>,
     work: u64,
+    /// The first ordering of a constant that is not a number, which stops the evaluation.
+    refused: Option<DatalogError>,
 }
 
 impl Engine {
@@ -666,7 +837,12 @@ impl Engine {
             .map(|a| self.compile_atom(a, &mut vars))
             .collect();
         let head = self.compile_atom(&rule.head, &mut vars);
-        CompiledRule { head, positive, negative, vars: vars.len() }
+        let slot = |engine: &mut Engine, t: &Term| match t {
+            Term::Const(c) => Slot::Const(engine.symbol(c)),
+            Term::Var(v) => Slot::Var(vars.iter().position(|x| x == v).expect("a safe rule binds its guards")),
+        };
+        let guards = rule.guards.iter().map(|g| (g.op, slot(self, &g.left), slot(self, &g.right))).collect();
+        CompiledRule { name: rule.name.clone(), head, positive, negative, guards, vars: vars.len() }
     }
 
     /// Every instance of `rule` over the relations as they stand, the positive literal at `delta` (if any) ranging
@@ -706,6 +882,20 @@ impl Engine {
     ) {
         if depth == order.len() {
             self.work += 1;
+            for &(op, l, r) in &rule.guards {
+                let (l, r) = (value(l, binding), value(r, binding));
+                match op.holds(&self.symbols[l as usize], &self.symbols[r as usize]) {
+                    Ok(true) => {}
+                    Ok(false) => return,
+                    Err(value) => {
+                        if self.refused.is_none() {
+                            self.refused =
+                                Some(DatalogError::NotANumber { rule: rule.name.clone(), value: value.to_string() });
+                        }
+                        return;
+                    }
+                }
+            }
             for neg in &rule.negative {
                 let tuple: Box<[Sym]> = neg.slots.iter().map(|s| value(*s, binding)).collect();
                 if self.relations[neg.pred].members.contains_key(&tuple) {
@@ -777,6 +967,8 @@ pub struct Model {
     pred_ids: HashMap<String, usize>,
     relations: Vec<Relation>,
     rule_names: Vec<String>,
+    /// Per rule, whether it reads the closed world ([`Rule::reads_closed_world`]).
+    rule_closed: Vec<bool>,
     fact_names: Vec<String>,
     work: u64,
 }
@@ -846,6 +1038,31 @@ impl Model {
         })
     }
 
+    /// Whether `predicate(args…)` rests on the closed world: a rule that derived it, or one that derived a fact it rests
+    /// on, has a negation or a comparison in its condition. Such a fact holds in the least model, but the axioms alone
+    /// do not entail it: that two names differ, or that one number lies below another, is no axiom. `false` for a fact
+    /// that does not hold.
+    pub fn closed_world(&self, predicate: &str, args: &[String]) -> bool {
+        let (Some(&p), Some(id)) = (self.pred_ids.get(predicate), self.tuple_id(predicate, args.iter().map(String::as_str)))
+        else {
+            return false;
+        };
+        let mut seen: HashSet<(usize, usize)> = HashSet::new();
+        let mut stack = vec![(p, id)];
+        while let Some((q, t)) = stack.pop() {
+            if !seen.insert((q, t)) {
+                continue;
+            }
+            if let Origin::Derived(r, premises) = &self.relations[q].origins[t] {
+                if self.rule_closed[*r] {
+                    return true;
+                }
+                stack.extend(premises.iter().copied());
+            }
+        }
+        false
+    }
+
     /// The rule instances the evaluation tried: every assignment that satisfied a rule's positive body.
     pub fn work(&self) -> u64 {
         self.work
@@ -882,6 +1099,7 @@ fn run(program: &Program, semi_naive: bool) -> Result<Model, DatalogError> {
         pred_ids: HashMap::new(),
         relations: Vec::new(),
         work: 0,
+        refused: None,
     };
     for (i, fact) in program.facts.iter().enumerate() {
         let p = engine.pred(&fact.predicate);
@@ -915,6 +1133,9 @@ fn run(program: &Program, semi_naive: bool) -> Result<Model, DatalogError> {
                     for (head, premises) in engine.instances(rule, delta, &ranges, &limits) {
                         found.push((r, rule.head.pred, head, premises));
                     }
+                    if let Some(refused) = engine.refused.take() {
+                        return Err(refused);
+                    }
                 }
             }
             let before: Vec<usize> = engine.relations.iter().map(|r| r.tuples.len()).collect();
@@ -938,6 +1159,7 @@ fn run(program: &Program, semi_naive: bool) -> Result<Model, DatalogError> {
         pred_ids: engine.pred_ids,
         relations: engine.relations,
         rule_names: program.rules.iter().map(|r| r.name.clone()).collect(),
+        rule_closed: program.rules.iter().map(Rule::reads_closed_world).collect(),
         fact_names: program.fact_names.clone(),
         work: engine.work,
     })
@@ -1440,6 +1662,9 @@ pub fn evaluate_bdd_with_contexts(program: &Program, contexts: &Contexts) -> Res
 fn run_bdd(program: &Program, contexts: Option<&Contexts>) -> Result<BddModel, DatalogError> {
     use crate::bdd::{Bdd, NodeId};
     program.validate()?;
+    if let Some(rule) = program.rules.iter().find(|r| !r.guards.is_empty()) {
+        return Err(DatalogError::Guarded { rule: rule.name.clone() });
+    }
     let strata = program.strata()?;
     let numbers = match contexts {
         None => HashSet::new(),

@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- A word in the lexicon's not-a-verb list (`string`, `ring`, `thing`) is never read as an `-ing` form.
+- A number followed by a unit is a quantity for every spelling the unit catalog knows: several-word names
+  (`50 amp hours`), case-sensitive symbols (`50 Ah`, `2 Ω`, `25 °C`), negative magnitudes, and `… in <unit>`
+  conversions to any of them. The lexer reads `°` as part of a unit and `·` inside one (`N·m`).
+- `RawKind::Formal`: a `## Theory` development or `## Axiom` formula is captured exactly as written, so its formal
+  symbols (`≤`, `≠`, `-0.5`) reach the formal parser untouched.
 - **`the K after the first F of every N of X`.** A head slice of the `K` elements `F` past the start of every group of
   `N`, beside `the first K` and `the last K`: a chip's heads of a row of every chip's (`tensor_latent_attention_lock`).
   An `F` below 1, or a part past its group, is refused by name.

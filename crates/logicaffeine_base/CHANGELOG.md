@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `quantity::{apply, compare, equal, Operand, Op, QuantityError}`: one definition of quantity arithmetic for every
+  tier. Offset temperatures subtract to a difference (`Unit::difference`, `Δ°C`) and refuse to add, named SI units show
+  products and quotients (`units::named_units`), a cancelled dimension is a plain number, a duration is seconds.
+  `units::lookup` finds a unit by its case-sensitive symbol, then by name, including names of several words
+  (`amp hours`, `degrees celsius`, `newton meters`); `units::catalog` lists every unit.
 - `reciprocal::SignedReciprocal`: the signed magic reciprocal of a divisor `d ≥ 2` (Granlund–Montgomery, in the form of
   Warren's *Hacker's Delight* §10-1), whose `quotient` and `remainder` are truncating `x / d` and `x % d` for every `i64`
   dividend, negative ones and `i64::MIN` included. `new` returns only a reciprocal `counterexample` decides exact: the

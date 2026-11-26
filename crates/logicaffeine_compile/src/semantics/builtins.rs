@@ -3095,6 +3095,7 @@ pub fn call_builtin(id: BuiltinId, args: Vec<RuntimeValue>) -> Result<RuntimeVal
                 RuntimeValue::BigInt(b) => logicaffeine_base::Rational::from_bigint((**b).clone()),
                 RuntimeValue::Rational(r) => (**r).clone(),
                 RuntimeValue::Decimal(d) => d.to_rational(),
+                RuntimeValue::Float(f) => return Err(logicaffeine_data::failure::quantity_float_inexact(f)),
                 _ => {
                     return Err(format!(
                         "quantity() requires an exact number, got {}",
@@ -3103,7 +3104,7 @@ pub fn call_builtin(id: BuiltinId, args: Vec<RuntimeValue>) -> Result<RuntimeVal
                 }
             };
             let unit = match &unit_arg {
-                RuntimeValue::Text(s) => logicaffeine_base::quantity::units::by_name(s)
+                RuntimeValue::Text(s) => logicaffeine_base::quantity::units::lookup(s)
                     .ok_or_else(|| logicaffeine_data::failure::unknown_unit(s))?,
                 _ => {
                     return Err(format!(
@@ -3446,7 +3447,7 @@ pub fn call_builtin(id: BuiltinId, args: Vec<RuntimeValue>) -> Result<RuntimeVal
             let unit_arg = args.remove(1);
             let value = args.remove(0);
             let unit = match &unit_arg {
-                RuntimeValue::Text(s) => logicaffeine_base::quantity::units::by_name(s)
+                RuntimeValue::Text(s) => logicaffeine_base::quantity::units::lookup(s)
                     .ok_or_else(|| logicaffeine_data::failure::unknown_unit(s))?,
                 _ => {
                     return Err(format!(

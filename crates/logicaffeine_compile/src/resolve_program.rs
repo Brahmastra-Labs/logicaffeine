@@ -30,8 +30,7 @@ pub(crate) fn resolve_program<'a>(
     }
     let divided = crate::resolve_division::resolve_divisions(
         stmts,
-        arenas.stmts,
-        arenas.exprs,
+        arenas,
         interner,
         fold_constants,
         library,

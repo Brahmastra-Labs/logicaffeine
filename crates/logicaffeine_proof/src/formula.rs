@@ -90,6 +90,9 @@ enum Tok {
     Not,    // ¬
     Forall, // ∀
     Exists, // ∃
+    /// An ordering or an inequality between terms, named as the arithmetic engines name it:
+    /// `<` `Lt`, `≤`/`<=` `Le`, `>` `Gt`, `≥`/`>=` `Ge`, `≠`/`!=` `Neq`.
+    Cmp(&'static str),
 }
 
 fn tokenize(input: &str) -> Result<Vec<Tok>, FormulaError> {
@@ -160,9 +163,42 @@ fn tokenize(input: &str) -> Result<Vec<Tok>, FormulaError> {
                 toks.push(Tok::Iff);
                 i += 3;
             }
+            '<' | '>' | '!' if chars.get(i + 1) == Some(&'=') => {
+                toks.push(Tok::Cmp(match c {
+                    '<' => "Le",
+                    '>' => "Ge",
+                    _ => "Neq",
+                }));
+                i += 2;
+            }
+            '<' | '>' | '≤' | '≥' | '≠' => {
+                toks.push(Tok::Cmp(match c {
+                    '<' => "Lt",
+                    '>' => "Gt",
+                    '≤' => "Le",
+                    '≥' => "Ge",
+                    _ => "Neq",
+                }));
+                i += 1;
+            }
+            // A numeral: digits, a decimal point between digits (`107.1`), and a leading minus where a term
+            // begins (`-10`), all one constant.
+            '-' if chars.get(i + 1).is_some_and(|d| d.is_ascii_digit())
+                && !matches!(toks.last(), Some(Tok::Ident(_) | Tok::RParen)) =>
+            {
+                let start = i;
+                i += 1;
+                while i < chars.len() && (chars[i].is_ascii_digit() || numeral_point(&chars, i)) {
+                    i += 1;
+                }
+                toks.push(Tok::Ident(chars[start..i].iter().collect()));
+            }
             c if c.is_alphanumeric() || c == '_' => {
                 let start = i;
-                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                let numeral = c.is_ascii_digit();
+                while i < chars.len()
+                    && (chars[i].is_alphanumeric() || chars[i] == '_' || (numeral && numeral_point(&chars, i)))
+                {
                     i += 1;
                 }
                 toks.push(Tok::Ident(chars[start..i].iter().collect()));
@@ -449,6 +485,17 @@ impl<'a> Parser<'a> {
             return Ok(ProofExpr::Identity(ident_to_term(&name), rhs));
         }
 
+        // A comparison: `a < b`, `a ≤ b`, `a ≠ b`, … — the arithmetic relation of that name.
+        if let Some(Tok::Cmp(relation)) = self.peek().cloned() {
+            self.advance();
+            let rhs = self.parse_term()?;
+            return Ok(ProofExpr::Predicate {
+                name: relation.to_string(),
+                args: vec![ident_to_term(&name), rhs],
+                world: None,
+            });
+        }
+
         // A bare identifier is a 0-ary propositional atom.
         Ok(ProofExpr::Atom(name))
     }
@@ -503,11 +550,19 @@ fn is_arith_term(t: &ProofTerm) -> bool {
 
 /// An uppercase- or digit-leading identifier is a CONSTANT; a lowercase-leading one is a
 /// VARIABLE — the standard FOL reading the verifier already uses.
+/// Whether `chars[i]` is the decimal point of a numeral: a `.` between two digits.
+fn numeral_point(chars: &[char], i: usize) -> bool {
+    chars[i] == '.'
+        && i > 0
+        && chars[i - 1].is_ascii_digit()
+        && chars.get(i + 1).is_some_and(|c| c.is_ascii_digit())
+}
+
 fn ident_to_term(s: &str) -> ProofTerm {
     let leads_constant = s
         .chars()
         .next()
-        .map(|c| c.is_uppercase() || c.is_ascii_digit())
+        .map(|c| c.is_uppercase() || c.is_ascii_digit() || c == '-')
         .unwrap_or(false);
     if leads_constant {
         ProofTerm::Constant(s.to_string())

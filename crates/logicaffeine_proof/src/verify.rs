@@ -714,7 +714,10 @@ fn prepare_ctx_with_defs(
         collector.collect_definiendum(&def.name, def.params.len());
     }
     collector.settle_sorts();
-    let names = collector.kernel_names(|name| kernel_ctx.get_global(name).is_some());
+    let names = collector.kernel_names(
+        |name| kernel_ctx.get_global(name).is_some(),
+        |name| kernel_ctx.get_global(name).is_some_and(|ty| !matches!(ty, Term::Global(sort) if sort == "Entity")),
+    );
     let definienda: HashSet<&str> = definitions.iter().map(|d| d.name.as_str()).collect();
     // Inductive-domain predicates first (the induction motive needs `P : Ind → Prop`,
     // e.g. `Nat → Prop` or `List → Prop`); the generic `Entity` registration below is
@@ -784,7 +787,7 @@ fn prepare_ctx_with_defs(
         if param_names.contains(name.as_str()) {
             continue;
         }
-        register_constant(&mut kernel_ctx, name);
+        register_constant(&mut kernel_ctx, names.individual(name));
     }
 
     // Rung 0a: register user definitions as δ-unfoldable kernel definitions

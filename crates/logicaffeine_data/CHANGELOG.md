@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `LogosQuantity::apply`/`order`/`same` over any `QuantityArg` (a quantity, a duration, an integer, a `Rational`,
+  a `Decimal`), the compiled form of `logicaffeine_base::quantity`; a `Float` is refused with
+  `failure::quantity_float_inexact`. `failure::{temperatures_do_not_add, quantity_is_not_a_number, quantity}` give
+  every tier the same words.
 - `int_vec::IntVec`, a list of `Int` held as machine words until a value past 64 bits is stored, then, once, as exact
   `LogosInt`s. It has word, 128-bit and exact stores (`push_word`/`push_i128`/`push_int` and their `set_item_*`
   forms); a word read that stops in the overflow sentence past the word (`item_word`) and an exact one (`item_int`);

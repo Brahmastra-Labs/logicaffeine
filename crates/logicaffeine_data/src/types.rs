@@ -3364,108 +3364,106 @@ impl LogosQuantity {
         Self::from_rational(LogosRational::from_i64(value), unit_name)
     }
 
-    /// An exact-rational magnitude of the named unit. Panics on an unknown unit, which the
-    /// front-end has already rejected before codegen.
+    /// An exact-rational magnitude of the unit a text names, by symbol or name
+    /// ([`units::lookup`](logicaffeine_base::quantity::units::lookup)). Panics on an unknown unit,
+    /// which the front-end has already rejected before codegen.
     pub fn from_rational(value: LogosRational, unit_name: &str) -> Self {
-        let unit = logicaffeine_base::quantity::units::by_name(unit_name)
-            .unwrap_or_else(|| panic!("{}", crate::failure::unknown_unit(unit_name)));
+        let unit = Self::unit_named(unit_name);
         LogosQuantity {
             q: logicaffeine_base::Quantity::of(value.0, &unit),
             unit,
         }
     }
 
+    /// A Float magnitude (`quantity(x, "volts")` with `x` a Float) is refused: a binary double is not exact.
+    pub fn from_f64(value: f64, _unit_name: &str) -> Self {
+        panic!("{}", crate::failure::quantity_float_inexact(value))
+    }
+
+    fn unit_named(unit_name: &str) -> logicaffeine_base::Unit {
+        logicaffeine_base::quantity::units::lookup(unit_name)
+            .unwrap_or_else(|| panic!("{}", crate::failure::unknown_unit(unit_name)))
+    }
+
+    /// A quantity operation's answer as a compiled value: a quantity, or a cancelled one as the
+    /// dimensionless quantity of that number (it shows as the number).
+    fn answer(result: Result<logicaffeine_base::quantity::Operand, logicaffeine_base::quantity::QuantityError>) -> LogosQuantity {
+        use logicaffeine_base::quantity::Operand;
+        match result.unwrap_or_else(|e| panic!("{}", crate::failure::quantity(&e))) {
+            Operand::Quantity(q, unit) => LogosQuantity { q, unit },
+            Operand::Number(n) => LogosQuantity {
+                q: logicaffeine_base::Quantity::scalar(n),
+                unit: logicaffeine_base::Unit::linear("", logicaffeine_base::Dimension::DIMENSIONLESS, logicaffeine_base::Rational::one()),
+            },
+        }
+    }
+
+    /// `a op b` where at least one side is a quantity: the one definition
+    /// ([`apply`](logicaffeine_base::quantity::apply)) the interpreter runs too.
+    pub fn apply(op: logicaffeine_base::quantity::Op, a: &dyn QuantityArg, b: &dyn QuantityArg) -> LogosQuantity {
+        Self::answer(logicaffeine_base::quantity::apply(op, &a.operand(), &b.operand()))
+    }
+
+    /// How `a` orders against `b`, as the interpreter orders them.
+    pub fn order(a: &dyn QuantityArg, b: &dyn QuantityArg) -> std::cmp::Ordering {
+        logicaffeine_base::quantity::compare(&a.operand(), &b.operand())
+            .unwrap_or_else(|e| panic!("{}", crate::failure::quantity(&e)))
+    }
+
+    /// Whether `a` is `b`, as the interpreter compares them.
+    pub fn same(a: &dyn QuantityArg, b: &dyn QuantityArg) -> bool {
+        logicaffeine_base::quantity::equal(&a.operand(), &b.operand())
+    }
+
     #[inline]
     pub fn add(&self, other: &LogosQuantity) -> LogosQuantity {
-        let q = self.q.add(&other.q).unwrap_or_else(|| {
-            panic!(
-                "{}",
-                crate::failure::quantities_differ("add", self.q.dimension(), other.q.dimension())
-            )
-        });
-        LogosQuantity {
-            q,
-            unit: self.unit.clone(),
-        }
+        Self::apply(logicaffeine_base::quantity::Op::Add, self, other)
     }
 
     #[inline]
     pub fn sub(&self, other: &LogosQuantity) -> LogosQuantity {
-        let q = self.q.sub(&other.q).unwrap_or_else(|| {
-            panic!(
-                "{}",
-                crate::failure::quantities_differ(
-                    "subtract",
-                    self.q.dimension(),
-                    other.q.dimension()
-                )
-            )
-        });
-        LogosQuantity {
-            q,
-            unit: self.unit.clone(),
-        }
+        Self::apply(logicaffeine_base::quantity::Op::Sub, self, other)
     }
 
-    /// `× ÷` combine dimensions; the result is shown in SI/dimension form (empty display unit).
+    /// `× ÷` combine dimensions into the named SI unit of the result, if it has one.
     #[inline]
     pub fn mul(&self, other: &LogosQuantity) -> LogosQuantity {
-        let q = self.q.mul(&other.q);
-        let unit = Self::si_unit(&q);
-        LogosQuantity { q, unit }
+        Self::apply(logicaffeine_base::quantity::Op::Mul, self, other)
     }
 
     #[inline]
     pub fn div_exact(&self, other: &LogosQuantity) -> LogosQuantity {
-        let q = self
-            .q
-            .div(&other.q)
-            .unwrap_or_else(|| panic!("{}", crate::failure::DIVIDE_BY_ZERO_QUANTITY));
-        let unit = Self::si_unit(&q);
-        LogosQuantity { q, unit }
+        Self::apply(logicaffeine_base::quantity::Op::Div, self, other)
     }
 
     /// Scale by a dimensionless number (unit preserved): `q * k`.
     #[inline]
     pub fn scale(&self, k: &LogosRational) -> LogosQuantity {
-        let mag = self.q.magnitude_si().mul(&k.0);
-        LogosQuantity {
-            q: logicaffeine_base::Quantity::si(mag, self.q.dimension()),
-            unit: self.unit.clone(),
-        }
+        Self::apply(logicaffeine_base::quantity::Op::Mul, self, k)
     }
 
     /// Scale by a dimensionless integer (unit preserved) — the common `q * 3` case from codegen.
     #[inline]
     pub fn scale_int(&self, k: i64) -> LogosQuantity {
-        self.scale(&LogosRational::from_i64(k))
+        Self::apply(logicaffeine_base::quantity::Op::Mul, self, &k)
     }
 
     /// Divide by a dimensionless integer (unit preserved) — the common `q / 2` case from codegen.
     #[inline]
     pub fn div_int(&self, k: i64) -> LogosQuantity {
-        self.div_scalar(&LogosRational::from_i64(k))
+        Self::apply(logicaffeine_base::quantity::Op::Div, self, &k)
     }
 
     /// Divide by a dimensionless number (unit preserved): `q / k`.
     #[inline]
     pub fn div_scalar(&self, k: &LogosRational) -> LogosQuantity {
-        let mag = self
-            .q
-            .magnitude_si()
-            .div(&k.0)
-            .unwrap_or_else(|| panic!("{}", crate::failure::DIVIDE_QUANTITY_BY_ZERO));
-        LogosQuantity {
-            q: logicaffeine_base::Quantity::si(mag, self.q.dimension()),
-            unit: self.unit.clone(),
-        }
+        Self::apply(logicaffeine_base::quantity::Op::Div, self, k)
     }
 
     /// Re-express in another unit of the SAME dimension. A different dimension is the forbidden
     /// cast — the type checker rejects it, so this panic is a defensive backstop.
     pub fn convert(&self, unit_name: &str) -> LogosQuantity {
-        let unit = logicaffeine_base::quantity::units::by_name(unit_name)
-            .unwrap_or_else(|| panic!("{}", crate::failure::unknown_unit(unit_name)));
+        let unit = Self::unit_named(unit_name);
         if self.q.dimension() != unit.dimension {
             panic!(
                 "{}",
@@ -3477,10 +3475,60 @@ impl LogosQuantity {
             unit,
         }
     }
+}
 
-    /// A synthetic SI-base unit (empty symbol) for a combined dimension.
-    fn si_unit(q: &logicaffeine_base::Quantity) -> logicaffeine_base::Unit {
-        logicaffeine_base::Unit::linear("", q.dimension(), logicaffeine_base::Rational::one())
+/// A compiled value that can stand on one side of a quantity operation: a quantity, a duration (a
+/// quantity of time), or an exact number (a float read as the decimal it prints as). Generated code
+/// hands both sides to [`LogosQuantity::apply`] without naming their Rust types.
+pub trait QuantityArg {
+    fn operand(&self) -> logicaffeine_base::quantity::Operand;
+}
+
+impl QuantityArg for LogosQuantity {
+    fn operand(&self) -> logicaffeine_base::quantity::Operand {
+        logicaffeine_base::quantity::Operand::Quantity(self.q.clone(), self.unit.clone())
+    }
+}
+
+impl QuantityArg for crate::temporal::LogosDuration {
+    fn operand(&self) -> logicaffeine_base::quantity::Operand {
+        logicaffeine_base::quantity::Operand::seconds(self.0)
+    }
+}
+
+impl QuantityArg for i64 {
+    fn operand(&self) -> logicaffeine_base::quantity::Operand {
+        logicaffeine_base::quantity::Operand::Number(logicaffeine_base::Rational::from_i64(*self))
+    }
+}
+
+impl QuantityArg for i32 {
+    fn operand(&self) -> logicaffeine_base::quantity::Operand {
+        logicaffeine_base::quantity::Operand::Number(logicaffeine_base::Rational::from_i64(i64::from(*self)))
+    }
+}
+
+impl QuantityArg for LogosInt {
+    fn operand(&self) -> logicaffeine_base::quantity::Operand {
+        logicaffeine_base::quantity::Operand::Number(LogosRational::from(self.clone()).0)
+    }
+}
+
+impl QuantityArg for f64 {
+    fn operand(&self) -> logicaffeine_base::quantity::Operand {
+        panic!("{}", crate::failure::quantity_float_inexact(self))
+    }
+}
+
+impl QuantityArg for LogosRational {
+    fn operand(&self) -> logicaffeine_base::quantity::Operand {
+        logicaffeine_base::quantity::Operand::Number(self.0.clone())
+    }
+}
+
+impl QuantityArg for LogosDecimal {
+    fn operand(&self) -> logicaffeine_base::quantity::Operand {
+        logicaffeine_base::quantity::Operand::Number(self.0.to_rational())
     }
 }
 
@@ -3505,15 +3553,7 @@ impl PartialOrd for LogosQuantity {
 
 impl std::fmt::Display for LogosQuantity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let magnitude = self
-            .q
-            .in_unit(&self.unit)
-            .expect("a Quantity's display unit always shares its dimension");
-        if self.unit.symbol.is_empty() {
-            write!(f, "{} {}", magnitude, self.q.dimension())
-        } else {
-            write!(f, "{} {}", magnitude, self.unit.symbol)
-        }
+        f.write_str(&logicaffeine_base::quantity::show(&self.q, &self.unit))
     }
 }
 
